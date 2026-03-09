@@ -4,38 +4,56 @@
     "slug": "vroom",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logotypRed.png",
     "scheme": "vroom",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lexuuw.vroom"
+      "bundleIdentifier": "com.lexuuw.vroom",
+      "userInterfaceStyle": "dark",
+      "backgroundColor": "#0a0a0a"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/logotypRed.png",
+        "backgroundColor": "#0a0a0a"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.lexuuw.vroom"
+      "package": "com.lexuuw.vroom",
+      "backgroundColor": "#0a0a0a",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAIViHITDEhTzTsfK_eIhA53PKlAL3dpTw"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/logotypRed.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0a0a0a",
+          "dark": {
+            "image": "./assets/images/logotypRed.png",
+            "backgroundColor": "#0a0a0a"
+          }
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
@@ -45,13 +63,6 @@
       "eas": {
         "projectId": "0dceda47-6f18-40dc-a736-be4f23c2769f"
       }
-    },
-    "owner": "lexuuw",
-    "updates": {
-      "url": "https://u.expo.dev/0dceda47-6f18-40dc-a736-be4f23c2769f"
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
     }
   }
 }
