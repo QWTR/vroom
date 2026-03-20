@@ -1,8 +1,8 @@
 import { User } from './types';
 
 export const GOOGLE_MAPS_APIKEY = 'AIzaSyAIViHITDEhTzTsfK_eIhA53PKlAL3dpTw';
-export const MAX_NEARBY_USERS_DISTANCE = 25;
-
+export const MAX_NEARBY_USERS_DISTANCE = 120;
+export const API_URL = 'https://v-room.app';
 // Współrzędne są RELATIVE – zostaną podmienione na Twoją lokalizację + offset
 // Na razie hardcode Warszawa – zamień na swoje miasto jeśli testujesz lokalnie
 export const MOCK_USERS: User[] = [

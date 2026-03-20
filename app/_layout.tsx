@@ -6,10 +6,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { LinearGradient } from 'expo-linear-gradient';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import Toast, { BaseToast, ErrorToast } from 'react-native-toast-message';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+
+import { API_URL } from '../constants/config';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -60,11 +63,43 @@ const toastConfig = {
   ),
 };
 
+// ─── ODŚWIEŻ DANE USERA ───────────────────────────────────
+async function refreshUserData() {
+  try {
+    const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+    if (!token) return;
+
+    const meRes = await fetch(`${API_URL}/api/profile/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!meRes.ok) return;
+
+    const fresh = await meRes.json();
+    const raw   = await AsyncStorage.getItem('user');
+    if (!raw) return;
+
+    const old    = JSON.parse(raw);
+    const merged = {
+      ...old,
+      ...fresh,
+      // ✅ ujednolicenie pola avatar
+      avatar: fresh.avatarUrl ?? fresh.avatar ?? old.avatar ?? null,
+    };
+    delete merged.avatarUrl;
+
+    await AsyncStorage.setItem('user', JSON.stringify(merged));
+  } catch {}
+}
+Notifications.setNotificationChannelAsync('navigation', {
+  name:        'Nawigacja',
+  importance:  Notifications.AndroidImportance.HIGH,
+  sound:       null,
+  vibrationPattern: [0],
+  lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  bypassDnd:   true, // przebija tryb nie przeszkadzać
+});
 // ─── ROOT ─────────────────────────────────────────────────
 export default function RootLayout() {
-  // 'splash'    = custom splash widoczny
-  // 'fadeout'   = splash robi fade-out (apka już wyrenderowana pod spodem)
-  // 'done'      = splash zniknął całkowicie
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
 
   const [loaded, error] = useFonts({
@@ -79,14 +114,15 @@ export default function RootLayout() {
   const fadeIn       = useRef(new Animated.Value(0)).current;
   const titleScale   = useRef(new Animated.Value(0.85)).current;
   const pulseAnim    = useRef(new Animated.Value(1)).current;
-
-  // Fade-out overlay
   const splashOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!loaded && !error) return;
 
     SplashScreen.hideAsync();
+
+    // ✅ Odśwież dane usera w tle podczas splash screena
+    refreshUserData();
 
     // ── Wejście ──
     Animated.parallel([
@@ -115,7 +151,7 @@ export default function RootLayout() {
       toValue: 1, duration: 2800, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: false,
     }).start();
 
-    // ── Po 3s → fade-out ──
+    // ── Po 4.5s → fade-out ──
     const fadeOutTimer = setTimeout(() => {
       setPhase('fadeout');
       Animated.timing(splashOpacity, {
@@ -139,7 +175,6 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={DarkTheme}>
-      {/* ── APKA — zawsze wyrenderowana pod spodem ── */}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
@@ -148,7 +183,6 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <Toast config={toastConfig} />
 
-      {/* ── SPLASH OVERLAY — przykrywa apkę, potem znika ── */}
       {phase !== 'done' && (
         <Animated.View
           style={[s.splash, { opacity: splashOpacity }]}
@@ -161,13 +195,12 @@ export default function RootLayout() {
             style={StyleSheet.absoluteFill}
           />
 
-          {/* BG BLOBS */}
           <View style={[s.blob, { top: -120, right: -80,  width: 320, height: 320, opacity: 0.12 }]} />
           <View style={[s.blob, { bottom: -80, left: -60, width: 220, height: 220, opacity: 0.07 }]} />
 
           <Animated.View style={{ opacity: fadeIn, alignItems: 'center', width: '100%' }}>
 
-            {/* ── RINGS ── */}
+            {/* ��─ RINGS ── */}
             <View style={s.ringsContainer}>
               <Animated.View style={[s.ringOuter, { transform: [{ rotate: spinDeg }] }]}>
                 <View style={s.ringDot} />
@@ -250,7 +283,7 @@ function StatusLine() {
   );
 }
 
-// ─── STYLES ───────────────────────────────────────────────
+// ─── STYLES ─────────��─────────────────────────────────────
 const R = '#e33835';
 
 const s = StyleSheet.create({

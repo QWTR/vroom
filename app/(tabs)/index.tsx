@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,6 +21,8 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Feather from '@expo/vector-icons/Feather';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import Ionicons from '@expo/vector-icons/Ionicons';
+
+import { API_URL } from '../../constants/config';
 
 const { width } = Dimensions.get('window');
 const CARD_W = (width - 48 - 10) / 2;
@@ -39,8 +42,8 @@ type User = {
   position: number;
   points: number;
   totalDistance: number;
-  monthlyDistance: string | number;
-  weeklyDistance: string | number;
+  monthlyDistance: number;
+  weeklyDistance:  number;
   dailyDistance: number;
   topSpeed: number;
   avgMaxSpeed: string | number;
@@ -56,30 +59,84 @@ type User = {
   latestAchievement?: Achievement | null;
 };
 
+const getToken = async () =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+
+// ─── ODŚWIEŻ DANE USERA Z SERWERA ────────────────────────
+async function fetchFreshUser(): Promise<User | null> {
+  try {
+    const token = await getToken();
+    if (!token) return null;
+
+    const meRes = await fetch(`${API_URL}/api/profile/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!meRes.ok) return null;
+
+    const fresh = await meRes.json();
+    const raw   = await AsyncStorage.getItem('user');
+    if (!raw) return null;
+
+    const old = JSON.parse(raw);
+
+    // ✅ /profile/me zwraca avatarUrl, ale cache ma avatar — ujednolicamy
+    const merged = {
+      ...old,
+      ...fresh,
+      avatar: fresh.avatarUrl ?? fresh.avatar ?? old.avatar ?? null,
+    };
+
+    // Usuń duplikat pola żeby nie było bałaganu
+    delete merged.avatarUrl;
+
+    await AsyncStorage.setItem('user', JSON.stringify(merged));
+    return merged;
+  } catch {
+    return null;
+  }
+}
 // ─── MAIN ────────────────────────────────────────────────
 export default function HomeScreen() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [user,        setUser]        = useState<User | null>(null);
+
+  // Załaduj dane — najpierw cache, potem serwer w tle
+  const loadUser = async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
+    try {
+      // 1. Szybko z cache
+      const raw = await AsyncStorage.getItem('user');
+      if (!raw) {
+        router.replace('/login');
+        return;
+      }
+      const cached = JSON.parse(raw) as User;
+      setUser(cached);
+      setLoading(false);
+
+      // 2. Odśwież z serwera w tle
+      const fresh = await fetchFreshUser();
+      if (fresh) setUser(fresh);
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD SESJI', text2: 'Nie można odczytać danych sesji.' });
+      router.replace('/login');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const data = await AsyncStorage.getItem('user');
-        if (data) {
-          setUser(JSON.parse(data));
-          setLoading(false);
-        } else {
-          Toast.show({ type: 'error', text1: 'SESJA WYGASŁA', text2: 'Zaloguj się ponownie.' });
-          router.replace('/login');
-        }
-      } catch {
-        Toast.show({ type: 'error', text1: 'BŁĄD SESJI', text2: 'Nie można odczytać danych sesji.' });
-        router.replace('/login');
-      }
-    };
-    checkSession();
+    loadUser();
   }, []);
+
+  // Pull-to-refresh
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadUser(false);
+  };
 
   if (loading || !user) {
     return (
@@ -94,7 +151,19 @@ export default function HomeScreen() {
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
-      <ScrollView style={styles.root} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.root}
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#e33835"
+            colors={['#e33835']}
+          />
+        }
+      >
 
         {/* ══════════════════════════
             HERO
@@ -132,7 +201,7 @@ export default function HomeScreen() {
               <MaterialCommunityIcons name="car-sports" size={12} color="#e33835" />
               <Text style={styles.carPillTxt}>{user.mainCar.brand} · {user.mainCar.specs}</Text>
             </View>
-          )} 
+          )}
 
           <View style={styles.heroSep} />
 
@@ -200,17 +269,17 @@ export default function HomeScreen() {
         <View style={styles.row2}>
           <DistCard
             icon={<MaterialCommunityIcons name="road-variant" size={17} color="#e33835" />}
-            label="TEN TYDZIEŃ" value={`${user.weeklyDistance}`} unit="km"
+            label="TEN TYDZIEŃ" value={`${Math.round(user.weeklyDistance)}`} unit="km"
           />
           <DistCard
             icon={<FontAwesome5 name="route" size={15} color="#e33835" />}
-            label="TEN MIESIĄC" value={`${user.monthlyDistance}`} unit="km"
+            label="TEN MIESIĄC" value={`${Math.round(user.monthlyDistance)}`} unit="km"
           />
         </View>
         <View style={styles.row2}>
           <DistCard
             icon={<MaterialIcons name="straighten" size={17} color="#e33835" />}
-            label="ŁĄCZNIE" value={`${user.totalDistance}`} unit="km"
+            label="ŁĄCZNIE" value={`${Math.round(user.totalDistance)}`} unit="km"
           />
           <DistCard
             icon={<MaterialIcons name="location-city" size={17} color="#e33835" />}
@@ -315,7 +384,6 @@ export default function HomeScreen() {
 }
 
 // ─── SUB-COMPONENTS ──────────────────────────────────────
-
 function SectionLabel({ text }: { text: string }) {
   return <Text style={styles.sectionLbl}>{text}</Text>;
 }
@@ -373,16 +441,11 @@ const W35      = '#ffffff35';
 const W70      = '#ffffff70';
 
 const styles = StyleSheet.create({
-  // ── LOADING ──
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0a0a', gap: 8 },
   loadingTitle: { color: R, fontFamily: 'Orbitron', fontSize: 22, letterSpacing: 8, marginTop: 6 },
-
-  // ── ROOT ──
   root: { flex: 1, backgroundColor: '#0a0a0a' },
   scroll: { paddingHorizontal: 20, paddingTop: 62 },
   blob: { position: 'absolute', borderRadius: 999, backgroundColor: R },
-
-  // ── HERO ──
   hero: {
     borderRadius: 20, borderWidth: 1, borderColor: R_BORDER,
     padding: 22, marginBottom: 28, overflow: 'hidden', position: 'relative',
@@ -421,11 +484,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
   },
   achieveTxt: { fontFamily: 'Orbitron', fontSize: 8, color: '#f5c518b0' },
-
-  // ── SECTION LABEL ──
   sectionLbl: { fontFamily: 'Orbitron', fontSize: 8, color: W35, letterSpacing: 4, marginBottom: 12 },
-
-  // ── QUICK NAV ──
   navRow: { flexDirection: 'row', gap: 8, marginBottom: 28 },
   navBtn: {
     flex: 1, backgroundColor: SURF2, borderRadius: 14, borderWidth: 1,
@@ -433,8 +492,6 @@ const styles = StyleSheet.create({
   },
   navIconWrap: { backgroundColor: R_BG, padding: 9, borderRadius: 10 },
   navLbl: { fontFamily: 'Orbitron', fontSize: 6.5, color: W70, letterSpacing: 0.3 },
-
-  // ── SPEED CARD ──
   speedCard: {
     backgroundColor: SURF, borderRadius: 18, borderWidth: 1, borderColor: R_BORDER,
     padding: 20, marginBottom: 10, overflow: 'hidden', position: 'relative',
@@ -447,8 +504,6 @@ const styles = StyleSheet.create({
   miniStat: { alignItems: 'flex-end', gap: 2 },
   miniStatVal: { fontFamily: 'Orbitron', fontSize: 14, color: W, fontWeight: '700' },
   miniStatLbl: { fontFamily: 'Orbitron', fontSize: 7, color: W35, letterSpacing: 1 },
-
-  // ── DIST CARDS ──
   row2: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   distCard: {
     flex: 1, backgroundColor: SURF, borderRadius: 16, borderWidth: 1,
@@ -464,8 +519,6 @@ const styles = StyleSheet.create({
     borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
   },
   badgeTxt: { fontFamily: 'Orbitron', fontSize: 7, color: R, letterSpacing: 1 },
-
-  // ── COMMUNITY / CHAT ──
   communityCard: {
     borderRadius: 16, borderWidth: 1, borderColor: R_BORDER, padding: 18,
     flexDirection: 'row', alignItems: 'center', gap: 14,

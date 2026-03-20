@@ -2,24 +2,58 @@ import React, { useState } from 'react';
 import {
   ScrollView, View, StyleSheet, TouchableOpacity, RefreshControl,
 } from 'react-native';
-import { Text } from '@react-navigation/elements';
-import MaterialIcons  from '@expo/vector-icons/MaterialIcons';
-import Ionicons        from '@expo/vector-icons/Ionicons';
+import { Text }            from '@react-navigation/elements';
+import MaterialIcons       from '@expo/vector-icons/MaterialIcons';
+import Ionicons            from '@expo/vector-icons/Ionicons';
 
-import AvatarCircle    from './AvatarCircle';
-import StatBox         from './StatBox';
-import CarCard         from './CarCard';
-import AchievementBox  from './AchievementBox';
-import SpotPreviewCard from './SpotPreviewCard';
+import AvatarCircle        from './AvatarCircle';
+import StatBox             from './StatBox';
+import CarCard             from './CarCard';
+import AchievementBox      from './AchievementBox';
+import SpotPreviewCard     from './SpotPreviewCard';
 import { SpotDetailModal } from '../spots/SpotDetailModal';
-import { ALL_ACHIEVEMENTS } from '../../constants/profile';
+import type { Achievement } from '../../hooks/useAchievements';
 import type { UserProfile, Car, SpotPreview } from '../../constants/profile';
 import type { Spot } from '../../constants/spotTypes';
+
+// ── Kolejność rzadkości ───────────────────────────────────
+const RARITY_ORDER: Record<string, number> = {
+  legendary: 0,
+  epic:      1,
+  rare:      2,
+  common:    3,
+};
+
+const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
+  legendary: { label: 'LEGENDARY', color: '#f5c518', border: '#f5c51840' },
+  epic:      { label: 'EPIC',      color: '#a338e3', border: '#a338e340' },
+  rare:      { label: 'RARE',      color: '#38a5e3', border: '#38a5e340' },
+  common:    { label: 'COMMON',    color: '#ffffff50', border: '#ffffff20' },
+};
+
+function sortByRarity(list: Achievement[]): Achievement[] {
+  return [...list].sort((a, b) => {
+    const ra = RARITY_ORDER[a.rarity ?? 'common'] ?? 3;
+    const rb = RARITY_ORDER[b.rarity ?? 'common'] ?? 3;
+    return ra - rb;
+  });
+}
+
+// Pogrupuj po rzadkości i zwróć tablicę grup
+function groupByRarity(list: Achievement[]): { rarity: string; items: Achievement[] }[] {
+  const order = ['legendary', 'epic', 'rare', 'common'];
+  const groups: { rarity: string; items: Achievement[] }[] = [];
+  for (const rarity of order) {
+    const items = list.filter(a => (a.rarity ?? 'common') === rarity);
+    if (items.length > 0) groups.push({ rarity, items });
+  }
+  return groups;
+}
 
 interface Props {
   profile:          UserProfile | null;
   cars:             Car[];
-  achievements:     (typeof ALL_ACHIEVEMENTS[number] & { active: boolean })[];
+  achievements:     Achievement[];
   spots:            SpotPreview[];
   loading:          boolean;
   isOwner:          boolean;
@@ -61,6 +95,7 @@ export default function ProfileView({
 }: Props) {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [localSpots,   setLocalSpots]   = useState<SpotPreview[]>([]);
+  const [showAllAchs,  setShowAllAchs]  = useState(false);
 
   React.useEffect(() => { setLocalSpots(spots); }, [spots]);
 
@@ -72,6 +107,11 @@ export default function ProfileView({
       prev?.id === spotId ? { ...prev, isLiked: liked, likesCount: count } : prev
     );
   };
+
+  const unlocked       = sortByRarity(achievements.filter(a =>  a.active));
+  const locked         = sortByRarity(achievements.filter(a => !a.active));
+  const unlockedGroups = groupByRarity(unlocked);
+  const lockedGroups   = groupByRarity(locked);
 
   return (
     <ScrollView
@@ -107,7 +147,6 @@ export default function ProfileView({
             initials={initials}
             avatarUrl={profile?.avatarUrl}
             uploading={avatarUploading}
-            // Klik w avatar → idzie do ekranu edycji (tam jest ImagePicker)
             onCameraPress={isOwner ? onEdit : undefined}
           />
           <View style={styles.nameContainer}>
@@ -161,13 +200,122 @@ export default function ProfileView({
         ))
       )}
 
-      {/* OSIĄGNIĘCIA */}
-      <Text style={[styles.sectionTitle, { marginTop: 25, marginBottom: 15 }]}>OSIĄGNIĘCIA</Text>
-      <View style={styles.achievementsGrid}>
-        {achievements.map(a => (
-          <AchievementBox key={a.type} icon={a.icon} label={a.label} active={a.active} />
-        ))}
+      {/* ── OSIĄGNIĘCIA ── */}
+      <View style={[styles.sectionHeader, { marginTop: 25 }]}>
+        <Text style={styles.sectionTitle}>OSIĄGNIĘCIA</Text>
+        <Text style={styles.achCount}>
+          {unlocked.length}/{achievements.length}
+        </Text>
       </View>
+
+      {achievements.length === 0 ? (
+        <Text style={styles.emptyText}>Ładowanie osiągnięć...</Text>
+      ) : (
+        <>
+          {/* ── ODBLOKOWANE — pogrupowane po rzadkości ── */}
+          {unlocked.length === 0 ? (
+            <Text style={styles.emptyText}>Brak odblokowanych osiągnięć</Text>
+          ) : (
+            unlockedGroups.map(({ rarity, items }) => {
+              const meta = RARITY_META[rarity] ?? RARITY_META.common;
+              return (
+                <View key={rarity} style={styles.rarityGroup}>
+                  {/* Nagłówek grupy */}
+                  <View style={styles.rarityHeader}>
+                    <View style={[styles.rarityLine, { backgroundColor: meta.border }]} />
+                    <View style={[styles.rarityBadge, { borderColor: meta.border }]}>
+                      <Text style={[styles.rarityBadgeText, { color: meta.color }]}>
+                        {meta.label}
+                      </Text>
+                    </View>
+                    <View style={[styles.rarityLine, { backgroundColor: meta.border }]} />
+                    <Text style={[styles.rarityCount, { color: meta.color }]}>
+                      {items.length}
+                    </Text>
+                  </View>
+
+                  {/* Kafelki */}
+                  <View style={styles.achievementsGrid}>
+                    {items.map(a => (
+                      <AchievementBox
+                        key={a.key}
+                        icon={a.icon}
+                        label={a.label}
+                        active={true}
+                        rarity={a.rarity}
+                        progress={100}
+                        points={a.points}
+                        description={a.description}
+                        category={a.category}
+                        currentValue={a.currentValue}
+                        conditionValue={a.conditionValue}
+                        conditionField={a.conditionField}
+                        unlockedAt={a.unlockedAt}
+                      />
+                    ))}
+                  </View>
+                </View>
+              );
+            })
+          )}
+
+          {/* ── ZABLOKOWANE — widoczne po kliknięciu, też pogrupowane ── */}
+          {locked.length > 0 && (
+            <>
+              <TouchableOpacity
+                style={styles.showAllBtn}
+                onPress={() => setShowAllAchs(prev => !prev)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.showAllBtnText}>
+                  {showAllAchs
+                    ? '▲  Ukryj zablokowane'
+                    : `▼  Zobacz wszystkie osiągnięcia (${locked.length} zablokowanych)`}
+                </Text>
+              </TouchableOpacity>
+
+              {showAllAchs && lockedGroups.map(({ rarity, items }) => {
+                const meta = RARITY_META[rarity] ?? RARITY_META.common;
+                return (
+                  <View key={rarity} style={styles.rarityGroup}>
+                    <View style={styles.rarityHeader}>
+                      <View style={[styles.rarityLine, { backgroundColor: meta.border }]} />
+                      <View style={[styles.rarityBadge, { borderColor: meta.border }]}>
+                        <Text style={[styles.rarityBadgeText, { color: meta.color }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <View style={[styles.rarityLine, { backgroundColor: meta.border }]} />
+                      <Text style={[styles.rarityCount, { color: meta.color }]}>
+                        {items.length}
+                      </Text>
+                    </View>
+                    <View style={styles.achievementsGrid}>
+                      {items.map(a => (
+                        <AchievementBox
+                          key={a.key}
+                          icon={a.icon}
+                          label={a.label}
+                          active={false}
+                          rarity={a.rarity}
+                          progress={a.progress}
+                          points={a.points}
+                          description={a.description}
+                          category={a.category}
+                          currentValue={a.currentValue}
+                          conditionValue={a.conditionValue}
+                          conditionField={a.conditionField}
+                          unlockedAt={a.unlockedAt}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          )}
+        </>
+      )}
 
       {/* SPOTY */}
       <Text style={[styles.sectionTitle, { marginTop: 25, marginBottom: 15 }]}>
@@ -177,21 +325,20 @@ export default function ProfileView({
         <Text style={styles.emptyText}>Brak spotów</Text>
       ) : (
         <View style={styles.spotsGrid}>
-            {localSpots.map(spot => (
-                <SpotPreviewCard
-                    key={spot.id}
-                    spot={spot}
-                    isOwner={isOwner}                              // ← przekaż isOwner
-                    onPress={() => setSelectedSpot(toSpot(spot))}
-                    onDeleted={(deletedId) => {                    // ← usuń ze stanu lokalnego
-                    setLocalSpots(prev => prev.filter(s => s.id !== deletedId));
-                    }}
-                />
-            ))} 
+          {localSpots.map(spot => (
+            <SpotPreviewCard
+              key={spot.id}
+              spot={spot}
+              isOwner={isOwner}
+              onPress={() => setSelectedSpot(toSpot(spot))}
+              onDeleted={(deletedId) => {
+                setLocalSpots(prev => prev.filter(s => s.id !== deletedId));
+              }}
+            />
+          ))}
         </View>
       )}
 
-      {/* SPOT DETAIL MODAL */}
       <SpotDetailModal
         visible={selectedSpot !== null}
         spot={selectedSpot}
@@ -221,7 +368,33 @@ const styles = StyleSheet.create({
   sectionHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   sectionTitle:     { fontFamily: 'Orbitron', color: '#fff', fontSize: 16, letterSpacing: 1 },
   addText:          { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
-  achievementsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
-  spotsGrid:        { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 20 },
-  emptyText:        { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 11, textAlign: 'center', marginVertical: 15 },
+  achCount:         { fontFamily: 'Orbitron', color: '#e33835', fontSize: 11 },
+
+  // ── Grupy rzadkości ──
+  rarityGroup:      { marginBottom: 16 },
+  rarityHeader:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  rarityLine:       { flex: 1, height: 1 },
+  rarityBadge:      { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, borderWidth: 1, backgroundColor: '#0f0f0f' },
+  rarityBadgeText:  { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2 },
+  rarityCount:      { fontFamily: 'Orbitron', fontSize: 9, minWidth: 16, textAlign: 'right' },
+
+  achievementsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  showAllBtn: {
+    marginVertical:    12,
+    paddingVertical:   12,
+    paddingHorizontal: 16,
+    backgroundColor:   '#1a1a1a',
+    borderRadius:      12,
+    borderWidth:       1,
+    borderColor:       '#e3383530',
+    alignItems:        'center',
+  },
+  showAllBtnText: {
+    fontFamily:    'Orbitron',
+    color:         '#e33835',
+    fontSize:      10,
+    letterSpacing: 0.5,
+  },
+  spotsGrid:  { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, marginBottom: 20 },
+  emptyText:  { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 11, textAlign: 'center', marginVertical: 15 },
 });

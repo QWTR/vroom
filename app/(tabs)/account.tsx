@@ -13,7 +13,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { profile, loading: pLoad, avatarLoading, fetchProfile } = useProfile();
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
-  const { achievements, fetchAchievements }                      = useAchievements();
+  const { achievements, fetchMyAchievements }                    = useAchievements();
   const { spots,   loading: sLoad, fetchUserSpots }              = useProfileSpots();
 
   useEffect(() => {
@@ -26,32 +26,20 @@ export default function ProfileScreen() {
 
       await fetchProfile();
       fetchCars(userId);
-      fetchAchievements(userId);
+      fetchMyAchievements();
       fetchUserSpots(userId);
     };
     load();
   }, []);
 
-  // Odśwież po powrocie z ekranu edycji
-  useEffect(() => {
-    const refresh = async () => {
-      const raw = await AsyncStorage.getItem('user');
-      if (!raw) return;
-      const userId: number = JSON.parse(raw).userId ?? JSON.parse(raw).id;
-      fetchProfile();
-      fetchCars(userId);
-    };
-    // expo-router focus event
-    refresh();
-  }, []);
-
   const onRefresh = async () => {
     const raw = await AsyncStorage.getItem('user');
     if (!raw) return;
-    const userId: number = JSON.parse(raw).userId ?? JSON.parse(raw).id;
+    const localUser      = JSON.parse(raw);
+    const userId: number = localUser.userId ?? localUser.id;
     fetchProfile();
     fetchCars(userId);
-    fetchAchievements(userId);
+    fetchMyAchievements();
     fetchUserSpots(userId);
   };
 
@@ -81,10 +69,10 @@ export default function ProfileScreen() {
       joinedLabel={joinedLabel}
       avatarUploading={avatarLoading}
       onSettings={() => router.push('/profile/settings')}
-      onEdit={() => router.push('/profile/edit')}   // ← avatar + dane w jednym miejscu
-      onAddCar={() => router.push('/profile/add-car')}
+      onEdit={()     => router.push('/profile/edit')}
+      onAddCar={()   => router.push('/profile/add-car')}
       onCarPress={(id) => router.push({ pathname: '/profile/car-detail', params: { id } })}
-      onSpotPress={(id) => {}}                       // obsługiwane przez modal w ProfileView
+      onSpotPress={(id) => {}}
     />
   );
 }

@@ -1,294 +1,283 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ScrollView, StyleSheet, TouchableOpacity,
+  View, Dimensions, Image, ActivityIndicator, RefreshControl,
+} from 'react-native';
 import { Text } from '@react-navigation/elements';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import Feather from '@expo/vector-icons/Feather';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import { API_URL } from '../../../constants/config'; // ← 3 poziomy w górę
 
 const { width } = Dimensions.get('window');
 
-export default function stats() {
-  const [category, setCategory] = useState('speed'); // 'speed' | 'distance'
-  const [timeFilter, setTimeFilter] = useState('month'); // 'day' | 'week' | 'month'
+interface RankUser {
+  id:       number;
+  username: string;
+  avatar:   string | null;
+  position: number;
+  score:    number;
+  sub:      string;
+}
 
-  // Przykładowe dane
-  const topThree = [
-    { id: 1, name: 'DriftQueen', score: '11,230', avatar: 'DQ', rank: 2 },
-    { id: 2, name: 'SpeedKing', score: '12,450', avatar: 'SK', rank: 1 },
-    { id: 3, name: 'TurboMax', score: '10,100', avatar: 'TM', rank: 3 },
-  ];
+const PERIODS   = ['Dziś', 'Tydzień', 'Miesiąc', 'Wszystko'] as const;
+const PERIOD_MAP: Record<string, string> = {
+  'Dziś':     'day',
+  'Tydzień':  'week',
+  'Miesiąc':  'month',
+  'Wszystko': 'all',
+};
 
-  const listData = [
-    { id: 4, name: 'NitroJoe', score: '8900', sub: '2340 km • 30 zlotów', trend: 'up' },
-    { id: 5, name: 'RallyAnna', score: '7600', sub: '2100 km • 28 zlotów', trend: 'neutral' },
-    { id: 6, name: 'V8Power', score: '6800', sub: '1980 km • 24 zlotów', trend: 'up' },
-    { id: 7, name: 'BoostKing', score: '5900', sub: '1650 km • 20 zlotów', trend: 'down' },
-  ];
+export default function StatsScreen() {
+  const router = useRouter();
+  const [category,   setCategory]   = useState<'points' | 'distance'>('points');
+  const [period,     setPeriod]     = useState<string>('Wszystko');
+  const [users,      setUsers]      = useState<RankUser[]>([]);
+  const [myPosition, setMyPosition] = useState<number | null>(null);
+  const [myId,       setMyId]       = useState<number | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('user').then(raw => {
+      if (raw) {
+        const u = JSON.parse(raw);
+        setMyId(u.userId ?? u.id);
+      }
+    });
+  }, []);
+
+  const fetchRanking = useCallback(async (cat: string, per: string) => {
+  try {
+    const token = await AsyncStorage.getItem('token');
+    const url   = `${API_URL}/api/profile/ranking?category=${cat}&period=${PERIOD_MAP[per]}`;
+
+    const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+
+    setUsers(data.users ?? []);
+    setMyPosition(data.myPosition ?? null);
+  } catch (e) {
+    console.log('fetchRanking error:', e);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+}, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchRanking(category, period);
+  }, [category, period, fetchRanking]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchRanking(category, period);
+  }, [category, period, fetchRanking]);
+
+  const topThree  = users.slice(0, 3);
+  const restUsers = users.slice(3);
+
+  // Podium kolejność: 2, 1, 3
+  const podiumOrder = [topThree[1], topThree[0], topThree[2]].filter(Boolean);
+  const scoreLabel  = category === 'points' ? 'pkt' : 'km';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      {/* Nagłówek */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>RANKING</Text>
-        <Text style={styles.headerSubtitle}>NAJLEPSI KIEROWCY</Text>
+    <ScrollView
+      style={s.container}
+      contentContainerStyle={{ paddingBottom: 60 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e33835" />}
+    >
+      {/* NAGŁÓWEK */}
+      <View style={s.header}>
+        <Text style={s.headerTitle}>RANKING</Text>
+        <Text style={s.headerSub}>NAJLEPSI KIEROWCY</Text>
       </View>
 
-      {/* Przełącznik Kategorii (Prędkość / Dystans) */}
-      <View style={styles.categoryTabs}>
-        <TouchableOpacity 
-          onPress={() => setCategory('speed')}
-          style={[styles.tabButton, category === 'speed' && styles.activeTab]}
+      {/* KATEGORIE */}
+      <View style={s.tabs}>
+        <TouchableOpacity
+          style={[s.tab, category === 'points' && s.tabActive]}
+          onPress={() => setCategory('points')}
         >
-          <Text style={[styles.tabText, category === 'speed' && styles.activeTabText]}>PRĘDKOŚĆ</Text>
+          <MaterialIcons name="star" size={14} color={category === 'points' ? '#fff' : '#ffffff40'} />
+          <Text style={[s.tabText, category === 'points' && s.tabTextActive]}>PUNKTY</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
+          style={[s.tab, category === 'distance' && s.tabActive]}
           onPress={() => setCategory('distance')}
-          style={[styles.tabButton, category === 'distance' && styles.activeTab]}
         >
-          <Text style={[styles.tabText, category === 'distance' && styles.activeTabText]}>DYSTANS</Text>
+          <MaterialIcons name="speed" size={14} color={category === 'distance' ? '#fff' : '#ffffff40'} />
+          <Text style={[s.tabText, category === 'distance' && s.tabTextActive]}>DYSTANS</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Przełącznik Czasu */}
-      <View style={styles.filterContainer}>
-        {['Dziś', 'Tydzień', 'Miesiąc'].map((f) => (
-          <TouchableOpacity key={f} onPress={() => setTimeFilter(f.toLowerCase())}>
-            <Text style={[styles.filterText, timeFilter === f.toLowerCase() && styles.activeFilterText]}>
-              {f}
-            </Text>
+      {/* FILTR CZASU */}
+      <View style={s.periods}>
+        {PERIODS.map(p => (
+          <TouchableOpacity
+            key={p}
+            onPress={() => setPeriod(p)}
+            style={[s.periodBtn, period === p && s.periodBtnActive]}
+          >
+            <Text style={[s.periodText, period === p && s.periodTextActive]}>{p}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Podium */}
-      <View style={styles.podiumContainer}>
-        {/* Miejsce 2 */}
-        <PodiumItem item={topThree[0]} height={100} color="#ffffff60" />
-        {/* Miejsce 1 */}
-        <PodiumItem item={topThree[1]} height={130} color="#e33835" isWinner />
-        {/* Miejsce 3 */}
-        <PodiumItem item={topThree[2]} height={80} color="#ffffff40" />
-      </View>
+      {loading ? (
+        <ActivityIndicator size="large" color="#e33835" style={{ marginTop: 60 }} />
+      ) : (
+        <>
+          {/* PODIUM */}
+          {topThree.length >= 3 && (
+            <View style={s.podium}>
+              {podiumOrder.map((u, idx) => {
+                const isFirst  = u.position === 1;
+                const barH     = [100, 130, 80][idx];
+                const barColor = ['#ffffff50', '#e33835', '#ffffff30'][idx];
+                const isMe     = u.id === myId;
 
-      {/* Lista Rankingowa */}
-      <View style={styles.listContainer}>
-        {listData.map((player) => (
-          <View key={player.id} style={styles.listItem}>
-            <View style={styles.listLeft}>
-              <Text style={styles.rankNumber}>{player.id}</Text>
-              <View style={styles.listAvatar}>
-                <Text style={styles.avatarText}>{player.name.substring(0, 2).toUpperCase()}</Text>
-              </View>
-              <View>
-                <Text style={styles.playerName}>{player.name}</Text>
-                <Text style={styles.playerSub}>{player.sub}</Text>
-              </View>
+                return (
+                  <TouchableOpacity
+                    key={u.id}
+                    style={s.podiumCol}
+                    onPress={() => router.push({
+                      pathname: '/profile/[userId]',
+                      params:   { userId: String(u.id) },
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    {isFirst && (
+                      <MaterialCommunityIcons name="crown" size={20} color="#e33835" style={s.crown} />
+                    )}
+                    <View style={[
+                      s.podiumAvatar,
+                      isFirst && s.podiumAvatarFirst,
+                      isMe    && s.podiumAvatarMe,
+                    ]}>
+                      {u.avatar ? (
+                        <Image source={{ uri: u.avatar }} style={s.podiumAvatarImg} />
+                      ) : (
+                        <Text style={s.podiumAvatarText}>{u.username.slice(0, 2).toUpperCase()}</Text>
+                      )}
+                    </View>
+                    <Text style={s.podiumName} numberOfLines={1}>{u.username}</Text>
+                    <Text style={[s.podiumScore, isFirst && { color: '#e33835' }]}>
+                      {u.score.toLocaleString('pl-PL')} {scoreLabel}
+                    </Text>
+                    <View style={[s.podiumBar, { height: barH, borderColor: barColor }]}>
+                      <Text style={s.podiumRank}>{u.position}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <View style={styles.listRight}>
-              <Text style={styles.playerScore}>{player.score}</Text>
-              {player.trend === 'up' && <Feather name="trending-up" size={16} color="#4de926" />}
-            </View>
+          )}
+
+          {/* LISTA */}
+          <View style={s.list}>
+            {restUsers.map(u => {
+              const isMe = u.id === myId;
+              return (
+                <TouchableOpacity
+                  key={u.id}
+                  style={[s.listItem, isMe && s.listItemMe]}
+                  onPress={() => router.push({
+                    pathname: '/profile/[userId]',
+                    params:   { userId: String(u.id) },
+                  })}
+                  activeOpacity={0.8}
+                >
+                  <View style={s.listLeft}>
+                    <Text style={[s.listRank, u.position <= 10 && { color: '#e33835' }]}>
+                      {u.position}
+                    </Text>
+                    <View style={s.listAvatar}>
+                      {u.avatar ? (
+                        <Image source={{ uri: u.avatar }} style={s.listAvatarImg} />
+                      ) : (
+                        <Text style={s.listAvatarText}>{u.username.slice(0, 2).toUpperCase()}</Text>
+                      )}
+                    </View>
+                    <View>
+                      <Text style={s.listName}>
+                        {u.username}{isMe ? ' (Ty)' : ''}
+                      </Text>
+                      <Text style={s.listSub}>{u.sub}</Text>
+                    </View>
+                  </View>
+                  <Text style={[s.listScore, isMe && { color: '#e33835' }]}>
+                    {u.score.toLocaleString('pl-PL')} {scoreLabel}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        ))}
-      </View>
+
+          {/* TWOJA POZYCJA */}
+          {myPosition && myPosition > 3 && (
+            <View style={s.myPositionBanner}>
+              <MaterialIcons name="emoji-events" size={16} color="#e33835" />
+              <Text style={s.myPositionText}>Twoja pozycja: #{myPosition}</Text>
+            </View>
+          )}
+
+          {users.length === 0 && (
+            <Text style={s.empty}>Brak danych dla wybranego okresu</Text>
+          )}
+        </>
+      )}
     </ScrollView>
   );
 }
 
-// Komponent pomocniczy dla Podium
-const PodiumItem = ({ item, height, color, isWinner }: any) => (
-  <View style={styles.podiumColumn}>
-    <View style={[styles.avatarCircle, isWinner && styles.winnerCircle]}>
-      {isWinner && <MaterialCommunityIcons name="crown" size={24} color="#e33835" style={styles.crown} />}
-      <Text style={styles.avatarInitial}>{item.avatar}</Text>
-    </View>
-    <Text style={styles.podiumName}>{item.name}</Text>
-    <Text style={[styles.podiumScore, isWinner && { color: '#e33835' }]}>{item.score}</Text>
-    <View style={[styles.podiumBar, { height: height, borderColor: color }]}>
-      <Text style={styles.podiumRankText}>{item.rank}</Text>
-    </View>
-  </View>
-);
+const s = StyleSheet.create({
+  container:         { flex: 1, backgroundColor: '#0f0f0f', paddingHorizontal: '5%' },
+  header:            { marginTop: 60, marginBottom: 24, alignItems: 'center' },
+  headerTitle:       { fontFamily: 'Orbitron', fontSize: 28, color: '#fff', letterSpacing: 2 },
+  headerSub:         { fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff40', marginTop: 4 },
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0f0f0f",
-    paddingHorizontal: "5%",
-  },
-  header: {
-    marginTop: 60,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontFamily: "Orbitron",
-    fontSize: 28,
-    color: '#fff',
-    letterSpacing: 2,
-  },
-  headerSubtitle: {
-    fontFamily: "Orbitron",
-    fontSize: 12,
-    color: "#ffffff60",
-    marginTop: 5,
-  },
-  categoryTabs: {
-    flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    padding: 5,
-    marginBottom: 20,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  activeTab: {
-    backgroundColor: '#e33835',
-  },
-  tabText: {
-    fontFamily: 'Orbitron',
-    fontSize: 11,
-    color: '#ffffff60',
-  },
-  activeTabText: {
-    color: '#fff',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 30,
-    marginBottom: 30,
-  },
-  filterText: {
-    fontFamily: 'Orbitron',
-    fontSize: 12,
-    color: '#ffffff40',
-  },
-  activeFilterText: {
-    color: '#fff',
-    textDecorationLine: 'underline',
-  },
-  podiumContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    marginBottom: 40,
-    height: 250,
-  },
-  podiumColumn: {
-    alignItems: 'center',
-    width: width * 0.25,
-  },
-  podiumBar: {
-    width: '100%',
-    backgroundColor: '#1a1a1a',
-    borderTopWidth: 3,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#1a1a1a',
-    borderWidth: 2,
-    borderColor: '#ffffff20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  winnerCircle: {
-    borderColor: '#e33835',
-    boxShadow: "0 0 15px #e3383560", // Web/Simulated shadow
-  },
-  crown: {
-    position: 'absolute',
-    top: -25,
-  },
-  avatarInitial: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 18,
-  },
-  podiumName: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    marginBottom: 5,
-  },
-  podiumScore: {
-    color: '#ffffff80',
-    fontFamily: 'Orbitron',
-    fontSize: 12,
-    marginBottom: 10,
-  },
-  podiumRankText: {
-    fontFamily: 'Orbitron',
-    fontSize: 24,
-    color: '#fff',
-  },
-  listContainer: {
-    gap: 12,
-  },
-  listItem: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    padding: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  listLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-  },
-  rankNumber: {
-    fontFamily: 'Orbitron',
-    color: '#ffffff60',
-    fontSize: 16,
-    width: 20,
-  },
-  listAvatar: {
-    width: 45,
-    height: 45,
-    borderRadius: 25,
-    backgroundColor: '#252525',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 14,
-  },
-  playerName: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 14,
-  },
-  playerSub: {
-    color: '#ffffff40',
-    fontFamily: 'Orbitron',
-    fontSize: 9,
-    marginTop: 2,
-  },
-  listRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  playerScore: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 16,
-  },
+  tabs:              { flexDirection: 'row', backgroundColor: '#1a1a1a', borderRadius: 12, padding: 4, marginBottom: 16, gap: 4 },
+  tab:               { flex: 1, flexDirection: 'row', paddingVertical: 11, alignItems: 'center', justifyContent: 'center', borderRadius: 10, gap: 6 },
+  tabActive:         { backgroundColor: '#e33835' },
+  tabText:           { fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff40' },
+  tabTextActive:     { color: '#fff' },
+
+  periods:           { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 30 },
+  periodBtn:         { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#ffffff10' },
+  periodBtnActive:   { backgroundColor: '#e3383520', borderColor: '#e33835' },
+  periodText:        { fontFamily: 'Orbitron', fontSize: 10, color: '#ffffff40' },
+  periodTextActive:  { color: '#e33835' },
+
+  podium:            { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', marginBottom: 32, height: 260 },
+  podiumCol:         { alignItems: 'center', width: width * 0.26 },
+  crown:             { marginBottom: 4 },
+  podiumAvatar:      { width: 56, height: 56, borderRadius: 28, backgroundColor: '#252525', borderWidth: 2, borderColor: '#ffffff20', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: 8 },
+  podiumAvatarFirst: { width: 68, height: 68, borderRadius: 34, borderColor: '#e33835' },
+  podiumAvatarMe:    { borderColor: '#4de926' },
+  podiumAvatarImg:   { width: '100%', height: '100%' },
+  podiumAvatarText:  { fontFamily: 'Orbitron', fontSize: 16, color: '#fff' },
+  podiumName:        { fontFamily: 'Orbitron', fontSize: 9, color: '#fff', marginBottom: 3, textAlign: 'center' },
+  podiumScore:       { fontFamily: 'Orbitron', fontSize: 10, color: '#ffffff60', marginBottom: 8 },
+  podiumBar:         { width: '100%', backgroundColor: '#1a1a1a', borderTopWidth: 3, borderLeftWidth: 1, borderRightWidth: 1, borderTopLeftRadius: 8, borderTopRightRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  podiumRank:        { fontFamily: 'Orbitron', fontSize: 22, color: '#fff' },
+
+  list:              { gap: 8 },
+  listItem:          { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#ffffff08' },
+  listItemMe:        { borderColor: '#e3383540', backgroundColor: '#e3383510' },
+  listLeft:          { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  listRank:          { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 14, width: 24, textAlign: 'center' },
+  listAvatar:        { width: 42, height: 42, borderRadius: 21, backgroundColor: '#252525', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  listAvatarImg:     { width: 42, height: 42 },
+  listAvatarText:    { fontFamily: 'Orbitron', fontSize: 13, color: '#fff' },
+  listName:          { fontFamily: 'Orbitron', color: '#fff', fontSize: 12 },
+  listSub:           { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9, marginTop: 2 },
+  listScore:         { fontFamily: 'Orbitron', color: '#fff', fontSize: 14 },
+
+  myPositionBanner:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20, backgroundColor: '#e3383515', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#e3383530' },
+  myPositionText:    { fontFamily: 'Orbitron', color: '#e33835', fontSize: 13 },
+
+  empty:             { fontFamily: 'Orbitron', color: '#ffffff30', textAlign: 'center', marginTop: 40, fontSize: 12 },
 });

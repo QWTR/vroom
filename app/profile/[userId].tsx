@@ -5,10 +5,11 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
-import { API_URL } from '../../constants/config';
-import { ALL_ACHIEVEMENTS } from '../../constants/profile';
+import AsyncStorage  from '@react-native-async-storage/async-storage';
+import Toast         from 'react-native-toast-message';
+import { API_URL }   from '../../constants/config';
+import AchievementBox from '../../components/profile/AchievementBox';
+import type { Achievement } from '../../hooks/useAchievements';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -44,14 +45,6 @@ interface PublicSpot {
   commentsCount: number;
 }
 
-interface Achievement {
-  type:       string;
-  label:      string;
-  icon:       string;
-  active:     boolean;
-  unlockedAt?: string;
-}
-
 export default function PublicProfileScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -62,6 +55,7 @@ export default function PublicProfileScreen() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [myUserId,     setMyUserId]     = useState<number | null>(null);
+  const [showAllAchs, setShowAllAchs] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -94,13 +88,14 @@ export default function PublicProfileScreen() {
       if (spotsRes.ok)   setSpots(await spotsRes.json());
 
       if (achRes.ok) {
-        const data     = await achRes.json();
-        const unlocked = new Map(data.map((a: any) => [a.type, a]));
+        const data = await achRes.json();
         setAchievements(
-          ALL_ACHIEVEMENTS.map(a => ({
+          data.map((a: any) => ({
             ...a,
-            active:     unlocked.has(a.type),
-            unlockedAt: (unlocked.get(a.type) as any)?.unlockedAt,
+            active:       true,
+            unlocked:     true,
+            progress:     100,
+            currentValue: a.conditionValue ?? 0,
           }))
         );
       }
@@ -157,8 +152,6 @@ export default function PublicProfileScreen() {
       {/* KARTA PROFILU */}
       <View style={s.profileCard}>
         <View style={s.profileTop}>
-
-          {/* Avatar */}
           <View style={s.avatarCircle}>
             {profile.avatarUrl ? (
               <Image source={{ uri: profile.avatarUrl }} style={s.avatarImage} />
@@ -166,23 +159,18 @@ export default function PublicProfileScreen() {
               <Text style={s.avatarText}>{initials}</Text>
             )}
           </View>
-
-          {/* Info */}
           <View style={s.profileInfo}>
             <Text style={s.username}>{profile.username}</Text>
-
             {!!profile.location && (
               <View style={s.infoRow}>
                 <MaterialIcons name="location-on" size={12} color="#e33835" />
                 <Text style={s.infoText}>{profile.location}</Text>
               </View>
             )}
-
             <View style={s.infoRow}>
               <MaterialIcons name="calendar-today" size={12} color="#ffffff40" />
               <Text style={s.infoText}>{`Dołączył: ${joinedLabel}`}</Text>
             </View>
-
             {!!profile.position && (
               <View style={s.infoRow}>
                 <MaterialIcons name="emoji-events" size={12} color="#e33835" />
@@ -191,11 +179,7 @@ export default function PublicProfileScreen() {
             )}
           </View>
         </View>
-
-        {/* Bio */}
-        {!!profile.bio && (
-          <Text style={s.bio}>{profile.bio}</Text>
-        )}
+        {!!profile.bio && <Text style={s.bio}>{profile.bio}</Text>}
       </View>
 
       {/* STATYSTYKI */}
@@ -258,22 +242,32 @@ export default function PublicProfileScreen() {
       )}
 
       {/* OSIĄGNIĘCIA */}
-      <Text style={[s.sectionTitle, { marginTop: 24 }]}>OSIĄGNIĘCIA</Text>
-      <View style={s.achievementsGrid}>
-        {achievements.map(a => (
-          <View key={a.type} style={[s.achievementBox, !a.active && s.achievementBoxInactive]}>
-            <MaterialIcons
-              name={a.icon as any}
-              size={26}
-              color={a.active ? '#e33835' : '#ffffff15'}
+      <Text style={[s.sectionTitle, { marginTop: 24 }]}>
+        {`OSIĄGNIĘCIA (${achievements.length})`}
+      </Text>
+      {achievements.length === 0 ? (
+        <Text style={s.emptyText}>Brak odblokowanych osiągnięć</Text>
+      ) : (
+        <View style={s.achievementsGrid}>
+          {achievements.map(a => (
+            <AchievementBox
+              key={a.key}
+              icon={a.icon}
+              label={a.label}
+              active={a.active}
+              rarity={a.rarity}
+              progress={a.progress}
+              points={a.points}
+              description={a.description}
+              category={a.category}
+              currentValue={a.currentValue}
+              conditionValue={a.conditionValue}
+              conditionField={a.conditionField}
+              unlockedAt={a.unlockedAt}
             />
-            <Text style={[s.achievementLabel, !a.active && { opacity: 0.3 }]}>
-              {a.label}
-            </Text>
-            {a.active && <View style={s.achievementDot} />}
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      )}
 
       {/* SPOTY */}
       <Text style={[s.sectionTitle, { marginTop: 24 }]}>{`SPOTY (${spots.length})`}</Text>
@@ -310,59 +304,47 @@ export default function PublicProfileScreen() {
 }
 
 const s = StyleSheet.create({
-  container:              { flex: 1, backgroundColor: '#0f0f0f', paddingHorizontal: '5%' },
-  center:                 { flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center', gap: 12 },
-  errorText:              { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 13 },
-  backBtnCenter:          { marginTop: 8 },
-  backBtnCenterText:      { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
-
-  headerRow:              { marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  headerTitle:            { fontFamily: 'Orbitron', fontSize: 20, color: '#fff', letterSpacing: 2 },
-  backBtn:                { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
-
-  profileCard:            { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#ffffff10' },
-  profileTop:             { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  avatarCircle:           { width: 72, height: 72, borderRadius: 36, backgroundColor: '#252525', borderWidth: 2, borderColor: '#e33835', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 16, shadowColor: '#e33835', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 8 },
-  avatarImage:            { width: 72, height: 72 },
-  avatarText:             { fontFamily: 'Orbitron', fontSize: 22, color: '#e33835' },
-  profileInfo:            { flex: 1, gap: 4 },
-  username:               { fontFamily: 'Orbitron', fontSize: 18, color: '#fff', marginBottom: 4 },
-  infoRow:                { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  infoText:               { fontFamily: 'Orbitron', color: '#ffffff60', fontSize: 10 },
-  bio:                    { fontFamily: 'Orbitron', color: '#ffffff80', fontSize: 11, lineHeight: 18, borderTopWidth: 1, borderTopColor: '#ffffff10', paddingTop: 12, marginTop: 4 },
-
-  statsGrid:              { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 24 },
-  statBox:                { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 12, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#ffffff08' },
-  statValue:              { fontFamily: 'Orbitron', color: '#fff', fontSize: 15, fontWeight: '700' },
-  statLabel:              { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8 },
-
-  sectionTitle:           { fontFamily: 'Orbitron', color: '#fff', fontSize: 14, letterSpacing: 1, marginBottom: 12 },
-  emptyText:              { fontFamily: 'Orbitron', color: '#ffffff30', fontSize: 11, textAlign: 'center', marginVertical: 12 },
-
-  carCard:                { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#ffffff08', gap: 12 },
-  carPhoto:               { width: 70, height: 70, borderRadius: 10 },
-  carPhotoPlaceholder:    { backgroundColor: '#252525', justifyContent: 'center', alignItems: 'center' },
-  carInfo:                { flex: 1 },
-  carTopRow:              { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  carBrand:               { fontFamily: 'Orbitron', color: '#fff', fontSize: 13 },
-  carSpecs:               { fontFamily: 'Orbitron', color: '#e33835', fontSize: 11 },
-  mainBadge:              { backgroundColor: '#e3383520', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#e33835' },
-  mainBadgeText:          { fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 },
-
-  achievementsGrid:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  achievementBox:         { width: '22%', backgroundColor: '#1a1a1a', borderRadius: 12, padding: 10, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#e3383530', position: 'relative' },
-  achievementBoxInactive: { borderColor: '#ffffff08' },
-  achievementIcon:        { fontSize: 22 },
-  achievementLabel:       { fontFamily: 'Orbitron', color: '#ffffff80', fontSize: 7, textAlign: 'center' },
-  achievementDot:         { position: 'absolute', top: 6, right: 6, width: 6, height: 6, borderRadius: 3, backgroundColor: '#e33835' },
-
-  spotsGrid:              { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  spotCard:               { width: '48%', backgroundColor: '#1a1a1a', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#ffffff05' },
-  spotPhoto:              { width: '100%', height: 100 },
-  spotPhotoPlaceholder:   { backgroundColor: '#252525', justifyContent: 'center', alignItems: 'center' },
-  spotInfo:               { padding: 10 },
-  spotName:               { fontFamily: 'Orbitron', color: '#fff', fontSize: 11, marginBottom: 2 },
-  spotCategory:           { fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginBottom: 6 },
-  spotStats:              { flexDirection: 'row', alignItems: 'center' },
-  spotStatText:           { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9, marginLeft: 3 },
+  container:            { flex: 1, backgroundColor: '#0f0f0f', paddingHorizontal: '5%' },
+  center:               { flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center', gap: 12 },
+  errorText:            { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 13 },
+  backBtnCenter:        { marginTop: 8 },
+  backBtnCenterText:    { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
+  headerRow:            { marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  headerTitle:          { fontFamily: 'Orbitron', fontSize: 20, color: '#fff', letterSpacing: 2 },
+  backBtn:              { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
+  profileCard:          { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#ffffff10' },
+  profileTop:           { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  avatarCircle:         { width: 72, height: 72, borderRadius: 36, backgroundColor: '#252525', borderWidth: 2, borderColor: '#e33835', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 16 },
+  avatarImage:          { width: 72, height: 72 },
+  avatarText:           { fontFamily: 'Orbitron', fontSize: 22, color: '#e33835' },
+  profileInfo:          { flex: 1, gap: 4 },
+  username:             { fontFamily: 'Orbitron', fontSize: 18, color: '#fff', marginBottom: 4 },
+  infoRow:              { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  infoText:             { fontFamily: 'Orbitron', color: '#ffffff60', fontSize: 10 },
+  bio:                  { fontFamily: 'Orbitron', color: '#ffffff80', fontSize: 11, lineHeight: 18, borderTopWidth: 1, borderTopColor: '#ffffff10', paddingTop: 12, marginTop: 4 },
+  statsGrid:            { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 24 },
+  statBox:              { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 12, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#ffffff08' },
+  statValue:            { fontFamily: 'Orbitron', color: '#fff', fontSize: 15, fontWeight: '700' },
+  statLabel:            { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8 },
+  sectionTitle:         { fontFamily: 'Orbitron', color: '#fff', fontSize: 14, letterSpacing: 1, marginBottom: 12 },
+  emptyText:            { fontFamily: 'Orbitron', color: '#ffffff30', fontSize: 11, textAlign: 'center', marginVertical: 12 },
+  carCard:              { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#ffffff08', gap: 12 },
+  carPhoto:             { width: 70, height: 70, borderRadius: 10 },
+  carPhotoPlaceholder:  { backgroundColor: '#252525', justifyContent: 'center', alignItems: 'center' },
+  carInfo:              { flex: 1 },
+  carTopRow:            { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  carBrand:             { fontFamily: 'Orbitron', color: '#fff', fontSize: 13 },
+  carSpecs:             { fontFamily: 'Orbitron', color: '#e33835', fontSize: 11 },
+  mainBadge:            { backgroundColor: '#e3383520', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#e33835' },
+  mainBadgeText:        { fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 },
+  achievementsGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  spotsGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  spotCard:             { width: '48%', backgroundColor: '#1a1a1a', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#ffffff05' },
+  spotPhoto:            { width: '100%', height: 100 },
+  spotPhotoPlaceholder: { backgroundColor: '#252525', justifyContent: 'center', alignItems: 'center' },
+  spotInfo:             { padding: 10 },
+  spotName:             { fontFamily: 'Orbitron', color: '#fff', fontSize: 11, marginBottom: 2 },
+  spotCategory:         { fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginBottom: 6 },
+  spotStats:            { flexDirection: 'row', alignItems: 'center' },
+  spotStatText:         { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9, marginLeft: 3 },
 });

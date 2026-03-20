@@ -1,21 +1,48 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
-import { ALL_ACHIEVEMENTS } from '../constants/profile';
-import type { AchievementRecord } from '../constants/profile';
 
-const getToken = async (): Promise<string | null> => {
-  return (
-    (await AsyncStorage.getItem('userToken')) ??
-    (await AsyncStorage.getItem('token'))
-  );
-};
+export interface Achievement {
+  id:             number;
+  key:            string;
+  label:          string;
+  description:    string;
+  icon:           string;
+  category:       string;
+  rarity:         'common' | 'rare' | 'epic' | 'legendary';
+  points:         number;
+  conditionField: string;
+  conditionValue: number;
+  currentValue:   number;
+  progress:       number;
+  unlocked:       boolean;
+  unlockedAt:     string | null;
+  active:         boolean;
+}
+
+const getToken = async (): Promise<string | null> =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 export function useAchievements() {
-  const [achievements, setAchievements] = useState(
-    ALL_ACHIEVEMENTS.map(a => ({ ...a, active: false }))
-  );
-  const [loading, setLoading] = useState(false);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [loading, setLoading]           = useState(false);
+
+  const fetchMyAchievements = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = await getToken();
+      const res   = await fetch(`${API_URL}/api/achievements/progress`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const data: Achievement[] = await res.json();
+      setAchievements(data.map(a => ({ ...a, active: a.unlocked })));
+    } catch {
+      setAchievements([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const fetchAchievements = useCallback(async (userId: number) => {
     setLoading(true);
@@ -24,24 +51,22 @@ export function useAchievements() {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res  = await fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers });
+      const res = await fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers });
       if (!res.ok) throw new Error();
-      const data: AchievementRecord[] = await res.json();
-
-      const unlocked = new Map(data.map(a => [a.type, a]));
-      setAchievements(
-        ALL_ACHIEVEMENTS.map(a => ({
-          ...a,
-          active:     unlocked.has(a.type),
-          unlockedAt: unlocked.get(a.type)?.unlockedAt,
-        }))
-      );
+      const data = await res.json();
+      setAchievements(data.map((a: any) => ({
+        ...a,
+        active:       true,
+        unlocked:     true,
+        progress:     100,
+        currentValue: a.conditionValue ?? 0,
+      })));
     } catch {
-      // zostaw domyślne (wszystkie inactive)
+      setAchievements([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return { achievements, loading, fetchAchievements };
+  return { achievements, loading, fetchMyAchievements, fetchAchievements };
 }

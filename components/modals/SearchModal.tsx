@@ -23,12 +23,12 @@ interface SearchModalProps {
 export const SearchModal = memo(({
   visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers,
 }: SearchModalProps) => {
-  const [activeTab, setActiveTab] = useState<'start' | 'end'>('start');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab,      setActiveTab]      = useState<'start' | 'end'>('start');
+  const [searchQuery,    setSearchQuery]    = useState('');
   const [filteredPlaces, setFilteredPlaces] = useState<any[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchMode, setSearchMode] = useState<'initial' | 'users' | 'friends' | 'results'>('initial');
+  const [filteredUsers,  setFilteredUsers]  = useState<User[]>([]);
+  const [isSearching,    setIsSearching]    = useState(false);
+  const [searchMode,     setSearchMode]     = useState<'initial' | 'users' | 'friends' | 'results'>('initial');
 
   const resetToInitial = () => {
     setSearchMode('initial');
@@ -37,49 +37,43 @@ export const SearchModal = memo(({
     setFilteredPlaces([]);
   };
 
-    const handleSelectCategory = useCallback(
-        (category: 'users' | 'friends') => {
-        setSearchMode(category);
-        setSearchQuery('');
-        setFilteredPlaces([]);
+  const handleSelectCategory = useCallback(
+    (category: 'users' | 'friends') => {
+      setSearchMode(category);
+      setSearchQuery('');
+      setFilteredPlaces([]);
 
-        const mapped = nearbyUsers
-            .filter(u => {
-            if (category === 'friends') return u.isFriend; // znajomi – wszyscy
-            // zwykli użytkownicy – tylko do 25km
-            if (!userLocation) return false;
-            return (
-                !u.isFriend &&
-                calculateDistance(
+      const mapped = nearbyUsers
+        .filter(u => {
+          if (category === 'friends') return u.isFriend;
+          if (!userLocation) return false;
+          return (
+            !u.isFriend &&
+            calculateDistance(
+              userLocation.latitude, userLocation.longitude,
+              u.latitude, u.longitude,
+            ) <= MAX_NEARBY_USERS_DISTANCE
+          );
+        })
+        .map(user => ({
+          ...user,
+          distance: userLocation
+            ? calculateDistance(
                 userLocation.latitude, userLocation.longitude,
-                u.latitude, u.longitude,
-                ) <= MAX_NEARBY_USERS_DISTANCE
-            );
-            })
-            .map(user => ({
-            ...user,
-            distance: userLocation
-                ? calculateDistance(
-                    userLocation.latitude, userLocation.longitude,
-                    user.latitude, user.longitude,
-                )
-                : 0,
-            }))
-            .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+                user.latitude, user.longitude,
+              )
+            : 0,
+        }))
+        .sort((a, b) => (a.distance || 0) - (b.distance || 0));
 
-        setFilteredUsers(mapped);
-        },
-        [nearbyUsers, userLocation],
-    );
+      setFilteredUsers(mapped);
+    },
+    [nearbyUsers, userLocation],
+  );
 
   const handleSearch = useCallback(
     debounce(async (query: string) => {
-      if (query.length < 2) {
-        setSearchMode('initial');
-        setFilteredPlaces([]);
-        setFilteredUsers([]);
-        return;
-      }
+      if (query.length < 2) { setSearchMode('initial'); setFilteredPlaces([]); setFilteredUsers([]); return; }
       setSearchMode('results');
       setIsSearching(true);
       setFilteredUsers([]);
@@ -92,7 +86,7 @@ export const SearchModal = memo(({
         const data = await res.json();
         setFilteredPlaces(data.predictions || []);
       } catch {
-        Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA', text2: 'Nie mogę wyszukać miejsc' });
+        Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
       } finally {
         setIsSearching(false);
       }
@@ -104,13 +98,14 @@ export const SearchModal = memo(({
     (location: LocationState, label: string) => {
       if (activeTab === 'start') {
         onSelectStart(location);
-        Toast.show({ type: 'success', text1: 'POCZĄTEK', text2: label });
+        Toast.show({ type: 'success', text1: 'POCZĄTEK USTAWIONY', text2: label });
         setActiveTab('end');
         resetToInitial();
       } else {
+        // ← KOLEJNOŚĆ: najpierw ustaw cel, POTEM zamknij
         onSelectEnd(location);
-        Toast.show({ type: 'success', text1: 'CEL', text2: label });
-        onClose();
+        Toast.show({ type: 'success', text1: 'CEL USTAWIONY', text2: label });
+        onClose(); // zamknij po ustawieniu
       }
     },
     [activeTab, onSelectStart, onSelectEnd, onClose],
@@ -137,53 +132,44 @@ export const SearchModal = memo(({
     [selectLocation],
   );
 
-  const handleSelectUser = useCallback(
-    (user: User) => {
-      selectLocation(
-        { latitude: user.latitude, longitude: user.longitude, name: user.name },
-        user.name,
-      );
-    },
-    [selectLocation],
-  );
+  const handleSelectUser     = useCallback((user: User) => {
+    selectLocation({ latitude: user.latitude, longitude: user.longitude, name: user.name }, user.name);
+  }, [selectLocation]);
 
-  const handleSelectCurrent = useCallback(() => {
-    if (userLocation)
-      selectLocation({ ...userLocation, name: 'Moja pozycja' }, 'Moja pozycja');
+  const handleSelectCurrent  = useCallback(() => {
+    if (userLocation) selectLocation({ ...userLocation, name: 'Moja pozycja' }, 'Moja pozycja');
   }, [userLocation, selectLocation]);
 
-  const friendCount = nearbyUsers.filter(u => u.isFriend).length;
+  const friendCount    = nearbyUsers.filter(u => u.isFriend).length;
   const otherUserCount = nearbyUsers.filter(
-    u =>
-      !u.isFriend &&
-      userLocation &&
-      calculateDistance(
-        userLocation.latitude, userLocation.longitude,
-        u.latitude, u.longitude
-      ) <= MAX_NEARBY_USERS_DISTANCE,
+    u => !u.isFriend && userLocation &&
+      calculateDistance(userLocation.latitude, userLocation.longitude, u.latitude, u.longitude) <= MAX_NEARBY_USERS_DISTANCE,
   ).length;
 
   return (
-    <Modal visible={visible} animationType="fade" transparent>
+    <Modal visible={visible} animationType="slide" transparent>
       <SafeAreaView style={styles.searchModalOverlay}>
         <TouchableOpacity style={styles.searchModalBackdrop} activeOpacity={1} onPress={onClose} />
+
         <View style={styles.searchModalContainer}>
 
-          {/* Header */}
+          {/* ── HEADER ── */}
           <View style={styles.searchModalHeader}>
             <TouchableOpacity
-              onPress={searchMode === 'initial' ? onClose : resetToInitial}
               style={styles.searchModalBackBtn}
+              onPress={searchMode === 'initial' ? onClose : resetToInitial}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#fff" />
+              <MaterialIcons name="arrow-back" size={20} color="#ffffff70" />
             </TouchableOpacity>
-            <Text style={styles.searchModalTitle}>
-              {activeTab === 'start' ? 'Skąd?' : 'Dokąd?'}
-            </Text>
-            <View style={{ width: 40 }} />
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.searchModalTitle}>
+                {activeTab === 'start' ? 'Skąd jedziesz?' : 'Dokąd jedziesz?'}
+              </Text>
+            </View>
           </View>
 
-          {/* Tabs */}
+          {/* ── TABS ── */}
           <View style={styles.searchModalTabs}>
             {(['start', 'end'] as const).map(tab => (
               <TouchableOpacity
@@ -192,25 +178,29 @@ export const SearchModal = memo(({
                 onPress={() => { setActiveTab(tab); resetToInitial(); }}
               >
                 <MaterialIcons
-                  name={tab === 'start' ? 'location-on' : 'flag'}
-                  size={16}
-                  color={activeTab === tab ? '#e33835ce' : '#ffffff70'}
+                  name={tab === 'start' ? 'radio-button-on' : 'flag'}
+                  size={15}
+                  color={activeTab === tab ? '#e33835ce' : '#ffffff35'}
                 />
-                <Text style={[styles.searchModalTabText, activeTab === tab && styles.searchModalTabTextActive]}>
-                  {tab === 'start' ? 'Początek' : 'Koniec'}
+                <Text style={[
+                  styles.searchModalTabText,
+                  activeTab === tab && styles.searchModalTabTextActive,
+                ]}>
+                  {tab === 'start' ? 'POCZĄTEK' : 'CEL'}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
+
           <View style={styles.searchModalDivider} />
 
-          {/* Input */}
+          {/* ── INPUT ── */}
           <View style={styles.searchModalInputContainer}>
-            <MaterialIcons name="search" size={20} color="#e33835ce" />
+            <MaterialIcons name="search" size={18} color="#e33835ce" />
             <TextInput
               style={styles.searchModalInput}
-              placeholder="Wyszukaj miejsce..."
-              placeholderTextColor="#ffffff50"
+              placeholder="Wpisz adres lub miejsce..."
+              placeholderTextColor="#ffffff35"
               value={searchQuery}
               onChangeText={text => { setSearchQuery(text); handleSearch(text); }}
               onFocus={() => { setSearchMode('initial'); setFilteredPlaces([]); }}
@@ -218,69 +208,81 @@ export const SearchModal = memo(({
               autoCapitalize="none"
               blurOnSubmit={false}
             />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => { setSearchQuery(''); resetToInitial(); }}>
-                <MaterialIcons name="close" size={20} color="#ffffff70" />
-              </TouchableOpacity>
-            )}
-            {isSearching && <ActivityIndicator size="small" color="#e33835ce" />}
+            {isSearching
+              ? <ActivityIndicator size="small" color="#e33835ce" />
+              : searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => { setSearchQuery(''); resetToInitial(); }}>
+                  <MaterialIcons name="close" size={18} color="#ffffff35" />
+                </TouchableOpacity>
+              )
+            }
           </View>
 
-          {/* Initial */}
+          {/* ── INITIAL STATE — kategorie ── */}
           {searchMode === 'initial' && searchQuery.length === 0 && (
             <>
-              <Text style={styles.searchHelperText}>Wybierz kategorię lub wpisz</Text>
+              <Text style={styles.searchHelperText}>WYBIERZ KATEGORIĘ LUB WPISZ ADRES</Text>
               <View style={styles.categoriesGrid}>
-                <TouchableOpacity style={styles.categoryCard} onPress={handleSelectCurrent} activeOpacity={0.7}>
-                  <View style={styles.categoryIconContainer}>
-                    <MaterialIcons name="my-location" size={32} color="#e33835ce" />
+
+                {/* Aktualna pozycja */}
+                <TouchableOpacity style={styles.categoryCard} onPress={handleSelectCurrent} activeOpacity={0.75}>
+                  <View style={[styles.categoryIconContainer, { backgroundColor: '#e3383518', borderColor: '#e3383535' }]}>
+                    <MaterialIcons name="my-location" size={26} color="#e33835ce" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.categoryTitle}>Aktualna Lokalizacja</Text>
+                    <Text style={styles.categoryTitle}>Aktualna pozycja</Text>
+                    <Text style={styles.categorySubtitle}>Ustaw jako punkt trasy</Text>
                   </View>
+                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('users')} activeOpacity={0.7}>
-                  <View style={styles.categoryIconContainer}>
-                    <MaterialIcons name="people" size={32} color="#00bfff" />
+                {/* Użytkownicy */}
+                <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('users')} activeOpacity={0.75}>
+                  <View style={[styles.categoryIconContainer, { backgroundColor: '#00bfff18', borderColor: '#00bfff35' }]}>
+                    <MaterialIcons name="people" size={26} color="#00bfff" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.categoryTitle}>Użytkownicy</Text>
-                    <Text style={styles.categorySubtitle}>{otherUserCount} dostępnych (25km)</Text>
+                    <Text style={styles.categorySubtitle}>{otherUserCount} w zasięgu 25 km</Text>
                   </View>
+                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('friends')} activeOpacity={0.7}>
-                  <View style={styles.categoryIconContainer}>
-                    <MaterialIcons name="favorite" size={32} color="#00d26a" />
+                {/* Znajomi */}
+                <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('friends')} activeOpacity={0.75}>
+                  <View style={[styles.categoryIconContainer, { backgroundColor: '#4de92618', borderColor: '#4de92635' }]}>
+                    <MaterialIcons name="favorite" size={26} color="#4de926" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.categoryTitle}>Znajomi</Text>
                     <Text style={styles.categorySubtitle}>{friendCount} dostępnych</Text>
                   </View>
+                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
                 </TouchableOpacity>
+
               </View>
             </>
           )}
 
-          {/* Users / Friends */}
+          {/* ── LISTA UŻYTKOWNIKÓW / ZNAJOMYCH ── */}
           {(searchMode === 'users' || searchMode === 'friends') && (
             <FlatList
               data={filteredUsers}
               keyExtractor={item => item.id}
-              scrollEnabled bounces={false}
+              scrollEnabled
+              bounces={false}
               style={styles.searchResultsList}
               ListEmptyComponent={
                 <View style={styles.emptyList}>
-                  <MaterialIcons name="person-off" size={32} color="#ffffff70" />
-                  <Text style={styles.emptyListText}>Brak wyników</Text>
+                  <MaterialIcons name="person-off" size={28} color="#ffffff35" />
+                  <Text style={styles.emptyListText}>BRAK WYNIKÓW</Text>
                 </View>
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.searchResultItem}
                   onPress={() => handleSelectUser(item)}
-                  activeOpacity={0.6}
+                  activeOpacity={0.65}
                 >
                   <View style={styles.searchResultIconUser}>
                     <Text style={styles.searchResultUserAvatar}>{item.avatar || '👤'}</Text>
@@ -288,36 +290,40 @@ export const SearchModal = memo(({
                   <View style={{ flex: 1 }}>
                     <Text style={styles.searchResultItemText}>{item.name}</Text>
                     <View style={styles.searchResultMeta}>
-                      <View style={[styles.userStatusDot, { backgroundColor: item.status === 'Online' ? '#00d26a' : '#ffffff50' }]} />
+                      <View style={[
+                        styles.userStatusDot,
+                        { backgroundColor: item.status === 'Online' ? '#4de926' : '#ffffff35' },
+                      ]} />
                       <Text style={styles.searchResultMetaText}>
-                        {item.status} · {item.distance?.toFixed(1)} km
+                        {item.status?.toUpperCase()} · {item.distance?.toFixed(1)} km
                       </Text>
                     </View>
                   </View>
-                  <MaterialIcons name="arrow-forward" size={18} color="#ffffff70" />
+                  <MaterialIcons name="arrow-forward-ios" size={14} color="#ffffff35" />
                 </TouchableOpacity>
               )}
             />
           )}
 
-          {/* Places */}
+          {/* ── LISTA MIEJSC ── */}
           {searchMode === 'results' && (
             <FlatList
               data={filteredPlaces.map((p, idx) => ({ ...p, uniqueId: `place_${idx}` }))}
               keyExtractor={item => item.uniqueId}
-              scrollEnabled bounces={false}
+              scrollEnabled
+              bounces={false}
               style={styles.searchResultsList}
               ListEmptyComponent={
                 <View style={styles.emptyList}>
-                  <MaterialIcons name="search-off" size={32} color="#ffffff70" />
-                  <Text style={styles.emptyListText}>Brak wyników</Text>
+                  <MaterialIcons name="search-off" size={28} color="#ffffff35" />
+                  <Text style={styles.emptyListText}>BRAK WYNIKÓW</Text>
                 </View>
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.searchResultItem}
                   onPress={() => handleSelectPlace(item.place_id, item.structured_formatting.main_text)}
-                  activeOpacity={0.6}
+                  activeOpacity={0.65}
                 >
                   <View style={styles.searchResultIconPlace}>
                     <MaterialIcons name="location-on" size={20} color="#e33835ce" />
@@ -332,11 +338,12 @@ export const SearchModal = memo(({
                       </Text>
                     )}
                   </View>
-                  <MaterialIcons name="arrow-forward" size={18} color="#ffffff70" />
+                  <MaterialIcons name="arrow-forward-ios" size={14} color="#ffffff35" />
                 </TouchableOpacity>
               )}
             />
           )}
+
         </View>
       </SafeAreaView>
     </Modal>

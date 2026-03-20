@@ -1,175 +1,243 @@
-    import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-    import * as Location from 'expo-location';
-    import AsyncStorage from '@react-native-async-storage/async-storage';
-    import Toast from 'react-native-toast-message';
-    import { Spot, SpotCategory } from '../constants/spotTypes';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Platform } from 'react-native';
+import * as Location from 'expo-location';
+import AsyncStorage  from '@react-native-async-storage/async-storage';
+import Toast         from 'react-native-toast-message';
+import { Spot, SpotCategory } from '../constants/spotTypes';
 
-    const API_URL = 'https://v-room.app/api/spots';
+const API_URL = 'https://v-room.app/api/spots';
 
-    function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 +
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R    = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
-    export function useSpots() {
-    const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-    const [region, setRegion]             = useState<any>(null);
-    const [spots, setSpots]               = useState<Spot[]>([]);
-    const [maxDistance, setMaxDistance]   = useState(25);
-    const [loading, setLoading]           = useState(false);
-    const locationInitialized             = useRef(false);
+export type SortMode = 'distance' | 'likes' | 'newest';
 
-    // ── Pobierz lokalizację ──────────────────────────────────────────────────────
-    useEffect(() => {
+export function useSpots() {
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [region,       setRegion]       = useState<any>(null);
+  const [spots,        setSpots]        = useState<Spot[]>([]);
+  const [maxDistance,  setMaxDistance]  = useState(25);
+  const [loading,      setLoading]      = useState(false);
+
+  // ── NOWE: filtry kategorii i sortowanie ─────────────────────────────────────
+  const [activeCategories, setActiveCategories] = useState<SpotCategory[]>([]);
+  const [sortMode,         setSortMode]         = useState<SortMode>('distance');
+
+  const locationInitialized = useRef(false);
+
+  const toggleCategory = useCallback((cat: SpotCategory) => {
+    setActiveCategories(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  }, []);
+
+  const clearCategories = useCallback(() => setActiveCategories([]), []);
+
+  // ── Pobierz lokalizację ──────────────────────────────────────────────────────
+  useEffect(() => {
     (async () => {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
         Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Włącz lokalizację' });
         return;
-        }
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const { latitude, longitude } = loc.coords;
-        setUserLocation({ latitude, longitude });
-        setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
-        locationInitialized.current = true;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = loc.coords;
+      setUserLocation({ latitude, longitude });
+      setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+      locationInitialized.current = true;
     })();
-    }, []);
+  }, []);
 
-    // ── Pobierz spoty z API gdy lokalizacja gotowa lub zmienił się radius ────────
-    const fetchSpots = useCallback(async (lat: number, lng: number, radius: number) => {
+  // ── Pobierz spoty z API ──────────────────────────────────────────────────────
+  const fetchSpots = useCallback(async (lat: number, lng: number, radius: number) => {
     try {
-        setLoading(true);
-        const res = await fetch(
-        `${API_URL}?lat=${lat}&lng=${lng}&radius=${radius}`,
-        );
-        if (!res.ok) throw new Error('Błąd serwera');
-        const data = await res.json();
+      setLoading(true);
+      const res  = await fetch(`${API_URL}?lat=${lat}&lng=${lng}&radius=${radius}`);
+      if (!res.ok) throw new Error('Błąd serwera');
+      const data = await res.json();
 
-        // Mapuj dane z API na lokalny typ Spot
-        const mapped: Spot[] = data.map((s: any) => ({
-        id:          String(s.id),
-        name:        s.name,
-        description: s.description || '',
-        category:    s.category as SpotCategory,
-        latitude:    s.latitude,
-        longitude:   s.longitude,
-        photos:      s.photos || [],
-        author:      s.author?.username || 'Nieznany',
-        createdAt:   s.createdAt?.split('T')[0] || '',
-        }));
+      const mapped: Spot[] = data.map((s: any) => ({
+        id:            String(s.id),
+        name:          s.name,
+        description:   s.description  || '',
+        category:      s.category     as SpotCategory,
+        latitude:      s.latitude,
+        longitude:     s.longitude,
+        photos:        s.photos       || [],
+        author:        s.author?.username || 'Nieznany',
+        createdAt:     s.createdAt?.split('T')[0] || '',
+        likesCount:    s.likesCount   ?? 0,
+        commentsCount: s.commentsCount ?? 0,
+        isLiked:       s.isLiked      ?? false,
+      }));
 
-        setSpots(mapped);
+      setSpots(mapped);
     } catch (e) {
-        console.log('fetchSpots error:', e);
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można pobrać spotów' });
+      console.log('fetchSpots error:', e);
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można pobrać spotów' });
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
-    }, []);
+  }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     if (userLocation) {
-        fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance);
+      fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance);
     }
-    }, [userLocation, maxDistance, fetchSpots]);
+  }, [userLocation, maxDistance, fetchSpots]);
 
-    // ── Widoczne spoty (już przefiltrowane przez API, ale lokalnie też filtrujemy) ─
-    const visibleSpots = useMemo(() => {
+  // ── Widoczne spoty (filtrowanie + sortowanie) ────────────────────────────────
+  const visibleSpots = useMemo(() => {
     if (!userLocation) return [];
-    return spots.filter(s =>
-        calculateDistance(userLocation.latitude, userLocation.longitude, s.latitude, s.longitude) <= maxDistance
+
+    let result = spots.filter(s =>
+      calculateDistance(userLocation.latitude, userLocation.longitude, s.latitude, s.longitude) <= maxDistance
     );
-    }, [spots, userLocation, maxDistance]);
 
-    // ── Dodaj spot ───────────────────────────────────────────────────────────────
-    const addSpot = useCallback(async (
-        name: string,
-        description: string,
-        category: SpotCategory,
-        photos: string[],
-        pickedCoord?: { latitude: number; longitude: number } | null,
-    ): Promise<boolean> => {
-        if (!userLocation) return false;
+    // Filtrowanie po kategoriach
+    if (activeCategories.length > 0) {
+      result = result.filter(s => activeCategories.includes(s.category));
+    }
 
-        const lat = pickedCoord?.latitude  ?? userLocation.latitude;
-        const lng = pickedCoord?.longitude ?? userLocation.longitude;
+    // Sortowanie
+    switch (sortMode) {
+      case 'distance':
+        result = [...result].sort((a, b) =>
+          calculateDistance(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude) -
+          calculateDistance(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude)
+        );
+        break;
+      case 'likes':
+        result = [...result].sort((a, b) => b.likesCount - a.likesCount);
+        break;
+      case 'newest':
+        result = [...result].sort((a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        break;
+    }
 
-        try {
-        const token = await AsyncStorage.getItem('userToken');
+    return result;
+  }, [spots, userLocation, maxDistance, activeCategories, sortMode]);
 
-        const formData = new FormData();
-        formData.append('name',        name.trim());
-        formData.append('description', description.trim());
-        formData.append('category',    category);
-        formData.append('latitude',    String(lat));
-        formData.append('longitude',   String(lng));
+  // ── Dodaj spot ───────────────────────────────────────────────────────────────
+  const addSpot = useCallback(async (
+    name:        string,
+    description: string,
+    category:    SpotCategory,
+    photos:      string[],
+    pickedCoord?: { latitude: number; longitude: number } | null,
+  ): Promise<boolean> => {
+    if (!userLocation) return false;
 
-        photos.forEach((uri, i) => {
-            const filename = uri.split('/').pop() || `photo_${i}.jpg`;
-            const match    = /\.(\w+)$/.exec(filename);
-            const type     = match ? `image/${match[1]}` : 'image/jpeg';
-            formData.append('photos', { uri, name: filename, type } as any);
-        });
+    const lat = pickedCoord?.latitude  ?? userLocation.latitude;
+    const lng = pickedCoord?.longitude ?? userLocation.longitude;
 
+    try {
+      const token = await AsyncStorage.getItem('token');
 
-        const res = await fetch(API_URL, {
-            method:  'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body:    formData,
-        });
+      const formData = new FormData();
+      formData.append('name',        name.trim());
+      formData.append('description', description.trim());
+      formData.append('category',    category);
+      formData.append('latitude',    String(lat));
+      formData.append('longitude',   String(lng));
 
-        const data = await res.json();
+      photos.forEach((uri, i) => {
+        const filename = uri.split('/').pop() || `photo_${i}.jpg`;
+        const ext      = /\.(\w+)$/.exec(filename)?.[1]?.toLowerCase() || 'jpg';
+        const type     = ext === 'png'  ? 'image/png'
+                       : ext === 'heic' ? 'image/heic'
+                       : 'image/jpeg';
 
-        if (!res.ok) {
-            Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie można dodać spotu' });
-            return false;
-        }
+        const fileUri = Platform.OS === 'ios'
+          ? uri.replace('file://', '')
+          : uri;
 
-        const mapped: Spot = {
-            id:            String(data.id),
-            name:          data.name,
-            description:   data.description || '',
-            category:      data.category as SpotCategory,
-            latitude:      data.latitude,
-            longitude:     data.longitude,
-            photos:        data.photos || [],
-            author:        data.author?.username || 'Ja',
-            createdAt:     data.createdAt?.split('T')[0] || '',
-            likesCount:    0,
-            commentsCount: 0,
-            isLiked:       false,
-        };
+        formData.append('photos', {
+          uri:  fileUri,
+          name: filename,
+          type,
+        } as any);
+      });
 
-        setSpots(prev => [mapped, ...prev]);
-        Toast.show({ type: 'success', text1: '✅ SPOT DODANY!', text2: mapped.name });
-        return true;
-        } catch (e: any) {
-        console.log('❌ addSpot error:', e?.message, e);
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można połączyć się z serwerem' });
+      const res = await fetch(API_URL, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        console.log('❌ Serwer nie-JSON:', res.status, text.slice(0, 300));
+        Toast.show({ type: 'error', text1: 'BŁĄD SERWERA', text2: `HTTP ${res.status}` });
         return false;
-        }
-    }, [userLocation]);
+      }
 
-    const getDistance = useCallback((spot: Spot): number => {
+      const data = await res.json();
+
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie można dodać spotu' });
+        return false;
+      }
+
+      const mapped: Spot = {
+        id:            String(data.id),
+        name:          data.name,
+        description:   data.description  || '',
+        category:      data.category     as SpotCategory,
+        latitude:      data.latitude,
+        longitude:     data.longitude,
+        photos:        data.photos        || [],
+        author:        data.author?.username || 'Ja',
+        createdAt:     data.createdAt?.split('T')[0] || '',
+        likesCount:    0,
+        commentsCount: 0,
+        isLiked:       false,
+      };
+
+      setSpots(prev => [mapped, ...prev]);
+      Toast.show({ type: 'success', text1: '✅ SPOT DODANY!', text2: mapped.name });
+      return true;
+
+    } catch (e: any) {
+      console.log('❌ addSpot error:', e?.message, e);
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można połączyć się z serwerem' });
+      return false;
+    }
+  }, [userLocation]);
+
+  // ── Dystans do spotu ─────────────────────────────────────────────────────────
+  const getDistance = useCallback((spot: Spot): number => {
     if (!userLocation) return 0;
     return calculateDistance(userLocation.latitude, userLocation.longitude, spot.latitude, spot.longitude);
-    }, [userLocation]);
+  }, [userLocation]);
 
-    return {
+  return {
     userLocation,
     region,
     spots,
     visibleSpots,
     maxDistance,
     setMaxDistance,
+    activeCategories,
+    toggleCategory,
+    clearCategories,
+    sortMode,
+    setSortMode,
     addSpot,
     getDistance,
     loading,
     refetch: () => userLocation && fetchSpots(userLocation.latitude, userLocation.longitude, maxDistance),
-    };
-    }
+  };
+}

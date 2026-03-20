@@ -1,11 +1,14 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View, Text, TouchableOpacity, StyleSheet,
+  ActivityIndicator, ScrollView,
+} from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 
 import { customMapStyle } from '../../constants/mapConfig';
-import { Spot, CATEGORY_COLORS } from '../../constants/spotTypes';
+import { Spot, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORIES, OFFROAD_CATEGORIES } from '../../constants/spotTypes';
 import { useSpots } from '../../hooks/useSpots';
 
 import { AddSpotModal }    from '../../components/spots/AddSpotModal';
@@ -21,6 +24,8 @@ export default function SpotMap() {
   const {
     region, visibleSpots, maxDistance, setMaxDistance,
     addSpot, getDistance, loading, refetch,
+    activeCategories, toggleCategory, clearCategories,
+    sortMode, setSortMode,
   } = useSpots();
 
   const [addVisible,      setAddVisible]      = useState(false);
@@ -114,50 +119,138 @@ export default function SpotMap() {
 
       {/* GÓRNY PASEK */}
       {picking === 'idle' && (
-        <View style={s.topBar}>
+        <>
+          <View style={s.topBar}>
 
-          {/* Dystans */}
-          <TouchableOpacity
-            style={s.distanceBtn}
-            onPress={() => setDistanceVisible(true)}
-            activeOpacity={0.8}
-          >
-            <View style={s.distanceIconWrap}>
-              <MaterialIcons name="radar" size={14} color="#e33835" />
-            </View>
-            <Text style={s.distanceBtnText}>{maxDistance} km</Text>
-            <MaterialIcons name="keyboard-arrow-down" size={16} color="#ffffff40" />
-          </TouchableOpacity>
-
-          {/* Lista */}
-          <TouchableOpacity
-            style={s.listBtn}
-            onPress={() => setListVisible(true)}
-            activeOpacity={0.8}
-          >
-            <MaterialIcons name="format-list-bulleted" size={16} color="#e33835" />
-            <Text style={s.listBtnText}>Spoty</Text>
-            {visibleSpots.length > 0 && (
-              <View style={s.badge}>
-                <Text style={s.badgeText}>{visibleSpots.length}</Text>
+            {/* Dystans */}
+            <TouchableOpacity
+              style={s.distanceBtn}
+              onPress={() => setDistanceVisible(true)}
+              activeOpacity={0.8}
+            >
+              <View style={s.distanceIconWrap}>
+                <MaterialIcons name="radar" size={14} color="#e33835" />
               </View>
-            )}
-          </TouchableOpacity>
+              <Text style={s.distanceBtnText}>{maxDistance} km</Text>
+              <MaterialIcons name="keyboard-arrow-down" size={16} color="#ffffff40" />
+            </TouchableOpacity>
 
-          {/* Refresh */}
-          <TouchableOpacity
-            style={s.refreshBtn}
-            onPress={handleRefresh}
-            activeOpacity={0.8}
-            disabled={loading}
-          >
-            {loading
-              ? <ActivityIndicator size={16} color="#e33835" />
-              : <MaterialIcons name="refresh" size={20} color="#ffffff80" />
-            }
-          </TouchableOpacity>
+            {/* Lista */}
+            <TouchableOpacity
+              style={s.listBtn}
+              onPress={() => setListVisible(true)}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="format-list-bulleted" size={16} color="#e33835" />
+              <Text style={s.listBtnText}>Spoty</Text>
+              {visibleSpots.length > 0 && (
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>{visibleSpots.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-        </View>
+            {/* Refresh */}
+            <TouchableOpacity
+              style={s.refreshBtn}
+              onPress={handleRefresh}
+              activeOpacity={0.8}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator size={16} color="#e33835" />
+                : <MaterialIcons name="refresh" size={20} color="#ffffff80" />
+              }
+            </TouchableOpacity>
+
+          </View>
+
+          {/* PASEK FILTRÓW KATEGORII */}
+          <View style={s.filterBarWrap}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.filterBar}
+            >
+              {/* Przycisk "Wszystkie" */}
+              <TouchableOpacity
+                style={[s.filterChip, activeCategories.length === 0 && s.filterChipAll]}
+                onPress={clearCategories}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons
+                  name="layers"
+                  size={13}
+                  color={activeCategories.length === 0 ? '#fff' : '#ffffff50'}
+                />
+                <Text style={[s.filterChipText, activeCategories.length === 0 && s.filterChipTextAll]}>
+                  Wszystkie
+                </Text>
+              </TouchableOpacity>
+
+              {/* Separator — OFFROAD */}
+              <View style={s.filterSep}>
+                <Text style={s.filterSepText}>OFFROAD</Text>
+              </View>
+
+              {/* Kategorie offroad */}
+              {OFFROAD_CATEGORIES.map(cat => {
+                const active = activeCategories.includes(cat);
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      s.filterChip,
+                      active && { borderColor: CATEGORY_COLORS[cat], backgroundColor: CATEGORY_COLORS[cat] + '22' },
+                    ]}
+                    onPress={() => toggleCategory(cat)}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons
+                      name={CATEGORY_ICONS[cat] as any}
+                      size={13}
+                      color={active ? CATEGORY_COLORS[cat] : '#ffffff50'}
+                    />
+                    <Text style={[s.filterChipText, active && { color: CATEGORY_COLORS[cat] }]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Separator — POZOSTAŁE */}
+              <View style={s.filterSep}>
+                <Text style={s.filterSepText}>INNE</Text>
+              </View>
+
+              {/* Pozostałe kategorie */}
+              {CATEGORIES.filter(c => !OFFROAD_CATEGORIES.includes(c)).map(cat => {
+                const active = activeCategories.includes(cat);
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      s.filterChip,
+                      active && { borderColor: CATEGORY_COLORS[cat], backgroundColor: CATEGORY_COLORS[cat] + '22' },
+                    ]}
+                    onPress={() => toggleCategory(cat)}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons
+                      name={CATEGORY_ICONS[cat] as any}
+                      size={13}
+                      color={active ? CATEGORY_COLORS[cat] : '#ffffff50'}
+                    />
+                    <Text style={[s.filterChipText, active && { color: CATEGORY_COLORS[cat] }]}>
+      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+            </ScrollView>
+          </View>
+        </>
       )}
 
       {/* BANNER — picking */}
@@ -200,6 +293,8 @@ export default function SpotMap() {
         maxDistance={maxDistance}
         onSelectSpot={handleSelectSpot}
         getDistance={getDistance}
+        sortMode={sortMode}
+        onSortChange={setSortMode}
       />
       <SpotDetailModal
         visible={detailVisible}
@@ -221,61 +316,44 @@ export default function SpotMap() {
 
 const s = StyleSheet.create({
   // Loader
-  loader:          { flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center' },
-  loaderCard:      { alignItems: 'center', gap: 12, backgroundColor: '#1a1a1a', borderRadius: 20, padding: 32, borderWidth: 1, borderColor: '#ffffff08' },
-  loaderTitle:     { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 4 },
-  loaderSub:       { color: '#ffffff40', fontSize: 12 },
+  loader:            { flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center' },
+  loaderCard:        { alignItems: 'center', gap: 12, backgroundColor: '#1a1a1a', borderRadius: 20, padding: 32, borderWidth: 1, borderColor: '#ffffff08' },
+  loaderTitle:       { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 4 },
+  loaderSub:         { color: '#ffffff40', fontSize: 12 },
 
   // Top bar
-  topBar:          { position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', gap: 8 },
+  topBar:            { position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', gap: 8 },
 
-  distanceBtn:     {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#161616f0', borderRadius: 14,
-    paddingHorizontal: 10, paddingVertical: 10,
-    borderWidth: 1, borderColor: '#ffffff12',
-  },
-  distanceIconWrap:{ width: 22, height: 22, borderRadius: 6, backgroundColor: '#e3383518', justifyContent: 'center', alignItems: 'center' },
-  distanceBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  distanceBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#161616f0', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 10, borderWidth: 1, borderColor: '#ffffff12' },
+  distanceIconWrap:  { width: 22, height: 22, borderRadius: 6, backgroundColor: '#e3383518', justifyContent: 'center', alignItems: 'center' },
+  distanceBtnText:   { color: '#fff', fontSize: 13, fontWeight: '700' },
 
-  listBtn:         {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
-    backgroundColor: '#161616f0', borderRadius: 14,
-    paddingVertical: 10,
-    borderWidth: 1, borderColor: '#ffffff12',
-  },
-  listBtnText:     { color: '#fff', fontSize: 13, fontWeight: '600' },
-  badge:           { backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 },
-  badgeText:       { color: '#fff', fontSize: 10, fontWeight: '700' },
+  listBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: '#161616f0', borderRadius: 14, paddingVertical: 10, borderWidth: 1, borderColor: '#ffffff12' },
+  listBtnText:       { color: '#fff', fontSize: 13, fontWeight: '600' },
+  badge:             { backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 },
+  badgeText:         { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  refreshBtn:      {
-    width: 44, height: 44,
-    backgroundColor: '#161616f0', borderRadius: 14,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: '#ffffff12',
-  },
+  refreshBtn:        { width: 44, height: 44, backgroundColor: '#161616f0', borderRadius: 14, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#ffffff12' },
+
+  // Filter bar
+  filterBarWrap:     { position: 'absolute', top: 108, left: 0, right: 0 },
+  filterBar:         { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
+  filterChip:        { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10, backgroundColor: '#161616f0', borderWidth: 1, borderColor: '#ffffff12' },
+  filterChipAll:     { borderColor: '#e33835', backgroundColor: '#e3383525' },
+  filterChipText:    { color: '#ffffff50', fontSize: 11, fontWeight: '600' },
+  filterChipTextAll: { color: '#fff' },
+
+  filterSep:         { justifyContent: 'center', paddingHorizontal: 4 },
+  filterSepText:     { color: '#ffffff20', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
 
   // Picking banner
-  pickingBanner:   {
-    position: 'absolute', top: 52, left: 16, right: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#161616f0', borderRadius: 14,
-    paddingHorizontal: 14, paddingVertical: 12,
-    borderWidth: 1, borderColor: '#e3383530',
-  },
-  pickingIconWrap: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' },
-  pickingText:     { flex: 1, color: '#fff', fontSize: 13, fontWeight: '600' },
-  pickingCancel:   { width: 30, height: 30, borderRadius: 8, backgroundColor: '#ffffff08', justifyContent: 'center', alignItems: 'center' },
+  pickingBanner:     { position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#161616f0', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#e3383530' },
+  pickingIconWrap:   { width: 30, height: 30, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center' },
+  pickingText:       { flex: 1, color: '#fff', fontSize: 13, fontWeight: '600' },
+  pickingCancel:     { width: 30, height: 30, borderRadius: 8, backgroundColor: '#ffffff08', justifyContent: 'center', alignItems: 'center' },
 
   // Add button
-  addBtn:          {
-    position: 'absolute', bottom: 40, alignSelf: 'center',
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#e33835', borderRadius: 18,
-    paddingHorizontal: 24, paddingVertical: 14,
-    elevation: 12,
-    shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12,
-  },
-  addBtnIcon:      { width: 28, height: 28, borderRadius: 8, backgroundColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' },
-  addBtnText:      { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+  addBtn:            { position: 'absolute', bottom: 40, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#e33835', borderRadius: 18, paddingHorizontal: 24, paddingVertical: 14, elevation: 12, shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12 },
+  addBtnIcon:        { width: 28, height: 28, borderRadius: 8, backgroundColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' },
+  addBtnText:        { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
 });

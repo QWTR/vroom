@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Modal, SafeAreaView, View, Text, TouchableOpacity } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { styles } from '../../styles/mapstyle';
 
@@ -12,10 +12,10 @@ interface SettingsModalProps {
 }
 
 const MAP_TYPES = [
-  { key: 'standard',  label: 'Standardowa' },
-  { key: 'satellite', label: 'Satelita'    },
-  { key: 'hybrid',    label: 'Hybrid'      },
-  { key: 'terrain',   label: 'Teren'       },
+  { key: 'standard',  label: 'Standardowa', icon: 'map-outline',      desc: 'Domyślny widok mapy'    },
+  { key: 'satellite', label: 'Satelita',    icon: 'satellite-variant', desc: 'Zdjęcia z satelity'    },
+  { key: 'hybrid',    label: 'Hybrid',      icon: 'layers-outline',    desc: 'Satelita + ulice'      },
+  { key: 'terrain',   label: 'Teren',       icon: 'terrain',           desc: 'Rzeźba terenu'         },
 ] as const;
 
 export const SettingsModal = memo(
@@ -23,33 +23,84 @@ export const SettingsModal = memo(
     <Modal visible={visible} animationType="slide" transparent>
       <SafeAreaView style={styles.drawerModalContainer}>
         <View style={styles.drawerModal}>
-          <TouchableOpacity style={styles.drawerCloseBtn} onPress={onClose}>
-            <MaterialIcons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
 
-          <Text style={styles.drawerTitle}>Mapa</Text>
+          {/* Handle */}
+          <View style={styles.drawerHandle} />
 
-          <View style={{ marginVertical: 16 }}>
-            {MAP_TYPES.map(({ key, label }) => (
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{
+              backgroundColor: '#e3383518', padding: 8, borderRadius: 10,
+              borderWidth: 1, borderColor: '#e3383535', marginRight: 12,
+            }}>
+              <MaterialIcons name="layers" size={18} color="#e33835ce" />
+            </View>
+            <Text style={styles.drawerTitle}>TYP MAPY</Text>
+          </View>
+
+          <View style={styles.drawerDivider} />
+
+          <Text style={styles.drawerSectionLabel}>WYBIERZ WIDOK</Text>
+
+          {MAP_TYPES.map(({ key, label, icon, desc }) => {
+            const isActive = mapType === key;
+            return (
               <TouchableOpacity
                 key={key}
-                style={styles.drawerBtn}
-                activeOpacity={0.7}
+                style={[styles.drawerBtn, isActive && styles.drawerBtnActive]}
+                activeOpacity={0.72}
                 onPress={() => {
                   onChangeMapType(key);
                   onClose();
-                  Toast.show({ type: 'success', text1: 'TYP MAPY', text2: `Zmieniono na ${label}` });
+                  Toast.show({ type: 'success', text1: 'TYP MAPY', text2: label });
                 }}
               >
-                <View style={[styles.drawerBtnIcon, mapType === key && { backgroundColor: '#e33835ce' }]}>
-                  <View style={styles.drawerBtnIconInner} />
+                {/* Ikona */}
+                <View style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  backgroundColor: isActive ? '#e3383525' : '#ffffff08',
+                  borderWidth: 1,
+                  borderColor: isActive ? '#e3383545' : '#ffffff10',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <MaterialCommunityIcons
+                    name={icon as any}
+                    size={22}
+                    color={isActive ? '#e33835ce' : '#ffffff55'}
+                  />
                 </View>
-                <Text style={[styles.drawerBtnTxt, mapType === key && { color: '#e33835ce', fontWeight: 'bold' }]}>
-                  {label}
-                </Text>
+
+                {/* Tekst */}
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.drawerBtnTxt, isActive && styles.drawerBtnTxtActive]}>
+                    {label}
+                  </Text>
+                  <Text style={[styles.drawerSectionLabel, { marginBottom: 0, marginTop: 2 }]}>
+                    {desc}
+                  </Text>
+                </View>
+
+                {/* Check */}
+                {isActive && (
+                  <View style={{
+                    width: 22, height: 22, borderRadius: 11,
+                    backgroundColor: '#e33835ce',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MaterialIcons name="check" size={14} color="#fff" />
+                  </View>
+                )}
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
+
+          {/* Close */}
+          <TouchableOpacity style={styles.drawerCloseBtn} onPress={onClose}>
+            <MaterialIcons name="close" size={18} color="#ffffff70" />
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     </Modal>

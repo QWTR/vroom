@@ -1,13 +1,82 @@
-import React, { memo, useState } from 'react';
+import React, { memo } from 'react';
+import { View, Text, Image } from 'react-native';
 import { Marker } from 'react-native-maps';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 
 interface UserCarMarkerProps {
-  user: User;
+  user:     User;
   distance: number;
-  onPress: () => void;
+  onPress:  () => void;
   imageUri: string | null;
 }
+
+const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
+  avatar: string; name: string; color: string; size?: number;
+}) => {
+  const isUrl = avatar?.startsWith('http');
+  if (isUrl) {
+    return (
+      <Image
+        source={{ uri: avatar }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+        resizeMode="cover"
+      />
+    );
+  }
+  return (
+    <Text style={{ color, fontSize: size * 0.55, fontWeight: '700' }}>
+      {name?.slice(0, 2).toUpperCase() ?? '??'}
+    </Text>
+  );
+});
+
+const FallbackMarker = memo(({ user, distance }: { user: User; distance: number }) => {
+  const color       = user.isFriend ? '#4de926' : '#00bfff';
+  const bgColor     = user.isFriend ? '#4de92620' : '#00bfff20';
+  const borderColor = user.isFriend ? '#4de92645' : '#00bfff45';
+
+  return (
+    <View style={{ alignItems: 'center' }}>
+      {/* Dymek z nazwą */}
+      <View style={{
+        backgroundColor: '#111111ee', borderRadius: 10,
+        paddingHorizontal: 8, paddingVertical: 5, marginBottom: 3,
+        borderWidth: 1, borderColor, minWidth: 72, alignItems: 'center',
+      }}>
+        <Text style={{
+          color: '#fff', fontSize: 9, fontFamily: 'Orbitron',
+          letterSpacing: 0.3, textAlign: 'center',
+        }} numberOfLines={1}>
+          {user.name}
+        </Text>
+        <Text style={{
+          color, fontSize: 8, fontFamily: 'Orbitron',
+          textAlign: 'center', marginTop: 1,
+        }}>
+          {distance.toFixed(1)} km
+        </Text>
+      </View>
+
+      {/* Ikona/avatar */}
+      <View style={{
+        width: 36, height: 36, borderRadius: 18,
+        backgroundColor: bgColor, borderWidth: 1.5, borderColor,
+        alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+      }}>
+        <AvatarOrInitials avatar={user.avatar} name={user.name} color={color} size={22} />
+      </View>
+
+      {/* Nóżka */}
+      <View style={{
+        width: 0, height: 0,
+        borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
+        borderStyle: 'solid', borderLeftColor: 'transparent',
+        borderRightColor: 'transparent', borderTopColor: color, marginTop: -1,
+      }} />
+    </View>
+  );
+});
 
 export const UserCarMarker = memo(({ user, distance, onPress, imageUri }: UserCarMarkerProps) => {
   if (!imageUri) {
@@ -15,12 +84,12 @@ export const UserCarMarker = memo(({ user, distance, onPress, imageUri }: UserCa
       <Marker
         coordinate={{ latitude: user.latitude, longitude: user.longitude }}
         onPress={onPress}
+        anchor={{ x: 0.5, y: 1 }}
         zIndex={999}
-        title={`${user.avatar} ${user.name}`}
-        description={`${distance.toFixed(1)} km`}
-        pinColor={user.isFriend ? '#00d26a' : '#00bfff'}
         tracksViewChanges={false}
-      />
+      >
+        <FallbackMarker user={user} distance={distance} />
+      </Marker>
     );
   }
 

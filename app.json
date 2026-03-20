@@ -12,7 +12,15 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom",
       "userInterfaceStyle": "dark",
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#0a0a0a",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,7 +38,16 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "FOREGROUND_SERVICE"
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "web": {
@@ -53,7 +70,26 @@
           }
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/logotypRed.png",
+          "color": "#e33835",
+          "defaultChannel": "vroom_alerts",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców na mapie.",
+          "locationAlwaysPermission": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
+          "locationWhenInUsePermission": "VROOM potrzebuje lokalizacji do nawigacji.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -61,8 +97,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0dceda47-6f18-40dc-a736-be4f23c2769f"
+        "projectId": "ca702b47-96e8-4649-a61f-5fa62ed0f1ce"
       }
-    }
+    },
+    "owner": "lexuuwws-organization"
   }
 }

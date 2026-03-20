@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import type { UserProfile } from '../constants/profile';
 
-// Pobiera token – sprawdza oba klucze (kompatybilność)
 const getToken = async (): Promise<string | null> => {
   return (
     (await AsyncStorage.getItem('userToken')) ??
@@ -11,22 +10,22 @@ const getToken = async (): Promise<string | null> => {
   );
 };
 
-// Mapuje obiekt z auth.js na UserProfile
-function mapAuthUserToProfile(u: any): UserProfile {
+// ✅ Mapuje KAŻDĄ odpowiedź serwera na UserProfile — obsługuje oba pola avatar/avatarUrl
+function mapToProfile(u: any): UserProfile {
   return {
-    id:            u.userId   ?? u.id,
+    id:            u.userId      ?? u.id,
     username:      u.username,
     location:      u.location    ?? null,
     bio:           u.bio         ?? null,
-    avatarUrl:     u.avatarUrl   ?? u.avatar ?? null,
+    avatarUrl:     u.avatarUrl   ?? u.avatar ?? null,  // ← kluczowe
     createdAt:     u.createdAt   ?? new Date().toISOString(),
-    totalDistance: u.totalDistance  ?? 0,
-    dailyDistance: u.dailyDistance  ?? 0,
-    topSpeed:      u.topSpeed       ?? 0,
-    points:        u.points         ?? 0,
-    meetCount:     u.meetCount      ?? 0,
-    cityCount:     u.cityCount      ?? 0,
-    position:      u.position       ?? null,
+    totalDistance: u.totalDistance ?? 0,
+    dailyDistance: u.dailyDistance ?? 0,
+    topSpeed:      u.topSpeed      ?? 0,
+    points:        u.points        ?? 0,
+    meetCount:     u.meetCount     ?? 0,
+    cityCount:     u.cityCount     ?? 0,
+    position:      u.position      ?? null,
   };
 }
 
@@ -41,25 +40,36 @@ export function useProfile() {
     setLoading(true);
     setError(null);
     try {
-      const token     = await getToken();
-      const localRaw  = await AsyncStorage.getItem('user');
-      const localUser = localRaw ? JSON.parse(localRaw) : null;
+      const token    = await getToken();
+      const localRaw = await AsyncStorage.getItem('user');
 
-      // Pokaż od razu dane z cache
-      if (localUser) {
-        setProfile(mapAuthUserToProfile(localUser));
+      // 1. Pokaż natychmiast z cache
+      if (localRaw) {
+        setProfile(mapToProfile(JSON.parse(localRaw)));
       }
 
       if (!token) throw new Error('Brak tokenu');
 
-      // Dociągnij świeże dane z API
+      // 2. Odśwież z serwera — przez mapToProfile żeby avatarUrl był zawsze poprawny
       const res = await fetch(`${API_URL}/api/profile/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
-        const data: UserProfile = await res.json();
-        setProfile(data);
+        const data = await res.json();
+        const mapped = mapToProfile(data);  // ✅ zawsze przez mapper
+        setProfile(mapped);
+
+        // Zaktualizuj cache — zachowaj pola których /me nie zwraca
+        if (localRaw) {
+          const old = JSON.parse(localRaw);
+          await AsyncStorage.setItem('user', JSON.stringify({
+            ...old,
+            ...data,
+            avatarUrl: mapped.avatarUrl,
+            avatar:    mapped.avatarUrl,
+          }));
+        }
       }
     } catch (e: any) {
       setError(e.message);
@@ -73,13 +83,14 @@ export function useProfile() {
     setLoading(true);
     setError(null);
     try {
-      const token = await getToken();
+      const token   = await getToken();
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch(`${API_URL}/api/profile/${userId}`, { headers });
       if (!res.ok) throw new Error('Błąd pobierania profilu');
-      setProfile(await res.json());
+      const data = await res.json();
+      setProfile(mapToProfile(data));  // ✅ też przez mapper
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -104,13 +115,18 @@ export function useProfile() {
         body: JSON.stringify(fields),
       });
       if (!res.ok) throw new Error('Błąd aktualizacji profilu');
-      const data: UserProfile = await res.json();
-      setProfile(data);
+      const data   = await res.json();
+      const mapped = mapToProfile(data);  // ✅ przez mapper
+      setProfile(mapped);
 
-      // Zaktualizuj cache
-      const localRaw  = await AsyncStorage.getItem('user');
-      const localUser = localRaw ? JSON.parse(localRaw) : {};
-      await AsyncStorage.setItem('user', JSON.stringify({ ...localUser, ...data }));
+      const localRaw = await AsyncStorage.getItem('user');
+      const old      = localRaw ? JSON.parse(localRaw) : {};
+      await AsyncStorage.setItem('user', JSON.stringify({
+        ...old,
+        ...data,
+        avatarUrl: mapped.avatarUrl,
+        avatar:    mapped.avatarUrl,
+      }));
       return true;
     } catch (e: any) {
       setError(e.message);
@@ -142,14 +158,14 @@ export function useProfile() {
       if (!res.ok) throw new Error('Błąd uploadu avatara');
       const { avatarUrl } = await res.json();
 
-      // Zaktualizuj stan
+      // ✅ Zaktualizuj stan — zachowaj wszystkie pola profilu
       setProfile(prev => prev ? { ...prev, avatarUrl } : prev);
 
-      // Zaktualizuj cache – oba pola (avatarUrl i avatar dla HomeScreen)
-      const localRaw  = await AsyncStorage.getItem('user');
-      const localUser = localRaw ? JSON.parse(localRaw) : {};
+      // ✅ Zaktualizuj cache — oba pola
+      const localRaw = await AsyncStorage.getItem('user');
+      const old      = localRaw ? JSON.parse(localRaw) : {};
       await AsyncStorage.setItem('user', JSON.stringify({
-        ...localUser,
+        ...old,
         avatarUrl,
         avatar: avatarUrl,
       }));
