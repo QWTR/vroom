@@ -23,7 +23,7 @@ import {
   customMapStyle,
   MAX_NEARBY_USERS_DISTANCE,
 } from '../../constants/mapConfig';
-import { latFilter, lngFilter }   from '../../scripts/kalmanFilter';
+import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
 import { calculateDistance }       from '../../scripts/distance';
 import {
   cleanInstruction,
@@ -34,12 +34,16 @@ import {
   getManeuverIcon,
   haversineKm,
   findClosestPointIndex,
+  snapToRoute,
 } from '../../scripts/navigationUtils';
 import { useGoogleDirections }        from '../../hooks/useGoogleDirections';
 import { useCameraAnimation }         from '../../hooks/useCameraAnimation';
 import { useNavigationPoints }        from '../../hooks/useNavigationPoints';
-import { useBackgroundTracking }      from '../../hooks/useBackgroundTracking';
 import { useNavigationNotification }  from '../../hooks/useNavigationNotification';
+import { useDeadReckoning }           from '../../hooks/useDeadReckoning';
+import { useDemoUsers }               from '../../hooks/useDemoUsers';
+import { useRouteTimer } from '../../hooks/useRouteTimer';
+
 import {
   useLiveMap,
   getWarningColor,
@@ -48,6 +52,15 @@ import {
   LiveWarning,
   clusterWarnings,
 } from '../../hooks/useLiveMap';
+import {
+  useBackgroundTracking,
+  feedSpeedSample,
+  feedNavDistance,
+  resetSpeedStats,
+} from '../../hooks/useBackgroundTracking';
+import { useRouteBuilder } from '../../hooks/useRouteBuilder';
+
+import { SaveRouteModal }            from '../../components/modals/SaveRouteModal';
 import { CarMarker }             from '../../components/markers/CarMarker';
 import { CarMarkerRenderer }     from '../../components/markers/CarMarkerRenderer';
 import { UserCarMarker }         from '../../components/markers/UserCarMarker';
@@ -58,6 +71,9 @@ import { SearchModal }           from '../../components/modals/SearchModal';
 import { SettingsModal }         from '../../components/modals/SettingsModal';
 import { ReportModal }           from '../../components/modals/ReportModal';
 import { WarningDetailModal }    from '../../components/modals/WarningDetailModal';
+import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
+import { RoutePin } from '../../components/markers/RoutePin';
+import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
 
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
@@ -76,6 +92,8 @@ export default function MapScreen() {
   const announcedStepRef     = useRef(-1);
   const isSpeechRef          = useRef(true);
   const startIsMyLocationRef = useRef(false);
+  const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
+  const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
 
   // ── Lokalizacja ───────────────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -110,12 +128,20 @@ export default function MapScreen() {
   const [selectedUser,       setSelectedUser]       = useState<User | null>(null);
   const [isSpeechEnabled,    setIsSpeechEnabled]    = useState(true);
   const [nearbyUsers,        setNearbyUsers]        = useState<User[]>([]);
-
+  const [saveRouteVisible,   setSaveRouteVisible]   = useState(false);
+  const [pinImages, setPinImages] = useState<Record<string, string>>({});
+  const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
   // ── Live / Ostrzeżenia ────────────────────────────────────
   const [isSharing,           setIsSharing]           = useState(false);
   const [isSubmittingWarning, setIsSubmittingWarning] = useState(false);
   const [selectedWarning,     setSelectedWarning]     = useState<LiveWarning | null>(null);
   const [currentUserId,       setCurrentUserId]       = useState<number | null>(null);
+  const [remainingRoutePoints, setRemainingRoutePoints] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
+
+  // ── Demo users ────────────────────────────────────────────
+  const [demoUsers, setDemoUsers] = useState<User[]>([]);
 
   const router = useRouter();
 
@@ -130,10 +156,35 @@ export default function MapScreen() {
     confirmWarning,
   } = useLiveMap(isSharing, userLocation, isSpeechEnabled);
 
+  // ── Hook budowania trasy ──────────────────────────────────
+  const {
+    isBuilding, pins, saving,
+    snapping, snappedRoute,
+    startBuilding, cancelBuilding,
+    addPin, removePin, finishPin,
+    snapToRoad,
+    totalDistance, saveRoute,
+  } = useRouteBuilder();
+  // ── Hook czas trasy ──────────────────────────────────
+  const {
+    isRunning:   timerRunning,
+    elapsedSec,
+    routeName:   timerRouteName,
+    startTimer,  stopTimer, resetTimer, formatElapsed,
+  } = useRouteTimer();
+
   const { onNavigationStart, onNavigationComplete, onNavigationCancel } = useNavigationPoints();
-  const { animateCameraSmooth, resetCamera }                            = useCameraAnimation(mapRef);
-  const { flushPendingKm }                                              = useBackgroundTracking(isSharing);
-  const { showNavigationNotification, dismissNavigationNotification }   = useNavigationNotification();
+  const { animateCameraSmooth, animateCameraLive, resetCamera } = useCameraAnimation(mapRef);
+  const { feed: feedDR, reset: resetDR, stop: stopDR } = useDeadReckoning({
+    onFrame: useCallback((pos: any, hdg: number) => {
+      if (!isNavigating) return;
+      animateCameraLive({ center: pos, pitch: NAV_PITCH, heading: hdg, zoom: NAV_ZOOM });
+    }, [isNavigating, animateCameraLive]),
+    frameInterval: 16,
+    stallTimeout:  2500,
+  });
+  const { flushPendingKm }                                            = useBackgroundTracking(isSharing);
+  const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
 
   // ── Google Directions ─────────────────────────────────────
   const { route: previewRoute, loading: previewLoading } = useGoogleDirections(
@@ -149,7 +200,7 @@ export default function MapScreen() {
     offRoute ? endLocation  : null,
   );
 
-  // ── Clustered warnings ────────────────────────────────────
+  // ── Clustered warnings ───────────────────────────────────��
   const clusteredWarnings = useMemo(
     () => clusterWarnings(warnings ?? []),
     [warnings],
@@ -183,6 +234,40 @@ export default function MapScreen() {
       setMyUsername(user.username ?? '');
     });
   }, []);
+
+  // useFocusEffect — odbierz trasę z profilu
+  useFocusEffect(useCallback(() => {
+    (async () => {
+      const raw = await AsyncStorage.getItem('nav_route');
+      if (!raw) return;
+      await AsyncStorage.removeItem('nav_route');
+      const data = JSON.parse(raw);
+      if (!data.points?.length) return;
+
+      const first = data.points[0];
+      const last  = data.points[data.points.length - 1];
+
+      setStartLocation({ latitude: first.latitude, longitude: first.longitude, name: 'Start trasy' });
+      setEndLocation({   latitude: last.latitude,  longitude: last.longitude,  name: data.routeName });
+
+      // Zapisz routeId żeby timer wiedział co mierzy
+      pendingRouteRef.current = { id: data.routeId, name: data.routeName };
+
+      Toast.show({ type: 'success', text1: '🗺️ TRASA ZAŁADOWANA', text2: data.routeName });
+    })();
+  }, []));
+
+  // Wyczyść obrazki gdy piny się zmieniają
+  useEffect(() => {
+    const pinIds = new Set(pins.map(p => p.id));
+    setPinImages(prev => {
+      const next: Record<string, string> = {};
+      Object.keys(prev).forEach(k => {
+        if (pinIds.has(k)) next[k] = prev[k];
+      });
+      return next;
+    });
+  }, [pins]);
 
   // ── Czyść obrazki usuniętych ostrzeżeń ───────────────────
   useEffect(() => {
@@ -245,21 +330,57 @@ export default function MapScreen() {
     if (!locationReady) return;
     (async () => {
       try {
+        locationSubRef.current?.remove();
         const sub = await Location.watchPositionAsync(
           {
             accuracy:         isNavigating ? Location.Accuracy.BestForNavigation : Location.Accuracy.Balanced,
-            timeInterval:     isNavigating ? 500  : 3000,
-            distanceInterval: isNavigating ? 3    : 10,
+            timeInterval:     isNavigating ? 200  : 2000,
+            distanceInterval: isNavigating ? 1    : 8,
           },
           (loc) => {
-            const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
-            const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+            const rawLat = loc.coords.latitude;
+            const rawLng = loc.coords.longitude;
+            const acc    = loc.coords.accuracy ?? 10;
+
+            let lat: number;
+            let lng: number;
+
+            if (isNavigating) {
+              lat = navLatFilter.filter(rawLat, acc);
+              lng = navLngFilter.filter(rawLng, acc);
+            } else {
+              lat = latFilter.filter(rawLat, acc);
+              lng = lngFilter.filter(rawLng, acc);
+            }
+
+            if (isNavigating) {
+              feedDR({ latitude: lat, longitude: lng }, loc.coords.speed ?? 0, loc.coords.heading ?? lastHeadingRef.current);
+              feedSpeedSample(loc.coords.speed);
+              if (lastNavLocRef.current) {
+                feedNavDistance(
+                  lastNavLocRef.current.latitude,
+                  lastNavLocRef.current.longitude,
+                  lat, lng,
+                );
+              }
+              lastNavLocRef.current = { latitude: lat, longitude: lng };
+            }
+
             setUserLocation({ latitude: lat, longitude: lng });
             setSpeed(loc.coords.speed);
-            const newH = loc.coords.heading ?? 0;
-            if (Math.abs(newH - lastHeadingRef.current) > 3) {
-              setHeading(newH);
-              lastHeadingRef.current = newH;
+
+            const speedKmh = (loc.coords.speed ?? 0) * 3.6;
+            const newH     = loc.coords.heading ?? lastHeadingRef.current;
+
+            if (speedKmh > 3 && newH >= 0) {
+              const diff           = newH - lastHeadingRef.current;
+              const normalizedDiff = ((diff + 540) % 360) - 180;
+              const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
+              const finalHeading   = ((smoothed % 360) + 360) % 360;
+              if (Math.abs(normalizedDiff) > 2) {
+                setHeading(finalHeading);
+                lastHeadingRef.current = finalHeading;
+              }
             }
           },
         );
@@ -272,9 +393,16 @@ export default function MapScreen() {
   // ── Logika nawigacji ──────────────────────────────────────
   useEffect(() => {
     if (!isNavigating || !userLocation || !navRoute?.steps?.length) return;
-    const steps = navRoute.steps;
-    const lat   = userLocation.latitude;
-    const lng   = userLocation.longitude;
+
+    const steps  = navRoute.steps;
+    const points = navRoute.points ?? [];
+
+    const snapped = points.length
+      ? snapToRoute(userLocation.latitude, userLocation.longitude, points, 35)
+      : { latitude: userLocation.latitude, longitude: userLocation.longitude };
+
+    const lat = snapped.latitude;
+    const lng = snapped.longitude;
 
     if (endLocation) {
       const distToEnd = haversineKm(lat, lng, endLocation.latitude, endLocation.longitude) * 1000;
@@ -290,27 +418,22 @@ export default function MapScreen() {
     if (steps[nextStep] && isSpeechRef.current) {
       const stepEnd       = steps[nextStep].end_location;
       const distToStepEnd = haversineKm(lat, lng, stepEnd.lat, stepEnd.lng) * 1000;
-      if (distToStepEnd < ANNOUNCE_M && announcedStepRef.current !== nextStep) {
+      const threshold     = distToStepEnd < 100 ? 100 : ANNOUNCE_M;
+      if (distToStepEnd < threshold && announcedStepRef.current !== nextStep) {
         announcedStepRef.current = nextStep;
-        speak(`Za ${Math.round(distToStepEnd)} metrów: ${cleanInstruction(steps[nextStep].html_instructions)}`);
+        const prefix = distToStepEnd < 100 ? 'Teraz' : `Za ${Math.round(distToStepEnd)} metrów`;
+        speak(`${prefix}: ${cleanInstruction(steps[nextStep].html_instructions)}`);
       }
     }
 
-    if (navRoute.points) {
-      const onRoad = isOnRoute(lat, lng, navRoute.points, REROUTE_THRESHOLD_M);
+    if (points.length) {
+      const onRoad = isOnRoute(lat, lng, points, REROUTE_THRESHOLD_M);
       if (!onRoad && !offRoute) {
         setOffRoute(true);
         clearTimeout(rerouteTimerRef.current);
         rerouteTimerRef.current = setTimeout(() => setOffRoute(false), 3000);
       }
     }
-
-    animateCameraSmooth({
-      center:  { latitude: lat, longitude: lng },
-      pitch:   NAV_PITCH,
-      heading: lastHeadingRef.current,
-      zoom:    NAV_ZOOM,
-    });
   }, [userLocation, isNavigating]);
 
   // ── Sync routeInfo ────────────────────────────────────────
@@ -380,11 +503,12 @@ export default function MapScreen() {
     Toast.show({ type: 'success', text1: 'CEL USTAWIONY', text2: selectedUser.name });
   }, [selectedUser, userLocation]);
 
-  const handleArrived = useCallback(() => {
+  const handleArrived = useCallback(async () => {
+    stopDR();
     setArrived(true);
     setIsNavigating(false);
     dismissNavigationNotification();
-    flushPendingKm();
+    flushPendingKm(true);
     Speech.stop().catch(() => {});
     speak('Dotarłeś do celu!');
     Toast.show({ type: 'success', text1: '🏁 DOTARŁEŚ DO CELU!', text2: endLocation?.name ?? '' });
@@ -392,6 +516,15 @@ export default function MapScreen() {
       onNavigationComplete(parseFloat(routeInfo.distance));
     }
     if (userLocation) resetCamera({ latitude: userLocation.latitude, longitude: userLocation.longitude });
+    if (timerRunning) {
+      const elapsed = await stopTimer();
+      Toast.show({
+        type:  'success',
+        text1: '🏁 TRASA UKOŃCZONA!',
+        text2: `Czas: ${formatElapsed(elapsed)}`,
+        visibilityTime: 5000,
+      });
+    }
     setTimeout(() => {
       setStartLocation(null);
       setEndLocation(null);
@@ -399,10 +532,15 @@ export default function MapScreen() {
       setArrived(false);
       setNavStartLoc(null);
     }, 3000);
-  }, [endLocation, userLocation, routeInfo, speak, resetCamera, onNavigationComplete]);
+  }, [endLocation, userLocation, routeInfo, speak, resetCamera, onNavigationComplete, timerRunning, stopTimer, formatElapsed]);
 
   const beginNavigation = useCallback(() => {
     if (!userLocation) return;
+    lastNavLocRef.current = null;
+    resetSpeedStats();
+    resetDR();
+    navLatFilter.reset();
+    navLngFilter.reset();
     startIsMyLocationRef.current = false;
     const navStart = { ...userLocation, name: 'Moja pozycja' };
     setIsNavigating(true);
@@ -416,18 +554,17 @@ export default function MapScreen() {
     if (routeInfo?.duration) {
       onNavigationStart(routeInfo.duration);
     }
+    if (pendingRouteRef.current) {
+      startTimer(pendingRouteRef.current.id, pendingRouteRef.current.name);
+      pendingRouteRef.current = null;
+    }
     mapRef.current?.animateCamera(
-      {
-        center:  { latitude: userLocation.latitude, longitude: userLocation.longitude },
-        pitch:   NAV_PITCH,
-        heading: lastHeadingRef.current,
-        zoom:    NAV_ZOOM,
-      },
+      { center: { latitude: userLocation.latitude, longitude: userLocation.longitude }, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
       { duration: 800 },
     );
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
     Toast.show({ type: 'success', text1: '🚗 NAWIGACJA ROZPOCZĘTA', text2: 'Dobrej drogi!' });
-  }, [userLocation, routeInfo, speak, onNavigationStart]);
+  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer]);
 
   const startNavigation = useCallback(() => {
     if (!endLocation) {
@@ -454,21 +591,8 @@ export default function MapScreen() {
         `Jesteś ${Math.round(distToStart)}m od punktu startowego.`,
         [
           { text: 'Anuluj', style: 'cancel' },
-          {
-            text: 'Nawiguj do startu',
-            onPress: () => {
-              setEndLocation(startLocation);
-              setStartLocation({ ...userLocation, name: 'Moja pozycja' });
-            },
-          },
-          {
-            text: 'Startuj z mojej pozycji',
-            onPress: () => {
-              setStartLocation({ ...userLocation, name: 'Moja pozycja' });
-              startIsMyLocationRef.current = true;
-              beginNavigation();
-            },
-          },
+          { text: 'Nawiguj do startu', onPress: () => { setEndLocation(startLocation); setStartLocation({ ...userLocation, name: 'Moja pozycja' }); } },
+          { text: 'Startuj z mojej pozycji', onPress: () => { setStartLocation({ ...userLocation, name: 'Moja pozycja' }); startIsMyLocationRef.current = true; beginNavigation(); } },
         ],
       );
       return;
@@ -477,21 +601,29 @@ export default function MapScreen() {
   }, [startLocation, endLocation, userLocation, beginNavigation]);
 
   const stopNavigation = useCallback(() => {
+    stopDR();
     setIsNavigating(false);
     setOffRoute(false);
     setArrived(false);
     setNavStartLoc(null);
     dismissNavigationNotification();
+    setRouteEndpointImages({});
+
     Speech.stop().catch(() => {});
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
+
+    if (timerRunning) resetTimer();
+    pendingRouteRef.current = null;
+     
     if (userLocation) {
       startIsMyLocationRef.current = true;
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
       resetCamera({ latitude: userLocation.latitude, longitude: userLocation.longitude });
     }
+    flushPendingKm(true);
     Toast.show({ type: 'info', text1: 'NAWIGACJA ZATRZYMANA' });
-  }, [userLocation, resetCamera, onNavigationCancel]);
+  }, [userLocation, resetCamera, onNavigationCancel, flushPendingKm, timerRunning, resetTimer]);
 
   const handleReset = useCallback(() => {
     if (isNavigating) stopNavigation();
@@ -500,18 +632,14 @@ export default function MapScreen() {
     setEndLocation(null);
     setRouteInfo(null);
     setCurrentStep(0);
+    setRouteEndpointImages({});
   }, [isNavigating, stopNavigation]);
 
   const handleCenterOnUser = useCallback(() => {
     if (!userLocation) return;
     if (isNavigating) {
       mapRef.current?.animateCamera(
-        {
-          center:  { latitude: userLocation.latitude, longitude: userLocation.longitude },
-          pitch:   NAV_PITCH,
-          heading: lastHeadingRef.current,
-          zoom:    NAV_ZOOM,
-        },
+        { center: { latitude: userLocation.latitude, longitude: userLocation.longitude }, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
         { duration: 500 },
       );
     } else {
@@ -541,10 +669,7 @@ export default function MapScreen() {
   const handleViewProfile = useCallback(() => {
     if (!selectedUser) return;
     setUserInfoVisible(false);
-    router.push({
-      pathname: '/profile/[userId]',
-      params:   { userId: selectedUser.id },
-    });
+    router.push({ pathname: '/profile/[userId]', params: { userId: selectedUser.id } });
   }, [selectedUser, router]);
 
   const handleWarningCapture = useCallback((id: number, uri: string) => {
@@ -556,29 +681,19 @@ export default function MapScreen() {
     if (!userLocation) return [];
     return nearbyUsers.filter(u => {
       if (u.isFriend) return true;
-      return calculateDistance(
-        userLocation.latitude, userLocation.longitude,
-        u.latitude, u.longitude,
-      ) <= MAX_NEARBY_USERS_DISTANCE;
+      return calculateDistance(userLocation.latitude, userLocation.longitude, u.latitude, u.longitude) <= MAX_NEARBY_USERS_DISTANCE;
     });
   }, [userLocation, nearbyUsers]);
 
   useEffect(() => {
     if (!userLocation) return;
-    if (!isSharing) {
-      setNearbyUsers([]);
-      return;
-    }
+    if (!isSharing) { setNearbyUsers([]); return; }
     const mapped = liveUsers
       .filter(u => String(u.id) !== String(currentUserId))
       .map(u => ({
-        id:        String(u.id),
-        name:      u.username,
-        latitude:  u.lat,
-        longitude: u.lng,
-        avatar:    u.avatarUrl ?? '🚗',
-        status:    'Online' as const,
-        isFriend:  false,
+        id: String(u.id), name: u.username,
+        latitude: u.lat, longitude: u.lng,
+        avatar: u.avatarUrl ?? '🚗', status: 'Online' as const, isFriend: false,
       }));
     setNearbyUsers(mapped);
   }, [liveUsers, currentUserId, userLocation, isSharing]);
@@ -587,19 +702,55 @@ export default function MapScreen() {
   const activeRoute = isNavigating ? navRoute : previewRoute;
   const activeSteps = navRoute?.steps ?? previewRoute?.steps ?? [];
 
-  const remainingRoutePoints = useMemo(() => {
-    if (!activeRoute?.points?.length) return [];
-    if (!isNavigating || !userLocation) return activeRoute.points;
-    const idx = findClosestPointIndex(
+  // const remainingRoutePoints = useMemo(() => {
+  //   if (!activeRoute?.points?.length) return [];
+  //   if (!isNavigating || !userLocation) return activeRoute.points;
+  //   const idx = findClosestPointIndex(userLocation.latitude, userLocation.longitude, activeRoute.points);
+  //   return [
+  //     { latitude: userLocation.latitude, longitude: userLocation.longitude },
+  //     ...activeRoute.points.slice(idx),
+  //   ];
+  // }, [isNavigating, activeRoute, userLocation?.latitude, userLocation?.longitude]);
+
+  // Aktualizuj linię przy każdej zmianie pozycji
+  useEffect(() => {
+    const points = activeRoute?.points;
+    if (!points?.length) {
+      setRemainingRoutePoints([]);
+      return;
+    }
+
+    if (!isNavigating || !userLocation) {
+      setRemainingRoutePoints(points);
+      return;
+    }
+
+    // Użyj snap-to-road żeby pozycja była na trasie
+    const snapped = snapToRoute(
       userLocation.latitude,
       userLocation.longitude,
-      activeRoute.points,
+      points,
+      35,
     );
-    return [
-      { latitude: userLocation.latitude, longitude: userLocation.longitude },
-      ...activeRoute.points.slice(idx),
-    ];
-  }, [isNavigating, activeRoute, userLocation?.latitude, userLocation?.longitude]);
+
+    const idx = findClosestPointIndex(
+      snapped.latitude,
+      snapped.longitude,
+      points,
+    );
+
+    const ahead = points.slice(idx + 1);
+
+    setRemainingRoutePoints([
+      { latitude: snapped.latitude, longitude: snapped.longitude },
+      ...ahead,
+    ]);
+  }, [
+    userLocation?.latitude,   // ← aktualizuj przy każdej zmianie GPS
+    userLocation?.longitude,
+    isNavigating,
+    activeRoute,              // ← i przy reroutingu
+  ]);
 
   // ── Send location ─────────────────────────────────────────
   useEffect(() => {
@@ -609,17 +760,10 @@ export default function MapScreen() {
 
   // ── Navigation notification ───────────────────────────────
   useEffect(() => {
-    if (!isNavigating) {
-      dismissNavigationNotification();
-      return;
-    }
+    if (!isNavigating) { dismissNavigationNotification(); return; }
     const stepData = navRoute?.steps?.[currentStep];
     if (!stepData) return;
-    showNavigationNotification(
-      stepData,
-      routeInfo?.distance ?? '',
-      routeInfo?.durationText ?? '',
-    );
+    showNavigationNotification(stepData, routeInfo?.distance ?? '', routeInfo?.durationText ?? '');
   }, [currentStep, isNavigating, navRoute]);
 
   // ── Android Auto ──────────────────────────────────────────
@@ -659,9 +803,7 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (!UsersModule || !endLocation) return;
-    UsersModule.saveDestinationForAuto?.(
-      endLocation.latitude, endLocation.longitude, endLocation.name ?? 'Cel'
-    );
+    UsersModule.saveDestinationForAuto?.(endLocation.latitude, endLocation.longitude, endLocation.name ?? 'Cel');
   }, [endLocation]);
 
   useEffect(() => {
@@ -678,13 +820,17 @@ export default function MapScreen() {
   useEffect(() => {
     if (!UsersModule) return;
     UsersModule.saveUsersForAuto?.(JSON.stringify(
-      visibleUsers.map(u => ({
-        id: u.id, name: u.name,
-        latitude: u.latitude, longitude: u.longitude,
-        status: u.status, isFriend: u.isFriend,
-      }))
+      visibleUsers.map(u => ({ id: u.id, name: u.name, latitude: u.latitude, longitude: u.longitude, status: u.status, isFriend: u.isFriend }))
     ));
   }, [visibleUsers]);
+
+  useDemoUsers(
+    locationReady && !isNavigating && !isSharing,
+    useCallback((users) => setDemoUsers(users), []),
+    userLocation?.latitude,
+    userLocation?.longitude,
+    100,
+  );
 
   // ─────────────────────────────────────────────────────────
   // RENDER
@@ -709,10 +855,57 @@ export default function MapScreen() {
 
   const currentStepData = activeSteps[currentStep];
 
+  // Punkty do wyświetlenia dystansu w banerze
+  const bannerDistPoints = snappedRoute.length > 0
+    ? snappedRoute
+    : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
+
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+
+        {/* Timer trasy — pokazuje się gdy nawigujemy po zapisanej trasie */}
+        {isNavigating && timerRunning && (
+          <View style={{
+            position: 'absolute',
+            bottom: Platform.OS === 'ios' ? 110 : 90,
+            alignSelf: 'center',
+            flexDirection: 'row', alignItems: 'center', gap: 10,
+            backgroundColor: '#111',
+            borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10,
+            borderWidth: 1, borderColor: '#e3383540',
+            shadowColor: '#e33835', shadowOpacity: 0.3,
+            shadowOffset: { width: 0, height: 0 }, shadowRadius: 10,
+            elevation: 8, zIndex: 25,
+          }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#e33835' }} />
+            <View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff50', letterSpacing: 2 }}>
+                {timerRouteName.toUpperCase()}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '700', letterSpacing: 2 }}>
+                {formatElapsed(elapsedSec)}
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="timer-outline" size={20} color="#e33835" />
+          </View>
+        )}
+
+        {pendingRouteRef.current && !isNavigating && (
+          <>
+            <RouteEndpointRenderer
+              type="start"
+              label={startLocation?.name ?? 'Start'}
+              onCapture={uri => setRouteEndpointImages(prev => ({ ...prev, start: uri }))}
+            />
+            <RouteEndpointRenderer
+              type="end"
+              label={endLocation?.name ?? 'Koniec'}
+              onCapture={uri => setRouteEndpointImages(prev => ({ ...prev, end: uri }))}
+            />
+          </>
+        )}
 
         {/* ── Renderery poza MapView ── */}
         {userLocation && visibleUsers.map(user =>
@@ -720,10 +913,7 @@ export default function MapScreen() {
             <MarkerRenderer
               key={`renderer_${user.id}`}
               user={user}
-              distance={calculateDistance(
-                userLocation.latitude, userLocation.longitude,
-                user.latitude, user.longitude,
-              )}
+              distance={calculateDistance(userLocation.latitude, userLocation.longitude, user.latitude, user.longitude)}
               onCapture={uri => setMarkerImages(prev => ({ ...prev, [user.id]: uri }))}
             />
           ) : null
@@ -738,7 +928,6 @@ export default function MapScreen() {
           />
         )}
 
-        {/* WarningMarkerRenderer — po jednym na każde ostrzeżenie */}
         {clusteredWarnings.map(w => (
           <WarningMarkerRenderer
             key={`wrenderer_${w.id}_${w.confirmCount}`}
@@ -746,6 +935,57 @@ export default function MapScreen() {
             onCapture={handleWarningCapture}
           />
         ))}
+
+        {/* ── Renderery pinów trasy ── */}
+        {isBuilding && pins.map((pin, index) => (
+          <RoutePinRenderer
+            key={`pinrender_${pin.id}_${index}_${pins.length}`}
+            index={index}
+            total={pins.length}
+            label={pin.label}
+            onCapture={uri => setPinImages(prev => ({ ...prev, [pin.id]: uri }))}
+          />
+        ))}
+
+        {/* ── BANER TWORZENIA TRASY — nad mapą ── */}
+        {isBuilding && (
+          <View style={{
+            position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
+            backgroundColor: '#e33835',
+            paddingTop:        Platform.OS === 'ios' ? 54 : 36,
+            paddingBottom:     14,
+            paddingHorizontal: 16,
+            flexDirection: 'row', alignItems: 'center', gap: 10,
+            shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.6, shadowRadius: 14, elevation: 14,
+          }}>
+            <MaterialCommunityIcons name="map-marker-path" size={22} color="#fff" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', letterSpacing: 2, fontWeight: '700' }}>
+                TWORZENIE TRASY
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff90', marginTop: 3 }}>
+                {pins.length === 0
+                  ? 'Dotknij mapę aby dodać punkt startowy'
+                  : pins.length === 1
+                  ? 'Dodaj kolejny punkt lub cel trasy'
+                  : `${pins.length} pkt · ${totalDistance(bannerDistPoints).toFixed(1)} km · dotknij pin aby usunąć`
+                }
+              </Text>
+            </View>
+            <View style={{
+              backgroundColor: '#ffffff25', borderRadius: 20,
+              paddingHorizontal: 12, paddingVertical: 5, minWidth: 32, alignItems: 'center',
+            }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '900' }}>
+                {pins.length}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={cancelBuilding} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <MaterialIcons name="close" size={24} color="#ffffff90" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── MAPA ── */}
         <MapView
@@ -762,6 +1002,11 @@ export default function MapScreen() {
           showsMyLocationButton={false}
           showsCompass={false}
           toolbarEnabled={false}
+          onPress={(e) => {
+            if (!isBuilding) return;
+            const { latitude, longitude } = e.nativeEvent.coordinate;
+            addPin(latitude, longitude);
+          }}
         >
           {/* Mój marker */}
           {userLocation && (
@@ -793,7 +1038,7 @@ export default function MapScreen() {
           )}
 
           {/* Marker startu */}
-          {startLocation && !isNavigating && (
+          {startLocation && !isNavigating && !isBuilding && (
             <Marker
               coordinate={{ latitude: startLocation.latitude, longitude: startLocation.longitude }}
               anchor={{ x: 0.5, y: 1 }}
@@ -809,21 +1054,79 @@ export default function MapScreen() {
             </Marker>
           )}
 
+          {/* ── Piny trasy — kolorowe z etykietą ── */}
+    
+          {/* ── Piny trasy ── */}
+          {isBuilding && pins.map((pin, index) => (
+            <Marker
+              key={`pin_${pin.id}`}
+              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+              onPress={(e) => { e.stopPropagation(); removePin(pin.id); }}
+              onCalloutPress={() => removePin(pin.id)}
+              zIndex={200 + index}
+              title={pin.label}
+              description="🗑️ Dotknij aby usunąć"
+              {...(pinImages[pin.id]
+                ? { image: { uri: pinImages[pin.id] } }
+                : { pinColor: index === 0 ? '#4de926' : index === pins.length - 1 ? '#e33835' : '#ff922b' }
+              )}
+            />
+          ))}
+          {/* ── Linia snapped (po dopasowaniu do drogi) ── */}
+          {isBuilding && snappedRoute.length > 1 && (
+            <>
+              <Polyline
+                coordinates={snappedRoute}
+                strokeColor="#00000070"
+                strokeWidth={10}
+                geodesic lineCap="round" lineJoin="round"
+              />
+              <Polyline
+                coordinates={snappedRoute}
+                strokeColor="#e33835"
+                strokeWidth={6}
+                geodesic lineCap="round" lineJoin="round"
+              />
+              <Polyline
+                coordinates={snappedRoute}
+                strokeColor="#ffffff20"
+                strokeWidth={3}
+                geodesic lineCap="round" lineJoin="round"
+              />
+            </>
+          )}
+
+          {/* ── Linia przerywana (przed snap) ── */}
+          {isBuilding && pins.length > 1 && snappedRoute.length === 0 && (
+            <>
+              <Polyline
+                coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
+                strokeColor="#00000080"
+                strokeWidth={8}
+              />
+              <Polyline
+                coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
+                strokeColor="#ff922b"
+                strokeWidth={4}
+                lineDashPattern={[12, 7]}
+              />
+            </>
+          )}
+
           {/* Użytkownicy */}
           {!isNavigating && userLocation && visibleUsers.map(user => (
             <UserCarMarker
               key={`user_${user.id}`}
               user={user}
-              distance={calculateDistance(
-                userLocation.latitude, userLocation.longitude,
-                user.latitude, user.longitude,
-              )}
+              distance={calculateDistance(userLocation.latitude, userLocation.longitude, user.latitude, user.longitude)}
               onPress={() => handleUserMarkerPress(user)}
               imageUri={markerImages[user.id] ?? null}
             />
           ))}
 
-          {/* Trasa */}
+          {/* Trasa nawigacji / podglądu */}
           {remainingRoutePoints.length > 1 && !arrived && (
             <>
               <Polyline
@@ -849,7 +1152,27 @@ export default function MapScreen() {
             </>
           )}
 
-          {/* ── Ostrzeżenia live — przez image z ViewShot ── */}
+           {/* Markery w MapView — zastąp istniejące markery start/koniec gdy trasa  */}
+          {startLocation && !isNavigating && routeEndpointImages.start && (
+            <Marker
+              coordinate={{ latitude: startLocation.latitude, longitude: startLocation.longitude }}
+              anchor={{ x: 0.5, y: 1 }}
+              zIndex={99}
+              tracksViewChanges={false}
+              image={{ uri: routeEndpointImages.start }}
+            />
+          )}
+          {endLocation && !arrived && routeEndpointImages.end && (
+            <Marker
+              coordinate={{ latitude: endLocation.latitude, longitude: endLocation.longitude }}
+              anchor={{ x: 0.5, y: 1 }}
+              zIndex={100}
+              tracksViewChanges={false}
+              image={{ uri: routeEndpointImages.end }}
+            />
+          )}
+
+          {/* Ostrzeżenia */}
           {clusteredWarnings
             .filter(w => warningImages[w.id] && !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
             .map(w => (
@@ -897,8 +1220,7 @@ export default function MapScreen() {
         {/* Off-route banner */}
         {isNavigating && offRoute && (
           <View style={{
-            position: 'absolute',
-            top: Platform.OS === 'ios' ? 160 : 145,
+            position: 'absolute', top: Platform.OS === 'ios' ? 160 : 145,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -920,11 +1242,38 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Przyciski boczne */}
+        {/* ── Przyciski boczne ── */}
         <View style={[
           styles.rightBottomControls,
           !isNavigating && { bottom: startLocation && endLocation && routeInfo ? 248 : 188 },
         ]}>
+          {/* Przycisk tworzenia trasy */}
+          <TouchableOpacity
+            style={[
+              styles.sideBtn,
+              isBuilding
+                ? { backgroundColor: '#db1e1e8e', borderColor: '#000000c7' }
+                : { backgroundColor: '#0c0c0cd2', borderColor: '#fa07079a' },
+            ]}
+            onPress={() => {
+              if (isBuilding) {
+                if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
+                else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
+              } else {
+                startBuilding();
+                Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
+              }
+            }}
+            activeOpacity={0.75}
+          >
+            <MaterialCommunityIcons
+              name={isBuilding ? 'check' : 'map-marker-path'}
+              size={20}
+              color={isBuilding ? '#000000' : '#ffffff70'}
+            />
+          </TouchableOpacity>
+
+          {/* Sharing */}
           <TouchableOpacity
             style={[
               styles.sideBtn,
@@ -944,17 +1293,13 @@ export default function MapScreen() {
 
           {connected && isSharing && (
             <View style={{
-              position: 'absolute',
-              top: Platform.OS === 'ios' ? 54 : 38,
-              right: 12,
+              position: 'absolute', top: Platform.OS === 'ios' ? 54 : 38, right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
               borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,
             }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#4de926' }} />
-              <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2 }}>
-                LIVE
-              </Text>
+              <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2 }}>LIVE</Text>
             </View>
           )}
 
@@ -985,7 +1330,7 @@ export default function MapScreen() {
         </View>
 
         {/* Search bar */}
-        {!isNavigating && (
+        {!isNavigating && !isBuilding && (
           <TouchableOpacity style={styles.topSearchButton} onPress={() => setSearchModalVisible(true)} activeOpacity={0.8}>
             <MaterialIcons name="search" size={18} color="#e33835ce" />
             <Text style={styles.topSearchButtonText}>
@@ -1005,7 +1350,7 @@ export default function MapScreen() {
         )}
 
         {/* Bottom sheet */}
-        {!isNavigating && startLocation && endLocation && (
+        {!isNavigating && !isBuilding && startLocation && endLocation && (
           <View style={styles.bottomSheet}>
             <View style={styles.expandHandle} />
             <View style={styles.infoPreview}>
@@ -1028,7 +1373,6 @@ export default function MapScreen() {
                   </View>
                 </View>
               </View>
-
               <View style={styles.routeStatsRow}>
                 <View style={styles.statItem}>
                   <View style={styles.statIcon}>
@@ -1056,7 +1400,6 @@ export default function MapScreen() {
                   </View>
                 </View>
               </View>
-
               <View style={styles.bottomSheetButtons}>
                 <TouchableOpacity
                   style={[styles.navigateButton, (previewLoading || !routeInfo) && { opacity: 0.5 }]}
@@ -1084,7 +1427,7 @@ export default function MapScreen() {
         )}
 
         {/* Empty state */}
-        {!isNavigating && !startLocation && !endLocation && !searchModalVisible && (
+        {!isNavigating && !isBuilding && !startLocation && !endLocation && !searchModalVisible && (
           <View style={styles.emptyStateContainer}>
             <View style={styles.emptyState}>
               <MaterialIcons name="location-on" size={40} color="#e33835ce" />
@@ -1129,6 +1472,22 @@ export default function MapScreen() {
           onClose={() => setSelectedWarning(null)}
           onConfirm={confirmWarning}
           currentUserId={currentUserId ?? undefined}
+        />
+        <SaveRouteModal
+          visible={saveRouteVisible}
+          pinCount={pins.length}
+          distanceKm={totalDistance(snappedRoute.length > 0 ? snappedRoute : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude })))}
+          saving={saving}
+          snapping={snapping}
+          isSnapped={snappedRoute.length > 0}
+          onSnapToRoad={() => snapToRoad(pins)}
+          onCancel={() => setSaveRouteVisible(false)}
+          onSave={async (name, desc, isPublic) => {
+            const result = await saveRoute(name, desc, isPublic);
+            setSaveRouteVisible(false);
+            if (result) Toast.show({ type: 'success', text1: '✅ TRASA ZAPISANA', text2: name });
+            else        Toast.show({ type: 'error',   text1: 'Błąd zapisu trasy' });
+          }}
         />
       </View>
     </>

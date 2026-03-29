@@ -15,6 +15,10 @@ import { SpotDetailModal } from '../spots/SpotDetailModal';
 import type { Achievement } from '../../hooks/useAchievements';
 import type { UserProfile, Car, SpotPreview } from '../../constants/profile';
 import type { Spot } from '../../constants/spotTypes';
+import RouteCard          from './RouteCard';
+import type { MyRoute }   from '../../hooks/useMyRoutes';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { RoutesListModal } from '../modals/RoutesListModal';
 
 // ── Kolejność rzadkości ───────────────────────────────────
 const RARITY_ORDER: Record<string, number> = {
@@ -60,6 +64,11 @@ interface Props {
   initials:         string;
   joinedLabel:      string;
   avatarUploading?: boolean;
+  routes:         MyRoute[];
+  routesLoading:  boolean;
+  onNavigateRoute: (route: MyRoute) => void;
+  onShareRoute:    (route: MyRoute) => void;
+  onDeleteRoute:  (id: number) => void;
   onRefresh:        () => void;
   onSettings:       () => void;
   onEdit:           () => void;
@@ -84,18 +93,23 @@ function toSpot(s: SpotPreview): Spot {
     likesCount:    s.likesCount    ?? 0,
     commentsCount: s.commentsCount ?? 0,
     isLiked:       s.isLiked       ?? false,
+    
   };
 }
 
 export default function ProfileView({
   profile, cars, achievements, spots, loading,
   isOwner, initials, joinedLabel, avatarUploading = false,
+  routes, routesLoading, onDeleteRoute,
   onRefresh, onSettings, onEdit, onAddCar,
-  onCarPress, onBack,
+  onCarPress, onBack,onNavigateRoute, onShareRoute,
 }: Props) {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [localSpots,   setLocalSpots]   = useState<SpotPreview[]>([]);
   const [showAllAchs,  setShowAllAchs]  = useState(false);
+  const [routesModalVisible, setRoutesModalVisible] = useState(false);
+  const ROUTES_PREVIEW = 0;
+  const [showAllRoutes, setShowAllRoutes] = useState(false);
 
   React.useEffect(() => { setLocalSpots(spots); }, [spots]);
 
@@ -317,6 +331,46 @@ export default function ProfileView({
         </>
       )}
 
+      {/* ── MOJE TRASY ── */}
+      <View style={[styles.sectionHeader, { marginTop: 25 }]}>
+        <Text style={styles.sectionTitle}>
+          {isOwner ? 'MOJE TRASY' : 'TRASY'}
+        </Text>
+        <Text style={styles.achCount}>{routes.length}</Text>
+      </View>
+
+      {routes.length === 0 ? (
+        <Text style={styles.emptyText}>
+          {routesLoading ? 'Ładowanie...' : 'Brak zapisanych tras'}
+        </Text>
+      ) : (
+        <>
+          {routes.slice(0, ROUTES_PREVIEW).map(route => (
+            <RouteCard
+              key={route.id}
+              route={route}
+              isOwner={isOwner}
+              onDelete={onDeleteRoute}
+              onNavigate={onNavigateRoute}
+            />
+          ))}
+
+          {routes.length > ROUTES_PREVIEW && (
+            <TouchableOpacity
+              style={styles.showAllBtn}
+              onPress={() => setRoutesModalVisible(true)}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons name="map-marker-path" size={14} color="#e33835" style={{ marginRight: 6 }} />
+              <Text style={styles.showAllBtnText}>
+                {`ZOBACZ WSZYSTKIE TRASY (${routes.length})`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+
+
       {/* SPOTY */}
       <Text style={[styles.sectionTitle, { marginTop: 25, marginBottom: 15 }]}>
         {isOwner ? 'MOJE SPOTY' : 'SPOTY'}
@@ -345,6 +399,15 @@ export default function ProfileView({
         onClose={() => setSelectedSpot(null)}
         getDistance={() => 0}
         onLikeToggle={handleLikeToggle}
+      />
+      <RoutesListModal
+        visible={routesModalVisible}
+        routes={routes}
+        onClose={() => setRoutesModalVisible(false)}
+        onNavigate={onNavigateRoute}
+        onShare={onShareRoute}
+        onDelete={onDeleteRoute}
+        isOwner={isOwner}
       />
     </ScrollView>
   );

@@ -46,6 +46,7 @@ type User = {
   weeklyDistance:  number;
   dailyDistance: number;
   topSpeed: number;
+  avgSpeed:    string | number;
   avgMaxSpeed: string | number;
   totalRides: number;
   monthlyRides: number;
@@ -259,7 +260,7 @@ export default function HomeScreen() {
             <Text style={styles.speedUnit}>km/h</Text>
           </View>
           <View style={styles.speedRight}>
-            <MiniStat label="ŚREDNIA" value={`${user.avgMaxSpeed} km/h`} />
+            <MiniStat label="ŚREDNIA" value={`${user.avgSpeed} km/h`} />
             <MiniStat label="TRASY" value={String(user.totalRides ?? 0)} />
             <MiniStat label="MIESIĘCZNIE" value={String(user.monthlyRides ?? 0)} />
           </View>

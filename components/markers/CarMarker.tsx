@@ -7,9 +7,10 @@ interface CarMarkerProps {
   longitude: number;
   heading:   number;
   imageUri:  string | null;
+  zIndex?:   number;
 }
 
-export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => {
+export const CarMarker = memo(({ latitude, longitude, heading, imageUri, zIndex }: CarMarkerProps) => {
   if (!imageUri) {
     // Zanim obrazek będzie gotowy — niewidoczny placeholder
     return (
@@ -18,8 +19,9 @@ export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMa
         anchor={{ x: 0.5, y: 0.5 }}
         flat={true}
         rotation={heading}
-        zIndex={1000}
+        zIndex={zIndex}
         tracksViewChanges={false}
+        
       >
         <View style={{ width: 48, height: 48, backgroundColor: 'transparent' }} />
       </Marker>

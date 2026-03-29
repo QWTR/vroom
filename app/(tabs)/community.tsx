@@ -31,7 +31,7 @@ const communityMenu = [
   {
     label: 'CHAT',
     desc: 'Dodawaj znajomych, twórz grupy.',
-    route: '/Community/Frends/friends',
+    route: '/Community/chats/chats',
     icon: 'account-group-outline',
     iconLib: 'material',
     accent: '#e33835',

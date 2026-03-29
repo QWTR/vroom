@@ -1,7 +1,6 @@
 import React, { memo } from 'react';
 import { View, Text, Image } from 'react-native';
 import { Marker } from 'react-native-maps';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 
 interface UserCarMarkerProps {
@@ -9,6 +8,8 @@ interface UserCarMarkerProps {
   distance: number;
   onPress:  () => void;
   imageUri: string | null;
+  // czy to demo user — wtedy śledź zmiany pozycji
+  isDemo?:  boolean;
 }
 
 const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
@@ -38,7 +39,6 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
 
   return (
     <View style={{ alignItems: 'center' }}>
-      {/* Dymek z nazwą */}
       <View style={{
         backgroundColor: '#111111ee', borderRadius: 10,
         paddingHorizontal: 8, paddingVertical: 5, marginBottom: 3,
@@ -57,17 +57,13 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
           {distance.toFixed(1)} km
         </Text>
       </View>
-
-      {/* Ikona/avatar */}
       <View style={{
         width: 36, height: 36, borderRadius: 18,
         backgroundColor: bgColor, borderWidth: 1.5, borderColor,
         alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
       }}>
-        <AvatarOrInitials avatar={user.avatar} name={user.name} color={color} size={22} />
+        <AvatarOrInitials avatar={user.avatar ?? ''} name={user.name} color={color} size={22} />
       </View>
-
-      {/* Nóżka */}
       <View style={{
         width: 0, height: 0,
         borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
@@ -78,7 +74,13 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
   );
 });
 
-export const UserCarMarker = memo(({ user, distance, onPress, imageUri }: UserCarMarkerProps) => {
+export const UserCarMarker = memo(({
+  user, distance, onPress, imageUri, isDemo = false,
+}: UserCarMarkerProps) => {
+  // Demo: tracksViewChanges=true żeby marker się przesuwał
+  // Live: tracksViewChanges=false dla wydajności (pozycja rzadko się zmienia)
+  const tracks = isDemo;
+
   if (!imageUri) {
     return (
       <Marker
@@ -86,7 +88,7 @@ export const UserCarMarker = memo(({ user, distance, onPress, imageUri }: UserCa
         onPress={onPress}
         anchor={{ x: 0.5, y: 1 }}
         zIndex={999}
-        tracksViewChanges={false}
+        tracksViewChanges={tracks}
       >
         <FallbackMarker user={user} distance={distance} />
       </Marker>
@@ -99,7 +101,7 @@ export const UserCarMarker = memo(({ user, distance, onPress, imageUri }: UserCa
       onPress={onPress}
       anchor={{ x: 0.5, y: 1 }}
       zIndex={999}
-      tracksViewChanges={false}
+      tracksViewChanges={tracks}
       image={{ uri: imageUri }}
     />
   );

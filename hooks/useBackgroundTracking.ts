@@ -1,56 +1,105 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location      from 'expo-location';
 import * as TaskManager   from 'expo-task-manager';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
-export const NAV_NOTIFICATION_ID      = 'navigation-live';
 
-// ── Rejestracja taska — POZA komponentem ─────────────────────────────────────
+// ── In-memory speed tracking (foreground) ────────────────────────────────────
+let _speedSamples: number[] = [];
+let _speedMax     = 0;
+let _navDistKm    = 0;
+
+export function feedSpeedSample(speedMs: number | null) {
+  if (speedMs == null || speedMs < 0) return;
+  const kmh = speedMs * 3.6;
+  if (kmh < 1) return;
+  _speedSamples.push(kmh);
+  if (kmh > _speedMax) _speedMax = kmh;
+}
+
+export function feedNavDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const d = haversineKm(lat1, lon1, lat2, lon2);
+  if (d > 0 && d < 0.5) _navDistKm += d;
+}
+
+export function resetSpeedStats() {
+  _speedSamples = [];
+  _speedMax     = 0;
+  _navDistKm    = 0;
+}
+
+export function getSpeedDebug() {
+  return { samples: _speedSamples.length, max: _speedMax, distKm: _navDistKm };
+}
+
+// ── Wywołaj RAZ — czyści i zwraca ─────────────────────────────────────────────
+function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: number } {
+  const avg = _speedSamples.length > 0
+    ? _speedSamples.reduce((a, b) => a + b, 0) / _speedSamples.length
+    : 0;
+  const result = {
+    avgSpeed: Math.round(avg       * 10) / 10,
+    maxSpeed: Math.round(_speedMax * 10) / 10,
+    distKm:   Math.round(_navDistKm * 1000) / 1000,
+  };
+  // Wyczyść po pobraniu
+  _speedSamples = [];
+  _speedMax     = 0;
+  _navDistKm    = 0;
+  return result;
+}
+
+// ── BG task ───────────────────────────────────────────────────────────────────
+const BG_SPEED_SAMPLES_KEY = 'nav_speed_samples';
+const BG_SPEED_MAX_KEY     = 'nav_speed_max';
+const BG_PENDING_KM_KEY    = 'bg_pending_km';
+const BG_LAST_LOC_KEY      = 'bg_last_location';
+
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
-  if (error) { console.log('BG task error:', error); return; }
-  if (!data) return;
-
-  const { locations } = data;
-  const location = locations?.[0];
+  if (error || !data) return;
+  const location = data.locations?.[0];
   if (!location) return;
 
   try {
     const token = await AsyncStorage.getItem('token');
     if (!token) return;
 
-    const { latitude, longitude } = location.coords;
+    const { latitude, longitude, speed } = location.coords;
 
     await fetch(`${API_URL}/api/live/location`, {
       method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization:  `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ lat: latitude, lng: longitude, shareLocation: true }),
     });
 
-    const lastRaw = await AsyncStorage.getItem('bg_last_location');
-    if (lastRaw) {
-      const last    = JSON.parse(lastRaw);
-      const distKm  = haversineKm(last.latitude, last.longitude, latitude, longitude);
-
-      if (distKm > 0.01) {
-        const todayKey = `bg_distance_${new Date().toDateString()}`;
-        const existing = parseFloat(await AsyncStorage.getItem(todayKey) ?? '0');
-        await AsyncStorage.setItem(todayKey, String(existing + distKm));
-
-        const pending = parseFloat(await AsyncStorage.getItem('bg_pending_km') ?? '0');
-        await AsyncStorage.setItem('bg_pending_km', String(pending + distKm));
-      }
+    if (speed != null && speed * 3.6 >= 1) {
+      const kmh        = speed * 3.6;
+      const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
+      const samples    = samplesRaw ? JSON.parse(samplesRaw) : [];
+      const maxRaw     = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
+      const curMax     = parseFloat(maxRaw ?? '0');
+      samples.push(kmh);
+      await Promise.all([
+        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(samples)),
+        AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(kmh > curMax ? kmh : curMax)),
+      ]);
     }
 
-    await AsyncStorage.setItem('bg_last_location', JSON.stringify({ latitude, longitude }));
+    const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
+    if (lastRaw) {
+      const last   = JSON.parse(lastRaw);
+      const distKm = haversineKm(last.latitude, last.longitude, latitude, longitude);
+      if (distKm > 0.01 && distKm < 0.5) {
+        const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
+        await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + distKm));
+      }
+    }
+    await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({ latitude, longitude }));
   } catch (e) {
-    console.log('BG task fetch error:', e);
+    console.log('BG task error:', e);
   }
 });
 
@@ -58,7 +107,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
+  const a    =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
     Math.cos((lat2 * Math.PI) / 180) *
@@ -66,68 +115,77 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
+// ── Hook ─────────────────────────────────────────────────────���────────────────
 export function useBackgroundTracking(isSharing: boolean) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
-  // Śledź AppState
   useEffect(() => {
-    const sub = AppState.addEventListener('change', next => {
-      appStateRef.current = next;
-    });
+    const sub = AppState.addEventListener('change', s => { appStateRef.current = s; });
     return () => sub.remove();
   }, []);
 
-  // ── Flush pending km ──────────────────────────────────────────────────
-  const flushPendingKm = useCallback(async () => {
+  const flushPendingKm = useCallback(async (fromNavigation = false) => {
     try {
-      const pendingStr = await AsyncStorage.getItem('bg_pending_km');
-      const pending    = parseFloat(pendingStr ?? '0');
-      if (pending < 0.1) return;
-
       const token = await AsyncStorage.getItem('token');
-      if (!token) return;
+      if (!token) {
+        console.log('❌ flushPendingKm — brak tokenu');
+        return;
+      }
 
-      await fetch(`${API_URL}/api/live/distance`, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization:  `Bearer ${token}`,
-        },
-        body: JSON.stringify({ km: pending }),
-      });
+      if (fromNavigation) {
+        // ── Pobierz dane RAZ — flushSpeedStatsSync czyści po pobraniu ──
+        const { avgSpeed, maxSpeed, distKm } = flushSpeedStatsSync();
 
-      await AsyncStorage.setItem('bg_pending_km', '0');
-      console.log(`📊 Flushed ${pending.toFixed(2)} km`);
+        // Uzupełnij dystansem z BG jeśli apka była w tle
+        const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
+        const bgPending    = parseFloat(bgPendingStr ?? '0');
+        const finalDist    = Math.max(distKm, bgPending);
+
+        // Wyczyść BG accumulatory
+        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+        await Promise.all([
+          AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+          AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+        ]);
+
+
+        const response = await fetch(`${API_URL}/api/activity/save`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ distance: finalDist, maxSpeed, avgSpeed, duration: null }),
+        });
+
+        const json = await response.json();
+
+      } else {
+        // ── Tylko sharing bez nawigacji ───────────────────────────────
+        const pendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
+        const pending    = parseFloat(pendingStr ?? '0');
+        if (pending < 0.1) return;
+
+        await fetch(`${API_URL}/api/live/distance`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ km: pending }),
+        });
+        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+      }
     } catch (e) {
       console.log('flushPendingKm error:', e);
     }
   }, []);
 
-  // ── Start background tracking ─────────────────────────────────────────
   const startBackgroundTracking = useCallback(async () => {
-    // ✅ KLUCZOWE: nie startuj gdy apka jest w tle
-    if (appStateRef.current !== 'active') {
-      console.log('⚠️ Apka w tle — pomijam startLocationUpdatesAsync');
-      return;
-    }
-
+    if (appStateRef.current !== 'active') return;
     const bgEnabled = await AsyncStorage.getItem('setting_background_tracking');
     if (bgEnabled === 'false') return;
-
     try {
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg !== 'granted') return;
-
       const { status: bg } = await Location.requestBackgroundPermissionsAsync();
       if (bg !== 'granted') return;
-
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-      if (isRegistered) {
-        console.log('ℹ️ BG task już działa');
-        return;
-      }
-
+      if (isRegistered) return;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy:         Location.Accuracy.Balanced,
         distanceInterval: 50,
@@ -139,35 +197,24 @@ export function useBackgroundTracking(isSharing: boolean) {
           notificationColor: '#e33835',
         },
       });
-
-      console.log('✅ Background tracking started');
     } catch (e: any) {
-      // Złap błąd cicho — nie crashuj apki
       console.log('⚠️ startBackgroundTracking error:', e?.message ?? e);
     }
   }, []);
 
-  // ── Stop background tracking ──────────────────────────────────────────
   const stopBackgroundTracking = useCallback(async () => {
     try {
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-      if (isRegistered) {
-        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        console.log('🛑 Background tracking stopped');
-      }
+      if (isRegistered) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
     } catch (e: any) {
       console.log('⚠️ stopBackgroundTracking error:', e?.message ?? e);
     }
-    await flushPendingKm();
+    await flushPendingKm(false);
   }, [flushPendingKm]);
 
-  // ── Reaguj na isSharing ───────────────────────────────────────────────
   useEffect(() => {
     if (isSharing) {
-      // Małe opóźnienie żeby AppState zdążył się zaktualizować
-      const timer = setTimeout(() => {
-        startBackgroundTracking();
-      }, 300);
+      const timer = setTimeout(() => startBackgroundTracking(), 300);
       return () => clearTimeout(timer);
     } else {
       stopBackgroundTracking();
