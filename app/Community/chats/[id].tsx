@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  Image, StyleSheet, StatusBar, KeyboardAvoidingView,
+  Image, StatusBar, KeyboardAvoidingView,
   Platform, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,6 +9,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { ConversationInfoSheet } from '../../../components/chat/ConversationInfoSheet';
 import { RouteMessageCard }      from '../../../components/chat/RouteMessageCard';
 
@@ -49,7 +50,6 @@ interface ConvInfo {
   participants: ChatUser[];
 }
 
-// ── Helper — wykryj wiadomość z trasą ────────────────────
 function parseRouteMessage(content: string) {
   try {
     const parsed = JSON.parse(content);
@@ -62,6 +62,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router  = useRouter();
   const convId  = parseInt(id);
+  const { theme, isDark } = useTheme();
 
   const [messages,    setMessages]    = useState<Message[]>([]);
   const [conv,        setConv]        = useState<ConvInfo | null>(null);
@@ -81,7 +82,6 @@ export default function ChatScreen() {
   const tokenRef    = useRef<string>('');
   const typingTimer = useRef<any>(null);
 
-  // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const raw   = await AsyncStorage.getItem('user');
@@ -101,9 +101,7 @@ export default function ChatScreen() {
 
       socket.on('chat:typing', ({ isTyping, username }: any) => {
         setTyping(prev =>
-          isTyping
-            ? [...new Set([...prev, username])]
-            : prev.filter(u => u !== username)
+          isTyping ? [...new Set([...prev, username])] : prev.filter(u => u !== username)
         );
       });
 
@@ -117,23 +115,17 @@ export default function ChatScreen() {
     };
   }, [convId]);
 
-  // ── Fetch conv ───────────────────────────────────────────
   const fetchConv = async (token: string) => {
     try {
-      const r = await fetch(`${API}/conversations/${convId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await fetch(`${API}/conversations/${convId}`, { headers: { Authorization: `Bearer ${token}` } });
       setConv(await r.json());
     } catch (e) { console.error('fetchConv:', e); }
   };
 
-  // ── Fetch messages ───────────────────────────────────────
   const fetchMessages = async (token: string) => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/conversations/${convId}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await fetch(`${API}/conversations/${convId}/messages`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       setMessages(d.messages ?? []);
       setNextCursor(d.nextCursor);
@@ -142,7 +134,6 @@ export default function ChatScreen() {
     finally { setLoading(false); }
   };
 
-  // ── Load more ────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
@@ -158,16 +149,11 @@ export default function ChatScreen() {
     finally { setLoadingMore(false); }
   }, [convId, nextCursor, loadingMore]);
 
-  // ── Send ─────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!text.trim() && !photos.length) return;
-
     const t = text.trim();
     const p = [...photos];
-    setText('');
-    setPhotos([]);
-    setReplyTo(null);
-    setInputHeight(INPUT_MIN_HEIGHT);
+    setText(''); setPhotos([]); setReplyTo(null); setInputHeight(INPUT_MIN_HEIGHT);
 
     const form = new FormData();
     if (t)           form.append('content', t);
@@ -178,14 +164,13 @@ export default function ChatScreen() {
 
     try {
       await fetch(`${API}/conversations/${convId}/messages`, {
-        method:  'POST',
+        method: 'POST',
         headers: { Authorization: `Bearer ${tokenRef.current}` },
-        body:    form,
+        body: form,
       });
     } catch (e) { console.error('sendMessage:', e); }
   }, [text, photos, replyTo, convId]);
 
-  // ── Typing ───────────────────────────────────────────────
   const emitTyping = useCallback(() => {
     socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: true });
     clearTimeout(typingTimer.current);
@@ -194,73 +179,53 @@ export default function ChatScreen() {
     }, 2000);
   }, [convId]);
 
-  // ── Pick photo ───────────────────────────────────────────
   const handlePickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
+      allowsMultipleSelection: true, quality: 0.8,
     });
     if (!r.canceled) {
       setPhotos(prev => [...prev, ...r.assets.map(a => a.uri)].slice(0, 4));
     }
   };
 
-  // ── Nawiguj po trasie z wiadomości ───────────────────────
   const handleNavigateRoute = useCallback(async (data: any) => {
     await AsyncStorage.setItem('nav_route', JSON.stringify({
-      routeId:   data.routeId,
-      routeName: data.name,
-      points:    data.points,
-      distance:  data.distance,
+      routeId: data.routeId, routeName: data.name,
+      points: data.points, distance: data.distance,
     }));
     router.push('/(tabs)/map');
   }, [router]);
 
-  // ── Render message ───────────────────────────────────────
   const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const isMe       = item.senderId === myId;
-    const prevMsg    = messages[index - 1];
-    const nextMsg    = messages[index + 1];
-    const isFirst    = !prevMsg || prevMsg.senderId !== item.senderId;
-    const isLast     = !nextMsg || nextMsg.senderId !== item.senderId;
+    const isMe    = item.senderId === myId;
+    const prevMsg = messages[index - 1];
+    const nextMsg = messages[index + 1];
+    const isFirst = !prevMsg || prevMsg.senderId !== item.senderId;
+    const isLast  = !nextMsg || nextMsg.senderId !== item.senderId;
     const showAvatar = !isMe && isLast;
     const showName   = !isMe && isFirst && (conv?.isGroup ?? false);
 
-    const bubbleRadius = 18;
-    const tightRadius  = 5;
-    const bubbleStyle  = isMe
-      ? {
-          borderTopLeftRadius:     bubbleRadius,
-          borderBottomLeftRadius:  bubbleRadius,
-          borderTopRightRadius:    isFirst ? bubbleRadius : tightRadius,
-          borderBottomRightRadius: isLast  ? bubbleRadius : tightRadius,
-        }
-      : {
-          borderTopRightRadius:    bubbleRadius,
-          borderBottomRightRadius: bubbleRadius,
-          borderTopLeftRadius:     isFirst ? bubbleRadius : tightRadius,
-          borderBottomLeftRadius:  isLast  ? bubbleRadius : tightRadius,
-        };
+    const R = 18, T = 5;
+    const bubbleStyle = isMe
+      ? { borderTopLeftRadius: R, borderBottomLeftRadius: R, borderTopRightRadius: isFirst ? R : T, borderBottomRightRadius: isLast ? R : T }
+      : { borderTopRightRadius: R, borderBottomRightRadius: R, borderTopLeftRadius: isFirst ? R : T, borderBottomLeftRadius: isLast ? R : T };
 
-    // Sprawdź czy to wiadomość z trasą
     const routeData = parseRouteMessage(item.content);
 
     return (
       <View style={[
-        s.msgRow,
-        isMe ? s.msgRowMe : s.msgRowOther,
-        { marginBottom: isLast ? 8 : 2 },
+        { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 1, marginBottom: isLast ? 8 : 2 },
+        isMe ? { justifyContent: 'flex-end', paddingLeft: 48 } : { justifyContent: 'flex-start', paddingRight: 48 },
       ]}>
-        {/* Avatar — tylko dla innych */}
         {!isMe && (
-          <View style={s.avatarSlot}>
+          <View style={{ width: 30, alignItems: 'center', justifyContent: 'flex-end' }}>
             {showAvatar && (
               item.sender.avatarUrl
-                ? <Image source={{ uri: item.sender.avatarUrl }} style={s.msgAvatar} />
+                ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: 28, height: 28, borderRadius: 14 }} />
                 : (
-                  <View style={[s.msgAvatar, s.avatarFallback]}>
-                    <Text style={s.avatarInitials}>
+                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.surface2, borderWidth: 1.5, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                       {item.sender.username?.slice(0, 2).toUpperCase()}
                     </Text>
                   </View>
@@ -269,142 +234,113 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* Jeśli to karta trasy — renderuj osobno bez bąbelka */}
         {routeData ? (
-          <View style={isMe ? s.routeWrapMe : s.routeWrapOther}>
-            {showName && (
-              <Text style={s.senderName}>{item.sender.username}</Text>
-            )}
-            <RouteMessageCard
-              data={routeData}
-              isMe={isMe}
-              onNavigate={handleNavigateRoute}
-            />
-            <Text style={[s.msgTime, isMe ? s.msgTimeMe : s.msgTimeOther, { marginTop: 2 }]}>
-              {new Date(item.createdAt).toLocaleTimeString('pl', {
-                hour: '2-digit', minute: '2-digit',
-              })}
+          <View style={isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }}>
+            {showName && <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>{item.sender.username}</Text>}
+            <RouteMessageCard data={routeData} isMe={isMe} onNavigate={handleNavigateRoute} />
+            <Text style={{ fontSize: 9, alignSelf: 'flex-end', marginTop: 2, color: isMe ? '#ffffff60' : theme.textDim }}>
+              {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
         ) : (
-          /* Zwykła wiadomość */
           <TouchableOpacity
-            style={[s.bubble, isMe ? s.bubbleMe : s.bubbleOther, bubbleStyle]}
+            style={[{
+              maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4,
+              ...(isMe
+                ? { backgroundColor: theme.primary }
+                : { backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }),
+            }, bubbleStyle]}
             onLongPress={() => setReplyTo(item)}
             activeOpacity={0.85}
           >
-            {showName && (
-              <Text style={s.senderName}>{item.sender.username}</Text>
-            )}
+            {showName && <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>{item.sender.username}</Text>}
 
-            {/* Reply preview */}
             {item.replyTo && (
-              <View style={[s.replyPreview, isMe && s.replyPreviewMe]}>
-                <Text style={s.replyPreviewName}>{item.replyTo.sender.username}</Text>
-                <Text style={s.replyPreviewText} numberOfLines={1}>
-                  {item.replyTo.content || '📷 Zdjęcie'}
-                </Text>
+              <View style={{ backgroundColor: '#00000020', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: isMe ? '#ffffff90' : '#ffffff60', paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4, gap: 2 }}>
+                <Text style={{ color: '#ffffffaa', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{item.replyTo.sender.username}</Text>
+                <Text style={{ color: '#ffffff70', fontSize: 11 }} numberOfLines={1}>{item.replyTo.content || '📷 Zdjęcie'}</Text>
               </View>
             )}
 
-            {/* Zdjęcia */}
             {item.photos?.length > 0 && (
-              <View style={s.photosGrid}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {item.photos.map((uri, i) => (
-                  <Image key={i} source={{ uri }} style={[
-                    s.msgPhoto,
-                    item.photos.length === 1 && s.msgPhotoSingle,
-                  ]} />
+                  <Image key={i} source={{ uri }} style={item.photos.length === 1 ? { width: 200, height: 150, borderRadius: 12 } : { width: 120, height: 90, borderRadius: 8 }} />
                 ))}
               </View>
             )}
 
-            {/* Tekst */}
             {!!item.content && (
-              <Text style={[s.msgText, isMe ? s.msgTextMe : s.msgTextOther]}>
-                {item.content}
-              </Text>
+              <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>{item.content}</Text>
             )}
 
-            {/* Czas */}
-            <Text style={[s.msgTime, isMe ? s.msgTimeMe : s.msgTimeOther]}>
-              {new Date(item.createdAt).toLocaleTimeString('pl', {
-                hour: '2-digit', minute: '2-digit',
-              })}
+            <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: isMe ? '#ffffff60' : theme.textDim }}>
+              {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </TouchableOpacity>
         )}
       </View>
     );
-  }, [myId, messages, conv, handleNavigateRoute]);
+  }, [myId, messages, conv, handleNavigateRoute, theme]);
 
-  // ── Helpers ──────────────────────────────────────────────
-  const typingText = typing.length === 1
-    ? `${typing[0]} pisze...`
-    : typing.length > 1
-    ? `${typing.slice(0, 2).join(', ')} piszą...`
-    : null;
+  const typingText   = typing.length === 1 ? `${typing[0]} pisze...` : typing.length > 1 ? `${typing.slice(0, 2).join(', ')} piszą...` : null;
+  const convName     = conv?.isGroup ? conv.name : conv?.participants?.find(p => p.id !== myId)?.username ?? '...';
+  const convAvatar   = conv?.isGroup ? conv.avatarUrl : conv?.participants?.find(p => p.id !== myId)?.avatarUrl ?? null;
+  const convOnline   = !conv?.isGroup ? (conv?.participants?.find(p => p.id !== myId)?.online ?? false) : false;
 
-  const convName = conv?.isGroup
-    ? conv.name
-    : conv?.participants?.find(p => p.id !== myId)?.username ?? '...';
-
-  const convAvatar = conv?.isGroup
-    ? conv.avatarUrl
-    : conv?.participants?.find(p => p.id !== myId)?.avatarUrl ?? null;
-
-  const convOnline = !conv?.isGroup
-    ? (conv?.participants?.find(p => p.id !== myId)?.online ?? false)
-    : false;
-
-  // ─────────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView
-      style={s.container}
+      style={{ flex: 1, backgroundColor: theme.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#0f0f0f" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.surface} />
 
-      {/* ── HEADER ── */}
-      <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={20} color="#fff" />
+      {/* HEADER */}
+      <View style={{
+        flexDirection: 'row', alignItems: 'center',
+        paddingTop: Platform.OS === 'ios' ? 56 : 44,
+        paddingBottom: 12, paddingHorizontal: 12,
+        backgroundColor: theme.surface,
+        borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10,
+      }}>
+        <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }} onPress={() => router.back()}>
+          <Feather name="arrow-left" size={20} color={theme.text} />
         </TouchableOpacity>
 
-        <TouchableOpacity style={s.headerCenter} onPress={() => setInfoVisible(true)} activeOpacity={0.75}>
+        <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => setInfoVisible(true)} activeOpacity={0.75}>
           {convAvatar
-            ? <Image source={{ uri: convAvatar }} style={s.headerAvatar} />
+            ? <Image source={{ uri: convAvatar }} style={{ width: 40, height: 40, borderRadius: 20 }} />
             : (
-              <View style={[s.headerAvatar, s.avatarFallback]}>
-                <Text style={s.avatarInitials}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1.5, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
                   {convName?.slice(0, 2).toUpperCase() ?? '??'}
                 </Text>
               </View>
             )
           }
-          <View style={s.headerInfo}>
-            <Text style={s.headerName} numberOfLines={1}>{convName}</Text>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>{convName}</Text>
             {typingText
-              ? <Text style={s.headerTyping}>{typingText}</Text>
+              ? <Text style={{ color: theme.primary, fontSize: 10, fontStyle: 'italic' }}>{typingText}</Text>
               : (
-                <View style={s.headerStatusRow}>
-                  <View style={[s.headerStatusDot, { backgroundColor: convOnline ? '#4de926' : '#ffffff25' }]} />
-                  <Text style={s.headerStatus}>{convOnline ? 'Online' : 'Offline'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: convOnline ? '#4de926' : theme.textDim }} />
+                  <Text style={{ color: theme.textDim, fontSize: 10 }}>{convOnline ? 'Online' : 'Offline'}</Text>
                 </View>
               )
             }
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={s.infoBtn} onPress={() => setInfoVisible(true)}>
-          <Feather name="info" size={18} color="#ffffff50" />
+        <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }} onPress={() => setInfoVisible(true)}>
+          <Feather name="info" size={18} color={theme.textDim} />
         </TouchableOpacity>
       </View>
 
-      {/* ── WIADOMOŚCI ── */}
+      {/* WIADOMOŚCI */}
       {loading
-        ? <ActivityIndicator style={{ flex: 1 }} color="#e33835" />
+        ? <ActivityIndicator style={{ flex: 1 }} color={theme.primary} />
         : (
           <FlatList
             ref={listRef}
@@ -413,63 +349,44 @@ export default function ChatScreen() {
             renderItem={renderMessage}
             onEndReached={loadMore}
             onEndReachedThreshold={0.15}
-            ListHeaderComponent={
-              loadingMore
-                ? <ActivityIndicator color="#e33835" style={{ marginVertical: 10 }} />
-                : null
-            }
+            ListHeaderComponent={loadingMore ? <ActivityIndicator color={theme.primary} style={{ marginVertical: 10 }} /> : null}
             ListEmptyComponent={
-              <View style={s.emptyMsg}>
-                <MaterialCommunityIcons name="chat-outline" size={40} color="#ffffff10" />
-                <Text style={s.emptyMsgText}>Brak wiadomości</Text>
-                <Text style={s.emptyMsgSub}>Napisz pierwszą wiadomość!</Text>
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 80 }}>
+                <MaterialCommunityIcons name="chat-outline" size={40} color={theme.border3} />
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>Brak wiadomości</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Napisz pierwszą wiadomość!</Text>
               </View>
             }
-            contentContainerStyle={{
-              paddingHorizontal: 12,
-              paddingTop: 12,
-              paddingBottom: 8,
-              flexGrow: 1,
-            }}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8, flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() => {
-              listRef.current?.scrollToEnd({ animated: false });
-            }}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           />
         )
       }
 
-      {/* ── BOTTOM ── */}
-      <View style={s.bottomWrap}>
+      {/* BOTTOM */}
+      <View style={{ backgroundColor: theme.surface, borderTopWidth: 1, borderTopColor: theme.border, paddingBottom: Platform.OS === 'ios' ? 28 : 10 }}>
 
-        {/* Reply bar */}
         {replyTo && (
-          <View style={s.replyBar}>
-            <View style={s.replyBarLine} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
+            <View style={{ width: 3, height: '100%', backgroundColor: theme.primary, borderRadius: 2 }} />
             <View style={{ flex: 1 }}>
-              <Text style={s.replyBarName}>{replyTo.sender.username}</Text>
-              <Text style={s.replyBarText} numberOfLines={1}>
-                {replyTo.content || '📷 Zdjęcie'}
-              </Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>{replyTo.sender.username}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>{replyTo.content || '📷 Zdjęcie'}</Text>
             </View>
-            <TouchableOpacity
-              style={s.replyBarClose}
-              onPress={() => setReplyTo(null)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="x" size={16} color="#ffffff50" />
+            <TouchableOpacity style={{ padding: 4 }} onPress={() => setReplyTo(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color={theme.textDim} />
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Podgląd zdjęć */}
         {photos.length > 0 && (
-          <View style={s.photosPreviewRow}>
+          <View style={{ flexDirection: 'row', paddingHorizontal: 14, paddingTop: 10, gap: 8 }}>
             {photos.map((uri, i) => (
-              <View key={i} style={s.photoPreviewWrap}>
-                <Image source={{ uri }} style={s.photoPreview} />
+              <View key={i} style={{ position: 'relative' }}>
+                <Image source={{ uri }} style={{ width: 58, height: 58, borderRadius: 10 }} />
                 <TouchableOpacity
-                  style={s.photoRemoveBtn}
+                  style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' }}
                   onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
                 >
                   <Feather name="x" size={10} color="#fff" />
@@ -479,14 +396,19 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* Input row */}
-        <View style={s.inputRow}>
-          <TouchableOpacity style={s.iconBtn} onPress={handlePickPhoto}>
-            <Feather name="image" size={21} color="#ffffff40" />
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 10, gap: 8 }}>
+          <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }} onPress={handlePickPhoto}>
+            <Feather name="image" size={21} color={theme.textDim} />
           </TouchableOpacity>
 
           <TextInput
-            style={[s.input, { height: Math.max(INPUT_MIN_HEIGHT, inputHeight) }]}
+            style={{
+              flex: 1, color: theme.text, fontSize: 14, lineHeight: 20,
+              backgroundColor: theme.surface2, borderRadius: 20,
+              paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
+              borderWidth: 1, borderColor: theme.border,
+              height: Math.max(INPUT_MIN_HEIGHT, inputHeight),
+            }}
             value={text}
             onChangeText={t => { setText(t); emitTyping(); }}
             onContentSizeChange={e => {
@@ -494,14 +416,14 @@ export default function ChatScreen() {
               setInputHeight(Math.min(h, INPUT_MAX_HEIGHT));
             }}
             placeholder="Napisz wiadomość..."
-            placeholderTextColor="#ffffff25"
-            multiline
-            maxLength={2000}
+            placeholderTextColor={theme.textDim}
+            multiline maxLength={2000}
             scrollEnabled={inputHeight >= INPUT_MAX_HEIGHT}
           />
 
           <TouchableOpacity
-            style={[s.sendBtn, (!text.trim() && !photos.length) && s.sendBtnOff]}
+            style={[{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.primary },
+              (!text.trim() && !photos.length) && { backgroundColor: `${theme.primary}30` }]}
             onPress={handleSend}
             disabled={!text.trim() && !photos.length}
           >
@@ -520,100 +442,8 @@ export default function ChatScreen() {
         participants={conv?.participants ?? []}
         myId={myId}
         onViewProfile={userId => router.push(`/profile/${userId}` as any)}
-        onConvUpdated={(name, avatar) => {
-          setConv(prev => prev ? { ...prev, name, avatarUrl: avatar } : prev);
-        }}
+        onConvUpdated={(name, avatar) => setConv(prev => prev ? { ...prev, name, avatarUrl: avatar } : prev)}
       />
     </KeyboardAvoidingView>
   );
 }
-
-const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#0a0a0a' },
-  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  infoBtn:      { width: 36, height: 36, borderRadius: 18, backgroundColor: '#ffffff08', alignItems: 'center', justifyContent: 'center' },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 56 : 44,
-    paddingBottom: 12, paddingHorizontal: 12,
-    backgroundColor: '#0f0f0f',
-    borderBottomWidth: 1, borderBottomColor: '#ffffff08', gap: 10,
-  },
-  backBtn:     { width: 36, height: 36, borderRadius: 18, backgroundColor: '#ffffff08', alignItems: 'center', justifyContent: 'center' },
-  headerAvatar:{ width: 40, height: 40, borderRadius: 20 },
-  avatarFallback: { backgroundColor: '#1a1a1a', borderWidth: 1.5, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { color: '#e33835', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' },
-  headerInfo:     { flex: 1, gap: 3 },
-  headerName:     { color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' },
-  headerTyping:   { color: '#e33835', fontSize: 10, fontStyle: 'italic' },
-  headerStatusRow:{ flexDirection: 'row', alignItems: 'center', gap: 5 },
-  headerStatusDot:{ width: 7, height: 7, borderRadius: 4 },
-  headerStatus:   { color: '#ffffff35', fontSize: 10 },
-
-  msgRow:      { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 1 },
-  msgRowMe:    { justifyContent: 'flex-end',   paddingLeft:  48 },
-  msgRowOther: { justifyContent: 'flex-start', paddingRight: 48 },
-
-  avatarSlot: { width: 30, alignItems: 'center', justifyContent: 'flex-end' },
-  msgAvatar:  { width: 28, height: 28, borderRadius: 14 },
-
-  // Wrappery dla karty trasy
-  routeWrapMe:    { alignItems: 'flex-end' },
-  routeWrapOther: { alignItems: 'flex-start' },
-
-  bubble:      { maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4 },
-  bubbleMe:    { backgroundColor: '#e33835' },
-  bubbleOther: { backgroundColor: '#1c1c1c', borderWidth: 1, borderColor: '#ffffff0a' },
-
-  senderName: { color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 },
-
-  msgText:      { fontSize: 14, lineHeight: 20 },
-  msgTextMe:    { color: '#fff' },
-  msgTextOther: { color: '#ffffffcc' },
-
-  msgTime:      { fontSize: 9, alignSelf: 'flex-end' },
-  msgTimeMe:    { color: '#ffffff60' },
-  msgTimeOther: { color: '#ffffff35' },
-
-  replyPreview:     { backgroundColor: '#00000020', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#ffffff60', paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4, gap: 2 },
-  replyPreviewMe:   { borderLeftColor: '#ffffff90' },
-  replyPreviewName: { color: '#ffffffaa', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' },
-  replyPreviewText: { color: '#ffffff70', fontSize: 11 },
-
-  photosGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  msgPhoto:       { width: 120, height: 90,  borderRadius: 8 },
-  msgPhotoSingle: { width: 200, height: 150, borderRadius: 12 },
-
-  emptyMsg:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 80 },
-  emptyMsgText: { color: '#ffffff20', fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' },
-  emptyMsgSub:  { color: '#ffffff15', fontFamily: 'Orbitron', fontSize: 9 },
-
-  bottomWrap: {
-    backgroundColor: '#0f0f0f',
-    borderTopWidth: 1, borderTopColor: '#ffffff08',
-    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-  },
-
-  replyBar:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ffffff08', gap: 10 },
-  replyBarLine:  { width: 3, height: '100%', backgroundColor: '#e33835', borderRadius: 2 },
-  replyBarName:  { color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 },
-  replyBarText:  { color: '#ffffff50', fontSize: 11 },
-  replyBarClose: { padding: 4 },
-
-  photosPreviewRow: { flexDirection: 'row', paddingHorizontal: 14, paddingTop: 10, gap: 8 },
-  photoPreviewWrap: { position: 'relative' },
-  photoPreview:     { width: 58, height: 58, borderRadius: 10 },
-  photoRemoveBtn:   { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center' },
-
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 10, gap: 8 },
-  iconBtn:  { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  input: {
-    flex: 1, color: '#fff', fontSize: 14, lineHeight: 20,
-    backgroundColor: '#1a1a1a', borderRadius: 20,
-    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
-    borderWidth: 1, borderColor: '#ffffff0f',
-  },
-  sendBtn:    { width: 40, height: 40, borderRadius: 20, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center' },
-  sendBtnOff: { backgroundColor: '#e3383530' },
-});

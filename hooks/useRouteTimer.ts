@@ -1,50 +1,49 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '../constants/mapConfig';
+import { useState, useRef, useCallback } from 'react';
+
+interface TimerState {
+  isRunning:  boolean;
+  elapsedSec: number;
+  routeName:  string;
+  routeId:    number | null;
+}
 
 export function useRouteTimer() {
-  const [isRunning,    setIsRunning]    = useState(false);
-  const [elapsedSec,   setElapsedSec]   = useState(0);
-  const [routeId,      setRouteId]      = useState<number | null>(null);
-  const [routeName,    setRouteName]    = useState('');
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
+  const [state, setState] = useState<TimerState>({
+    isRunning:  false,
+    elapsedSec: 0,
+    routeName:  '',
+    routeId:    null,
+  });
 
-  const startTimer = useCallback((id: number, name: string) => {
-    setRouteId(id);
-    setRouteName(name);
-    setElapsedSec(0);
-    startTimeRef.current = Date.now();
-    setIsRunning(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startRef    = useRef<number>(0);
+
+  const startTimer = useCallback((routeId: number, routeName: string) => {
+    startRef.current = Date.now();
+    intervalRef.current && clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      setState(prev => ({
+        ...prev,
+        elapsedSec: Math.floor((Date.now() - startRef.current) / 1000),
+      }));
+    }, 1000);
+    setState({ isRunning: true, elapsedSec: 0, routeName, routeId });
   }, []);
 
-  const stopTimer = useCallback(async (): Promise<number> => {
-    setIsRunning(false);
-    const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000);
-    setElapsedSec(elapsed);
-    if (intervalRef.current) clearInterval(intervalRef.current);
+  // Zwraca finalny czas w sekundach
+  const stopTimer = useCallback((): number => {
+    intervalRef.current && clearInterval(intervalRef.current);
+    const elapsed = Math.floor((Date.now() - startRef.current) / 1000);
+    setState(prev => ({ ...prev, isRunning: false, elapsedSec: elapsed }));
     return elapsed;
   }, []);
 
   const resetTimer = useCallback(() => {
-    setIsRunning(false);
-    setElapsedSec(0);
-    setRouteId(null);
-    setRouteName('');
-    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current && clearInterval(intervalRef.current);
+    setState({ isRunning: false, elapsedSec: 0, routeName: '', routeId: null });
   }, []);
 
-  // Tick
-  useEffect(() => {
-    if (!isRunning) return;
-    intervalRef.current = setInterval(() => {
-      setElapsedSec(Math.round((Date.now() - startTimeRef.current) / 1000));
-    }, 1000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isRunning]);
-
-  // Formatowanie
-  const formatElapsed = useCallback((sec: number) => {
+  const formatElapsed = useCallback((sec: number): string => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
@@ -53,7 +52,13 @@ export function useRouteTimer() {
   }, []);
 
   return {
-    isRunning, elapsedSec, routeId, routeName,
-    startTimer, stopTimer, resetTimer, formatElapsed,
+    isRunning:  state.isRunning,
+    elapsedSec: state.elapsedSec,
+    routeName:  state.routeName,
+    routeId:    state.routeId,      // ← nowe pole
+    startTimer,
+    stopTimer,
+    resetTimer,
+    formatElapsed,
   };
 }

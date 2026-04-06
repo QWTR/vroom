@@ -1,13 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, KeyboardAvoidingView, Platform,
+  ScrollView, KeyboardAvoidingView, Platform,
   ActivityIndicator, Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
 import { SpotCategory, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface AddSpotModalProps {
   visible: boolean;
@@ -16,19 +17,17 @@ interface AddSpotModalProps {
 }
 
 export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => {
-  const [name, setName]                 = useState('');
-  const [description, setDescription]   = useState('');
-  const [category, setCategory]         = useState<SpotCategory>('Fotki');
-  const [photos, setPhotos]             = useState<string[]>([]);
-  const [picking, setPicking]           = useState(false); // ✅ trwa wybieranie z galerii
-  const [loading, setLoading]           = useState(false);
+  const { theme } = useTheme();
+  const [name,        setName]        = useState('');
+  const [description, setDescription] = useState('');
+  const [category,    setCategory]    = useState<SpotCategory>('Fotki');
+  const [photos,      setPhotos]      = useState<string[]>([]);
+  const [picking,     setPicking]     = useState(false);
+  const [loading,     setLoading]     = useState(false);
 
   const handleClose = useCallback(() => {
     if (loading || picking) return;
-    setName('');
-    setDescription('');
-    setCategory('Fotki');
-    setPhotos([]);
+    setName(''); setDescription(''); setCategory('Fotki'); setPhotos([]);
     onClose();
   }, [loading, picking, onClose]);
 
@@ -38,23 +37,18 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
       Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Zezwól na dostęp do zdjęć' });
       return;
     }
-
-    // ✅ Pokaż "Ładowanie..." NA PRZYCISKU zanim otworzymy picker
     setPicking(true);
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'] as any,
       allowsMultipleSelection: true,
       quality: 0.7,
       selectionLimit: 5,
     });
-
     if (!result.canceled) {
-      const uris = result.assets.map(a => a.uri);
+      const uris    = result.assets.map(a => a.uri);
       const limited = uris.slice(0, 5 - photos.length);
       setPhotos(prev => [...prev, ...limited].slice(0, 5));
     }
-
     setPicking(false);
   }, [photos]);
 
@@ -70,91 +64,83 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
     setLoading(true);
     try {
       const ok = await onAdd(name, description, category, photos);
-      if (ok) {
-        setName('');
-        setDescription('');
-        setCategory('Fotki');
-        setPhotos([]);
-        onClose();
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (ok) { setName(''); setDescription(''); setCategory('Fotki'); setPhotos([]); onClose(); }
+    } finally { setLoading(false); }
   }, [name, description, category, photos, onAdd, onClose]);
 
   const isBlocked = loading || picking;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.overlay}>
-        <View style={s.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' }}>
 
-          <View style={s.header}>
-            <Text style={s.title}>📍 NOWY SPOT</Text>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', letterSpacing: 1 }}>📍 NOWY SPOT</Text>
             <TouchableOpacity onPress={handleClose} disabled={isBlocked} activeOpacity={0.8}>
-              <MaterialIcons name="close" size={24} color={isBlocked ? '#ffffff20' : '#ffffff80'} />
+              <MaterialIcons name="close" size={24} color={isBlocked ? theme.textFaint : theme.textDim} />
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-            <Text style={s.label}>KATEGORIA</Text>
-            <View style={s.categoryRow}>
+            {/* Kategoria */}
+            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>KATEGORIA</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {CATEGORIES.map(cat => (
                 <TouchableOpacity
                   key={cat}
-                  style={[s.chip, category === cat && { backgroundColor: CATEGORY_COLORS[cat] + '33', borderColor: CATEGORY_COLORS[cat] }]}
-                  onPress={() => setCategory(cat)}
-                  activeOpacity={0.8}
-                  disabled={isBlocked}
+                  style={[{
+                    flexDirection: 'row', alignItems: 'center', gap: 6,
+                    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+                    backgroundColor: theme.surface3, borderWidth: 1, borderColor: theme.border2,
+                  }, category === cat && { backgroundColor: CATEGORY_COLORS[cat] + '33', borderColor: CATEGORY_COLORS[cat] }]}
+                  onPress={() => setCategory(cat)} activeOpacity={0.8} disabled={isBlocked}
                 >
-                  <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={15} color={category === cat ? CATEGORY_COLORS[cat] : '#ffffff50'} />
-                  <Text style={[s.chipText, category === cat && { color: CATEGORY_COLORS[cat] }]}>{cat}</Text>
+                  <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={15} color={category === cat ? CATEGORY_COLORS[cat] : theme.textDim} />
+                  <Text style={{ color: category === cat ? CATEGORY_COLORS[cat] : theme.textDim, fontSize: 12, fontWeight: '600' }}>{cat}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <Text style={s.label}>NAZWA *</Text>
-            <View style={[s.inputWrapper, isBlocked && { opacity: 0.5 }]}>
-              <MaterialIcons name="label-outline" size={18} color="#e33835" />
+            {/* Nazwa */}
+            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>NAZWA *</Text>
+            <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, height: 50, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
+              <MaterialIcons name="label-outline" size={18} color={theme.primary} />
               <TextInput
-                style={s.input}
-                placeholder="np. Widok na dolinę"
-                placeholderTextColor="#ffffff30"
-                value={name}
-                onChangeText={setName}
-                maxLength={50}
-                editable={!isBlocked}
+                style={{ flex: 1, color: theme.text, fontSize: 13, marginLeft: 10 }}
+                placeholder="np. Widok na dolinę" placeholderTextColor={theme.textDim}
+                value={name} onChangeText={setName} maxLength={50} editable={!isBlocked}
               />
             </View>
 
-            <Text style={s.label}>OPIS</Text>
-            <View style={[s.inputWrapper, { height: 90, alignItems: 'flex-start', paddingTop: 12 }, isBlocked && { opacity: 0.5 }]}>
-              <MaterialIcons name="notes" size={18} color="#e33835" style={{ marginTop: 2 }} />
+            {/* Opis */}
+            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>OPIS</Text>
+            <View style={[{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: theme.surface3, borderRadius: 12, paddingHorizontal: 14, paddingTop: 12, height: 90, borderWidth: 1, borderColor: theme.border2 }, isBlocked && { opacity: 0.5 }]}>
+              <MaterialIcons name="notes" size={18} color={theme.primary} style={{ marginTop: 2 }} />
               <TextInput
-                style={[s.input, { height: 70, textAlignVertical: 'top' }]}
-                placeholder="Opisz to miejsce..."
-                placeholderTextColor="#ffffff30"
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                maxLength={200}
-                editable={!isBlocked}
+                style={{ flex: 1, color: theme.text, fontSize: 13, marginLeft: 10, height: 70, textAlignVertical: 'top' }}
+                placeholder="Opisz to miejsce..." placeholderTextColor={theme.textDim}
+                value={description} onChangeText={setDescription} multiline maxLength={200} editable={!isBlocked}
               />
             </View>
-
-            <Text style={s.label}>
-              ZDJĘCIA <Text style={{ color: '#ffffff30' }}>(opcjonalnie, maks. 5)</Text>
-            </Text>
 
             {/* Zdjęcia */}
+            <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>
+              ZDJĘCIA <Text style={{ color: theme.textFaint }}>(opcjonalnie, maks. 5)</Text>
+            </Text>
+
             {photos.length > 0 && (
-              <View style={s.photosGrid}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                 {photos.map((uri, i) => (
-                  <View key={uri} style={s.photoSlot}>
-                    <Image source={{ uri }} style={s.photoImage} resizeMode="cover" />
+                  <View key={uri} style={{ width: 80, height: 80, borderRadius: 10, overflow: 'hidden' }}>
+                    <Image source={{ uri }} style={{ width: 80, height: 80 }} resizeMode="cover" />
                     {!isBlocked && (
-                      <TouchableOpacity style={s.photoRemove} onPress={() => removePhoto(i)}>
+                      <TouchableOpacity
+                        style={{ position: 'absolute', top: 4, right: 4, backgroundColor: '#000000cc', borderRadius: 8, padding: 3, zIndex: 10 }}
+                        onPress={() => removePhoto(i)}
+                      >
                         <MaterialIcons name="close" size={12} color="#fff" />
                       </TouchableOpacity>
                     )}
@@ -163,51 +149,33 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
               </View>
             )}
 
-            {/* ✅ Przycisk — podczas picking pokazuje spinner */}
             {photos.length < 5 && !loading && (
               <TouchableOpacity
-                style={[s.photoBtn, picking && s.photoBtnLoading]}
-                onPress={pickPhotos}
-                activeOpacity={0.8}
-                disabled={picking}
+                style={[{
+                  borderWidth: 1.5, borderColor: theme.border3, borderStyle: 'dashed',
+                  borderRadius: 12, height: 72, justifyContent: 'center', alignItems: 'center', gap: 6, marginBottom: 4,
+                }, picking && { borderColor: theme.primaryBorder, backgroundColor: theme.primaryBg }]}
+                onPress={pickPhotos} activeOpacity={0.8} disabled={picking}
               >
                 {picking ? (
-                  <>
-                    <ActivityIndicator size="small" color="#e33835" />
-                    <Text style={s.photoBtnText}>Wczytywanie zdjęć...</Text>
-                  </>
+                  <><ActivityIndicator size="small" color={theme.primary} /><Text style={{ color: theme.textDim, fontSize: 12, fontWeight: '600' }}>Wczytywanie zdjęć...</Text></>
                 ) : (
-                  <>
-                    <MaterialIcons name="add-photo-alternate" size={28} color="#ffffff30" />
-                    <Text style={s.photoBtnText}>
-                      {photos.length === 0 ? 'Dodaj zdjęcia' : `Dodaj więcej (${photos.length}/5)`}
-                    </Text>
-                  </>
+                  <><MaterialIcons name="add-photo-alternate" size={28} color={theme.textDim} /><Text style={{ color: theme.textDim, fontSize: 12, fontWeight: '600' }}>{photos.length === 0 ? 'Dodaj zdjęcia' : `Dodaj więcej (${photos.length}/5)`}</Text></>
                 )}
               </TouchableOpacity>
             )}
 
+            {/* Submit */}
             <TouchableOpacity
-              style={[s.submitBtn, isBlocked && { opacity: 0.85 }]}
-              onPress={handleSubmit}
-              activeOpacity={0.85}
-              disabled={isBlocked}
+              style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.primary, borderRadius: 14, height: 52, marginTop: 20, marginBottom: 8 }, isBlocked && { opacity: 0.85 }]}
+              onPress={handleSubmit} activeOpacity={0.85} disabled={isBlocked}
             >
               {loading ? (
-                <View style={s.submitInner}>
-                  <ActivityIndicator color="#fff" size={18} />
-                  <Text style={s.submitBtnText}>ZAPISYWANIE...</Text>
-                </View>
+                <><ActivityIndicator color="#fff" size={18} /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>ZAPISYWANIE...</Text></>
               ) : picking ? (
-                <View style={s.submitInner}>
-                  <ActivityIndicator color="#fff" size={18} />
-                  <Text style={s.submitBtnText}>ŁADOWANIE ZDJĘĆ...</Text>
-                </View>
+                <><ActivityIndicator color="#fff" size={18} /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>ŁADOWANIE ZDJĘĆ...</Text></>
               ) : (
-                <View style={s.submitInner}>
-                  <MaterialIcons name="add-location-alt" size={20} color="#fff" />
-                  <Text style={s.submitBtnText}>DODAJ SPOT</Text>
-                </View>
+                <><MaterialIcons name="add-location-alt" size={20} color="#fff" /><Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>DODAJ SPOT</Text></>
               )}
             </TouchableOpacity>
 
@@ -217,26 +185,3 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
     </Modal>
   );
 };
-
-const s = StyleSheet.create({
-  overlay:        { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' },
-  container:      { backgroundColor: '#161616', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' },
-  header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title:          { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 1 },
-  label:          { color: '#ffffff50', fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 },
-  inputWrapper:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 14, height: 50, borderWidth: 1, borderColor: '#ffffff10' },
-  input:          { flex: 1, color: '#fff', fontSize: 13, marginLeft: 10 },
-  categoryRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#ffffff15' },
-  chipText:       { color: '#ffffff50', fontSize: 12, fontWeight: '600' },
-  photosGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  photoSlot:      { width: 80, height: 80, borderRadius: 10, overflow: 'hidden' },
-  photoImage:     { width: 80, height: 80 },
-  photoRemove:    { position: 'absolute', top: 4, right: 4, backgroundColor: '#000000cc', borderRadius: 8, padding: 3, zIndex: 10 },
-  photoBtn:       { borderWidth: 1.5, borderColor: '#ffffff15', borderStyle: 'dashed', borderRadius: 12, height: 72, justifyContent: 'center', alignItems: 'center', gap: 6, marginBottom: 4 },
-  photoBtnLoading:{ borderColor: '#e3383530', backgroundColor: '#e3383510' },
-  photoBtnText:   { color: '#ffffff40', fontSize: 12, fontWeight: '600' },
-  submitBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#e33835', borderRadius: 14, height: 52, marginTop: 20, marginBottom: 8 },
-  submitInner:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  submitBtnText:  { color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 1 },
-});

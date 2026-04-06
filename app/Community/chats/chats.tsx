@@ -1,16 +1,18 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  Image, StyleSheet, StatusBar, TextInput,
+  Image, StatusBar, TextInput,
   RefreshControl, ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 const API = 'https://v-room.app/api/chat';
 const WS  = 'https://v-room.app';
+const AVATAR = 54;
 
 interface Conversation {
   id:          number;
@@ -37,7 +39,6 @@ function formatTime(iso: string): string {
     const diffM  = Math.floor(diffMs / 60000);
     const diffH  = Math.floor(diffMs / 3600000);
     const diffD  = Math.floor(diffMs / 86400000);
-
     if (diffM < 1)  return 'teraz';
     if (diffM < 60) return `${diffM}min`;
     if (diffH < 24) return `${diffH}h`;
@@ -48,6 +49,7 @@ function formatTime(iso: string): string {
 
 export default function ChatsIndex() {
   const router = useRouter();
+  const { theme, isDark } = useTheme();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filtered,      setFiltered]      = useState<Conversation[]>([]);
@@ -56,7 +58,6 @@ export default function ChatsIndex() {
   const [myId,          setMyId]          = useState<number | null>(null);
   const socketRef = React.useRef<Socket | null>(null);
 
-  // ── Init: pobierz myId + podłącz socket ─────────────────
   useEffect(() => {
     (async () => {
       const raw   = await AsyncStorage.getItem('user');
@@ -66,450 +67,166 @@ export default function ChatsIndex() {
 
       const socket = io(WS, { auth: { token }, transports: ['websocket'] });
 
-      // Nowe powiadomienie → aktualizuj listę
-      socket.on('chat:notification', ({ conversationId, message }: any) => {
+      socket.on('chat:notification', ({ conversationId, message, isMe }: any) => {
         setConversations(prev => {
           const updated = prev.map(c =>
             c.id === conversationId
-              ? {
-                  ...c,
-                  unread:      c.unread + 1,
-                  lastMessage: {
-                    content:    message.content ?? '',
-                    photos:     [],
-                    createdAt:  new Date().toISOString(),
-                    senderName: message.senderName,
-                    isMe:       false,
-                  },
-                }
+              ? { ...c, unread: isMe ? c.unread : c.unread + 1, lastMessage: { content: message.content ?? '', photos: [], createdAt: new Date().toISOString(), senderName: message.senderName, isMe: !!isMe } }
               : c
           );
-          return updated.sort((a, b) => {
-            const at = a.lastMessage?.createdAt ?? '';
-            const bt = b.lastMessage?.createdAt ?? '';
-            return bt.localeCompare(at);
-          });
+          return updated.sort((a, b) => (b.lastMessage?.createdAt ?? '').localeCompare(a.lastMessage?.createdAt ?? ''));
         });
       });
 
-      // Nowa konwersacja
-      socket.on('chat:new_conversation', () => {
-        fetchConversations();
-      });
-
+      socket.on('chat:new_conversation', () => fetchConversations());
       socketRef.current = socket;
     })();
 
     return () => { socketRef.current?.disconnect(); };
   }, []);
 
-  // ── Fetch ────────────────────────────────────────────────
   const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      const r     = await fetch(`${API}/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await r.json();
+      const r     = await fetch(`${API}/conversations`, { headers: { Authorization: `Bearer ${token}` } });
+      const data  = await r.json();
       setConversations(Array.isArray(data) ? data : []);
       setFiltered(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('fetchConversations:', e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error('fetchConversations:', e); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+  useFocusEffect(useCallback(() => { fetchConversations(); }, [fetchConversations]));
 
-  // ── Search ───────────────────────────────────────────────
   useEffect(() => {
-    if (!search.trim()) {
-      setFiltered(conversations);
-      return;
-    }
+    if (!search.trim()) { setFiltered(conversations); return; }
     const q = search.toLowerCase();
-    setFiltered(
-      conversations.filter(c => c.name?.toLowerCase().includes(q))
-    );
+    setFiltered(conversations.filter(c => c.name?.toLowerCase().includes(q)));
   }, [search, conversations]);
 
-  // ── Render item ──────────────────────────────────────────
   const renderItem = useCallback(({ item }: { item: Conversation }) => {
-    const lastText = item.lastMessage
-      ? item.lastMessage.content?.trim()
-        || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '')
-      : 'Brak wiadomości';
-
+    const lastText   = item.lastMessage ? item.lastMessage.content?.trim() || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '') : 'Brak wiadomości';
     const lastPrefix = item.lastMessage?.isMe ? 'Ty: ' : '';
 
     return (
       <TouchableOpacity
-        style={s.item}
+        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 13, gap: 14, backgroundColor: theme.bg }}
         onPress={() => router.push(`/Community/chats/${item.id}` as any)}
         activeOpacity={0.72}
       >
-        {/* Avatar */}
-        <View style={s.avatarWrap}>
-          {item.avatarUrl ? (
-            <Image source={{ uri: item.avatarUrl }} style={s.avatar} />
-          ) : (
-            <View style={[s.avatar, s.avatarFallback]}>
-              <Text style={s.avatarInitials}>
-                {item.name?.slice(0, 2).toUpperCase() ?? '??'}
-              </Text>
-            </View>
-          )}
-          {/* Online dot — tylko dla 1:1 */}
+        <View style={{ position: 'relative', width: AVATAR, height: AVATAR }}>
+          {item.avatarUrl
+            ? <Image source={{ uri: item.avatarUrl }} style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 }} />
+            : (
+              <View style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: theme.surface2, borderWidth: 1.5, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>
+                  {item.name?.slice(0, 2).toUpperCase() ?? '??'}
+                </Text>
+              </View>
+            )
+          }
           {!item.isGroup && item.online && (
-            <View style={s.onlineDot} />
+            <View style={{ position: 'absolute', bottom: 2, right: 2, width: 13, height: 13, borderRadius: 7, backgroundColor: '#4de926', borderWidth: 2, borderColor: theme.bg }} />
           )}
-          {/* Grupa ikona */}
           {item.isGroup && (
-            <View style={s.groupBadge}>
+            <View style={{ position: 'absolute', bottom: 1, right: 1, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, borderWidth: 2, borderColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
               <MaterialCommunityIcons name="account-group" size={9} color="#fff" />
             </View>
           )}
         </View>
 
-        {/* Info */}
-        <View style={s.info}>
-          <View style={s.row}>
-            <Text style={s.name} numberOfLines={1}>{item.name}</Text>
+        <View style={{ flex: 1, gap: 5 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>{item.name}</Text>
             {item.lastMessage?.createdAt && (
-              <Text style={s.time}>
-                {formatTime(item.lastMessage.createdAt)}
-              </Text>
+              <Text style={{ color: theme.textDim, fontSize: 10, flexShrink: 0 }}>{formatTime(item.lastMessage.createdAt)}</Text>
             )}
           </View>
-          <View style={s.row}>
-            <Text style={s.lastMsg} numberOfLines={1}>
-              {lastPrefix}{lastText}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={{ flex: 1, color: theme.textDim, fontSize: 12, lineHeight: 16 }} numberOfLines={1}>{lastPrefix}{lastText}</Text>
             {item.unread > 0 && (
-              <View style={s.badge}>
-                <Text style={s.badgeText}>
-                  {item.unread > 99 ? '99+' : item.unread}
-                </Text>
+              <View style={{ backgroundColor: theme.primary, borderRadius: 10, minWidth: 20, height: 20, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{item.unread > 99 ? '99+' : item.unread}</Text>
               </View>
             )}
           </View>
         </View>
       </TouchableOpacity>
     );
-  }, [router]);
+  }, [router, theme]);
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* ── HEADER ── */}
-      <View style={s.header}>
-        <View style={s.headerTop}>
+      {/* HEADER */}
+      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 12, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View>
-            <Text style={s.headerSub}>VROOM</Text>
-            <Text style={s.headerTitle}>WIADOMOŚCI</Text>
+            <Text style={{ color: theme.primary, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 4, marginBottom: 2 }}>VROOM</Text>
+            <Text style={{ color: theme.text, fontSize: 24, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>WIADOMOŚCI</Text>
           </View>
-          {/* Nowy czat */}
           <TouchableOpacity
-            style={s.newBtn}
+            style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
             onPress={() => router.push('/Community/chats/new' as any)}
             activeOpacity={0.8}
           >
-            <Feather name="edit" size={18} color="#e33835" />
+            <Feather name="edit" size={18} color={theme.primary} />
           </TouchableOpacity>
         </View>
 
-        {/* Search bar */}
-        <View style={s.searchBar}>
-          <Feather name="search" size={15} color="#ffffff40" />
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 14, paddingVertical: 11, gap: 10 }}>
+          <Feather name="search" size={15} color={theme.textDim} />
           <TextInput
-            style={s.searchInput}
+            style={{ flex: 1, color: theme.text, fontSize: 13, padding: 0 }}
             value={search}
             onChangeText={setSearch}
             placeholder="Szukaj konwersacji..."
-            placeholderTextColor="#ffffff30"
+            placeholderTextColor={theme.textDim}
             returnKeyType="search"
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')}>
-              <Feather name="x" size={15} color="#ffffff40" />
+              <Feather name="x" size={15} color={theme.textDim} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* ── LISTA ── */}
       <FlatList
         data={filtered}
         keyExtractor={item => String(item.id)}
         renderItem={renderItem}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={fetchConversations}
-            tintColor="#e33835"
-            colors={['#e33835']}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchConversations} tintColor={theme.primary} colors={[theme.primary]} />}
         ListEmptyComponent={
           loading ? (
-            <ActivityIndicator
-              color="#e33835"
-              style={{ marginTop: 60 }}
-            />
+            <ActivityIndicator color={theme.primary} style={{ marginTop: 60 }} />
           ) : (
-            <View style={s.empty}>
-              <MaterialCommunityIcons
-                name="chat-outline"
-                size={52}
-                color="#ffffff12"
-              />
-              <Text style={s.emptyTitle}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 80 }}>
+              <MaterialCommunityIcons name="chat-outline" size={52} color={theme.border3} />
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>
                 {search ? 'Brak wyników' : 'Brak wiadomości'}
               </Text>
-              <Text style={s.emptySub}>
-                {search
-                  ? `Nie znaleziono "${search}"`
-                  : 'Kliknij ikonę edycji żeby\nrozpocząć rozmowę'
-                }
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center', lineHeight: 16 }}>
+                {search ? `Nie znaleziono "${search}"` : 'Kliknij ikonę edycji żeby\nrozpocząć rozmowę'}
               </Text>
               {!search && (
                 <TouchableOpacity
-                  style={s.emptyBtn}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, backgroundColor: theme.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 20 }}
                   onPress={() => router.push('/Community/chats/new' as any)}
                 >
                   <Feather name="edit" size={14} color="#fff" />
-                  <Text style={s.emptyBtnText}>NOWA ROZMOWA</Text>
+                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>NOWA ROZMOWA</Text>
                 </TouchableOpacity>
               )}
             </View>
           )
         }
-        contentContainerStyle={
-          filtered.length === 0 ? { flex: 1 } : { paddingBottom: 100 }
-        }
-        ItemSeparatorComponent={() => <View style={s.separator} />}
+        contentContainerStyle={filtered.length === 0 ? { flex: 1 } : { paddingBottom: 100 }}
+        ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 20 + AVATAR + 14 }} />}
       />
     </View>
   );
 }
-
-const AVATAR = 54;
-
-const s = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-
-  // ── Header ──
-  header: {
-    paddingTop: 56,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    backgroundColor: '#0a0a0a',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffffff08',
-    gap: 14,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerSub: {
-    color: '#e33835',
-    fontSize: 10,
-    fontFamily: 'Orbitron',
-    letterSpacing: 4,
-    marginBottom: 2,
-  },
-  headerTitle: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-  newBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#e3383518',
-    borderWidth: 1,
-    borderColor: '#e3383535',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // ── Search ──
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#141414',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ffffff0a',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 10,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 13,
-    padding: 0,
-  },
-
-  // ── Item ──
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    gap: 14,
-    backgroundColor: '#0a0a0a',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#ffffff06',
-    marginLeft: 20 + AVATAR + 14,
-  },
-
-  // ── Avatar ──
-  avatarWrap: {
-    position: 'relative',
-    width: AVATAR,
-    height: AVATAR,
-  },
-  avatar: {
-    width: AVATAR,
-    height: AVATAR,
-    borderRadius: AVATAR / 2,
-  },
-  avatarFallback: {
-    backgroundColor: '#1a1a1a',
-    borderWidth: 1.5,
-    borderColor: '#e3383530',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    color: '#e33835',
-    fontFamily: 'Orbitron',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 13,
-    height: 13,
-    borderRadius: 7,
-    backgroundColor: '#4de926',
-    borderWidth: 2,
-    borderColor: '#0a0a0a',
-  },
-  groupBadge: {
-    position: 'absolute',
-    bottom: 1,
-    right: 1,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#e33835',
-    borderWidth: 2,
-    borderColor: '#0a0a0a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // ── Info ���─
-  info: {
-    flex: 1,
-    gap: 5,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  name: {
-    flex: 1,
-    color: '#ffffff',
-    fontFamily: 'Orbitron',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  time: {
-    color: '#ffffff35',
-    fontSize: 10,
-    flexShrink: 0,
-  },
-  lastMsg: {
-    flex: 1,
-    color: '#ffffff45',
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  badge: {
-    backgroundColor: '#e33835',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-
-  // ── Empty ──
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingBottom: 80,
-  },
-  emptyTitle: {
-    color: '#ffffff30',
-    fontFamily: 'Orbitron',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  emptySub: {
-    color: '#ffffff20',
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    textAlign: 'center',
-    lineHeight: 16,
-    letterSpacing: 0.5,
-  },
-  emptyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-    backgroundColor: '#e33835',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-  },
-  emptyBtnText: {
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-});

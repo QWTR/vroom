@@ -1,35 +1,29 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { View, Text } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
-  icon: string;
+  icon:  string;
   label: string;
   value: string;
 }
 
 export default function StatBox({ icon, label, value }: Props) {
+  const { theme } = useTheme();
   return (
-    <View style={styles.statBox}>
-      <View style={styles.statIconCircle}>
-        <MaterialIcons name={icon as any} size={20} color="#e33835ce" />
+    <View style={{
+      width: '48%', backgroundColor: theme.surface3, padding: 15, borderRadius: 12,
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      borderWidth: 1, borderColor: theme.border,
+    }}>
+      <View style={{ backgroundColor: theme.primaryBg, padding: 8, borderRadius: 8 }}>
+        <MaterialIcons name={icon as any} size={20} color={theme.primary} />
       </View>
       <View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{label}</Text>
+        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 15 }}>{value}</Text>
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{label}</Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  statBox: {
-    width: '48%', backgroundColor: '#1a1a1a', padding: 15, borderRadius: 12,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1, borderColor: '#ffffff05',
-  },
-  statIconCircle: { backgroundColor: '#e3383515', padding: 8, borderRadius: 8 },
-  statValue:      { fontFamily: 'Orbitron', color: '#fff', fontSize: 15 },
-  statLabel:      { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9 },
-});

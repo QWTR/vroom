@@ -1,1115 +1,391 @@
-import { StyleSheet, Dimensions, Platform } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
+import { AppTheme } from '../constants/theme';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
-// ─── DESIGN TOKENS ───────────────────────────────────────
-const R        = '#e33835';
-const R_CE     = '#e33835ce';
-const R_BG     = '#e3383518';
-const R_BORDER = '#e3383535';
-const SURF     = '#111111';
-const SURF2    = '#161616';
-const SURF3    = '#1c1c1c';
-const W        = '#ffffff';
-const W08      = '#ffffff08';
-const W10      = '#ffffff10';
-const W15      = '#ffffff15';
-const W20      = '#ffffff20';
-const W35      = '#ffffff35';
-const W40      = '#ffffff40';
-const W55      = '#ffffff55';
-const W70      = '#ffffff70';
-const BG       = '#0a0a0a';
-const GREEN    = '#4de926';
-const GREEN_BG = '#4de92618';
-const BLUE     = '#00bfff';
-const BLUE_BG  = '#00bfff18';
+export function makeMapStyles(t: AppTheme, isDark = true) {
+  const SURF  = t.surface;
+  const SURF2 = t.surface2;
+  const SURF3 = t.surface3;
 
-export const styles = StyleSheet.create({
+  return StyleSheet.create({
 
-  // ═══════════════════════════════════════════
-  // CONTAINERS
-  // ═══════════════════════════════════════════
-  container: {
-    flex: 1,
-    backgroundColor: BG,
-  },
-  mapContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: BG,
-    gap: 12,
-  },
-  loaderText: {
-    color: R,
-    fontFamily: 'Orbitron',
-    fontSize: 11,
-    letterSpacing: 4,
-    marginTop: 4,
-  },
+    // ═══════════════════════════════════════════
+    // CONTAINERS
+    // ═══════════════════════════════════════════
+    container:    { flex: 1, backgroundColor: t.bg },
+    mapContainer: { flex: 1, position: 'relative' },
+    map:          { width: '100%', height: '100%' },
+    loader: {
+      flex: 1, justifyContent: 'center', alignItems: 'center',
+      backgroundColor: t.bg, gap: 12,
+    },
+    loaderText: {
+      color: t.primary, fontFamily: 'Orbitron',
+      fontSize: 11, letterSpacing: 4, marginTop: 4,
+    },
 
-  // ═══════════════════════════════════════════
-  // MARKERS
-  // ═══════════════════════════════════════════
-  carMarker: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: SURF,
-    borderWidth: 2,
-    borderColor: R_BORDER,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  userCarMarkerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 4,
-  },
-  userCarMarkerLabel: {
-    color: W,
-    fontSize: 9,
-    fontFamily: 'Orbitron',
-    letterSpacing: 0.5,
-    backgroundColor: '#0a0a0add',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: 'hidden',
-    marginBottom: 2,
-    textAlign: 'center',
-    borderWidth: 1,
-    borderColor: W10,
-  },
-  userCarMarkerDistance: {
-    color: R_CE,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    backgroundColor: '#0a0a0add',
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  userCarMarker: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    backgroundColor: R_BG,
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    elevation: 6,
-  },
-  userMarker: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: SURF,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 6,
-  },
-  userMarkerText: {
-    fontSize: 18,
-    marginBottom: 2,
-  },
-  userMarkerName: {
-    fontSize: 8,
-    color: W,
-    fontFamily: 'Orbitron',
-    letterSpacing: 0.5,
-  },
-  userMarkerDistance: {
-    fontSize: 7,
-    color: R_CE,
-    fontFamily: 'Orbitron',
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
+    // ═══════════════════════════════════════════
+    // MARKERS
+    // ═══════════════════════════════════════════
+    carMarker: {
+      width: 52, height: 52, borderRadius: 26,
+      backgroundColor: SURF, borderWidth: 2, borderColor: t.primaryBorder,
+      justifyContent: 'center', alignItems: 'center',
+      shadowColor: t.primary, shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.5, shadowRadius: 6, elevation: 8,
+    },
+    userCarMarkerContainer: { alignItems: 'center', justifyContent: 'center', paddingBottom: 4 },
+    userCarMarkerLabel: {
+      color: '#ffffff', fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 0.5,
+      backgroundColor: '#0a0a0add', paddingHorizontal: 7, paddingVertical: 3,
+      borderRadius: 6, overflow: 'hidden', marginBottom: 2, textAlign: 'center',
+      borderWidth: 1, borderColor: '#ffffff10',
+    },
+    userCarMarkerDistance: {
+      color: t.primary, fontSize: 8, fontFamily: 'Orbitron',
+      backgroundColor: '#0a0a0add', paddingHorizontal: 5, paddingVertical: 2,
+      borderRadius: 4, overflow: 'hidden', marginBottom: 4, textAlign: 'center',
+    },
+    userCarMarker: {
+      width: 38, height: 38, borderRadius: 10,
+      justifyContent: 'center', alignItems: 'center',
+      borderWidth: 1, borderColor: t.primaryBorder, backgroundColor: t.primaryBg,
+      shadowColor: t.primary, shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.4, shadowRadius: 4, elevation: 6,
+    },
+    userMarker: {
+      paddingHorizontal: 10, paddingVertical: 8,
+      backgroundColor: SURF, borderRadius: 12,
+      borderWidth: 1, borderColor: t.primaryBorder,
+      alignItems: 'center',
+      shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.5, shadowRadius: 4, elevation: 6,
+    },
+    userMarkerText:     { fontSize: 18, marginBottom: 2 },
+    userMarkerName:     { fontSize: 8, color: t.text, fontFamily: 'Orbitron', letterSpacing: 0.5 },
+    userMarkerDistance: { fontSize: 7, color: t.primary, fontFamily: 'Orbitron', letterSpacing: 0.5, marginTop: 2 },
 
-  // ═══════════════════════════════════════════
-  // SPEED PANEL (nawigacja)
-  // ═══════════════════════════════════════════
-  speedPanelNav: {
-    position: 'absolute',
-    bottom: 24,
-    left: 16,
-    backgroundColor: SURF,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    elevation: 8,
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    zIndex: 30,
-    minWidth: 80,
-  },
-  speedValue: {
-    color: R_CE,
-    fontSize: 28,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: -1,
-    lineHeight: 32,
-  },
-  speedLabel: {
-    color: W35,
-    fontSize: 7,
-    fontFamily: 'Orbitron',
-    letterSpacing: 3,
-    marginTop: 2,
-  },
+    // ═══════════════════════════════════════════
+    // SPEED PANEL
+    // ═══════════════════════════════════════════
+    speedPanelNav: {
+      position: 'absolute',
+      bottom: 24,
+      left: 16,
+      backgroundColor: isDark ? SURF : '#ffffffee',
+      borderRadius: 18,
+      paddingVertical: 14,
+      paddingHorizontal: 18,
+      alignItems: 'center',
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.primaryBorder : '#00000015',
+      elevation: isDark ? 8 : 12,
+      shadowColor: isDark ? t.primary : '#000',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: isDark ? 0.3 : 0.15,
+      shadowRadius: 8,
+      zIndex: 30,
+      minWidth: 80,
+    },
+    speedValue: {
+      color: t.primary, fontSize: 28, fontFamily: 'Orbitron',
+      fontWeight: '700', letterSpacing: -1, lineHeight: 32,
+    },
+    speedLabel: { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 3, marginTop: 2 },
 
-  // ═══════════════════════════════════════════
-  // SIDE CONTROLS
-  // ═══════════════════════════════════════════
-  rightBottomControls: {
-    position: 'absolute',
-    right: 14,
-    bottom: 24,
-    gap: 10,
-    zIndex: 100,
-  },
-  sideBtn: {
-    backgroundColor: SURF,
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: W10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-  },
+    // ═══════════════════════════════════════════
+    // SIDE CONTROLS
+    // ═══════════════════════════════════════════
+    rightBottomControls: { position: 'absolute', right: 14, bottom: 24, gap: 10, zIndex: 100 },
+    sideBtn: {
+      backgroundColor: isDark ? SURF : '#ffffffee',  // semi-transparent biały w light
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.border2 : '#00000020',
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: isDark ? 6 : 10,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: isDark ? 0.4 : 0.18,
+      shadowRadius: isDark ? 4 : 8,
+    },
 
-  // ═══════════════════════════════════════════
-  // TOP SEARCH BAR
-  // ═══════════════════════════════════════════
-  topSearchButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 58 : 42,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: SURF,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderWidth: 1,
-    borderColor: W10,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    zIndex: 10,
-  },
-  topSearchButtonText: {
-    color: W35,
-    fontSize: 11,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1,
-    flex: 1,
-    marginHorizontal: 10,
-  },
+    // ═══════════════════════════════════════════
+    // TOP SEARCH BAR
+    // ═══════════════════════════════════════════
+    topSearchButton: {
+      position: 'absolute',
+      top: Platform.OS === 'ios' ? 58 : 42,
+      left: 12,
+      right: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? SURF : '#fffffff0',
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      paddingVertical: 13,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.border2 : '#00000018',
+      elevation: 10,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.4 : 0.15,
+      shadowRadius: 8,
+      zIndex: 10,
+    },
+    topSearchButtonText: {
+      color: t.textDim, fontSize: 11, fontFamily: 'Orbitron',
+      letterSpacing: 1, flex: 1, marginHorizontal: 10,
+    },
 
-  // ═══════════════════════════════════════════
-  // NAVIGATION PANEL TOP
-  // ═══════════════════════════════════════════
-  navigationPanelTop: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 58 : 42,
-    left: 12,
-    right: 12,
-    backgroundColor: SURF,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    elevation: 10,
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    zIndex: 13,
-  },
-  instructionBox: {
-    paddingRight: 40,
-  },
-  instructionDistance: {
-    color: R_CE,
-    fontSize: 11,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 6,
-  },
-  instructionText: {
-    color: W,
-    fontSize: 13,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 0.2,
-    lineHeight: 20,
-  },
-  stepCounter: {
-    color: W35,
-    fontSize: 7,
-    fontFamily: 'Orbitron',
-    letterSpacing: 3,
-    marginTop: 8,
-  },
-  closeNavBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    padding: 6,
-    backgroundColor: W08,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: W15,
-  },
+    // ═══════════════════════════════════════════
+    // NAVIGATION PANEL TOP
+    // ═══════════════════════════════════════════
+    navigationPanelTop: {
+      position: 'absolute',
+      top: Platform.OS === 'ios' ? 58 : 42,
+      left: 12,
+      right: 12,
+      backgroundColor: isDark ? SURF : '#fffffff0',
+      borderRadius: 20,
+      padding: 18,
+      borderWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.primaryBorder : '#c0201d30',
+      elevation: 10,
+      shadowColor: isDark ? t.primary : '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.2 : 0.12,
+      shadowRadius: 8,
+      zIndex: 13,
+    },
 
-  // ═══════════════════════════════════════════
-  // BOTTOM SHEET
-  // ═══════════════════════════════════════════
-  bottomSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: SURF,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: W10,
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    paddingBottom: 32,
-  },
-  expandHandle: {
-    width: 40,
-    height: 3,
-    backgroundColor: W20,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginTop: 14,
-    marginBottom: 16,
-  },
-  infoPreview: {
-    paddingHorizontal: 16,
-  },
+    instructionBox:     { paddingRight: 40 },
+    instructionDistance:{ color: t.primary, fontSize: 11, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2, marginBottom: 6 },
+    instructionText:    { color: t.text, fontSize: 13, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
+    stepCounter:        { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 3, marginTop: 8 },
+    closeNavBtn: {
+      position: 'absolute', top: 10, right: 10, padding: 6,
+      backgroundColor: t.border, borderRadius: 10, borderWidth: 1, borderColor: t.border2,
+    },
 
-  // Route Info Card
-  routeInfoCard: {
-    backgroundColor: SURF2,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: W08,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  routeInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-  routeInfoLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  routeInfoDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: W35,
-  },
-  routeInfoLocationName: {
-    color: W70,
-    fontSize: 10,
-    fontFamily: 'Orbitron',
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  routeInfoDivider: {
-    height: 1,
-    backgroundColor: W08,
-    marginHorizontal: 16,
-  },
+    // ═══════════════════════════════════════════
+    // BOTTOM SHEET
+    // ═══════════════════════════════════════════
+    bottomSheet: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: isDark ? SURF : '#fffffff5',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      borderTopWidth: isDark ? 1 : 1.5,
+      borderLeftWidth: isDark ? 1 : 1.5,
+      borderRightWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.border2 : '#00000015',
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 12,
+      paddingBottom: 32,
+    },
+    expandHandle: {
+      width: 40, height: 3, backgroundColor: t.border3,
+      borderRadius: 2, alignSelf: 'center', marginTop: 14, marginBottom: 16,
+    },
+    infoPreview: { paddingHorizontal: 16 },
 
-  // Route Stats Row
-  routeStatsRow: {
-    flexDirection: 'row',
-    backgroundColor: SURF2,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: W08,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  statItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  statIcon: {
-    backgroundColor: R_BG,
-    padding: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-  },
-  statLabel: {
-    color: W35,
-    fontSize: 7,
-    fontFamily: 'Orbitron',
-    letterSpacing: 2,
-    marginBottom: 4,
-  },
-  statValue: {
-    color: W,
-    fontSize: 15,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: -0.5,
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: W08,
-    marginVertical: 10,
-  },
+    routeInfoCard: {
+      backgroundColor: SURF2, borderRadius: 16,
+      borderWidth: 1, borderColor: t.border, marginBottom: 10, overflow: 'hidden',
+    },
+    routeInfoRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13 },
+    routeInfoLocation: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+    routeInfoDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: t.textDim },
+    routeInfoLocationName: { color: t.textMuted, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 0.5, flex: 1 },
+    routeInfoDivider: { height: 1, backgroundColor: t.border, marginHorizontal: 16 },
 
-  // Bottom Buttons
-  bottomSheetButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  navigateButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 15,
-    backgroundColor: R_CE,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    elevation: 4,
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-  },
-  navigateButtonText: {
-    color: W,
-    fontSize: 10,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  editButton: {
-    width: 50,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: SURF2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-  },
-  resetButtonSmall: {
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: SURF2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: W10,
-  },
+    routeStatsRow: {
+      flexDirection: 'row', backgroundColor: SURF2, borderRadius: 16,
+      borderWidth: 1, borderColor: t.border, marginBottom: 12, overflow: 'hidden',
+    },
+    statItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14 },
+    statIcon: { backgroundColor: t.primaryBg, padding: 7, borderRadius: 10, borderWidth: 1, borderColor: t.primaryBorder },
+    statLabel: { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 2, marginBottom: 4 },
+    statValue: { color: t.text, fontSize: 15, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: -0.5 },
+    statDivider: { width: 1, backgroundColor: t.border, marginVertical: 10 },
 
-  // ═══════════════════════════════════════════
-  // EMPTY STATE
-  // ═══════════════════════════════════════════
-  emptyStateContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 170,
-    backgroundColor: SURF,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderColor: W10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 24,
-  },
-  emptyState: {
-    alignItems: 'center',
-    gap: 10,
-  },
-  emptyTitle: {
-    color: W,
-    fontSize: 12,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 3,
-  },
-  emptySubtitle: {
-    color: W35,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1.5,
-    textAlign: 'center',
-    marginHorizontal: 24,
-  },
+    bottomSheetButtons: { flexDirection: 'row', gap: 8 },
+    navigateButton: {
+      flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      gap: 8, paddingVertical: 15, backgroundColor: t.primary,
+      borderRadius: 14, borderWidth: 1, borderColor: t.primaryBorder,
+      elevation: 4, shadowColor: t.primary,
+      shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6,
+    },
+    navigateButtonText: { color: '#ffffff', fontSize: 10, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 1.5 },
+    editButton: {
+      width: 50, height: 50, alignItems: 'center', justifyContent: 'center',
+      backgroundColor: SURF2, borderRadius: 14, borderWidth: 1, borderColor: t.primaryBorder,
+    },
+    resetButtonSmall: {
+      width: 50, height: 50, justifyContent: 'center', alignItems: 'center',
+      backgroundColor: SURF2, borderRadius: 14, borderWidth: 1, borderColor: t.border2,
+    },
 
-  // ═══════════════════════════════════════════
-  // SEARCH MODAL
-  // ═══════════════════════════════════════════
-  searchModalOverlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  searchModalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000000aa',
-  },
-  searchModalContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    maxHeight: height * 0.92,
-    backgroundColor: SURF,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    borderBottomWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: W10,
-    paddingTop: Platform.OS === 'ios' ? 54 : 14,
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    zIndex: 12,
-  },
+    // ═══════════════════════════════════════════
+    // EMPTY STATE
+    // ═══════════════════════════════════════════
+    emptyStateContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 170,
+      backgroundColor: isDark ? SURF : '#fffffff5',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      borderTopWidth: isDark ? 1 : 1.5,
+      borderColor: isDark ? t.border2 : '#00000015',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingBottom: 24,
+    },
+    emptyState:    { alignItems: 'center', gap: 10 },
+    emptyTitle:    { color: t.text, fontSize: 12, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 3 },
+    emptySubtitle: { color: t.textDim, fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 1.5, textAlign: 'center', marginHorizontal: 24 },
 
-  // Modal Header
-  searchModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 20,
-    gap: 12,
-  },
-  searchModalBackBtn: {
-    width: 38,
-    height: 38,
-    backgroundColor: SURF2,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: W10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchModalTitle: {
-    color: W,
-    fontSize: 18,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 1,
-    flex: 1,
-  },
+    // ═══════════════════════════════════════════
+    // SEARCH MODAL
+    // ═══════════════════════════════════════════
+    searchModalOverlay:   { flex: 1, backgroundColor: 'transparent' },
+    searchModalBackdrop:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.overlay },
+    searchModalContainer: {
+      position: 'absolute', top: 0, left: 0, right: 0,
+      maxHeight: height * 0.92, backgroundColor: SURF,
+      borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
+      borderBottomWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
+      borderColor: t.border2,
+      paddingTop: Platform.OS === 'ios' ? 54 : 14,
+      elevation: 20, shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12,
+      zIndex: 12,
+    },
+    searchModalHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 20, gap: 12 },
+    searchModalBackBtn: {
+      width: 38, height: 38, backgroundColor: SURF2, borderRadius: 12,
+      borderWidth: 1, borderColor: t.border2, alignItems: 'center', justifyContent: 'center',
+    },
+    searchModalTitle: { color: t.text, fontSize: 18, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 1, flex: 1 },
+    searchModalTabs:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 16 },
+    searchModalTab: {
+      flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+      paddingVertical: 11, borderRadius: 12, backgroundColor: SURF2, borderWidth: 1, borderColor: t.border,
+    },
+    searchModalTabActive:     { backgroundColor: t.primaryBg, borderColor: t.primaryBorder },
+    searchModalTabText:       { color: t.textDim, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 1 },
+    searchModalTabTextActive: { color: t.primary, fontFamily: 'Orbitron', letterSpacing: 1 },
+    searchModalDivider:       { height: 1, backgroundColor: t.border, marginHorizontal: 16, marginBottom: 16 },
+    searchModalInputContainer: {
+      flexDirection: 'row', alignItems: 'center',
+      marginHorizontal: 16, marginBottom: 14,
+      backgroundColor: SURF2, borderRadius: 14,
+      borderWidth: 1, borderColor: t.border2,
+      paddingHorizontal: 14, paddingVertical: 12, gap: 10,
+    },
+    searchModalInput:  { flex: 1, color: t.text, fontSize: 12, fontFamily: 'Orbitron', paddingVertical: 0, letterSpacing: 0.5 },
+    searchHelperText:  { color: t.textDim, fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 2, marginHorizontal: 16, marginBottom: 14 },
+    searchResultsList: {
+      marginHorizontal: 16, marginBottom: 16, maxHeight: height * 0.55,
+      borderRadius: 16, backgroundColor: SURF2, borderWidth: 1, borderColor: t.border, overflow: 'hidden',
+    },
+    searchResultItem: {
+      flexDirection: 'row', alignItems: 'center',
+      paddingHorizontal: 14, paddingVertical: 14, gap: 12,
+      borderBottomWidth: 1, borderBottomColor: t.border,
+    },
+    searchResultIconCurrent: { width: 42, height: 42, borderRadius: 12, backgroundColor: t.primaryBg, borderWidth: 1, borderColor: t.primaryBorder, justifyContent: 'center', alignItems: 'center' },
+    searchResultIconUser:    { width: 42, height: 42, borderRadius: 12, backgroundColor: SURF3, borderWidth: 1, borderColor: t.border2, justifyContent: 'center', alignItems: 'center' },
+    searchResultIconPlace:   { width: 42, height: 42, borderRadius: 12, backgroundColor: SURF3, borderWidth: 1, borderColor: t.border2, justifyContent: 'center', alignItems: 'center' },
+    searchResultUserAvatar:  { fontSize: 20 },
+    searchResultItemText:    { color: t.text, fontSize: 12, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.2 },
+    searchResultMeta:        { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+    userStatusDot:           { width: 6, height: 6, borderRadius: 3 },
+    searchResultMetaText:    { color: t.textDim, fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 0.5 },
 
-  // Tabs
-  searchModalTabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 8,
-    marginBottom: 16,
-  },
-  searchModalTab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 11,
-    borderRadius: 12,
-    backgroundColor: SURF2,
-    borderWidth: 1,
-    borderColor: W08,
-  },
-  searchModalTabActive: {
-    backgroundColor: R_BG,
-    borderColor: R_BORDER,
-  },
-  searchModalTabText: {
-    color: W35,
-    fontSize: 9,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1,
-  },
-  searchModalTabTextActive: {
-    color: R_CE,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1,
-  },
-  searchModalDivider: {
-    height: 1,
-    backgroundColor: W08,
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
+    categoriesGrid:       { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
+    categoryCard:         { backgroundColor: SURF2, borderRadius: 16, borderWidth: 1, borderColor: t.border, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
+    categoryIconContainer:{ width: 52, height: 52, borderRadius: 14, backgroundColor: t.primaryBg, borderWidth: 1, borderColor: t.primaryBorder, justifyContent: 'center', alignItems: 'center' },
+    categoryTitle:        { color: t.text, fontSize: 12, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.3, marginBottom: 3 },
+    categorySubtitle:     { color: t.textDim, fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 1 },
+    emptyList:            { justifyContent: 'center', alignItems: 'center', paddingVertical: 48, gap: 12 },
+    emptyListText:        { color: t.textDim, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 2 },
 
-  // Input
-  searchModalInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 14,
-    backgroundColor: SURF2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: W10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-  },
-  searchModalInput: {
-    flex: 1,
-    color: W,
-    fontSize: 12,
-    fontFamily: 'Orbitron',
-    paddingVertical: 0,
-    letterSpacing: 0.5,
-  },
-  searchHelperText: {
-    color: W35,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 2,
-    marginHorizontal: 16,
-    marginBottom: 14,
-  },
+    // ═══════════════════════════════════════════
+    // USER INFO MODAL
+    // ═══════════════════════════════════════════
+    userInfoOverlay:  { flex: 1, backgroundColor: 'transparent' },
+    userInfoBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.overlay },
+    userInfoCard: {
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      backgroundColor: SURF,
+      borderTopLeftRadius: 28, borderTopRightRadius: 28,
+      borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
+      borderColor: t.border2, paddingTop: 8, paddingBottom: 32, paddingHorizontal: 20,
+      elevation: 20, shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.3, shadowRadius: 12,
+    },
+    userInfoHandle:      { width: 40, height: 3, backgroundColor: t.border3, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+    userInfoHeader:      { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 16 },
+    userInfoAvatarWrap:  { width: 64, height: 64, borderRadius: 20, backgroundColor: t.primaryBg, borderWidth: 1, borderColor: t.primaryBorder, alignItems: 'center', justifyContent: 'center' },
+    userInfoAvatar:      { fontSize: 36 },
+    userInfoHeaderText:  { flex: 1, gap: 6 },
+    userInfoCloseBtn:    { width: 36, height: 36, backgroundColor: t.border, borderRadius: 10, borderWidth: 1, borderColor: t.border2, alignItems: 'center', justifyContent: 'center' },
+    userInfoContent:     { marginBottom: 20 },
+    userInfoName:        { color: t.text, fontSize: 20, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.5 },
+    userInfoStatusRow:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    userInfoStatusDot:   { width: 7, height: 7, borderRadius: 4 },
+    userInfoStatus:      { color: t.textDim, fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 2 },
+    userInfoDivider:     { height: 1, backgroundColor: t.border, marginBottom: 16 },
+    userInfoStatsRow:    { flexDirection: 'row', gap: 8, marginBottom: 16 },
+    userInfoStatCard:    { flex: 1, backgroundColor: SURF2, borderRadius: 14, borderWidth: 1, borderColor: t.border, padding: 14, gap: 6 },
+    userInfoStatRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    userInfoStatIcon:    { width: 32, height: 32, borderRadius: 8, backgroundColor: t.primaryBg, borderWidth: 1, borderColor: t.primaryBorder, justifyContent: 'center', alignItems: 'center' },
+    userInfoStatLabel:   { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 2, marginBottom: 2 },
+    userInfoStatValue:   { color: t.text, fontSize: 16, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: -0.5 },
+    userInfoBadge:       { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#ff6b9d15', borderRadius: 20, borderWidth: 1, borderColor: '#ff6b9d35', marginBottom: 16 },
+    userInfoBadgeText:   { color: '#ff6b9d', fontSize: 8, fontFamily: 'Orbitron', letterSpacing: 1.5 },
+    userInfoNavigateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 15, backgroundColor: t.primary, borderRadius: 14, borderWidth: 1, borderColor: t.primaryBorder, elevation: 4, shadowColor: t.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6 },
+    userInfoNavigateBtnText: { color: '#ffffff', fontSize: 10, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 },
 
-  // Results List
-  searchResultsList: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    maxHeight: height * 0.55,
-    borderRadius: 16,
-    backgroundColor: SURF2,
-    borderWidth: 1,
-    borderColor: W08,
-    overflow: 'hidden',
-  },
-  searchResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: W08,
-  },
-  searchResultIconCurrent: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: R_BG,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchResultIconUser: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: SURF3,
-    borderWidth: 1,
-    borderColor: W10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchResultIconPlace: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: SURF3,
-    borderWidth: 1,
-    borderColor: W10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchResultUserAvatar: {
-    fontSize: 20,
-  },
-  searchResultItemText: {
-    color: W,
-    fontSize: 12,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  searchResultMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  userStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  searchResultMetaText: {
-    color: W35,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 0.5,
-  },
+    // ═══════════════════════════════════════════
+    // DRAWER / SETTINGS MODAL
+    // ═══════════════════════════════════════════
+    drawerModalContainer: { flex: 1, backgroundColor: t.overlay, justifyContent: 'flex-end' },
+    drawerModal:          { backgroundColor: SURF, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: t.border2, padding: 24, paddingBottom: 40 },
+    drawerHandle:         { width: 40, height: 3, backgroundColor: t.border3, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+    drawerTitle:          { color: t.text, fontFamily: 'Orbitron', fontWeight: '700', fontSize: 13, letterSpacing: 4, marginBottom: 20 },
+    drawerBtn:            { paddingVertical: 15, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 14, backgroundColor: SURF2, marginBottom: 8, borderWidth: 1, borderColor: t.border },
+    drawerBtnActive:      { backgroundColor: t.primaryBg, borderColor: t.primaryBorder },
+    drawerBtnIcon:        { width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: t.textDim, justifyContent: 'center', alignItems: 'center' },
+    drawerBtnIconInner:   { width: 9, height: 9, borderRadius: 2, backgroundColor: t.text },
+    drawerBtnTxt:         { color: t.textMuted, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 1.5, flex: 1 },
+    drawerBtnTxtActive:   { color: t.primary },
+    drawerCloseBtn:       { position: 'absolute', top: 20, right: 20, padding: 8, backgroundColor: t.border, borderRadius: 12, borderWidth: 1, borderColor: t.border2, zIndex: 15 },
+    drawerDivider:        { height: 1, backgroundColor: t.border, marginVertical: 14 },
+    drawerSectionLabel:   { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 3, marginBottom: 10 },
 
-  // Categories
-  categoriesGrid: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 8,
-  },
-  categoryCard: {
-    backgroundColor: SURF2,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: W08,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  categoryIconContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: R_BG,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  categoryTitle: {
-    color: W,
-    fontSize: 12,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 0.3,
-    marginBottom: 3,
-  },
-  categorySubtitle: {
-    color: W35,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1,
-  },
-  emptyList: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 48,
-    gap: 12,
-  },
-  emptyListText: {
-    color: W35,
-    fontSize: 9,
-    fontFamily: 'Orbitron',
-    letterSpacing: 2,
-  },
-
-  // ═══════════════════════════════════════════
-  // USER INFO MODAL
-  // ═══════════════════════════════════════════
-  userInfoOverlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  userInfoBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000000aa',
-  },
-  userInfoCard: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: SURF,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: W10,
-    paddingTop: 8,
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-  },
-  // Handle
-  userInfoHandle: {
-    width: 40,
-    height: 3,
-    backgroundColor: W20,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  userInfoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 16,
-  },
-  userInfoAvatarWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: R_BG,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userInfoAvatar: {
-    fontSize: 36,
-  },
-  userInfoHeaderText: {
-    flex: 1,
-    gap: 6,
-  },
-  userInfoCloseBtn: {
-    width: 36,
-    height: 36,
-    backgroundColor: W08,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: W10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userInfoContent: {
-    marginBottom: 20,
-  },
-  userInfoName: {
-    color: W,
-    fontSize: 20,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  userInfoStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  userInfoStatusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  userInfoStatus: {
-    color: W35,
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 2,
-  },
-  userInfoDivider: {
-    height: 1,
-    backgroundColor: W08,
-    marginBottom: 16,
-  },
-  // Stats row (2 karty obok siebie)
-  userInfoStatsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  userInfoStatCard: {
-    flex: 1,
-    backgroundColor: SURF2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: W08,
-    padding: 14,
-    gap: 6,
-  },
-  userInfoStatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  userInfoStatIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: R_BG,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userInfoStatLabel: {
-    color: W35,
-    fontSize: 7,
-    fontFamily: 'Orbitron',
-    letterSpacing: 2,
-    marginBottom: 2,
-  },
-  userInfoStatValue: {
-    color: W,
-    fontSize: 16,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: -0.5,
-  },
-  userInfoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: '#ff6b9d15',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ff6b9d35',
-    marginBottom: 16,
-  },
-  userInfoBadgeText: {
-    color: '#ff6b9d',
-    fontSize: 8,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1.5,
-  },
-  userInfoNavigateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 15,
-    backgroundColor: R_CE,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: R_BORDER,
-    elevation: 4,
-    shadowColor: R,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-  },
-  userInfoNavigateBtnText: {
-    color: W,
-    fontSize: 10,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-
-  // ═══════════════════════════════════════════
-  // DRAWER / SETTINGS MODAL
-  // ═══════════════════════════════════════════
-  drawerModalContainer: {
-    flex: 1,
-    backgroundColor: '#000000aa',
-    justifyContent: 'flex-end',
-  },
-  drawerModal: {
-    backgroundColor: SURF,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderTopColor: W10,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  drawerHandle: {
-    width: 40,
-    height: 3,
-    backgroundColor: W20,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  drawerTitle: {
-    color: W,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    fontSize: 13,
-    letterSpacing: 4,
-    marginBottom: 20,
-  },
-  drawerBtn: {
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderRadius: 14,
-    backgroundColor: SURF2,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: W08,
-  },
-  drawerBtnActive: {
-    backgroundColor: R_BG,
-    borderColor: R_BORDER,
-  },
-  drawerBtnIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: W40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  drawerBtnIconInner: {
-    width: 9,
-    height: 9,
-    borderRadius: 2,
-    backgroundColor: W,
-  },
-  drawerBtnTxt: {
-    color: W70,
-    fontSize: 10,
-    fontFamily: 'Orbitron',
-    letterSpacing: 1.5,
-    flex: 1,
-  },
-  drawerBtnTxtActive: {
-    color: R_CE,
-  },
-  drawerCloseBtn: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
-    padding: 8,
-    backgroundColor: W08,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: W15,
-    zIndex: 15,
-  },
-  drawerDivider: {
-    height: 1,
-    backgroundColor: W08,
-    marginVertical: 14,
-  },
-  drawerSectionLabel: {
-    color: W35,
-    fontSize: 7,
-    fontFamily: 'Orbitron',
-    letterSpacing: 3,
-    marginBottom: 10,
-  },
-
-  // ═══════════════════════════════════════════
-  // REPORT MODAL
-  // ═══════════════════════════════════════════
-  reportItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: SURF2,
-    borderRadius: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: W08,
-    gap: 14,
-  },
-  reportIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: W08,
-    borderWidth: 1,
-    borderColor: W10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reportItemText: {
-    color: W,
-    fontSize: 11,
-    fontFamily: 'Orbitron',
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  reportItemArrow: {
-    opacity: 0.4,
-  },
-});
+    // ════════════════════════���══════════════════
+    // REPORT MODAL
+    // ═══════════════════════════════════════════
+    reportItem:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 16, backgroundColor: SURF2, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: t.border, gap: 14 },
+    reportIconWrap:  { width: 44, height: 44, borderRadius: 12, backgroundColor: t.border, borderWidth: 1, borderColor: t.border2, alignItems: 'center', justifyContent: 'center' },
+    reportItemText:  { color: t.text, fontSize: 11, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.5, flex: 1 },
+    reportItemArrow: { opacity: 0.4 },
+  });
+}

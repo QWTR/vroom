@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator,
+  View, ScrollView, TouchableOpacity,
+  TextInput, ActivityIndicator, Text,
 } from 'react-native';
-import { Text } from '@react-navigation/elements';
-import { useRouter } from 'expo-router';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
-import { API_URL } from '../../constants/config';
+import { useRouter }    from 'expo-router';
+import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
+import AsyncStorage     from '@react-native-async-storage/async-storage';
+import Toast            from 'react-native-toast-message';
+import { API_URL }      from '../../constants/config';
+import { useTheme }     from '../../contexts/ThemeContext';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 export default function ChangeEmailScreen() {
   const router = useRouter();
+  const { theme } = useTheme();
 
   const [currentEmail, setCurrentEmail] = useState('');
   const [newEmail,     setNewEmail]     = useState('');
@@ -22,13 +23,9 @@ export default function ChangeEmailScreen() {
   const [loading,      setLoading]      = useState(false);
   const [showPass,     setShowPass]     = useState(false);
 
-  // Wczytaj obecny email
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
-      if (raw) {
-        const u = JSON.parse(raw);
-        setCurrentEmail(u.email ?? '');
-      }
+      if (raw) { const u = JSON.parse(raw); setCurrentEmail(u.email ?? ''); }
     });
   }, []);
 
@@ -36,166 +33,92 @@ export default function ChangeEmailScreen() {
   const isReady = newEmail && password && isValidEmail(newEmail) && newEmail !== currentEmail;
 
   const handleSave = async () => {
-    if (!isValidEmail(newEmail)) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj prawidłowy adres e-mail.' });
-      return;
-    }
-    if (newEmail === currentEmail) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowy e-mail musi być inny niż obecny.' });
-      return;
-    }
-    if (!password) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz hasło aby potwierdzić.' });
-      return;
-    }
-
+    if (!isValidEmail(newEmail))          { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj prawidłowy adres e-mail.' }); return; }
+    if (newEmail === currentEmail)        { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowy e-mail musi być inny niż obecny.' }); return; }
+    if (!password)                        { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz hasło aby potwierdzić.' }); return; }
     setLoading(true);
     try {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/auth/change-email`, {
-        method:  'PATCH',
-        headers: {
-          Authorization:  `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ newEmail, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Błąd');
-
-      // Zaktualizuj lokalny cache
       const raw = await AsyncStorage.getItem('user');
-      if (raw) {
-        const u = JSON.parse(raw);
-        await AsyncStorage.setItem('user', JSON.stringify({ ...u, email: newEmail }));
-      }
-
+      if (raw) await AsyncStorage.setItem('user', JSON.stringify({ ...JSON.parse(raw), email: newEmail }));
       Toast.show({ type: 'success', text1: '✅ E-MAIL ZMIENIONY', text2: newEmail });
       router.back();
     } catch (e: any) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie można zmienić e-maila.' });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
+  const inputBase = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border2 };
+
   return (
-    <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
 
       {/* NAGŁÓWEK */}
-      <View style={s.headerRow}>
+      <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={s.backBtn}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>ZMIEŃ E-MAIL</Text>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, letterSpacing: 2 }}>ZMIEŃ E-MAIL</Text>
         <View style={{ width: 60 }} />
       </View>
 
       {/* OBECNY EMAIL */}
-      <View style={s.currentCard}>
-        <Text style={s.currentLabel}>OBECNY E-MAIL</Text>
-        <Text style={s.currentValue}>{currentEmail || '...'}</Text>
+      <View style={{ backgroundColor: theme.surface3, borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: theme.border }}>
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 8, letterSpacing: 2, marginBottom: 6 }}>OBECNY E-MAIL</Text>
+        <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 13 }}>{currentEmail || '...'}</Text>
       </View>
 
       {/* FORMULARZ */}
-      <View style={s.form}>
+      <View style={{ backgroundColor: theme.surface3, borderRadius: 16, padding: 20, gap: 10, borderWidth: 1, borderColor: theme.border, marginBottom: 24 }}>
 
-        {/* Nowy email */}
-        <Text style={s.label}>NOWY E-MAIL</Text>
-        <View style={[
-          s.inputWrap,
-          newEmail && !isValidEmail(newEmail) && s.inputError,
-          newEmail && isValidEmail(newEmail) && newEmail !== currentEmail && s.inputSuccess,
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 }}>NOWY E-MAIL</Text>
+        <View style={[inputBase,
+          newEmail && !isValidEmail(newEmail)                          && { borderColor: '#e33835' },
+          newEmail && isValidEmail(newEmail) && newEmail !== currentEmail && { borderColor: '#4CAF5050' },
         ]}>
-          <MaterialIcons name="email" size={18} color="#ffffff30" style={s.inputIcon} />
-          <TextInput
-            style={s.input}
-            value={newEmail}
-            onChangeText={setNewEmail}
-            placeholder="nowy@email.com"
-            placeholderTextColor="#ffffff25"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <MaterialIcons name="email" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
+          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={newEmail} onChangeText={setNewEmail} placeholder="nowy@email.com" placeholderTextColor={theme.textFaint} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
           {newEmail && isValidEmail(newEmail) && newEmail !== currentEmail && (
             <MaterialIcons name="check-circle" size={18} color="#4CAF50" style={{ marginRight: 12 }} />
           )}
         </View>
         {newEmail && !isValidEmail(newEmail) && (
-          <Text style={s.errorText}>Nieprawidłowy format e-mail</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Nieprawidłowy format e-mail</Text>
         )}
         {newEmail && newEmail === currentEmail && (
-          <Text style={s.errorText}>Nowy e-mail musi być inny niż obecny</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Nowy e-mail musi być inny niż obecny</Text>
         )}
 
-        <View style={s.separator} />
+        <View style={{ height: 1, backgroundColor: theme.border2, marginVertical: 6 }} />
 
-        {/* Potwierdź hasłem */}
-        <Text style={s.label}>POTWIERDŹ HASŁEM</Text>
-        <Text style={s.sublabel}>Ze względów bezpieczeństwa wymagamy hasła</Text>
-        <View style={s.inputWrap}>
-          <MaterialIcons name="lock-outline" size={18} color="#ffffff30" style={s.inputIcon} />
-          <TextInput
-            style={s.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Wpisz swoje hasło"
-            placeholderTextColor="#ffffff25"
-            secureTextEntry={!showPass}
-            autoCapitalize="none"
-          />
-          <TouchableOpacity onPress={() => setShowPass(v => !v)} style={s.eyeBtn}>
-            <MaterialIcons name={showPass ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 }}>POTWIERDŹ HASŁEM</Text>
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 8, marginBottom: 8, marginTop: -4 }}>Ze względów bezpieczeństwa wymagamy hasła</Text>
+        <View style={inputBase}>
+          <MaterialIcons name="lock-outline" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
+          <TextInput style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 }} value={password} onChangeText={setPassword} placeholder="Wpisz swoje hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showPass} autoCapitalize="none" />
+          <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 12 }}>
+            <MaterialIcons name={showPass ? 'visibility' : 'visibility-off'} size={18} color={theme.textDim} />
           </TouchableOpacity>
         </View>
-
       </View>
 
       {/* PRZYCISK */}
       <TouchableOpacity
-        style={[s.saveBtn, !isReady && { opacity: 0.4 }]}
-        onPress={handleSave}
-        disabled={!isReady || loading}
-        activeOpacity={0.85}
+        style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 16, shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 }, !isReady && { opacity: 0.4 }]}
+        onPress={handleSave} disabled={!isReady || loading} activeOpacity={0.85}
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <>
-              <MaterialIcons name="email" size={18} color="#fff" />
-              <Text style={s.saveBtnText}>ZMIEŃ E-MAIL</Text>
-            </>
+          : <><MaterialIcons name="email" size={18} color="#fff" /><Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ E-MAIL</Text></>
         }
       </TouchableOpacity>
-
     </ScrollView>
   );
 }
-
-const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#0f0f0f', paddingHorizontal: '5%' },
-  headerRow:    { marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
-  headerTitle:  { fontFamily: 'Orbitron', fontSize: 15, color: '#fff', letterSpacing: 2 },
-  backBtn:      { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
-
-  currentCard:  { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: '#ffffff08' },
-  currentLabel: { fontFamily: 'Orbitron', color: '#ffffff30', fontSize: 8, letterSpacing: 2, marginBottom: 6 },
-  currentValue: { fontFamily: 'Orbitron', color: '#e33835', fontSize: 13 },
-
-  form:         { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 20, gap: 10, borderWidth: 1, borderColor: '#ffffff08', marginBottom: 24 },
-  label:        { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8, letterSpacing: 2, marginBottom: 4 },
-  sublabel:     { fontFamily: 'Orbitron', color: '#ffffff25', fontSize: 8, marginBottom: 8, marginTop: -4 },
-  separator:    { height: 1, backgroundColor: '#ffffff08', marginVertical: 6 },
-
-  inputWrap:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#252525', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff10' },
-  inputError:   { borderColor: '#e33835' },
-  inputSuccess: { borderColor: '#4CAF5050' },
-  inputIcon:    { marginLeft: 12 },
-  input:        { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 },
-  eyeBtn:       { padding: 12 },
-
-  errorText:    { fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 },
-
-  saveBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#e33835', borderRadius: 14, paddingVertical: 16, elevation: 6, shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  saveBtnText:  { fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 },
-});

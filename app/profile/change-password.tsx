@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import {
-  View, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator,
+  View, ScrollView, TouchableOpacity,
+  TextInput, ActivityIndicator, Text,
 } from 'react-native';
-import { Text } from '@react-navigation/elements';
-import { useRouter } from 'expo-router';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
-import { API_URL } from '../../constants/config';
+import { useRouter }  from 'expo-router';
+import MaterialIcons  from '@expo/vector-icons/MaterialIcons';
+import AsyncStorage   from '@react-native-async-storage/async-storage';
+import Toast          from 'react-native-toast-message';
+import { API_URL }    from '../../constants/config';
+import { useTheme }   from '../../contexts/ThemeContext';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
+  const { theme } = useTheme();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword,     setNewPassword]     = useState('');
@@ -24,207 +25,115 @@ export default function ChangePasswordScreen() {
   const [showNew,         setShowNew]         = useState(false);
   const [showConfirm,     setShowConfirm]     = useState(false);
 
-  const handleSave = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowe hasło musi mieć min. 6 znaków.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
-      return;
-    }
-    if (newPassword === currentPassword) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowe hasło musi być inne niż obecne.' });
-      return;
-    }
+  const isReady = currentPassword && newPassword && confirmPassword && newPassword === confirmPassword;
 
+  const handleSave = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' }); return; }
+    if (newPassword.length < 6)                               { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowe hasło musi mieć min. 6 znaków.' }); return; }
+    if (newPassword !== confirmPassword)                      { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' }); return; }
+    if (newPassword === currentPassword)                      { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nowe hasło musi być inne niż obecne.' }); return; }
     setLoading(true);
     try {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/auth/change-password`, {
-        method:  'PATCH',
-        headers: {
-          Authorization:  `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Błąd');
-
       Toast.show({ type: 'success', text1: '✅ HASŁO ZMIENIONE', text2: 'Twoje hasło zostało zaktualizowane.' });
       router.back();
     } catch (e: any) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie można zmienić hasła.' });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  const isReady = currentPassword && newPassword && confirmPassword && newPassword === confirmPassword;
+  const inputBase = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border2 };
+  const inputStyle = { flex: 1, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 };
+  const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 };
 
   return (
-    <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
 
       {/* NAGŁÓWEK */}
-      <View style={s.headerRow}>
+      <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={s.backBtn}>← Wróć</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>ZMIEŃ HASŁO</Text>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, letterSpacing: 2 }}>ZMIEŃ HASŁO</Text>
         <View style={{ width: 60 }} />
       </View>
 
       {/* INFO */}
-      <View style={s.infoCard}>
-        <MaterialIcons name="lock-outline" size={20} color="#e33835" />
-        <Text style={s.infoText}>Hasło musi mieć minimum 6 znaków.</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.primaryBg, borderRadius: 12, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: theme.primaryBorder }}>
+        <MaterialIcons name="lock-outline" size={20} color={theme.primary} />
+        <Text style={{ fontFamily: 'Orbitron', color: theme.textMuted, fontSize: 10, flex: 1 }}>Hasło musi mieć minimum 6 znaków.</Text>
       </View>
 
       {/* FORMULARZ */}
-      <View style={s.form}>
+      <View style={{ backgroundColor: theme.surface3, borderRadius: 16, padding: 20, gap: 10, borderWidth: 1, borderColor: theme.border, marginBottom: 24 }}>
 
-        {/* Obecne hasło */}
-        <Text style={s.label}>OBECNE HASŁO</Text>
-        <View style={s.inputWrap}>
-          <MaterialIcons name="lock-outline" size={18} color="#ffffff30" style={s.inputIcon} />
-          <TextInput
-            style={s.input}
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            placeholder="Wpisz obecne hasło"
-            placeholderTextColor="#ffffff25"
-            secureTextEntry={!showCurrent}
-            autoCapitalize="none"
-          />
-          <TouchableOpacity onPress={() => setShowCurrent(v => !v)} style={s.eyeBtn}>
-            <MaterialIcons name={showCurrent ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
+        <Text style={labelStyle}>OBECNE HASŁO</Text>
+        <View style={inputBase}>
+          <MaterialIcons name="lock-outline" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
+          <TextInput style={inputStyle} value={currentPassword} onChangeText={setCurrentPassword} placeholder="Wpisz obecne hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showCurrent} autoCapitalize="none" />
+          <TouchableOpacity onPress={() => setShowCurrent(v => !v)} style={{ padding: 12 }}>
+            <MaterialIcons name={showCurrent ? 'visibility' : 'visibility-off'} size={18} color={theme.textDim} />
           </TouchableOpacity>
         </View>
 
-        <View style={s.separator} />
+        <View style={{ height: 1, backgroundColor: theme.border2, marginVertical: 6 }} />
 
-        {/* Nowe hasło */}
-        <Text style={s.label}>NOWE HASŁO</Text>
-        <View style={s.inputWrap}>
-          <MaterialIcons name="lock-reset" size={18} color="#ffffff30" style={s.inputIcon} />
-          <TextInput
-            style={s.input}
-            value={newPassword}
-            onChangeText={setNewPassword}
-            placeholder="Wpisz nowe hasło"
-            placeholderTextColor="#ffffff25"
-            secureTextEntry={!showNew}
-            autoCapitalize="none"
-          />
-          <TouchableOpacity onPress={() => setShowNew(v => !v)} style={s.eyeBtn}>
-            <MaterialIcons name={showNew ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
+        <Text style={labelStyle}>NOWE HASŁO</Text>
+        <View style={inputBase}>
+          <MaterialIcons name="lock-reset" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
+          <TextInput style={inputStyle} value={newPassword} onChangeText={setNewPassword} placeholder="Wpisz nowe hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showNew} autoCapitalize="none" />
+          <TouchableOpacity onPress={() => setShowNew(v => !v)} style={{ padding: 12 }}>
+            <MaterialIcons name={showNew ? 'visibility' : 'visibility-off'} size={18} color={theme.textDim} />
           </TouchableOpacity>
         </View>
 
         {/* Siła hasła */}
         {newPassword.length > 0 && (
-          <View style={s.strengthRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
             {[1, 2, 3, 4].map(i => (
-              <View
-                key={i}
-                style={[
-                  s.strengthBar,
-                  {
-                    backgroundColor:
-                      newPassword.length >= i * 3
-                        ? newPassword.length >= 10 ? '#4CAF50'
-                          : newPassword.length >= 6 ? '#FF9800'
-                          : '#e33835'
-                        : '#ffffff10',
-                  },
-                ]}
-              />
+              <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: newPassword.length >= i * 3 ? (newPassword.length >= 10 ? '#4CAF50' : newPassword.length >= 6 ? '#FF9800' : theme.primary) : theme.border2 }} />
             ))}
-            <Text style={s.strengthLabel}>
+            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginLeft: 6 }}>
               {newPassword.length < 6 ? 'Za krótkie' : newPassword.length < 10 ? 'Słabe' : 'Silne'}
             </Text>
           </View>
         )}
 
-        <View style={s.separator} />
+        <View style={{ height: 1, backgroundColor: theme.border2, marginVertical: 6 }} />
 
-        {/* Potwierdź hasło */}
-        <Text style={s.label}>POTWIERDŹ NOWE HASŁO</Text>
-        <View style={[s.inputWrap, confirmPassword && newPassword !== confirmPassword && s.inputError]}>
-          <MaterialIcons name="check-circle-outline" size={18} color="#ffffff30" style={s.inputIcon} />
-          <TextInput
-            style={s.input}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Powtórz nowe hasło"
-            placeholderTextColor="#ffffff25"
-            secureTextEntry={!showConfirm}
-            autoCapitalize="none"
-          />
-          <TouchableOpacity onPress={() => setShowConfirm(v => !v)} style={s.eyeBtn}>
-            <MaterialIcons name={showConfirm ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
+        <Text style={labelStyle}>POTWIERDŹ NOWE HASŁO</Text>
+        <View style={[inputBase, confirmPassword && newPassword !== confirmPassword && { borderColor: '#e33835' }]}>
+          <MaterialIcons name="check-circle-outline" size={18} color={theme.textDim} style={{ marginLeft: 12 }} />
+          <TextInput style={inputStyle} value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Powtórz nowe hasło" placeholderTextColor={theme.textFaint} secureTextEntry={!showConfirm} autoCapitalize="none" />
+          <TouchableOpacity onPress={() => setShowConfirm(v => !v)} style={{ padding: 12 }}>
+            <MaterialIcons name={showConfirm ? 'visibility' : 'visibility-off'} size={18} color={theme.textDim} />
           </TouchableOpacity>
         </View>
         {confirmPassword && newPassword !== confirmPassword && (
-          <Text style={s.errorText}>Hasła nie są identyczne</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 }}>Hasła nie są identyczne</Text>
         )}
         {confirmPassword && newPassword === confirmPassword && (
-          <Text style={s.successText}>✓ Hasła są identyczne</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: '#4CAF50', fontSize: 9, marginTop: 4 }}>✓ Hasła są identyczne</Text>
         )}
-
       </View>
 
       {/* PRZYCISK */}
       <TouchableOpacity
-        style={[s.saveBtn, !isReady && { opacity: 0.4 }]}
-        onPress={handleSave}
-        disabled={!isReady || loading}
-        activeOpacity={0.85}
+        style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 16, shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 }, !isReady && { opacity: 0.4 }]}
+        onPress={handleSave} disabled={!isReady || loading} activeOpacity={0.85}
       >
         {loading
           ? <ActivityIndicator color="#fff" />
-          : <>
-              <MaterialIcons name="lock" size={18} color="#fff" />
-              <Text style={s.saveBtnText}>ZMIEŃ HASŁO</Text>
-            </>
+          : <><MaterialIcons name="lock" size={18} color="#fff" /><Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>ZMIEŃ HASŁO</Text></>
         }
       </TouchableOpacity>
-
     </ScrollView>
   );
 }
-
-const s = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#0f0f0f', paddingHorizontal: '5%' },
-  headerRow:     { marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
-  headerTitle:   { fontFamily: 'Orbitron', fontSize: 15, color: '#fff', letterSpacing: 2 },
-  backBtn:       { fontFamily: 'Orbitron', color: '#e33835', fontSize: 12 },
-
-  infoCard:      { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#e3383512', borderRadius: 12, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: '#e3383530' },
-  infoText:      { fontFamily: 'Orbitron', color: '#ffffff80', fontSize: 10, flex: 1 },
-
-  form:          { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 20, gap: 10, borderWidth: 1, borderColor: '#ffffff08', marginBottom: 24 },
-  label:         { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8, letterSpacing: 2, marginBottom: 4 },
-  separator:     { height: 1, backgroundColor: '#ffffff08', marginVertical: 6 },
-
-  inputWrap:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#252525', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff10' },
-  inputError:    { borderColor: '#e33835' },
-  inputIcon:     { marginLeft: 12 },
-  input:         { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 },
-  eyeBtn:        { padding: 12 },
-
-  strengthRow:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  strengthBar:   { flex: 1, height: 3, borderRadius: 2 },
-  strengthLabel: { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8, marginLeft: 6 },
-
-  errorText:     { fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, marginTop: 4 },
-  successText:   { fontFamily: 'Orbitron', color: '#4CAF50', fontSize: 9, marginTop: 4 },
-
-  saveBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#e33835', borderRadius: 14, paddingVertical: 16, elevation: 6, shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  saveBtnText:   { fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 1 },
-});

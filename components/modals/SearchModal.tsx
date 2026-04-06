@@ -9,7 +9,8 @@ import Toast from 'react-native-toast-message';
 import { User, LocationState } from '../../constants/types';
 import { calculateDistance } from '../../scripts/distance';
 import { GOOGLE_MAPS_APIKEY, MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
-import { styles } from '../../styles/mapstyle';
+import { makeMapStyles } from '../../styles/mapstyle';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface SearchModalProps {
   visible: boolean;
@@ -23,7 +24,10 @@ interface SearchModalProps {
 export const SearchModal = memo(({
   visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers,
 }: SearchModalProps) => {
-  const [activeTab,      setActiveTab]      = useState<'start' | 'end'>('start');
+  const { theme, isDark } = useTheme();
+  const styles = makeMapStyles(theme, isDark);
+
+  const [activeTab,      setActiveTab]      = useState<'start' | 'end'>('end');
   const [searchQuery,    setSearchQuery]    = useState('');
   const [filteredPlaces, setFilteredPlaces] = useState<any[]>([]);
   const [filteredUsers,  setFilteredUsers]  = useState<User[]>([]);
@@ -42,7 +46,6 @@ export const SearchModal = memo(({
       setSearchMode(category);
       setSearchQuery('');
       setFilteredPlaces([]);
-
       const mapped = nearbyUsers
         .filter(u => {
           if (category === 'friends') return u.isFriend;
@@ -65,7 +68,6 @@ export const SearchModal = memo(({
             : 0,
         }))
         .sort((a, b) => (a.distance || 0) - (b.distance || 0));
-
       setFilteredUsers(mapped);
     },
     [nearbyUsers, userLocation],
@@ -102,10 +104,9 @@ export const SearchModal = memo(({
         setActiveTab('end');
         resetToInitial();
       } else {
-        // ← KOLEJNOŚĆ: najpierw ustaw cel, POTEM zamknij
         onSelectEnd(location);
         Toast.show({ type: 'success', text1: 'CEL USTAWIONY', text2: label });
-        onClose(); // zamknij po ustawieniu
+        onClose();
       }
     },
     [activeTab, onSelectStart, onSelectEnd, onClose],
@@ -132,11 +133,11 @@ export const SearchModal = memo(({
     [selectLocation],
   );
 
-  const handleSelectUser     = useCallback((user: User) => {
+  const handleSelectUser    = useCallback((user: User) => {
     selectLocation({ latitude: user.latitude, longitude: user.longitude, name: user.name }, user.name);
   }, [selectLocation]);
 
-  const handleSelectCurrent  = useCallback(() => {
+  const handleSelectCurrent = useCallback(() => {
     if (userLocation) selectLocation({ ...userLocation, name: 'Moja pozycja' }, 'Moja pozycja');
   }, [userLocation, selectLocation]);
 
@@ -145,6 +146,13 @@ export const SearchModal = memo(({
     u => !u.isFriend && userLocation &&
       calculateDistance(userLocation.latitude, userLocation.longitude, u.latitude, u.longitude) <= MAX_NEARBY_USERS_DISTANCE,
   ).length;
+
+  // ── kolory ikon kategorii (stałe — nie zależą od theme) ──
+  const iconBg = {
+    current: { bg: '#e3383518', border: '#e3383535', color: '#e33835ce' },
+    users:   { bg: '#00bfff18', border: '#00bfff35', color: '#00bfff'   },
+    friends: { bg: '#4de92618', border: '#4de92635', color: '#4de926'   },
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -159,9 +167,8 @@ export const SearchModal = memo(({
               style={styles.searchModalBackBtn}
               onPress={searchMode === 'initial' ? onClose : resetToInitial}
             >
-              <MaterialIcons name="arrow-back" size={20} color="#ffffff70" />
+              <MaterialIcons name="arrow-back" size={20} color={theme.textMuted} />
             </TouchableOpacity>
-
             <View style={{ flex: 1 }}>
               <Text style={styles.searchModalTitle}>
                 {activeTab === 'start' ? 'Skąd jedziesz?' : 'Dokąd jedziesz?'}
@@ -180,7 +187,7 @@ export const SearchModal = memo(({
                 <MaterialIcons
                   name={tab === 'start' ? 'radio-button-on' : 'flag'}
                   size={15}
-                  color={activeTab === tab ? '#e33835ce' : '#ffffff35'}
+                  color={activeTab === tab ? theme.primary : theme.textDim}
                 />
                 <Text style={[
                   styles.searchModalTabText,
@@ -196,11 +203,11 @@ export const SearchModal = memo(({
 
           {/* ── INPUT ── */}
           <View style={styles.searchModalInputContainer}>
-            <MaterialIcons name="search" size={18} color="#e33835ce" />
+            <MaterialIcons name="search" size={18} color={theme.primary} />
             <TextInput
               style={styles.searchModalInput}
               placeholder="Wpisz adres lub miejsce..."
-              placeholderTextColor="#ffffff35"
+              placeholderTextColor={theme.textDim}
               value={searchQuery}
               onChangeText={text => { setSearchQuery(text); handleSearch(text); }}
               onFocus={() => { setSearchMode('initial'); setFilteredPlaces([]); }}
@@ -209,55 +216,52 @@ export const SearchModal = memo(({
               blurOnSubmit={false}
             />
             {isSearching
-              ? <ActivityIndicator size="small" color="#e33835ce" />
+              ? <ActivityIndicator size="small" color={theme.primary} />
               : searchQuery.length > 0 && (
                 <TouchableOpacity onPress={() => { setSearchQuery(''); resetToInitial(); }}>
-                  <MaterialIcons name="close" size={18} color="#ffffff35" />
+                  <MaterialIcons name="close" size={18} color={theme.textDim} />
                 </TouchableOpacity>
               )
             }
           </View>
 
-          {/* ── INITIAL STATE — kategorie ── */}
+          {/* ── INITIAL STATE ── */}
           {searchMode === 'initial' && searchQuery.length === 0 && (
             <>
               <Text style={styles.searchHelperText}>WYBIERZ KATEGORIĘ LUB WPISZ ADRES</Text>
               <View style={styles.categoriesGrid}>
 
-                {/* Aktualna pozycja */}
                 <TouchableOpacity style={styles.categoryCard} onPress={handleSelectCurrent} activeOpacity={0.75}>
-                  <View style={[styles.categoryIconContainer, { backgroundColor: '#e3383518', borderColor: '#e3383535' }]}>
-                    <MaterialIcons name="my-location" size={26} color="#e33835ce" />
+                  <View style={[styles.categoryIconContainer, { backgroundColor: iconBg.current.bg, borderColor: iconBg.current.border }]}>
+                    <MaterialIcons name="my-location" size={26} color={iconBg.current.color} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.categoryTitle}>Aktualna pozycja</Text>
                     <Text style={styles.categorySubtitle}>Ustaw jako punkt trasy</Text>
                   </View>
-                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
+                  <MaterialIcons name="arrow-forward-ios" size={13} color={theme.textDim} />
                 </TouchableOpacity>
 
-                {/* Użytkownicy */}
                 <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('users')} activeOpacity={0.75}>
-                  <View style={[styles.categoryIconContainer, { backgroundColor: '#00bfff18', borderColor: '#00bfff35' }]}>
-                    <MaterialIcons name="people" size={26} color="#00bfff" />
+                  <View style={[styles.categoryIconContainer, { backgroundColor: iconBg.users.bg, borderColor: iconBg.users.border }]}>
+                    <MaterialIcons name="people" size={26} color={iconBg.users.color} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.categoryTitle}>Użytkownicy</Text>
                     <Text style={styles.categorySubtitle}>{otherUserCount} w zasięgu 25 km</Text>
                   </View>
-                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
+                  <MaterialIcons name="arrow-forward-ios" size={13} color={theme.textDim} />
                 </TouchableOpacity>
 
-                {/* Znajomi */}
                 <TouchableOpacity style={styles.categoryCard} onPress={() => handleSelectCategory('friends')} activeOpacity={0.75}>
-                  <View style={[styles.categoryIconContainer, { backgroundColor: '#4de92618', borderColor: '#4de92635' }]}>
-                    <MaterialIcons name="favorite" size={26} color="#4de926" />
+                  <View style={[styles.categoryIconContainer, { backgroundColor: iconBg.friends.bg, borderColor: iconBg.friends.border }]}>
+                    <MaterialIcons name="favorite" size={26} color={iconBg.friends.color} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.categoryTitle}>Znajomi</Text>
                     <Text style={styles.categorySubtitle}>{friendCount} dostępnych</Text>
                   </View>
-                  <MaterialIcons name="arrow-forward-ios" size={13} color="#ffffff35" />
+                  <MaterialIcons name="arrow-forward-ios" size={13} color={theme.textDim} />
                 </TouchableOpacity>
 
               </View>
@@ -274,7 +278,7 @@ export const SearchModal = memo(({
               style={styles.searchResultsList}
               ListEmptyComponent={
                 <View style={styles.emptyList}>
-                  <MaterialIcons name="person-off" size={28} color="#ffffff35" />
+                  <MaterialIcons name="person-off" size={28} color={theme.textDim} />
                   <Text style={styles.emptyListText}>BRAK WYNIKÓW</Text>
                 </View>
               }
@@ -292,14 +296,14 @@ export const SearchModal = memo(({
                     <View style={styles.searchResultMeta}>
                       <View style={[
                         styles.userStatusDot,
-                        { backgroundColor: item.status === 'Online' ? '#4de926' : '#ffffff35' },
+                        { backgroundColor: item.status === 'Online' ? '#4de926' : theme.textDim },
                       ]} />
                       <Text style={styles.searchResultMetaText}>
                         {item.status?.toUpperCase()} · {item.distance?.toFixed(1)} km
                       </Text>
                     </View>
                   </View>
-                  <MaterialIcons name="arrow-forward-ios" size={14} color="#ffffff35" />
+                  <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
                 </TouchableOpacity>
               )}
             />
@@ -315,7 +319,7 @@ export const SearchModal = memo(({
               style={styles.searchResultsList}
               ListEmptyComponent={
                 <View style={styles.emptyList}>
-                  <MaterialIcons name="search-off" size={28} color="#ffffff35" />
+                  <MaterialIcons name="search-off" size={28} color={theme.textDim} />
                   <Text style={styles.emptyListText}>BRAK WYNIKÓW</Text>
                 </View>
               }
@@ -326,7 +330,7 @@ export const SearchModal = memo(({
                   activeOpacity={0.65}
                 >
                   <View style={styles.searchResultIconPlace}>
-                    <MaterialIcons name="location-on" size={20} color="#e33835ce" />
+                    <MaterialIcons name="location-on" size={20} color={theme.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.searchResultItemText} numberOfLines={1}>
@@ -338,7 +342,7 @@ export const SearchModal = memo(({
                       </Text>
                     )}
                   </View>
-                  <MaterialIcons name="arrow-forward-ios" size={14} color="#ffffff35" />
+                  <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
                 </TouchableOpacity>
               )}
             />

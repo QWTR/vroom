@@ -1,9 +1,8 @@
 import React from 'react';
-import {
-  View, Image, TouchableOpacity, StyleSheet, ActivityIndicator,
-} from 'react-native';
-import { Text } from '@react-navigation/elements';
+import { View, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Text } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   initials:       string;
@@ -12,43 +11,33 @@ interface Props {
   onCameraPress?: () => void;
 }
 
-export default function AvatarCircle({
-  initials, avatarUrl, uploading = false, onCameraPress,
-}: Props) {
+export default function AvatarCircle({ initials, avatarUrl, uploading = false, onCameraPress }: Props) {
+  const { theme } = useTheme();
   return (
-    <View style={styles.avatarContainer}>
-      <View style={styles.avatarCircle}>
+    <View style={{ position: 'relative' }}>
+      <View style={{
+        width: 80, height: 80, borderRadius: 40,
+        backgroundColor: theme.surface3, borderWidth: 2, borderColor: theme.primary,
+        justifyContent: 'center', alignItems: 'center',
+        shadowColor: theme.primary, shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5, shadowRadius: 10, overflow: 'hidden',
+      }}>
         {uploading ? (
-          <ActivityIndicator color="#e33835" size="large" />
+          <ActivityIndicator color={theme.primary} size="large" />
         ) : avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          <Image source={{ uri: avatarUrl }} style={{ width: 80, height: 80 }} />
         ) : (
-          <Text style={styles.avatarText}>{initials}</Text>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: theme.primary }}>{initials}</Text>
         )}
       </View>
       {!!onCameraPress && !uploading && (
-        <TouchableOpacity style={styles.cameraBtn} onPress={onCameraPress}>
+        <TouchableOpacity
+          style={{ position: 'absolute', bottom: 0, right: 0, backgroundColor: theme.primary, padding: 6, borderRadius: 15, borderWidth: 2, borderColor: theme.surface3 }}
+          onPress={onCameraPress}
+        >
           <MaterialIcons name="photo-camera" size={14} color="#fff" />
         </TouchableOpacity>
       )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  avatarContainer: { position: 'relative' },
-  avatarCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: '#252525', borderWidth: 2, borderColor: '#e33835',
-    justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#e33835', shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5, shadowRadius: 10, overflow: 'hidden',
-  },
-  avatarImage: { width: 80, height: 80 },
-  avatarText:  { fontFamily: 'Orbitron', fontSize: 24, color: '#e33835' },
-  cameraBtn: {
-    position: 'absolute', bottom: 0, right: 0,
-    backgroundColor: '#e33835', padding: 6, borderRadius: 15,
-    borderWidth: 2, borderColor: '#1a1a1a',
-  },
-});

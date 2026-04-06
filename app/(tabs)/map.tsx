@@ -15,16 +15,21 @@ import Toast from 'react-native-toast-message';
 import { useRouter } from 'expo-router';
 
 const { UsersModule } = NativeModules;
+import { useTheme } from '../../contexts/ThemeContext';
 
-import { styles }          from '../../styles/mapstyle';
+import { makeMapStyles } from '../../styles/mapstyle';
+
+
 import { User, LocationState, RouteInfo } from '../../constants/types';
 import {
   GOOGLE_MAPS_APIKEY,
   customMapStyle,
+  lightMapStyle,
   MAX_NEARBY_USERS_DISTANCE,
 } from '../../constants/mapConfig';
+
 import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
-import { calculateDistance }       from '../../scripts/distance';
+import { calculateDistance }         from '../../scripts/distance';
 import {
   cleanInstruction,
   formatDuration,
@@ -36,18 +41,16 @@ import {
   findClosestPointIndex,
   snapToRoute,
 } from '../../scripts/navigationUtils';
-import { useGoogleDirections }        from '../../hooks/useGoogleDirections';
-import { useCameraAnimation }         from '../../hooks/useCameraAnimation';
-import { useNavigationPoints }        from '../../hooks/useNavigationPoints';
-import { useNavigationNotification }  from '../../hooks/useNavigationNotification';
-import { useDeadReckoning }           from '../../hooks/useDeadReckoning';
-import { useDemoUsers }               from '../../hooks/useDemoUsers';
-import { useRouteTimer } from '../../hooks/useRouteTimer';
-
+import { useGoogleDirections }       from '../../hooks/useGoogleDirections';
+import { useCameraAnimation }        from '../../hooks/useCameraAnimation';
+import { useNavigationPoints }       from '../../hooks/useNavigationPoints';
+import { useNavigationNotification } from '../../hooks/useNavigationNotification';
+import { useDeadReckoning }          from '../../hooks/useDeadReckoning';
+import { useDemoUsers }              from '../../hooks/useDemoUsers';
+import { useRouteTimer }             from '../../hooks/useRouteTimer';
+import { useRouteLeaderboard }       from '../../hooks/useRouteLeaderboard';
 import {
   useLiveMap,
-  getWarningColor,
-  getWarningIcon,
   getWarningLabel,
   LiveWarning,
   clusterWarnings,
@@ -58,9 +61,11 @@ import {
   feedNavDistance,
   resetSpeedStats,
 } from '../../hooks/useBackgroundTracking';
-import { useRouteBuilder } from '../../hooks/useRouteBuilder';
+import { useRouteBuilder }           from '../../hooks/useRouteBuilder';
+import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
 
-import { SaveRouteModal }            from '../../components/modals/SaveRouteModal';
+
+import { SaveRouteModal }        from '../../components/modals/SaveRouteModal';
 import { CarMarker }             from '../../components/markers/CarMarker';
 import { CarMarkerRenderer }     from '../../components/markers/CarMarkerRenderer';
 import { UserCarMarker }         from '../../components/markers/UserCarMarker';
@@ -71,31 +76,52 @@ import { SearchModal }           from '../../components/modals/SearchModal';
 import { SettingsModal }         from '../../components/modals/SettingsModal';
 import { ReportModal }           from '../../components/modals/ReportModal';
 import { WarningDetailModal }    from '../../components/modals/WarningDetailModal';
-import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
-import { RoutePin } from '../../components/markers/RoutePin';
+import { RoutePinRenderer }      from '../../components/markers/RoutePinRenderer';
 import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
+import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stałe nawigacji
+// ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 18.5;
-const NAV_PITCH           = 65;
+const NAV_ZOOM            = 16.5;
+const NAV_PITCH           = 90;
 
+// ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
 
-  // ── Refs ──────────────────────────────────────────────────
+  // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<MapView>(null);
-  const lastSpokenRef        = useRef('');
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
-  const usersInitRef         = useRef(false);
+  const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
+
+  // ── Refs – nawigacja / mowa ───────────────────────────────
+  const lastSpokenRef        = useRef('');
   const rerouteTimerRef      = useRef<any>(null);
   const announcedStepRef     = useRef(-1);
   const isSpeechRef          = useRef(true);
   const startIsMyLocationRef = useRef(false);
-  const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
 
-  // ── Lokalizacja ───────────────────────────────────────────
+  // ── Refs – dead-reckoning (zero re-renderów) ─────────────
+  const drLatRef    = useRef(0);
+  const drLngRef    = useRef(0);
+  const drHdgRef    = useRef(0);
+  const drTickRef   = useRef(0);
+
+  // ── Ref – isNavigating dostępny synchronicznie w pętli rAF
+  const isNavigatingRef = useRef(false);
+
+  // ── Ref na punkty trasy (do użycia w pętli DR) ────────���───
+  const routePointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
+
+  // ── Ref na navRoute (do odczytu w onFrame bez stale closure) ─
+  const navRouteRef = useRef<typeof navRoute | null>(null);
+
+  // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
   const [startLocation, setStartLocation] = useState<LocationState | null>(null);
   const [endLocation,   setEndLocation]   = useState<LocationState | null>(null);
@@ -104,7 +130,7 @@ export default function MapScreen() {
   const [speed,         setSpeed]         = useState<number | null>(null);
   const [locationReady, setLocationReady] = useState(false);
 
-  // ── Nawigacja ─────────────────────────────────────────────
+  // ── State – nawigacja ─────────────────────────────────────
   const [isNavigating, setIsNavigating] = useState(false);
   const [navStartLoc,  setNavStartLoc]  = useState<LocationState | null>(null);
   const [currentStep,  setCurrentStep]  = useState(0);
@@ -112,14 +138,19 @@ export default function MapScreen() {
   const [arrived,      setArrived]      = useState(false);
   const [routeInfo,    setRouteInfo]    = useState<RouteInfo | null>(null);
 
-  // ── Markery ───────────────────────────────────────────────
-  const [carMarkerImage,  setCarMarkerImage]  = useState<string | null>(null);
-  const [myAvatarUrl,     setMyAvatarUrl]     = useState<string | null>(null);
-  const [myUsername,      setMyUsername]      = useState<string>('');
-  const [markerImages,    setMarkerImages]    = useState<Record<string, string>>({});
-  const [warningImages,   setWarningImages]   = useState<Record<number, string>>({});
+  // ── State – wymuszenie re-renderu markera (throttled ~30fps)
+  const [drTick, setDrTick] = useState(0);
 
-  // ── UI ────────────────────────────────────────────────────
+  // ── State – markery ───────────────────────────────────────
+  const [carMarkerImage,   setCarMarkerImage]   = useState<string | null>(null);
+  const [myAvatarUrl,      setMyAvatarUrl]      = useState<string | null>(null);
+  const [myUsername,       setMyUsername]        = useState('');
+  const [markerImages,     setMarkerImages]      = useState<Record<string, string>>({});
+  const [warningImages,    setWarningImages]     = useState<Record<number, string>>({});
+  const [pinImages,        setPinImages]         = useState<Record<string, string>>({});
+  const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
+
+  // ── State – UI ────────────────────────────────────────────
   const [mapType,            setMapType]            = useState('standard');
   const [settingsVisible,    setSettingsVisible]    = useState(false);
   const [reportVisible,      setReportVisible]      = useState(false);
@@ -127,62 +158,111 @@ export default function MapScreen() {
   const [userInfoVisible,    setUserInfoVisible]    = useState(false);
   const [selectedUser,       setSelectedUser]       = useState<User | null>(null);
   const [isSpeechEnabled,    setIsSpeechEnabled]    = useState(true);
-  const [nearbyUsers,        setNearbyUsers]        = useState<User[]>([]);
   const [saveRouteVisible,   setSaveRouteVisible]   = useState(false);
-  const [pinImages, setPinImages] = useState<Record<string, string>>({});
-  const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
-  // ── Live / Ostrzeżenia ────────────────────────────────────
-  const [isSharing,           setIsSharing]           = useState(false);
-  const [isSubmittingWarning, setIsSubmittingWarning] = useState(false);
-  const [selectedWarning,     setSelectedWarning]     = useState<LiveWarning | null>(null);
-  const [currentUserId,       setCurrentUserId]       = useState<number | null>(null);
+  const [nearbyUsers,        setNearbyUsers]        = useState<User[]>([]);
   const [remainingRoutePoints, setRemainingRoutePoints] = useState<
     { latitude: number; longitude: number }[]
   >([]);
 
-  // ── Demo users ────────────────────────────────────────────
+  // ── State – live / ostrzeżenia ────────────────────────────
+  const [isSharing,           setIsSharing]           = useState(false);
+  const [isSubmittingWarning, setIsSubmittingWarning] = useState(false);
+  const [selectedWarning,     setSelectedWarning]     = useState<LiveWarning | null>(null);
+  const [currentUserId,       setCurrentUserId]       = useState<number | null>(null);
+
+  // ── State – demo users ────────────────────────────────────
   const [demoUsers, setDemoUsers] = useState<User[]>([]);
+
+  // ── State – leaderboard ───────────────────────────────────
+  const [leaderboardRouteId,   setLeaderboardRouteId]   = useState<number | null>(null);
+  const [leaderboardRouteName, setLeaderboardRouteName] = useState('');
+  const [leaderboardVisible,   setLeaderboardVisible]   = useState(false);
+  const [myFinishedTime,       setMyFinishedTime]       = useState<number | null>(null);
+
+  // ── Symulator (tylko dev) ─────────────────────────────────
+  const [isSimulating, setIsSimulating] = useState(false);
 
   const router = useRouter();
 
-  // ── Hook live ─────────────────────────────────────────────
+  const { theme, isDark } = useTheme();
+  const styles = makeMapStyles(theme, isDark);
+  const activeMapStyle = isDark ? customMapStyle : lightMapStyle;
+
+  // ─────────────────────────────────────────────────────────
+  // Hooki
+  // ─────────────────────────────────────────────────────────
+
   const {
-    liveUsers,
-    warnings,
-    connected,
-    sendLocation,
-    toggleSharing,
-    addWarning,
-    confirmWarning,
+    liveUsers, warnings, connected,
+    sendLocation, toggleSharing, addWarning, confirmWarning,
   } = useLiveMap(isSharing, userLocation, isSpeechEnabled);
 
-  // ── Hook budowania trasy ──────────────────────────────────
   const {
-    isBuilding, pins, saving,
-    snapping, snappedRoute,
+    isBuilding, pins, saving, snapping, snappedRoute,
     startBuilding, cancelBuilding,
-    addPin, removePin, finishPin,
-    snapToRoad,
+    addPin, removePin, finishPin, snapToRoad,
     totalDistance, saveRoute,
   } = useRouteBuilder();
-  // ── Hook czas trasy ──────────────────────────────────
+
   const {
-    isRunning:   timerRunning,
-    elapsedSec,
-    routeName:   timerRouteName,
-    startTimer,  stopTimer, resetTimer, formatElapsed,
+    isRunning: timerRunning, elapsedSec,
+    routeName: timerRouteName,
+    startTimer, stopTimer, resetTimer, formatElapsed,
   } = useRouteTimer();
 
+  const {
+    data: leaderboardData, runsData: leaderboardRunsData,
+    loading: leaderboardLoading,
+    fetchLeaderboard, fetchRuns, saveRun,
+  } = useRouteLeaderboard();
+
   const { onNavigationStart, onNavigationComplete, onNavigationCancel } = useNavigationPoints();
-  const { animateCameraSmooth, animateCameraLive, resetCamera } = useCameraAnimation(mapRef);
+
+  const {
+    animateCameraSmooth, animateCameraLive,
+    resetCamera, onUserPan, unlockCamera, lockForStart,
+    cameraLockedRef,
+  } = useCameraAnimation(mapRef);
+
+  // ── Sync isNavigatingRef ──────────────────────────────────
+  useEffect(() => {
+    isNavigatingRef.current = isNavigating;
+  }, [isNavigating]);
+
+  // ── Dead-reckoning ────────────────────────────────────────
   const { feed: feedDR, reset: resetDR, stop: stopDR } = useDeadReckoning({
     onFrame: useCallback((pos: any, hdg: number) => {
-      if (!isNavigating) return;
-      animateCameraLive({ center: pos, pitch: NAV_PITCH, heading: hdg, zoom: NAV_ZOOM });
-    }, [isNavigating, animateCameraLive]),
-    frameInterval: 16,
-    stallTimeout:  2500,
+      if (!isNavigatingRef.current) return;
+
+      // ── Snap pozycji do trasy ─────────────────────────────
+      // Zamiast surowej pozycji DR — przyciągnij do najbliższego punktu trasy
+      const points = routePointsRef.current;
+      let snappedPos = pos;
+
+      if (points.length > 1) {
+        const snapped = snapToRoute(pos.latitude, pos.longitude, points, 25);
+        snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
+      }
+
+      drLatRef.current = snappedPos.latitude;
+      drLngRef.current = snappedPos.longitude;
+      drHdgRef.current = hdg;
+
+      drTickRef.current += 1;
+      if (drTickRef.current % 2 === 0) {
+        setDrTick(t => t + 1);
+      }
+
+      animateCameraLive({
+        center:  snappedPos,
+        pitch:   NAV_PITCH,
+        heading: hdg,
+        zoom:    NAV_ZOOM,
+      });
+    }, [animateCameraLive]),
+    stallTimeout: 2500,
   });
+
   const { flushPendingKm }                                            = useBackgroundTracking(isSharing);
   const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
 
@@ -200,11 +280,15 @@ export default function MapScreen() {
     offRoute ? endLocation  : null,
   );
 
-  // ── Clustered warnings ───────────────────────────────────��
+  // ── Clustered warnings ────────────────────────────────────
   const clusteredWarnings = useMemo(
     () => clusterWarnings(warnings ?? []),
     [warnings],
   );
+
+  // ─────────────────────────────────────────────────────────
+  // Effects
+  // ─────────────────────────────────────────────────────────
 
   // ── Sync isSpeechRef ──────────────────────────────────────
   useEffect(() => {
@@ -212,19 +296,7 @@ export default function MapScreen() {
     if (!isSpeechEnabled) Speech.stop().catch(() => {});
   }, [isSpeechEnabled]);
 
-  // ── Speak ─────────────────────────────────────────────────
-  const speak = useCallback((text: string) => {
-    if (!isSpeechRef.current) return;
-    if (text === lastSpokenRef.current) return;
-    lastSpokenRef.current = text;
-    Speech.stop().catch(() => {});
-    setTimeout(() => {
-      if (!isSpeechRef.current) return;
-      Speech.speak(text, { language: 'pl-PL', pitch: 1.0, rate: 0.88 });
-    }, 200);
-  }, []);
-
-  // ── Pobierz dane usera ────────────────────────────────────
+  // ── Dane usera ────────────────────────────────────────────
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
       if (!raw) return;
@@ -235,7 +307,7 @@ export default function MapScreen() {
     });
   }, []);
 
-  // useFocusEffect — odbierz trasę z profilu
+  // ── Odbierz trasę z profilu ───────────────────────────────
   useFocusEffect(useCallback(() => {
     (async () => {
       const raw = await AsyncStorage.getItem('nav_route');
@@ -248,28 +320,48 @@ export default function MapScreen() {
       const last  = data.points[data.points.length - 1];
 
       setStartLocation({ latitude: first.latitude, longitude: first.longitude, name: 'Start trasy' });
-      setEndLocation({   latitude: last.latitude,  longitude: last.longitude,  name: data.routeName });
+      setEndLocation({ latitude: last.latitude, longitude: last.longitude, name: data.routeName });
 
-      // Zapisz routeId żeby timer wiedział co mierzy
       pendingRouteRef.current = { id: data.routeId, name: data.routeName };
+      setLeaderboardRouteId(data.routeId);
+      setLeaderboardRouteName(data.routeName);
 
       Toast.show({ type: 'success', text1: '🗺️ TRASA ZAŁADOWANA', text2: data.routeName });
     })();
   }, []));
 
-  // Wyczyść obrazki gdy piny się zmieniają
+  // ── Cel z SpotMap ─────────────────────────────────────────
+  useFocusEffect(useCallback(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('nav_destination');
+        if (!raw) return;
+        await AsyncStorage.removeItem('nav_destination');
+        const dest = JSON.parse(raw);
+        let loc = userLocation;
+        if (!loc) {
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          setUserLocation(loc);
+        }
+        setStartLocation({ ...loc, name: 'Moja pozycja' });
+        setEndLocation({ latitude: dest.latitude, longitude: dest.longitude, name: dest.name });
+        Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: dest.name });
+      } catch (e) { console.log('nav_destination error:', e); }
+    })();
+  }, [userLocation]));
+
+  // ── Wyczyść obrazki usuniętych pinów ─────────────────────
   useEffect(() => {
     const pinIds = new Set(pins.map(p => p.id));
     setPinImages(prev => {
       const next: Record<string, string> = {};
-      Object.keys(prev).forEach(k => {
-        if (pinIds.has(k)) next[k] = prev[k];
-      });
+      Object.keys(prev).forEach(k => { if (pinIds.has(k)) next[k] = prev[k]; });
       return next;
     });
   }, [pins]);
 
-  // ── Czyść obrazki usuniętych ostrzeżeń ───────────────────
+  // ── Wyczyść obrazki usuniętych ostrzeżeń ─────────────────
   useEffect(() => {
     const activeIds = new Set(warnings.map(w => w.id));
     setWarningImages(prev => {
@@ -280,29 +372,6 @@ export default function MapScreen() {
       return next;
     });
   }, [warnings]);
-
-  // ── Cel z SpotMap ─────────────────────────────────────────
-  useFocusEffect(
-    useCallback(() => {
-      (async () => {
-        try {
-          const raw = await AsyncStorage.getItem('nav_destination');
-          if (!raw) return;
-          await AsyncStorage.removeItem('nav_destination');
-          const dest = JSON.parse(raw);
-          let loc = userLocation;
-          if (!loc) {
-            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-            setUserLocation(loc);
-          }
-          setStartLocation({ ...loc, name: 'Moja pozycja' });
-          setEndLocation({ latitude: dest.latitude, longitude: dest.longitude, name: dest.name });
-          Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: dest.name });
-        } catch (e) { console.log('nav_destination error:', e); }
-      })();
-    }, [userLocation]),
-  );
 
   // ── Init GPS ──────────────────────────────────────────────
   useEffect(() => {
@@ -342,24 +411,23 @@ export default function MapScreen() {
             const rawLng = loc.coords.longitude;
             const acc    = loc.coords.accuracy ?? 10;
 
-            let lat: number;
-            let lng: number;
+            const lat = isNavigating
+              ? navLatFilter.filter(rawLat, acc)
+              : latFilter.filter(rawLat, acc);
+            const lng = isNavigating
+              ? navLngFilter.filter(rawLng, acc)
+              : lngFilter.filter(rawLng, acc);
 
             if (isNavigating) {
-              lat = navLatFilter.filter(rawLat, acc);
-              lng = navLngFilter.filter(rawLng, acc);
-            } else {
-              lat = latFilter.filter(rawLat, acc);
-              lng = lngFilter.filter(rawLng, acc);
-            }
-
-            if (isNavigating) {
-              feedDR({ latitude: lat, longitude: lng }, loc.coords.speed ?? 0, loc.coords.heading ?? lastHeadingRef.current);
+              feedDR(
+                { latitude: lat, longitude: lng },
+                loc.coords.speed ?? 0,
+                loc.coords.heading ?? lastHeadingRef.current,
+              );
               feedSpeedSample(loc.coords.speed);
               if (lastNavLocRef.current) {
                 feedNavDistance(
-                  lastNavLocRef.current.latitude,
-                  lastNavLocRef.current.longitude,
+                  lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
                   lat, lng,
                 );
               }
@@ -371,7 +439,6 @@ export default function MapScreen() {
 
             const speedKmh = (loc.coords.speed ?? 0) * 3.6;
             const newH     = loc.coords.heading ?? lastHeadingRef.current;
-
             if (speedKmh > 3 && newH >= 0) {
               const diff           = newH - lastHeadingRef.current;
               const normalizedDiff = ((diff + 540) % 360) - 180;
@@ -391,6 +458,78 @@ export default function MapScreen() {
   }, [locationReady, isNavigating]);
 
   // ── Logika nawigacji ──────────────────────────────────────
+
+  const { startSimulation, stopSimulation } = useNavigationSimulator({
+    onFrame: useCallback((lat: number, lng: number, speedMs: number, hdg: number) => {
+
+      // 1. Upewnij się że nawigacja jest aktywna (ref, nie state)
+      isNavigatingRef.current = true;
+
+      // 2. Pozycja i heading
+      drLatRef.current  = lat;
+      drLngRef.current  = lng;
+      drHdgRef.current  = hdg;
+      lastHeadingRef.current = hdg;
+
+      setUserLocation({ latitude: lat, longitude: lng });
+      setSpeed(speedMs);
+      setHeading(hdg);
+      setDrTick(t => t + 1);
+
+      // 3. Kamera — bezpośrednio na mapRef, omijamy wszelkie guardy
+      const R          = 6371000;
+      const headingRad = (hdg * Math.PI) / 180;
+      const offsetM    = 90;
+      const dLat       = (offsetM * Math.cos(headingRad)) / R;
+      const dLng       = (offsetM * Math.sin(headingRad)) /
+                        (R * Math.cos((lat * Math.PI) / 180));
+      const lookaheadLat = lat + (dLat * 180) / Math.PI;
+      const lookaheadLng = lng + (dLng * 180) / Math.PI;
+
+      mapRef.current?.animateCamera(
+        {
+          center:  { latitude: lookaheadLat, longitude: lookaheadLng },
+          pitch:   NAV_PITCH,
+          heading: hdg,
+          zoom:    NAV_ZOOM,
+        },
+        { duration: 90 }, // > 80ms (LIVE_INTERVAL_MS)
+      );
+
+      // 4. Linia trasy
+      const points =
+      routePointsRef.current.length > 0
+    ? routePointsRef.current
+    : (navRouteRef.current?.points ?? []);
+
+      // Zaktualizuj ref jeśli był pusty
+      if (points.length > 0 && routePointsRef.current.length === 0) {
+        routePointsRef.current = points;
+      }
+
+      if (points.length > 1) {
+        const snapped = snapToRoute(lat, lng, points, 35);
+        const idx     = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
+        setRemainingRoutePoints([
+          { latitude: snapped.latitude, longitude: snapped.longitude },
+          ...points.slice(idx + 1),
+        ]);
+      }
+      // 5. Stats
+      feedSpeedSample(speedMs);
+      if (lastNavLocRef.current) {
+        feedNavDistance(
+          lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
+          lat, lng,
+        );
+      }
+      lastNavLocRef.current = { latitude: lat, longitude: lng };
+
+    }, []), // ← pusta deps — wszystko przez refy
+    speedKmh:   120,
+    intervalMs: 100,
+  });
+
   useEffect(() => {
     if (!isNavigating || !userLocation || !navRoute?.steps?.length) return;
 
@@ -401,8 +540,7 @@ export default function MapScreen() {
       ? snapToRoute(userLocation.latitude, userLocation.longitude, points, 35)
       : { latitude: userLocation.latitude, longitude: userLocation.longitude };
 
-    const lat = snapped.latitude;
-    const lng = snapped.longitude;
+    const { latitude: lat, longitude: lng } = snapped;
 
     if (endLocation) {
       const distToEnd = haversineKm(lat, lng, endLocation.latitude, endLocation.longitude) * 1000;
@@ -449,8 +587,6 @@ export default function MapScreen() {
   // ── Rerouting ─────────────────────────────────────────────
   useEffect(() => {
     if (!offRoute || !rerouteResult || !userLocation) return;
-    Toast.show({ type: 'info', text1: '🔄 PRZELICZAM TRASĘ' });
-    speak('Przeliczam trasę');
     setNavStartLoc({ ...userLocation, name: 'Moja pozycja' });
     setCurrentStep(0);
     announcedStepRef.current = -1;
@@ -460,16 +596,176 @@ export default function MapScreen() {
 
   // ── Live start location ───────────────────────────────────
   useEffect(() => {
-    if (!startIsMyLocationRef.current) return;
-    if (!userLocation) return;
-    if (isNavigating) return;
-    setStartLocation(prev => ({
-      ...userLocation,
-      name: prev?.name ?? 'Moja pozycja',
-    }));
+    if (!startIsMyLocationRef.current || !userLocation || isNavigating) return;
+    setStartLocation(prev => ({ ...userLocation, name: prev?.name ?? 'Moja pozycja' }));
   }, [userLocation, isNavigating]);
 
-  // ── Handlers ──────────────────────────────────────────────
+  // ── Remaining route ───────────────────────────────────────
+  const activeRoute = isNavigating ? navRoute : previewRoute;
+  navRouteRef.current = navRoute ?? null;
+  const activeSteps = navRoute?.steps ?? previewRoute?.steps ?? [];
+
+  // Synchronizuj ref gdy trasa się zmienia
+  useEffect(() => {
+    routePointsRef.current = activeRoute?.points ?? [];
+  }, [activeRoute]);
+
+
+  useEffect(() => {
+    const points = activeRoute?.points;
+    if (!points?.length) { setRemainingRoutePoints([]); return; }
+    if (!isNavigating || !userLocation) {
+      setRemainingRoutePoints(points); return;
+    }
+    // Pierwsze ustawienie przy starcie nawigacji
+    const snapped = snapToRoute(userLocation.latitude, userLocation.longitude, points, 35);
+    const idx     = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
+    setRemainingRoutePoints([
+      { latitude: snapped.latitude, longitude: snapped.longitude },
+      ...points.slice(idx + 1),
+    ]);
+  }, [isNavigating, activeRoute]);
+
+  // ── Send location (live) ──────────────────────────────────
+  useEffect(() => {
+    if (!userLocation || !isSharing) return;
+    sendLocation(userLocation.latitude, userLocation.longitude);
+  }, [userLocation, isSharing]);
+
+  // ── Navigation notification ───────────────────────────────
+  useEffect(() => {
+    if (!isNavigating) { dismissNavigationNotification(); return; }
+    const stepData = navRoute?.steps?.[currentStep];
+    if (!stepData) return;
+    showNavigationNotification(stepData, routeInfo?.distance ?? '', routeInfo?.durationText ?? '');
+  }, [currentStep, isNavigating, navRoute]);
+
+  // ── Nearby users ──────────────────────────────────────────
+  useEffect(() => {
+    if (!userLocation) return;
+    if (!isSharing) { setNearbyUsers([]); return; }
+    setNearbyUsers(
+      liveUsers
+        .filter(u => String(u.id) !== String(currentUserId))
+        .map(u => ({
+          id: String(u.id), name: u.username,
+          latitude: u.lat, longitude: u.lng,
+          avatar: u.avatarUrl ?? '🚗', status: 'Online' as const, isFriend: false,
+        })),
+    );
+  }, [liveUsers, currentUserId, userLocation, isSharing]);
+
+  // ── Android Auto ──────────────────────────────────────────
+  useEffect(() => {
+    UsersModule?.setNavigatingForAuto?.(isNavigating);
+  }, [isNavigating]);
+
+  useEffect(() => {
+    if (!UsersModule || !userLocation) return;
+    UsersModule.saveMyLocationForAuto?.(userLocation.latitude, userLocation.longitude);
+    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading);
+  }, [userLocation, speed, heading]);
+
+  useEffect(() => {
+    if (!UsersModule || !isNavigating) return;
+    const step = navRoute?.steps?.[currentStep];
+    if (!step) return;
+    UsersModule.saveNavStepForAuto?.(
+      cleanInstruction(step.html_instructions),
+      step.distance?.text ?? '',
+      routeInfo ? formatDuration(routeInfo.duration) : '',
+    );
+  }, [isNavigating, currentStep, navRoute]);
+
+  useEffect(() => {
+    if (!UsersModule) return;
+    const route = isNavigating ? navRoute : previewRoute;
+    if (route?.points) {
+      UsersModule.saveRouteForAuto?.(JSON.stringify(
+        route.points.map((p: any) => ({ lat: p.latitude, lng: p.longitude })),
+      ));
+    }
+  }, [isNavigating, navRoute, previewRoute]);
+
+  useEffect(() => {
+    if (!UsersModule || !endLocation) return;
+    UsersModule.saveDestinationForAuto?.(
+      endLocation.latitude, endLocation.longitude, endLocation.name ?? 'Cel',
+    );
+  }, [endLocation]);
+
+  useEffect(() => {
+    if (!UsersModule || !isNavigating) return;
+    const interval = setInterval(async () => {
+      try {
+        const stop = await UsersModule.checkNavStopRequested?.();
+        if (stop) stopNavigation();
+      } catch {}
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [isNavigating, stopNavigation]);
+
+  useEffect(() => {
+    if (!UsersModule) return;
+    UsersModule.saveUsersForAuto?.(JSON.stringify(
+      visibleUsers.map(u => ({
+        id: u.id, name: u.name,
+        latitude: u.latitude, longitude: u.longitude,
+        status: u.status, isFriend: u.isFriend,
+      })),
+    ));
+  }, [visibleUsers]);
+
+  // ── Demo users ────────────────────────────────────────────
+  useDemoUsers(
+    locationReady && !isNavigating && !isSharing,
+    useCallback((users) => setDemoUsers(users), []),
+    userLocation?.latitude,
+    userLocation?.longitude,
+    100,
+  );
+
+  // ─────────────────────────────────────────────────────────
+  // Memoized values
+  // ─────────────────────────────────────────────────────────
+
+  const visibleUsers = useMemo(() => {
+    if (!userLocation) return [];
+    return nearbyUsers.filter(u =>
+      u.isFriend ||
+      calculateDistance(
+        userLocation.latitude, userLocation.longitude,
+        u.latitude, u.longitude,
+      ) <= MAX_NEARBY_USERS_DISTANCE,
+    );
+  }, [userLocation, nearbyUsers]);
+
+  // ─────────────────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────────────────
+
+  const speak = useCallback((text: string) => {
+    if (!isSpeechRef.current) return;
+    if (text === lastSpokenRef.current) return;
+    lastSpokenRef.current = text;
+    Speech.stop().catch(() => {});
+    setTimeout(() => {
+      if (!isSpeechRef.current) return;
+      Speech.speak(text, { language: 'pl-PL', pitch: 1.0, rate: 0.88 });
+    }, 200);
+  }, []);
+
+  const resetDRRefs = useCallback(() => {
+    drLatRef.current  = 0;
+    drLngRef.current  = 0;
+    drHdgRef.current  = 0;
+    drTickRef.current = 0;
+  }, []);
+
+  // ─────────────────────────────────────────────────────────
+  // Handlers
+  // ─────────────────────────────────────────────────────────
+
   const handleSelectStart = useCallback((l: LocationState) => {
     setStartLocation(l);
     startIsMyLocationRef.current = (l.name === 'Moja pozycja');
@@ -503,28 +799,72 @@ export default function MapScreen() {
     Toast.show({ type: 'success', text1: 'CEL USTAWIONY', text2: selectedUser.name });
   }, [selectedUser, userLocation]);
 
+  const handleViewProfile = useCallback(() => {
+    if (!selectedUser) return;
+    setUserInfoVisible(false);
+    router.push({ pathname: '/profile/[userId]', params: { userId: selectedUser.id } });
+  }, [selectedUser, router]);
+
+  const handleWarningCapture = useCallback((id: number, uri: string) => {
+    setWarningImages(prev => ({ ...prev, [id]: uri }));
+  }, []);
+
+  const handleToggleSharing = useCallback(async () => {
+    setIsSharing(await toggleSharing());
+  }, [toggleSharing]);
+
+  const handleReport = useCallback(async (type: any) => {
+    if (!userLocation) { Toast.show({ type: 'error', text1: 'Brak lokalizacji GPS' }); return; }
+    setIsSubmittingWarning(true);
+    try {
+      await addWarning(type, userLocation.latitude, userLocation.longitude);
+      Toast.show({ type: 'success', text1: '✅ ZGŁOSZONO', text2: getWarningLabel(type) });
+    } finally {
+      setIsSubmittingWarning(false);
+    }
+  }, [userLocation, addWarning]);
+
+  const handleCenterOnUser = useCallback(() => {
+    if (!userLocation) return;
+    unlockCamera();
+    if (isNavigating) {
+      mapRef.current?.animateCamera(
+        { center: userLocation, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
+        { duration: 500 },
+      );
+    } else {
+      resetCamera(userLocation);
+    }
+  }, [userLocation, isNavigating, resetCamera, unlockCamera]);
+
+  // ── handleArrived ─────────────────────────────────────────
   const handleArrived = useCallback(async () => {
+    isNavigatingRef.current = false;
     stopDR();
-    setArrived(true);
     setIsNavigating(false);
+    setArrived(true);
     dismissNavigationNotification();
     flushPendingKm(true);
     Speech.stop().catch(() => {});
     speak('Dotarłeś do celu!');
     Toast.show({ type: 'success', text1: '🏁 DOTARŁEŚ DO CELU!', text2: endLocation?.name ?? '' });
-    if (routeInfo?.distance) {
-      onNavigationComplete(parseFloat(routeInfo.distance));
-    }
-    if (userLocation) resetCamera({ latitude: userLocation.latitude, longitude: userLocation.longitude });
+
+    if (routeInfo?.distance) onNavigationComplete(parseFloat(routeInfo.distance));
+    if (userLocation) resetCamera(userLocation);
+
     if (timerRunning) {
-      const elapsed = await stopTimer();
-      Toast.show({
-        type:  'success',
-        text1: '🏁 TRASA UKOŃCZONA!',
-        text2: `Czas: ${formatElapsed(elapsed)}`,
-        visibilityTime: 5000,
-      });
+      const elapsed = stopTimer();
+      Toast.show({ type: 'success', text1: '🏁 TRASA UKOŃCZONA!', text2: `Czas: ${formatElapsed(elapsed)}`, visibilityTime: 5000 });
+
+      const routeId = leaderboardRouteId;
+      if (routeId) {
+        await saveRun(routeId, elapsed);
+        await Promise.all([fetchLeaderboard(routeId), fetchRuns(routeId)]);
+        setMyFinishedTime(elapsed);
+        setTimeout(() => setLeaderboardVisible(true), 1800);
+      }
     }
+
     setTimeout(() => {
       setStartLocation(null);
       setEndLocation(null);
@@ -532,16 +872,36 @@ export default function MapScreen() {
       setArrived(false);
       setNavStartLoc(null);
     }, 3000);
-  }, [endLocation, userLocation, routeInfo, speak, resetCamera, onNavigationComplete, timerRunning, stopTimer, formatElapsed]);
+  }, [
+    endLocation, userLocation, routeInfo, speak, resetCamera,
+    onNavigationComplete, timerRunning, stopTimer, formatElapsed,
+    leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns,
+  ]);
 
+  // ── beginNavigation ───────────────────────────────────────
   const beginNavigation = useCallback(() => {
     if (!userLocation) return;
+
+    // 1. Reset DR refs
+    resetDRRefs();
+
+    // 2. Odblokuj kamerę i zablokuj live-update na czas animacji startowej
+    unlockCamera();
+    lockForStart(850);
+
+    // 3. Ustaw ref PRZED setState — onFrame w pętli rAF od razu widzi true
+    isNavigatingRef.current = true;
+
+    // 4. Reset filtrów i stanu
     lastNavLocRef.current = null;
     resetSpeedStats();
     resetDR();
     navLatFilter.reset();
     navLngFilter.reset();
     startIsMyLocationRef.current = false;
+    lastSpokenRef.current        = '';
+    announcedStepRef.current     = -1;
+
     const navStart = { ...userLocation, name: 'Moja pozycja' };
     setIsNavigating(true);
     setNavStartLoc(navStart);
@@ -549,31 +909,50 @@ export default function MapScreen() {
     setCurrentStep(0);
     setArrived(false);
     setOffRoute(false);
-    lastSpokenRef.current    = '';
-    announcedStepRef.current = -1;
-    if (routeInfo?.duration) {
-      onNavigationStart(routeInfo.duration);
-    }
+
+    if (routeInfo?.duration) onNavigationStart(routeInfo.duration);
     if (pendingRouteRef.current) {
       startTimer(pendingRouteRef.current.id, pendingRouteRef.current.name);
       pendingRouteRef.current = null;
     }
+
+    // 5. Animacja startowa kamery — pitch 0 → 65, zoom → NAV_ZOOM
+    const startLat = userLocation.latitude;
+    const startLng = userLocation.longitude;
+    const startHdg = lastHeadingRef.current;
+
     mapRef.current?.animateCamera(
-      { center: { latitude: userLocation.latitude, longitude: userLocation.longitude }, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
+      { center: { latitude: startLat, longitude: startLng }, pitch: NAV_PITCH, heading: startHdg, zoom: NAV_ZOOM },
       { duration: 800 },
     );
-    speak('Nawigacja rozpoczęta. Dobrej drogi!');
-    Toast.show({ type: 'success', text1: '🚗 NAWIGACJA ROZPOCZĘTA', text2: 'Dobrej drogi!' });
-  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer]);
 
+    // 6. Po zakończeniu animacji startowej — wyrównaj do aktualnej pozycji DR
+    setTimeout(() => {
+      if (!isNavigatingRef.current) return;
+      mapRef.current?.animateCamera(
+        {
+          center: {
+            latitude:  drLatRef.current || startLat,
+            longitude: drLngRef.current || startLng,
+          },
+          pitch:   NAV_PITCH,
+          heading: drHdgRef.current || startHdg,
+          zoom:    NAV_ZOOM,
+        },
+        { duration: 300 },
+      );
+    }, 900);
+
+    speak('Nawigacja rozpoczęta. Dobrej drogi!');
+  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, unlockCamera, lockForStart, resetDR, resetDRRefs]);
+
+  // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
     if (!endLocation) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wybierz cel podróży' });
-      return;
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wybierz cel podróży' }); return;
     }
     if (!userLocation) {
-      Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Czekam na lokalizację...' });
-      return;
+      Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Czekam na lokalizację...' }); return;
     }
     if (!startLocation) {
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
@@ -591,8 +970,15 @@ export default function MapScreen() {
         `Jesteś ${Math.round(distToStart)}m od punktu startowego.`,
         [
           { text: 'Anuluj', style: 'cancel' },
-          { text: 'Nawiguj do startu', onPress: () => { setEndLocation(startLocation); setStartLocation({ ...userLocation, name: 'Moja pozycja' }); } },
-          { text: 'Startuj z mojej pozycji', onPress: () => { setStartLocation({ ...userLocation, name: 'Moja pozycja' }); startIsMyLocationRef.current = true; beginNavigation(); } },
+          { text: 'Nawiguj do startu', onPress: () => {
+            setEndLocation(startLocation);
+            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+          }},
+          { text: 'Startuj z mojej pozycji', onPress: () => {
+            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            startIsMyLocationRef.current = true;
+            beginNavigation();
+          }},
         ],
       );
       return;
@@ -600,7 +986,15 @@ export default function MapScreen() {
     beginNavigation();
   }, [startLocation, endLocation, userLocation, beginNavigation]);
 
-  const stopNavigation = useCallback(() => {
+  // ── stopNavigation ────────────────────────────────────────
+  const stopNavigation = useCallback(async () => {
+    // Natychmiast — zanim cokolwiek innego
+    isNavigatingRef.current = false;
+    resetDRRefs();
+    
+    stopSimulation();
+    setIsSimulating(false);
+
     stopDR();
     setIsNavigating(false);
     setOffRoute(false);
@@ -608,23 +1002,42 @@ export default function MapScreen() {
     setNavStartLoc(null);
     dismissNavigationNotification();
     setRouteEndpointImages({});
-
     Speech.stop().catch(() => {});
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
-
-    if (timerRunning) resetTimer();
+    flushPendingKm(true);
     pendingRouteRef.current = null;
-     
+
+    if (timerRunning) {
+      const elapsed  = stopTimer();
+      const routeId  = leaderboardRouteId;
+
+      if (routeId && elapsed > 30) {
+        await saveRun(routeId, elapsed);
+        Toast.show({ type: 'info', text1: '⏹️ NAWIGACJA ZATRZYMANA', text2: `Czas: ${formatElapsed(elapsed)}` });
+        await Promise.all([fetchLeaderboard(routeId), fetchRuns(routeId)]);
+        setMyFinishedTime(elapsed);
+        setTimeout(() => setLeaderboardVisible(true), 800);
+      } else {
+        resetTimer();
+        Toast.show({ type: 'info', text1: 'NAWIGACJA ZATRZYMANA' });
+      }
+    } else {
+      Toast.show({ type: 'info', text1: 'NAWIGACJA ZATRZYMANA' });
+    }
+
     if (userLocation) {
       startIsMyLocationRef.current = true;
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
-      resetCamera({ latitude: userLocation.latitude, longitude: userLocation.longitude });
+      resetCamera(userLocation);
     }
-    flushPendingKm(true);
-    Toast.show({ type: 'info', text1: 'NAWIGACJA ZATRZYMANA' });
-  }, [userLocation, resetCamera, onNavigationCancel, flushPendingKm, timerRunning, resetTimer]);
+  }, [
+    userLocation, resetCamera, onNavigationCancel, flushPendingKm,
+    timerRunning, stopTimer, resetTimer, formatElapsed, elapsedSec,
+    leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns, resetDRRefs,
+  ]);
 
+  // ── handleReset ───────────────────────────────────────────
   const handleReset = useCallback(() => {
     if (isNavigating) stopNavigation();
     startIsMyLocationRef.current = false;
@@ -635,206 +1048,10 @@ export default function MapScreen() {
     setRouteEndpointImages({});
   }, [isNavigating, stopNavigation]);
 
-  const handleCenterOnUser = useCallback(() => {
-    if (!userLocation) return;
-    if (isNavigating) {
-      mapRef.current?.animateCamera(
-        { center: { latitude: userLocation.latitude, longitude: userLocation.longitude }, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
-        { duration: 500 },
-      );
-    } else {
-      resetCamera({ latitude: userLocation.latitude, longitude: userLocation.longitude });
-    }
-  }, [userLocation, isNavigating, resetCamera]);
-
-  const handleToggleSharing = useCallback(async () => {
-    const newVal = await toggleSharing();
-    setIsSharing(newVal);
-  }, [toggleSharing]);
-
-  const handleReport = useCallback(async (type: any) => {
-    if (!userLocation) {
-      Toast.show({ type: 'error', text1: 'Brak lokalizacji GPS' });
-      return;
-    }
-    setIsSubmittingWarning(true);
-    try {
-      await addWarning(type, userLocation.latitude, userLocation.longitude);
-      Toast.show({ type: 'success', text1: '✅ ZGŁOSZONO', text2: getWarningLabel(type) });
-    } finally {
-      setIsSubmittingWarning(false);
-    }
-  }, [userLocation, addWarning]);
-
-  const handleViewProfile = useCallback(() => {
-    if (!selectedUser) return;
-    setUserInfoVisible(false);
-    router.push({ pathname: '/profile/[userId]', params: { userId: selectedUser.id } });
-  }, [selectedUser, router]);
-
-  const handleWarningCapture = useCallback((id: number, uri: string) => {
-    setWarningImages(prev => ({ ...prev, [id]: uri }));
-  }, []);
-
-  // ── Widoczni użytkownicy ──────────────────────────────────
-  const visibleUsers = useMemo(() => {
-    if (!userLocation) return [];
-    return nearbyUsers.filter(u => {
-      if (u.isFriend) return true;
-      return calculateDistance(userLocation.latitude, userLocation.longitude, u.latitude, u.longitude) <= MAX_NEARBY_USERS_DISTANCE;
-    });
-  }, [userLocation, nearbyUsers]);
-
-  useEffect(() => {
-    if (!userLocation) return;
-    if (!isSharing) { setNearbyUsers([]); return; }
-    const mapped = liveUsers
-      .filter(u => String(u.id) !== String(currentUserId))
-      .map(u => ({
-        id: String(u.id), name: u.username,
-        latitude: u.lat, longitude: u.lng,
-        avatar: u.avatarUrl ?? '🚗', status: 'Online' as const, isFriend: false,
-      }));
-    setNearbyUsers(mapped);
-  }, [liveUsers, currentUserId, userLocation, isSharing]);
-
-  // ── Remaining route ───────────────────────────────────────
-  const activeRoute = isNavigating ? navRoute : previewRoute;
-  const activeSteps = navRoute?.steps ?? previewRoute?.steps ?? [];
-
-  // const remainingRoutePoints = useMemo(() => {
-  //   if (!activeRoute?.points?.length) return [];
-  //   if (!isNavigating || !userLocation) return activeRoute.points;
-  //   const idx = findClosestPointIndex(userLocation.latitude, userLocation.longitude, activeRoute.points);
-  //   return [
-  //     { latitude: userLocation.latitude, longitude: userLocation.longitude },
-  //     ...activeRoute.points.slice(idx),
-  //   ];
-  // }, [isNavigating, activeRoute, userLocation?.latitude, userLocation?.longitude]);
-
-  // Aktualizuj linię przy każdej zmianie pozycji
-  useEffect(() => {
-    const points = activeRoute?.points;
-    if (!points?.length) {
-      setRemainingRoutePoints([]);
-      return;
-    }
-
-    if (!isNavigating || !userLocation) {
-      setRemainingRoutePoints(points);
-      return;
-    }
-
-    // Użyj snap-to-road żeby pozycja była na trasie
-    const snapped = snapToRoute(
-      userLocation.latitude,
-      userLocation.longitude,
-      points,
-      35,
-    );
-
-    const idx = findClosestPointIndex(
-      snapped.latitude,
-      snapped.longitude,
-      points,
-    );
-
-    const ahead = points.slice(idx + 1);
-
-    setRemainingRoutePoints([
-      { latitude: snapped.latitude, longitude: snapped.longitude },
-      ...ahead,
-    ]);
-  }, [
-    userLocation?.latitude,   // ← aktualizuj przy każdej zmianie GPS
-    userLocation?.longitude,
-    isNavigating,
-    activeRoute,              // ← i przy reroutingu
-  ]);
-
-  // ── Send location ─────────────────────────────────────────
-  useEffect(() => {
-    if (!userLocation || !isSharing) return;
-    sendLocation(userLocation.latitude, userLocation.longitude);
-  }, [userLocation, isSharing]);
-
-  // ── Navigation notification ───────────────────────────────
-  useEffect(() => {
-    if (!isNavigating) { dismissNavigationNotification(); return; }
-    const stepData = navRoute?.steps?.[currentStep];
-    if (!stepData) return;
-    showNavigationNotification(stepData, routeInfo?.distance ?? '', routeInfo?.durationText ?? '');
-  }, [currentStep, isNavigating, navRoute]);
-
-  // ── Android Auto ──────────────────────────────────────────
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.setNavigatingForAuto?.(isNavigating);
-  }, [isNavigating]);
-
-  useEffect(() => {
-    if (!UsersModule || !userLocation) return;
-    UsersModule.saveMyLocationForAuto?.(userLocation.latitude, userLocation.longitude);
-    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading);
-  }, [userLocation, speed, heading]);
-
-  useEffect(() => {
-    if (!UsersModule || !isNavigating) return;
-    const steps = navRoute?.steps ?? [];
-    if (steps[currentStep]) {
-      const step = steps[currentStep];
-      UsersModule.saveNavStepForAuto?.(
-        cleanInstruction(step.html_instructions),
-        step.distance?.text || '',
-        routeInfo ? formatDuration(routeInfo.duration) : '',
-      );
-    }
-  }, [isNavigating, currentStep, navRoute]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    const route = isNavigating ? navRoute : previewRoute;
-    if (route?.points) {
-      UsersModule.saveRouteForAuto?.(JSON.stringify(
-        route.points.map((p: any) => ({ lat: p.latitude, lng: p.longitude }))
-      ));
-    }
-  }, [isNavigating, navRoute, previewRoute]);
-
-  useEffect(() => {
-    if (!UsersModule || !endLocation) return;
-    UsersModule.saveDestinationForAuto?.(endLocation.latitude, endLocation.longitude, endLocation.name ?? 'Cel');
-  }, [endLocation]);
-
-  useEffect(() => {
-    if (!UsersModule || !isNavigating) return;
-    const interval = setInterval(async () => {
-      try {
-        const stop = await UsersModule.checkNavStopRequested?.();
-        if (stop) stopNavigation();
-      } catch {}
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [isNavigating, stopNavigation]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.saveUsersForAuto?.(JSON.stringify(
-      visibleUsers.map(u => ({ id: u.id, name: u.name, latitude: u.latitude, longitude: u.longitude, status: u.status, isFriend: u.isFriend }))
-    ));
-  }, [visibleUsers]);
-
-  useDemoUsers(
-    locationReady && !isNavigating && !isSharing,
-    useCallback((users) => setDemoUsers(users), []),
-    userLocation?.latitude,
-    userLocation?.longitude,
-    100,
-  );
-
   // ─────────────────────────────────────────────────────────
-  // RENDER
+  // RENDER GUARDS
   // ─────────────────────────────────────────────────────────
+
   if (Platform.OS === 'web') {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0a0a' }}>
@@ -853,19 +1070,30 @@ export default function MapScreen() {
     );
   }
 
-  const currentStepData = activeSteps[currentStep];
+  // ─────────────────────────────────────────────────────────
+  // Render helpers
+  // ──────────────────────────────────────��──────────────────
 
-  // Punkty do wyświetlenia dystansu w banerze
+  const currentStepData  = activeSteps[currentStep];
   const bannerDistPoints = snappedRoute.length > 0
     ? snappedRoute
     : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
+
+  // Pozycja markera — interpolowana podczas nawigacji
+  const markerLat = isNavigating && drLatRef.current !== 0 ? drLatRef.current : userLocation?.latitude ?? 0;
+  const markerLng = isNavigating && drLngRef.current !== 0 ? drLngRef.current : userLocation?.longitude ?? 0;
+  const markerHdg = isNavigating && drHdgRef.current !== 0 ? drHdgRef.current : heading;
+
+  // ─────────────────────────────────────────────────────────
+  // JSX
+  // ─────────────────────────────────────────────────────────
 
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
 
-        {/* Timer trasy — pokazuje się gdy nawigujemy po zapisanej trasie */}
+        {/* ── Timer trasy ─────────────────────────────────── */}
         {isNavigating && timerRunning && (
           <View style={{
             position: 'absolute',
@@ -892,6 +1120,7 @@ export default function MapScreen() {
           </View>
         )}
 
+        {/* ── Route endpoint renderers ─────────────────────── */}
         {pendingRouteRef.current && !isNavigating && (
           <>
             <RouteEndpointRenderer
@@ -907,16 +1136,19 @@ export default function MapScreen() {
           </>
         )}
 
-        {/* ── Renderery poza MapView ── */}
+        {/* ── Off-screen renderers ─────────────────────────── */}
         {userLocation && visibleUsers.map(user =>
           !markerImages[user.id] ? (
             <MarkerRenderer
               key={`renderer_${user.id}`}
               user={user}
-              distance={calculateDistance(userLocation.latitude, userLocation.longitude, user.latitude, user.longitude)}
+              distance={calculateDistance(
+                userLocation.latitude, userLocation.longitude,
+                user.latitude, user.longitude,
+              )}
               onCapture={uri => setMarkerImages(prev => ({ ...prev, [user.id]: uri }))}
             />
-          ) : null
+          ) : null,
         )}
 
         {userLocation && (
@@ -936,7 +1168,6 @@ export default function MapScreen() {
           />
         ))}
 
-        {/* ── Renderery pinów trasy ── */}
         {isBuilding && pins.map((pin, index) => (
           <RoutePinRenderer
             key={`pinrender_${pin.id}_${index}_${pins.length}`}
@@ -947,14 +1178,13 @@ export default function MapScreen() {
           />
         ))}
 
-        {/* ── BANER TWORZENIA TRASY — nad mapą ── */}
+        {/* ── Baner tworzenia trasy ────────────────────────── */}
         {isBuilding && (
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
             backgroundColor: '#e33835',
             paddingTop:        Platform.OS === 'ios' ? 54 : 36,
-            paddingBottom:     14,
-            paddingHorizontal: 16,
+            paddingBottom:     14, paddingHorizontal: 16,
             flexDirection: 'row', alignItems: 'center', gap: 10,
             shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
             shadowOpacity: 0.6, shadowRadius: 14, elevation: 14,
@@ -987,12 +1217,14 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* ── MAPA ── */}
+        {/* ══════════════════════════════════════════════════ */}
+        {/* MAPA                                              */}
+        {/* ══════════════════════════════════════════════════ */}
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
           style={StyleSheet.absoluteFillObject}
-          customMapStyle={customMapStyle}
+          customMapStyle={activeMapStyle}
           initialRegion={region}
           mapType={mapType as any}
           showsUserLocation={false}
@@ -1002,18 +1234,19 @@ export default function MapScreen() {
           showsMyLocationButton={false}
           showsCompass={false}
           toolbarEnabled={false}
+          onPanDrag={onUserPan}
           onPress={(e) => {
             if (!isBuilding) return;
             const { latitude, longitude } = e.nativeEvent.coordinate;
             addPin(latitude, longitude);
           }}
         >
-          {/* Mój marker */}
+          {/* Mój marker (interpolowany przez DR) */}
           {userLocation && (
             <CarMarker
-              latitude={userLocation.latitude}
-              longitude={userLocation.longitude}
-              heading={heading}
+              latitude={markerLat}
+              longitude={markerLng}
+              heading={markerHdg}
               imageUri={carMarkerImage}
             />
           )}
@@ -1054,9 +1287,7 @@ export default function MapScreen() {
             </Marker>
           )}
 
-          {/* ── Piny trasy — kolorowe z etykietą ── */}
-    
-          {/* ── Piny trasy ── */}
+          {/* Piny trasy */}
           {isBuilding && pins.map((pin, index) => (
             <Marker
               key={`pin_${pin.id}`}
@@ -1074,100 +1305,79 @@ export default function MapScreen() {
               )}
             />
           ))}
-          {/* ── Linia snapped (po dopasowaniu do drogi) ── */}
+
+          {/* Linia snapped (budowanie trasy) */}
           {isBuilding && snappedRoute.length > 1 && (
             <>
-              <Polyline
-                coordinates={snappedRoute}
-                strokeColor="#00000070"
-                strokeWidth={10}
-                geodesic lineCap="round" lineJoin="round"
-              />
-              <Polyline
-                coordinates={snappedRoute}
-                strokeColor="#e33835"
-                strokeWidth={6}
-                geodesic lineCap="round" lineJoin="round"
-              />
-              <Polyline
-                coordinates={snappedRoute}
-                strokeColor="#ffffff20"
-                strokeWidth={3}
-                geodesic lineCap="round" lineJoin="round"
-              />
+              <Polyline coordinates={snappedRoute} strokeColor="#00000070" strokeWidth={10} geodesic lineCap="round" lineJoin="round" />
+              <Polyline coordinates={snappedRoute} strokeColor="#e33835"   strokeWidth={6}  geodesic lineCap="round" lineJoin="round" />
+              <Polyline coordinates={snappedRoute} strokeColor="#ffffff20" strokeWidth={3}  geodesic lineCap="round" lineJoin="round" />
             </>
           )}
 
-          {/* ── Linia przerywana (przed snap) ── */}
+          {/* Linia przerywana (budowanie bez snap) */}
           {isBuilding && pins.length > 1 && snappedRoute.length === 0 && (
             <>
               <Polyline
                 coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
-                strokeColor="#00000080"
-                strokeWidth={8}
+                strokeColor="#00000080" strokeWidth={8}
               />
               <Polyline
                 coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
-                strokeColor="#ff922b"
-                strokeWidth={4}
-                lineDashPattern={[12, 7]}
+                strokeColor="#ff922b" strokeWidth={4} lineDashPattern={[12, 7]}
               />
             </>
           )}
 
-          {/* Użytkownicy */}
+          {/* Użytkownicy online */}
           {!isNavigating && userLocation && visibleUsers.map(user => (
             <UserCarMarker
               key={`user_${user.id}`}
               user={user}
-              distance={calculateDistance(userLocation.latitude, userLocation.longitude, user.latitude, user.longitude)}
+              distance={calculateDistance(
+                userLocation.latitude, userLocation.longitude,
+                user.latitude, user.longitude,
+              )}
               onPress={() => handleUserMarkerPress(user)}
               imageUri={markerImages[user.id] ?? null}
             />
           ))}
 
-          {/* Trasa nawigacji / podglądu */}
+          {/* Trasa (nawigacja / podgląd) */}
           {remainingRoutePoints.length > 1 && !arrived && (
             <>
               <Polyline
                 coordinates={remainingRoutePoints}
-                strokeColor="#00000055"
-                strokeWidth={11}
+                strokeColor="#00000055" strokeWidth={11}
                 geodesic lineCap="round" lineJoin="round"
               />
               <Polyline
                 coordinates={remainingRoutePoints}
-                strokeColor={isNavigating ? '#e33835dd' : '#00bfff'}
-                strokeWidth={6}
+                strokeColor={isNavigating ? '#e33835dd' : '#00bfff'} strokeWidth={6}
                 geodesic lineCap="round" lineJoin="round"
               />
               {isNavigating && (
                 <Polyline
                   coordinates={remainingRoutePoints}
-                  strokeColor="#ffffff15"
-                  strokeWidth={8}
+                  strokeColor="#ffffff15" strokeWidth={8}
                   geodesic lineCap="round" lineJoin="round"
                 />
               )}
             </>
           )}
 
-           {/* Markery w MapView — zastąp istniejące markery start/koniec gdy trasa  */}
+          {/* Markery endpoint (custom image) */}
           {startLocation && !isNavigating && routeEndpointImages.start && (
             <Marker
               coordinate={{ latitude: startLocation.latitude, longitude: startLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }}
-              zIndex={99}
-              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 1 }} zIndex={99} tracksViewChanges={false}
               image={{ uri: routeEndpointImages.start }}
             />
           )}
           {endLocation && !arrived && routeEndpointImages.end && (
             <Marker
               coordinate={{ latitude: endLocation.latitude, longitude: endLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }}
-              zIndex={100}
-              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 1 }} zIndex={100} tracksViewChanges={false}
               image={{ uri: routeEndpointImages.end }}
             />
           )}
@@ -1188,13 +1398,17 @@ export default function MapScreen() {
             ))
           }
         </MapView>
+        {/* ══════════════════════════════════════════════════ */}
 
-        {/* Panel nawigacji góra */}
+        {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && currentStepData && (
           <View style={styles.navigationPanelTop}>
             <View style={styles.instructionBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <View style={{ backgroundColor: '#e3383525', padding: 6, borderRadius: 10, borderWidth: 1, borderColor: '#e3383545' }}>
+                <View style={{
+                  backgroundColor: '#e3383525', padding: 6, borderRadius: 10,
+                  borderWidth: 1, borderColor: '#e3383545',
+                }}>
                   <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={22} color="#e33835ce" />
                 </View>
                 <Text style={styles.instructionDistance}>{currentStepData.distance?.text}</Text>
@@ -1217,7 +1431,7 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Off-route banner */}
+        {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && (
           <View style={{
             position: 'absolute', top: Platform.OS === 'ios' ? 160 : 145,
@@ -1234,7 +1448,7 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Prędkościomierz */}
+        {/* ── Prędkościomierz ──────────────────────────────── */}
         {isNavigating && (
           <View style={styles.speedPanelNav}>
             <Text style={styles.speedValue}>{formatSpeed(speed)}</Text>
@@ -1242,18 +1456,19 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* ── Przyciski boczne ── */}
+        {/* ── Przyciski boczne ─────────────────────────────── */}
         <View style={[
           styles.rightBottomControls,
           !isNavigating && { bottom: startLocation && endLocation && routeInfo ? 248 : 188 },
         ]}>
-          {/* Przycisk tworzenia trasy */}
+
+          {/* Budowanie trasy */}
           <TouchableOpacity
             style={[
               styles.sideBtn,
               isBuilding
-                ? { backgroundColor: '#db1e1e8e', borderColor: '#000000c7' }
-                : { backgroundColor: '#0c0c0cd2', borderColor: '#fa07079a' },
+                ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
+                : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
             ]}
             onPress={() => {
               if (isBuilding) {
@@ -1269,7 +1484,7 @@ export default function MapScreen() {
             <MaterialCommunityIcons
               name={isBuilding ? 'check' : 'map-marker-path'}
               size={20}
-              color={isBuilding ? '#000000' : '#ffffff70'}
+              color={isBuilding ? '#ffffff' : theme.primary}
             />
           </TouchableOpacity>
 
@@ -1279,7 +1494,7 @@ export default function MapScreen() {
               styles.sideBtn,
               isSharing
                 ? { backgroundColor: '#4de92620', borderColor: '#4de92645' }
-                : { backgroundColor: '#ffffff08', borderColor: '#ffffff10' },
+                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
             ]}
             onPress={handleToggleSharing}
             activeOpacity={0.75}
@@ -1287,10 +1502,11 @@ export default function MapScreen() {
             <MaterialIcons
               name={isSharing ? 'location-on' : 'location-off'}
               size={20}
-              color={isSharing ? '#4de926' : '#ffffff35'}
+              color={isSharing ? '#4de926' : theme.textDim}
             />
           </TouchableOpacity>
 
+          {/* LIVE badge */}
           {connected && isSharing && (
             <View style={{
               position: 'absolute', top: Platform.OS === 'ios' ? 54 : 38, right: 12,
@@ -1303,20 +1519,30 @@ export default function MapScreen() {
             </View>
           )}
 
+          {/* Centruj */}
           <TouchableOpacity style={styles.sideBtn} onPress={handleCenterOnUser} activeOpacity={0.75}>
-            <MaterialIcons name="my-location" size={20} color="#ffffff70" />
+            <MaterialIcons name="my-location" size={20} color={theme.textMuted} />
           </TouchableOpacity>
+
+          {/* Mowa */}
           <TouchableOpacity
-            style={[styles.sideBtn, !isSpeechEnabled && { backgroundColor: '#e3383525', borderColor: '#e3383545' }]}
+            style={[
+              styles.sideBtn,
+              !isSpeechEnabled
+                ? { backgroundColor: '#e3383525', borderColor: '#e3383545' }
+                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+            ]}
             onPress={() => setIsSpeechEnabled(v => !v)}
             activeOpacity={0.75}
           >
             <MaterialIcons
               name={isSpeechEnabled ? 'volume-up' : 'volume-off'}
               size={20}
-              color={isSpeechEnabled ? '#ffffff70' : '#e33835ce'}
+              color={isSpeechEnabled ? theme.textMuted : theme.primary}
             />
           </TouchableOpacity>
+
+          {/* Zgłoś */}
           <TouchableOpacity
             style={[styles.sideBtn, { borderColor: '#ff922b45', backgroundColor: '#ff922b12' }]}
             onPress={() => setReportVisible(true)}
@@ -1324,14 +1550,20 @@ export default function MapScreen() {
           >
             <MaterialIcons name="warning" size={20} color="#ff922b" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.sideBtn} onPress={() => setSettingsVisible(true)} activeOpacity={0.75}>
-            <MaterialCommunityIcons name="layers-outline" size={22} color="#ffffff70" />
-          </TouchableOpacity>
-        </View>
 
-        {/* Search bar */}
+          {/* Warstwy */}
+          <TouchableOpacity style={styles.sideBtn} onPress={() => setSettingsVisible(true)} activeOpacity={0.75}>
+            <MaterialCommunityIcons name="layers-outline" size={22} color={theme.textMuted} />
+          </TouchableOpacity>
+
+        </View>
+        {/* ── Search bar ───────────────────────────────────── */}
         {!isNavigating && !isBuilding && (
-          <TouchableOpacity style={styles.topSearchButton} onPress={() => setSearchModalVisible(true)} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.topSearchButton}
+            onPress={() => setSearchModalVisible(true)}
+            activeOpacity={0.8}
+          >
             <MaterialIcons name="search" size={18} color="#e33835ce" />
             <Text style={styles.topSearchButtonText}>
               {startLocation && endLocation
@@ -1349,11 +1581,12 @@ export default function MapScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Bottom sheet */}
+        {/* ── Bottom sheet (podgląd trasy) ─────────────────── */}
         {!isNavigating && !isBuilding && startLocation && endLocation && (
           <View style={styles.bottomSheet}>
             <View style={styles.expandHandle} />
             <View style={styles.infoPreview}>
+              {/* Lokalizacje */}
               <View style={styles.routeInfoCard}>
                 <View style={styles.routeInfoRow}>
                   <View style={styles.routeInfoLocation}>
@@ -1373,6 +1606,8 @@ export default function MapScreen() {
                   </View>
                 </View>
               </View>
+
+              {/* Statystyki */}
               <View style={styles.routeStatsRow}>
                 <View style={styles.statItem}>
                   <View style={styles.statIcon}>
@@ -1400,6 +1635,8 @@ export default function MapScreen() {
                   </View>
                 </View>
               </View>
+
+              {/* Przyciski */}
               <View style={styles.bottomSheetButtons}>
                 <TouchableOpacity
                   style={[styles.navigateButton, (previewLoading || !routeInfo) && { opacity: 0.5 }]}
@@ -1419,14 +1656,14 @@ export default function MapScreen() {
                   <MaterialIcons name="edit" size={18} color="#e33835ce" />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.resetButtonSmall} onPress={handleReset} activeOpacity={0.8}>
-                  <MaterialIcons name="close" size={18} color="#ffffff35" />
+                  <MaterialIcons name="close" size={18} color={isDark? "#f73f3fb4":"#000"}/>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         )}
 
-        {/* Empty state */}
+        {/* ── Empty state ──────────────────────────────────── */}
         {!isNavigating && !isBuilding && !startLocation && !endLocation && !searchModalVisible && (
           <View style={styles.emptyStateContainer}>
             <View style={styles.emptyState}>
@@ -1437,7 +1674,7 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Modale */}
+        {/* ── Modale ───────────────────────────────────────── */}
         <SearchModal
           visible={searchModalVisible}
           onClose={() => setSearchModalVisible(false)}
@@ -1476,7 +1713,11 @@ export default function MapScreen() {
         <SaveRouteModal
           visible={saveRouteVisible}
           pinCount={pins.length}
-          distanceKm={totalDistance(snappedRoute.length > 0 ? snappedRoute : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude })))}
+          distanceKm={totalDistance(
+            snappedRoute.length > 0
+              ? snappedRoute
+              : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude })),
+          )}
           saving={saving}
           snapping={snapping}
           isSnapped={snappedRoute.length > 0}
@@ -1489,6 +1730,17 @@ export default function MapScreen() {
             else        Toast.show({ type: 'error',   text1: 'Błąd zapisu trasy' });
           }}
         />
+        <RouteLeaderboardModal
+          visible={leaderboardVisible}
+          routeId={leaderboardRouteId}
+          routeName={leaderboardRouteName}
+          data={leaderboardData}
+          runsData={leaderboardRunsData}
+          loading={leaderboardLoading}
+          newTime={myFinishedTime}
+          onClose={() => { setLeaderboardVisible(false); setMyFinishedTime(null); }}
+        />
+
       </View>
     </>
   );

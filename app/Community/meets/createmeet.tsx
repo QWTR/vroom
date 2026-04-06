@@ -1,197 +1,150 @@
 import React, { useState } from 'react';
-import { 
-  Text, 
-  StyleSheet, 
-  View, 
-  ScrollView, 
-  TextInput, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
-  Platform 
+import {
+  View, Text, ScrollView, TouchableOpacity,
+  TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
-
-// Icons
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useRouter }          from 'expo-router';
+import DateTimePicker         from '@react-native-community/datetimepicker';
+import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useTheme }           from '../../../contexts/ThemeContext';
 
 export default function CreateMeet() {
   const router = useRouter();
+  const { theme } = useTheme();
 
-  // State dla formularza
   const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    location: '',
-    date: new Date(),
-    time: new Date(),
-    maxParticipants: '',
-    tags: '',
+    title: '', description: '', location: '',
+    date: new Date(), time: new Date(),
+    maxParticipants: '', tags: '',
   });
-
-  // State dla pickerów
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
-  const onDateChange = (event, selectedDate) => {
+  const onDateChange = (_: any, selectedDate?: Date) => {
     setShowDatePicker(false);
-    if (selectedDate) {
-      setFormData({ ...formData, date: selectedDate });
-    }
+    if (selectedDate) setFormData(f => ({ ...f, date: selectedDate }));
   };
-
-  const onTimeChange = (event, selectedTime) => {
+  const onTimeChange = (_: any, selectedTime?: Date) => {
     setShowTimePicker(false);
-    if (selectedTime) {
-      setFormData({ ...formData, time: selectedTime });
-    }
+    if (selectedTime) setFormData(f => ({ ...f, time: selectedTime }));
   };
 
-  const formatDate = (date) => {
-    return date.toLocaleDateString('pl-PL');
-  };
-
-  const formatTime = (time) => {
-    return time.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
-  };
+  const formatDate = (d: Date) => d.toLocaleDateString('pl-PL');
+  const formatTime = (d: Date) => d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 
   const handleCreate = () => {
-    console.log("Tworzenie spotkania:", formData);
+    console.log('Tworzenie spotkania:', formData);
     router.back();
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={{ flex: 1, backgroundColor: '#0f0f0f' }}
+      style={{ flex: 1, backgroundColor: theme.bg }}
     >
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        
+      <ScrollView style={{ flex: 1, paddingHorizontal: '5%' }} showsVerticalScrollIndicator={false}>
+
         {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.push("/Community/events")} style={styles.backBtn}>
-            <MaterialIcons name="close" size={28} color="#fff" />
+        <View style={{ marginTop: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+          <TouchableOpacity onPress={() => router.push('/Community/events')} style={{ padding: 5 }}>
+            <MaterialIcons name="close" size={28} color={theme.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>NOWY MEET</Text>
-          <View style={{ width: 28 }} /> 
+          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 18, letterSpacing: 2 }}>NOWY MEET</Text>
+          <View style={{ width: 28 }} />
         </View>
 
         {/* Formularz */}
-        <View style={styles.form}>
-          
-          <Text style={styles.inputLabel}>TYTUŁ SPOTKANIA</Text>
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="title" size={20} color="#e33835" />
-            <TextInput 
-              style={styles.input}
-              placeholder="np. Nocny Cruise"
-              placeholderTextColor="#ffffff30"
-              onChangeText={(val) => setFormData({...formData, title: val})}
+        <View style={{ gap: 5 }}>
+
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>TYTUŁ SPOTKANIA</Text>
+          <View style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}>
+            <MaterialIcons name="title" size={20} color={theme.primary} />
+            <TextInput
+              style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}
+              placeholder="np. Nocny Cruise" placeholderTextColor={theme.textDim}
+              onChangeText={val => setFormData(f => ({ ...f, title: val }))}
             />
           </View>
 
-          {/* Rząd z Datą i Godziną */}
-          <View style={styles.row}>
+          {/* Data i godzina */}
+          <View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.inputLabel}>DATA</Text>
-              <TouchableOpacity 
-                style={styles.inputContainer} 
+              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>DATA</Text>
+              <TouchableOpacity
+                style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}
                 onPress={() => setShowDatePicker(true)}
               >
-                <MaterialIcons name="event" size={20} color="#e33835" />
-                <Text style={styles.valueText}>{formatDate(formData.date)}</Text>
+                <MaterialIcons name="event" size={20} color={theme.primary} />
+                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}>{formatDate(formData.date)}</Text>
               </TouchableOpacity>
             </View>
-
             <View style={{ flex: 1, marginLeft: 15 }}>
-              <Text style={styles.inputLabel}>GODZINA</Text>
-              <TouchableOpacity 
-                style={styles.inputContainer} 
+              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>GODZINA</Text>
+              <TouchableOpacity
+                style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}
                 onPress={() => setShowTimePicker(true)}
               >
-                <MaterialIcons name="access-time" size={20} color="#e33835" />
-                <Text style={styles.valueText}>{formatTime(formData.time)}</Text>
+                <MaterialIcons name="access-time" size={20} color={theme.primary} />
+                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}>{formatTime(formData.time)}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Renderowanie Pickerów */}
-          {showDatePicker && (
-            <DateTimePicker
-              value={formData.date}
-              mode="date"
-              display="default"
-              onChange={onDateChange}
-              minimumDate={new Date()}
-            />
-          )}
+          {showDatePicker && <DateTimePicker value={formData.date} mode="date" display="default" onChange={onDateChange} minimumDate={new Date()} />}
+          {showTimePicker && <DateTimePicker value={formData.time} mode="time" is24Hour display="default" onChange={onTimeChange} />}
 
-          {showTimePicker && (
-            <DateTimePicker
-              value={formData.time}
-              mode="time"
-              is24Hour={true}
-              display="default"
-              onChange={onTimeChange}
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>LOKALIZACJA</Text>
+          <TouchableOpacity style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}>
+            <MaterialIcons name="location-on" size={20} color={theme.primary} />
+            <TextInput
+              style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}
+              placeholder="Wybierz miejsce na mapie" placeholderTextColor={theme.textDim}
+              onChangeText={val => setFormData(f => ({ ...f, location: val }))}
             />
-          )}
-
-          <Text style={styles.inputLabel}>LOKALIZACJA</Text>
-          <TouchableOpacity style={styles.inputContainer}>
-            <MaterialIcons name="location-on" size={20} color="#e33835" />
-            <TextInput 
-              style={styles.input}
-              placeholder="Wybierz miejsce na mapie"
-              placeholderTextColor="#ffffff30"
-              onChangeText={(val) => setFormData({...formData, location: val})}
-            />
-            <MaterialIcons name="map" size={20} color="#ffffff40" />
+            <MaterialIcons name="map" size={20} color={theme.textDim} />
           </TouchableOpacity>
 
-          <Text style={styles.inputLabel}>LIMIT UCZESTNIKÓW</Text>
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="people" size={20} color="#e33835" />
-            <TextInput 
-              style={styles.input}
-              placeholder="np. 50"
-              keyboardType="numeric"
-              placeholderTextColor="#ffffff30"
-              onChangeText={(val) => setFormData({...formData, maxParticipants: val})}
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>LIMIT UCZESTNIKÓW</Text>
+          <View style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}>
+            <MaterialIcons name="people" size={20} color={theme.primary} />
+            <TextInput
+              style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}
+              placeholder="np. 50" keyboardType="numeric" placeholderTextColor={theme.textDim}
+              onChangeText={val => setFormData(f => ({ ...f, maxParticipants: val }))}
             />
           </View>
 
-          <Text style={styles.inputLabel}>OPIS WYDARZENIA</Text>
-          <View style={[styles.inputContainer, { alignItems: 'flex-start', paddingTop: 12 }]}>
-            <TextInput 
-              style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-              placeholder="Opisz co będziemy robić..."
-              placeholderTextColor="#ffffff30"
-              multiline={true}
-              onChangeText={(val) => setFormData({...formData, description: val})}
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>OPIS WYDARZENIA</Text>
+          <View style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, alignItems: 'flex-start', paddingTop: 12, borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}>
+            <TextInput
+              style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 13, height: 100, textAlignVertical: 'top' }}
+              placeholder="Opisz co będziemy robić..." placeholderTextColor={theme.textDim} multiline
+              onChangeText={val => setFormData(f => ({ ...f, description: val }))}
             />
           </View>
 
-          <Text style={styles.inputLabel}>TAGI (po przecinku)</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="tag-multiple" size={20} color="#e33835" />
-            <TextInput 
-              style={styles.input}
-              placeholder="JDM, NIGHT, DRIFT"
-              placeholderTextColor="#ffffff30"
-              onChangeText={(val) => setFormData({...formData, tags: val})}
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, marginBottom: 8, marginTop: 15, marginLeft: 5 }}>TAGI (po przecinku)</Text>
+          <View style={{ backgroundColor: theme.surface3, borderRadius: 10, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border2, minHeight: 55 }}>
+            <MaterialCommunityIcons name="tag-multiple" size={20} color={theme.primary} />
+            <TextInput
+              style={{ flex: 1, fontFamily: 'Orbitron', color: theme.text, fontSize: 13, marginLeft: 10 }}
+              placeholder="JDM, NIGHT, DRIFT" placeholderTextColor={theme.textDim}
+              onChangeText={val => setFormData(f => ({ ...f, tags: val }))}
             />
           </View>
 
-          <TouchableOpacity style={styles.addRuleBtn}>
-              <MaterialIcons name="add-circle-outline" size={20} color="#ffffff60" />
-              <Text style={styles.addRuleText}>DODAJ ZASADĘ REGULAMINU</Text>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 25, padding: 15, borderWidth: 1, borderStyle: 'dashed', borderColor: theme.border3, borderRadius: 10 }}>
+            <MaterialIcons name="add-circle-outline" size={20} color={theme.textDim} />
+            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11 }}>DODAJ ZASADĘ REGULAMINU</Text>
           </TouchableOpacity>
-
         </View>
 
-        <TouchableOpacity style={styles.submitBtn} onPress={handleCreate}>
-          <Text style={styles.submitBtnText}>OPUBLIKUJ SPOTKANIE</Text>
+        <TouchableOpacity
+          style={{ backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center', marginTop: 40 }}
+          onPress={handleCreate}
+        >
+          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 14, fontWeight: 'bold', letterSpacing: 1 }}>OPUBLIKUJ SPOTKANIE</Text>
         </TouchableOpacity>
 
         <View style={{ height: 50 }} />
@@ -199,94 +152,3 @@ export default function CreateMeet() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: '5%',
-  },
-  header: {
-    marginTop: 50,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  backBtn: {
-    padding: 5,
-  },
-  headerTitle: {
-    fontFamily: 'Orbitron',
-    color: '#fff',
-    fontSize: 18,
-    letterSpacing: 2,
-  },
-  form: {
-    gap: 5,
-  },
-  inputLabel: {
-    fontFamily: 'Orbitron',
-    color: '#ffffff60',
-    fontSize: 10,
-    marginBottom: 8,
-    marginTop: 15,
-    marginLeft: 5,
-  },
-  inputContainer: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ffffff10',
-    minHeight: 55,
-  },
-  input: {
-    flex: 1,
-    fontFamily: 'Orbitron',
-    color: '#fff',
-    fontSize: 13,
-    marginLeft: 10,
-  },
-  valueText: {
-    fontFamily: 'Orbitron',
-    color: '#fff',
-    fontSize: 13,
-    marginLeft: 10,
-  },
-  row: {
-    flexDirection: 'row',
-  },
-  addRuleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 25,
-    padding: 15,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#ffffff20',
-    borderRadius: 10,
-  },
-  addRuleText: {
-    fontFamily: 'Orbitron',
-    color: '#ffffff60',
-    fontSize: 11,
-  },
-  submitBtn: {
-    backgroundColor: '#e33835',
-    borderRadius: 12,
-    paddingVertical: 18,
-    alignItems: 'center',
-    marginTop: 40,
-  },
-  submitBtnText: {
-    fontFamily: 'Orbitron',
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  }
-});

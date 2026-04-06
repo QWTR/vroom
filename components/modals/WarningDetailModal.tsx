@@ -1,21 +1,23 @@
 import React, { memo } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  SafeAreaView,
-} from 'react-native';
+import { Modal, View, Text, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { styles }          from '../../styles/mapstyle';
+import { makeMapStyles } from '../../styles/mapstyle';
+import { useTheme } from '../../contexts/ThemeContext';
 import { LiveWarning, getWarningColor, getWarningIcon, getWarningLabel } from '../../hooks/useLiveMap';
 
 interface Props {
-  visible:         boolean;
-  warning:         LiveWarning | null;
-  onClose:         () => void;
-  onConfirm:       (id: number) => void;
-  currentUserId?:  number;
+  visible:        boolean;
+  warning:        LiveWarning | null;
+  onClose:        () => void;
+  onConfirm:      (id: number) => void;
+  currentUserId?: number;
 }
 
 export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, currentUserId }: Props) => {
+  const { theme, isDark } = useTheme();
+  const styles    = makeMapStyles(theme);
+
   if (!warning) return null;
 
   const color    = getWarningColor(warning.type);
@@ -47,19 +49,19 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
               </Text>
             </View>
             <TouchableOpacity style={styles.drawerCloseBtn} onPress={onClose}>
-              <MaterialIcons name="close" size={18} color="#ffffff70" />
+              <MaterialIcons name="close" size={18} color={theme.textMuted} />
             </TouchableOpacity>
           </View>
 
           {/* Wiadomość */}
           {warning.message ? (
             <View style={{
-              backgroundColor: '#ffffff08',
+              backgroundColor: theme.border,
               borderRadius: 12, padding: 14,
-              borderWidth: 1, borderColor: '#ffffff10',
+              borderWidth: 1, borderColor: theme.border2,
               marginBottom: 16,
             }}>
-              <Text style={{ color: '#ffffff70', fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 0.5 }}>
+              <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 10, letterSpacing: 0.5 }}>
                 {warning.message}
               </Text>
             </View>
@@ -67,19 +69,17 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
 
           {/* Statystyki */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-            {/* Czas */}
             <View style={{
-              flex: 1, backgroundColor: '#ffffff08', borderRadius: 12,
-              borderWidth: 1, borderColor: '#ffffff10', padding: 12, alignItems: 'center',
+              flex: 1, backgroundColor: theme.border, borderRadius: 12,
+              borderWidth: 1, borderColor: theme.border2, padding: 12, alignItems: 'center',
             }}>
-              <MaterialIcons name="schedule" size={18} color="#ffffff35" />
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
+              <MaterialIcons name="schedule" size={18} color={theme.textDim} />
+              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
                 {15 - timeLeft}
               </Text>
               <Text style={styles.statLabel}>MIN TEMU</Text>
             </View>
 
-            {/* Potwierdzenia */}
             <View style={{
               flex: 1, backgroundColor: `${color}12`, borderRadius: 12,
               borderWidth: 1, borderColor: `${color}30`, padding: 12, alignItems: 'center',
@@ -94,24 +94,18 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
 
           <View style={styles.drawerDivider} />
 
-          {/* Info o systemie */}
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 8,
-            marginBottom: 16,
-          }}>
-            <MaterialIcons name="info-outline" size={14} color="#ffffff35" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <MaterialIcons name="info-outline" size={14} color={theme.textDim} />
             <Text style={[styles.drawerSectionLabel, { marginBottom: 0 }]}>
               Potwierdzenie przedłuża ostrzeżenie o 15 minut
             </Text>
           </View>
 
-          {/* Przycisk potwierdzenia */}
           {!isOwn && (
             <TouchableOpacity
               style={{
                 flexDirection: 'row', alignItems: 'center',
-                justifyContent: 'center', gap: 10,
-                paddingVertical: 15,
+                justifyContent: 'center', gap: 10, paddingVertical: 15,
                 backgroundColor: `${color}20`,
                 borderRadius: 14, borderWidth: 2, borderColor: color,
               }}
@@ -119,13 +113,7 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
               onPress={() => { onConfirm(warning.id); onClose(); }}
             >
               <MaterialIcons name="thumb-up" size={20} color={color} />
-              <Text style={{
-                color,
-                fontFamily: 'Orbitron',
-                fontWeight: '700',
-                fontSize: 11,
-                letterSpacing: 2,
-              }}>
+              <Text style={{ color, fontFamily: 'Orbitron', fontWeight: '700', fontSize: 11, letterSpacing: 2 }}>
                 POTWIERDŹ OSTRZEŻENIE
               </Text>
             </TouchableOpacity>
@@ -133,7 +121,7 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
 
           {isOwn && (
             <View style={{
-              padding: 14, backgroundColor: '#ffffff08',
+              padding: 14, backgroundColor: theme.border,
               borderRadius: 12, alignItems: 'center',
             }}>
               <Text style={[styles.drawerSectionLabel, { marginBottom: 0, textAlign: 'center' }]}>
@@ -141,6 +129,7 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
               </Text>
             </View>
           )}
+
         </View>
       </SafeAreaView>
     </Modal>

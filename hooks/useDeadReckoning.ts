@@ -6,123 +6,141 @@ interface Position {
 }
 
 interface DeadReckoningOptions {
-  /** Wywołuje się przy każdej klatce animacji (~60fps) podczas nawigacji */
+  /** Wywołuje się przy każdej klatce animacji (~60fps) */
   onFrame:       (pos: Position, heading: number) => void;
-  frameInterval?: number; // ms, default 16 (~60fps)
-  stallTimeout?:  number; // ms bez GPS → zatrzymaj interpolację, default 2500
+  frameInterval?: number;
+  stallTimeout?:  number;
 }
 
-/**
- * Dead-reckoning: lokalnie interpoluje pozycję między updateami GPS.
- *
- * Wywołaj feed() przy każdym nowym punkcie GPS.
- * Hook emituje onFrame() co frameInterval ms z interpolowaną pozycją.
- * 
- * NIE używa setState — tylko ref + callback, zero re-renderów.
- */
 export function useDeadReckoning({
   onFrame,
-  frameInterval = 16,
-  stallTimeout  = 2500,
+  stallTimeout = 2500,
 }: DeadReckoningOptions) {
-  const timerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const posRef        = useRef<Position | null>(null);
-  const headingRef    = useRef(0);
-  const velLatRef     = useRef(0); // deg/ms
-  const velLngRef     = useRef(0); // deg/ms
-  const lastFeedMs    = useRef(0);
-  const lastFrameMs   = useRef(0);
-  const isRunningRef  = useRef(false);
 
-  const stopLoop = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    isRunningRef.current = false;
-  }, []);
+  const displayLat = useRef(0);
+  const displayLng = useRef(0);
+  const displayHdg = useRef(0);
 
-  const tick = useCallback(() => {
-    const now = Date.now();
-    const dt  = now - lastFrameMs.current;
-    lastFrameMs.current = now;
+  const fromLat = useRef(0);
+  const fromLng = useRef(0);
+  const fromHdg = useRef(0);
+  const toLat   = useRef(0);
+  const toLng   = useRef(0);
+  const toHdg   = useRef(0);
 
-    // Przestań jeśli GPS stoi za długo
+  const lerpStartMs    = useRef(0);
+  const lerpDurMs      = useRef(500);
+  const lastFeedMs     = useRef(0);
+  const hasFirstFeed   = useRef(false);
+  const rafRef         = useRef<number | null>(null);
+  const stoppedRef     = useRef(false);
+  // Ref do onFrame żeby nie restartować pętli rAF przy zmianie callbacka
+  const onFrameRef     = useRef(onFrame);
+
+  useEffect(() => {
+    onFrameRef.current = onFrame;
+  }, [onFrame]);
+
+  const lerpAngle = (a: number, b: number, t: number) => {
+    const diff = ((b - a + 540) % 360) - 180;
+    return ((a + diff * t) + 360) % 360;
+  };
+
+  // Pętla startuje RAZ przy montowaniu — nie zależy od onFrame
+  const loop = useCallback(() => {
+    if (stoppedRef.current) return;
+    rafRef.current = requestAnimationFrame(loop);
+
+    if (!hasFirstFeed.current) return;
+
+    const now = performance.now();
+
     if (now - lastFeedMs.current > stallTimeout) {
-      stopLoop();
+      stoppedRef.current = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
     }
 
-    if (posRef.current && dt > 0 && dt < 500) {
-      // Przesuń pozycję o wektor prędkości × dt
-      posRef.current = {
-        latitude:  posRef.current.latitude  + velLatRef.current * dt,
-        longitude: posRef.current.longitude + velLngRef.current * dt,
-      };
-      onFrame(posRef.current, headingRef.current);
+    const elapsed = now - lerpStartMs.current;
+    const t = Math.min(elapsed / Math.max(lerpDurMs.current, 50), 1.2);
+
+    const lat = fromLat.current + (toLat.current - fromLat.current) * t;
+    const lng = fromLng.current + (toLng.current - fromLng.current) * t;
+    const hdg = lerpAngle(fromHdg.current, toHdg.current, Math.min(t, 1));
+
+    displayLat.current = lat;
+    displayLng.current = lng;
+    displayHdg.current = hdg;
+
+    // Wywołaj przez ref — bez restartu pętli gdy callback się zmieni
+    onFrameRef.current({ latitude: lat, longitude: lng }, hdg);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ← celowo pusta — pętla tworzona raz
+
+  useEffect(() => {
+    stoppedRef.current = false;
+    rafRef.current = requestAnimationFrame(loop);
+    return () => {
+      stoppedRef.current = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [loop]);
+
+  const feed = useCallback((pos: Position, _speedMs: number, heading: number) => {
+    const now = performance.now();
+
+    if (hasFirstFeed.current && lastFeedMs.current > 0) {
+      const dt = now - lastFeedMs.current;
+      if (dt > 0 && dt < 3000) {
+        lerpDurMs.current = lerpDurMs.current * 0.6 + dt * 0.4;
+      }
     }
 
-    timerRef.current = setTimeout(tick, frameInterval);
-  }, [onFrame, frameInterval, stallTimeout, stopLoop]);
+    lastFeedMs.current  = now;
+    lerpStartMs.current = now;
 
-  const startLoop = useCallback(() => {
-    if (isRunningRef.current) return;
-    isRunningRef.current = true;
-    lastFrameMs.current  = Date.now();
-    timerRef.current     = setTimeout(tick, frameInterval);
-  }, [tick, frameInterval]);
-
-  /**
-   * Zasilaj nowym punktem GPS.
-   * @param pos     nowa pozycja (po Kalmanie / snap-to-road)
-   * @param speedMs prędkość m/s (z GPS)
-   * @param heading kierunek w stopniach (0=N, 90=E)
-   */
-  const feed = useCallback((pos: Position, speedMs: number, heading: number) => {
-    const now = Date.now();
-    const dt  = now - lastFeedMs.current;
-
-    headingRef.current = heading;
-
-    if (posRef.current && dt > 0 && dt < 3000) {
-      // Prędkość z rzeczywistego przesunięcia GPS (bardziej dokładne)
-      const rawVelLat = (pos.latitude  - posRef.current.latitude)  / dt;
-      const rawVelLng = (pos.longitude - posRef.current.longitude) / dt;
-
-      // Low-pass: 30% stara prędkość, 70% nowa — wygładza skoki
-      velLatRef.current = velLatRef.current * 0.3 + rawVelLat * 0.7;
-      velLngRef.current = velLngRef.current * 0.3 + rawVelLng * 0.7;
-    } else if (speedMs > 0.5) {
-      // Fallback gdy brak poprzedniej pozycji lub stały — prędkość z GPS + heading
-      const headingRad  = (heading * Math.PI) / 180;
-      const degPerMs    = speedMs / 1000 / 111320;
-      const cosLat      = Math.cos(pos.latitude * Math.PI / 180);
-
-      velLatRef.current = Math.cos(headingRad) * degPerMs;
-      velLngRef.current = Math.sin(headingRad) * degPerMs / (cosLat || 1);
+    if (hasFirstFeed.current) {
+      fromLat.current = displayLat.current;
+      fromLng.current = displayLng.current;
+      fromHdg.current = displayHdg.current;
     } else {
-      // Auto stoi
-      velLatRef.current = 0;
-      velLngRef.current = 0;
+      fromLat.current = pos.latitude;
+      fromLng.current = pos.longitude;
+      fromHdg.current = heading;
+      displayLat.current = pos.latitude;
+      displayLng.current = pos.longitude;
+      displayHdg.current = heading;
+      hasFirstFeed.current = true;
     }
 
-    // Zresetuj bazę do rzeczywistej pozycji GPS (eliminuje dryfowanie)
-    posRef.current  = { ...pos };
-    lastFeedMs.current = now;
+    toLat.current = pos.latitude;
+    toLng.current = pos.longitude;
+    toHdg.current = heading;
 
-    startLoop();
-  }, [startLoop]);
+    if (stoppedRef.current) {
+      stoppedRef.current = false;
+      rafRef.current = requestAnimationFrame(loop);
+    }
+  }, [loop]);
 
   const reset = useCallback(() => {
-    stopLoop();
-    posRef.current     = null;
-    velLatRef.current  = 0;
-    velLngRef.current  = 0;
-    lastFeedMs.current = 0;
-  }, [stopLoop]);
+    hasFirstFeed.current = false;
+    lastFeedMs.current   = 0;
+    lerpDurMs.current    = 500;
+    lerpStartMs.current  = 0;
+    fromLat.current = toLat.current = displayLat.current = 0;
+    fromLng.current = toLng.current = displayLng.current = 0;
+    fromHdg.current = toHdg.current = displayHdg.current = 0;
+  }, []);
 
-  // Cleanup
-  useEffect(() => () => stopLoop(), [stopLoop]);
+  const stop = useCallback(() => {
+    stoppedRef.current = true;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
 
-  return { feed, reset, stop: stopLoop };
+  // Zwróć refy do odczytu pozycji bez setState
+  return { feed, reset, stop, displayLat, displayLng, displayHdg };
 }
