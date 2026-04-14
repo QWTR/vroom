@@ -13,12 +13,13 @@ interface UserInfoModalProps {
   onNavigate:    () => void;
   onClose:       () => void;
   onViewProfile: () => void;
+  onMessage:     () => void;  // ← NOWE
 }
 
 export const UserInfoModal = memo(
-  ({ visible, user, distance, onNavigate, onClose, onViewProfile }: UserInfoModalProps) => {
+  ({ visible, user, distance, onNavigate, onClose, onViewProfile, onMessage }: UserInfoModalProps) => {
     const { theme, isDark } = useTheme();
-    const styles    = makeMapStyles(theme);
+    const styles = makeMapStyles(theme);
 
     if (!user) return null;
 
@@ -93,7 +94,8 @@ export const UserInfoModal = memo(
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+            {/* Wiersz 1: JEDŹ + WIADOMOŚĆ */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
               <TouchableOpacity
                 style={[styles.userInfoNavigateBtn, { flex: 1 }]}
                 onPress={onNavigate}
@@ -107,22 +109,43 @@ export const UserInfoModal = memo(
                 style={{
                   flex: 1, flexDirection: 'row', alignItems: 'center',
                   justifyContent: 'center', gap: 8,
-                  backgroundColor: theme.border,
+                  backgroundColor: theme.primaryBg,
                   borderRadius: 14, height: 52,
-                  borderWidth: 1, borderColor: theme.border2,
+                  borderWidth: 1, borderColor: theme.primaryBorder,
                 }}
-                onPress={onViewProfile}
+                onPress={onMessage}
                 activeOpacity={0.8}
               >
-                <MaterialIcons name="person" size={20} color={theme.textMuted} />
+                <MaterialIcons name="chat" size={20} color={theme.primary} />
                 <Text style={{
-                  fontFamily: 'Orbitron', color: theme.textMuted,
+                  fontFamily: 'Orbitron', color: theme.primary,
                   fontSize: 10, fontWeight: '700', letterSpacing: 1,
                 }}>
-                  PROFIL
+                  NAPISZ
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {/* Wiersz 2: PROFIL (pełna szerokość) */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row', alignItems: 'center',
+                justifyContent: 'center', gap: 8,
+                backgroundColor: theme.surface2,
+                borderRadius: 14, height: 46,
+                borderWidth: 1, borderColor: theme.border2,
+              }}
+              onPress={onViewProfile}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="person" size={18} color={theme.textMuted} />
+              <Text style={{
+                fontFamily: 'Orbitron', color: theme.textMuted,
+                fontSize: 10, fontWeight: '700', letterSpacing: 1,
+              }}>
+                PROFIL
+              </Text>
+            </TouchableOpacity>
           </View>
         </SafeAreaView>
       </Modal>

@@ -3,14 +3,14 @@ import {
   View, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, Switch, Image, Text,
 } from 'react-native';
-import { useRouter }        from 'expo-router';
-import * as ImagePicker     from 'expo-image-picker';
+import { useRouter }         from 'expo-router';
+import * as ImagePicker      from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import MaterialIcons        from '@expo/vector-icons/MaterialIcons';
-import Toast                from 'react-native-toast-message';
-import AsyncStorage         from '@react-native-async-storage/async-storage';
-import { API_URL }          from '../../constants/config';
-import { useTheme }         from '../../contexts/ThemeContext';
+import MaterialIcons         from '@expo/vector-icons/MaterialIcons';
+import Toast                 from 'react-native-toast-message';
+import AsyncStorage          from '@react-native-async-storage/async-storage';
+import { API_URL }           from '../../constants/config';
+import { useTheme }          from '../../contexts/ThemeContext';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -73,14 +73,18 @@ export default function AddCarScreen() {
     if (!model.trim()) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj model auta.' }); return; }
     setLoading(true);
     try {
-      const token = await getToken();
+      const token      = await getToken();
       const specsParts = [year && `${year} r.`, power && `${power} KM`, engine && engine, color && color].filter(Boolean).join(' · ');
-      const specs = specsParts || `${brand.trim()} ${model.trim()}`;
-      const form  = new FormData();
-      form.append('brand', `${brand.trim()} ${model.trim()}`);
-      form.append('specs', specs);
+      const specs      = specsParts || `${brand.trim()} ${model.trim()}`;
+      const form       = new FormData();
+      form.append('brand',  `${brand.trim()} ${model.trim()}`);
+      form.append('specs',  specs);
       form.append('isMain', String(isMain));
-      if (mods.trim()) form.append('mods', mods.trim());
+      if (year.trim())   form.append('year',   year.trim());
+      if (power.trim())  form.append('power',  power.trim());
+      if (engine.trim()) form.append('engine', engine.trim());
+      if (color.trim())  form.append('color',  color.trim());
+      if (mods.trim())   form.append('mods',   mods.trim());
       photos.forEach(p => form.append('photos', { uri: p.uri, name: p.name, type: p.type } as any));
       const res = await fetch(`${API_URL}/api/cars`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Błąd serwera');

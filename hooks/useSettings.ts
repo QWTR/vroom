@@ -10,6 +10,9 @@ export interface AppSettings {
   notifLikes:         boolean;
   notifComments:      boolean;
   notifWarnings:      boolean;
+  notifMessages:      boolean;    
+  notifFriends:       boolean;    
+  notifAchievements:  boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -20,6 +23,9 @@ const DEFAULTS: AppSettings = {
   notifLikes:         true,
   notifComments:      true,
   notifWarnings:      true,
+  notifMessages:      true,       
+  notifFriends:       true,      
+  notifAchievements:  true, 
 };
 
 export function useSettings() {

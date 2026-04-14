@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   TextInput, Image, ActivityIndicator, RefreshControl,
   KeyboardAvoidingView, Platform, Modal, Pressable,
 } from 'react-native';
-import { SafeAreaView }       from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -20,7 +20,8 @@ import { RouteMiniMap }          from '../../../components/profile/RouteMiniMap'
 import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboardModal';
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 
-// ─── Types ────────────────────────────────────────────────
+const PAGE_SIZE = 20;
+
 interface Author { id: number; username: string; avatarUrl: string | null; points: number; }
 interface Comment { id: number; content: string; photos: string[]; createdAt: string; author: Author; replyTo?: { id: number; username: string } | null; }
 interface Post { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; }
@@ -103,7 +104,6 @@ const PostCard = React.memo(({ post, myId, onLike, onRepost, onComment, onDelete
   const [showDelete, setShowDelete] = useState(false);
   const isOwn = post.author.id === myId;
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
-
   return (
     <>
       <TouchableOpacity style={{ flexDirection: 'row', paddingHorizontal: 14, paddingTop: 14 }} activeOpacity={0.97} onPress={() => onComment(post)}>
@@ -189,7 +189,6 @@ const RouteCard = React.memo(({ route, myId, onLike, onNavigate, onShare, onLead
           <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>WYŚLIJ</Text>
         </TouchableOpacity>
       </View>
-
       <TouchableOpacity style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }} onPress={() => onLeaderboard(route)} activeOpacity={0.8}>
         <View style={{ backgroundColor: theme.bg, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}>
           <RouteMiniMap points={route.points} width={100} height={65} />
@@ -219,7 +218,6 @@ const RouteCard = React.memo(({ route, myId, onLike, onNavigate, onShare, onLead
           </View>
         </View>
       </TouchableOpacity>
-
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 }}>
         <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} onPress={() => onLike(route.id)}>
           <MaterialCommunityIcons name={route.isLiked ? 'heart' : 'heart-outline'} size={17} color={route.isLiked ? '#e33835' : theme.textDim} />
@@ -294,7 +292,14 @@ const CarCard = React.memo(({ car, myId, onLike, onPress, onProfile }: {
 });
 
 // ─── ComposeBox ───────────────────────────────────────────
-const ComposeBox = ({ onPost }: { onPost: (text: string, photos: string[], video: string | null) => Promise<void> }) => {
+// ← ZMIANA: przyjmuje insets.bottom z zewnątrz
+const ComposeBox = ({
+  onPost,
+  bottomInset,
+}: {
+  onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
+  bottomInset: number;
+}) => {
   const { theme } = useTheme();
   const [text,    setText]    = useState('');
   const [photos,  setPhotos]  = useState<string[]>([]);
@@ -323,13 +328,23 @@ const ComposeBox = ({ onPost }: { onPost: (text: string, photos: string[], video
   };
 
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface, paddingHorizontal: 14, paddingVertical: 10 }}>
+    <View style={{
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      backgroundColor: theme.surface,
+      paddingHorizontal: 14,
+      paddingTop: 10,
+      // ← KLUCZOWE: uwzględnia Android nav bar
+      paddingBottom: Math.max(bottomInset, 10),
+    }}>
       {(photos.length > 0 || video) && (
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           {video && (
             <View style={{ position: 'relative' }}>
               <Video source={{ uri: video }} style={{ width: 58, height: 58, borderRadius: 10 }} resizeMode={ResizeMode.COVER} shouldPlay={false} />
-              <View style={{ position: 'absolute', bottom: 4, left: 4, backgroundColor: '#000000aa', borderRadius: 5, padding: 2 }}><MaterialIcons name="videocam" size={10} color="#fff" /></View>
+              <View style={{ position: 'absolute', bottom: 4, left: 4, backgroundColor: '#000000aa', borderRadius: 5, padding: 2 }}>
+                <MaterialIcons name="videocam" size={10} color="#fff" />
+              </View>
               <TouchableOpacity style={{ position: 'absolute', top: -5, right: -5, backgroundColor: '#e33835', borderRadius: 9, width: 17, height: 17, justifyContent: 'center', alignItems: 'center' }} onPress={() => setVideo(null)}>
                 <MaterialIcons name="close" size={11} color="#fff" />
               </TouchableOpacity>
@@ -357,7 +372,10 @@ const ComposeBox = ({ onPost }: { onPost: (text: string, photos: string[], video
           value={text} onChangeText={setText}
           placeholder="Co słychać w garażu?" placeholderTextColor={theme.textDim} multiline maxLength={500}
         />
-        <TouchableOpacity style={[{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' }, !canSend && { opacity: 0.3 }]} onPress={handleSend} disabled={posting || !canSend}>
+        <TouchableOpacity
+          style={[{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' }, !canSend && { opacity: 0.3 }]}
+          onPress={handleSend} disabled={posting || !canSend}
+        >
           {posting ? <ActivityIndicator size={14} color="#fff" /> : <MaterialIcons name="send" size={17} color="#fff" />}
         </TouchableOpacity>
       </View>
@@ -365,31 +383,49 @@ const ComposeBox = ({ onPost }: { onPost: (text: string, photos: string[], video
   );
 };
 
+// ─── Footer loader ────────────────────────────────────────
+const ListFooter = ({ loading }: { loading: boolean }) => {
+  const { theme } = useTheme();
+  if (!loading) return null;
+  return <ActivityIndicator color={theme.primary ?? '#e33835'} style={{ padding: 20 }} />;
+};
+
 // ─── GŁÓWNY EKRAN ─────────────────────────────────────────
 export default function CommunityScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+
+  // ← KLUCZOWE: insets na poziomie głównego komponentu
+  const insets = useSafeAreaInsets();
 
   const [activeTab,    setActiveTab]    = useState<Tab>('dyskusje');
   const [myId,         setMyId]         = useState<number | null>(null);
   const [search,       setSearch]       = useState('');
   const [searchActive, setSearchActive] = useState(false);
 
-  const [posts,       setPosts]       = useState<Post[]>([]);
-  const [loadingP,    setLoadingP]    = useState(true);
-  const [refreshingP, setRefreshingP] = useState(false);
-  const [nextCursor,  setNextCursor]  = useState<number | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [posts,         setPosts]         = useState<Post[]>([]);
+  const [loadingP,      setLoadingP]      = useState(true);
+  const [refreshingP,   setRefreshingP]   = useState(false);
+  const [postCursor,    setPostCursor]    = useState<number | null>(null);
+  const [loadingMoreP,  setLoadingMoreP]  = useState(false);
+  const [hasMoreP,      setHasMoreP]      = useState(true);
 
-  const [routes,      setRoutes]      = useState<PublicRoute[]>([]);
-  const [loadingR,    setLoadingR]    = useState(false);
-  const [refreshingR, setRefreshingR] = useState(false);
+  const [routes,        setRoutes]        = useState<PublicRoute[]>([]);
+  const [loadingR,      setLoadingR]      = useState(false);
+  const [refreshingR,   setRefreshingR]   = useState(false);
+  const [routeCursor,   setRouteCursor]   = useState<number | null>(null);
+  const [loadingMoreR,  setLoadingMoreR]  = useState(false);
+  const [hasMoreR,      setHasMoreR]      = useState(true);
+
+  const [cars,          setCars]          = useState<CommunityCar[]>([]);
+  const [loadingC,      setLoadingC]      = useState(false);
+  const [refreshingC,   setRefreshingC]   = useState(false);
+  const [carCursor,     setCarCursor]     = useState<number | null>(null);
+  const [loadingMoreC,  setLoadingMoreC]  = useState(false);
+  const [hasMoreC,      setHasMoreC]      = useState(true);
+
   const { data: lbData, runsData: lbRunsData, loading: lbLoading, fetchLeaderboard, fetchRuns } = useRouteLeaderboard();
   const [lbRoute, setLbRoute] = useState<PublicRoute | null>(null);
-
-  const [cars,        setCars]        = useState<CommunityCar[]>([]);
-  const [loadingC,    setLoadingC]    = useState(false);
-  const [refreshingC, setRefreshingC] = useState(false);
 
   const [shareRoute,   setShareRoute]   = useState<PublicRoute | null>(null);
   const [shareConvs,   setShareConvs]   = useState<any[]>([]);
@@ -411,41 +447,79 @@ export default function CommunityScreen() {
     });
   }, []);
 
-  const fetchCars = async () => {
-    setLoadingC(true);
+  const fetchPosts = useCallback(async (cursor?: number) => {
     try {
       const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/cars/community`, { headers: { Authorization: `Bearer ${token}` } });
-      const json  = await res.json();
-      setCars(Array.isArray(json) ? json : []);
-    } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania aut' }); }
-    finally { setLoadingC(false); setRefreshingC(false); }
-  };
-
-  const fetchPosts = async (cursor?: number) => {
-    try {
-      const token = await getToken();
-      const url   = cursor ? `${API_URL}/api/posts?cursor=${cursor}` : `${API_URL}/api/posts`;
-      const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const url   = cursor
+        ? `${API_URL}/api/posts?cursor=${cursor}&limit=${PAGE_SIZE}`
+        : `${API_URL}/api/posts?limit=${PAGE_SIZE}`;
+      const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error();
-      const data  = await res.json();
-      if (cursor) setPosts(prev => [...prev, ...(data.posts ?? [])]);
-      else        setPosts(data.posts ?? []);
-      setNextCursor(data.nextCursor ?? null);
+      const data = await res.json();
+      const newPosts = data.posts ?? [];
+      if (cursor) setPosts(prev => [...prev, ...newPosts]);
+      else        setPosts(newPosts);
+      setPostCursor(data.nextCursor ?? null);
+      setHasMoreP(!!data.nextCursor);
     } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania postów' }); }
-    finally { setLoadingP(false); setRefreshingP(false); setLoadingMore(false); }
-  };
+    finally { setLoadingP(false); setRefreshingP(false); setLoadingMoreP(false); }
+  }, []);
 
-  const fetchRoutes = async () => {
-    setLoadingR(true);
+  const loadMorePosts = useCallback(() => {
+    if (!postCursor || loadingMoreP || !hasMoreP) return;
+    setLoadingMoreP(true);
+    fetchPosts(postCursor);
+  }, [postCursor, loadingMoreP, hasMoreP, fetchPosts]);
+
+  const fetchRoutes = useCallback(async (cursor?: number) => {
+    if (!cursor) setLoadingR(true);
     try {
       const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/routes/community`, { headers: { Authorization: `Bearer ${token}` } });
-      const json  = await res.json();
-      setRoutes(Array.isArray(json) ? json : []);
+      const url   = cursor
+        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}`
+        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}`;
+      const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      const newRoutes  = Array.isArray(json) ? json : json.routes ?? [];
+      const nextCursor = Array.isArray(json) ? null : (json.nextCursor ?? null);
+      if (cursor) setRoutes(prev => [...prev, ...newRoutes]);
+      else        setRoutes(newRoutes);
+      setRouteCursor(nextCursor);
+      setHasMoreR(!!nextCursor);
     } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania tras' }); }
-    finally { setLoadingR(false); setRefreshingR(false); }
-  };
+    finally { setLoadingR(false); setRefreshingR(false); setLoadingMoreR(false); }
+  }, []);
+
+  const loadMoreRoutes = useCallback(() => {
+    if (!routeCursor || loadingMoreR || !hasMoreR) return;
+    setLoadingMoreR(true);
+    fetchRoutes(routeCursor);
+  }, [routeCursor, loadingMoreR, hasMoreR, fetchRoutes]);
+
+  const fetchCars = useCallback(async (cursor?: number) => {
+    if (!cursor) setLoadingC(true);
+    try {
+      const token = await getToken();
+      const url   = cursor
+        ? `${API_URL}/api/cars/community?cursor=${cursor}&limit=${PAGE_SIZE}`
+        : `${API_URL}/api/cars/community?limit=${PAGE_SIZE}`;
+      const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      const newCars    = Array.isArray(json) ? json : json.cars ?? [];
+      const nextCursor = Array.isArray(json) ? null : (json.nextCursor ?? null);
+      if (cursor) setCars(prev => [...prev, ...newCars]);
+      else        setCars(newCars);
+      setCarCursor(nextCursor);
+      setHasMoreC(!!nextCursor);
+    } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania aut' }); }
+    finally { setLoadingC(false); setRefreshingC(false); setLoadingMoreC(false); }
+  }, []);
+
+  const loadMoreCars = useCallback(() => {
+    if (!carCursor || loadingMoreC || !hasMoreC) return;
+    setLoadingMoreC(true);
+    fetchCars(carCursor);
+  }, [carCursor, loadingMoreC, hasMoreC, fetchCars]);
 
   const openLeaderboard = useCallback(async (route: PublicRoute) => {
     setLbRoute(route);
@@ -453,14 +527,28 @@ export default function CommunityScreen() {
   }, [fetchLeaderboard, fetchRuns]);
 
   useFocusEffect(useCallback(() => {
-    setLoadingP(true); fetchPosts(); fetchRoutes(); fetchCars();
+    setLoadingP(true);
+    setHasMoreP(true);
+    setHasMoreR(true);
+    setHasMoreC(true);
+    fetchPosts();
+    fetchRoutes();
+    fetchCars();
   }, []));
 
-  const handleLikeCar = useCallback(async (id: number) => {
-    setCars(prev => prev.map(c => c.id !== id ? c : { ...c, isLiked: !c.isLiked, likesCount: c.isLiked ? c.likesCount - 1 : c.likesCount + 1 }));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/cars/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-  }, []);
+  const handleNavigateRoute = useCallback(async (route: PublicRoute) => {
+    await AsyncStorage.setItem('nav_route', JSON.stringify({
+      routeId: route.id, routeName: route.name,
+      points: route.points, distance: route.distance,
+    }));
+    router.push('/(tabs)/map' as any);
+  }, [router]);
+
+  const handleLikeCar  = useCallback(async (id: number) => { setCars(prev => prev.map(c => c.id !== id ? c : { ...c, isLiked: !c.isLiked, likesCount: c.isLiked ? c.likesCount - 1 : c.likesCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/cars/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
+  const handleLikePost = useCallback(async (id: number) => { setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isLiked: !p.isLiked, likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
+  const handleRepost   = useCallback(async (id: number) => { setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isReposted: !p.isReposted, repostsCount: p.isReposted ? p.repostsCount - 1 : p.repostsCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}/repost`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
+  const handleDeletePost = useCallback(async (id: number) => { setPosts(prev => prev.filter(p => p.id !== id)); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); }, []);
+  const handleLikeRoute  = useCallback(async (id: number) => { setRoutes(prev => prev.map(r => r.id !== id ? r : { ...r, isLiked: !r.isLiked, likesCount: r.isLiked ? r.likesCount - 1 : r.likesCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/routes/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
 
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase()) || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
   const filteredPosts  = search.trim() ? posts.filter(p  => p.content.toLowerCase().includes(search.toLowerCase()) || p.author.username.toLowerCase().includes(search.toLowerCase())) : posts;
@@ -479,11 +567,6 @@ export default function CommunityScreen() {
       setPosts(prev => [post, ...prev]);
     } catch { Toast.show({ type: 'error', text1: 'Błąd wysyłania' }); }
   };
-
-  const handleLikePost  = useCallback(async (id: number) => { setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isLiked: !p.isLiked, likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
-  const handleRepost    = useCallback(async (id: number) => { setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isReposted: !p.isReposted, repostsCount: p.isReposted ? p.repostsCount - 1 : p.repostsCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}/repost`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
-  const handleDeletePost = useCallback(async (id: number) => { setPosts(prev => prev.filter(p => p.id !== id)); const token = await getToken(); await fetch(`${API_URL}/api/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); }, []);
-  const handleLikeRoute  = useCallback(async (id: number) => { setRoutes(prev => prev.map(r => r.id !== id ? r : { ...r, isLiked: !r.isLiked, likesCount: r.isLiked ? r.likesCount - 1 : r.likesCount + 1 })); const token = await getToken(); await fetch(`${API_URL}/api/routes/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }, []);
 
   const openShareRoute = async (route: PublicRoute) => {
     setShareRoute(route); setShareSent([]); setShareLoading(true);
@@ -534,6 +617,24 @@ export default function CommunityScreen() {
     if (!r.canceled && r.assets[0]) setCommentPhotos(prev => [...prev, r.assets[0].uri]);
   };
 
+  useFocusEffect(useCallback(() => {
+    (async () => {
+      const postId = await AsyncStorage.getItem('open_post_id');
+      if (!postId) return;
+      await AsyncStorage.removeItem('open_post_id');
+      const existing = posts.find(p => p.id === Number(postId));
+      if (existing) { openComments(existing); return; }
+      try {
+        const token = await getToken();
+        const res   = await fetch(`${API_URL}/api/posts/${postId}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) openComments(await res.json());
+      } catch {}
+    })();
+  }, [posts, openComments]));
+
+  // ── Wspólny paddingBottom dla modali ──────────────────
+  const modalBottomPadding = Math.max(insets.bottom, 16);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
 
@@ -581,166 +682,211 @@ export default function CommunityScreen() {
 
       {/* DYSKUSJE */}
       {activeTab === 'dyskusje' && (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           {loadingP ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color="#e33835" size="large" /></View>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator color="#e33835" size="large" />
+            </View>
           ) : (
             <FlatList
               data={filteredPosts} keyExtractor={p => String(p.id)}
               renderItem={({ item }) => (
-                <PostCard post={item} myId={myId} onLike={handleLikePost} onRepost={handleRepost} onComment={openComments} onDelete={handleDeletePost}
+                <PostCard post={item} myId={myId} onLike={handleLikePost} onRepost={handleRepost}
+                  onComment={openComments} onDelete={handleDeletePost}
                   onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })} />
               )}
-              refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={() => { setRefreshingP(true); fetchPosts(); }} tintColor="#e33835" />}
-              onEndReached={() => { if (!nextCursor || loadingMore) return; setLoadingMore(true); fetchPosts(nextCursor); }}
+              refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }} tintColor="#e33835" />}
+              onEndReached={loadMorePosts}
               onEndReachedThreshold={0.4}
-              ListFooterComponent={loadingMore ? <ActivityIndicator color="#e33835" style={{ padding: 20 }} /> : null}
+              ListFooterComponent={<ListFooter loading={loadingMoreP} />}
               ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 80, gap: 12 }}><MaterialCommunityIcons name="car-off" size={52} color={theme.border3} /><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, letterSpacing: 2 }}>{search ? 'BRAK WYNIKÓW' : 'BRAK POSTÓW'}</Text></View>}
               ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 70 }} />}
-              contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 8 }}
+              keyboardShouldPersistTaps="handled"
             />
           )}
-          <ComposeBox onPost={handlePost} />
+          {/* ← ZMIANA: przekazujemy insets.bottom */}
+          <ComposeBox onPost={handlePost} bottomInset={insets.bottom} />
         </KeyboardAvoidingView>
       )}
 
       {/* TRASY */}
       {activeTab === 'trasy' && (
-        loadingR ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color="#e33835" size="large" /></View> : (
-          <FlatList
-            data={filteredRoutes} keyExtractor={r => String(r.id)}
-            renderItem={({ item }) => (
-              <RouteCard route={item} myId={myId} onLike={handleLikeRoute}
-                onNavigate={r => router.push({ pathname: '/map', params: { routeId: String(r.id) } })}
-                onShare={openShareRoute} onLeaderboard={openLeaderboard}
-                onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })} />
-            )}
-            refreshControl={<RefreshControl refreshing={refreshingR} onRefresh={() => { setRefreshingR(true); fetchRoutes(); }} tintColor="#e33835" />}
-            ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 80, gap: 12 }}><MaterialCommunityIcons name="map-off" size={52} color={theme.border3} /><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, letterSpacing: 2 }}>{search ? 'BRAK WYNIKÓW' : 'BRAK TRAS'}</Text></View>}
-            ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border }} />}
-            contentContainerStyle={{ paddingBottom: 20 }}
-          />
-        )
+        loadingR
+          ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color="#e33835" size="large" /></View>
+          : (
+            <FlatList
+              data={filteredRoutes} keyExtractor={r => String(r.id)}
+              renderItem={({ item }) => (
+                <RouteCard route={item} myId={myId} onLike={handleLikeRoute}
+                  onNavigate={handleNavigateRoute} onShare={openShareRoute}
+                  onLeaderboard={openLeaderboard}
+                  onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })} />
+              )}
+              refreshControl={<RefreshControl refreshing={refreshingR} onRefresh={() => { setRefreshingR(true); setHasMoreR(true); fetchRoutes(); }} tintColor="#e33835" />}
+              onEndReached={loadMoreRoutes}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={<ListFooter loading={loadingMoreR} />}
+              ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 80, gap: 12 }}><MaterialCommunityIcons name="map-off" size={52} color={theme.border3} /><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, letterSpacing: 2 }}>{search ? 'BRAK WYNIKÓW' : 'BRAK TRAS'}</Text></View>}
+              ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border }} />}
+              // ← ZMIANA: paddingBottom z insets
+              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}
+            />
+          )
       )}
 
       {/* AUTA */}
       {activeTab === 'auta' && (
-        loadingC ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color="#e33835" size="large" /></View> : (
-          <FlatList
-            data={filteredCars} keyExtractor={c => String(c.id)}
-            numColumns={2} columnWrapperStyle={{ gap: 10, paddingHorizontal: 12 }}
-            renderItem={({ item }) => (
-              <CarCard car={item} myId={myId} onLike={handleLikeCar}
-                onPress={c => router.push({ pathname: '/profile/car-detail', params: { id: String(c.id) } })}
-                onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })} />
-            )}
-            refreshControl={<RefreshControl refreshing={refreshingC} onRefresh={() => { setRefreshingC(true); fetchCars(); }} tintColor="#e33835" />}
-            ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 80, gap: 12 }}><MaterialCommunityIcons name="car-off" size={52} color={theme.border3} /><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, letterSpacing: 2 }}>BRAK AUT</Text><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 4, textAlign: 'center' }}>UDOSTĘPNIJ AUTO Z PROFILU{'\n'}SZCZEGÓŁY AUTA → SPOŁECZNOŚĆ</Text></View>}
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-            contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
-          />
-        )
+        loadingC
+          ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color="#e33835" size="large" /></View>
+          : (
+            <FlatList
+              data={filteredCars} keyExtractor={c => String(c.id)}
+              numColumns={2} columnWrapperStyle={{ gap: 10, paddingHorizontal: 12 }}
+              renderItem={({ item }) => (
+                <CarCard car={item} myId={myId} onLike={handleLikeCar}
+                  onPress={c => router.push({ pathname: '/profile/car-detail', params: { id: String(c.id) } })}
+                  onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })} />
+              )}
+              refreshControl={<RefreshControl refreshing={refreshingC} onRefresh={() => { setRefreshingC(true); setHasMoreC(true); fetchCars(); }} tintColor="#e33835" />}
+              onEndReached={loadMoreCars}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={<ListFooter loading={loadingMoreC} />}
+              ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 80, gap: 12 }}><MaterialCommunityIcons name="car-off" size={52} color={theme.border3} /><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, letterSpacing: 2 }}>BRAK AUT</Text><Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 4, textAlign: 'center' }}>UDOSTĘPNIJ AUTO Z PROFILU{'\n'}SZCZEGÓŁY AUTA → SPOŁECZNOŚĆ</Text></View>}
+              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+              // ← ZMIANA: paddingBottom z insets
+              contentContainerStyle={{ paddingTop: 10, paddingBottom: Math.max(insets.bottom, 20) }}
+            />
+          )
       )}
 
-      {/* MODAL KOMENTARZY */}
+      {/* ══ MODAL KOMENTARZY ══════════════════════════════════ */}
       <Modal visible={!!commentPost} animationType="slide" transparent onRequestClose={() => setCommentPost(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
           <Pressable style={{ flex: 1 }} onPress={() => setCommentPost(null)} />
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 34 : 16, maxHeight: '88%', borderWidth: 1, borderColor: theme.border2 }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2 }}>KOMENTARZE</Text>
-              <TouchableOpacity onPress={() => setCommentPost(null)}><MaterialIcons name="close" size={20} color={theme.textDim} /></TouchableOpacity>
-            </View>
-            {commentPost && (
-              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12, backgroundColor: theme.surface2, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: theme.border }}>
-                <Avatar user={commentPost.author} size={30} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 3 }}>{commentPost.author.username}</Text>
-                  {commentPost.content.length > 0 && <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }} numberOfLines={2}>{commentPost.content}</Text>}
+          {/* ← ZMIANA: KeyboardAvoidingView jako osobny wrapper, paddingBottom z insets */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderWidth: 1,
+              borderColor: theme.border2,
+              maxHeight: '88%',
+            }}
+          >
+            <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: modalBottomPadding }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2 }}>KOMENTARZE</Text>
+                <TouchableOpacity onPress={() => setCommentPost(null)}>
+                  <MaterialIcons name="close" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+              {commentPost && (
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12, backgroundColor: theme.surface2, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: theme.border }}>
+                  <Avatar user={commentPost.author} size={30} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 3 }}>{commentPost.author.username}</Text>
+                    {commentPost.content.length > 0 && <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }} numberOfLines={2}>{commentPost.content}</Text>}
+                  </View>
                 </View>
-              </View>
-            )}
-            <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 10 }} />
-            {loadingComments ? (
-              <ActivityIndicator color="#e33835" style={{ margin: 30 }} />
-            ) : (
-              <FlatList
-                data={comments} keyExtractor={c => String(c.id)}
-                style={{ maxHeight: 320 }}
-                renderItem={({ item }) => (
-                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-                    <Avatar user={item.author} size={32} />
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }}>{item.author.username}</Text>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}</Text>
-                        <TouchableOpacity onPress={() => setReplyTo({ id: item.id, username: item.author.username })} style={{ marginLeft: 'auto' }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>odpowiedz</Text>
-                        </TouchableOpacity>
-                      </View>
-                      {item.replyTo && <Text style={{ fontFamily: 'Orbitron', color: '#e3383560', fontSize: 9, marginBottom: 4 }}>↩ @{item.replyTo.username}</Text>}
-                      <Text style={{ color: theme.textMuted, fontSize: 13, lineHeight: 19 }}>{item.content}</Text>
-                      {item.photos?.length > 0 && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                          {item.photos.map((uri: string, i: number) => (
-                            <Image key={i} source={{ uri }} style={{ width: 80, height: 80, borderRadius: 8 }} resizeMode="cover" />
-                          ))}
+              )}
+              <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 10 }} />
+              {loadingComments ? (
+                <ActivityIndicator color="#e33835" style={{ margin: 30 }} />
+              ) : (
+                <FlatList
+                  data={comments} keyExtractor={c => String(c.id)}
+                  style={{ maxHeight: 320 }}
+                  renderItem={({ item }) => (
+                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                      <Avatar user={item.author} size={32} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+                          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }}>{item.author.username}</Text>
+                          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>{formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}</Text>
+                          <TouchableOpacity onPress={() => setReplyTo({ id: item.id, username: item.author.username })} style={{ marginLeft: 'auto' }}>
+                            <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>odpowiedz</Text>
+                          </TouchableOpacity>
                         </View>
-                      )}
+                        {item.replyTo && <Text style={{ fontFamily: 'Orbitron', color: '#e3383560', fontSize: 9, marginBottom: 4 }}>↩ @{item.replyTo.username}</Text>}
+                        <Text style={{ color: theme.textMuted, fontSize: 13, lineHeight: 19 }}>{item.content}</Text>
+                        {item.photos?.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                            {item.photos.map((uri: string, i: number) => (
+                              <Image key={i} source={{ uri }} style={{ width: 80, height: 80, borderRadius: 8 }} resizeMode="cover" />
+                            ))}
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                )}
-                ListEmptyComponent={<Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center', marginTop: 24 }}>BRAK KOMENTARZY</Text>}
-                keyboardShouldPersistTaps="handled"
-              />
-            )}
-            {replyTo && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface2, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 8 }}>
-                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10 }}>↩ @{replyTo.username}</Text>
-                <TouchableOpacity onPress={() => setReplyTo(null)}><MaterialIcons name="close" size={14} color={theme.textDim} /></TouchableOpacity>
+                  )}
+                  ListEmptyComponent={<Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center', marginTop: 24 }}>BRAK KOMENTARZY</Text>}
+                  keyboardShouldPersistTaps="handled"
+                />
+              )}
+              {replyTo && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface2, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 8 }}>
+                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10 }}>↩ @{replyTo.username}</Text>
+                  <TouchableOpacity onPress={() => setReplyTo(null)}>
+                    <MaterialIcons name="close" size={14} color={theme.textDim} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {commentPhotos.length > 0 && (
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {commentPhotos.map((uri, i) => (
+                    <View key={i} style={{ position: 'relative' }}>
+                      <Image source={{ uri }} style={{ width: 58, height: 58, borderRadius: 10 }} />
+                      <TouchableOpacity style={{ position: 'absolute', top: -5, right: -5, backgroundColor: '#e33835', borderRadius: 9, width: 17, height: 17, justifyContent: 'center', alignItems: 'center' }} onPress={() => setCommentPhotos(prev => prev.filter((_, idx) => idx !== i))}>
+                        <MaterialIcons name="close" size={11} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
+                <TouchableOpacity onPress={pickCommentPhoto} disabled={commentPhotos.length >= 2}>
+                  <MaterialIcons name="add-photo-alternate" size={22} color={commentPhotos.length >= 2 ? theme.textDim : '#e33835'} />
+                </TouchableOpacity>
+                <TextInput
+                  style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, color: theme.text, fontSize: 13, maxHeight: 80, borderWidth: 1, borderColor: theme.border }}
+                  value={commentText} onChangeText={setCommentText}
+                  placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Napisz komentarz...'}
+                  placeholderTextColor={theme.textDim} multiline
+                />
+                <TouchableOpacity
+                  style={[{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' },
+                    (!commentText.trim() && commentPhotos.length === 0) && { opacity: 0.3 }]}
+                  onPress={handleSendComment}
+                  disabled={(!commentText.trim() && commentPhotos.length === 0) || postingComment}
+                >
+                  {postingComment ? <ActivityIndicator size={14} color="#fff" /> : <MaterialIcons name="send" size={16} color="#fff" />}
+                </TouchableOpacity>
               </View>
-            )}
-            {commentPhotos.length > 0 && (
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                {commentPhotos.map((uri, i) => (
-                  <View key={i} style={{ position: 'relative' }}>
-                    <Image source={{ uri }} style={{ width: 58, height: 58, borderRadius: 10 }} />
-                    <TouchableOpacity style={{ position: 'absolute', top: -5, right: -5, backgroundColor: '#e33835', borderRadius: 9, width: 17, height: 17, justifyContent: 'center', alignItems: 'center' }} onPress={() => setCommentPhotos(prev => prev.filter((_, idx) => idx !== i))}>
-                      <MaterialIcons name="close" size={11} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
-              <TouchableOpacity onPress={pickCommentPhoto} disabled={commentPhotos.length >= 2}>
-                <MaterialIcons name="add-photo-alternate" size={22} color={commentPhotos.length >= 2 ? theme.textDim : '#e33835'} />
-              </TouchableOpacity>
-              <TextInput
-                style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, color: theme.text, fontSize: 13, maxHeight: 80, borderWidth: 1, borderColor: theme.border }}
-                value={commentText} onChangeText={setCommentText}
-                placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Napisz komentarz...'}
-                placeholderTextColor={theme.textDim} multiline
-              />
-              <TouchableOpacity
-                style={[{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' },
-                  (!commentText.trim() && commentPhotos.length === 0) && { opacity: 0.3 }]}
-                onPress={handleSendComment}
-                disabled={(!commentText.trim() && commentPhotos.length === 0) || postingComment}
-              >
-                {postingComment ? <ActivityIndicator size={14} color="#fff" /> : <MaterialIcons name="send" size={16} color="#fff" />}
-              </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
 
-      {/* MODAL WYŚLIJ TRASĘ */}
+      {/* ══ MODAL WYŚLIJ TRASĘ ════════════════════════════════ */}
       <Modal visible={!!shareRoute} animationType="slide" transparent onRequestClose={() => setShareRoute(null)} statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShareRoute(null)} />
-          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', borderTopWidth: 1, borderColor: theme.border2, paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 34 : 16 }}>
+          <View style={{
+            backgroundColor: theme.surface,
+            borderTopLeftRadius: 24, borderTopRightRadius: 24,
+            maxHeight: '80%',
+            borderTopWidth: 1, borderColor: theme.border2,
+            paddingHorizontal: 16,
+            // ← ZMIANA: insets.bottom
+            paddingBottom: modalBottomPadding,
+          }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border }}>
               <MaterialCommunityIcons name="map-marker-path" size={18} color="#e33835" />
@@ -766,7 +912,8 @@ export default function CommunityScreen() {
             ) : (
               <FlatList
                 data={shareConvs} keyExtractor={c => String(c.id)}
-                style={{ maxHeight: 320 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}
+                style={{ maxHeight: 320 }} contentContainerStyle={{ paddingBottom: 20 }}
+                showsVerticalScrollIndicator={false}
                 ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginTop: 30 }}>Brak rozmów</Text>}
                 renderItem={({ item: conv }) => {
                   const other  = conv.participants?.find((p: any) => p.id !== myId);

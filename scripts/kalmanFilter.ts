@@ -60,6 +60,27 @@ export class KalmanFilter {
   }
 }
 
+export function isSaneLocation(
+  newLat: number,
+  newLng: number,
+  prevLat: number | null,
+  prevLng: number | null,
+  maxJumpKm = 50,
+): boolean {
+  if (prevLat === null || prevLng === null) return true;
+  // Szybki haversine
+  const R    = 6371;
+  const dLat = ((newLat - prevLat) * Math.PI) / 180;
+  const dLng = ((newLng - prevLng) * Math.PI) / 180;
+  const a    =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((prevLat * Math.PI) / 180) *
+    Math.cos((newLat  * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return distKm <= maxJumpKm;
+}
+
 // Osobne filtry dla nawigacji (agresywniejsze) i podglądu (spokojniejsze)
 export const latFilter = new KalmanFilter(0.0001, 0.01);
 export const lngFilter = new KalmanFilter(0.0001, 0.01);

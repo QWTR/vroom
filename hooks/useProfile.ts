@@ -10,15 +10,14 @@ const getToken = async (): Promise<string | null> => {
   );
 };
 
-// ✅ Mapuje KAŻDĄ odpowiedź serwera na UserProfile — obsługuje oba pola avatar/avatarUrl
 function mapToProfile(u: any): UserProfile {
   return {
-    id:            u.userId      ?? u.id,
+    id:            u.userId        ?? u.id,
     username:      u.username,
-    location:      u.location    ?? null,
-    bio:           u.bio         ?? null,
-    avatarUrl:     u.avatarUrl   ?? u.avatar ?? null,  // ← kluczowe
-    createdAt:     u.createdAt   ?? new Date().toISOString(),
+    location:      u.location      ?? null,
+    bio:           u.bio           ?? null,
+    avatarUrl:     u.avatarUrl     ?? u.avatar ?? null,
+    createdAt:     u.createdAt     ?? new Date().toISOString(),
     totalDistance: u.totalDistance ?? 0,
     dailyDistance: u.dailyDistance ?? 0,
     topSpeed:      u.topSpeed      ?? 0,
@@ -26,6 +25,8 @@ function mapToProfile(u: any): UserProfile {
     meetCount:     u.meetCount     ?? 0,
     cityCount:     u.cityCount     ?? 0,
     position:      u.position      ?? null,
+    // ── Klub — tylko z /api/profile/me i /api/profile/:id ──
+    club:          u.club          ?? null,
   };
 }
 
@@ -35,7 +36,7 @@ export function useProfile() {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
 
-  // ── Własny profil ─────────────────────────────────────────────────────────
+  // ── Własny profil ─────────────────────────────────────
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -43,24 +44,24 @@ export function useProfile() {
       const token    = await getToken();
       const localRaw = await AsyncStorage.getItem('user');
 
-      // 1. Pokaż natychmiast z cache
+      // 1. Pokaż natychmiast z cache (bez club — cache nie przechowuje)
       if (localRaw) {
         setProfile(mapToProfile(JSON.parse(localRaw)));
       }
 
       if (!token) throw new Error('Brak tokenu');
 
-      // 2. Odśwież z serwera — przez mapToProfile żeby avatarUrl był zawsze poprawny
+      // 2. Odśwież z serwera — tu będzie club
       const res = await fetch(`${API_URL}/api/profile/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const mapped = mapToProfile(data);  // ✅ zawsze przez mapper
+        const data   = await res.json();
+        const mapped = mapToProfile(data);
         setProfile(mapped);
 
-        // Zaktualizuj cache — zachowaj pola których /me nie zwraca
+        // Cache — zachowaj userId i inne pola, club nie cachujemy
         if (localRaw) {
           const old = JSON.parse(localRaw);
           await AsyncStorage.setItem('user', JSON.stringify({
@@ -68,6 +69,7 @@ export function useProfile() {
             ...data,
             avatarUrl: mapped.avatarUrl,
             avatar:    mapped.avatarUrl,
+            club:      undefined, // nie cachuj — zawsze świeże z serwera
           }));
         }
       }
@@ -78,7 +80,7 @@ export function useProfile() {
     }
   }, []);
 
-  // ── Publiczny profil ──────────────────────────────────────────────────────
+  // ── Publiczny profil ──────────────────────────────────
   const fetchPublicProfile = useCallback(async (userId: number) => {
     setLoading(true);
     setError(null);
@@ -90,7 +92,7 @@ export function useProfile() {
       const res = await fetch(`${API_URL}/api/profile/${userId}`, { headers });
       if (!res.ok) throw new Error('Błąd pobierania profilu');
       const data = await res.json();
-      setProfile(mapToProfile(data));  // ✅ też przez mapper
+      setProfile(mapToProfile(data));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -98,7 +100,7 @@ export function useProfile() {
     }
   }, []);
 
-  // ── Aktualizacja profilu ──────────────────────────────────────────────────
+  // ── Aktualizacja profilu ──────────────────────────────
   const updateProfile = useCallback(async (
     fields: Partial<Pick<UserProfile, 'username' | 'location' | 'bio'>>
   ) => {
@@ -108,15 +110,12 @@ export function useProfile() {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/profile/me`, {
         method:  'PATCH',
-        headers: {
-          Authorization:  `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(fields),
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(fields),
       });
       if (!res.ok) throw new Error('Błąd aktualizacji profilu');
       const data   = await res.json();
-      const mapped = mapToProfile(data);  // ✅ przez mapper
+      const mapped = mapToProfile(data);
       setProfile(mapped);
 
       const localRaw = await AsyncStorage.getItem('user');
@@ -136,7 +135,7 @@ export function useProfile() {
     }
   }, []);
 
-  // ── Upload avatara ────────────────────────────────────────────────────────
+  // ── Upload avatara ────────────────────────────────────
   const uploadAvatar = useCallback(async (imageUri: string): Promise<boolean> => {
     setAvatarLoading(true);
     setError(null);
@@ -158,10 +157,8 @@ export function useProfile() {
       if (!res.ok) throw new Error('Błąd uploadu avatara');
       const { avatarUrl } = await res.json();
 
-      // ✅ Zaktualizuj stan — zachowaj wszystkie pola profilu
       setProfile(prev => prev ? { ...prev, avatarUrl } : prev);
 
-      // ✅ Zaktualizuj cache — oba pola
       const localRaw = await AsyncStorage.getItem('user');
       const old      = localRaw ? JSON.parse(localRaw) : {};
       await AsyncStorage.setItem('user', JSON.stringify({

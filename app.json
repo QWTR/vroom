@@ -13,13 +13,11 @@
       "bundleIdentifier": "com.lexuuw.vroom",
       "userInterfaceStyle": "dark",
       "backgroundColor": "#0a0a0a",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
-        "UIBackgroundModes": [
-          "location",
-          "fetch"
-        ]
+        "UIBackgroundModes": ["location", "fetch"]
       }
     },
     "android": {
@@ -27,9 +25,10 @@
         "foregroundImage": "./assets/images/logotypRed.png",
         "backgroundColor": "#0a0a0a"
       },
-      "edgeToEdgeEnabled": true,
+      "edgeToEdgeEnabled": false,
       "package": "com.lexuuw.vroom",
       "backgroundColor": "#0a0a0a",
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAIViHITDEhTzTsfK_eIhA53PKlAL3dpTw"
@@ -89,7 +88,9 @@
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true

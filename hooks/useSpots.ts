@@ -5,7 +5,16 @@ import AsyncStorage  from '@react-native-async-storage/async-storage';
 import Toast         from 'react-native-toast-message';
 import { Spot, SpotCategory } from '../constants/spotTypes';
 
-const API_URL = 'https://v-room.app/api/spots';
+const API_URL           = 'https://v-room.app/api/spots';
+const LAST_LOCATION_KEY = 'spots_last_location';
+
+// Domyślna lokalizacja (Warszawa) — gdy brak zapisanej i GPS wolny
+const DEFAULT_REGION = {
+  latitude:      52.2297,
+  longitude:     21.0122,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R    = 6371;
@@ -27,33 +36,69 @@ export function useSpots() {
   const [maxDistance,  setMaxDistance]  = useState(25);
   const [loading,      setLoading]      = useState(false);
 
-  // ── NOWE: filtry kategorii i sortowanie ─────────────────────────────────────
   const [activeCategories, setActiveCategories] = useState<SpotCategory[]>([]);
   const [sortMode,         setSortMode]         = useState<SortMode>('distance');
 
   const locationInitialized = useRef(false);
 
-  const toggleCategory = useCallback((cat: SpotCategory) => {
+  const toggleCategory  = useCallback((cat: SpotCategory) => {
     setActiveCategories(prev =>
       prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
     );
   }, []);
-
   const clearCategories = useCallback(() => setActiveCategories([]), []);
 
   // ── Pobierz lokalizację ──────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
+      // 1. Natychmiast pokaż ostatnią zapisaną lokalizację (mapa ładuje się od razu)
+      try {
+        const cached = await AsyncStorage.getItem(LAST_LOCATION_KEY);
+        if (cached) {
+          const { latitude, longitude } = JSON.parse(cached);
+          if (!locationInitialized.current) {
+            setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+            setUserLocation({ latitude, longitude });
+          }
+        } else {
+          // Brak cache — pokaż domyślny region żeby mapa się załadowała
+          setRegion(DEFAULT_REGION);
+        }
+      } catch {}
+
+      // 2. Poproś o uprawnienia
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Włącz lokalizację' });
         return;
       }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const { latitude, longitude } = loc.coords;
-      setUserLocation({ latitude, longitude });
-      setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
-      locationInitialized.current = true;
+
+      // 3. Spróbuj szybko z LastKnownPosition (natychmiastowe, bez GPS fix)
+      try {
+        const last = await Location.getLastKnownPositionAsync();
+        if (last && !locationInitialized.current) {
+          const { latitude, longitude } = last.coords;
+          setUserLocation({ latitude, longitude });
+          setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+          locationInitialized.current = true;
+          await AsyncStorage.setItem(LAST_LOCATION_KEY, JSON.stringify({ latitude, longitude }));
+        }
+      } catch {}
+
+      // 4. Dokładna pozycja GPS w tle (aktualizuje gdy gotowe)
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const { latitude, longitude } = loc.coords;
+        setUserLocation({ latitude, longitude });
+        setRegion({ latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+        locationInitialized.current = true;
+        // Zapisz do cache na kolejne uruchomienie
+        await AsyncStorage.setItem(LAST_LOCATION_KEY, JSON.stringify({ latitude, longitude }));
+      } catch (e) {
+        console.log('getCurrentPosition error:', e);
+      }
     })();
   }, []);
 
@@ -68,16 +113,16 @@ export function useSpots() {
       const mapped: Spot[] = data.map((s: any) => ({
         id:            String(s.id),
         name:          s.name,
-        description:   s.description  || '',
-        category:      s.category     as SpotCategory,
+        description:   s.description   || '',
+        category:      s.category      as SpotCategory,
         latitude:      s.latitude,
         longitude:     s.longitude,
-        photos:        s.photos       || [],
+        photos:        s.photos        || [],
         author:        s.author?.username || 'Nieznany',
         createdAt:     s.createdAt?.split('T')[0] || '',
-        likesCount:    s.likesCount   ?? 0,
+        likesCount:    s.likesCount    ?? 0,
         commentsCount: s.commentsCount ?? 0,
-        isLiked:       s.isLiked      ?? false,
+        isLiked:       s.isLiked       ?? false,
       }));
 
       setSpots(mapped);
@@ -95,7 +140,7 @@ export function useSpots() {
     }
   }, [userLocation, maxDistance, fetchSpots]);
 
-  // ── Widoczne spoty (filtrowanie + sortowanie) ────────────────────────────────
+  // ── Widoczne spoty ───────────────────────────────────────────────────────────
   const visibleSpots = useMemo(() => {
     if (!userLocation) return [];
 
@@ -103,12 +148,10 @@ export function useSpots() {
       calculateDistance(userLocation.latitude, userLocation.longitude, s.latitude, s.longitude) <= maxDistance
     );
 
-    // Filtrowanie po kategoriach
     if (activeCategories.length > 0) {
       result = result.filter(s => activeCategories.includes(s.category));
     }
 
-    // Sortowanie
     switch (sortMode) {
       case 'distance':
         result = [...result].sort((a, b) =>
@@ -163,17 +206,13 @@ export function useSpots() {
           ? uri.replace('file://', '')
           : uri;
 
-        formData.append('photos', {
-          uri:  fileUri,
-          name: filename,
-          type,
-        } as any);
+        formData.append('photos', { uri: fileUri, name: filename, type } as any);
       });
 
       const res = await fetch(API_URL, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+        body:    formData,
       });
 
       const contentType = res.headers.get('content-type') ?? '';
@@ -185,7 +224,6 @@ export function useSpots() {
       }
 
       const data = await res.json();
-
       if (!res.ok) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie można dodać spotu' });
         return false;

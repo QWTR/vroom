@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
   Image, StatusBar, ActivityIndicator,
@@ -17,16 +17,22 @@ export default function NewChatScreen() {
   const [results,   setResults]   = useState<ChatUser[]>([]);
   const [selected,  setSelected]  = useState<ChatUser[]>([]);
   const [loading,   setLoading]   = useState(false);
-  const [groupMode, setGroupMode] = useState(false);
+  const [starting,  setStarting]  = useState(false); // blokada podwójnego tworzenia
   const [groupName, setGroupName] = useState('');
 
-  const search = useCallback(async (q: string) => {
+  const searchTimer = useRef<any>(null); // debounce wyszukiwania
+
+  // ── Wyszukiwanie z debounce ────────────────────────────
+  const search = useCallback((q: string) => {
     setQuery(q);
+    clearTimeout(searchTimer.current);
     if (q.length < 2) { setResults([]); return; }
     setLoading(true);
-    const r = await searchUsers(q);
-    setResults(r);
-    setLoading(false);
+    searchTimer.current = setTimeout(async () => {
+      const r = await searchUsers(q);
+      setResults(r);
+      setLoading(false);
+    }, 350);
   }, [searchUsers]);
 
   const toggleSelect = (user: ChatUser) => {
@@ -35,18 +41,23 @@ export default function NewChatScreen() {
         ? prev.filter(u => u.id !== user.id)
         : [...prev, user]
     );
-    if (!groupMode && selected.length === 0) setGroupMode(false);
   };
 
+  // ── Utwórz konwersację — blokada podwójnego kliknięcia ─
   const handleStart = async () => {
-    if (!selected.length) return;
-    const isGroup = selected.length > 1 || groupMode;
-    const id = await startConversation(
-      selected.map(u => u.id),
-      isGroup,
-      isGroup ? groupName || 'Grupa' : undefined,
-    );
-    if (id) router.replace(`/Community/chats/${id}`);
+    if (!selected.length || starting) return;
+    setStarting(true);
+    try {
+      const isGroup = selected.length > 1;
+      const id = await startConversation(
+        selected.map(u => u.id),
+        isGroup,
+        isGroup ? groupName.trim() || 'Grupa' : undefined,
+      );
+      if (id) router.replace(`/Community/chats/${id}` as any);
+    } finally {
+      setStarting(false);
+    }
   };
 
   const renderUser = ({ item }: { item: ChatUser }) => {
@@ -87,24 +98,47 @@ export default function NewChatScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* Header */}
+      {/* HEADER */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 60, paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
-        <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}
+          onPress={() => router.back()}
+        >
           <Feather name="arrow-left" size={20} color={theme.text} />
         </TouchableOpacity>
         <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', letterSpacing: 2 }}>NOWY CZAT</Text>
         {selected.length > 0 && (
-          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 }} onPress={handleStart}>
-            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{selected.length > 1 ? 'GRUPA' : 'CZAT'}</Text>
-            <Feather name="arrow-right" size={14} color="#fff" />
+          <TouchableOpacity
+            style={[{
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+              backgroundColor: theme.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+            }, starting && { opacity: 0.6 }]}
+            onPress={handleStart}
+            disabled={starting}
+            activeOpacity={0.8}
+          >
+            {starting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <>
+                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                    {selected.length > 1 ? 'UTWÓRZ GRUPĘ' : 'ROZPOCZNIJ'}
+                  </Text>
+                  <Feather name="arrow-right" size={14} color="#fff" />
+                </>
+            }
           </TouchableOpacity>
         )}
       </View>
 
+      {/* WYBRANI */}
       {selected.length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 8, marginBottom: 8 }}>
           {selected.map(u => (
-            <TouchableOpacity key={u.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 }} onPress={() => toggleSelect(u)}>
+            <TouchableOpacity
+              key={u.id}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 }}
+              onPress={() => toggleSelect(u)}
+            >
               <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9 }}>{u.username}</Text>
               <Feather name="x" size={12} color={theme.primary} />
             </TouchableOpacity>
@@ -112,6 +146,7 @@ export default function NewChatScreen() {
         </View>
       )}
 
+      {/* NAZWA GRUPY */}
       {selected.length > 1 && (
         <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
           <TextInput
@@ -124,6 +159,7 @@ export default function NewChatScreen() {
         </View>
       )}
 
+      {/* SZUKAJ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 14, paddingVertical: 10, gap: 10 }}>
         <Feather name="search" size={16} color={theme.textDim} />
         <TextInput
@@ -135,10 +171,17 @@ export default function NewChatScreen() {
           autoFocus
         />
         {loading && <ActivityIndicator size="small" color={theme.primary} />}
+        {query.length > 0 && !loading && (
+          <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }}>
+            <Feather name="x" size={15} color={theme.textDim} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {!query && (
-        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, paddingHorizontal: 16, marginBottom: 8 }}>ZNAJOMI</Text>
+        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, paddingHorizontal: 16, marginBottom: 8 }}>
+          ZNAJOMI
+        </Text>
       )}
 
       <FlatList

@@ -243,7 +243,7 @@ export function makeMapStyles(t: AppTheme, isDark = true) {
     // ═══════════════════════════════════════════
     emptyStateContainer: {
       position: 'absolute',
-      bottom: 0,
+      bottom: -5,
       left: 0,
       right: 0,
       height: 170,

@@ -4,7 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
-import { API_URL } from '../constants/mapConfig';
+import { API_URL, GOOGLE_MAPS_APIKEY } from '../constants/mapConfig';
+import { snapToRoute } from '../scripts/navigationUtils';
 
 export interface LiveUser {
   id:        number;
@@ -18,7 +19,7 @@ export interface LiveUser {
 
 export interface LiveWarning {
   id:           number;
-  type:         'traffic' | 'weather' | 'accident' | 'car_breakdown' | 'speed_control' | 'kosmici'| 'Animal';
+  type:         'traffic' | 'weather' | 'accident' | 'car_breakdown' | 'speed_control' | 'kosmici' | 'Animal';
   lat:          number;
   lng:          number;
   message:      string;
@@ -41,6 +42,32 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 const PROXIMITY_THRESHOLD_M = 500;
+const FETCH_TIMEOUT_MS      = 8000; // 8 sekund timeout
+
+// ── Fetch z timeoutem ─────────────────────────────────────
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Snap do drogi przez Google Roads API ─────────────────
+async function snapToRoadGoogle(lat: number, lng: number): Promise<{ latitude: number; longitude: number }> {
+  try {
+    const url = `https://roads.googleapis.com/v1/snapToRoads?path=${lat},${lng}&key=${GOOGLE_MAPS_APIKEY}`;
+    const res  = await fetchWithTimeout(url, {}, 5000);
+    const json = await res.json();
+    const pt   = json.snappedPoints?.[0]?.location;
+    if (pt) return { latitude: pt.latitude, longitude: pt.longitude };
+  } catch (e) {
+    console.log('snapToRoadGoogle error:', e);
+  }
+  return { latitude: lat, longitude: lng };
+}
 
 export function useLiveMap(
   isSharing:       boolean,
@@ -55,40 +82,30 @@ export function useLiveMap(
   const tokenRef           = useRef<string | null>(null);
   const alertedWarningsRef = useRef<Set<number>>(new Set());
   const isSpeechRef        = useRef(isSpeechEnabled);
+  const isSharingRef       = useRef(isSharing);
+  const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
 
-  useEffect(() => { isSpeechRef.current = isSpeechEnabled; }, [isSpeechEnabled]);
-
-  // ── Init powiadomień ───────────────────────────────────
+  useEffect(() => { isSpeechRef.current  = isSpeechEnabled; }, [isSpeechEnabled]);
   useEffect(() => {
-    Notifications.requestPermissionsAsync();
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge:  false,
-      }),
-    });
-  }, []);
+    isSharingRef.current = isSharing;
+    if (!isSharing) setLiveUsers([]);
+  }, [isSharing]);
 
-  // ── Pobierz dane startowe ──────────────────────────────
+  // ── Pobierz dane startowe ─────────────────────────────
   const fetchInitialData = useCallback(async (token: string) => {
     try {
       const [warningsRes, usersRes] = await Promise.all([
-        fetch(`${API_URL}/api/live/warnings`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/api/live/users`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        fetchWithTimeout(`${API_URL}/api/live/warnings`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetchWithTimeout(`${API_URL}/api/live/users`,    { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (warningsRes.ok) setWarnings(await warningsRes.json());
-      if (usersRes.ok)    setLiveUsers(await usersRes.json());
+      if (usersRes.ok && isSharingRef.current) setLiveUsers(await usersRes.json());
     } catch (e) {
       console.log('fetchInitialData error:', e);
     }
   }, []);
 
-  // ── Init Socket ────────────────────────────────────────
+  // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
     (async () => {
       const token = await AsyncStorage.getItem('token');
@@ -105,54 +122,45 @@ export function useLiveMap(
       });
       socketRef.current = socket;
 
-      socket.on('connect', () => {
+      socket.on('connect', async () => {
         setConnected(true);
         fetchInitialData(token);
+        try {
+          await fetchWithTimeout(`${API_URL}/api/live/location/reset`, {
+            method:  'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch {}
+        socket.emit('user:stop_sharing');
       });
-
       socket.on('disconnect', (reason) => {
         setConnected(false);
-        if (reason === 'io server disconnect') {
-          socket.connect();
-        }
+        if (reason === 'io server disconnect') socket.connect();
       });
+      socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
 
-      socket.on('connect_error', (err) => {
-        console.log('❌ connect_error:', err.message);
-      });
-
-      // ── Live lokalizacje użytkowników ────────────────
       socket.on('user:location', (data) => {
+        if (!isSharingRef.current) return;
         setLiveUsers(prev => {
           const exists = prev.find(u => u.id === data.id);
           if (exists) return prev.map(u => u.id === data.id ? { ...u, ...data } : u);
           return [...prev, data];
         });
       });
-
       socket.on('user:offline', (data) => {
         setLiveUsers(prev => prev.filter(u => u.id !== data.id));
       });
-
-      // ── Ostrzeżenia ──────────────────────────────────
       socket.on('warning:new', (warning: LiveWarning) => {
         setWarnings(prev => [warning, ...prev]);
         checkSingleWarningProximityRef.current?.(warning);
       });
-
-      socket.on('warning:confirmed', ({ id, confirmCount, expiresAt }: {
-        id: number; confirmCount: number; expiresAt: string;
-      }) => {
-        setWarnings(prev => prev.map(w =>
-          w.id === id ? { ...w, confirmCount, expiresAt } : w
-        ));
+      socket.on('warning:confirmed', ({ id, confirmCount, expiresAt }: any) => {
+        setWarnings(prev => prev.map(w => w.id === id ? { ...w, confirmCount, expiresAt } : w));
       });
-
-      socket.on('warning:removed', ({ id }: { id: number }) => {
+      socket.on('warning:removed', ({ id }: any) => {
         setWarnings(prev => prev.filter(w => w.id !== id));
         alertedWarningsRef.current.delete(id);
       });
-
       socket.on('warnings:cleanup', () => {
         const now = new Date();
         setWarnings(prev => {
@@ -164,14 +172,11 @@ export function useLiveMap(
 
       await fetchInitialData(token);
     })();
-
     return () => { socketRef.current?.disconnect(); };
   }, [fetchInitialData]);
 
-  // ── Ref do checkSingleWarningProximity (unika circular dep) ─
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
-  // ── Wyzwól alert proximity ─────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {
     alertedWarningsRef.current.add(warning.id);
     const label   = getWarningLabel(warning.type);
@@ -181,19 +186,15 @@ export function useLiveMap(
       : `${label} za ${distTxt}`;
 
     Toast.show({
-      type:  'error',
-      text1: `⚠️ ${label.toUpperCase()}`,
-      text2: `${distTxt} od Ciebie${warning.message ? ` · ${warning.message}` : ''}`,
+      type:           'error',
+      text1:          `⚠️ ${label.toUpperCase()}`,
+      text2:          `${distTxt} od Ciebie${warning.message ? ` · ${warning.message}` : ''}`,
       visibilityTime: 5000,
     });
-
     if (isSpeechRef.current) {
       Speech.stop().catch(() => {});
-      setTimeout(() => {
-        Speech.speak(message, { language: 'pl-PL', pitch: 1.0, rate: 0.88 });
-      }, 300);
+      setTimeout(() => Speech.speak(message, { language: 'pl-PL', pitch: 1.0, rate: 0.88 }), 300);
     }
-
     Notifications.scheduleNotificationAsync({
       content: {
         title: `⚠️ ${label}`,
@@ -205,29 +206,20 @@ export function useLiveMap(
     });
   }, []);
 
-  // ── Sprawdź proximity dla pojedynczego ostrzeżenia ────
   const checkSingleWarningProximity = useCallback((warning: LiveWarning) => {
     if (!userLocation) return;
     if (alertedWarningsRef.current.has(warning.id)) return;
-    const distM = distanceKm(
-      userLocation.latitude, userLocation.longitude,
-      warning.lat, warning.lng,
-    ) * 1000;
+    const distM = distanceKm(userLocation.latitude, userLocation.longitude, warning.lat, warning.lng) * 1000;
     if (distM <= PROXIMITY_THRESHOLD_M) triggerProximityAlert(warning, Math.round(distM));
   }, [userLocation, triggerProximityAlert]);
 
-  // Aktualizuj ref
   useEffect(() => {
     checkSingleWarningProximityRef.current = checkSingleWarningProximity;
   }, [checkSingleWarningProximity]);
 
-  // ── Sprawdź proximity dla wszystkich ostrzeżeń ────────
   useEffect(() => {
     if (!userLocation || !warnings.length) return;
-
-    // Grupuj przed sprawdzeniem — żeby nie powiadamiać 2x o tym samym miejscu
     const clustered = clusterWarnings(warnings);
-
     clustered.forEach(warning => {
       if (alertedWarningsRef.current.has(warning.id)) return;
       const distM = distanceKm(
@@ -238,19 +230,32 @@ export function useLiveMap(
     });
   }, [userLocation?.latitude, userLocation?.longitude, warnings, triggerProximityAlert]);
 
-  // ── Wyślij lokalizację przez Socket.IO ────────────────
-  const sendLocation = useCallback((lat: number, lng: number) => {
+  // ── Wyślij lokalizację ────────────────────────────────
+  const sendLocation = useCallback((
+    lat: number,
+    lng: number,
+    routePoints?: { latitude: number; longitude: number }[],
+  ) => {
     if (!isSharing) return;
     const socket = socketRef.current;
     if (!socket?.connected) return;
-    socket.emit('location:update', { lat, lng });
+
+    if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
+
+    const points = routePoints ?? routePointsRef.current;
+    if (points.length > 1) {
+      const snapped = snapToRoute(lat, lng, points, 30);
+      socket.emit('location:update', { lat: snapped.latitude, lng: snapped.longitude });
+    } else {
+      socket.emit('location:update', { lat, lng });
+    }
   }, [isSharing]);
 
-  // ── Toggle sharing ─────────────────────────────────────
+  // ── Toggle sharing ────────────────────────────────────
   const toggleSharing = useCallback(async (): Promise<boolean> => {
     if (!tokenRef.current) return false;
     try {
-      const res  = await fetch(`${API_URL}/api/live/location/toggle`, {
+      const res  = await fetchWithTimeout(`${API_URL}/api/live/location/toggle`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${tokenRef.current}` },
       });
@@ -259,83 +264,133 @@ export function useLiveMap(
         Toast.show({ type: 'success', text1: '📍 Lokalizacja widoczna', text2: 'Inni widzą Cię na mapie' });
       } else {
         Toast.show({ type: 'info', text1: '👁️ Lokalizacja ukryta', text2: 'Jesteś niewidoczny na mapie' });
-        // Wyemituj offline do innych
         socketRef.current?.emit('user:stop_sharing');
       }
       return data.shareLocation;
     } catch { return false; }
   }, []);
 
-  // ── Dodaj ostrzeżenie ──────────────────────────────────
+  // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (
-    type:     LiveWarning['type'],
-    lat:      number,
-    lng:      number,
-    message?: string,
+    type:         LiveWarning['type'],
+    lat:          number,
+    lng:          number,
+    message?:     string,
+    routePoints?: { latitude: number; longitude: number }[],
   ): Promise<void> => {
     if (!tokenRef.current) return;
+
+    let snappedLat = lat;
+    let snappedLng = lng;
+
     try {
-      await fetch(`${API_URL}/api/live/warnings`, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization:  `Bearer ${tokenRef.current}`,
+      const points = routePoints ?? routePointsRef.current;
+      if (points.length > 1) {
+        const snapped = snapToRoute(lat, lng, points, 50);
+        snappedLat = snapped.latitude;
+        snappedLng = snapped.longitude;
+      } else {
+        const snapped = await snapToRoadGoogle(lat, lng);
+        snappedLat = snapped.latitude;
+        snappedLng = snapped.longitude;
+      }
+    } catch (e) {
+      console.log('warning snap error — using raw GPS:', e);
+    }
+
+    try {
+      const res = await fetchWithTimeout(
+        `${API_URL}/api/live/warnings`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization:  `Bearer ${tokenRef.current}`,
+          },
+          body: JSON.stringify({ type, lat: snappedLat, lng: snappedLng, message: message ?? '' }),
         },
-        body: JSON.stringify({ type, lat, lng, message: message ?? '' }),
-      });
-    } catch {
-      Toast.show({ type: 'error', text1: 'Błąd zgłaszania ostrzeżenia' });
+        10000, // 10 sekund dla POST
+      );
+
+      const data = await res.json();
+
+      if (res.status === 429) {
+        // Cooldown
+        Toast.show({
+          type:           'error',
+          text1:          '⏱️ COOLDOWN',
+          text2:          data.message ?? 'Poczekaj przed kolejnym zgłoszeniem',
+          visibilityTime: 5000,
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'Błąd zgłaszania ostrzeżenia' });
+        return;
+      }
+
+      if (data.merged) {
+        Toast.show({
+          type:           'info',
+          text1:          '✅ POTWIERDZONO',
+          text2:          'Twoje zgłoszenie wzmocniło istniejące ostrzeżenie',
+          visibilityTime: 4000,
+        });
+      }
+      // Nowe ostrzeżenie — serwer sam emituje przez socket
+
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        Toast.show({
+          type:           'error',
+          text1:          '⏱️ TIMEOUT',
+          text2:          'Słaby internet — spróbuj ponownie',
+          visibilityTime: 4000,
+        });
+      } else {
+        Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      }
     }
   }, []);
-  
-  // ── Potwierdź ostrzeżenie ──────────────────────────────
+
+  // ── Potwierdź ostrzeżenie ─────────────────────────────
   const confirmWarning = useCallback(async (warningId: number): Promise<void> => {
     if (!tokenRef.current) return;
     try {
-      const res  = await fetch(`${API_URL}/api/live/warnings/${warningId}/confirm`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
+      const res  = await fetchWithTimeout(
+        `${API_URL}/api/live/warnings/${warningId}/confirm`,
+        { method: 'POST', headers: { Authorization: `Bearer ${tokenRef.current}` } },
+      );
       const data = await res.json();
       if (!res.ok) {
         Toast.show({ type: 'info', text1: data.error ?? 'Nie można potwierdzić' });
         return;
       }
       Toast.show({ type: 'success', text1: '👍 POTWIERDZONO', text2: 'Ostrzeżenie aktywne jeszcze 15 min' });
-    } catch {
-      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        Toast.show({ type: 'error', text1: '⏱️ TIMEOUT', text2: 'Słaby internet — spróbuj ponownie' });
+      } else {
+        Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      }
     }
   }, []);
 
-  return {
-    liveUsers,
-    warnings,
-    connected,
-    sendLocation,
-    toggleSharing,
-    addWarning,
-    confirmWarning,
-  };
+  return { liveUsers, warnings, connected, sendLocation, toggleSharing, addWarning, confirmWarning };
 }
 
 // ── Grupowanie ostrzeżeń ──────────────────────────────────
-const CLUSTER_RADIUS_KM = 0.3; // 300m — ostrzeżenia bliżej niż to = ten sam klaster
+const CLUSTER_RADIUS_KM = 0.3;
 
 export function clusterWarnings(warnings: LiveWarning[]): LiveWarning[] {
-  // ← guard na undefined/null/pusty
   if (!warnings?.length) return [];
-
   const result: LiveWarning[] = [];
-
   for (const warning of warnings) {
     const existing = result.find(r =>
       r.type === warning.type &&
-      distanceKm(
-        Number(r.lat), Number(r.lng),
-        Number(warning.lat), Number(warning.lng)
-      ) < CLUSTER_RADIUS_KM
+      distanceKm(Number(r.lat), Number(r.lng), Number(warning.lat), Number(warning.lng)) < CLUSTER_RADIUS_KM
     );
-
     if (existing) {
       const idx = result.indexOf(existing);
       result[idx] = {
@@ -346,20 +401,21 @@ export function clusterWarnings(warnings: LiveWarning[]): LiveWarning[] {
           : warning.expiresAt,
       };
     } else {
-      result.push({ ...warning }); // ← kopia żeby nie mutować oryginału
+      result.push({ ...warning });
     }
   }
-
   return result;
 }
 
-// ── Helpers ───────────────────────────────────────────────
 export function getWarningLabel(type: string): string {
   switch (type) {
     case 'traffic':       return 'Korek';
     case 'weather':       return 'Zła pogoda';
     case 'accident':      return 'Wypadek';
     case 'car_breakdown': return 'Awaria auta';
+    case 'speed_control': return 'Kontrola prędkości';
+    case 'kosmici':       return 'Kosmici';
+    case 'Animal':        return 'Zwierzę na drodze';
     default:              return 'Ostrzeżenie';
   }
 }
@@ -371,7 +427,7 @@ export function getWarningColor(type: string): string {
     case 'accident':      return '#ff922b';
     case 'car_breakdown': return '#748ffc';
     case 'speed_control': return '#0535f7';
-    case 'kosmici': return '#05f711';
+    case 'kosmici':       return '#05f711';
     default:              return '#ffffff';
   }
 }
@@ -382,7 +438,7 @@ export function getWarningIcon(type: string): string {
     case 'weather':       return 'weather-lightning-rainy';
     case 'accident':      return 'car-emergency';
     case 'speed_control': return 'access-point';
-    case 'kosmici': return 'alien-outline';
+    case 'kosmici':       return 'alien-outline';
     case 'car_breakdown': return 'car-wrench';
     default:              return 'alert-circle';
   }

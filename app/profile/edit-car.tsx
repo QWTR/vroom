@@ -42,21 +42,37 @@ export default function EditCarScreen() {
         if (!res.ok) throw new Error('Błąd pobierania');
         const car = await res.json();
 
+        // brand = "BMW M4 Competition" → brand="BMW", model="M4 Competition"
         const parts = (car.brand as string).split(' ');
         setBrand(parts[0] ?? '');
         setModel(parts.slice(1).join(' ') ?? '');
 
-        const specs: string = car.specs ?? '';
-        const yearMatch  = specs.match(/(\d{4})\s*r\./);
-        const powerMatch = specs.match(/(\d+)\s*KM/);
-        if (yearMatch)  setYear(yearMatch[1]);
-        if (powerMatch) setPower(powerMatch[1]);
-
-        const remaining = specs
-          .replace(/\d{4}\s*r\./, '').replace(/\d+\s*KM/, '')
-          .split('·').map(s => s.trim()).filter(Boolean);
-        if (remaining[0]) setEngine(remaining[0]);
-        if (remaining[1]) setColor(remaining[1]);
+        // Nowe pola z bazy — jeśli są, użyj ich; jeśli nie (stare wpisy), parsuj specs
+        if (car.year)   setYear(String(car.year));
+        else {
+          const yearMatch = (car.specs ?? '').match(/(\d{4})\s*r\./);
+          if (yearMatch) setYear(yearMatch[1]);
+        }
+        if (car.power)  setPower(String(car.power));
+        else {
+          const powerMatch = (car.specs ?? '').match(/(\d+)\s*KM/);
+          if (powerMatch) setPower(powerMatch[1]);
+        }
+        if (car.engine) setEngine(car.engine);
+        else {
+          const remaining = (car.specs ?? '')
+            .replace(/\d{4}\s*r\./, '').replace(/\d+\s*KM/, '')
+            .split('·').map((s: string) => s.trim()).filter(Boolean);
+          if (remaining[0]) setEngine(remaining[0]);
+        }
+        if (car.color)  setColor(car.color);
+        else {
+          const remaining = (car.specs ?? '')
+            .replace(/\d{4}\s*r\./, '').replace(/\d+\s*KM/, '')
+            .split('·').map((s: string) => s.trim()).filter(Boolean);
+          if (remaining[1]) setColor(remaining[1]);
+        }
+        if (car.mods)   setMods(car.mods);
 
         setIsMain(car.isMain ?? false);
         setExistingPhotos(car.photos ?? []);
@@ -105,7 +121,11 @@ export default function EditCarScreen() {
       form.append('specs',      specs);
       form.append('isMain',     String(isMain));
       form.append('keepPhotos', JSON.stringify(existingPhotos));
-      if (mods.trim()) form.append('mods', mods.trim());
+      if (year.trim())   form.append('year',   year.trim());
+      if (power.trim())  form.append('power',  power.trim());
+      if (engine.trim()) form.append('engine', engine.trim());
+      if (color.trim())  form.append('color',  color.trim());
+      if (mods.trim())   form.append('mods',   mods.trim());
       newPhotos.forEach(p => form.append('newPhotos', { uri: p.uri, name: p.name, type: p.type } as any));
       const res = await fetch(`${API_URL}/api/cars/${id}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Błąd serwera');
@@ -116,8 +136,8 @@ export default function EditCarScreen() {
     } finally { setSaving(false); }
   };
 
-  const inputStyle  = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
-  const labelStyle  = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
+  const inputStyle    = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
+  const labelStyle    = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
   const photoBtnStyle = { width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center' as const, alignItems: 'center' as const };
 
   if (loading) return (

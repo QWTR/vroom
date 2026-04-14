@@ -31,15 +31,15 @@ export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: C
         options={{ format: 'png', quality: 1.0 }}
       >
         <View style={{
-          width: 64,
-          height: 64,
+          width: 48,
+          height: 48,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: 'transparent',
         }}>
           <View style={{
-            width: 48,
-            height: 48,
+            width: 38,
+            height: 38,
             borderRadius: 24,
             backgroundColor: '#111111',
             justifyContent: 'center',
@@ -63,7 +63,7 @@ export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: C
             {isUrl ? (
               <Image
                 source={{ uri: avatarUrl! }}
-                style={{ width: 48, height: 48, borderRadius: 24 }}
+                style={{ width: 38, height: 38, borderRadius: 24 }}
                 resizeMode="cover"
               />
             ) : (

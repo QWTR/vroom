@@ -13,6 +13,14 @@ export interface UserProfile {
   cityCount: number;
   position: number | null;
   isOwner?: boolean; // true gdy oglądający = właściciel
+  club?: {
+    id:          number;
+    name:        string;
+    avatarUrl:   string | null;
+    memberCount: number;
+    myRole:      string;
+    myRank:      { name: string; color: string } | null;
+  } | null;
 }
 
 export interface Car {

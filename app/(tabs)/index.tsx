@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator, Dimensions, Image, ScrollView,
-  StyleSheet, TouchableOpacity, View, StatusBar, RefreshControl,
+  StyleSheet, TouchableOpacity, View, StatusBar,
+  RefreshControl, Linking, Animated,
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,9 +15,8 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-// ─── TYPY ─────────────────────────────────────────────────
 type MainCar     = { brand: string; specs: string; photo: string | null };
 type Achievement = { type: string; label: string; unlockedAt: string };
 type User = {
@@ -42,8 +42,8 @@ async function fetchFreshUser(): Promise<User | null> {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!meRes.ok) return null;
-    const fresh = await meRes.json();
-    const raw   = await AsyncStorage.getItem('user');
+    const fresh  = await meRes.json();
+    const raw    = await AsyncStorage.getItem('user');
     if (!raw) return null;
     const old    = JSON.parse(raw);
     const merged = { ...old, ...fresh, avatar: fresh.avatarUrl ?? fresh.avatar ?? old.avatar ?? null };
@@ -53,7 +53,6 @@ async function fetchFreshUser(): Promise<User | null> {
   } catch { return null; }
 }
 
-// ─── MAIN ─────────────────────────────────────────────────
 export default function HomeScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
@@ -61,7 +60,28 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [user,       setUser]       = useState<User | null>(null);
 
-  const t = theme; // skrót
+  // Animacje
+  const fadeAnim   = useRef(new Animated.Value(0)).current;
+  const slideAnim  = useRef(new Animated.Value(40)).current;
+  const scaleAnim  = useRef(new Animated.Value(0.92)).current;
+  const pulseAnim  = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.15, duration: 1800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,    duration: 1800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  const runEntrance = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, friction: 7,   useNativeDriver: true }),
+    ]).start();
+  };
 
   const loadUser = async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -71,10 +91,11 @@ export default function HomeScreen() {
       const cached = JSON.parse(raw) as User;
       setUser(cached);
       setLoading(false);
+      runEntrance();
       const fresh = await fetchFreshUser();
       if (fresh) setUser(fresh);
     } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD SESJI', text2: 'Nie można odczytać danych sesji.' });
+      Toast.show({ type: 'error', text1: 'BŁĄD SESJI' });
       router.replace('/login');
     } finally {
       setLoading(false);
@@ -85,327 +106,417 @@ export default function HomeScreen() {
   useEffect(() => { loadUser(); }, []);
   const onRefresh = () => { setRefreshing(true); loadUser(false); };
 
+  const t = theme;
+
   if (loading || !user) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: t.bg }]}>
-        <MaterialCommunityIcons name="car-sports" size={42} color="#e33835" />
-        <Text style={[styles.loadingTitle, { color: '#e33835' }]}>VROOM</Text>
-        <ActivityIndicator size="small" color="#e3383560" style={{ marginTop: 20 }} />
+      <View style={{ flex: 1, backgroundColor: '#080808', justifyContent: 'center', alignItems: 'center', gap: 12 }}>
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <MaterialCommunityIcons name="car-sports" size={52} color="#e33835" />
+        </Animated.View>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: '#e33835', letterSpacing: 10, fontWeight: '900' }}>VROOM</Text>
+        <ActivityIndicator size="small" color="#e3383560" style={{ marginTop: 16 }} />
       </View>
     );
   }
 
-  // ── Gradient hero zależny od trybu ──
-  const heroGradient = isDark
-    ? ['#200808', '#140404', '#0a0a0a'] as const
-    : ['#fdeaea', '#fdf0f0', t.bg]     as const;
-
-  const spotCardBorder  = isDark ? '#ffffff12' : '#00000012';
-  const spotIconColor   = isDark ? '#ffffff55' : '#00000055';
-  const spotTitleColor  = isDark ? '#ffffffcc' : '#000000cc';
-  const spotArrowBg     = isDark ? '#ffffff08' : '#00000008';
-  const spotArrowBorder = isDark ? '#ffffff15' : '#00000015';
-  const spotArrowColor  = isDark ? '#ffffff40' : '#00000040';
-
   return (
     <>
-      <StatusBar
-        barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={t.bg}
-      />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <ScrollView
         style={{ flex: 1, backgroundColor: t.bg }}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 62 }}
+        contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e33835" colors={['#e33835']} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e33835" colors={['#e33835']} />}
       >
-        {/* ══ HERO ══ */}
-        <View style={[styles.hero, { borderColor: t.primaryBorder }]}>
-          <LinearGradient colors={heroGradient} start={{ x: 0, y: 0 }} end={{ x: 1.3, y: 1 }} style={StyleSheet.absoluteFill} />
-          <View style={[styles.blob, { top: -70,   right: -50, width: 220, height: 220, opacity: 0.15 }]} />
-          <View style={[styles.blob, { bottom: -50, left: -30, width: 140, height: 140, opacity: 0.07 }]} />
 
-          {/* TOP ROW */}
-          <View style={styles.heroTop}>
-            <View style={[styles.onlinePill]}>
-              <View style={styles.onlineDot} />
-              <Text style={styles.onlineTxt}>ONLINE</Text>
+        {/* ══════════════════════════════════════════════ */}
+        {/* CINEMATIC HERO                                 */}
+        {/* ══════════════════════════════════════════════ */}
+        <View style={{ height: height * 0.52, position: 'relative', overflow: 'hidden' }}>
+          {/* BG gradient */}
+          <LinearGradient
+            colors={isDark
+              ? ['#1a0404', '#0d0d0d', '#080808']
+              : ['#fce8e8', '#f5f5f5', t.bg]}
+            start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+
+          {/* Decorative circles */}
+          <View style={{ position: 'absolute', top: -80, right: -80, width: 320, height: 320, borderRadius: 160, backgroundColor: '#e3383508', borderWidth: 1, borderColor: '#e3383520' }} />
+          <View style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: 100, backgroundColor: '#e3383512', borderWidth: 1, borderColor: '#e3383530' }} />
+          <View style={{ position: 'absolute', bottom: -60, left: -60, width: 240, height: 240, borderRadius: 120, backgroundColor: '#e3383506' }} />
+
+          {/* Scan line effect */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.52 / 12), height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000004' }} />
+            ))}
+          </View>
+
+          {/* TOP BAR */}
+          <Animated.View style={{ opacity: fadeAnim, paddingTop: 58, paddingHorizontal: 22, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Logo */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ backgroundColor: '#e33835', borderRadius: 8, padding: 5 }}>
+                <MaterialCommunityIcons name="car-sports" size={16} color="#fff" />
+              </View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: t.text, fontWeight: '900', letterSpacing: 4 }}>VROOM</Text>
             </View>
-            <TouchableOpacity onPress={() => router.push('/account')}
-              style={[styles.avatarBtn, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-              {user.avatar
-                ? <Image source={{ uri: user.avatar }} style={styles.avatarImg} />
-                : <MaterialIcons name="person-outline" size={22} color="#e33835" />}
+
+            {/* Right side */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {/* Online pill */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#4de92612', borderWidth: 1, borderColor: '#4de92635', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 }}>
+                <Animated.View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#4de926', transform: [{ scale: pulseAnim }] }} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', letterSpacing: 2 }}>ONLINE</Text>
+              </View>
+              {/* Avatar */}
+              <TouchableOpacity onPress={() => router.push('/account')}
+                style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.primaryBg, borderWidth: 2, borderColor: '#e33835', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
+              >
+                {user.avatar
+                  ? <Image source={{ uri: user.avatar }} style={{ width: 40, height: 40 }} />
+                  : <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#e33835', fontWeight: '900' }}>{user.username.charAt(0).toUpperCase()}</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          {/* MAIN HERO CONTENT */}
+          <Animated.View style={{
+            flex: 1, paddingHorizontal: 22, justifyContent: 'center', paddingTop: 16,
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
+          }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', letterSpacing: 4, marginBottom: 6 }}>WITAMY Z POWROTEM</Text>
+
+            <Text style={{ fontFamily: 'Orbitron', fontSize: Math.min(42, width * 0.1), color: t.text, fontWeight: '900', letterSpacing: -1, lineHeight: Math.min(48, width * 0.115) }} numberOfLines={2}>
+              {user.username}
+            </Text>
+
+            {user.mainCar && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, alignSelf: 'flex-start', backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383535', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 }}>
+                <MaterialCommunityIcons name="car-sports" size={12} color="#e33835" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835aa' }}>
+                  {user.mainCar.brand} · {user.mainCar.specs}
+                </Text>
+              </View>
+            )}
+
+            {/* MEGA STATS ROW */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 24 }}>
+              {/* Position */}
+              <View style={{ flex: 1, backgroundColor: '#e3383512', borderRadius: 16, borderWidth: 1, borderColor: '#e3383530', padding: 14, alignItems: 'center' }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#e33835', fontWeight: '900' }}>#{user.position ?? '—'}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>POZYCJA</Text>
+              </View>
+              {/* Points */}
+              <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000008', borderRadius: 16, borderWidth: 1, borderColor: isDark ? '#ffffff12' : '#00000012', padding: 14, alignItems: 'center' }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: t.text, fontWeight: '900' }}>{user.points ?? 0}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>PUNKTY</Text>
+              </View>
+              {/* Streak */}
+              <View style={{ flex: 1, backgroundColor: user.streak > 0 ? '#ff922b12' : (isDark ? '#ffffff08' : '#00000008'), borderRadius: 16, borderWidth: 1, borderColor: user.streak > 0 ? '#ff922b35' : (isDark ? '#ffffff12' : '#00000012'), padding: 14, alignItems: 'center' }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: user.streak > 0 ? '#ff922b' : t.text, fontWeight: '900' }}>{user.streak ?? 0}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>🔥 STREAK</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* Bottom fade */}
+          <LinearGradient
+            colors={['transparent', t.bg]}
+            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 60 }}
+          />
+        </View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* TOP SPEED — SIGNATURE CARD                    */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginTop: -10, marginBottom: 16 }}>
+          <View style={{ borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#e3383540' }}>
+            <LinearGradient
+              colors={isDark ? ['#1a0808', '#100404', '#0a0a0a'] : ['#fff5f5', '#fff0f0', '#fafafa']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{ padding: 22 }}
+            >
+              <View style={{ position: 'absolute', top: -30, right: -30, width: 160, height: 160, borderRadius: 80, backgroundColor: '#e3383510' }} />
+              <View style={{ position: 'absolute', top: -10, right: -10, width: 90, height: 90, borderRadius: 45, backgroundColor: '#e3383518' }} />
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <View style={{ backgroundColor: '#e3383520', padding: 6, borderRadius: 8 }}>
+                      <MaterialCommunityIcons name="speedometer" size={14} color="#e33835" />
+                    </View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 3 }}>TOP SPEED · REKORD</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 64, color: '#e33835', fontWeight: '900', letterSpacing: -3, lineHeight: 70 }}>
+                      {user.topSpeed ?? 0}
+                    </Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#e3383580', fontWeight: '700', marginBottom: 8 }}>km/h</Text>
+                  </View>
+                </View>
+
+                <View style={{ gap: 14, alignItems: 'flex-end' }}>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '700' }}>{user.avgSpeed} km/h</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 2 }}>ŚREDNIA</Text>
+                  </View>
+                  <View style={{ width: 60, height: 1, backgroundColor: isDark ? '#ffffff15' : '#00000015' }} />
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '700' }}>{user.totalRides ?? 0}</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 2 }}>TRASY</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Progress bar — totalDistance */}
+              <View style={{ marginTop: 18, gap: 8 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 2 }}>ŁĄCZNY DYSTANS</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.text, fontWeight: '700' }}>{Math.round(user.totalDistance)} km</Text>
+                </View>
+                <View style={{ height: 4, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderRadius: 2, overflow: 'hidden' }}>
+                  <View style={{ height: '100%', width: `${Math.min((user.totalDistance / 10000) * 100, 100)}%`, backgroundColor: '#e33835', borderRadius: 2 }} />
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        </Animated.View>
+            
+        {/* ══════════════════════════════════════════════ */}
+        {/* SUPPORT BANNER                                 */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 20 }}>
+          <TouchableOpacity onPress={() => Linking.openURL('https://buycoffee.to/vroom')} activeOpacity={0.85}>
+            <LinearGradient
+              colors={['#f5c51820', '#f5c51808', 'transparent']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{ borderRadius: 18, borderWidth: 1, borderColor: '#f5c51840', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }}
+            >
+              <View style={{ position: 'absolute', left: -10, top: -10, width: 80, height: 80, borderRadius: 40, backgroundColor: '#f5c51808' }} />
+              <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#f5c51820', borderWidth: 1, borderColor: '#f5c51840', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 22 }}>☕</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: t.text, fontWeight: '700', marginBottom: 3 }}>Postaw nam kawę</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim }}>Podoba Ci się VROOM? Wesprzyj projekt!</Text>
+              </View>
+              <View style={{ backgroundColor: '#f5c51815', borderRadius: 10, padding: 8, borderWidth: 1, borderColor: '#f5c51835' }}>
+                <MaterialIcons name="arrow-forward-ios" size={13} color="#f5c518" />
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* QUICK NAV — DUŻE PRZYCISKI                    */}
+        {/* ═════════════════════════���════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 16 }}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4, marginBottom: 14 }}>SZYBKA NAWIGACJA</Text>
+
+          {/* MAPA — duży przycisk */}
+          <TouchableOpacity onPress={() => router.push('/map')} activeOpacity={0.85} style={{ marginBottom: 10 }}>
+            <LinearGradient
+              colors={['#e33835', '#c02020']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{ borderRadius: 20, padding: 22, flexDirection: 'row', alignItems: 'center', gap: 16, overflow: 'hidden' }}
+            >
+              <View style={{ position: 'absolute', right: -20, top: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: '#ffffff15' }} />
+              <View style={{ position: 'absolute', right: 20, top: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: '#ffffff10' }} />
+              <View style={{ width: 54, height: 54, borderRadius: 16, backgroundColor: '#ffffff20', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="map" size={28} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>MAPA</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff80', marginTop: 3 }}>Nawigacja · Live tracking · Trasy</Text>
+              </View>
+              <MaterialIcons name="arrow-forward-ios" size={18} color="#ffffff60" />
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Rząd 3 przycisków */}
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {[
+              { icon: 'flag-checkered', lib: 'mci',  label: 'MEETY',   sub: 'Wydarzenia',  route: '/Community/meets/events', color: '#ff6b35' },
+              { icon: 'leaderboard',    lib: 'mi',   label: 'RANKING',  sub: 'Top gracze',  route: '/Community/Ranks/stats',  color: '#4de926' },
+              { icon: 'chat-bubble',    lib: 'mi',   label: 'CZAT',     sub: 'Znajomi',     route: '/(tabs)/community',       color: '#268bff' },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.label}
+                onPress={() => router.push(item.route as any)}
+                activeOpacity={0.8}
+                style={{ flex: 1, backgroundColor: t.surface, borderRadius: 18, borderWidth: 1, borderColor: t.border, padding: 16, alignItems: 'center', gap: 8 }}
+              >
+                <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: item.color + '20', alignItems: 'center', justifyContent: 'center' }}>
+                  {item.lib === 'mci'
+                    ? <MaterialCommunityIcons name={item.icon as any} size={20} color={item.color} />
+                    : <MaterialIcons name={item.icon as any} size={20} color={item.color} />
+                  }
+                </View>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.text, fontWeight: '700', letterSpacing: 0.5 }}>{item.label}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim }}>{item.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* STATS GRID                                     */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 16 }}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4, marginBottom: 14 }}>STATYSTYKI</Text>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            <StatBigCard
+              label="TEN TYDZIEŃ"
+              value={`${Math.round(user.weeklyDistance)}`} unit="km"
+              icon={<MaterialCommunityIcons name="road-variant" size={18} color="#e33835" />}
+              theme={t} isDark={isDark} accent="#e33835"
+            />
+            <StatBigCard
+              label="TEN MIESIĄC"
+              value={`${Math.round(user.monthlyDistance)}`} unit="km"
+              icon={<FontAwesome5 name="route" size={16} color="#ff6b35" />}
+              theme={t} isDark={isDark} accent="#ff6b35"
+            />
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            <StatBigCard
+              label="ŁĄCZNIE"
+              value={`${Math.round(user.totalDistance)}`} unit="km"
+              icon={<MaterialIcons name="straighten" size={18} color="#268bff" />}
+              theme={t} isDark={isDark} accent="#268bff"
+            />
+            <StatBigCard
+              label="MIASTA"
+              value={String(user.cityCount ?? 0)} unit="odw."
+              icon={<MaterialIcons name="location-city" size={18} color="#a855f7" />}
+              theme={t} isDark={isDark} accent="#a855f7"
+            />
+          </View>
+
+          {/* 4-kolumnowy rząd */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[
+              { label: 'GARAŻ',      value: user.carCount ?? 0,        unit: 'aut',       color: '#ff922b', icon: 'garage',         lib: 'mci', route: '/account' },
+              { label: 'SPOTY',      value: user.spotCount ?? 0,       unit: 'dodane',    color: '#4de926', icon: 'place',          lib: 'mi',  route: '/(tabs)/spotmap' },
+              { label: 'MEETY',      value: user.meetCount ?? 0,       unit: 'łącznie',   color: '#e33835', icon: 'flag-checkered', lib: 'mci', route: '/Community/meets/events' },
+              { label: 'TROFEA',     value: user.achievementCount ?? 0, unit: 'odbl.',    color: '#f5c518', icon: 'emoji-events',   lib: 'mi',  route: '/account' },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.label}
+                onPress={() => router.push(item.route as any)}
+                style={{ flex: 1, backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border, padding: 12, alignItems: 'center', gap: 4 }}
+                activeOpacity={0.8}
+              >
+                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
+                  {item.lib === 'mci'
+                    ? <MaterialCommunityIcons name={item.icon as any} size={16} color={item.color} />
+                    : <MaterialIcons name={item.icon as any} size={16} color={item.color} />
+                  }
+                </View>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '900' }}>{item.value}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: t.textDim, letterSpacing: 1 }}>{item.unit}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 0.5, marginTop: 2 }}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* ACHIEVEMENT BANNER                             */}
+        {/* ══════════════════════════════════════════════ */}
+        {user.latestAchievement && (
+          <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 16 }}>
+            <TouchableOpacity onPress={() => router.push('/account')} activeOpacity={0.85}>
+              <LinearGradient
+                colors={['#f5c51820', '#f5c51808', 'transparent']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={{ borderRadius: 18, borderWidth: 1, borderColor: '#f5c51840', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+              >
+                <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f5c51820', borderWidth: 2, borderColor: '#f5c51840', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="emoji-events" size={26} color="#f5c518" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#f5c518', letterSpacing: 3, marginBottom: 4 }}>OSTATNIE OSIĄGNIĘCIE</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: t.text, fontWeight: '700' }}>{user.latestAchievement.label}</Text>
+                </View>
+                <MaterialIcons name="arrow-forward-ios" size={14} color="#f5c51860" />
+              </LinearGradient>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
+        )}
 
-          <Text style={[styles.heroGreet, { color: t.textDim }]}>WITAMY Z POWROTEM</Text>
-          <Text style={[styles.heroName,  { color: t.text }]}>{user.username}</Text>
+        {/* ══════════════════════════════════════════════ */}
+        {/* COMMUNITY + SPOTS BANNERS                      */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, gap: 10, marginBottom: 16 }}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4, marginBottom: 4 }}>SPOŁECZNOŚĆ</Text>
 
-          {user.mainCar && (
-            <View style={[styles.carPill, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-              <MaterialCommunityIcons name="car-sports" size={12} color="#e33835" />
-              <Text style={[styles.carPillTxt, { color: t.textMuted }]}>
-                {user.mainCar.brand} · {user.mainCar.specs}
-              </Text>
-            </View>
-          )}
-
-          <View style={[styles.heroSep, { backgroundColor: t.border }]} />
-
-          <View style={styles.heroStatsRow}>
-            <HeroStat label="POZYCJA" value={`#${user.position ?? '—'}`} textColor={t.text} lblColor={t.textDim} />
-            <View style={[styles.heroStatLine, { backgroundColor: t.border }]} />
-            <HeroStat label="PUNKTY"  value={String(user.points ?? 0)}      textColor={t.text} lblColor={t.textDim} />
-            <View style={[styles.heroStatLine, { backgroundColor: t.border }]} />
-            <HeroStat label="STREAK"  value={`${user.streak ?? 0}`}         textColor={t.text} lblColor={t.textDim} />
-          </View>
-
-          {user.latestAchievement && (
-            <View style={styles.achievePill}>
-              <MaterialIcons name="emoji-events" size={12} color="#f5c518" />
-              <Text style={styles.achieveTxt}>Ostatnie: {user.latestAchievement.label}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* ══ QUICK NAV ══ */}
-        <SectionLabel text="NAWIGACJA" color={t.textDim} />
-        <View style={styles.navRow}>
-          <NavBtn icon={<MaterialIcons name="map"               size={24} color="#e33835" />} label="MAPA"    onPress={() => router.push('/map')}                        bg={t.surface2} border={t.border} lblColor={t.textMuted} />
-          <NavBtn icon={<MaterialCommunityIcons name="car-multiple" size={24} color="#e33835" />} label="MEETY"   onPress={() => router.push('/Community/meets/events')} bg={t.surface2} border={t.border} lblColor={t.textMuted} />
-          <NavBtn icon={<MaterialIcons name="leaderboard"       size={24} color="#e33835" />} label="RANKING" onPress={() => router.push('/Community/Ranks/stats')}      bg={t.surface2} border={t.border} lblColor={t.textMuted} />
-          <NavBtn icon={<MaterialIcons name="chat-bubble-outline" size={24} color="#e33835" />} label="CZAT"   onPress={() => router.push('/(tabs)/community')}          bg={t.surface2} border={t.border} lblColor={t.textMuted} />
-        </View>
-
-        {/* ══ STATYSTYKI ══ */}
-        <SectionLabel text="STATYSTYKI" color={t.textDim} />
-        <View style={[styles.speedCard, { backgroundColor: t.surface, borderColor: t.primaryBorder }]}>
-          <LinearGradient colors={['#e3383528', '#e3383508', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-          <View style={[styles.blob, { top: -30, right: 0, width: 110, height: 110, opacity: 0.18 }]} />
-          <View style={styles.speedLeft}>
-            <View style={styles.cardIconRow}>
-              <View style={[styles.iconWrap, { backgroundColor: t.primaryBg }]}>
-                <MaterialCommunityIcons name="speedometer" size={16} color="#e33835" />
+          <TouchableOpacity onPress={() => router.push('/(tabs)/community')} activeOpacity={0.85}>
+            <LinearGradient
+              colors={['#268bff18', '#268bff08', 'transparent']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{ borderRadius: 18, borderWidth: 1, borderColor: '#268bff30', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }}
+            >
+              <View style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: 50, backgroundColor: '#268bff08' }} />
+              <View style={{ width: 50, height: 50, borderRadius: 16, backgroundColor: '#268bff20', borderWidth: 1, borderColor: '#268bff40', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="chat-bubble-outline" size={24} color="#268bff" />
               </View>
-              <Text style={[styles.cardLbl, { color: t.textDim }]}>TOP SPEED</Text>
-              <View style={[styles.badge, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-                <Text style={styles.badgeTxt}>REKORD</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: t.text, fontWeight: '700', marginBottom: 3 }}>Czat & Znajomi</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim }}>Napisz do kogoś · Sprawdź co słychać</Text>
               </View>
-            </View>
-            <Text style={styles.speedVal}>{user.topSpeed ?? 0}</Text>
-            <Text style={[styles.speedUnit, { color: t.textDim }]}>km/h</Text>
-          </View>
-          <View style={styles.speedRight}>
-            <MiniStat label="ŚREDNIA"     value={`${user.avgSpeed} km/h`}          textColor={t.text} lblColor={t.textDim} />
-            <MiniStat label="TRASY"       value={String(user.totalRides ?? 0)}      textColor={t.text} lblColor={t.textDim} />
-            <MiniStat label="MIESIĘCZNIE" value={String(user.monthlyRides ?? 0)}    textColor={t.text} lblColor={t.textDim} />
-          </View>
-        </View>
-
-        {/* DISTANCE ROWS */}
-        <View style={styles.row2}>
-          <DistCard icon={<MaterialCommunityIcons name="road-variant" size={17} color="#e33835" />} label="TEN TYDZIEŃ" value={`${Math.round(user.weeklyDistance)}`}  unit="km"   bg={t.surface} border={t.border} iconBg={t.primaryBg} lbl={t.textDim} val={t.text} />
-          <DistCard icon={<FontAwesome5 name="route"                  size={15} color="#e33835" />} label="TEN MIESIĄC" value={`${Math.round(user.monthlyDistance)}`} unit="km"   bg={t.surface} border={t.border} iconBg={t.primaryBg} lbl={t.textDim} val={t.text} />
-        </View>
-        <View style={styles.row2}>
-          <DistCard icon={<MaterialIcons name="straighten"   size={17} color="#e33835" />} label="ŁĄCZNIE" value={`${Math.round(user.totalDistance)}`} unit="km"   bg={t.surface} border={t.border} iconBg={t.primaryBg} lbl={t.textDim} val={t.text} />
-          <DistCard icon={<MaterialIcons name="location-city" size={17} color="#e33835" />} label="MIASTA" value={String(user.cityCount ?? 0)}          unit="odw." bg={t.surface} border={t.border} iconBg={t.primaryBg} lbl={t.textDim} val={t.text} />
-        </View>
-
-        {/* GARAŻ + SPOTY */}
-        <View style={styles.row2}>
-          <TouchableOpacity style={[styles.distCard, { backgroundColor: t.surface, borderColor: t.border }]} onPress={() => router.push('/account')} activeOpacity={0.8}>
-            <View style={styles.cardIconRow}>
-              <View style={[styles.iconWrap, { backgroundColor: t.primaryBg }]}>
-                <MaterialCommunityIcons name="garage" size={17} color="#e33835" />
+              <View style={{ backgroundColor: '#268bff15', borderRadius: 10, padding: 8, borderWidth: 1, borderColor: '#268bff30' }}>
+                <MaterialIcons name="arrow-forward-ios" size={13} color="#268bff" />
               </View>
-              <Text style={[styles.cardLbl, { color: t.textDim }]}>GARAŻ</Text>
-            </View>
-            <Text style={[styles.distVal, { color: t.text }]}>{user.carCount ?? 0}</Text>
-            <Text style={[styles.distUnit, { color: t.textDim }]}>aut</Text>
+            </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.distCard, { backgroundColor: t.surface, borderColor: t.border }]} onPress={() => router.push('/(tabs)/spotmap')} activeOpacity={0.8}>
-            <View style={styles.cardIconRow}>
-              <View style={[styles.iconWrap, { backgroundColor: t.primaryBg }]}>
-                <MaterialIcons name="place" size={17} color="#e33835" />
+
+          <TouchableOpacity onPress={() => router.push('/(tabs)/spotmap')} activeOpacity={0.85}>
+            <View style={{ borderRadius: 18, borderWidth: 1, borderColor: t.border, backgroundColor: t.surface, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }}>
+              <View style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: 50, backgroundColor: isDark ? '#ffffff05' : '#00000005' }} />
+              <View style={{ width: 50, height: 50, borderRadius: 16, backgroundColor: t.primaryBg, borderWidth: 1, borderColor: t.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="place" size={24} color={t.primary ?? '#e33835'} />
               </View>
-              <Text style={[styles.cardLbl, { color: t.textDim }]}>SPOTY</Text>
-            </View>
-            <Text style={[styles.distVal, { color: t.text }]}>{user.spotCount ?? 0}</Text>
-            <Text style={[styles.distUnit, { color: t.textDim }]}>dodane</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* MEETY + OSIĄGNIĘCIA */}
-        <View style={[styles.row2, { marginBottom: 28 }]}>
-          <TouchableOpacity style={[styles.distCard, { backgroundColor: t.surface, borderColor: t.border }]} onPress={() => router.push('/Community/meets/events')} activeOpacity={0.8}>
-            <View style={styles.cardIconRow}>
-              <View style={[styles.iconWrap, { backgroundColor: t.primaryBg }]}>
-                <MaterialCommunityIcons name="flag-checkered" size={17} color="#e33835" />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: t.text, fontWeight: '700', marginBottom: 3 }}>Mapa Spotów</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim }}>Znajdź miejsca · Dodaj nowy spot</Text>
               </View>
-              <Text style={[styles.cardLbl, { color: t.textDim }]}>MEETY</Text>
-            </View>
-            <Text style={[styles.distVal, { color: t.text }]}>{user.meetCount ?? 0}</Text>
-            <Text style={[styles.distUnit, { color: t.textDim }]}>łącznie</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.distCard, { backgroundColor: t.surface, borderColor: t.border }]} onPress={() => router.push('/account')} activeOpacity={0.8}>
-            <View style={styles.cardIconRow}>
-              <View style={[styles.iconWrap, { backgroundColor: t.primaryBg }]}>
-                <MaterialIcons name="emoji-events" size={17} color="#e33835" />
+              <View style={{ backgroundColor: t.surface, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: t.border }}>
+                <MaterialIcons name="arrow-forward-ios" size={13} color={t.textDim} />
               </View>
-              <Text style={[styles.cardLbl, { color: t.textDim }]}>OSIĄGNIĘCIA</Text>
             </View>
-            <Text style={[styles.distVal, { color: t.text }]}>{user.achievementCount ?? 0}</Text>
-            <Text style={[styles.distUnit, { color: t.textDim }]}>odblokowane</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        {/* ══ SPOŁECZNOŚĆ ══ */}
-        <SectionLabel text="SPOŁECZNOŚĆ" color={t.textDim} />
-        <TouchableOpacity onPress={() => router.push('/(tabs)/community')} activeOpacity={0.82}
-          style={[styles.communityCard, { borderColor: t.primaryBorder }]}>
-          <LinearGradient colors={['#e3383522', '#e3383508', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-          <View style={[styles.blob, { left: -20, top: -20, width: 80, height: 80, opacity: 0.2 }]} />
-          <View style={[styles.communityIconWrap, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-            <MaterialIcons name="chat-bubble-outline" size={26} color="#e33835" />
-          </View>
-          <View style={styles.communityText}>
-            <Text style={[styles.communityTitle, { color: t.text }]}>Czat & Znajomi</Text>
-            <Text style={[styles.communitySub,  { color: t.textDim }]}>Napisz do kogoś · Sprawdź co słychać</Text>
-          </View>
-          <View style={[styles.communityArrow, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-            <MaterialIcons name="arrow-forward-ios" size={14} color="#e33835" />
-          </View>
-        </TouchableOpacity>
 
-        {/* SPOT MAP BANNER */}
-        <TouchableOpacity onPress={() => router.push('/(tabs)/spotmap')} activeOpacity={0.82}
-          style={[styles.spotCard, { borderColor: spotCardBorder }]}>
-          <LinearGradient colors={[isDark ? '#ffffff0a' : '#0000000a', isDark ? '#ffffff03' : '#00000003', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-          <View style={[styles.communityIconWrap, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
-            <MaterialIcons name="place" size={26} color={spotIconColor} />
-          </View>
-          <View style={styles.communityText}>
-            <Text style={[styles.communityTitle, { color: spotTitleColor }]}>Mapa Spotów</Text>
-            <Text style={[styles.communitySub,   { color: t.textDim }]}>Znajdź miejsca · Dodaj nowy spot</Text>
-          </View>
-          <View style={[styles.communityArrow, { backgroundColor: spotArrowBg, borderColor: spotArrowBorder }]}>
-            <MaterialIcons name="arrow-forward-ios" size={14} color={spotArrowColor} />
-          </View>
-        </TouchableOpacity>
 
-        <View style={{ height: 50 }} />
       </ScrollView>
     </>
   );
 }
 
-// ─── SUB-COMPONENTS ───────────────────────────────────────
-function SectionLabel({ text, color }: { text: string; color: string }) {
-  return <Text style={[styles.sectionLbl, { color }]}>{text}</Text>;
-}
-
-function HeroStat({ label, value, textColor, lblColor }: { label: string; value: string; textColor: string; lblColor: string }) {
-  return (
-    <View style={styles.heroStatItem}>
-      <Text style={[styles.heroStatVal, { color: textColor }]}>{value}</Text>
-      <Text style={[styles.heroStatLbl, { color: lblColor }]}>{label}</Text>
-    </View>
-  );
-}
-
-function NavBtn({ icon, label, onPress, bg, border, lblColor }: {
-  icon: React.ReactNode; label: string; onPress: () => void;
-  bg: string; border: string; lblColor: string;
+// ── StatBigCard ───────────────────────────────────────────
+function StatBigCard({ label, value, unit, icon, theme: t, isDark, accent }: {
+  label: string; value: string; unit: string;
+  icon: React.ReactNode; theme: any; isDark: boolean; accent: string;
 }) {
   return (
-    <TouchableOpacity style={[styles.navBtn, { backgroundColor: bg, borderColor: border }]} onPress={onPress} activeOpacity={0.72}>
-      <View style={styles.navIconWrap}>{icon}</View>
-      <Text style={[styles.navLbl, { color: lblColor }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function MiniStat({ label, value, textColor, lblColor }: { label: string; value: string; textColor: string; lblColor: string }) {
-  return (
-    <View style={styles.miniStat}>
-      <Text style={[styles.miniStatVal, { color: textColor }]}>{value}</Text>
-      <Text style={[styles.miniStatLbl, { color: lblColor }]}>{label}</Text>
-    </View>
-  );
-}
-
-function DistCard({ icon, label, value, unit, bg, border, iconBg, lbl, val }: {
-  icon: React.ReactNode; label: string; value: string; unit: string;
-  bg: string; border: string; iconBg: string; lbl: string; val: string;
-}) {
-  return (
-    <View style={[styles.distCard, { backgroundColor: bg, borderColor: border }]}>
-      <View style={styles.cardIconRow}>
-        <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>{icon}</View>
-        <Text style={[styles.cardLbl, { color: lbl }]}>{label}</Text>
+    <View style={{ flex: 1, backgroundColor: t.surface, borderRadius: 18, borderWidth: 1, borderColor: t.border, padding: 16, overflow: 'hidden' }}>
+      <View style={{ position: 'absolute', right: -15, top: -15, width: 80, height: 80, borderRadius: 40, backgroundColor: accent + '10' }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <View style={{ backgroundColor: accent + '18', padding: 6, borderRadius: 8 }}>{icon}</View>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 1.5, flex: 1 }}>{label}</Text>
       </View>
-      <Text style={[styles.distVal,  { color: val }]}>{value}</Text>
-      <Text style={[styles.distUnit, { color: lbl }]}>{unit}</Text>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: t.text, fontWeight: '900', letterSpacing: -1 }}>{value}</Text>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: accent, letterSpacing: 1, marginTop: 2 }}>{unit}</Text>
     </View>
   );
 }
-
-// ─── STYLES (statyczne — kolory przekazywane inline) ──────
-const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
-  loadingTitle:     { fontFamily: 'Orbitron', fontSize: 22, letterSpacing: 8, marginTop: 6 },
-  blob:             { position: 'absolute', borderRadius: 999, backgroundColor: '#e33835' },
-
-  hero:          { borderRadius: 20, borderWidth: 1, padding: 22, marginBottom: 28, overflow: 'hidden', position: 'relative' },
-  heroTop:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  onlinePill:    { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#4de92612', borderWidth: 1, borderColor: '#4de92635', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  onlineDot:     { width: 5, height: 5, borderRadius: 3, backgroundColor: '#4de926' },
-  onlineTxt:     { fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', letterSpacing: 2 },
-  avatarBtn:     { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  avatarImg:     { width: 42, height: 42, borderRadius: 21 },
-  heroGreet:     { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 3, marginBottom: 5 },
-  heroName:      { fontFamily: 'Orbitron', fontSize: 32, fontWeight: '700', letterSpacing: 0.5, marginBottom: 10 },
-  carPill:       { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginBottom: 18 },
-  carPillTxt:    { fontFamily: 'Orbitron', fontSize: 9 },
-  heroSep:       { height: 1, marginBottom: 18 },
-  heroStatsRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  heroStatItem:  { flex: 1, alignItems: 'center' },
-  heroStatVal:   { fontFamily: 'Orbitron', fontSize: 21, fontWeight: '700' },
-  heroStatLbl:   { fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2, marginTop: 3 },
-  heroStatLine:  { width: 1, height: 32 },
-  achievePill:   { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 16, alignSelf: 'flex-start', backgroundColor: '#f5c51815', borderWidth: 1, borderColor: '#f5c51830', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  achieveTxt:    { fontFamily: 'Orbitron', fontSize: 8, color: '#f5c518b0' },
-  sectionLbl:    { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 4, marginBottom: 12 },
-  navRow:        { flexDirection: 'row', gap: 8, marginBottom: 28 },
-  navBtn:        { flex: 1, borderRadius: 14, borderWidth: 1, paddingVertical: 16, alignItems: 'center', gap: 10 },
-  navIconWrap:   { backgroundColor: '#e3383518', padding: 9, borderRadius: 10 },
-  navLbl:        { fontFamily: 'Orbitron', fontSize: 6.5, letterSpacing: 0.3 },
-  speedCard:     { borderRadius: 18, borderWidth: 1, padding: 20, marginBottom: 10, overflow: 'hidden', position: 'relative', flexDirection: 'row', alignItems: 'center', gap: 16 },
-  speedLeft:     { flex: 1 },
-  speedVal:      { fontFamily: 'Orbitron', fontSize: 54, color: '#e33835', fontWeight: '700', letterSpacing: -2, marginTop: 4 },
-  speedUnit:     { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 },
-  speedRight:    { gap: 12, alignItems: 'flex-end' },
-  miniStat:      { alignItems: 'flex-end', gap: 2 },
-  miniStatVal:   { fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' },
-  miniStatLbl:   { fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 },
-  row2:          { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  distCard:      { flex: 1, borderRadius: 16, borderWidth: 1, padding: 16, gap: 2 },
-  cardIconRow:   { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
-  iconWrap:      { padding: 5, borderRadius: 7 },
-  cardLbl:       { fontFamily: 'Orbitron', fontSize: 7.5, letterSpacing: 1, flexShrink: 1 },
-  distVal:       { fontFamily: 'Orbitron', fontSize: 26, fontWeight: '700', letterSpacing: -0.5 },
-  distUnit:      { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 },
-  badge:         { marginLeft: 'auto', borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeTxt:      { fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', letterSpacing: 1 },
-  communityCard: { borderRadius: 16, borderWidth: 1, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden', position: 'relative', marginBottom: 10 },
-  spotCard:      { borderRadius: 16, borderWidth: 1, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden', position: 'relative', marginBottom: 10 },
-  communityIconWrap: { padding: 12, borderRadius: 12, borderWidth: 1 },
-  communityText: { flex: 1, gap: 4 },
-  communityTitle:{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' },
-  communitySub:  { fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 0.3 },
-  communityArrow:{ padding: 8, borderRadius: 8, borderWidth: 1 },
-});

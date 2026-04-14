@@ -15,27 +15,39 @@ export function useCars() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
-  const fetchCars = useCallback(async (userId?: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token   = await getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const fetchCars = useCallback(async (userId?: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const token   = await getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const endpoint = userId
-        ? `${API_URL}/api/profile/${userId}/cars`
-        : `${API_URL}/api/profile/me`;
+        let endpoint: string;
 
-      const res = await fetch(endpoint, { headers });
-      if (!res.ok) throw new Error('Błąd pobierania aut');
-      setCars(await res.json());
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        if (userId) {
+          // Publiczny profil — znany userId
+          endpoint = `${API_URL}/api/profile/${userId}/cars`;
+        } else {
+          // Własny profil — pobierz userId z /me, potem /cars
+          const meRes = await fetch(`${API_URL}/api/profile/me`, { headers });
+          if (!meRes.ok) throw new Error('Brak profilu');
+          const me = await meRes.json();
+          const uid = me.userId ?? me.id;
+          if (!uid) throw new Error('Brak userId');
+          endpoint = `${API_URL}/api/profile/${uid}/cars`;
+        }
+
+        const res = await fetch(endpoint, { headers });
+        if (!res.ok) throw new Error('Błąd pobierania aut');
+        const data = await res.json();
+        setCars(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    }, []);
 
   const addCar = useCallback(async (data: {
     brand: string;

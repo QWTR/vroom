@@ -1,16 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, View, Text, TextInput, TouchableOpacity,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image,
+  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Image, Dimensions, Animated, Easing,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { registerPushToken } from '../hooks/usePushNotifications';
+
+const { width, height } = Dimensions.get('window');
+const RED = '#e33835';
 
 const API_URL  = 'https://v-room.app/api/auth';
 const SAPI_URL = 'https://v-room.app/sapi';
+
+let GoogleSignin: any = null;
+let statusCodes: any  = {};
+try {
+  const g    = require('@react-native-google-signin/google-signin');
+  GoogleSignin = g.GoogleSignin;
+  statusCodes  = g.statusCodes;
+  GoogleSignin.configure({ webClientId: '422424308025-2suso0t9uculamcjm5rhdv0e5krtie5d.apps.googleusercontent.com' });
+} catch {}
 
 type Screen    = 'login' | 'register' | 'forgot';
 type ResetStep = 'email' | 'code' | 'password';
@@ -18,643 +33,548 @@ type ResetStep = 'email' | 'code' | 'password';
 export default function LoginScreen() {
   const router = useRouter();
 
-  // ── Ekran ──────────────────────────────────────────────────────────────
-  const [screen,        setScreen]        = useState<Screen>('login');
+  const [screen,       setScreen]       = useState<Screen>('login');
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [username,     setUsername]     = useState('');
+  const [confirmPass,  setConfirmPass]  = useState('');
+  const [showPass,     setShowPass]     = useState(false);
+  const [showConfirm,  setShowConfirm]  = useState(false);
+  const [resetStep,    setResetStep]    = useState<ResetStep>('email');
+  const [forgotEmail,  setForgotEmail]  = useState('');
+  const [resetCode,    setResetCode]    = useState('');
+  const [newPassword,  setNewPassword]  = useState('');
+  const [showNewPass,  setShowNewPass]  = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [gLoading,     setGLoading]     = useState(false);
 
-  // ��─ Login / Register ───────────────────────────────────────────────────
-  const [email,         setEmail]         = useState('');
-  const [password,      setPassword]      = useState('');
-  const [username,      setUsername]      = useState('');
-  const [confirmPass,   setConfirmPass]   = useState('');
-  const [showPassword,  setShowPassword]  = useState(false);
-  const [showConfirm,   setShowConfirm]   = useState(false);
+  // Animacje wejścia
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(32)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // ── Forgot / Reset ─────────────────────────────────────────────────────
-  const [resetStep,     setResetStep]     = useState<ResetStep>('email');
-  const [forgotEmail,   setForgotEmail]   = useState('');
-  const [resetCode,     setResetCode]     = useState('');
-  const [resetToken,    setResetToken]    = useState('');
-  const [newPassword,   setNewPassword]   = useState('');
-  const [showNewPass,   setShowNewPass]   = useState(false);
+  useEffect(() => {
+    // Wejście
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 55, useNativeDriver: true }),
+    ]).start();
 
-  // ── Loading ────────────────────────────────────────────────────────────
-  const [loading,       setLoading]       = useState(false);
+    // Pulsowanie kropki
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.4, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
 
-  // ── Helpers ────────────────────────────────────────────────────────────
+  // Re-animacja przy zmianie ekranu
+  const animateSwitch = () => {
+    slideAnim.setValue(20);
+    fadeAnim.setValue(0);
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, friction: 9, tension: 70, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const switchScreen = (s: Screen) => {
+    setScreen(s);
+    setPassword('');
+    setConfirmPass('');
+    animateSwitch();
+  };
+
   const goToLogin = () => {
-    setScreen('login');
     setResetStep('email');
     setForgotEmail('');
     setResetCode('');
-    setResetToken('');
     setNewPassword('');
+    switchScreen('login');
   };
 
-  const strengthColor = (len: number) =>
-    len >= 10 ? '#4CAF50' : len >= 6 ? '#FF9800' : '#e33835';
+  const strengthColor = (l: number) => l >= 10 ? '#4de926' : l >= 6 ? '#ff922b' : RED;
+  const strengthLabel = (l: number) => l < 6 ? 'Za krótkie' : l < 10 ? 'Słabe' : 'Silne';
+  const strengthPct   = (l: number) => Math.min((l / 12) * 100, 100);
 
-  const strengthLabel = (len: number) =>
-    len < 6 ? 'Za krótkie' : len < 10 ? 'Słabe' : 'Silne';
+  const saveAndNavigate = async (token: string, user: any) => {
+    await AsyncStorage.setItem('userToken', token);
+    await AsyncStorage.setItem('token', token);
+    await AsyncStorage.setItem('user', JSON.stringify(user));
+    await registerPushToken();
+    router.replace('/(tabs)');
+  };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // LOGOWANIE
-  // ════════════════════════════════════════════════════════════════════════
   const handleLogin = async () => {
-    if (!email || !password) {
-      Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
-      return;
-    }
+    if (!email || !password) return Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/login`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: email.trim(), password }),
-      });
+      const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }) });
       const data = await res.json();
-      if (res.ok) {
-        await AsyncStorage.setItem('userToken', data.token);
-        await AsyncStorage.setItem('token',     data.token);
-        await AsyncStorage.setItem('user',      JSON.stringify(data.user));
-        router.replace('/(tabs)');
-      } else {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
-      }
-    } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można połączyć się z serwerem.' });
-    } finally {
-      setLoading(false);
-    }
+      if (res.ok) await saveAndNavigate(data.token, data.user);
+      else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
+    } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
+    finally { setLoading(false); }
   };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // REJESTRACJA
-  // ════════════════════════════════════════════════════════════════════════
   const handleRegister = async () => {
-    if (!email || !password || !username) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' });
-      return;
-    }
-    if (password.length < 6) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło musi mieć min. 6 znaków.' });
-      return;
-    }
-    if (password !== confirmPass) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
-      return;
-    }
+    if (!email || !password || !username) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' });
+    if (password.length < 6)              return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło min. 6 znaków.' });
+    if (password !== confirmPass)         return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/register`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: email.trim(), password, username: username.trim() }),
-      });
+      const res  = await fetch(`${API_URL}/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, username: username.trim() }) });
       const data = await res.json();
-      if (res.ok) {
-        Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone. Zaloguj się.' });
-        setScreen('login');
-        setPassword('');
-        setConfirmPass('');
-      } else {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nie można utworzyć konta.' });
-      }
-    } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można połączyć się z serwerem.' });
-    } finally {
-      setLoading(false);
-    }
+      if (res.ok) { Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone. Zaloguj się.' }); switchScreen('login'); }
+      else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nie można utworzyć konta.' });
+    } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
+    finally { setLoading(false); }
   };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // RESET HASŁA – KROK 1: wyślij email
-  // ════════════════════════════════════════════════════════════════════════
+  const handleGoogle = async () => {
+    if (!GoogleSignin) return Toast.show({ type: 'info', text1: 'NIEDOSTĘPNE', text2: 'Wymaga pełnego buildu.' });
+    setGLoading(true);
+    try {
+      await GoogleSignin.hasPlayServices();
+      const ui    = await GoogleSignin.signIn();
+      const token = ui.data?.idToken;
+      if (!token) throw new Error('Brak tokenu');
+      const res  = await fetch(`${API_URL}/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token }) });
+      const data = await res.json();
+      if (res.ok) await saveAndNavigate(data.token, data.user);
+      else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Błąd Google.' });
+    } catch (e: any) {
+      if (e.code === statusCodes?.SIGN_IN_CANCELLED) return;
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Logowanie Google nieudane.' });
+    } finally { setGLoading(false); }
+  };
+
   const handleForgot = async () => {
-    if (!forgotEmail) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj adres e-mail.' });
-      return;
-    }
+    if (!forgotEmail) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj e-mail.' });
     setLoading(true);
     try {
-      await fetch(`${SAPI_URL}/auth/forgot-password`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: forgotEmail.trim() }),
-      });
+      await fetch(`${SAPI_URL}/auth/forgot-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim() }) });
       setResetStep('code');
-      Toast.show({ type: 'success', text1: '📧 KOD WYSŁANY', text2: 'Sprawdź swoją skrzynkę.' });
-    } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Błąd serwera. Spróbuj ponownie.' });
-    } finally {
-      setLoading(false);
-    }
+      Toast.show({ type: 'success', text1: '📧 KOD WYSŁANY', text2: 'Sprawdź skrzynkę.' });
+    } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Błąd serwera.' }); }
+    finally { setLoading(false); }
   };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // RESET HASŁA – KROK 2: weryfikuj kod
-  // ════════════════════════════════════════════════════════════════════════
   const handleVerifyCode = async () => {
-    if (resetCode.length !== 6) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz 6-cyfrowy kod.' });
-      return;
-    }
+    if (resetCode.length !== 6) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz 6-cyfrowy kod.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${SAPI_URL}/auth/verify-reset-code`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: forgotEmail.trim(), code: resetCode }),
-      });
+      const res  = await fetch(`${SAPI_URL}/auth/verify-reset-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode }) });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-      setResetToken(data.token);
+      if (!res.ok) throw new Error(data.message ?? 'Nieprawidłowy kod.');
       setResetStep('password');
-    } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nieprawidłowy kod.' });
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message }); }
+    finally { setLoading(false); }
   };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // RESET HASŁA – KROK 3: ustaw nowe hasło
-  // ════════════════════════════════════════════════════════════════════════
   const handleResetPassword = async () => {
-    if (newPassword.length < 6) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło musi mieć min. 6 znaków.' });
-      return;
-    }
+    if (newPassword.length < 6) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Min. 6 znaków.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${SAPI_URL}/auth/reset-password`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ token: resetToken, newPassword }),
-      });
+      const res  = await fetch(`${SAPI_URL}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode, newPassword }) });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-      Toast.show({ type: 'success', text1: '✅ HASŁO ZMIENIONE', text2: 'Możesz się teraz zalogować.' });
+      if (!res.ok) throw new Error(data.message ?? 'Błąd serwera.');
+      Toast.show({ type: 'success', text1: '✅ HASŁO ZMIENIONE', text2: 'Możesz się zalogować.' });
       goToLogin();
-    } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Błąd serwera.' });
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message }); }
+    finally { setLoading(false); }
   };
 
-  // ════════════════════════════════════════════════════════════════════════
-  // RENDER – FORGOT PASSWORD
-  // ════════════════════════════════════════════════════════════════════════
+  // ── SHARED: Hero header ─────────────────────────────────
+  const renderHero = (title: string, sub: string) => (
+    <View style={{ height: height * 0.30, position: 'relative', overflow: 'hidden', marginBottom: -24 }}>
+      <LinearGradient
+        colors={['#1a0404', '#0e0202', '#090909']}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Dekoracje */}
+      <View style={{ position: 'absolute', top: -60, right: -60, width: 240, height: 240, borderRadius: 120, backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383520' }} />
+      <View style={{ position: 'absolute', top: -20, right: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: '#e3383518' }} />
+      <View style={{ position: 'absolute', bottom: -40, left: -40, width: 180, height: 180, borderRadius: 90, backgroundColor: '#e3383506' }} />
+      {/* Scan lines */}
+      {Array.from({ length: 8 }).map((_, i) => (
+        <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.3 / 8), height: 1, backgroundColor: '#ffffff04' }} />
+      ))}
+      {/* Narożniki HUD */}
+      <View style={[s.hudCorner, { top: 20, left: 20 }]}><View style={s.cH} /><View style={s.cV} /></View>
+      <View style={[s.hudCorner, { top: 20, right: 20, alignItems: 'flex-end' }]}><View style={s.cH} /><View style={[s.cV, { left: undefined, right: 0 }]} /></View>
+
+      {/* Content */}
+      <Animated.View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 56, justifyContent: 'center', opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+        {/* Logo chip */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+          <View style={{ backgroundColor: RED, borderRadius: 8, padding: 5 }}>
+            <MaterialCommunityIcons name="car-sports" size={14} color="#fff" />
+          </View>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '900', letterSpacing: 4 }}>VROOM</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 8, backgroundColor: '#4de92612', borderWidth: 1, borderColor: '#4de92635', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 }}>
+            <Animated.View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4de926', transform: [{ scale: pulseAnim }] }} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#4de926', letterSpacing: 2 }}>ONLINE</Text>
+          </View>
+        </View>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, letterSpacing: 4, marginBottom: 6 }}>{sub}</Text>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 32, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>{title}</Text>
+      </Animated.View>
+
+      {/* Bottom fade */}
+      <LinearGradient colors={['transparent', '#090909']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 }} />
+    </View>
+  );
+
+  // ── SHARED: Field ───────────────────────────────────────
+  const renderField = (
+    label: string,
+    icon: string,
+    value: string,
+    onChange: (t: string) => void,
+    opts: {
+      placeholder?: string;
+      secure?: boolean;
+      showToggle?: boolean;
+      onToggle?: () => void;
+      keyboardType?: any;
+      maxLength?: number;
+      autoCapitalize?: any;
+      error?: boolean;
+    } = {}
+  ) => (
+    <View style={{ marginBottom: 16 }}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <View style={[s.inputRow, opts.error && { borderColor: RED + '60' }]}>
+        <View style={s.inputIconWrap}>
+          <MaterialIcons name={icon as any} size={17} color={RED} />
+        </View>
+        <TextInput
+          style={s.input}
+          placeholder={opts.placeholder ?? ''}
+          placeholderTextColor="#ffffff20"
+          keyboardType={opts.keyboardType}
+          autoCapitalize={opts.autoCapitalize ?? 'none'}
+          secureTextEntry={opts.secure}
+          maxLength={opts.maxLength}
+          value={value}
+          onChangeText={onChange}
+        />
+        {opts.showToggle && (
+          <TouchableOpacity onPress={opts.onToggle} style={s.eyeBtn}>
+            <MaterialIcons name={opts.secure ? 'visibility' : 'visibility-off'} size={17} color="#ffffff25" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+
+  // ── FORGOT ─────────────���────────────────────────────────
   if (screen === 'forgot') {
     return (
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.container}>
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {renderHero('RESET HASŁA', 'ODZYSKIWANIE KONTA')}
 
-          <TouchableOpacity style={s.backRow} onPress={goToLogin}>
-            <MaterialIcons name="arrow-back" size={20} color="#e33835" />
-            <Text style={s.backText}>Wróć do logowania</Text>
-          </TouchableOpacity>
+          <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
 
-          <View style={s.logoWrap}>
-            <Image source={require('../assets/images/logo-RED.png')} style={s.logo} resizeMode="contain" />
-          </View>
+            {/* Wróć */}
+            <TouchableOpacity style={s.backRow} onPress={goToLogin}>
+              <MaterialIcons name="arrow-back-ios" size={14} color={RED} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: RED }}>POWRÓT</Text>
+            </TouchableOpacity>
 
-          {/* KROKI */}
-          <View style={s.stepsRow}>
-            {(['email', 'code', 'password'] as ResetStep[]).map((step, i) => {
-              const isDone   = (step === 'email' && (resetStep === 'code' || resetStep === 'password'))
+            {/* Steps */}
+            <View style={s.stepsRow}>
+              {(['email', 'code', 'password'] as ResetStep[]).map((step, i) => {
+                const done   = (step === 'email' && (resetStep === 'code' || resetStep === 'password'))
                             || (step === 'code'  && resetStep === 'password');
-              const isActive = resetStep === step;
-              return (
-                <React.Fragment key={step}>
-                  <View style={[s.stepDot, isActive && s.stepDotActive, isDone && s.stepDotDone]}>
-                    {isDone
-                      ? <MaterialIcons name="check" size={14} color="#4CAF50" />
-                      : <Text style={[s.stepNum, isActive && { color: '#e33835' }]}>{i + 1}</Text>
-                    }
-                  </View>
-                  {i < 2 && <View style={[s.stepLine, isDone && s.stepLineDone]} />}
-                </React.Fragment>
-              );
-            })}
-          </View>
+                const active = resetStep === step;
+                return (
+                  <React.Fragment key={step}>
+                    <View style={[s.stepDot, active && s.stepDotActive, done && s.stepDotDone]}>
+                      {done
+                        ? <MaterialIcons name="check" size={13} color="#4de926" />
+                        : <Text style={[s.stepNum, active && { color: RED }]}>{i + 1}</Text>
+                      }
+                    </View>
+                    {i < 2 && <View style={[s.stepLine, done && { backgroundColor: '#4de92650' }]} />}
+                  </React.Fragment>
+                );
+              })}
+            </View>
 
-          {/* ── KROK 1: Email ── */}
-          {resetStep === 'email' && (
-            <>
-              <View style={s.titleWrap}>
-                <Text style={s.title}>RESET HASŁA</Text>
-                <Text style={s.subtitle}>Podaj e-mail powiązany z kontem.{'\n'}Wyślemy 6-cyfrowy kod weryfikacyjny.</Text>
-              </View>
+            {resetStep === 'email' && (
+              <>
+                <Text style={s.sectionTitle}>ADRES E-MAIL</Text>
+                <Text style={s.sectionSub}>Wyślemy 6-cyfrowy kod na Twój adres.</Text>
+                {renderField('E-MAIL', 'email', forgotEmail, setForgotEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
+                <ActionButton label="WYŚLIJ KOD" icon="send" onPress={handleForgot} loading={loading} disabled={!forgotEmail} />
+              </>
+            )}
 
-              <View style={s.card}>
-                <Text style={s.fieldLabel}>ADRES E-MAIL</Text>
-                <View style={s.inputRow}>
-                  <MaterialIcons name="email" size={18} color="#e33835" style={s.inputIcon} />
-                  <TextInput
-                    style={s.input}
-                    placeholder="twoj@email.com"
-                    placeholderTextColor="#ffffff25"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={forgotEmail}
-                    onChangeText={setForgotEmail}
-                  />
-                </View>
-              </View>
+            {resetStep === 'code' && (
+              <>
+                <Text style={s.sectionTitle}>KOD WERYFIKACYJNY</Text>
+                <Text style={s.sectionSub}>Wysłano na <Text style={{ color: RED }}>{forgotEmail}</Text></Text>
+                {renderField('6-CYFROWY KOD', 'pin', resetCode, setResetCode, { placeholder: '000000', keyboardType: 'number-pad', maxLength: 6 })}
+                <ActionButton label="WERYFIKUJ" icon="verified" onPress={handleVerifyCode} loading={loading} disabled={resetCode.length !== 6} />
+                <TouchableOpacity style={{ alignItems: 'center', padding: 12 }} onPress={handleForgot}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff30' }}>Wyślij ponownie →</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
-              <TouchableOpacity
-                style={[s.mainBtn, (!forgotEmail || loading) && { opacity: 0.5 }]}
-                onPress={handleForgot}
-                disabled={!forgotEmail || loading}
-                activeOpacity={0.85}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <><MaterialIcons name="send" size={18} color="#fff" /><Text style={s.mainBtnText}>WYŚLIJ KOD</Text></>
-                }
-              </TouchableOpacity>
-            </>
-          )}
+            {resetStep === 'password' && (
+              <>
+                <Text style={s.sectionTitle}>NOWE HASŁO</Text>
+                <Text style={s.sectionSub}>Ustaw nowe bezpieczne hasło.</Text>
+                {renderField('HASŁO', 'lock', newPassword, setNewPassword, { placeholder: 'Min. 6 znaków', secure: !showNewPass, showToggle: true, onToggle: () => setShowNewPass(v => !v) })}
+                {newPassword.length > 0 && <StrengthBar value={newPassword} />}
+                <ActionButton label="ZMIEŃ HASŁO" icon="lock-reset" onPress={handleResetPassword} loading={loading} disabled={newPassword.length < 6} />
+              </>
+            )}
 
-          {/* ── KROK 2: Kod ── */}
-          {resetStep === 'code' && (
-            <>
-              <View style={s.titleWrap}>
-                <Text style={s.title}>WPISZ KOD</Text>
-                <Text style={s.subtitle}>
-                  Wysłaliśmy 6-cyfrowy kod na{'\n'}
-                  <Text style={{ color: '#e33835' }}>{forgotEmail}</Text>
-                </Text>
-              </View>
-
-              <View style={s.card}>
-                <Text style={s.fieldLabel}>KOD WERYFIKACYJNY</Text>
-                <View style={s.inputRow}>
-                  <MaterialIcons name="pin" size={18} color="#e33835" style={s.inputIcon} />
-                  <TextInput
-                    style={[s.input, s.codeInput]}
-                    placeholder="000000"
-                    placeholderTextColor="#ffffff25"
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    value={resetCode}
-                    onChangeText={setResetCode}
-                  />
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[s.mainBtn, (resetCode.length !== 6 || loading) && { opacity: 0.5 }]}
-                onPress={handleVerifyCode}
-                disabled={resetCode.length !== 6 || loading}
-                activeOpacity={0.85}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <><MaterialIcons name="verified" size={18} color="#fff" /><Text style={s.mainBtnText}>WERYFIKUJ KOD</Text></>
-                }
-              </TouchableOpacity>
-
-              <TouchableOpacity style={s.resendBtn} onPress={handleForgot} disabled={loading}>
-                <Text style={s.resendText}>Nie dostałeś kodu? Wyślij ponownie →</Text>
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* ── KROK 3: Nowe hasło ── */}
-          {resetStep === 'password' && (
-            <>
-              <View style={s.titleWrap}>
-                <Text style={s.title}>NOWE HASŁO</Text>
-                <Text style={s.subtitle}>Ustaw nowe hasło do konta VROOM.</Text>
-              </View>
-
-              <View style={s.card}>
-                <Text style={s.fieldLabel}>NOWE HASŁO</Text>
-                <View style={s.inputRow}>
-                  <MaterialIcons name="lock" size={18} color="#e33835" style={s.inputIcon} />
-                  <TextInput
-                    style={s.input}
-                    placeholder="Min. 6 znaków"
-                    placeholderTextColor="#ffffff25"
-                    secureTextEntry={!showNewPass}
-                    autoCapitalize="none"
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                  />
-                  <TouchableOpacity onPress={() => setShowNewPass(v => !v)} style={s.eyeBtn}>
-                    <MaterialIcons name={showNewPass ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
-                  </TouchableOpacity>
-                </View>
-
-                {newPassword.length > 0 && (
-                  <View style={s.strengthRow}>
-                    {[1,2,3,4].map(i => (
-                      <View key={i} style={[s.strengthBar, {
-                        backgroundColor: newPassword.length >= i * 3 ? strengthColor(newPassword.length) : '#ffffff10',
-                      }]} />
-                    ))}
-                    <Text style={s.strengthLabel}>{strengthLabel(newPassword.length)}</Text>
-                  </View>
-                )}
-              </View>
-
-              <TouchableOpacity
-                style={[s.mainBtn, (newPassword.length < 6 || loading) && { opacity: 0.5 }]}
-                onPress={handleResetPassword}
-                disabled={newPassword.length < 6 || loading}
-                activeOpacity={0.85}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" />
-                  : <><MaterialIcons name="lock-reset" size={18} color="#fff" /><Text style={s.mainBtnText}>ZMIEŃ HASŁO</Text></>
-                }
-              </TouchableOpacity>
-            </>
-          )}
-
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // RENDER – LOGIN / REGISTER
-  // ════════════════════════════════════════════════════════════════════════
+  // ── LOGIN / REGISTER ────────────────────────────────────
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.container}>
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-        {/* LOGO */}
-        <View style={s.logoWrap}>
-          <Image source={require('../assets/images/logo-RED.png')} style={s.logo} resizeMode="contain" />
-          <Text style={s.logoTagline}>
-            {screen === 'login' ? 'WITAJ Z POWROTEM' : 'DOŁĄCZ DO SPOŁECZNOŚCI'}
-          </Text>
-        </View>
+        {renderHero(
+          screen === 'login' ? 'ZALOGUJ SIĘ' : 'NOWE KONTO',
+          screen === 'login' ? 'WITAJ Z POWROTEM' : 'DOŁĄCZ DO SPOŁECZNOŚCI',
+        )}
 
-        {/* TOGGLE */}
-        <View style={s.toggle}>
-          <TouchableOpacity
-            style={[s.toggleBtn, screen === 'login' && s.toggleBtnActive]}
-            onPress={() => { setScreen('login'); setPassword(''); setConfirmPass(''); }}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.toggleText, screen === 'login' && s.toggleTextActive]}>LOGOWANIE</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.toggleBtn, screen === 'register' && s.toggleBtnActive]}
-            onPress={() => { setScreen('register'); setPassword(''); setConfirmPass(''); }}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.toggleText, screen === 'register' && s.toggleTextActive]}>REJESTRACJA</Text>
-          </TouchableOpacity>
-        </View>
+        <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
 
-        {/* FORMULARZ */}
-        <View style={s.card}>
+          {/* Toggle */}
+          <View style={s.toggle}>
+            {(['login', 'register'] as Screen[]).map(sc => (
+              <TouchableOpacity
+                key={sc}
+                style={[s.toggleBtn, screen === sc && s.toggleBtnActive]}
+                onPress={() => switchScreen(sc)}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons
+                  name={sc === 'login' ? 'login' : 'person-add'}
+                  size={13}
+                  color={screen === sc ? '#fff' : '#ffffff40'}
+                />
+                <Text style={[s.toggleText, screen === sc && { color: '#fff' }]}>
+                  {sc === 'login' ? 'LOGOWANIE' : 'REJESTRACJA'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-          {/* Username – rejestracja */}
+          {/* Formularz */}
+          {screen === 'register' && renderField('NAZWA UŻYTKOWNIKA', 'person-outline', username, setUsername, { placeholder: 'np. NightRider_PL' })}
+          {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
+          {renderField('HASŁO', 'lock-outline', password, setPassword, {
+            placeholder: '••••••••',
+            secure: !showPass,
+            showToggle: true,
+            onToggle: () => setShowPass(v => !v),
+          })}
+          {screen === 'register' && password.length > 0 && <StrengthBar value={password} />}
+
           {screen === 'register' && (
             <>
-              <Text style={s.fieldLabel}>NAZWA UŻYTKOWNIKA</Text>
-              <View style={s.inputRow}>
-                <MaterialIcons name="person-outline" size={18} color="#e33835" style={s.inputIcon} />
-                <TextInput
-                  style={s.input}
-                  placeholder="np. NightRider_PL"
-                  placeholderTextColor="#ffffff25"
-                  value={username}
-                  onChangeText={setUsername}
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={s.fieldDivider} />
+              {renderField('POTWIERDŹ HASŁO', 'check-circle-outline', confirmPass, setConfirmPass, {
+                placeholder: 'Powtórz hasło',
+                secure: !showConfirm,
+                showToggle: true,
+                onToggle: () => setShowConfirm(v => !v),
+                error: !!confirmPass && password !== confirmPass,
+              })}
+              {!!confirmPass && password !== confirmPass && (
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, marginTop: -10, marginBottom: 12 }}>Hasła nie są identyczne</Text>
+              )}
+              {!!confirmPass && password === confirmPass && (
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', marginTop: -10, marginBottom: 12 }}>✓ Hasła są identyczne</Text>
+              )}
             </>
           )}
 
-          {/* Email */}
-          <Text style={s.fieldLabel}>ADRES E-MAIL</Text>
-          <View style={s.inputRow}>
-            <MaterialIcons name="email" size={18} color="#e33835" style={s.inputIcon} />
-            <TextInput
-              style={s.input}
-              placeholder="twoj@email.com"
-              placeholderTextColor="#ffffff25"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          <View style={s.fieldDivider} />
-
-          {/* Hasło */}
-          <Text style={s.fieldLabel}>HASŁO</Text>
-          <View style={s.inputRow}>
-            <MaterialIcons name="lock-outline" size={18} color="#e33835" style={s.inputIcon} />
-            <TextInput
-              style={s.input}
-              placeholder="••••••••"
-              placeholderTextColor="#ffffff25"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              autoCapitalize="none"
-            />
-            <TouchableOpacity onPress={() => setShowPassword(v => !v)} style={s.eyeBtn}>
-              <MaterialIcons name={showPassword ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
+          {screen === 'login' && (
+            <TouchableOpacity style={s.forgotRow} onPress={() => { setScreen('forgot'); setForgotEmail(email); animateSwitch(); }}>
+              <MaterialIcons name="help-outline" size={12} color={RED} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED }}>Zapomniałeś hasła?</Text>
             </TouchableOpacity>
+          )}
+
+          <ActionButton
+            label={screen === 'login' ? 'ZALOGUJ SIĘ' : 'UTWÓRZ KONTO'}
+            icon={screen === 'login' ? 'login' : 'person-add'}
+            onPress={screen === 'login' ? handleLogin : handleRegister}
+            loading={loading}
+          />
+
+          {/* Divider */}
+          <View style={s.divider}>
+            <View style={s.divLine} />
+            <Text style={s.divText}>LUB</Text>
+            <View style={s.divLine} />
           </View>
 
-          {/* Siła hasła – rejestracja */}
-          {screen === 'register' && password.length > 0 && (
-            <View style={s.strengthRow}>
-              {[1,2,3,4].map(i => (
-                <View key={i} style={[s.strengthBar, {
-                  backgroundColor: password.length >= i * 3 ? strengthColor(password.length) : '#ffffff10',
-                }]} />
-              ))}
-              <Text style={s.strengthLabel}>{strengthLabel(password.length)}</Text>
-            </View>
-          )}
-
-          {/* Potwierdź hasło – rejestracja */}
-          {screen === 'register' && (
-            <>
-              <View style={s.fieldDivider} />
-              <Text style={s.fieldLabel}>POTWIERDŹ HASŁO</Text>
-              <View style={[s.inputRow, confirmPass && password !== confirmPass && s.inputError]}>
-                <MaterialIcons name="check-circle-outline" size={18} color="#e33835" style={s.inputIcon} />
-                <TextInput
-                  style={s.input}
-                  placeholder="Powtórz hasło"
-                  placeholderTextColor="#ffffff25"
-                  secureTextEntry={!showConfirm}
-                  value={confirmPass}
-                  onChangeText={setConfirmPass}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity onPress={() => setShowConfirm(v => !v)} style={s.eyeBtn}>
-                  <MaterialIcons name={showConfirm ? 'visibility' : 'visibility-off'} size={18} color="#ffffff30" />
-                </TouchableOpacity>
-              </View>
-              {confirmPass && password !== confirmPass && (
-                <Text style={s.errorHint}>Hasła nie są identyczne</Text>
-              )}
-              {confirmPass && password === confirmPass && (
-                <Text style={s.successHint}>✓ Hasła są identyczne</Text>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* Zapomniałem hasła */}
-        {screen === 'login' && (
-          <TouchableOpacity
-            style={s.forgotBtn}
-            onPress={() => { setScreen('forgot'); setForgotEmail(email); }}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="help-outline" size={13} color="#e33835" />
-            <Text style={s.forgotText}>Zapomniałeś hasła?</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* GŁÓWNY PRZYCISK */}
-        <TouchableOpacity
-          style={[s.mainBtn, loading && { opacity: 0.6 }]}
-          onPress={screen === 'login' ? handleLogin : handleRegister}
-          disabled={loading}
-          activeOpacity={0.85}
-        >
-          {loading
-            ? <ActivityIndicator color="#fff" />
-            : <>
-                <MaterialIcons name={screen === 'login' ? 'login' : 'person-add'} size={18} color="#fff" />
-                <Text style={s.mainBtnText}>{screen === 'login' ? 'ZALOGUJ SIĘ' : 'UTWÓRZ KONTO'}</Text>
+          {/* Google */}
+          <TouchableOpacity style={s.googleBtn} onPress={handleGoogle} disabled={gLoading} activeOpacity={0.85}>
+            {gLoading ? <ActivityIndicator color="#fff" /> : (
+              <>
+                <View style={s.googleIcon}><MaterialCommunityIcons name="google" size={18} color="#fff" /></View>
+                <Text style={s.googleTxt}>Kontynuuj z Google</Text>
               </>
-          }
-        </TouchableOpacity>
-
-        {/* DIVIDER */}
-        <View style={s.dividerRow}>
-          <View style={s.dividerLine} />
-          <Text style={s.dividerText}>LUB</Text>
-          <View style={s.dividerLine} />
-        </View>
-
-        {/* SOCIAL */}
-        <View style={s.socialRow}>
-          <TouchableOpacity
-            style={s.socialBtn}
-            onPress={() => Toast.show({ type: 'info', text1: 'WKRÓTCE', text2: 'Logowanie przez Google.' })}
-          >
-            <MaterialCommunityIcons name="google" size={20} color="#fff" />
-            <Text style={s.socialBtnText}>Google</Text>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity
-            style={s.socialBtn}
-            onPress={() => Toast.show({ type: 'info', text1: 'WKRÓTCE', text2: 'Logowanie przez Apple.' })}
-          >
-            <MaterialCommunityIcons name="apple" size={20} color="#fff" />
-            <Text style={s.socialBtnText}>Apple</Text>
-          </TouchableOpacity>
-        </View>
 
-        {/* Regulamin */}
-        {screen === 'register' && (
-          <Text style={s.terms}>
-            Rejestrując się akceptujesz{' '}
-            <Text style={{ color: '#e33835' }}>Regulamin</Text>
-            {' '}oraz{' '}
-            <Text style={{ color: '#e33835' }}>Politykę Prywatności</Text>
-            {' '}VROOM.
-          </Text>
-        )}
+          {screen === 'register' && (
+            <Text style={s.terms}>
+              Rejestrując się akceptujesz{' '}
+              <Text style={{ color: RED }}>Regulamin</Text>{' '}oraz{' '}
+              <Text style={{ color: RED }}>Politykę Prywatności</Text> VROOM.
+            </Text>
+          )}
 
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+// ── ActionButton ──────────────────────────────────────────
+function ActionButton({ label, icon, onPress, loading, disabled }: {
+  label: string; icon: string; onPress: () => void;
+  loading?: boolean; disabled?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={[s.mainBtn, (disabled || loading) && { opacity: 0.5 }]}
+      onPress={onPress}
+      disabled={disabled || loading}
+      activeOpacity={0.85}
+    >
+      <LinearGradient
+        colors={[RED, '#c02020']}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+        style={s.mainBtnGrad}
+      >
+        {/* Shimmer dekoracja */}
+        <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 80, backgroundColor: '#ffffff10' }} />
+        {loading
+          ? <ActivityIndicator color="#fff" />
+          : <>
+              <MaterialIcons name={icon as any} size={18} color="#fff" />
+              <Text style={s.mainBtnText}>{label}</Text>
+            </>
+        }
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+}
+
+// ── StrengthBar ───────────────────────────────────────────
+function StrengthBar({ value }: { value: string }) {
+  const len   = value.length;
+  const color = len >= 10 ? '#4de926' : len >= 6 ? '#ff922b' : RED;
+  const label = len < 6 ? 'Za krótkie' : len < 10 ? 'Słabe' : 'Silne';
+  const pct   = Math.min((len / 12) * 100, 100);
+
+  return (
+    <View style={{ marginBottom: 16, gap: 5 }}>
+      <View style={{ height: 3, backgroundColor: '#ffffff0a', borderRadius: 2, overflow: 'hidden' }}>
+        <View style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: 2 }} />
+      </View>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: color + 'aa' }}>{label}</Text>
+    </View>
+  );
+}
+
+// ── STYLES ────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container:       { flex: 1, backgroundColor: '#0f0f0f' },
-  scroll:          { flexGrow: 1, paddingHorizontal: '6%', paddingVertical: 50 },
+  root: { flex: 1, backgroundColor: '#090909' },
+
+  // Sheet
+  sheet: {
+    flex: 1,
+    backgroundColor: '#0f0f0f',
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    padding: 24, paddingTop: 32,
+    borderWidth: 1, borderColor: '#ffffff08',
+    minHeight: height * 0.72,
+  },
 
   // Back
-  backRow:         { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 32 },
-  backText:        { fontFamily: 'Orbitron', color: '#e33835', fontSize: 11 },
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24 },
 
-  // Logo
-  logoWrap:        { alignItems: 'center', marginBottom: 36 },
-  logo:            { width: 200, height: 44 },
-  logoTagline:     { fontFamily: 'Orbitron', color: '#ffffff30', fontSize: 9, letterSpacing: 3, marginTop: 10 },
+  // Steps
+  stepsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
+  stepDot:  { width: 34, height: 34, borderRadius: 17, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#ffffff15', justifyContent: 'center', alignItems: 'center' },
+  stepDotActive: { borderColor: RED, backgroundColor: RED + '18' },
+  stepDotDone:   { borderColor: '#4de92660', backgroundColor: '#4de92615' },
+  stepNum:  { fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff30' },
+  stepLine: { flex: 1, height: 1, backgroundColor: '#ffffff10', marginHorizontal: 10 },
+
+  sectionTitle: { fontFamily: 'Orbitron', fontSize: 16, color: '#fff', fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
+  sectionSub:   { fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff40', marginBottom: 22, lineHeight: 15 },
 
   // Toggle
-  toggle:          { flexDirection: 'row', backgroundColor: '#1a1a1a', borderRadius: 14, padding: 4, marginBottom: 20, borderWidth: 1, borderColor: '#ffffff08' },
-  toggleBtn:       { flex: 1, paddingVertical: 12, borderRadius: 11, alignItems: 'center' },
-  toggleBtnActive: { backgroundColor: '#e33835' },
-  toggleText:      { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 10, letterSpacing: 1 },
-  toggleTextActive:{ color: '#fff' },
+  toggle: {
+    flexDirection: 'row',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 14, padding: 4,
+    marginBottom: 24,
+    borderWidth: 1, borderColor: '#ffffff08',
+  },
+  toggleBtn: { flex: 1, paddingVertical: 12, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
+  toggleBtnActive: { backgroundColor: RED },
+  toggleText: { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9, letterSpacing: 1 },
 
-  // Card
-  card:            { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 20, marginBottom: 12, borderWidth: 1, borderColor: '#ffffff08' },
-  fieldLabel:      { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8, letterSpacing: 2, marginBottom: 8 },
-  fieldDivider:    { height: 1, backgroundColor: '#ffffff08', marginVertical: 14 },
-  inputRow:        { flexDirection: 'row', alignItems: 'center', backgroundColor: '#252525', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff08' },
-  inputError:      { borderColor: '#e3383580' },
-  inputIcon:       { marginLeft: 12 },
-  input:           { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 },
-  eyeBtn:          { padding: 12 },
-  codeInput:       { letterSpacing: 8, fontSize: 20, textAlign: 'center' },
-
-  // Siła hasła
-  strengthRow:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  strengthBar:     { flex: 1, height: 3, borderRadius: 2 },
-  strengthLabel:   { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 8, marginLeft: 4 },
-
-  errorHint:       { fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, marginTop: 6 },
-  successHint:     { fontFamily: 'Orbitron', color: '#4CAF50', fontSize: 8, marginTop: 6 },
+  // Field
+  fieldLabel: { fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff35', letterSpacing: 2, marginBottom: 8 },
+  inputRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff0a', marginBottom: 0 },
+  inputIconWrap: { width: 44, alignItems: 'center', justifyContent: 'center' },
+  input:      { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 12, paddingVertical: 15, paddingRight: 14 },
+  eyeBtn:     { padding: 14 },
 
   // Forgot
-  forgotBtn:       { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end', marginBottom: 16 },
-  forgotText:      { fontFamily: 'Orbitron', color: '#e33835', fontSize: 10 },
+  forgotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end', marginBottom: 20, marginTop: -4 },
 
-  // Tytuł (forgot screen)
-  titleWrap:       { alignItems: 'center', marginBottom: 24 },
-  title:           { fontFamily: 'Orbitron', color: '#fff', fontSize: 18, letterSpacing: 2, marginBottom: 8 },
-  subtitle:        { fontFamily: 'Orbitron', color: '#ffffff50', fontSize: 10, textAlign: 'center', lineHeight: 18 },
-
-  // Kroki
-  stepsRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 32 },
-  stepDot:         { width: 32, height: 32, borderRadius: 16, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' },
-  stepDotActive:   { borderColor: '#e33835', backgroundColor: '#e3383520' },
-  stepDotDone:     { borderColor: '#4CAF50', backgroundColor: '#4CAF5020' },
-  stepNum:         { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 11 },
-  stepLine:        { flex: 1, height: 1, backgroundColor: '#ffffff10', marginHorizontal: 8 },
-  stepLineDone:    { backgroundColor: '#4CAF5060' },
-
-  // Wyślij ponownie
-  resendBtn:       { alignItems: 'center', marginTop: 16, padding: 8 },
-  resendText:      { fontFamily: 'Orbitron', color: '#ffffff30', fontSize: 9 },
-
-  // Główny przycisk
-  mainBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#e33835', borderRadius: 14, height: 56, marginBottom: 24, elevation: 8, shadowColor: '#e33835', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10 },
-  mainBtnText:     { fontFamily: 'Orbitron', color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 1 },
+  // Main button
+  mainBtn: { borderRadius: 16, overflow: 'hidden', marginBottom: 20 },
+  mainBtnGrad: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, height: 58, overflow: 'hidden',
+  },
+  mainBtnText: { fontFamily: 'Orbitron', color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 1 },
 
   // Divider
-  dividerRow:      { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  dividerLine:     { flex: 1, height: 1, backgroundColor: '#ffffff0a' },
-  dividerText:     { fontFamily: 'Orbitron', color: '#ffffff20', fontSize: 9, marginHorizontal: 14 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  divLine: { flex: 1, height: 1, backgroundColor: '#ffffff08' },
+  divText: { fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff20', marginHorizontal: 14 },
 
-  // Social
-  socialRow:       { flexDirection: 'row', gap: 10, marginBottom: 24 },
-  socialBtn:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#1a1a1a', borderRadius: 12, height: 50, borderWidth: 1, borderColor: '#ffffff08' },
-  socialBtnText:   { fontFamily: 'Orbitron', color: '#ffffff60', fontSize: 10 },
+  // Google
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+    height: 54, borderRadius: 16, borderWidth: 1, borderColor: '#ffffff10',
+    backgroundColor: '#1a1a1a', marginBottom: 24,
+  },
+  googleIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#EA4335', alignItems: 'center', justifyContent: 'center' },
+  googleTxt:  { fontFamily: 'Orbitron', color: '#ffffffcc', fontSize: 12 },
 
-  // Regulamin
-  terms:           { color: '#ffffff30', fontSize: 10, textAlign: 'center', lineHeight: 16 },
+  // Terms
+  terms: { fontFamily: 'Orbitron', color: '#ffffff25', fontSize: 9, textAlign: 'center', lineHeight: 16 },
+
+  // HUD corners
+  hudCorner: { position: 'absolute' },
+  cH: { width: 18, height: 2, backgroundColor: RED, opacity: 0.6 },
+  cV: { position: 'absolute', top: 0, left: 0, width: 2, height: 18, backgroundColor: RED, opacity: 0.6 },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   Image, StatusBar, TextInput,
@@ -10,16 +10,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
 import { useTheme } from '../../../contexts/ThemeContext';
 
-const API = 'https://v-room.app/api/chat';
-const WS  = 'https://v-room.app';
-const AVATAR = 54;
+const API      = 'https://v-room.app/api/chat';
+const WS       = 'https://v-room.app';
+const AVATAR   = 54;
+const PAGE     = 8;
 
 interface Conversation {
-  id:          number;
-  isGroup:     boolean;
-  name:        string;
-  avatarUrl:   string | null;
-  online:      boolean;
+  id:           number;
+  isGroup:      boolean;
+  name:         string;
+  avatarUrl:    string | null;
+  online:       boolean;
   participants: any[];
   lastMessage: {
     content:    string;
@@ -33,8 +34,8 @@ interface Conversation {
 
 function formatTime(iso: string): string {
   try {
-    const date  = new Date(iso);
-    const now   = new Date();
+    const date   = new Date(iso);
+    const now    = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffM  = Math.floor(diffMs / 60000);
     const diffH  = Math.floor(diffMs / 3600000);
@@ -55,14 +56,20 @@ export default function ChatsIndex() {
   const [filtered,      setFiltered]      = useState<Conversation[]>([]);
   const [search,        setSearch]        = useState('');
   const [loading,       setLoading]       = useState(false);
+  const [loadingMore,   setLoadingMore]   = useState(false);
+  const [hasMore,       setHasMore]       = useState(true);
+  const [cursor,        setCursor]        = useState<number | null>(null);
   const [myId,          setMyId]          = useState<number | null>(null);
-  const socketRef = React.useRef<Socket | null>(null);
 
+  const socketRef    = useRef<Socket | null>(null);
+  const fetchingRef  = useRef(false); // blokada podwójnego fetcha
+
+  // ── Init socket ────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const raw   = await AsyncStorage.getItem('user');
       const token = await AsyncStorage.getItem('token');
-      if (raw)   setMyId(JSON.parse(raw).userId);
+      if (raw) setMyId(JSON.parse(raw).userId);
       if (!token) return;
 
       const socket = io(WS, { auth: { token }, transports: ['websocket'] });
@@ -71,43 +78,101 @@ export default function ChatsIndex() {
         setConversations(prev => {
           const updated = prev.map(c =>
             c.id === conversationId
-              ? { ...c, unread: isMe ? c.unread : c.unread + 1, lastMessage: { content: message.content ?? '', photos: [], createdAt: new Date().toISOString(), senderName: message.senderName, isMe: !!isMe } }
+              ? {
+                  ...c,
+                  unread: isMe ? c.unread : c.unread + 1,
+                  lastMessage: {
+                    content:    message.content ?? '',
+                    photos:     [],
+                    createdAt:  new Date().toISOString(),
+                    senderName: message.senderName,
+                    isMe:       !!isMe,
+                  },
+                }
               : c
           );
-          return updated.sort((a, b) => (b.lastMessage?.createdAt ?? '').localeCompare(a.lastMessage?.createdAt ?? ''));
+          return updated.sort((a, b) =>
+            (b.lastMessage?.createdAt ?? '').localeCompare(a.lastMessage?.createdAt ?? '')
+          );
         });
       });
 
-      socket.on('chat:new_conversation', () => fetchConversations());
+      socket.on('chat:new_conversation', () => fetchConversations(true));
       socketRef.current = socket;
     })();
 
     return () => { socketRef.current?.disconnect(); };
   }, []);
 
-  const fetchConversations = useCallback(async () => {
-    setLoading(true);
+  // ── Pobierz pierwszą stronę ────────────────────────────
+  const fetchConversations = useCallback(async (reset = true) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    if (reset) setLoading(true);
+
     try {
       const token = await AsyncStorage.getItem('token');
-      const r     = await fetch(`${API}/conversations`, { headers: { Authorization: `Bearer ${token}` } });
+      const url   = `${API}/conversations?limit=${PAGE}`;
+      const r     = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const data  = await r.json();
-      setConversations(Array.isArray(data) ? data : []);
-      setFiltered(Array.isArray(data) ? data : []);
+      const list  = Array.isArray(data) ? data : (data.conversations ?? []);
+      const next  = data.nextCursor ?? null;
+
+      setConversations(list);
+      setFiltered(list);
+      setCursor(next);
+      setHasMore(!!next);
     } catch (e) { console.error('fetchConversations:', e); }
-    finally { setLoading(false); }
+    finally {
+      setLoading(false);
+      fetchingRef.current = false;
+    }
   }, []);
+
+  // ── Załaduj więcej (scroll w dół) ─────────────────────
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore || fetchingRef.current || !cursor || search) return;
+    fetchingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const r     = await fetch(
+        `${API}/conversations?limit=${PAGE}&cursor=${cursor}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await r.json();
+      const list = Array.isArray(data) ? data : (data.conversations ?? []);
+      const next = data.nextCursor ?? null;
+
+      setConversations(prev => {
+        const ids     = new Set(prev.map(c => c.id));
+        const newOnes = list.filter((c: Conversation) => !ids.has(c.id));
+        return [...prev, ...newOnes];
+      });
+      setCursor(next);
+      setHasMore(!!next);
+    } catch (e) { console.error('loadMore:', e); }
+    finally {
+      setLoadingMore(false);
+      fetchingRef.current = false;
+    }
+  }, [hasMore, loadingMore, cursor, search]);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
   useFocusEffect(useCallback(() => { fetchConversations(); }, [fetchConversations]));
 
+  // ── Filtrowanie lokalne ────────────────────────────────
   useEffect(() => {
     if (!search.trim()) { setFiltered(conversations); return; }
     const q = search.toLowerCase();
     setFiltered(conversations.filter(c => c.name?.toLowerCase().includes(q)));
   }, [search, conversations]);
 
+  // ── Render konwersacji ─────────────────────────────────
   const renderItem = useCallback(({ item }: { item: Conversation }) => {
-    const lastText   = item.lastMessage ? item.lastMessage.content?.trim() || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '') : 'Brak wiadomości';
+    const lastText   = item.lastMessage
+      ? item.lastMessage.content?.trim() || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '')
+      : 'Brak wiadomości';
     const lastPrefix = item.lastMessage?.isMe ? 'Ty: ' : '';
 
     return (
@@ -199,12 +264,26 @@ export default function ChatsIndex() {
         data={filtered}
         keyExtractor={item => String(item.id)}
         renderItem={renderItem}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchConversations} tintColor={theme.primary} colors={[theme.primary]} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => fetchConversations(true)}
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={
+          loadingMore
+            ? <ActivityIndicator color={theme.primary} style={{ marginVertical: 16 }} />
+            : null
+        }
         ListEmptyComponent={
           loading ? (
             <ActivityIndicator color={theme.primary} style={{ marginTop: 60 }} />
           ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 80 }}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 80, paddingTop: 60 }}>
               <MaterialCommunityIcons name="chat-outline" size={52} color={theme.border3} />
               <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>
                 {search ? 'Brak wyników' : 'Brak wiadomości'}
@@ -225,7 +304,9 @@ export default function ChatsIndex() {
           )
         }
         contentContainerStyle={filtered.length === 0 ? { flex: 1 } : { paddingBottom: 100 }}
-        ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 20 + AVATAR + 14 }} />}
+        ItemSeparatorComponent={() => (
+          <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 20 + AVATAR + 14 }} />
+        )}
       />
     </View>
   );

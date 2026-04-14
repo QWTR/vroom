@@ -19,6 +19,11 @@ interface CarDetail {
   id:                number;
   brand:             string;
   specs:             string;
+  year:              number | null;
+  power:             number | null;
+  engine:            string | null;
+  color:             string | null;
+  mods:              string | null;
   isMain:            boolean;
   photos:            string[];
   ownerId:           number;
@@ -29,6 +34,7 @@ interface CarDetail {
   sharedToCommunity: boolean;
   comments:          CarComment[];
 }
+
 interface CarComment {
   id:        number;
   text:      string;
@@ -107,9 +113,9 @@ export default function CarDetailScreen() {
     try {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/cars/${car.id}/comments`, {
-        method: 'POST',
+        method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: commentText.trim() }),
+        body:    JSON.stringify({ text: commentText.trim() }),
       });
       if (!res.ok) throw new Error();
       const comment: CarComment = await res.json();
@@ -188,9 +194,49 @@ export default function CarDetailScreen() {
               </View>
             </View>
           )}
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 22, marginBottom: 6 }}>{car.brand}</Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 13, marginBottom: 16 }}>{car.specs}</Text>
 
+          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 22, marginBottom: 4 }}>{car.brand}</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 13, marginBottom: 14 }}>{car.specs}</Text>
+
+          {/* TAGI: rok, moc, silnik, kolor */}
+          {(car.year || car.power || car.engine || car.color) && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              {!!car.year && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.surface4, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border2 }}>
+                  <MaterialIcons name="calendar-today" size={12} color={theme.textDim} />
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>{car.year} r.</Text>
+                </View>
+              )}
+              {!!car.power && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.surface4, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border2 }}>
+                  <MaterialIcons name="speed" size={12} color="#e33835" />
+                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10 }}>{car.power} KM</Text>
+                </View>
+              )}
+              {!!car.engine && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.surface4, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border2 }}>
+                  <MaterialIcons name="settings" size={12} color={theme.textDim} />
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>{car.engine}</Text>
+                </View>
+              )}
+              {!!car.color && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.surface4, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border2 }}>
+                  <MaterialIcons name="palette" size={12} color={theme.textDim} />
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>{car.color}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* MODYFIKACJE */}
+          {!!car.mods && (
+            <View style={{ backgroundColor: theme.surface4, borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: theme.border2 }}>
+              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>MODYFIKACJE</Text>
+              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, lineHeight: 18 }}>{car.mods}</Text>
+            </View>
+          )}
+
+          {/* WŁAŚCICIEL */}
           <TouchableOpacity
             style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.surface4, padding: 10, borderRadius: 10 }}
             onPress={() => router.push({ pathname: '/profile/[id]', params: { id: String(car.ownerId) } })}
@@ -280,7 +326,10 @@ export default function CarDetailScreen() {
           car.comments.map(c => (
             <View key={c.id} style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
               <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.primaryBg, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primaryBorder }}>
-                <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 14, fontWeight: '700' }}>{c.user.username.charAt(0).toUpperCase()}</Text>
+                {c.user.avatarUrl
+                  ? <Image source={{ uri: c.user.avatarUrl }} style={{ width: 34, height: 34, borderRadius: 17 }} />
+                  : <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 14, fontWeight: '700' }}>{c.user.username.charAt(0).toUpperCase()}</Text>
+                }
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
@@ -311,7 +360,10 @@ export default function CarDetailScreen() {
               <Text style={{ color: theme.primary }}>Tej operacji nie można cofnąć.</Text>
             </Text>
             <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.surface4, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: theme.border2 }} onPress={() => setDeleteModal(false)} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.surface4, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: theme.border2 }}
+                onPress={() => setDeleteModal(false)} activeOpacity={0.8}
+              >
                 <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12 }}>ANULUJ</Text>
               </TouchableOpacity>
               <TouchableOpacity

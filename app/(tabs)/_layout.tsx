@@ -16,7 +16,7 @@ const TabIcon = ({
 }: {
   focused: boolean; icon: any; iconLib?: 'feather' | 'material'; label: string;
 }) => {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const scaleAnim = useRef(new Animated.Value(focused ? 1.1 : 1)).current;
   const glowAnim  = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
@@ -58,25 +58,28 @@ const TabIcon = ({
 };
 
 export default function TabLayout() {
-  const insets       = useSafeAreaInsets();
+  const insets        = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const tabBarHeight = TAB_BAR_HEIGHT + insets.bottom;
+
+  // edgeToEdge=false → insets.bottom zazwyczaj = 0 na Androidzie
+  // ale zostawiamy dla iOS i ewentualnej przyszłej zmiany
+  const tabBarHeight  = TAB_BAR_HEIGHT + insets.bottom;
 
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
-        tabBarShowLabel: false,
+        headerShown:      false,
+        tabBarShowLabel:  false,
         tabBarStyle: {
-          position: 'absolute',
-          backgroundColor: Platform.OS === 'android' ? theme.tabBg : 'transparent',
-          borderTopWidth: 1,
-          borderTopColor: theme.tabBorder,
-          height: tabBarHeight,
-          paddingBottom: insets.bottom,
-          paddingTop: 10,
+          position:         'absolute',
+          backgroundColor:  Platform.OS === 'android' ? theme.tabBg : 'transparent',
+          borderTopWidth:   1,
+          borderTopColor:   theme.tabBorder,
+          height:           tabBarHeight,
+          paddingBottom:    insets.bottom,
+          paddingTop:       10,
           paddingHorizontal: 0,
-          elevation: 0,
+          elevation:        0,
         },
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
@@ -84,23 +87,23 @@ export default function TabLayout() {
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBg }]} />
           ),
-        animation: 'shift',
+        animation:           'shift',
         tabBarHideOnKeyboard: true,
-        sceneStyle: { paddingBottom: tabBarHeight },
+        sceneStyle:          { paddingBottom: tabBarHeight },
       }}
     >
-      <Tabs.Screen name="index"     options={{ tabBarIcon: (p) => <TabIcon {...p} icon="home"                    label="HOME"     /> }} />
-      <Tabs.Screen name="map"       options={{ tabBarIcon: (p) => <TabIcon {...p} icon="navigation"              label="MAPA"     /> }} />
-      <Tabs.Screen name="community" options={{ tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline"   label="SPOŁECZ." iconLib="material" /> }} />
-      <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"  iconLib="material" /> }} />
-      <Tabs.Screen name="account"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="user"                    label="PROFIL"   /> }} />
+      <Tabs.Screen name="index"     options={{ tabBarIcon: (p) => <TabIcon {...p} icon="home"                      label="HOME"     /> }} />
+      <Tabs.Screen name="map"       options={{ tabBarIcon: (p) => <TabIcon {...p} icon="navigation"                label="MAPA"     /> }} />
+      <Tabs.Screen name="community" options={{ tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline"     label="SPOŁECZ." iconLib="material" /> }} />
+      <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"    iconLib="material" /> }} />
+      <Tabs.Screen name="account"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="user"                      label="PROFIL"   /> }} />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper:      { width: TAB_WIDTH, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 6 },
-  topBar:       { position: 'absolute', top: 0, width: 28, height: 2.5, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
-  iconBg:       { width: 42, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent', backgroundColor: 'transparent' },
-  label:        { fontSize: 8.5, fontFamily: 'Orbitron', letterSpacing: 0.2, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
+  wrapper:  { width: TAB_WIDTH, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 6 },
+  topBar:   { position: 'absolute', top: 0, width: 28, height: 2.5, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
+  iconBg:   { width: 42, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent', backgroundColor: 'transparent' },
+  label:    { fontSize: 8.5, fontFamily: 'Orbitron', letterSpacing: 0.2, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
 });
