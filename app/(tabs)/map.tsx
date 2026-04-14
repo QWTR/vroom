@@ -301,6 +301,8 @@ export default function MapScreen() {
     animateCameraSmooth, animateCameraLive,
     resetCamera, onUserPan, unlockCamera, lockForStart,
     cameraLockedRef,
+    enterDrivingCamera,   // ← NOWE
+    exitDrivingCamera,    // ← NOWE
   } = useCameraAnimation(mapRef);
 
   useEffect(() => {
@@ -532,10 +534,17 @@ export default function MapScreen() {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
     }
-    drivingKmRef.current    = 0;
+    drivingKmRef.current      = 0;
     drivingLastLocRef.current = null;
     setDrivingKm(0);
-  }, []);
+    // ── Wróć do widoku 2D ────────────────────────────────
+    if (lastGoodLocRef.current) {
+      exitDrivingCamera({
+        latitude:  lastGoodLocRef.current.lat,
+        longitude: lastGoodLocRef.current.lng,
+      });
+    }
+  }, [exitDrivingCamera]);
 
   // Wywołuj przy każdej aktualizacji GPS — zarządza timerem stopu
   const handleDrivingSpeedUpdate = useCallback((kmh: number, lat: number, lng: number) => {
@@ -663,6 +672,11 @@ export default function MapScreen() {
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
+            // ── Płynne przejście kamery (jak beginNavigation) ──
+            enterDrivingCamera(
+              { latitude: snapped.latitude, longitude: snapped.longitude },
+              lastHeadingRef.current,
+            );
           }
 
           // Licz km
@@ -692,13 +706,20 @@ export default function MapScreen() {
           // Wolno / stoi — uruchom timer stopu
           if (isDrivingRef.current && !drivingStopTimerRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
-              isDrivingRef.current      = false;
-              drivingKmRef.current      = 0;
-              drivingLastLocRef.current = null;
-              drivingStopTimerRef.current = null;
-              setIsDriving(false);
-              setDrivingKm(0);
-            }, DRIVING_STOP_DELAY_MS);
+            isDrivingRef.current      = false;
+            drivingKmRef.current      = 0;
+            drivingLastLocRef.current = null;
+            drivingStopTimerRef.current = null;
+            setIsDriving(false);
+            setDrivingKm(0);
+            // Wróć do 2D
+            if (lastGoodLocRef.current) {
+              exitDrivingCamera({
+                latitude:  lastGoodLocRef.current.lat,
+                longitude: lastGoodLocRef.current.lng,
+              });
+            }
+          }, DRIVING_STOP_DELAY_MS);
           }
         }
 

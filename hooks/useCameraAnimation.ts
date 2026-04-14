@@ -42,9 +42,8 @@ function haversineSimple(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Różnica kątów po krótszym łuku
 function headingDiff(a: number, b: number): number {
-  return Math.abs(((b - a + 540) % 360) - 180) ;
+  return Math.abs(((b - a + 540) % 360) - 180);
 }
 
 export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
@@ -55,11 +54,8 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
   const returnTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDRPosRef    = useRef<CameraParams | null>(null);
 
-  // ── Throttle dla animateCameraLive ────────────────────────
-  // Nie wysyłaj animacji częściej niż co LIVE_INTERVAL_MS
-  // — zbyt częste wywołania animateCamera blokują heading na Androidzie
   const lastLiveCallRef = useRef(0);
-  const LIVE_INTERVAL_MS = 60; // ~12fps dla kamery, wystarczy dla płynności
+  const LIVE_INTERVAL_MS = 60;
 
   function doAnimate(params: CameraParams, duration: number) {
     lastHeadingRef.current = params.heading;
@@ -98,6 +94,7 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
   const unlockCamera = useCallback(() => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
+    startLockRef.current    = false;
   }, []);
 
   const lockForStart = useCallback((ms = 900) => {
@@ -105,28 +102,71 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
     setTimeout(() => { startLockRef.current = false; }, ms);
   }, []);
 
-  // ── animateCameraLive — wywoływana z DR lub symulatora ────
+  // ── NOWE: wejście w tryb jazdy — płynna animacja do pitch+zoom ──
+  // Wywołaj raz gdy isDriving przechodzi false→true
+  const enterDrivingCamera = useCallback((
+    center: { latitude: number; longitude: number },
+    heading: number,
+  ) => {
+    if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    cameraLockedRef.current = false;
+    startLockRef.current    = false;
+    lastCenterRef.current   = null; // wymuś animację przy pierwszym animateCameraLive
+    lastLiveCallRef.current = 0;
+
+    const lookahead = offsetCenter(
+      center.latitude, center.longitude,
+      heading, NAV_LOOKAHEAD_METERS,
+    );
+    // Płynna animacja przejścia (800ms) — identyczna jak beginNavigation
+    mapRef.current?.animateCamera(
+      {
+        center:  lookahead,
+        pitch:   90,
+        heading: heading,
+        zoom:    16.5,
+        altitude: 0,
+      },
+      { duration: 800 },
+    );
+    lastHeadingRef.current = heading;
+    lastCenterRef.current  = lookahead;
+  }, [mapRef]);
+
+  // ── exitDrivingCamera — powrót do widoku 2D ───────────────
+  const exitDrivingCamera = useCallback((
+    center: { latitude: number; longitude: number },
+  ) => {
+    if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    cameraLockedRef.current = false;
+    startLockRef.current    = false;
+    lastCenterRef.current   = null;
+    lastDRPosRef.current    = null;
+    lastLiveCallRef.current = 0;
+    lastHeadingRef.current  = 0;
+    mapRef.current?.animateCamera(
+      { center, pitch: 0, heading: 0, zoom: 15, altitude: 0 },
+      { duration: 700 },
+    );
+  }, [mapRef]);
+
   const animateCameraLive = useCallback((params: CameraParams) => {
-    // Zawsze zapisuj ostatnią pozycję (potrzebna do powrotu)
     lastDRPosRef.current = params;
 
     if (cameraLockedRef.current) return;
     if (startLockRef.current)    return;
 
     const now = Date.now();
-
-    // Throttle — nie częściej niż co LIVE_INTERVAL_MS
     const timeSinceLast = now - lastLiveCallRef.current;
     if (timeSinceLast < LIVE_INTERVAL_MS) return;
     lastLiveCallRef.current = now;
 
-    // Sprawdź czy cokolwiek się zmieniło
     const hdgDiff    = headingDiff(lastHeadingRef.current, params.heading);
     const posChanged = !lastCenterRef.current ||
       haversineSimple(
         params.center.latitude,  params.center.longitude,
         lastCenterRef.current.latitude, lastCenterRef.current.longitude,
-      ) > 0.000003; // ~0.3m
+      ) > 0.000003;
 
     if (!posChanged && hdgDiff < 0.3) return;
 
@@ -134,13 +174,9 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
       params.center.latitude, params.center.longitude,
       params.heading, NAV_LOOKAHEAD_METERS,
     );
-
-    // KLUCZOWE: duration musi być >= LIVE_INTERVAL_MS
-    // duration: 0 na Androidzie ignoruje heading — stąd kamera się nie obracała
     doAnimate({ ...params, center: lookahead }, LIVE_INTERVAL_MS + 20);
   }, [mapRef]);
 
-  // ── animateCameraSmooth — dla GPS updateów ────────────────
   const animateCameraSmooth = useCallback((params: CameraParams) => {
     if (cameraLockedRef.current) return;
     if (startLockRef.current)    return;
@@ -186,5 +222,8 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
     unlockCamera,
     lockForStart,
     cameraLockedRef,
+    // NOWE
+    enterDrivingCamera,
+    exitDrivingCamera,
   };
 }

@@ -15,56 +15,43 @@ interface Options {
   }) => void;
 }
 
-// Progi trybów
-const DRIVE_SPEED_KMH = 10;
+const DRIVE_SPEED_KMH = 8; // trochę niżej niż 10 żeby uniknąć migotania
 
 // Konfiguracje GPS per tryb
-const GPS_CONFIG: Record<GPSMode, {
-  accuracy:         Location.Accuracy;
-  timeInterval:     number;
-  distanceInterval: number;
-}> = {
+const GPS_CONFIG = {
   idle: {
     accuracy:         Location.Accuracy.Balanced,
     timeInterval:     3000,
-    distanceInterval: 10,
+    distanceInterval: 8,
   },
-  driving: {
+  // driving i navigating — identyczna wysoka częstotliwość
+  active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    timeInterval:     300,
-    distanceInterval: 2,
-  },
-  navigating: {
-    accuracy:         Location.Accuracy.BestForNavigation,
-    timeInterval:     200,
+    timeInterval:     250,
     distanceInterval: 1,
   },
 };
 
 export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) {
-  const subRef      = useRef<any>(null);
-  const modeRef     = useRef<GPSMode>('idle');
-  const onLocRef    = useRef(onLocation);
-  const speedRef    = useRef(speedKmh);
-  const navRef      = useRef(isNavigating);
+  const subRef       = useRef<any>(null);
+  const isActiveRef  = useRef(false); // czy jesteśmy na "active" config
+  const onLocRef     = useRef(onLocation);
+  const speedRef     = useRef(speedKmh);
+  const navRef       = useRef(isNavigating);
 
-  // Zawsze aktualny callback bez re-subscribe
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
   useEffect(() => { navRef.current   = isNavigating; }, [isNavigating]);
 
-  const getTargetMode = useCallback((): GPSMode => {
-    if (navRef.current)              return 'navigating';
-    if (speedRef.current > DRIVE_SPEED_KMH) return 'driving';
-    return 'idle';
+  const needsActiveConfig = useCallback((): boolean => {
+    return navRef.current || speedRef.current > DRIVE_SPEED_KMH;
   }, []);
 
-  const subscribe = useCallback(async (mode: GPSMode) => {
-    // Usuń poprzednią subskrypcję
+  const subscribe = useCallback(async (active: boolean) => {
     subRef.current?.remove();
     subRef.current = null;
 
-    const cfg = GPS_CONFIG[mode];
+    const cfg = active ? GPS_CONFIG.active : GPS_CONFIG.idle;
     try {
       const sub = await Location.watchPositionAsync(
         {
@@ -81,43 +68,42 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
             accuracy:  loc.coords.accuracy,
           });
 
-          // Auto-upgrade trybu na podstawie aktualnej prędkości
-          const kmh        = (loc.coords.speed ?? 0) * 3.6;
+          // ── Auto-upgrade: idle → active ──────────────────
+          // Tylko upgrade idle→active, nigdy downgrade podczas jazdy
+          // (downgrade przez osobny useEffect z opóźnieniem)
+          const kmh = (loc.coords.speed ?? 0) * 3.6;
           speedRef.current = kmh;
-          const newMode    = getTargetMode();
-          if (newMode !== modeRef.current) {
-            modeRef.current = newMode;
-            subscribe(newMode); // re-subscribe z nową konfiguracją
+
+          if (!isActiveRef.current && (navRef.current || kmh > DRIVE_SPEED_KMH)) {
+            isActiveRef.current = true;
+            subscribe(true);
           }
         },
       );
-      subRef.current  = sub;
-      modeRef.current = mode;
+      subRef.current    = sub;
+      isActiveRef.current = active;
     } catch (e) {
       console.warn('useAdaptiveGPS subscribe error:', e);
     }
-  }, [getTargetMode]);
+  }, []);
 
-  // Reaguj na zmianę isNavigating z zewnątrz
+  // Reaguj na zmianę isNavigating
   useEffect(() => {
-    const target = getTargetMode();
-    if (target !== modeRef.current) {
-      subscribe(target);
+    const shouldBeActive = needsActiveConfig();
+    if (shouldBeActive !== isActiveRef.current) {
+      subscribe(shouldBeActive);
     }
-  }, [isNavigating, getTargetMode, subscribe]);
+  }, [isNavigating, needsActiveConfig, subscribe]);
 
-  // Start
   const start = useCallback(async () => {
-    const mode = getTargetMode();
-    await subscribe(mode);
-  }, [getTargetMode, subscribe]);
+    const active = needsActiveConfig();
+    await subscribe(active);
+  }, [needsActiveConfig, subscribe]);
 
   const stop = useCallback(() => {
     subRef.current?.remove();
     subRef.current = null;
   }, []);
 
-  const currentMode = (): GPSMode => modeRef.current;
-
-  return { start, stop, currentMode };
+  return { start, stop };
 }
