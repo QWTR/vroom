@@ -17,7 +17,7 @@ import {
   categoryLabel,
 } from '../../hooks/useAnnouncements';
 import { LinkedText } from '../LinkedText';
-
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 const { width } = Dimensions.get('window');
 
 interface Props {
@@ -56,10 +56,10 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
     });
     return () => sub.remove();
   }, [visible]);
-
+  useModalBackHandler(visible, onClose);
   // ── LISTA ─────────────────────────────────────────────
   const renderList = () => (
-    <SafeAreaView style={[ss.root, { backgroundColor: t.bg }]}>
+    <SafeAreaView style={[ss.root, { backgroundColor: t.bg }]} onRequestClose={onClose}>
       {/* Header */}
       <View style={[ss.header, { borderBottomColor: t.border2 }]}>
         <TouchableOpacity
@@ -270,7 +270,7 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent>
+    <Modal onRequestClose={onClose} visible={visible} animationType="slide" transparent={false} statusBarTranslucent>
       <StatusBar barStyle="light-content" backgroundColor={t.bg} />
       {selected ? renderDetail(selected) : renderList()}
     </Modal>

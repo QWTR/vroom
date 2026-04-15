@@ -24,11 +24,11 @@ const getToken = async () =>
 // Kolor akcentu per kategoria
 export function categoryColor(category: string): string {
   switch (category) {
-    case 'event':  return '#ff922b';
-    case 'update': return '#268bff';
+    case 'event':  return '#E33933';
+    case 'update': return '#C143D7';
     case 'promo':  return '#4CAF50';
-    case 'alert':  return '#e33835';
-    default:       return '#a855f7'; // news
+    case 'alert':  return '#41CF6B';
+    default:       return '#2C92E3'; // news
   }
 }
 

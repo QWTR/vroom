@@ -6,6 +6,7 @@ import {
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
+
 type Props = {
   visible:      boolean;
   pinCount:     number;
@@ -13,7 +14,7 @@ type Props = {
   snapping:     boolean;
   isSnapped:    boolean;
   onSnapToRoad: () => void;
-  onSave:       (name: string, description: string, isPublic: boolean) => void;
+  onSave:       (name: string, description: string, isPublic: boolean, isOffroad: boolean) => void;
   onCancel:     () => void;
   saving:       boolean;
 };
@@ -26,12 +27,15 @@ export function SaveRouteModal({
   const [name,        setName]        = useState('');
   const [description, setDescription] = useState('');
   const [isPublic,    setIsPublic]    = useState(false);
+  const [isOffroad,   setIsOffroad]   = useState(false);  // ← NOWE
 
   const handleSave = () => {
     if (!name.trim()) return;
-    onSave(name.trim(), description.trim(), isPublic);
+    onSave(name.trim(), description.trim(), isPublic, isOffroad);
   };
+
   useModalBackHandler(visible, onCancel);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView
@@ -53,30 +57,67 @@ export function SaveRouteModal({
             {pinCount} punktów · {distanceKm.toFixed(1)} km
           </Text>
 
-          {/* Snap to road */}
+          {/* Snap to road — ukryj gdy offroad */}
+          {!isOffroad && (
+            <TouchableOpacity
+              style={[{
+                flexDirection: 'row', alignItems: 'center', gap: 8,
+                borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16,
+                backgroundColor: isSnapped ? '#4de92612' : theme.border,
+                borderColor:     isSnapped ? '#4de92640' : theme.border2,
+              }, snapping && { opacity: 0.6 }]}
+              onPress={onSnapToRoad}
+              disabled={snapping || isSnapped}
+              activeOpacity={0.8}
+            >
+              {snapping ? (
+                <ActivityIndicator size="small" color={theme.text} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={isSnapped ? 'check-circle' : 'road-variant'}
+                  size={16}
+                  color={isSnapped ? '#4de926' : theme.text}
+                />
+              )}
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: isSnapped ? '#4de926' : theme.text, letterSpacing: 2 }}>
+                {snapping ? 'DOPASOWUJĘ...' : isSnapped ? 'DOPASOWANO DO DROGI' : 'DOPASUJ DO DROGI'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Offroad toggle */}
           <TouchableOpacity
-            style={[{
+            style={{
               flexDirection: 'row', alignItems: 'center', gap: 8,
               borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16,
-              backgroundColor: isSnapped ? '#4de92612' : theme.border,
-              borderColor:     isSnapped ? '#4de92640' : theme.border2,
-            }, snapping && { opacity: 0.6 }]}
-            onPress={onSnapToRoad}
-            disabled={snapping || isSnapped}
+              backgroundColor: isOffroad ? '#ff922b18' : theme.border,
+              borderColor:     isOffroad ? '#ff922b60' : theme.border2,
+            }}
+            onPress={() => setIsOffroad(v => !v)}
             activeOpacity={0.8}
           >
-            {snapping ? (
-              <ActivityIndicator size="small" color={theme.text} />
-            ) : (
-              <MaterialCommunityIcons
-                name={isSnapped ? 'check-circle' : 'road-variant'}
-                size={16}
-                color={isSnapped ? '#4de926' : theme.text}
-              />
-            )}
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: isSnapped ? '#4de926' : theme.text, letterSpacing: 2 }}>
-              {snapping ? 'DOPASOWUJĘ...' : isSnapped ? 'DOPASOWANO DO DROGI' : 'DOPASUJ DO DROGI'}
-            </Text>
+            <MaterialCommunityIcons
+              name="terrain"
+              size={16}
+              color={isOffroad ? '#ff922b' : theme.textDim}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: isOffroad ? '#ff922b' : theme.text, letterSpacing: 2 }}>
+                TRASA OFFROAD
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 2 }}>
+                {isOffroad
+                  ? 'Nawigacja w linii prostej między punktami'
+                  : 'Nawigacja po drogach (standardowa)'}
+              </Text>
+            </View>
+            <View style={{
+              width: 20, height: 20, borderRadius: 10,
+              backgroundColor: isOffroad ? '#ff922b' : theme.border2,
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              {isOffroad && <MaterialIcons name="check" size={12} color="#fff" />}
+            </View>
           </TouchableOpacity>
 
           <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, marginBottom: 6 }}>

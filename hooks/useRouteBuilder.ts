@@ -44,7 +44,7 @@ export function useRouteBuilder() {
       ...prev,
       { id: `pin_${Date.now()}`, latitude: lat, longitude: lng, label: '' },
     ]));
-    setSnappedRoute([]); // reset snap przy każdej zmianie
+    setSnappedRoute([]);
   }, []);
 
   const removePin = useCallback((id: string) => {
@@ -56,24 +56,16 @@ export function useRouteBuilder() {
     setPins(prev => rebuildLabels(prev));
   }, []);
 
-  // ── Snap przez Directions API — segment po segmencie ─────
   const snapToRoad = useCallback(async (pinsToSnap: RoutePin[]) => {
     if (pinsToSnap.length < 2) return;
     setSnapping(true);
 
     try {
-      // Pobierz trasę między kolejnymi parami pinów równolegle
       const segmentPromises: Promise<{ latitude: number; longitude: number }[]>[] = [];
 
       for (let i = 0; i < pinsToSnap.length - 1; i++) {
         const origin      = pinsToSnap[i];
         const destination = pinsToSnap[i + 1];
-
-        // Piny pośrednie między origin a destination (jeśli są)
-        const waypoints = pinsToSnap
-          .slice(i + 1, i + 1) // brak waypointów — każdy segment to para
-          .map(p => `${p.latitude},${p.longitude}`)
-          .join('|');
 
         const url =
           `https://maps.googleapis.com/maps/api/directions/json` +
@@ -87,15 +79,12 @@ export function useRouteBuilder() {
             .then(r => r.json())
             .then(json => {
               if (json.status !== 'OK' || !json.routes?.[0]) {
-                // Fallback — prosta linia dla tego segmentu
                 return [
                   { latitude: origin.latitude,      longitude: origin.longitude },
                   { latitude: destination.latitude, longitude: destination.longitude },
                 ];
               }
-              // Dekoduj polyline
-              const encoded = json.routes[0].overview_polyline.points;
-              return decodePolyline(encoded);
+              return decodePolyline(json.routes[0].overview_polyline.points);
             })
             .catch(() => [
               { latitude: origin.latitude,      longitude: origin.longitude },
@@ -105,72 +94,38 @@ export function useRouteBuilder() {
       }
 
       const segments = await Promise.all(segmentPromises);
-
-      // Sklej segmenty — usuń duplikaty na złączeniach
       const merged: { latitude: number; longitude: number }[] = [];
       for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        if (i === 0) {
-          merged.push(...seg);
-        } else {
-          // Pomiń pierwszy punkt segmentu — to duplikat ostatniego z poprzedniego
-          merged.push(...seg.slice(1));
-        }
+        merged.push(...(i === 0 ? segments[i] : segments[i].slice(1)));
       }
 
-      console.log(`✅ Snap: ${merged.length} punktów z ${pinsToSnap.length} pinów`);
       setSnappedRoute(merged);
-
     } catch (e) {
       console.log('snapToRoad error:', e);
-      // Fallback — prosta linia
-      setSnappedRoute(pinsToSnap.map(p => ({
-        latitude:  p.latitude,
-        longitude: p.longitude,
-      })));
+      setSnappedRoute(pinsToSnap.map(p => ({ latitude: p.latitude, longitude: p.longitude })));
     } finally {
       setSnapping(false);
     }
   }, []);
 
-  // ── Dekoder Google Polyline ───────────────────────────────
   function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
     const points: { latitude: number; longitude: number }[] = [];
-    let index = 0;
-    let lat   = 0;
-    let lng   = 0;
+    let index = 0, lat = 0, lng = 0;
 
     while (index < encoded.length) {
-      let b: number;
-      let shift = 0;
-      let result = 0;
-
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-
+      let b: number, shift = 0, result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
       lat += (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
 
-      shift  = 0;
-      result = 0;
-
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-
+      shift = 0; result = 0;
+      do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
       lng += (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
 
       points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
     }
-
     return points;
   }
 
-  // ── Dystans trasy ─────────────────────────────────────────
   const totalDistance = useCallback((ps: { latitude: number; longitude: number }[]) => {
     let d = 0;
     for (let i = 1; i < ps.length; i++) {
@@ -179,11 +134,12 @@ export function useRouteBuilder() {
     return Math.round(d * 100) / 100;
   }, []);
 
-  // ── Zapis trasy ───────────────────────────────────────────
+  // ── Zapis trasy — dodano isOffroad ────────────────────────
   const saveRoute = useCallback(async (
-    name: string,
+    name:        string,
     description: string,
-    isPublic: boolean,
+    isPublic:    boolean,
+    isOffroad:   boolean,   // ← NOWE
   ) => {
     if (pins.length < 2) return null;
     setSaving(true);
@@ -191,7 +147,8 @@ export function useRouteBuilder() {
       const token = await AsyncStorage.getItem('token');
       if (!token) return null;
 
-      const pointsToSave = snappedRoute.length > 0
+      // Offroad = zawsze surowe piny, nigdy snapped
+      const pointsToSave = (!isOffroad && snappedRoute.length > 0)
         ? snappedRoute.map((p, i) => ({
             latitude:  p.latitude,
             longitude: p.longitude,
@@ -208,7 +165,12 @@ export function useRouteBuilder() {
       const res = await fetch(`${API_URL}/api/routes`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, description, isPublic, distance: dist, points: pointsToSave }),
+        body: JSON.stringify({
+          name, description, isPublic,
+          isOffroad,          // ← NOWE
+          distance: dist,
+          points:   pointsToSave,
+        }),
       });
 
       const json = await res.json();
@@ -224,18 +186,9 @@ export function useRouteBuilder() {
   }, [pins, snappedRoute, cancelBuilding, totalDistance]);
 
   return {
-    isBuilding,
-    pins,
-    saving,
-    snapping,
-    snappedRoute,
-    startBuilding,
-    cancelBuilding,
-    addPin,
-    removePin,
-    finishPin,
-    snapToRoad,
-    totalDistance,
-    saveRoute,
+    isBuilding, pins, saving, snapping, snappedRoute,
+    startBuilding, cancelBuilding,
+    addPin, removePin, finishPin, snapToRoad,
+    totalDistance, saveRoute,
   };
 }

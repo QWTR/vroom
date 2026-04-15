@@ -8,6 +8,7 @@ export type MyRoute = {
   description: string | null;
   distance:    number;
   isPublic:    boolean;
+  isOffroad:   boolean;   // ← NOWE
   createdAt:   string;
   _count:      { likes: number };
   points:      { latitude: number; longitude: number; order: number }[];

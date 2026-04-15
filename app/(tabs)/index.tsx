@@ -17,6 +17,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { AnnouncementsModal } from '../../components/modals/AnnouncementsModal';
 import { useAnnouncements } from '../../hooks/useAnnouncements';
 
+import { useAppUpdate } from '../../hooks/useAppUpdate';
+import { UpdateModal }  from '../../components/modals/UpdateModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -72,6 +74,8 @@ export default function HomeScreen() {
   const pulseAnim  = useRef(new Animated.Value(1)).current;
 
   useEffect(() => { loadAnnouncements(); }, []);
+
+  const { updateAvailable, downloading, applyUpdate, dismiss } = useAppUpdate();
 
   useEffect(() => {
     Animated.loop(
@@ -339,7 +343,7 @@ export default function HomeScreen() {
                 <MaterialIcons name="map" size={28} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>MAPA</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>MAPA </Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff80', marginTop: 3 }}>Nawigacja · Live tracking · Trasy</Text>
               </View>
               <MaterialIcons name="arrow-forward-ios" size={18} color="#ffffff60" />
@@ -568,6 +572,12 @@ export default function HomeScreen() {
 
 
       </ScrollView>
+      <UpdateModal
+        visible={updateAvailable}
+        loading={downloading}
+        onUpdate={applyUpdate}
+        onDismiss={dismiss}
+      />
     </>
   );
 }

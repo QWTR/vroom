@@ -15,9 +15,9 @@ interface Options {
   }) => void;
 }
 
-const DRIVE_SPEED_KMH = 12;
-const MAX_ACCURACY_M  = 40;   // odrzuć jeśli accuracy > 40m
-const MAX_SPEED_KMH   = 250;  // odrzuć jeśli prędkość z coords > 250 km/h
+const DRIVE_SPEED_KMH  = 12;
+const MAX_ACCURACY_M   = 40;
+const MAX_SPEED_KMH    = 250;
 
 const GPS_CONFIG = {
   idle: {
@@ -32,7 +32,6 @@ const GPS_CONFIG = {
   },
 };
 
-// Inline haversine — zwraca km/h między dwoma punktami w czasie dtMs
 function calcSpeedKmh(
   lat1: number, lon1: number,
   lat2: number, lon2: number,
@@ -52,16 +51,14 @@ function calcSpeedKmh(
 }
 
 export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) {
-  const subRef       = useRef<any>(null);
-  const isActiveRef  = useRef(false);
-  const onLocRef     = useRef(onLocation);
-  const speedRef     = useRef(speedKmh);
-  const navRef       = useRef(isNavigating);
+  const subRef            = useRef<any>(null);
+  const isActiveRef       = useRef(false);
+  const onLocRef          = useRef(onLocation);
+  const speedRef          = useRef(speedKmh);
+  const navRef            = useRef(isNavigating);
 
-  // ── Sanity check state ────────────────────────────────
-  const lastGoodRef      = useRef<{ lat: number; lng: number; time: number } | null>(null);
-  const calcSpeedSmooth  = useRef(0);
-  const consecutiveBadRef = useRef(0); // licznik złych odczytów z rzędu
+  const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const consecutiveBadRef = useRef(0);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
@@ -88,8 +85,6 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
           // ══ 1. ODRZUĆ słaby sygnał GPS ═══════════════════════
           if (acc > MAX_ACCURACY_M) {
             consecutiveBadRef.current += 1;
-            // Po 5 złych z rzędu — wyślij ostatnią dobrą pozycję
-            // żeby nie zamrażać UI, ale nie aktualizuj lastGoodRef
             if (consecutiveBadRef.current >= 5 && lastGoodRef.current) {
               onLocRef.current({
                 latitude:  lastGoodRef.current.lat,
@@ -103,47 +98,34 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
           }
           consecutiveBadRef.current = 0;
 
-          // ══ 2. SANITY CHECK — prędkość między punktami ════════
+          // ══ 2. SANITY CHECK — odrzuć teleport ════════════════
           if (lastGoodRef.current) {
-            const dtMs      = now - lastGoodRef.current.time;
-            const jumpKmh   = calcSpeedKmh(
+            const dtMs    = now - lastGoodRef.current.time;
+            const jumpKmh = calcSpeedKmh(
               lastGoodRef.current.lat, lastGoodRef.current.lng,
               rawLat, rawLng, dtMs,
             );
-
             if (jumpKmh > MAX_SPEED_KMH) {
               console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
-              // NIE aktualizuj lastGoodRef — czekaj na stabilny sygnał
               return;
             }
           }
 
-          // ══ 3. Prędkość — z GPS lub obliczona ════════════════
-          let speedMs = loc.coords.speed != null && loc.coords.speed >= 0
+          // ══ 3. Prędkość — TYLKO z GPS coords, bez obliczania ═
+          // Podczas nawigacji nigdy nie obliczamy prędkości ze skoków
+          // bo to właśnie powoduje teleportowanie markera
+          const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
             ? loc.coords.speed
             : 0;
-
-          if (speedMs < 0.3 && lastGoodRef.current) {
-            const dtMs       = now - lastGoodRef.current.time;
-            const calcKmh    = calcSpeedKmh(
-              lastGoodRef.current.lat, lastGoodRef.current.lng,
-              rawLat, rawLng, dtMs,
-            );
-            calcSpeedSmooth.current = calcSpeedSmooth.current * 0.6 + calcKmh * 0.4;
-            speedMs = calcSpeedSmooth.current / 3.6;
-          } else {
-            calcSpeedSmooth.current = speedMs * 3.6;
-          }
 
           // ══ 4. Aktualizuj lastGoodRef ════════════════════════
           lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
           speedRef.current    = speedMs * 3.6;
 
-          // ══ 5. BEZ smoothing w useAdaptiveGPS ════════════════
-          // Kalman w map.tsx zajmuje się wygładzaniem — nie rób go podwójnie
+          // ══ 5. Wyślij surowe dane — Kalman jest w map.tsx ════
           onLocRef.current({
-            latitude:  rawLat,  // ← surowe, bez smooth
-            longitude: rawLng,  // ← surowe, bez smooth
+            latitude:  rawLat,
+            longitude: rawLng,
             speed:     speedMs,
             heading:   loc.coords.heading,
             accuracy:  acc,
@@ -181,9 +163,8 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
 
   const stop = useCallback(() => {
     subRef.current?.remove();
-    subRef.current = null;
-    lastGoodRef.current     = null;
-    calcSpeedSmooth.current = 0;
+    subRef.current      = null;
+    lastGoodRef.current = null;
   }, []);
 
   return { start, stop };

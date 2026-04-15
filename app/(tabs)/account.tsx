@@ -63,12 +63,25 @@ export default function ProfileScreen() {
 
   const handleNavigateRoute = async (route: MyRoute) => {
     if (route.points.length < 2) return;
-    await AsyncStorage.setItem('nav_route', JSON.stringify({ routeId: route.id, routeName: route.name, points: route.points, distance: route.distance }));
+    await AsyncStorage.setItem('nav_route', JSON.stringify({
+      routeId:   route.id,
+      routeName: route.name,
+      points:    route.points,
+      distance:  route.distance,
+      isOffroad: (route as any).isOffroad ?? false,  // ← NOWE
+    }));
     router.push('/(tabs)/map');
   };
 
+
   const handleNavigateParticipated = async (route: ParticipatedRoute) => {
-    await AsyncStorage.setItem('nav_route', JSON.stringify({ routeId: route.id, routeName: route.name, points: route.points, distance: route.distance }));
+    await AsyncStorage.setItem('nav_route', JSON.stringify({
+      routeId:   route.id,
+      routeName: route.name,
+      points:    route.points,
+      distance:  route.distance,
+      isOffroad: (route as any).isOffroad ?? false,  // ← NOWE
+    }));
     router.push('/(tabs)/map');
   };
 

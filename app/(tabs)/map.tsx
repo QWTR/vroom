@@ -115,6 +115,9 @@ export default function MapScreen() {
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
+  const isOffroadRef         = useRef(false);
+  const offroadPointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
+  const offroadLoadedPointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
 
   // ── Refs – nawigacja / mowa ───────────────────────────────
   const lastSpokenRef        = useRef('');
@@ -123,6 +126,7 @@ export default function MapScreen() {
   const isSpeechRef          = useRef(true);
   const startIsMyLocationRef = useRef(false);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
+  
 
   // ── Refs – dead-reckoning ─────────────────────────────────
   const drLatRef    = useRef(0);
@@ -163,6 +167,7 @@ export default function MapScreen() {
   const [offRoute,     setOffRoute]     = useState(false);
   const [arrived,      setArrived]      = useState(false);
   const [routeInfo,    setRouteInfo]    = useState<RouteInfo | null>(null);
+  const [isOffroadRoute, setIsOffroadRoute] = useState(false);
 
   // ── State – dr tick ───────────────────────────────────────
   const [drTick, setDrTick] = useState(0);
@@ -368,16 +373,51 @@ export default function MapScreen() {
 
   const directionsStart = isNavigating
     ? null
-    : (isDriving && stableStartLocation)
-      ? stableStartLocation
-      : startLocation;
+    : isOffroadRoute                            // ← offroad = brak Google Directions
+      ? null
+      : (isDriving && stableStartLocation)
+        ? stableStartLocation
+        : startLocation;
 
   const { routes: alternativeRoutes, loading: previewLoading } = useGoogleDirectionsAlternatives(
     directionsStart,
-    isNavigating ? null : endLocation,
+    isNavigating ? null : (isOffroadRoute ? null : endLocation),  // ← blokuj dla offroad
   );
 
-  const previewRoute = alternativeRoutes[selectedRouteIndex] ?? null;
+  // ── Offroad preview route — prosta linia z punków ─────────
+  const offroadPreviewRoute = useMemo(() => {
+    if (!isOffroadRoute || !startLocation || !endLocation) return null;
+
+    // ← użyj załadowanych punktów, nie routePointsRef
+    const points = offroadLoadedPointsRef.current.length > 1
+      ? offroadLoadedPointsRef.current
+      : [
+          { latitude: startLocation.latitude,  longitude: startLocation.longitude },
+          { latitude: endLocation.latitude,    longitude: endLocation.longitude },
+        ];
+
+    const dist = points.reduce((acc, p, i) => {
+      if (i === 0) return 0;
+      return acc + haversineKm(
+        points[i-1].latitude, points[i-1].longitude,
+        p.latitude, p.longitude,
+      );
+    }, 0);
+
+    return {
+      points,
+      distanceValue: dist * 1000,
+      distance:      dist.toFixed(1),
+      duration:      null,
+      durationText:  '—',
+      distanceText:  `${dist.toFixed(1)} km`,
+      steps:         [],
+    };
+  }, [isOffroadRoute, startLocation, endLocation]);
+
+  const previewRoute = isOffroadRoute
+    ? offroadPreviewRoute
+    : (alternativeRoutes[selectedRouteIndex] ?? null);
 
   const { route: navRoute } = useGoogleDirections(
     navStartLoc,
@@ -418,9 +458,33 @@ export default function MapScreen() {
     }
   }, [userLocation, addCamera, invalidate, updateCameras]);
 
+  // ── Helper: generuj kroki offroad z punktów trasy ─────────
+  const buildOffroadSteps = useCallback((
+    points: { latitude: number; longitude: number }[],
+  ) => {
+    if (points.length < 2) return [];
+    return points.slice(0, -1).map((p, i) => {
+      const next = points[i + 1];
+      const distKm = haversineKm(p.latitude, p.longitude, next.latitude, next.longitude);
+      return {
+        html_instructions: `Jedź w kierunku punktu ${i + 2}`,
+        distance: { text: `${(distKm * 1000).toFixed(0)} m`, value: distKm * 1000 },
+        duration: { text: '', value: 0 },
+        maneuver: 'straight',
+        start_location: { lat: p.latitude,    lng: p.longitude },
+        end_location:   { lat: next.latitude, lng: next.longitude },
+      };
+    });
+  }, []);
+
   // ─────────────────────────────────────────────────��───────
   // Effects
   // ─────────────────────────────────────────────────────────
+
+  // ── isOffroadRef synchronizuj ze statem ──────────────────
+  useEffect(() => {
+    isOffroadRef.current = isOffroadRoute;
+  }, [isOffroadRoute]);
 
   useEffect(() => {
     isSpeechRef.current = isSpeechEnabled;
@@ -456,6 +520,21 @@ export default function MapScreen() {
 
       const first = data.points[0];
       const last  = data.points[data.points.length - 1];
+
+      const offroad = data.isOffroad ?? false;
+      setIsOffroadRoute(offroad);
+      isOffroadRef.current = offroad;
+
+      // ← KLUCZOWE: zapisz wszystkie punkty
+      if (offroad) {
+        offroadLoadedPointsRef.current = data.points.map((p: any) => ({
+          latitude:  p.latitude,
+          longitude: p.longitude,
+        }));
+        routePointsRef.current = offroadLoadedPointsRef.current;
+      } else {
+        offroadLoadedPointsRef.current = [];
+      }
 
       setStartLocation({ latitude: first.latitude, longitude: first.longitude, name: 'Start trasy' });
       setEndLocation({ latitude: last.latitude, longitude: last.longitude, name: data.routeName });
@@ -602,34 +681,36 @@ export default function MapScreen() {
     isNavigating,
     speedKmh: speedKmhRef.current,
     // ── Adaptive GPS onLocation — zastąp cały blok onLocation ──
-    onLocation: useCallback((loc) => {
+      onLocation: useCallback((loc) => {
       const rawLat = loc.latitude;
       const rawLng = loc.longitude;
       const acc    = loc.accuracy ?? 10;
       const now    = Date.now();
-      
-      // ══ 1. SANITY CHECK ══════════════════════════════════════
-      if (lastGoodLocRef.current) {
-          const dtMs = now - lastGoodTimeRef.current;
-          const sane = isSaneLocation(
-            rawLat, rawLng,
-            lastGoodLocRef.current.lat,
-            lastGoodLocRef.current.lng,
-            250,   // max km/h
-            dtMs,  // ← czas od ostatniego odczytu
-          );
-          if (!sane) {
-            console.warn('[GPS map] Skok odrzucony w map.tsx');
-            // Resetuj filtry do ostatniej dobrej pozycji
-            latFilter.reset();
-            lngFilter.reset();
-            navLatFilter.reset();
-            navLngFilter.reset();
-            return;
-          }
-        }
-        lastGoodTimeRef.current = now;
 
+      // ══ 1. SANITY CHECK — surowe vs surowe ══════════════════
+      if (lastGoodLocRef.current) {
+        const dtMs   = now - lastGoodTimeRef.current;
+        const safeDt = Math.max(dtMs, 100);
+        const sane   = isSaneLocation(
+          rawLat, rawLng,
+          lastGoodLocRef.current.lat,
+          lastGoodLocRef.current.lng,
+          250,
+          safeDt,
+        );
+        if (!sane) {
+          console.warn('[GPS map] Skok odrzucony');
+          latFilter.reset();
+          lngFilter.reset();
+          navLatFilter.reset();
+          navLngFilter.reset();
+          return;
+        }
+      }
+      lastGoodTimeRef.current    = now;
+      lastGoodLocRef.current     = { lat: rawLat, lng: rawLng }; // ← zawsze RAW
+
+      // ══ 2. Kalman ════════════════════════════════════════════
       const lat = isNavigatingRef.current
         ? navLatFilter.filter(rawLat, acc)
         : latFilter.filter(rawLat, acc);
@@ -637,41 +718,34 @@ export default function MapScreen() {
         ? navLngFilter.filter(rawLng, acc)
         : lngFilter.filter(rawLng, acc);
 
-      lastGoodLocRef.current = { lat, lng };
-
-      // ══ 2. Prędkość — NIGDY nie używaj null, fallback na 0 ═══
+      // ══ 3. Prędkość — TYLKO z GPS, nigdy obliczana ze skoku ═
       const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : 0;
       const kmh        = rawSpeedMs * 3.6;
 
-      // ══ 3. FEED nawigacyjny ══════════════════════════════════
-        feedSpeedSample(rawSpeedMs);   // ← PRZENIEŚ tutaj, poza if(isNavigating)
-        feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-        feedPosition(lat, lng);
-
-        // ══ FEED DYSTANSU — ZAWSZE ════════════════════════════
-        if (lastNavLocRef.current) {
-          feedNavDistance(
-            lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
-            lat, lng,
-          );
-        }
-        lastNavLocRef.current = { latitude: lat, longitude: lng };
-        // ↑ zawsze aktualizuj lastNavLocRef, nie tylko podczas nawigacji
-
-        // ══ FEED nawigacyjny (dead reckoning) — tylko nawigacja ═
-        if (isNavigatingRef.current) {
-          feedDR(
-            { latitude: lat, longitude: lng },
-            rawSpeedMs,
-            loc.heading ?? lastHeadingRef.current,
-          );
-        }
-
-      // ══ 4. Trip stats ════════════════════════════════════════
+      // ══ 4. Feed stats — tylko RAZ ════════════════════════════
+      feedSpeedSample(rawSpeedMs);
       feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
       feedPosition(lat, lng);
 
-      // ══ 5. Heading ═══════════════════════════════════════════
+      // ══ 5. Feed dystansu nawigacji ════════════════════════════
+      if (lastNavLocRef.current) {
+        feedNavDistance(
+          lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
+          lat, lng,
+        );
+      }
+      lastNavLocRef.current = { latitude: lat, longitude: lng };
+
+      // ══ 6. Dead reckoning — tylko nawigacja ══════════════════
+      if (isNavigatingRef.current) {
+        feedDR(
+          { latitude: lat, longitude: lng },
+          rawSpeedMs,
+          loc.heading ?? lastHeadingRef.current,
+        );
+      }
+
+      // ══ 7. Heading ═══════════════════════════════════════════
       const newH = loc.heading ?? lastHeadingRef.current;
       if (kmh > 3 && newH >= 0) {
         const diff           = newH - lastHeadingRef.current;
@@ -684,51 +758,43 @@ export default function MapScreen() {
         }
       }
 
-      // ══ 6. Pozycja + DRIVING MODE ════════════════════════════
+      // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
-        const kmh = rawSpeedMs * 3.6;
         const snapped = drivingSnap(lat, lng, kmh, isDrivingRef.current);
 
         setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
 
         if (kmh >= DRIVING_SPEED_KMH) {
-          // ── Anuluj timer stopu ────────────────────────────
           if (drivingStopTimerRef.current) {
             clearTimeout(drivingStopTimerRef.current);
             drivingStopTimerRef.current = null;
           }
 
           if (!isDrivingRef.current) {
-            // ── Pierwsze wejście w driving mode ───────────────
             isDrivingRef.current      = true;
             drivingKmRef.current      = 0;
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
-
-            // Kamera wchodzi TYLKO raz — enterDrivingCamera
-            // animateCameraLive NIE jest wołane w tej samej ramce
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               lastHeadingRef.current,
             );
-            return; // ← wyjdź, niech kamera się ustawi zanim zaczniemy animować live
+            return;
           }
 
-          // ── Licz km ───────────────────────────────────────
           if (drivingLastLocRef.current) {
             const dist = haversineKm(
               drivingLastLocRef.current.lat, drivingLastLocRef.current.lng,
               snapped.latitude, snapped.longitude,
             );
-            if (dist > 0 && dist < 0.1) {  // max 100m między punktami — bezpieczniejsze
+            if (dist > 0 && dist < 0.1) {
               drivingKmRef.current += dist;
               setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
             }
           }
           drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
 
-          // ── Kamera live — płynie po mapie ─────────────────
           animateCameraLive({
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
@@ -737,7 +803,6 @@ export default function MapScreen() {
           });
 
         } else {
-          // ── < 10 kmh ──────────────────────────────────────
           if (isDrivingRef.current && !drivingStopTimerRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
               isDrivingRef.current        = false;
@@ -756,12 +821,13 @@ export default function MapScreen() {
           }
         }
       } else {
+        // ── Nawigacja — ustaw pozycję z Kalmana, DR animuje kamerę
         setUserLocation({ latitude: lat, longitude: lng });
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [drivingSnap, feedSpeed, feedPosition, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
+  }, [drivingSnap, feedSpeed, feedPosition, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
     // ↑ celowo minimalne deps — reszta przez refy
   });
 
@@ -906,13 +972,21 @@ export default function MapScreen() {
   }, [userLocation, isNavigating, drTick]);
 
   useEffect(() => {
+    if (isOffroadRoute && offroadPreviewRoute) {
+      setRouteInfo({
+        distance: offroadPreviewRoute.distance,
+        duration: null,
+        durationText: '—',
+      });
+      return;
+    }
     if (previewRoute) {
       setRouteInfo({
         distance: (previewRoute.distanceValue / 1000).toFixed(1),
         duration: previewRoute.duration,
       });
     }
-  }, [previewRoute]);
+  }, [previewRoute, isOffroadRoute, offroadPreviewRoute]);
 
   useEffect(() => {
     if (!offRoute || !rerouteResult || !userLocation) return;
@@ -1224,7 +1298,6 @@ export default function MapScreen() {
   const beginNavigation = useCallback(() => {
     if (!userLocation) return;
 
-    // Wejście w nawigację — wyłącz driving mode
     exitDrivingMode();
 
     if (routeInfo?.duration) startTrip(routeInfo.duration);
@@ -1250,6 +1323,15 @@ export default function MapScreen() {
     setCurrentStep(0);
     setArrived(false);
     setOffRoute(false);
+
+    // ── Offroad: ustaw punkty z załadowanej trasy ─────────
+    if (isOffroadRef.current) {
+      const pts = offroadLoadedPointsRef.current.length > 1
+        ? offroadLoadedPointsRef.current
+        : (activeRoute?.points ?? []);
+      offroadPointsRef.current = pts;
+      routePointsRef.current   = pts;
+    }
 
     if (routeInfo?.duration) onNavigationStart(routeInfo.duration);
     if (pendingRouteRef.current) {
@@ -1283,7 +1365,8 @@ export default function MapScreen() {
     }, 900);
 
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
-  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, unlockCamera, lockForStart, resetDR, resetDRRefs, exitDrivingMode]);
+  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, unlockCamera,
+      lockForStart, resetDR, resetDRRefs, exitDrivingMode, activeRoute]);
 
   // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
@@ -1378,12 +1461,16 @@ export default function MapScreen() {
 
   const handleReset = useCallback(() => {
     if (isNavigating) stopNavigation();
-    startIsMyLocationRef.current = false;
+    startIsMyLocationRef.current        = false;
     setStartLocation(null);
     setEndLocation(null);
     setRouteInfo(null);
     setCurrentStep(0);
     setRouteEndpointImages({});
+    setIsOffroadRoute(false);
+    isOffroadRef.current                = false;
+    offroadLoadedPointsRef.current      = [];  // ← NOWE
+    offroadPointsRef.current            = [];  // ← NOWE
   }, [isNavigating, stopNavigation]);
 
   // ─────────────────────────────────────────────────────────
@@ -1816,69 +1903,105 @@ export default function MapScreen() {
         </MapView>
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
-        {isNavigating && currentStepData && (
-          <View style={styles.navigationPanelTop}>
-            <View style={styles.instructionBox}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <View style={{
-                  width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
-                  borderWidth: 1.5, borderColor: '#e3383545',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
-                    {currentStepData.distance?.text}
-                  </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffcc', marginTop: 2 }} numberOfLines={1}>
-                    {cleanInstruction(currentStepData.html_instructions)}
-                  </Text>
+        {isNavigating && (
+          isOffroadRef.current ? (
+            // ── OFFROAD panel ──────────────────────────────
+            <View style={styles.navigationPanelTop}>
+              <View style={styles.instructionBox}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{
+                    width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
+                    borderWidth: 1.5, borderColor: '#ff922b45',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <MaterialCommunityIcons name="terrain" size={32} color="#ff922b" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#ff922b', fontWeight: '900', letterSpacing: 2 }}>
+                      TRYB OFFROAD
+                    </Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffffcc', marginTop: 2 }}>
+                      Nawigacja w linii prostej
+                    </Text>
+                    {routeInfo && (
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ff922b', marginTop: 2 }}>
+                        {routeInfo.distance} km
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </View>
-
-              {activeSteps[currentStep + 1] && (
-                <View style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 8,
-                  backgroundColor: '#ffffff08', borderRadius: 10,
-                  paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6,
-                }}>
-                  <MaterialIcons name="subdirectory-arrow-right" size={14} color="#ffffff50" />
-                  <Text style={{ color: '#ffffff60', fontFamily: 'Orbitron', fontSize: 9 }}>Potem: </Text>
-                  <MaterialIcons name={getManeuverIcon(activeSteps[currentStep + 1].maneuver) as any} size={14} color="#ffffff80" />
-                  <Text style={{ color: '#ffffff80', fontFamily: 'Orbitron', fontSize: 9, flex: 1 }} numberOfLines={1}>
-                    {cleanInstruction(activeSteps[currentStep + 1].html_instructions)}
-                  </Text>
-                </View>
-              )}
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50', letterSpacing: 1 }}>
-                  Krok {currentStep + 1}/{activeSteps.length}
-                </Text>
-                {routeInfo && (
-                  <>
-                    <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
-                    <MaterialIcons name="schedule" size={10} color="#e33835" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>
-                      {formatDuration(routeInfo.duration)}
-                    </Text>
-                    <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
-                      cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </>
-                )}
-              </View>
+              <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
+                <MaterialIcons name="close" size={18} color="#ffffff70" />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-              <MaterialIcons name="close" size={18} color="#ffffff70" />
-            </TouchableOpacity>
-          </View>
+          ) : (
+            currentStepData ? (
+              // ── STANDARDOWY panel kroków ───────────────────
+              <View style={styles.navigationPanelTop}>
+                <View style={styles.instructionBox}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                    <View style={{
+                      width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
+                      borderWidth: 1.5, borderColor: '#e3383545',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
+                        {currentStepData.distance?.text}
+                      </Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffcc', marginTop: 2 }} numberOfLines={1}>
+                        {cleanInstruction(currentStepData.html_instructions)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {activeSteps[currentStep + 1] && (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 8,
+                      backgroundColor: '#ffffff08', borderRadius: 10,
+                      paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6,
+                    }}>
+                      <MaterialIcons name="subdirectory-arrow-right" size={14} color="#ffffff50" />
+                      <Text style={{ color: '#ffffff60', fontFamily: 'Orbitron', fontSize: 9 }}>Potem: </Text>
+                      <MaterialIcons name={getManeuverIcon(activeSteps[currentStep + 1].maneuver) as any} size={14} color="#ffffff80" />
+                      <Text style={{ color: '#ffffff80', fontFamily: 'Orbitron', fontSize: 9, flex: 1 }} numberOfLines={1}>
+                        {cleanInstruction(activeSteps[currentStep + 1].html_instructions)}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50', letterSpacing: 1 }}>
+                      Krok {currentStep + 1}/{activeSteps.length}
+                    </Text>
+                    {routeInfo && (
+                      <>
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <MaterialIcons name="schedule" size={10} color="#e33835" />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>
+                          {formatDuration(routeInfo.duration)}
+                        </Text>
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
+                          cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                </View>
+                <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
+                  <MaterialIcons name="close" size={18} color="#ffffff70" />
+                </TouchableOpacity>
+              </View>
+            ) : null
+          )
         )}
 
         {/* ── Off-route banner ─────────────────────────────── */}
-        {isNavigating && offRoute && (
+        {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
             position: 'absolute', top: Platform.OS === 'ios' ? 160 : 145,
             left: 12, right: 12,
@@ -1924,7 +2047,6 @@ export default function MapScreen() {
             </Text>
             <Text style={styles.speedLabel}>KM/H</Text>
 
-            {/* Km w trybie driving — pod prędkością */}
             {isDriving && !isNavigating && drivingKm > 0 && (
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#268bffaa', marginTop: 4, letterSpacing: 1 }}>
                 {drivingKm.toFixed(1)} km
@@ -1936,10 +2058,10 @@ export default function MapScreen() {
         {/* ── Przyciski boczne ─────────────────────────────── */}
         <View style={[
           styles.rightBottomControls,
-          !isNavigating && !isDriving && {    // ← dodaj !isDriving
+          !isNavigating && !isDriving && {
             bottom: startLocation && endLocation && routeInfo ? 248 : 188
           },
-          isDriving && !isNavigating && {     // ← nowy case
+          isDriving && !isNavigating && {
             bottom: 120
           },
         ]}>
@@ -2064,10 +2186,26 @@ export default function MapScreen() {
         )}
 
         {/* ── Bottom sheet (podgląd trasy) ─────────────────── */}
-        {!isNavigating && !isBuilding && startLocation && endLocation &&  (
+        {!isNavigating && !isBuilding && startLocation && endLocation && (
           <View style={styles.bottomSheet}>
             <View style={styles.expandHandle} />
             <View style={styles.infoPreview}>
+
+              {/* ── Offroad badge ────────────────────────────── */}
+              {isOffroadRoute && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: '#ff922b18', borderRadius: 8,
+                  borderWidth: 1, borderColor: '#ff922b40',
+                  paddingHorizontal: 10, paddingVertical: 6, marginBottom: 12,
+                }}>
+                  <MaterialCommunityIcons name="terrain" size={14} color="#ff922b" />
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff922b', letterSpacing: 2 }}>
+                    TRASA OFFROAD — LINIA PROSTA
+                  </Text>
+                </View>
+              )}
+
               <View style={styles.routeInfoCard}>
                 <View style={styles.routeInfoRow}>
                   <View style={styles.routeInfoLocation}>
@@ -2095,7 +2233,7 @@ export default function MapScreen() {
                   </View>
                   <View>
                     <Text style={styles.statLabel}>DYSTANS</Text>
-                    {previewLoading || !routeInfo
+                    {(!isOffroadRoute && previewLoading) || !routeInfo
                       ? <ActivityIndicator size="small" color="#e33835ce" style={{ marginTop: 2 }} />
                       : <Text style={styles.statValue}>{routeInfo.distance} km</Text>
                     }
@@ -2108,15 +2246,18 @@ export default function MapScreen() {
                   </View>
                   <View>
                     <Text style={styles.statLabel}>CZAS</Text>
-                    {previewLoading || !routeInfo
+                    {(!isOffroadRoute && previewLoading) || !routeInfo
                       ? <ActivityIndicator size="small" color="#e33835ce" style={{ marginTop: 2 }} />
-                      : <Text style={styles.statValue}>{formatDuration(routeInfo.duration)}</Text>
+                      : isOffroadRoute
+                        ? <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#ff922b', fontWeight: '700' }}>—</Text>
+                        : <Text style={styles.statValue}>{formatDuration(routeInfo.duration)}</Text>
                     }
                   </View>
                 </View>
               </View>
 
-              {alternativeRoutes.length > 1 && (
+              {/* ── Alternatywne trasy — tylko dla tras drogowych ── */}
+              {!isOffroadRoute && alternativeRoutes.length > 1 && (
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
                   {alternativeRoutes.map((r, i) => (
                     <TouchableOpacity
@@ -2150,17 +2291,17 @@ export default function MapScreen() {
 
               <View style={styles.bottomSheetButtons}>
                 <TouchableOpacity
-                  style={[styles.navigateButton, (previewLoading || !routeInfo) && { opacity: 0.5 }]}
+                  style={[styles.navigateButton, ((!isOffroadRoute && previewLoading) || !routeInfo) && { opacity: 0.5 }]}
                   onPress={startNavigation}
                   activeOpacity={0.85}
-                  disabled={previewLoading || !routeInfo}
+                  disabled={(!isOffroadRoute && previewLoading) || !routeInfo}
                 >
-                  {previewLoading
+                  {!isOffroadRoute && previewLoading
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <MaterialIcons name="navigation" size={18} color="#fff" />
                   }
                   <Text style={styles.navigateButtonText}>
-                    {previewLoading ? 'OBLICZAM...' : 'NAWIGUJ'}
+                    {!isOffroadRoute && previewLoading ? 'OBLICZAM...' : 'NAWIGUJ'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.editButton} onPress={() => setSearchModalVisible(true)} activeOpacity={0.8}>
@@ -2236,8 +2377,8 @@ export default function MapScreen() {
           isSnapped={snappedRoute.length > 0}
           onSnapToRoad={() => snapToRoad(pins)}
           onCancel={() => setSaveRouteVisible(false)}
-          onSave={async (name, desc, isPublic) => {
-            const result = await saveRoute(name, desc, isPublic);
+          onSave={async (name, desc, isPublic, isOffroad) => {
+            const result = await saveRoute(name, desc, isPublic, isOffroad);
             setSaveRouteVisible(false);
             if (result) Toast.show({ type: 'success', text1: '✅ TRASA ZAPISANA', text2: name });
             else        Toast.show({ type: 'error',   text1: 'Błąd zapisu trasy' });
