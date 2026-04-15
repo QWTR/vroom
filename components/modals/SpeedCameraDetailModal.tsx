@@ -6,6 +6,7 @@ import {
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { SpeedCamera } from '../../hooks/useSpeedCameras';
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface Props {
   visible:       boolean;
@@ -31,6 +32,8 @@ export function SpeedCameraDetailModal({
   const [deleting,   setDeleting]   = useState(false);
   const [confirmed,  setConfirmed]  = useState(false);
   const [count,      setCount]      = useState(0);
+
+  useModalBackHandler(visible, onClose);
 
   React.useEffect(() => {
     if (camera) { setCount(camera.confirmCount); setConfirmed(false); }
@@ -79,7 +82,7 @@ export function SpeedCameraDetailModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} >
       <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
         <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={onClose} />
         <View style={{

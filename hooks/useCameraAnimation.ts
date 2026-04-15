@@ -10,7 +10,7 @@ interface CameraParams {
 }
 
 const RETURN_TO_USER_MS    = 6000;
-const NAV_LOOKAHEAD_METERS = 480;
+const NAV_LOOKAHEAD_METERS = 1050;
 
 function offsetCenter(
   lat: number, lng: number,
@@ -111,22 +111,11 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
     startLockRef.current    = false;
-    lastCenterRef.current   = null; // wymuś animację przy pierwszym animateCameraLive
+    lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
-
-    const lookahead = offsetCenter(
-      center.latitude, center.longitude,
-      heading, NAV_LOOKAHEAD_METERS,
-    );
-    // Płynna animacja przejścia (800ms) — identyczna jak beginNavigation
+    const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
     mapRef.current?.animateCamera(
-      {
-        center:  lookahead,
-        pitch:   90,
-        heading: heading,
-        zoom:    16.5,
-        altitude: 0,
-      },
+      { center: lookahead, pitch: 90, heading, zoom: 16.5, altitude: 0 },
       { duration: 800 },
     );
     lastHeadingRef.current = heading;
@@ -134,9 +123,7 @@ export function useCameraAnimation(mapRef: React.RefObject<MapView>) {
   }, [mapRef]);
 
   // ── exitDrivingCamera — powrót do widoku 2D ───────────────
-  const exitDrivingCamera = useCallback((
-    center: { latitude: number; longitude: number },
-  ) => {
+  const exitDrivingCamera = useCallback((center: { latitude: number; longitude: number }) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
     startLockRef.current    = false;

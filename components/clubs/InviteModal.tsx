@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  FlatList, Image, ActivityIndicator, Pressable, Platform,
+  FlatList, ActivityIndicator, Pressable, Platform,
 } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage  from '@react-native-async-storage/async-storage';
-import { useTheme }  from '../../contexts/ThemeContext';
-import { API_URL }   from '../../constants/config';
-import { UAv }       from './ClubCard';
+import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import AsyncStorage           from '@react-native-async-storage/async-storage';
+import Toast                  from 'react-native-toast-message';
+import { useTheme }           from '../../contexts/ThemeContext';
+import { API_URL }            from '../../constants/config';
+import { UAv }                from './ClubCard';
 
 interface Invite {
   id:        number;
@@ -25,13 +27,14 @@ export function InviteModal({
   clubId:  number;
   onClose: () => void;
 }) {
-  const { theme } = useTheme();
-  const [search,   setSearch]   = useState('');
-  const [invites,  setInvites]  = useState<Invite[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [sending,  setSending]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [success,  setSuccess]  = useState('');
+  const { theme }                     = useTheme();
+  const [search,   setSearch]         = useState('');
+  const [invites,  setInvites]        = useState<Invite[]>([]);
+  const [loading,  setLoading]        = useState(false);
+  const [sending,  setSending]        = useState(false);
+  const [cancelling, setCancelling]   = useState<number | null>(null);
+  const [error,    setError]          = useState('');
+  const [success,  setSuccess]        = useState('');
 
   const getToken = () => AsyncStorage.getItem('token');
 
@@ -64,84 +67,166 @@ export function InviteModal({
       if (!res.ok) { setError(json.error ?? 'Błąd'); return; }
       setSuccess(`Zaproszono ${search.trim()}!`);
       setSearch('');
+      Toast.show({ type: 'success', text1: '✅ ZAPROSZONO', text2: search.trim() });
       await fetchInvites();
     } finally { setSending(false); }
   };
 
   const handleCancel = async (inviteId: number) => {
-    const token = await getToken();
-    await fetch(`${API_URL}/api/clubs/${clubId}/invites/${inviteId}`, {
-      method:  'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setInvites(prev => prev.filter(i => i.id !== inviteId));
+    setCancelling(inviteId);
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/clubs/${clubId}/invites/${inviteId}`, {
+        method:  'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setInvites(prev => prev.filter(i => i.id !== inviteId));
+      Toast.show({ type: 'info', text1: 'Zaproszenie anulowane' });
+    } finally { setCancelling(null); }
   };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={onClose}>
+      <Pressable
+        style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}
+        onPress={onClose}
+      >
         <Pressable onPress={e => e.stopPropagation()}>
           <View style={{
             backgroundColor: theme.surface,
-            borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-            maxHeight: '80%',
+            borderTopLeftRadius: 28, borderTopRightRadius: 28,
+            paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+            maxHeight: '82%',
             borderTopWidth: 1, borderColor: theme.border2,
           }}>
             {/* Handle */}
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
+            <View style={{
+              width: 36, height: 4, borderRadius: 2,
+              backgroundColor: theme.border3,
+              alignSelf: 'center', marginTop: 12, marginBottom: 4,
+            }} />
 
-            {/* Title */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 }}>
-              <MaterialIcons name="person-add" size={20} color="#e33835" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, flex: 1 }}>
-                ZAPROŚ DO KLUBU
-              </Text>
-              <TouchableOpacity onPress={onClose}>
-                <MaterialIcons name="close" size={20} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Search input */}
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-              <TextInput
-                style={{
-                  flex: 1, backgroundColor: theme.surface2, borderRadius: 12,
-                  paddingHorizontal: 14, paddingVertical: 10,
-                  color: theme.text, fontSize: 13,
-                  borderWidth: 1, borderColor: error ? '#e33835' : theme.border,
-                }}
-                value={search}
-                onChangeText={t => { setSearch(t); setError(''); setSuccess(''); }}
-                placeholder="Nazwa użytkownika..."
-                placeholderTextColor={theme.textDim}
-                autoCapitalize="none"
-                returnKeyType="send"
-                onSubmitEditing={handleInvite}
-              />
+            {/* Header */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center',
+              paddingHorizontal: 18, paddingVertical: 14,
+              borderBottomWidth: 1, borderBottomColor: theme.border,
+              gap: 10,
+            }}>
+              <View style={{
+                width: 36, height: 36, borderRadius: 10,
+                backgroundColor: '#4de92615', borderWidth: 1, borderColor: '#4de92630',
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <MaterialIcons name="person-add" size={18} color="#4de926" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', letterSpacing: 2 }}>
+                  ZAPROŚ DO KLUBU
+                </Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 1 }}>
+                  {invites.length} oczekujących zaproszeń
+                </Text>
+              </View>
               <TouchableOpacity
-                style={[
-                  { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' },
-                  (!search.trim() || sending) && { opacity: 0.4 },
-                ]}
-                onPress={handleInvite}
-                disabled={!search.trim() || sending}
+                style={{
+                  width: 32, height: 32, borderRadius: 10,
+                  backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border2,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+                onPress={onClose}
               >
-                {sending
-                  ? <ActivityIndicator size={16} color="#fff" />
-                  : <MaterialIcons name="send" size={16} color="#fff" />
-                }
+                <MaterialIcons name="close" size={16} color={theme.textMuted} />
               </TouchableOpacity>
             </View>
 
-            {/* Feedback */}
-            {!!error   && <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, marginBottom: 8 }}>✕ {error}</Text>}
-            {!!success && <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 9, marginBottom: 8 }}>✓ {success}</Text>}
+            <View style={{ padding: 16 }}>
+              {/* Input + wyślij */}
+              <View style={{
+                flexDirection: 'row', gap: 8, marginBottom: 6,
+              }}>
+                <View style={{
+                  flex: 1, flexDirection: 'row', alignItems: 'center',
+                  backgroundColor: theme.surface2, borderRadius: 14,
+                  paddingHorizontal: 12, gap: 8,
+                  borderWidth: 1, borderColor: error ? '#e33835' : theme.border2,
+                }}>
+                  <MaterialIcons name="person-search" size={16} color={theme.textDim} />
+                  <TextInput
+                    style={{
+                      flex: 1, color: theme.text,
+                      fontFamily: 'Orbitron', fontSize: 11,
+                      paddingVertical: 12,
+                    }}
+                    value={search}
+                    onChangeText={t => { setSearch(t); setError(''); setSuccess(''); }}
+                    placeholder="Nazwa użytkownika..."
+                    placeholderTextColor={theme.textDim}
+                    autoCapitalize="none"
+                    returnKeyType="send"
+                    onSubmitEditing={handleInvite}
+                  />
+                  {search.length > 0 && (
+                    <TouchableOpacity onPress={() => { setSearch(''); setError(''); setSuccess(''); }}>
+                      <MaterialIcons name="close" size={14} color={theme.textDim} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={[
+                    {
+                      borderRadius: 14, paddingHorizontal: 16,
+                      backgroundColor: '#4de926',
+                      justifyContent: 'center', alignItems: 'center',
+                    },
+                    (!search.trim() || sending) && { opacity: 0.4 },
+                  ]}
+                  onPress={handleInvite}
+                  disabled={!search.trim() || sending}
+                  activeOpacity={0.85}
+                >
+                  {sending
+                    ? <ActivityIndicator size={16} color="#fff" />
+                    : <MaterialIcons name="send" size={18} color="#fff" />
+                  }
+                </TouchableOpacity>
+              </View>
 
-            {/* Pending invites */}
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2, marginBottom: 10 }}>
-              OCZEKUJĄCE ({invites.length})
-            </Text>
+              {/* Feedback */}
+              {!!error && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: '#e3383515', borderRadius: 8,
+                  paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8,
+                  borderWidth: 1, borderColor: '#e3383530',
+                }}>
+                  <MaterialIcons name="error-outline" size={13} color="#e33835" />
+                  <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, flex: 1 }}>{error}</Text>
+                </View>
+              )}
+              {!!success && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: '#4de92615', borderRadius: 8,
+                  paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8,
+                  borderWidth: 1, borderColor: '#4de92630',
+                }}>
+                  <MaterialIcons name="check-circle-outline" size={13} color="#4de926" />
+                  <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 8, flex: 1 }}>{success}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Lista oczekujących */}
+            <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
+                  OCZEKUJĄCE · {invites.length}
+                </Text>
+                <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+              </View>
+            </View>
 
             {loading ? (
               <ActivityIndicator color="#e33835" style={{ marginVertical: 20 }} />
@@ -150,31 +235,56 @@ export function InviteModal({
                 data={invites}
                 keyExtractor={i => String(i.id)}
                 style={{ maxHeight: 280 }}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8 }}
+                showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, textAlign: 'center', marginTop: 20 }}>
-                    Brak oczekujących zaproszeń
-                  </Text>
+                  <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+                    <MaterialCommunityIcons name="account-clock-outline" size={36} color={theme.border3} />
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>
+                      BRAK OCZEKUJĄCYCH
+                    </Text>
+                  </View>
                 }
                 renderItem={({ item }) => (
                   <View style={{
                     flexDirection: 'row', alignItems: 'center', gap: 10,
-                    paddingVertical: 10,
-                    borderBottomWidth: 1, borderBottomColor: theme.border,
+                    backgroundColor: theme.surface2, borderRadius: 14,
+                    padding: 12, borderWidth: 1, borderColor: theme.border2,
                   }}>
-                    <UAv uri={item.invited.avatarUrl} name={item.invited.username} size={36} />
+                    <UAv uri={item.invited.avatarUrl} name={item.invited.username} size={38} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>
                         {item.invited.username}
                       </Text>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
-                        zaproszony przez {item.inviter.username}
+                        przez {item.inviter.username}
                       </Text>
                     </View>
+                    {/* Badge oczekuje */}
+                    <View style={{
+                      backgroundColor: '#f5c51815', borderRadius: 8,
+                      paddingHorizontal: 8, paddingVertical: 4,
+                      borderWidth: 1, borderColor: '#f5c51830',
+                    }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#f5c518', fontWeight: '700' }}>
+                        OCZEKUJE
+                      </Text>
+                    </View>
+                    {/* Anuluj */}
                     <TouchableOpacity
-                      style={{ backgroundColor: '#e3383515', borderRadius: 8, borderWidth: 1, borderColor: '#e3383530', paddingHorizontal: 10, paddingVertical: 6 }}
+                      style={{
+                        width: 32, height: 32, borderRadius: 9,
+                        backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383530',
+                        alignItems: 'center', justifyContent: 'center',
+                        opacity: cancelling === item.id ? 0.5 : 1,
+                      }}
                       onPress={() => handleCancel(item.id)}
+                      disabled={cancelling === item.id}
                     >
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835' }}>ANULUJ</Text>
+                      {cancelling === item.id
+                        ? <ActivityIndicator size={13} color="#e33835" />
+                        : <MaterialIcons name="close" size={15} color="#e33835" />
+                      }
                     </TouchableOpacity>
                   </View>
                 )}

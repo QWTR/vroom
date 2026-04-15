@@ -5,7 +5,7 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
-
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 interface SettingsModalProps {
   visible: boolean;
   mapType: string;
@@ -24,9 +24,10 @@ export const SettingsModal = memo(
   ({ visible, mapType, onChangeMapType, onClose }: SettingsModalProps) => {
     const { theme, isDark } = useTheme();
     const styles = makeMapStyles(theme, isDark);
-
+    useModalBackHandler(visible, onClose);
+    
     return (
-      <Modal visible={visible} animationType="slide" transparent>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}> 
         <SafeAreaView style={styles.drawerModalContainer}>
           <View style={styles.drawerModal}>
 

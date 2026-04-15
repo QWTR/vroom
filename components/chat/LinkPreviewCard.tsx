@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { API_URL } from '../../../constants/config';
+import { API_URL } from '../../constants/config';
 
 interface PreviewData {
   title:       string | null;

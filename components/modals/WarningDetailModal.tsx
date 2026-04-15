@@ -1,22 +1,27 @@
-import React, { memo } from 'react';
-import { Modal, View, Text, TouchableOpacity } from 'react-native';
+import React, { memo, useState } from 'react';
+import { Modal, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { LiveWarning, getWarningColor, getWarningIcon, getWarningLabel } from '../../hooks/useLiveMap';
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface Props {
   visible:        boolean;
   warning:        LiveWarning | null;
   onClose:        () => void;
   onConfirm:      (id: number) => void;
+  onCancel?:      (id: number) => Promise<void>; // ← NOWE: anulowanie przez twórcę
   currentUserId?: number;
 }
 
-export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, currentUserId }: Props) => {
+export const WarningDetailModal = memo(({
+  visible, warning, onClose, onConfirm, onCancel, currentUserId,
+}: Props) => {
   const { theme, isDark } = useTheme();
-  const styles    = makeMapStyles(theme);
+  const styles = makeMapStyles(theme);
+  const [cancelling, setCancelling] = useState(false);
 
   if (!warning) return null;
 
@@ -26,8 +31,19 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
   const timeLeft = Math.max(0, Math.round((new Date(warning.expiresAt).getTime() - Date.now()) / 60000));
   const isOwn    = warning.user.id === currentUserId;
 
+  const handleCancel = async () => {
+    if (!onCancel) return;
+    setCancelling(true);
+    try {
+      await onCancel(warning.id);
+      onClose();
+    } finally {
+      setCancelling(false);
+    }
+  };
+  useModalBackHandler(visible, onClose);
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <SafeAreaView style={styles.drawerModalContainer}>
         <View style={styles.drawerModal}>
           <View style={styles.drawerHandle} />
@@ -101,6 +117,7 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
             </Text>
           </View>
 
+          {/* Inny użytkownik — potwierdź */}
           {!isOwn && (
             <TouchableOpacity
               style={{
@@ -119,14 +136,47 @@ export const WarningDetailModal = memo(({ visible, warning, onClose, onConfirm, 
             </TouchableOpacity>
           )}
 
+          {/* Twórca — anuluj */}
           {isOwn && (
-            <View style={{
-              padding: 14, backgroundColor: theme.border,
-              borderRadius: 12, alignItems: 'center',
-            }}>
-              <Text style={[styles.drawerSectionLabel, { marginBottom: 0, textAlign: 'center' }]}>
-                TO TWOJE OSTRZEŻENIE — INNI MOGĄ JE POTWIERDZIĆ
-              </Text>
+            <View style={{ gap: 10 }}>
+              {/* Info */}
+              <View style={{
+                padding: 12, backgroundColor: theme.border,
+                borderRadius: 12, flexDirection: 'row',
+                alignItems: 'center', gap: 8,
+              }}>
+                <MaterialIcons name="shield" size={14} color={theme.textDim} />
+                <Text style={[styles.drawerSectionLabel, { marginBottom: 0, flex: 1 }]}>
+                  TO TWOJE ZGŁOSZENIE — INNI MOGĄ JE POTWIERDZIĆ
+                </Text>
+              </View>
+
+              {/* Przycisk anulowania */}
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  justifyContent: 'center', gap: 10, paddingVertical: 15,
+                  backgroundColor: '#e3383515',
+                  borderRadius: 14, borderWidth: 2,
+                  borderColor: cancelling ? '#e3383530' : '#e33835',
+                  opacity: cancelling ? 0.7 : 1,
+                }}
+                activeOpacity={0.8}
+                onPress={handleCancel}
+                disabled={cancelling}
+              >
+                {cancelling ? (
+                  <ActivityIndicator size="small" color="#e33835" />
+                ) : (
+                  <MaterialIcons name="delete-outline" size={20} color="#e33835" />
+                )}
+                <Text style={{
+                  color: '#e33835', fontFamily: 'Orbitron',
+                  fontWeight: '700', fontSize: 11, letterSpacing: 2,
+                }}>
+                  {cancelling ? 'ANULOWANIE...' : 'ANULUJ ZGŁOSZENIE'}
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
 

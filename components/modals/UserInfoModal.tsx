@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface UserInfoModalProps {
   visible:       boolean;
@@ -25,9 +26,9 @@ export const UserInfoModal = memo(
 
     const isOnline  = user.status === 'Online';
     const hasAvatar = user.avatar && user.avatar.startsWith('http');
-
+    useModalBackHandler(visible, onClose);
     return (
-      <Modal visible={visible} animationType="slide" transparent>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <SafeAreaView style={styles.userInfoOverlay}>
           <TouchableOpacity style={styles.userInfoBackdrop} activeOpacity={1} onPress={onClose} />
 

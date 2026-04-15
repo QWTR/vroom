@@ -8,7 +8,7 @@ import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { TripStats } from '../../hooks/useTripStats';
 import { customMapStyle, lightMapStyle } from '../../constants/mapConfig';
-
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 const { height: SCREEN_H } = Dimensions.get('window');
 
 function formatTime(sec: number): string {
@@ -52,7 +52,7 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
       longitudeDelta: Math.max((maxLng - minLng) * 1.5, 0.004),
     };
   })() : null;
-
+  useModalBackHandler(visible, onClose);
   return (
     <Modal
       visible={visible}

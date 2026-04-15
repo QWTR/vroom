@@ -14,6 +14,9 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
+import { AnnouncementsModal } from '../../components/modals/AnnouncementsModal';
+import { useAnnouncements } from '../../hooks/useAnnouncements';
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -59,12 +62,16 @@ export default function HomeScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [user,       setUser]       = useState<User | null>(null);
+  const { unseenCount, load: loadAnnouncements } = useAnnouncements();
+  const [showAnnouncements, setShowAnnouncements] = useState(false);
 
   // Animacje
   const fadeAnim   = useRef(new Animated.Value(0)).current;
   const slideAnim  = useRef(new Animated.Value(40)).current;
   const scaleAnim  = useRef(new Animated.Value(0.92)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => { loadAnnouncements(); }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -364,6 +371,68 @@ export default function HomeScreen() {
             ))}
           </View>
         </Animated.View>
+        {/* ══════════════════════════════════════════════ */}
+        {/* ANNOUNCEMENTS BANNER                           */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 20 }}>
+          <TouchableOpacity onPress={() => setShowAnnouncements(true)} activeOpacity={0.85}>
+            <LinearGradient
+              colors={isDark ? ['#1a0a1a', '#0f0f0f'] : ['#f8f0ff', '#f5f5f5']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{
+                borderRadius: 18, borderWidth: 1,
+                borderColor: unseenCount > 0 ? '#a855f750' : t.border2,
+                padding: 18, flexDirection: 'row', alignItems: 'center',
+                gap: 14, overflow: 'hidden',
+              }}
+            >
+              <View style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: 50, backgroundColor: '#a855f710' }} />
+
+              <View style={{
+                width: 46, height: 46, borderRadius: 14,
+                backgroundColor: '#a855f720', borderWidth: 1, borderColor: '#a855f740',
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Text style={{ fontSize: 22 }}>📢</Text>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: t.text, fontWeight: '700', marginBottom: 3 }}>
+                  Ogłoszenia
+                </Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim }}>
+                  Nowości · Aktualizacje · Eventy
+                </Text>
+              </View>
+
+              {/* Badge z liczbą nieprzeczytanych */}
+              {unseenCount > 0 && (
+                <View style={{
+                  backgroundColor: '#a855f7', borderRadius: 10,
+                  paddingHorizontal: 8, paddingVertical: 4,
+                  minWidth: 24, alignItems: 'center',
+                }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '900' }}>
+                    {unseenCount}
+                  </Text>
+                </View>
+              )}
+
+              <View style={{
+                backgroundColor: '#a855f715', borderRadius: 10,
+                padding: 8, borderWidth: 1, borderColor: '#a855f730',
+              }}>
+                <MaterialIcons name="arrow-forward-ios" size={13} color="#a855f7" />
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Modal ogłoszeń */}
+        <AnnouncementsModal
+          visible={showAnnouncements}
+          onClose={() => setShowAnnouncements(false)}
+        />
 
         {/* ══════════════════════════════════════════════ */}
         {/* STATS GRID                                     */}

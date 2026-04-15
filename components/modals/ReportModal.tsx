@@ -8,7 +8,7 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { LiveWarning, getWarningColor, getWarningIcon } from '../../hooks/useLiveMap';
-
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 interface ReportModalProps {
   visible:       boolean;
   onClose:       () => void;
@@ -29,9 +29,9 @@ const REPORT_ITEMS: { type: LiveWarning['type']; label: string; sub: string }[] 
 export const ReportModal = memo(({ visible, onClose, onReport, isSubmitting }: ReportModalProps) => {
   const { theme, isDark } = useTheme();
   const styles    = makeMapStyles(theme);
-
+  useModalBackHandler(visible, onClose);
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <SafeAreaView style={styles.drawerModalContainer}>
         <View style={styles.drawerModal}>
 

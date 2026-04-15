@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
-
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 type Props = {
   visible:      boolean;
   pinCount:     number;
@@ -31,7 +31,7 @@ export function SaveRouteModal({
     if (!name.trim()) return;
     onSave(name.trim(), description.trim(), isPublic);
   };
-
+  useModalBackHandler(visible, onCancel);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView

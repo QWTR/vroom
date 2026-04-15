@@ -32,13 +32,15 @@ export default function ClubDetailModal({
   club, myId, onClose, onJoin, onLeave, onDelete,
   onChatOpen, onRanksOpen, joining, onRefresh,
 }: Props) {
-  const { theme }                     = useTheme();
-  const [assigning, setAssigning]     = useState<number | null>(null);
-  const [inviteOpen, setInviteOpen]   = useState(false);
+  const { theme }                   = useTheme();
+  const [assigning, setAssigning]   = useState<number | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   if (!club) return null;
 
   const isOwner     = club.myRole === 'owner';
+  const isMember    = club.isMember;
+  const isPrivate   = club.isPrivate;
   const canInvite   = isOwner || !!(club.myRank?.canManage);
   const canModerate = isOwner || !!(club.myRank && (club.myRank.canKick || club.myRank.canMute));
 
@@ -92,202 +94,417 @@ export default function ClubDetailModal({
       <Modal visible={!!club} animationType="slide" transparent onRequestClose={onClose}>
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-          <View style={{
-            backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            maxHeight: '88%', borderTopWidth: 1, borderColor: theme.border2,
-          }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
 
-              {/* Header */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <View style={{ width: 60, height: 60, borderRadius: 15, overflow: 'hidden', backgroundColor: '#e3383518', borderWidth: 1, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{
+            backgroundColor: theme.surface,
+            borderTopLeftRadius: 28, borderTopRightRadius: 28,
+            maxHeight: '90%',
+            borderTopWidth: 1, borderColor: theme.border2,
+          }}>
+            {/* Handle */}
+            <View style={{
+              width: 36, height: 4, borderRadius: 2,
+              backgroundColor: theme.border3,
+              alignSelf: 'center', marginTop: 12, marginBottom: 4,
+            }} />
+
+            <ScrollView
+              contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 48 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* ── HERO HEADER ─────────────────────────────── */}
+              <View style={{
+                alignItems: 'center', paddingVertical: 20,
+                borderBottomWidth: 1, borderBottomColor: theme.border,
+                marginBottom: 16, gap: 10,
+              }}>
+                {/* Avatar */}
+                <View style={{
+                  width: 72, height: 72, borderRadius: 20, overflow: 'hidden',
+                  backgroundColor: '#e3383518',
+                  borderWidth: isMember ? 3 : 1,
+                  borderColor: isMember ? '#e33835' : '#e3383530',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
                   {club.avatarUrl
-                    ? <Image source={{ uri: club.avatarUrl }} style={{ width: 60, height: 60 }} />
-                    : <MaterialCommunityIcons name="shield-crown-outline" size={30} color="#e33835" />
+                    ? <Image source={{ uri: club.avatarUrl }} style={{ width: 72, height: 72 }} />
+                    : <MaterialCommunityIcons name="shield-crown-outline" size={36} color="#e33835" />
                   }
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 15, color: theme.text, fontWeight: '700', marginBottom: 3 }}>
-                    {club.name}
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>{club.memberCount} członków</Text>
-                    {club.isPrivate && <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>🔒 PRYWATNY</Text>}
-                  </View>
-                </View>
-                <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
-                  <MaterialIcons name="close" size={20} color={theme.textDim} />
-                </TouchableOpacity>
-              </View>
 
-              {!!club.description && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, lineHeight: 15, marginBottom: 14 }}>
-                  {club.description}
+                {/* Nazwa */}
+                <Text style={{
+                  fontFamily: 'Orbitron', fontSize: 18,
+                  color: theme.text, fontWeight: '900',
+                  textAlign: 'center',
+                }}>
+                  {club.name}
                 </Text>
-              )}
 
-              {/* Przyciski akcji — rząd 1 */}
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                {club.isMember && (
+                {/* Badges rząd */}
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 4,
+                    backgroundColor: theme.surface2, borderRadius: 8,
+                    paddingHorizontal: 10, paddingVertical: 4,
+                    borderWidth: 1, borderColor: theme.border2,
+                  }}>
+                    <MaterialCommunityIcons name="account-group" size={12} color={theme.textDim} />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>
+                      {club.memberCount} członków
+                    </Text>
+                  </View>
+
+                  {isPrivate && (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      backgroundColor: theme.surface2, borderRadius: 8,
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderWidth: 1, borderColor: theme.border2,
+                    }}>
+                      <MaterialIcons name="lock" size={11} color={theme.textDim} />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>PRYWATNY</Text>
+                    </View>
+                  )}
+
+                  {isOwner && (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      backgroundColor: '#e3383520', borderRadius: 8,
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderWidth: 1, borderColor: '#e3383540',
+                    }}>
+                      <MaterialCommunityIcons name="shield-crown" size={11} color="#e33835" />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>OWNER</Text>
+                    </View>
+                  )}
+
+                  {isMember && !isOwner && (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      backgroundColor: '#4de92615', borderRadius: 8,
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderWidth: 1, borderColor: '#4de92630',
+                    }}>
+                      <MaterialIcons name="check-circle" size={11} color="#4de926" />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#4de926', fontWeight: '700' }}>
+                        {club.myRank ? club.myRank.name.toUpperCase() : 'CZŁONEK'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Opis */}
+                {!!club.description && (
+                  <Text style={{
+                    fontFamily: 'Orbitron', fontSize: 9,
+                    color: theme.textDim, lineHeight: 15,
+                    textAlign: 'center', paddingHorizontal: 10,
+                  }}>
+                    {club.description}
+                  </Text>
+                )}
+
+                {/* Owner info */}
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint }}>
+                  założony przez @{club.owner.username}
+                </Text>
+              </View>
+
+              {/* ── PRZYCISKI AKCJI ──────────────────────────── */}
+              <View style={{ gap: 8, marginBottom: 16 }}>
+
+                {/* Czat — tylko dla członków */}
+                {isMember && (
                   <TouchableOpacity
-                    style={{ flex: 1, backgroundColor: '#e33835', borderRadius: 12, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                    onPress={() => onChatOpen(club)} activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 8,
+                      backgroundColor: '#e33835',
+                      borderRadius: 14, paddingVertical: 14,
+                    }}
+                    onPress={() => onChatOpen(club)}
+                    activeOpacity={0.85}
                   >
-                    <MaterialCommunityIcons name="chat" size={16} color="#fff" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>CZAT KLUBU</Text>
+                    <MaterialCommunityIcons name="chat" size={18} color="#fff" />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>
+                      CZAT KLUBU
+                    </Text>
                   </TouchableOpacity>
                 )}
-                {isOwner && (
+
+                {/* Rząd: Rangi + Zaproś */}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {isOwner && (
+                    <TouchableOpacity
+                      style={{
+                        flex: 1, flexDirection: 'row', alignItems: 'center',
+                        justifyContent: 'center', gap: 6,
+                        backgroundColor: '#FFD70015', borderRadius: 14,
+                        paddingVertical: 12, borderWidth: 1, borderColor: '#FFD70035',
+                      }}
+                      onPress={() => onRanksOpen(club)}
+                      activeOpacity={0.85}
+                    >
+                      <MaterialCommunityIcons name="shield-star" size={16} color="#FFD700" />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {canInvite && (
+                    <TouchableOpacity
+                      style={{
+                        flex: 1, flexDirection: 'row', alignItems: 'center',
+                        justifyContent: 'center', gap: 6,
+                        backgroundColor: '#4de92615', borderRadius: 14,
+                        paddingVertical: 12, borderWidth: 1, borderColor: '#4de92630',
+                      }}
+                      onPress={() => setInviteOpen(true)}
+                      activeOpacity={0.85}
+                    >
+                      <MaterialIcons name="person-add" size={16} color="#4de926" />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#4de926', fontWeight: '700' }}>ZAPROŚ</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Join / Leave / Delete / Prywatny lock */}
+                {isOwner ? (
                   <TouchableOpacity
-                    style={{ flex: 1, backgroundColor: '#FFD70020', borderRadius: 12, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#FFD70040' }}
-                    onPress={() => onRanksOpen(club)} activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 8,
+                      backgroundColor: '#e3383515', borderRadius: 14,
+                      paddingVertical: 13, borderWidth: 1, borderColor: '#e3383535',
+                    }}
+                    onPress={() => onDelete(club.id)}
+                    activeOpacity={0.85}
                   >
-                    <MaterialCommunityIcons name="shield-star" size={16} color="#FFD700" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI</Text>
+                    <MaterialIcons name="delete" size={16} color="#e33835" />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#e33835' }}>
+                      USUŃ KLUB
+                    </Text>
+                  </TouchableOpacity>
+                ) : isMember ? (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 8,
+                      backgroundColor: theme.surface2, borderRadius: 14,
+                      paddingVertical: 13, borderWidth: 1, borderColor: theme.border2,
+                    }}
+                    onPress={() => onLeave(club.id)}
+                    disabled={joining === club.id}
+                    activeOpacity={0.85}
+                  >
+                    {joining === club.id ? (
+                      <ActivityIndicator color={theme.text} size={16} />
+                    ) : (
+                      <>
+                        <MaterialIcons name="exit-to-app" size={16} color={theme.text} />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>
+                          OPUŚĆ KLUB
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : isPrivate ? (
+                  // ── PRYWATNY — zablokowany ─────────────────
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center',
+                    gap: 10, backgroundColor: theme.surface2,
+                    borderRadius: 14, paddingVertical: 14,
+                    paddingHorizontal: 16, borderWidth: 1, borderColor: theme.border2,
+                  }}>
+                    <MaterialIcons name="lock" size={18} color={theme.textDim} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, fontWeight: '700' }}>
+                        KLUB PRYWATNY
+                      </Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint, marginTop: 2 }}>
+                        Dołączenie wymaga zaproszenia od członka
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  // ── PUBLICZNY — dołącz ─────────────────────
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 8,
+                      backgroundColor: '#e33835', borderRadius: 14,
+                      paddingVertical: 14,
+                    }}
+                    onPress={() => onJoin(club.id)}
+                    disabled={joining === club.id}
+                    activeOpacity={0.85}
+                  >
+                    {joining === club.id ? (
+                      <ActivityIndicator color="#fff" size={16} />
+                    ) : (
+                      <>
+                        <MaterialIcons name="add" size={16} color="#fff" />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#fff' }}>
+                          DOŁĄCZ DO KLUBU
+                        </Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 )}
               </View>
 
-              {/* Przycisk ZAPROŚ — widoczny dla ownera i managera */}
-              {canInvite && (
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    backgroundColor: '#4de92615', borderRadius: 12, paddingVertical: 12,
-                    borderWidth: 1, borderColor: '#4de92630', marginBottom: 8,
-                  }}
-                  onPress={() => setInviteOpen(true)}
-                  activeOpacity={0.85}
-                >
-                  <MaterialIcons name="person-add" size={16} color="#4de926" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#4de926', fontWeight: '700' }}>
-                    ZAPROŚ DO KLUBU
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Join / Leave / Delete */}
-              {!isOwner ? (
-                <TouchableOpacity
-                  style={[
-                    { borderRadius: 12, paddingVertical: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 16 },
-                    club.isMember
-                      ? { backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border2 }
-                      : { backgroundColor: '#e33835' },
-                  ]}
-                  onPress={() => club.isMember ? onLeave(club.id) : onJoin(club.id)}
-                  disabled={joining === club.id}
-                >
-                  {joining === club.id ? (
-                    <ActivityIndicator color="#fff" size={16} />
-                  ) : (
-                    <>
-                      <MaterialIcons name={club.isMember ? 'exit-to-app' : 'add'} size={15} color={club.isMember ? theme.text : '#fff'} />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: club.isMember ? theme.text : '#fff' }}>
-                        {club.isMember ? 'OPUŚĆ KLUB' : 'DOŁĄCZ'}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={{ backgroundColor: '#e3383520', borderRadius: 12, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#e3383540', marginBottom: 16 }}
-                  onPress={() => onDelete(club.id)}
-                >
-                  <MaterialIcons name="delete" size={15} color="#e33835" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#e33835' }}>USUŃ KLUB</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Członkowie */}
+              {/* ── CZŁONKOWIE ──────────────────────────────── */}
               {club.members && club.members.length > 0 && (
                 <>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 2, marginBottom: 10 }}>
-                    CZŁONKOWIE ({club.members.length})
-                  </Text>
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center',
+                    marginBottom: 12, gap: 8,
+                  }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
+                      CZŁONKOWIE · {club.members.length}
+                    </Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+                  </View>
+
                   {club.members.map(m => {
-                    const isMe       = m.userId === myId;
-                    const isOwnerRow = m.role === 'owner';
-                    return (
-                      <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-                        <UAv uri={m.avatarUrl} name={m.username} size={34} />
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>{m.username}</Text>
-                            {isOwnerRow && (
-                              <View style={{ backgroundColor: '#e3383520', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
-                                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835' }}>OWNER</Text>
-                              </View>
-                            )}
-                            {m.rank && <RankBadge rank={m.rank} />}
-                            {m.isMuted && (
-                              <View style={{ backgroundColor: '#ff922b20', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
-                                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b' }}>MUTED</Text>
-                              </View>
-                            )}
-                          </View>
+                  // ── DEFENSIVE: obsłuż obie struktury backendu ──────────
+                  const username  = m.username  ?? (m as any).user?.username  ?? '?';
+                  const avatarUrl = m.avatarUrl ?? (m as any).user?.avatarUrl ?? null;
+                  const userId    = m.userId    ?? (m as any).user?.id        ?? (m as any).userId;
+                  // ────────────────────────────────────────────────────────
+
+                  const isMe       = userId === myId;
+                  const isOwnerRow = m.role === 'owner';
+
+                  return (
+                    <View
+                      key={m.id}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 12,
+                        paddingVertical: 11,
+                        borderBottomWidth: 1, borderBottomColor: theme.border,
+                      }}
+                    >
+                      {/* Avatar */}
+                      <UAv uri={avatarUrl} name={username} size={38} />
+
+                      {/* Info */}
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Text style={{
+                            fontFamily: 'Orbitron', fontSize: 11,
+                            color: isMe ? '#e33835' : theme.text,
+                            fontWeight: '700',
+                          }}>
+                            {username}{isMe ? ' (Ty)' : ''}
+                          </Text>
+                          {isOwnerRow && (
+                            <View style={{
+                              backgroundColor: '#e3383520', borderRadius: 4,
+                              paddingHorizontal: 5, paddingVertical: 1,
+                              borderWidth: 1, borderColor: '#e3383540',
+                            }}>
+                              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', fontWeight: '700' }}>
+                                OWNER
+                              </Text>
+                            </View>
+                          )}
+                          {m.rank && <RankBadge rank={m.rank} />}
+                          {m.isMuted && (
+                            <View style={{
+                              backgroundColor: '#ff922b15', borderRadius: 4,
+                              paddingHorizontal: 5, paddingVertical: 1,
+                              borderWidth: 1, borderColor: '#ff922b30',
+                            }}>
+                              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', fontWeight: '700' }}>
+                                MUTED
+                              </Text>
+                            </View>
+                          )}
                         </View>
-
-                        {/* Akcje ownera */}
-                        {!isMe && !isOwnerRow && isOwner && (
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {club.ranks && club.ranks.length > 0 && (
-                              <TouchableOpacity
-                                style={{ padding: 5, backgroundColor: '#FFD70015', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70030' }}
-                                onPress={() => {
-                                  const rankIds = [null, ...(club.ranks ?? []).map(r => r.id)];
-                                  const names   = ['Brak rangi', ...(club.ranks ?? []).map(r => r.name)];
-                                  Alert.alert('Nadaj rangę', m.username,
-                                    names.map((n, i) => ({ text: n, onPress: () => assignRank(m.userId, rankIds[i]) }))
-                                  );
-                                }}
-                              >
-                                {assigning === m.userId
-                                  ? <ActivityIndicator size={12} color="#FFD700" />
-                                  : <MaterialCommunityIcons name="shield-star-outline" size={15} color="#FFD700" />
-                                }
-                              </TouchableOpacity>
-                            )}
-                            <TouchableOpacity
-                              style={{ padding: 5, backgroundColor: '#ff922b15', borderRadius: 8, borderWidth: 1, borderColor: '#ff922b30' }}
-                              onPress={() => toggleMute(m.userId, m.username, m.isMuted)}
-                            >
-                              <MaterialIcons name={m.isMuted ? 'volume-up' : 'volume-off'} size={15} color="#ff922b" />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={{ padding: 5, backgroundColor: '#e3383515', borderRadius: 8, borderWidth: 1, borderColor: '#e3383530' }}
-                              onPress={() => kickMember(m.userId, m.username)}
-                            >
-                              <MaterialIcons name="person-remove" size={15} color="#e33835" />
-                            </TouchableOpacity>
-                          </View>
-                        )}
-
-                        {/* Akcje moderatora */}
-                        {!isMe && !isOwnerRow && !isOwner && canModerate && (
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {club.myRank?.canMute && (
-                              <TouchableOpacity
-                                style={{ padding: 5, backgroundColor: '#ff922b15', borderRadius: 8, borderWidth: 1, borderColor: '#ff922b30' }}
-                                onPress={() => toggleMute(m.userId, m.username, m.isMuted)}
-                              >
-                                <MaterialIcons name={m.isMuted ? 'volume-up' : 'volume-off'} size={15} color="#ff922b" />
-                              </TouchableOpacity>
-                            )}
-                            {club.myRank?.canKick && (
-                              <TouchableOpacity
-                                style={{ padding: 5, backgroundColor: '#e3383515', borderRadius: 8, borderWidth: 1, borderColor: '#e3383530' }}
-                                onPress={() => kickMember(m.userId, m.username)}
-                              >
-                                <MaterialIcons name="person-remove" size={15} color="#e33835" />
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        )}
                       </View>
-                    );
-                  })}
+
+                      {/* Akcje ownera */}
+                      {!isMe && !isOwnerRow && isOwner && (
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          {club.ranks && club.ranks.length > 0 && (
+                            <TouchableOpacity
+                              style={{
+                                padding: 7, backgroundColor: '#FFD70015',
+                                borderRadius: 9, borderWidth: 1, borderColor: '#FFD70030',
+                              }}
+                              onPress={() => {
+                                const rankIds = [null, ...(club.ranks ?? []).map(r => r.id)];
+                                const names   = ['Brak rangi', ...(club.ranks ?? []).map(r => r.name)];
+                                Alert.alert('Nadaj rangę', username,
+                                  names.map((n, i) => ({ text: n, onPress: () => assignRank(userId, rankIds[i]) })),
+                                );
+                              }}
+                            >
+                              {assigning === userId
+                                ? <ActivityIndicator size={14} color="#FFD700" />
+                                : <MaterialCommunityIcons name="shield-star-outline" size={16} color="#FFD700" />
+                              }
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={{
+                              padding: 7, backgroundColor: '#ff922b15',
+                              borderRadius: 9, borderWidth: 1, borderColor: '#ff922b30',
+                            }}
+                            onPress={() => toggleMute(userId, username, m.isMuted)}
+                          >
+                            <MaterialIcons
+                              name={m.isMuted ? 'volume-up' : 'volume-off'}
+                              size={16} color="#ff922b"
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={{
+                              padding: 7, backgroundColor: '#e3383515',
+                              borderRadius: 9, borderWidth: 1, borderColor: '#e3383530',
+                            }}
+                            onPress={() => kickMember(userId, username)}
+                          >
+                            <MaterialIcons name="person-remove" size={16} color="#e33835" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Akcje moderatora */}
+                      {!isMe && !isOwnerRow && !isOwner && canModerate && (
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          {club.myRank?.canMute && (
+                            <TouchableOpacity
+                              style={{
+                                padding: 7, backgroundColor: '#ff922b15',
+                                borderRadius: 9, borderWidth: 1, borderColor: '#ff922b30',
+                              }}
+                              onPress={() => toggleMute(userId, username, m.isMuted)}
+                            >
+                              <MaterialIcons
+                                name={m.isMuted ? 'volume-up' : 'volume-off'}
+                                size={16} color="#ff922b"
+                              />
+                            </TouchableOpacity>
+                          )}
+                          {club.myRank?.canKick && (
+                            <TouchableOpacity
+                              style={{
+                                padding: 7, backgroundColor: '#e3383515',
+                                borderRadius: 9, borderWidth: 1, borderColor: '#e3383530',
+                              }}
+                              onPress={() => kickMember(userId, username)}
+                            >
+                              <MaterialIcons name="person-remove" size={16} color="#e33835" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
                 </>
               )}
             </ScrollView>
@@ -295,7 +512,6 @@ export default function ClubDetailModal({
         </View>
       </Modal>
 
-      {/* INVITE MODAL — poza głównym Modal żeby nie było nestowania */}
       <InviteModal
         visible={inviteOpen}
         clubId={club.id}

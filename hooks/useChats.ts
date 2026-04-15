@@ -41,9 +41,9 @@ export interface Conversation {
 }
 
 export interface FriendRequest {
-  id:           number;
-  status:       string;
-  requester:    ChatUser;
+  id:        number;
+  status:    string;
+  requester: ChatUser;
 }
 
 export function useChat() {
@@ -54,15 +54,18 @@ export function useChat() {
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef<string>('');
 
-  // ── Auth headers ────────────────────────────────────────
+  // ── Auth headers ─────────────────────────────────────────
   const headers = useCallback(async () => {
     if (!tokenRef.current) {
       tokenRef.current = await AsyncStorage.getItem('token') ?? '';
     }
-    return { Authorization: `Bearer ${tokenRef.current}`, 'Content-Type': 'application/json' };
+    return {
+      Authorization:  `Bearer ${tokenRef.current}`,
+      'Content-Type': 'application/json',
+    };
   }, []);
 
-  // ── Init socket ─────────────────────────────────────────
+  // ── Init socket ──────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const token = await AsyncStorage.getItem('token');
@@ -80,21 +83,32 @@ export function useChat() {
 
       // Nowa wiadomość — aktualizuj listę konwersacji
       socket.on('chat:notification', ({ conversationId, message }) => {
-        setConversations(prev => prev.map(c =>
-          c.id === conversationId
-            ? { ...c, unread: c.unread + 1, lastMessage: {
-                content:    message.content,
-                photos:     [],
-                createdAt:  new Date().toISOString(),
-                senderName: message.senderName,
-                isMe:       false,
-              }}
-            : c
-        ).sort((a, b) => {
-          const aTime = a.lastMessage?.createdAt ?? '';
-          const bTime = b.lastMessage?.createdAt ?? '';
-          return bTime.localeCompare(aTime);
-        }));
+        setConversations(prev => {
+          // Guard: jeśli state nie jest tablicą (race condition) — zresetuj
+          if (!Array.isArray(prev)) return [];
+
+          return prev
+            .map(c =>
+              c.id === conversationId
+                ? {
+                    ...c,
+                    unread: c.unread + 1,
+                    lastMessage: {
+                      content:    message.content,
+                      photos:     [],
+                      createdAt:  new Date().toISOString(),
+                      senderName: message.senderName,
+                      isMe:       false,
+                    },
+                  }
+                : c,
+            )
+            .sort((a, b) => {
+              const aTime = a.lastMessage?.createdAt ?? '';
+              const bTime = b.lastMessage?.createdAt ?? '';
+              return bTime.localeCompare(aTime);
+            });
+        });
       });
 
       // Nowa konwersacja
@@ -104,7 +118,7 @@ export function useChat() {
 
       // Zaproszenie do znajomych
       socket.on('friend:request', (data) => {
-        setRequests(prev => [...prev, data]);
+        setRequests(prev => (Array.isArray(prev) ? [...prev, data] : [data]));
       });
 
       socket.on('friend:accepted', () => {
@@ -117,6 +131,7 @@ export function useChat() {
     return () => {
       socketRef.current?.disconnect();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Fetch conversations ──────────────────────────────────
@@ -126,9 +141,11 @@ export function useChat() {
       const h = await headers();
       const r = await fetch(`${API}/conversations`, { headers: h });
       const d = await r.json();
-      setConversations(d);
+      // API może zwrócić obiekt błędu zamiast tablicy — zawsze zabezpiecz
+      setConversations(Array.isArray(d) ? d : []);
     } catch (e) {
       console.error('fetchConversations:', e);
+      setConversations([]);
     } finally {
       setLoading(false);
     }
@@ -139,8 +156,12 @@ export function useChat() {
     try {
       const h = await headers();
       const r = await fetch(`${API}/friends`, { headers: h });
-      setFriends(await r.json());
-    } catch (e) { console.error('fetchFriends:', e); }
+      const d = await r.json();
+      setFriends(Array.isArray(d) ? d : []);
+    } catch (e) {
+      console.error('fetchFriends:', e);
+      setFriends([]);
+    }
   }, [headers]);
 
   // ── Fetch friend requests ────────────────────────────────
@@ -148,17 +169,27 @@ export function useChat() {
     try {
       const h = await headers();
       const r = await fetch(`${API}/friends/requests`, { headers: h });
-      setRequests(await r.json());
-    } catch (e) { console.error('fetchRequests:', e); }
+      const d = await r.json();
+      setRequests(Array.isArray(d) ? d : []);
+    } catch (e) {
+      console.error('fetchRequests:', e);
+      setRequests([]);
+    }
   }, [headers]);
 
   // ── Search users ─────────────────────────────────────────
   const searchUsers = useCallback(async (q: string): Promise<ChatUser[]> => {
     try {
       const h = await headers();
-      const r = await fetch(`${API}/users/search?q=${encodeURIComponent(q)}`, { headers: h });
-      return await r.json();
-    } catch { return []; }
+      const r = await fetch(
+        `${API}/users/search?q=${encodeURIComponent(q)}`,
+        { headers: h },
+      );
+      const d = await r.json();
+      return Array.isArray(d) ? d : [];
+    } catch {
+      return [];
+    }
   }, [headers]);
 
   // ── Start / find conversation ────────────────────────────
@@ -176,11 +207,13 @@ export function useChat() {
       });
       const d = await r.json();
       await fetchConversations();
-      return d.id;
-    } catch { return null; }
+      return d.id ?? null;
+    } catch {
+      return null;
+    }
   }, [headers, fetchConversations]);
 
-  // ── Send friend request ───────────────────────────��──────
+  // ── Send friend request ──────────────────────────────────
   const sendFriendRequest = useCallback(async (userId: number) => {
     const h = await headers();
     const r = await fetch(`${API}/friends/request`, {
@@ -194,22 +227,35 @@ export function useChat() {
   // ── Accept friend request ────────────────────────────────
   const acceptRequest = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}/accept`, { method: 'POST', headers: h });
-    setRequests(prev => prev.filter(r => r.id !== friendshipId));
+    await fetch(`${API}/friends/${friendshipId}/accept`, {
+      method:  'POST',
+      headers: h,
+    });
+    setRequests(prev =>
+      Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
+    );
     fetchFriends();
   }, [headers, fetchFriends]);
 
   // ── Reject friend request ────────────────────────────────
   const rejectRequest = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}/reject`, { method: 'POST', headers: h });
-    setRequests(prev => prev.filter(r => r.id !== friendshipId));
+    await fetch(`${API}/friends/${friendshipId}/reject`, {
+      method:  'POST',
+      headers: h,
+    });
+    setRequests(prev =>
+      Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
+    );
   }, [headers]);
 
   // ── Remove friend ────────────────────────────────────────
   const removeFriend = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}`, { method: 'DELETE', headers: h });
+    await fetch(`${API}/friends/${friendshipId}`, {
+      method:  'DELETE',
+      headers: h,
+    });
     fetchFriends();
   }, [headers, fetchFriends]);
 
@@ -220,19 +266,29 @@ export function useChat() {
     return r.json();
   }, [headers]);
 
-  // ── Init fetch ───────────────────────────────────────────
+  // ── Init fetch ────────────────────────────────────��──────
   useEffect(() => {
     fetchConversations();
     fetchFriends();
     fetchRequests();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {
-    conversations, friends, requests, loading,
-    socket: socketRef.current,
-    fetchConversations, fetchFriends, fetchRequests,
-    searchUsers, startConversation,
-    sendFriendRequest, acceptRequest, rejectRequest,
-    removeFriend, getFriendStatus,
+    conversations,
+    friends,
+    requests,
+    loading,
+    socket:             socketRef.current,
+    fetchConversations,
+    fetchFriends,
+    fetchRequests,
+    searchUsers,
+    startConversation,
+    sendFriendRequest,
+    acceptRequest,
+    rejectRequest,
+    removeFriend,
+    getFriendStatus,
   };
-}
+} 
