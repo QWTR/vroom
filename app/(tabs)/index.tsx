@@ -16,7 +16,10 @@ import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
 import { AnnouncementsModal } from '../../components/modals/AnnouncementsModal';
 import { useAnnouncements } from '../../hooks/useAnnouncements';
-
+import { usePolls }   from '../../hooks/usePolls';
+import { useGifts }   from '../../hooks/useGifts';
+import { PollModal }  from '../../components/modals/PollModal';
+import { GiftModal }  from '../../components/modals/GiftModal';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { UpdateModal }  from '../../components/modals/UpdateModal';
 
@@ -67,13 +70,24 @@ export default function HomeScreen() {
   const { unseenCount, load: loadAnnouncements } = useAnnouncements();
   const [showAnnouncements, setShowAnnouncements] = useState(false);
 
+  const [pollVisible,    setPollVisible]    = useState(false);
+  const [giftVisible,    setGiftVisible]    = useState(false);
+  const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
+
+
   // Animacje
   const fadeAnim   = useRef(new Animated.Value(0)).current;
   const slideAnim  = useRef(new Animated.Value(40)).current;
   const scaleAnim  = useRef(new Animated.Value(0.92)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
 
+  const pollRef  = useRef(poll);
+  const votedRef = useRef(voted);
+
   useEffect(() => { loadAnnouncements(); }, []);
+
+  const { poll, voted, fetchActivePoll, vote } = usePolls();
+  const { gifts, fetchAvailableGifts, claimGift } = useGifts();
 
   const { updateAvailable, downloading, applyUpdate, dismiss } = useAppUpdate();
 
@@ -114,7 +128,51 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => { loadUser(); }, []);
+  useEffect(() => {
+    loadUser();
+    fetchActivePoll();
+    fetchAvailableGifts();
+  }, []);
+
+  useEffect(() => { pollRef.current  = poll;  }, [poll]);
+  useEffect(() => { votedRef.current = voted; }, [voted]);
+
+  // GIFTY — pokaż gdy załadowane
+  useEffect(() => {
+    if (loading) return;
+    if (gifts.length === 0) return;
+    setCurrentGiftIdx(0);
+    setGiftVisible(true);
+  }, [loading, gifts.length]);
+
+  // ANKIETA — pokaż gdy brak giftów lub po zamknięciu giftów
+  useEffect(() => {
+    if (loading) return;
+    if (!poll) return;
+    if (voted) return;
+    if (giftVisible) return;
+    if (gifts.length > 0) return;
+    setPollVisible(true);
+  }, [loading, poll?.id, voted, giftVisible, gifts.length]);
+
+  const handleGiftClose = () => {
+    const nextIdx = currentGiftIdx + 1;
+    if (nextIdx < gifts.length) {
+      setCurrentGiftIdx(nextIdx);
+    } else {
+      setGiftVisible(false);
+      setTimeout(() => {
+        if (pollRef.current && !votedRef.current) {
+          setPollVisible(true);
+        }
+      }, 400);
+    }
+  };
+
+  const handleGiftClaim = async (giftId: number) => {
+    return await claimGift(giftId);
+  };
+
   const onRefresh = () => { setRefreshing(true); loadUser(false); };
 
   const t = theme;
@@ -572,6 +630,28 @@ export default function HomeScreen() {
 
 
       </ScrollView>
+
+      {poll && (
+        <PollModal
+          visible={pollVisible}
+          poll={poll}
+          onVote={async (optionIdx) => {       
+            const ok = await vote(poll.id, optionIdx);
+            return ok;
+          }}
+          onClose={() => setPollVisible(false)}
+        />
+      )}
+
+      {gifts[currentGiftIdx] && (
+        <GiftModal
+          visible={giftVisible}
+          gift={gifts[currentGiftIdx]}
+          onClaim={handleGiftClaim}
+          onClose={handleGiftClose}
+        />
+      )}
+
       <UpdateModal
         visible={updateAvailable}
         loading={downloading}

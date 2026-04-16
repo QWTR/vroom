@@ -150,7 +150,7 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef = useRef<number>(Date.now());
-
+  
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
   const [startLocation, setStartLocation] = useState<LocationState | null>(null);
