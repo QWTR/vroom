@@ -14,7 +14,7 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
       }
     },
     "development-simulator": {
@@ -35,7 +35,7 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
       }
     },
     "production": {
@@ -48,7 +48,7 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
       }
     }
   },
