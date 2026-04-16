@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { Marker }      from 'react-native-maps';
+import { Image, TouchableOpacity } from 'react-native';
+import Mapbox from '@rnmapbox/maps';
 import type { SpeedCamera } from '../../hooks/useSpeedCameras';
 
 interface Props {
@@ -17,13 +18,10 @@ export const SpeedCameraMarker = memo(({ camera, imageUri, onPress }: Props) => 
   if (!lat || !lng || isNaN(lat) || isNaN(lng)) return null;
 
   return (
-    <Marker
-      coordinate={{ latitude: lat, longitude: lng }}
-      anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={false}
-      zIndex={600}
-      image={{ uri: imageUri }}
-      onPress={onPress}
-    />
+    <Mapbox.MarkerView coordinate={[lng, lat]} anchor={{ x: 0.5, y: 0.5 }}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+        <Image source={{ uri: imageUri }} style={{ width: 48, height: 48 }} resizeMode="contain" />
+      </TouchableOpacity>
+    </Mapbox.MarkerView>
   );
 });

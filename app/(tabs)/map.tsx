@@ -7,7 +7,9 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
+import Mapbox from '@rnmapbox/maps';
+import { MAPBOX_TOKEN } from '../../constants/mapConfig';
+Mapbox.setAccessToken(MAPBOX_TOKEN);
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -22,9 +24,9 @@ import { makeMapStyles } from '../../styles/mapstyle';
 
 import { User, LocationState, RouteInfo } from '../../constants/types';
 import {
-  GOOGLE_MAPS_APIKEY,
-  customMapStyle,
-  lightMapStyle,
+  MAPBOX_STYLE_DARK,
+  MAPBOX_STYLE_LIGHT,
+  MAPBOX_STYLE_SATELLITE,
   MAX_NEARBY_USERS_DISTANCE,
   API_URL,
 } from '../../constants/mapConfig';
@@ -111,7 +113,7 @@ export default function MapScreen() {
   useKeepAwake(); 
 
   // ── Refs – mapa i GPS ────────────────────────────────────
-  const mapRef               = useRef<MapView>(null);
+  const mapRef               = useRef<Mapbox.MapView>(null);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
@@ -224,6 +226,7 @@ export default function MapScreen() {
 
   // ── Symulator ─────────────────────────────────────────────
   const [isSimulating, setIsSimulating] = useState(false);
+  const [currentZoom,  setCurrentZoom]  = useState(14);
 
   // ─────────────────────────────────────────────────────────
   // Hooki
@@ -232,7 +235,9 @@ export default function MapScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const styles = makeMapStyles(theme, isDark);
-  const activeMapStyle = isDark ? customMapStyle : lightMapStyle;
+  const mapStyle = mapType === 'satellite'
+    ? MAPBOX_STYLE_SATELLITE
+    : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
   const { startConversation } = useChat();
 
   const { snap: drivingSnap, setRoutePoints: setSnapPoints, reset: resetSnap } = useDrivingSnap();
@@ -871,10 +876,14 @@ export default function MapScreen() {
       const lookaheadLat = lat + (dLat * 180) / Math.PI;
       const lookaheadLng = lng + (dLng * 180) / Math.PI;
 
-      mapRef.current?.animateCamera(
-        { center: { latitude: lookaheadLat, longitude: lookaheadLng }, pitch: NAV_PITCH, heading: hdg, zoom: NAV_ZOOM },
-        { duration: 90 },
-      );
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [lookaheadLng, lookaheadLat],
+        pitch:            NAV_PITCH,
+        heading:          hdg,
+        zoomLevel:        NAV_ZOOM,
+        animationDuration: 90,
+        animationMode:    'flyTo',
+      });
 
       const points = routePointsRef.current.length > 0
         ? routePointsRef.current
@@ -1242,10 +1251,14 @@ export default function MapScreen() {
     if (!userLocation) return;
     unlockCamera();
     if (isNavigating || isDriving) {
-      mapRef.current?.animateCamera(
-        { center: userLocation, pitch: NAV_PITCH, heading: lastHeadingRef.current, zoom: NAV_ZOOM },
-        { duration: 500 },
-      );
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [userLocation.longitude, userLocation.latitude],
+        pitch:            NAV_PITCH,
+        heading:          lastHeadingRef.current,
+        zoomLevel:        NAV_ZOOM,
+        animationDuration: 500,
+        animationMode:    'flyTo',
+      });
     } else {
       resetCamera(userLocation);
     }
@@ -1343,25 +1356,28 @@ export default function MapScreen() {
     const startLng = userLocation.longitude;
     const startHdg = lastHeadingRef.current;
 
-    mapRef.current?.animateCamera(
-      { center: { latitude: startLat, longitude: startLng }, pitch: NAV_PITCH, heading: startHdg, zoom: NAV_ZOOM },
-      { duration: 800 },
-    );
+    (mapRef.current as any)?.setCamera({
+      centerCoordinate: [startLng, startLat],
+      pitch:            NAV_PITCH,
+      heading:          startHdg,
+      zoomLevel:        NAV_ZOOM,
+      animationDuration: 800,
+      animationMode:    'flyTo',
+    });
 
     setTimeout(() => {
       if (!isNavigatingRef.current) return;
-      mapRef.current?.animateCamera(
-        {
-          center: {
-            latitude:  drLatRef.current || startLat,
-            longitude: drLngRef.current || startLng,
-          },
-          pitch:   NAV_PITCH,
-          heading: drHdgRef.current || startHdg,
-          zoom:    NAV_ZOOM,
-        },
-        { duration: 300 },
-      );
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [
+          drLngRef.current || startLng,
+          drLatRef.current || startLat,
+        ],
+        pitch:            NAV_PITCH,
+        heading:          drHdgRef.current || startHdg,
+        zoomLevel:        NAV_ZOOM,
+        animationDuration: 300,
+        animationMode:    'flyTo',
+      });
     }, 900);
 
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
@@ -1728,27 +1744,36 @@ export default function MapScreen() {
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
-        <MapView
+        <Mapbox.MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
           style={StyleSheet.absoluteFillObject}
-          customMapStyle={activeMapStyle}
-          initialRegion={region}
-          mapType={mapType as any}
-          showsUserLocation={false}
+          styleURL={mapStyle}
+          logoEnabled={false}
+          attributionEnabled={false}
+          compassEnabled={false}
           pitchEnabled
           rotateEnabled
-          moveOnMarkerPress={false}
-          showsMyLocationButton={false}
-          showsCompass={false}
-          toolbarEnabled={false}
-          onPanDrag={onUserPan}
-          onPress={(e) => {
+          onPress={(e: any) => {
             if (!isBuilding) return;
-            const { latitude, longitude } = e.nativeEvent.coordinate;
+            const [longitude, latitude] = e.geometry.coordinates;
             addPin(latitude, longitude);
           }}
+          onRegionDidChange={(e: any) => {
+            const zoom = e.properties?.zoomLevel ?? 14;
+            setCurrentZoom(zoom);
+          }}
+          onCameraChanged={(e: any) => {
+            if (e.properties?.isUserInteraction) onUserPan();
+          }}
         >
+          <Mapbox.Camera
+            defaultSettings={{
+              centerCoordinate: [userLocation?.longitude ?? 19.0, userLocation?.latitude ?? 52.0],
+              zoomLevel: 14,
+              pitch: 0,
+            }}
+          />
+          <Mapbox.UserLocation visible={false} />
           {userLocation && (
             <CarMarker
               latitude={markerLat}
@@ -1759,10 +1784,7 @@ export default function MapScreen() {
           )}
 
           {endLocation && !arrived && (
-            <Marker
-              coordinate={{ latitude: endLocation.latitude, longitude: endLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }} zIndex={100} tracksViewChanges={false}
-            >
+            <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
                 backgroundColor: '#111111', padding: 8, borderRadius: 12,
                 borderWidth: 2, borderColor: '#e33835', alignItems: 'center',
@@ -1771,39 +1793,46 @@ export default function MapScreen() {
               }}>
                 <MaterialIcons name="flag" size={20} color="#e33835" />
               </View>
-            </Marker>
+            </Mapbox.MarkerView>
           )}
 
           {startLocation && !isNavigating && !isBuilding && (
-            <Marker
-              coordinate={{ latitude: startLocation.latitude, longitude: startLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }} zIndex={99} tracksViewChanges={false}
-            >
+            <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
                 backgroundColor: '#111111', padding: 8, borderRadius: 12,
                 borderWidth: 2, borderColor: '#4de926', alignItems: 'center',
               }}>
                 <MaterialIcons name="radio-button-on" size={18} color="#4de926" />
               </View>
-            </Marker>
+            </Mapbox.MarkerView>
           )}
 
           {isBuilding && pins.map((pin, index) => (
-            <Marker
-              key={`pin_${pin.id}`}
-              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              anchor={{ x: 0.5, y: 1 }}
-              tracksViewChanges={false}
-              onPress={(e) => { e.stopPropagation(); removePin(pin.id); }}
-              onCalloutPress={() => removePin(pin.id)}
-              zIndex={200 + index}
-              title={pin.label}
-              description="🗑️ Dotknij aby usunąć"
-              {...(pinImages[pin.id]
-                ? { image: { uri: pinImages[pin.id] } }
-                : { pinColor: index === 0 ? '#4de926' : index === pins.length - 1 ? '#e33835' : '#ff922b' }
-              )}
-            />
+            pinImages[pin.id] ? (
+              <Mapbox.MarkerView
+                key={`pin_${pin.id}`}
+                coordinate={[pin.longitude, pin.latitude]}
+                anchor={{ x: 0.5, y: 1 }}
+              >
+                <TouchableOpacity onPress={() => removePin(pin.id)} activeOpacity={0.8}>
+                  <View style={{ width: 48, height: 48 }}>
+                    <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: index === 0 ? '#4de92640' : index === pins.length - 1 ? '#e3383540' : '#ff922b40', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: index === 0 ? '#4de926' : index === pins.length - 1 ? '#e33835' : '#ff922b' }}>
+                      <MaterialIcons name="place" size={20} color={index === 0 ? '#4de926' : index === pins.length - 1 ? '#e33835' : '#ff922b'} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </Mapbox.MarkerView>
+            ) : (
+              <Mapbox.MarkerView
+                key={`pin_${pin.id}`}
+                coordinate={[pin.longitude, pin.latitude]}
+                anchor={{ x: 0.5, y: 1 }}
+              >
+                <TouchableOpacity onPress={() => removePin(pin.id)} activeOpacity={0.8}>
+                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: index === 0 ? '#4de926' : index === pins.length - 1 ? '#e33835' : '#ff922b', borderWidth: 2, borderColor: '#fff' }} />
+                </TouchableOpacity>
+              </Mapbox.MarkerView>
+            )
           ))}
 
           {showCameras && snappedCameras.map(c => (
@@ -1817,22 +1846,26 @@ export default function MapScreen() {
 
           {isBuilding && snappedRoute.length > 1 && (
             <>
-              <Polyline coordinates={snappedRoute} strokeColor="#00000070" strokeWidth={10} geodesic lineCap="round" lineJoin="round" />
-              <Polyline coordinates={snappedRoute} strokeColor="#e33835"   strokeWidth={6}  geodesic lineCap="round" lineJoin="round" />
-              <Polyline coordinates={snappedRoute} strokeColor="#ffffff20" strokeWidth={3}  geodesic lineCap="round" lineJoin="round" />
+              <Mapbox.ShapeSource id="snappedShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="snappedShadowLayer" style={{ lineColor: '#00000070', lineWidth: 10, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
+              <Mapbox.ShapeSource id="snappedRouteSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="snappedRouteLayer" style={{ lineColor: '#e33835', lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
+              <Mapbox.ShapeSource id="snappedGlowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="snappedGlowLayer" style={{ lineColor: '#ffffff20', lineWidth: 3, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
             </>
           )}
 
           {isBuilding && pins.length > 1 && snappedRoute.length === 0 && (
             <>
-              <Polyline
-                coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
-                strokeColor="#00000080" strokeWidth={8}
-              />
-              <Polyline
-                coordinates={pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
-                strokeColor="#ff922b" strokeWidth={4} lineDashPattern={[12, 7]}
-              />
+              <Mapbox.ShapeSource id="pinsShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: pins.map(p => [p.longitude, p.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="pinsShadowLayer" style={{ lineColor: '#00000080', lineWidth: 8, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
+              <Mapbox.ShapeSource id="pinsDashedSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: pins.map(p => [p.longitude, p.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="pinsDashedLayer" style={{ lineColor: '#ff922b', lineWidth: 4, lineDasharray: [12, 7], lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
             </>
           )}
 
@@ -1851,56 +1884,58 @@ export default function MapScreen() {
 
           {remainingRoutePoints.length > 1 && !arrived && (
             <>
-              <Polyline
-                coordinates={remainingRoutePoints}
-                strokeColor="#00000055" strokeWidth={11}
-                geodesic lineCap="round" lineJoin="round"
-              />
-              <Polyline
-                coordinates={remainingRoutePoints}
-                strokeColor={isNavigating ? '#e33835dd' : '#00bfff'} strokeWidth={6}
-                geodesic lineCap="round" lineJoin="round"
-              />
+              <Mapbox.ShapeSource id="routeShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: remainingRoutePoints.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="routeShadowLayer" style={{ lineColor: '#00000055', lineWidth: 11, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
+              <Mapbox.ShapeSource id="routeMainSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: remainingRoutePoints.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                <Mapbox.LineLayer id="routeMainLayer" style={{ lineColor: isNavigating ? '#e33835dd' : '#00bfff', lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
+              </Mapbox.ShapeSource>
               {isNavigating && (
-                <Polyline
-                  coordinates={remainingRoutePoints}
-                  strokeColor="#ffffff15" strokeWidth={8}
-                  geodesic lineCap="round" lineJoin="round"
-                />
+                <Mapbox.ShapeSource id="routeGlowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: remainingRoutePoints.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+                  <Mapbox.LineLayer id="routeGlowLayer" style={{ lineColor: '#ffffff15', lineWidth: 8, lineCap: 'round', lineJoin: 'round' }} />
+                </Mapbox.ShapeSource>
               )}
             </>
           )}
 
           {startLocation && !isNavigating && routeEndpointImages.start && (
-            <Marker
-              coordinate={{ latitude: startLocation.latitude, longitude: startLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }} zIndex={99} tracksViewChanges={false}
-              image={{ uri: routeEndpointImages.start }}
-            />
+            <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
+              <View style={{ width: 48, height: 48 }}>
+                <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: '#4de92620', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#4de926' }}>
+                  <MaterialIcons name="radio-button-on" size={20} color="#4de926" />
+                </View>
+              </View>
+            </Mapbox.MarkerView>
           )}
           {endLocation && !arrived && routeEndpointImages.end && (
-            <Marker
-              coordinate={{ latitude: endLocation.latitude, longitude: endLocation.longitude }}
-              anchor={{ x: 0.5, y: 1 }} zIndex={100} tracksViewChanges={false}
-              image={{ uri: routeEndpointImages.end }}
-            />
+            <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
+              <View style={{ width: 48, height: 48 }}>
+                <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#e33835' }}>
+                  <MaterialIcons name="flag" size={20} color="#e33835" />
+                </View>
+              </View>
+            </Mapbox.MarkerView>
           )}
 
           {clusteredWarnings
             .filter(w => warningImages[w.id] && !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
             .map(w => (
-              <Marker
+              <Mapbox.MarkerView
                 key={`warning_${w.id}`}
-                coordinate={{ latitude: Number(w.lat), longitude: Number(w.lng) }}
+                coordinate={[Number(w.lng), Number(w.lat)]}
                 anchor={{ x: 0.5, y: 0.5 }}
-                zIndex={500}
-                tracksViewChanges={false}
-                onPress={() => setSelectedWarning(w)}
-                image={{ uri: warningImages[w.id] }}
-              />
+              >
+                <TouchableOpacity onPress={() => setSelectedWarning(w)} activeOpacity={0.8}>
+                  <View style={{ width: 48, height: 48 }}>
+                    <View style={{ width: 48, height: 48, borderRadius: 24, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="alert" size={28} color="#ff922b" />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </Mapbox.MarkerView>
             ))
           }
-        </MapView>
+        </Mapbox.MapView>
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (

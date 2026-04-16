@@ -36,11 +36,7 @@
       "package": "com.lexuuw.vroom",
       "backgroundColor": "#0a0a0a",
       "googleServicesFile": "./google-services.json",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyAIViHITDEhTzTsfK_eIhA53PKlAL3dpTw"
-        }
-      },
+      "config": {},
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -58,6 +54,10 @@
       "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
+      ["@rnmapbox/maps", {
+        "RNMapboxMapsImpl": "mapbox",
+        "RNMapboxMapsDownloadToken": "MAPBOX_TOKEN"
+      }],
       "expo-router",
       [
         "expo-splash-screen",

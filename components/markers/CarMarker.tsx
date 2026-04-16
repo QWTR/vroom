@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
-import { View } from 'react-native';
-import { Marker } from 'react-native-maps';
+import { View, Image } from 'react-native';
+import Mapbox from '@rnmapbox/maps';
 
 interface CarMarkerProps {
   latitude:  number;
@@ -10,36 +10,16 @@ interface CarMarkerProps {
   zIndex?:   number;
 }
 
-export const CarMarker = memo(({ latitude, longitude, heading, imageUri, zIndex }: CarMarkerProps) => {
-  if (!imageUri) {
-    // Zanim obrazek będzie gotowy — niewidoczny placeholder
-    return (
-      <Marker
-        coordinate={{ latitude, longitude }}
-        anchor={{ x: 0.5, y: 0.5 }}
-        flat={true}
-        rotation={heading}
-        zIndex={zIndex}
-        tracksViewChanges={false}
-        
-      >
-        <View style={{ width: 48, height: 48, backgroundColor: 'transparent' }} />
-      </Marker>
-    );
-  }
-
-  return (
-    <Marker
-      coordinate={{ latitude, longitude }}
-      anchor={{ x: 0.5, y: 0.5 }}
-      flat={true}
-      rotation={heading}
-      zIndex={1000}
-      tracksViewChanges={false}
-      image={{ uri: imageUri }}
-    />
-  );
-}, (prev, next) =>
+export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => (
+  <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }}>
+    <View style={{ transform: [{ rotate: `${heading}deg` }] }}>
+      {imageUri
+        ? <Image source={{ uri: imageUri }} style={{ width: 48, height: 48 }} resizeMode="contain" />
+        : <View style={{ width: 48, height: 48, backgroundColor: 'transparent' }} />
+      }
+    </View>
+  </Mapbox.MarkerView>
+), (prev, next) =>
   prev.imageUri  === next.imageUri  &&
   prev.heading   === next.heading   &&
   prev.latitude  === next.latitude  &&

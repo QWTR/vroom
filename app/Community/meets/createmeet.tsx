@@ -6,7 +6,9 @@ import {
 } from 'react-native';
 import { useRouter }          from 'expo-router';
 import DateTimePicker         from '@react-native-community/datetimepicker';
-import MapView, { Marker }    from 'react-native-maps';
+import Mapbox from '@rnmapbox/maps';
+import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_TOKEN } from '../../../constants/mapConfig';
+Mapbox.setAccessToken(MAPBOX_TOKEN);
 import * as ImagePicker       from 'expo-image-picker';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -48,7 +50,7 @@ export default function CreateMeet() {
   const [geocoding,    setGeocoding]    = useState(false);
   const [cover,        setCover]        = useState<{ uri: string; name: string; type: string } | null>(null);
 
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<Mapbox.MapView>(null);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -79,7 +81,7 @@ export default function CreateMeet() {
 
   // ── Reverse geocoding ─────────────────────────────────
   const handleMapPress = useCallback(async (e: any) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+    const [longitude, latitude] = e.geometry.coordinates;
     setLat(latitude); setLng(longitude);
     setLocationName(''); setGeocoding(true);
     try {
@@ -337,19 +339,28 @@ export default function CreateMeet() {
       {/* MAP MODAL */}
       <Modal visible={mapVisible} animationType="slide" onRequestClose={() => setMapVisible(false)}>
         <View style={{ flex: 1 }}>
-          <MapView
-            ref={mapRef} style={{ flex: 1 }} onPress={handleMapPress}
-            initialRegion={{ latitude: 52.2297, longitude: 21.0122, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
-            userInterfaceStyle={isDark ? 'dark' : 'light'}
+          <Mapbox.MapView
+            ref={mapRef}
+            style={{ flex: 1 }}
+            styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
+            logoEnabled={false}
+            attributionEnabled={false}
+            onPress={handleMapPress}
           >
+            <Mapbox.Camera
+              defaultSettings={{
+                centerCoordinate: [lng ?? 21.0122, lat ?? 52.2297],
+                zoomLevel: 13,
+              }}
+            />
             {lat !== null && lng !== null && (
-              <Marker coordinate={{ latitude: lat, longitude: lng }}>
+              <Mapbox.PointAnnotation id="loc" coordinate={[lng, lat]}>
                 <View style={{ backgroundColor: theme.primary, borderRadius: 20, padding: 8, borderWidth: 2, borderColor: '#fff' }}>
                   <MaterialIcons name="location-on" size={18} color="#fff" />
                 </View>
-              </Marker>
+              </Mapbox.PointAnnotation>
             )}
-          </MapView>
+          </Mapbox.MapView>
           <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 20, gap: 14, borderTopWidth: 1, borderTopColor: theme.border }}>
             {geocoding ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text } from 'react-native';
-import { Marker } from 'react-native-maps';
+import React from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
+import Mapbox from '@rnmapbox/maps';
 
 interface RoutePinProps {
   id:        string;
@@ -13,30 +13,14 @@ interface RoutePinProps {
 }
 
 export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemove }: RoutePinProps) => {
-  const [tracks, setTracks] = useState(true);
-
-  // Po wyrenderowaniu wyłącz tracksViewChanges — bez tego mapa laguje
-  useEffect(() => {
-    const t = setTimeout(() => setTracks(false), 500);
-    return () => clearTimeout(t);
-  }, []);
-
   const isFirst = index === 0;
   const isLast  = index === total - 1 && total > 1;
   const color   = isFirst ? '#4de926' : isLast ? '#e33835' : '#ff922b';
 
   return (
-    <Marker
-      coordinate={{ latitude, longitude }}
-      anchor={{ x: 0.5, y: 1 }}
-      tracksViewChanges={tracks}
-      onPress={(e) => { e.stopPropagation(); onRemove(id); }}
-      onCalloutPress={() => onRemove(id)}
-      zIndex={200 + index}
-      title={label}
-      description="🗑️ Dotknij aby usunąć"
-    >
-      <View style={{ alignItems: 'center' }}>
+    <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 1 }}>
+      <TouchableOpacity onPress={() => onRemove(id)} activeOpacity={0.8}>
+        <View style={{ alignItems: 'center' }}>
         {/* Etykieta */}
         <View style={{
           backgroundColor: '#0a0a0af5',
@@ -81,6 +65,7 @@ export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemov
           marginTop: -1,
         }} />
       </View>
-    </Marker>
+      </TouchableOpacity>
+    </Mapbox.MarkerView>
   );
 };
