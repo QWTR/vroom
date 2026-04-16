@@ -24,7 +24,10 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -54,10 +57,13 @@
       "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
-      ["@rnmapbox/maps", {
-        "RNMapboxMapsImpl": "mapbox",
-        "RNMapboxMapsDownloadToken": "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
-      }],
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsImpl": "mapbox",
+          "RNMapboxMapsDownloadToken": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXB2Mm05MDNwczJzcXdlbXN0Mmo1diJ9.e4hk3IDGTTq1WYTGn3OBVQ"
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
@@ -101,9 +107,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0dceda47-6f18-40dc-a736-be4f23c2769f"
+        "projectId": "3142aa8a-ca54-4d98-8120-657b87a714c3"
       }
     },
-    "owner": "lexuuw"
+    "owner": "vroomapps-organization"
   }
 }
