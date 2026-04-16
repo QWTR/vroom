@@ -12,6 +12,9 @@
       },
       "ios": {
         "image": "latest"
+      },
+      "env": {
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
       }
     },
     "development-simulator": {
@@ -23,11 +26,16 @@
     "preview": {
       "distribution": "internal",
       "channel": "main",
+      "environment": "production",
       "android": {
-        "image": "latest"
+        "image": "latest",
+        "buildType": "apk"
       },
       "ios": {
         "image": "latest"
+      },
+      "env": {
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
       }
     },
     "production": {
@@ -38,6 +46,9 @@
       },
       "ios": {
         "image": "latest"
+      },
+      "env": {
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
       }
     }
   },
