@@ -7,7 +7,7 @@
     "icon": "./assets/images/logotypRed.png",
     "scheme": "vroom",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "updates": {
       "url": "https://u.expo.dev/0dceda47-6f18-40dc-a736-be4f23c2769f",
       "enabled": true,
@@ -56,7 +56,7 @@
     "plugins": [
       ["@rnmapbox/maps", {
         "RNMapboxMapsImpl": "mapbox",
-        "RNMapboxMapsDownloadToken": "MAPBOX_TOKEN"
+        "RNMapboxMapsDownloadToken": "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
       }],
       "expo-router",
       [
