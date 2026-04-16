@@ -1,6 +1,5 @@
-// Dynamic Expo config that reads Mapbox token from environment variable.
-// Set EXPO_PUBLIC_MAPBOX_TOKEN in your .env file or EAS secrets.
-const { withAndroid } = require('@expo/config-plugins');
+// Dynamic Expo config that reads the Mapbox token from an environment variable.
+// Set EXPO_PUBLIC_MAPBOX_TOKEN in your .env file or in EAS secrets.
 
 const base = require('./app.json');
 
@@ -8,7 +7,7 @@ const base = require('./app.json');
 module.exports = ({ config }) => {
   const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
-  const merged = {
+  return {
     ...base.expo,
     ...config,
     plugins: (base.expo.plugins ?? []).map((plugin) => {
@@ -24,6 +23,4 @@ module.exports = ({ config }) => {
       return plugin;
     }),
   };
-
-  return merged;
 };

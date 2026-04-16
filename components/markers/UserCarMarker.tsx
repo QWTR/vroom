@@ -8,8 +8,6 @@ interface UserCarMarkerProps {
   distance: number;
   onPress:  () => void;
   imageUri: string | null;
-  // czy to demo user — wtedy śledź zmiany pozycji
-  isDemo?:  boolean;
 }
 
 const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
