@@ -154,6 +154,9 @@ export default function MapScreen() {
   // ── Ref – navRoute bez stale closure ─────────────────────
   const navRouteRef = useRef<typeof navRoute | null>(null);
 
+  // ── Ref — throttle powiadomień nawigacyjnych (co 30s) ─────
+  const notifThrottleRef = useRef(0);
+
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,6 +189,10 @@ export default function MapScreen() {
   // ── NOWY State — tryb driving ─────────────────────────────
   const [isDriving,    setIsDriving]    = useState(false);
   const [drivingKm,    setDrivingKm]    = useState(0);   // km przejechane w trybie
+
+  // ── State — live distances (nawigacja) ────────────────────
+  const [distToTurnM,     setDistToTurnM]     = useState<number | null>(null);
+  const [remainingDistKm, setRemainingDistKm] = useState<number | null>(null);
 
   // ── State – markery ───────────────────────────────────────
   const [carMarkerImage,      setCarMarkerImage]      = useState<string | null>(null);
@@ -975,6 +982,8 @@ export default function MapScreen() {
         const prefix = distToStepEnd < 100 ? 'Teraz' : `Za ${Math.round(distToStepEnd)} metrów`;
         speak(`${prefix}: ${cleanInstruction(steps[nextStep].html_instructions)}`);
       }
+      // Aktualizuj live dystans do zakrętu
+      setDistToTurnM(distToStepEnd);
     }
 
     // ── Off-route check ──
@@ -987,17 +996,46 @@ export default function MapScreen() {
       }
     }
 
-    // ── Aktualizuj remainingRoutePoints na bieżąco ──
+    // ── Aktualizuj remainingRoutePoints + live dystans do celu ──
     if (points.length > 1) {
       const idx = findClosestPointIndex(lat, lng, points);
-      setRemainingRoutePoints([
+      const remPts = [
         { latitude: lat, longitude: lng },
         ...points.slice(idx + 1),
-      ]);
+      ];
+      setRemainingRoutePoints(remPts);
+
+      // Suma odległości po pozostałych punktach trasy
+      let remKm = 0;
+      for (let i = 0; i < remPts.length - 1; i++) {
+        remKm += haversineKm(
+          remPts[i].latitude, remPts[i].longitude,
+          remPts[i + 1].latitude, remPts[i + 1].longitude,
+        );
+      }
+      setRemainingDistKm(remKm);
+
+      // Aktualizuj powiadomienie systemowe z live dystansem (co 30 s)
+      const nowMs = Date.now();
+      if (nowMs - notifThrottleRef.current > 30_000) {
+        notifThrottleRef.current = nowMs;
+        const stepForNotif = steps[nextStep];
+        if (stepForNotif) {
+          const distStr = remKm < 1
+            ? `${Math.round(remKm * 1000)} m`
+            : `${remKm.toFixed(1)} km`;
+          const ri = routeInfoRef.current;
+          showNavigationNotification(
+            stepForNotif,
+            distStr,
+            ri ? formatDuration(ri.duration) : '',
+          );
+        }
+      }
     }
 
-  // ← DODAJ drTick do deps — efekt odpala się przy każdej klatce DR
-  }, [userLocation, isNavigating, drTick]);
+  // ← drTick wyzwala efekt przy każdej klatce DR; showNavigationNotification jest stabilna
+  }, [userLocation, isNavigating, drTick, showNavigationNotification]);
 
   useEffect(() => {
     if (isOffroadRoute && offroadPreviewRoute) {
@@ -1034,6 +1072,9 @@ export default function MapScreen() {
   const activeRoute = isNavigating ? navRoute : previewRoute;
   navRouteRef.current = navRoute ?? null;
   const activeSteps = navRoute?.steps ?? previewRoute?.steps ?? [];
+  // Sync routeInfo into a ref so the DR effect can read it without stale closure
+  const routeInfoRef = useRef(routeInfo);
+  routeInfoRef.current = routeInfo;
 
   useEffect(() => {
     routePointsRef.current = activeRoute?.points ?? [];
@@ -1287,6 +1328,9 @@ export default function MapScreen() {
     setTimeout(() => setTripStatsVisible(true), 2000);
     setIsNavigating(false);
     setArrived(true);
+    setDistToTurnM(null);
+    setRemainingDistKm(null);
+    notifThrottleRef.current = 0;
     dismissNavigationNotification();
     flushPendingKm(true);
     Speech.stop().catch(() => {});
@@ -1452,6 +1496,9 @@ export default function MapScreen() {
     setOffRoute(false);
     setArrived(false);
     setNavStartLoc(null);
+    setDistToTurnM(null);
+    setRemainingDistKm(null);
+    notifThrottleRef.current = 0;
     dismissNavigationNotification();
     setRouteEndpointImages({});
     Speech.stop().catch(() => {});
@@ -1679,28 +1726,48 @@ export default function MapScreen() {
                   </Text>
                 </View>
                 {/* Prędkość w nagłówku */}
-                <View style={{
-                  backgroundColor: '#fa391f57',
-                  borderRadius: 12,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderWidth: 1,
-                  borderColor: '#fa391f',
-                  alignItems: 'center',
-                  minWidth: 64,
-                }}>
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 24,
-                    color: '#fff', fontWeight: '700',
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  {/* Znak ograniczenia prędkości (gdy dostępny) */}
+                  {speedLimit !== null && (
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 18,
+                      backgroundColor: '#fff', borderWidth: 3,
+                      borderColor: speedKmh > speedLimit + 5 ? '#e33835' : '#333',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{
+                        fontFamily: 'Orbitron', fontSize: speedLimit >= 100 ? 8 : 10,
+                        color: speedKmh > speedLimit + 5 ? '#e33835' : '#111',
+                        fontWeight: '900',
+                      }}>
+                        {speedLimit}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={{
+                    backgroundColor: '#fa391f57',
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderWidth: 1,
+                    borderColor: '#fa391f',
+                    alignItems: 'center',
+                    minWidth: 64,
                   }}>
-                    {Math.round(speedKmh)}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 7,
-                    color: '#ffffff50', letterSpacing: 2,
-                  }}>
-                    km/h
-                  </Text>
+                    <Text style={{
+                      fontFamily: 'Orbitron', fontSize: 24,
+                      color: speedLimit !== null && speedKmh > speedLimit + 5 ? '#e33835' : '#fff',
+                      fontWeight: '700',
+                    }}>
+                      {Math.round(speedKmh)}
+                    </Text>
+                    <Text style={{
+                      fontFamily: 'Orbitron', fontSize: 7,
+                      color: '#ffffff50', letterSpacing: 2,
+                    }}>
+                      km/h
+                    </Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -2013,8 +2080,13 @@ export default function MapScreen() {
                       <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color="#fff" />
                     </View>
                     <View style={{ flex: 1 }}>
+                      {/* Live dystans do następnego skrętu */}
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
-                        {currentStepData.distance?.text}
+                        {distToTurnM !== null
+                          ? distToTurnM < 1000
+                            ? `${Math.round(distToTurnM / 10) * 10} m`
+                            : `${(distToTurnM / 1000).toFixed(1)} km`
+                          : currentStepData.distance?.text}
                       </Text>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffcc', marginTop: 2 }} numberOfLines={1}>
                         {cleanInstruction(currentStepData.html_instructions)}
@@ -2041,6 +2113,18 @@ export default function MapScreen() {
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50', letterSpacing: 1 }}>
                       Krok {currentStep + 1}/{activeSteps.length}
                     </Text>
+                    {/* Live pozostały dystans do celu */}
+                    {remainingDistKm !== null && (
+                      <>
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <MaterialIcons name="straighten" size={10} color="#00bfff" />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>
+                          {remainingDistKm < 1
+                            ? `${Math.round(remainingDistKm * 1000)} m`
+                            : `${remainingDistKm.toFixed(1)} km`}
+                        </Text>
+                      </>
+                    )}
                     {routeInfo && (
                       <>
                         <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
