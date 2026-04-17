@@ -3,13 +3,13 @@ import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 
 interface CarMarkerRendererProps {
-  heading:   number;
   avatarUrl: string | null;
   username:  string;
   onCapture: (uri: string) => void;
+  // heading usunięty
 }
 
-export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: CarMarkerRendererProps) => {
+export const CarMarkerRenderer = ({ avatarUrl, username, onCapture }: CarMarkerRendererProps) => {
   const shotRef  = useRef<ViewShot>(null);
   const isUrl    = avatarUrl?.startsWith('http');
   const initials = username?.slice(0, 2).toUpperCase() ?? '??';
@@ -19,7 +19,7 @@ export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: C
       shotRef.current?.capture?.().then(onCapture).catch(() => {});
     }, 50);
     return () => clearTimeout(timer);
-  }, [heading, avatarUrl, username]);  // ← re-capture też gdy avatar/username się zmieni
+  }, [avatarUrl, username]); // ← heading usunięty z deps
 
   return (
     <View style={{
@@ -31,15 +31,15 @@ export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: C
         options={{ format: 'png', quality: 1.0 }}
       >
         <View style={{
-          width: 48,
-          height: 48,
+          width: 60,
+          height: 60,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: 'transparent',
         }}>
           <View style={{
-            width: 38,
-            height: 38,
+            width: 50,
+            height: 50,
             borderRadius: 24,
             backgroundColor: '#111111',
             justifyContent: 'center',
@@ -48,22 +48,19 @@ export const CarMarkerRenderer = ({ heading, avatarUrl, username, onCapture }: C
             borderColor: '#e33835',
             overflow: 'hidden',
           }}>
-            {/* Pierścień wewnętrzny */}
             <View style={{
               position: 'absolute',
-              width: 38,
-              height: 38,
+              width: 50,
+              height: 50,
               borderRadius: 19,
               borderWidth: 1,
               borderColor: '#e3383540',
               zIndex: 1,
             }} />
-
-            {/* Avatar lub inicjały */}
             {isUrl ? (
               <Image
                 source={{ uri: avatarUrl! }}
-                style={{ width: 38, height: 38, borderRadius: 24 }}
+                style={{ width: 50, height: 50, borderRadius: 24 }}
                 resizeMode="cover"
               />
             ) : (

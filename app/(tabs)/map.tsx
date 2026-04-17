@@ -101,8 +101,8 @@ import { TripStatsModal }            from '../../components/modals/TripStatsModa
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 14.5;
-const NAV_PITCH           = 55;
+const NAV_ZOOM            = 18.9;
+const NAV_PITCH           = 75;
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
@@ -130,7 +130,13 @@ export default function MapScreen() {
   const isSpeechRef          = useRef(true);
   const startIsMyLocationRef = useRef(false);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
-  
+
+
+  const drivingConsecutiveRef = useRef(0);       // ile z rzędu odczytów ponad próg
+  const DRIVING_CONSECUTIVE_REQ = 4;             // wymagane kolejne odczyty zanim wejdziemy w driving
+  const lastSetLocRef = useRef<{ lat: number; lng: number } | null>(null);
+  const MIN_MOVE_M = 8;                          // ignoruj ruch < 8m gdy wolno
+
 
   // ── Refs – dead-reckoning ─────────────────────────────────
   const drLatRef    = useRef(0);
@@ -680,14 +686,13 @@ export default function MapScreen() {
   const { start: startGPS, stop: stopGPS } = useAdaptiveGPS({
     isNavigating,
     speedKmh: speedKmhRef.current,
-    // ── Adaptive GPS onLocation — zastąp cały blok onLocation ──
-      onLocation: useCallback((loc) => {
+    onLocation: useCallback((loc) => {
       const rawLat = loc.latitude;
       const rawLng = loc.longitude;
       const acc    = loc.accuracy ?? 10;
       const now    = Date.now();
 
-      // ══ 1. SANITY CHECK — surowe vs surowe ══════════════════
+      // ══ 1. SANITY CHECK ══════════════════════════════════════
       if (lastGoodLocRef.current) {
         const dtMs   = now - lastGoodTimeRef.current;
         const safeDt = Math.max(dtMs, 100);
@@ -707,8 +712,8 @@ export default function MapScreen() {
           return;
         }
       }
-      lastGoodTimeRef.current    = now;
-      lastGoodLocRef.current     = { lat: rawLat, lng: rawLng }; // ← zawsze RAW
+      lastGoodTimeRef.current = now;
+      lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
 
       // ══ 2. Kalman ════════════════════════════════════════════
       const lat = isNavigatingRef.current
@@ -718,11 +723,11 @@ export default function MapScreen() {
         ? navLngFilter.filter(rawLng, acc)
         : lngFilter.filter(rawLng, acc);
 
-      // ══ 3. Prędkość — TYLKO z GPS, nigdy obliczana ze skoku ═
+      // ══ 3. Prędkość ══════════════════════════════════════════
       const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : 0;
       const kmh        = rawSpeedMs * 3.6;
 
-      // ══ 4. Feed stats — tylko RAZ ════════════════════════════
+      // ══ 4. Feed stats ════════════════════════════════════════
       feedSpeedSample(rawSpeedMs);
       feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
       feedPosition(lat, lng);
@@ -760,26 +765,42 @@ export default function MapScreen() {
 
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
-        // Pass false (not isDrivingRef.current) — the hook's 4th param is called
-        // `isNavigating` and skips snapping when truthy. We are already in the
-        // !isNavigatingRef.current branch, so false is always correct here.
         const snapped = drivingSnap(lat, lng, kmh, false);
+
+        // ── DEAD ZONE — ignoruj jitter gdy stoisz ────────────
+        if (lastSetLocRef.current && kmh < 5) {
+          const movedM = haversineKm(
+            lastSetLocRef.current.lat, lastSetLocRef.current.lng,
+            snapped.latitude, snapped.longitude,
+          ) * 1000;
+          if (movedM < MIN_MOVE_M) {
+            drivingConsecutiveRef.current = 0;
+            setSpeed(null);
+            return;
+          }
+        }
+        lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
 
         setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
 
         if (kmh >= DRIVING_SPEED_KMH) {
+          // ── Wymaga N kolejnych odczytów przed wejściem w driving
+          drivingConsecutiveRef.current += 1;
+
           if (drivingStopTimerRef.current) {
             clearTimeout(drivingStopTimerRef.current);
             drivingStopTimerRef.current = null;
           }
 
           if (!isDrivingRef.current) {
+            if (drivingConsecutiveRef.current < DRIVING_CONSECUTIVE_REQ) {
+              return; // czekaj na potwierdzenie
+            }
             isDrivingRef.current      = true;
             drivingKmRef.current      = 0;
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
-            // Seed DR so marker doesn't jump on the first driving frame
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               rawSpeedMs,
@@ -804,7 +825,6 @@ export default function MapScreen() {
           }
           drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
 
-          // Feed DR for smooth marker interpolation between GPS updates
           feedDR(
             { latitude: snapped.latitude, longitude: snapped.longitude },
             rawSpeedMs,
@@ -819,6 +839,9 @@ export default function MapScreen() {
           });
 
         } else {
+          // ── Wolno / stoi — reset licznika ────────────────────
+          drivingConsecutiveRef.current = 0;
+
           if (isDrivingRef.current && !drivingStopTimerRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
               isDrivingRef.current        = false;
@@ -836,8 +859,9 @@ export default function MapScreen() {
             }, DRIVING_STOP_DELAY_MS);
           }
         }
+
       } else {
-        // ── Nawigacja — snap do trasy, DR animuje kamerę
+        // ── Nawigacja — snap do trasy ─────────────────────────
         const navPts = routePointsRef.current;
         if (navPts.length > 1) {
           const navSnapped = snapToRoute(lat, lng, navPts, 35);
@@ -849,8 +873,7 @@ export default function MapScreen() {
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
-    // ↑ celowo minimalne deps — reszta przez refy
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
   });
 
   useEffect(() => {
@@ -1621,7 +1644,6 @@ export default function MapScreen() {
 
         {userLocation && (
           <CarMarkerRenderer
-            heading={heading}
             avatarUrl={myAvatarUrl}
             username={myUsername}
             onCapture={setCarMarkerImage}

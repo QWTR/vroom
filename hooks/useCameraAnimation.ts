@@ -10,7 +10,7 @@ interface CameraParams {
 }
 
 const RETURN_TO_USER_MS    = 5000;
-const NAV_LOOKAHEAD_METERS = 1200;
+const NAV_LOOKAHEAD_METERS = 50;
 
 function offsetCenter(
   lat: number, lng: number,

@@ -12,7 +12,7 @@ interface Props {
   warning:        LiveWarning | null;
   onClose:        () => void;
   onConfirm:      (id: number) => void;
-  onCancel?:      (id: number) => Promise<void>; // ← NOWE: anulowanie przez twórcę
+  onCancel?:      (id: number) => Promise<void>;
   currentUserId?: number;
 }
 
@@ -22,6 +22,8 @@ export const WarningDetailModal = memo(({
   const { theme, isDark } = useTheme();
   const styles = makeMapStyles(theme);
   const [cancelling, setCancelling] = useState(false);
+
+  useModalBackHandler(visible, onClose);
 
   if (!warning) return null;
 
@@ -41,7 +43,7 @@ export const WarningDetailModal = memo(({
       setCancelling(false);
     }
   };
-  useModalBackHandler(visible, onClose);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <SafeAreaView style={styles.drawerModalContainer}>
@@ -139,7 +141,6 @@ export const WarningDetailModal = memo(({
           {/* Twórca — anuluj */}
           {isOwn && (
             <View style={{ gap: 10 }}>
-              {/* Info */}
               <View style={{
                 padding: 12, backgroundColor: theme.border,
                 borderRadius: 12, flexDirection: 'row',
@@ -151,7 +152,6 @@ export const WarningDetailModal = memo(({
                 </Text>
               </View>
 
-              {/* Przycisk anulowania */}
               <TouchableOpacity
                 style={{
                   flexDirection: 'row', alignItems: 'center',
