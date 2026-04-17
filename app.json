@@ -7,7 +7,7 @@
     "icon": "./assets/images/logotypRed.png",
     "scheme": "vroom",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "updates": {
       "url": "https://u.expo.dev/0dceda47-6f18-40dc-a736-be4f23c2769f",
       "enabled": true,
