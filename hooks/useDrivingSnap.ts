@@ -6,13 +6,20 @@ const SNAP_RADIUS_M    = 50;
 const MIN_MOVE_DEG     = 0.00005; // ~5m
 
 export function useDrivingSnap() {
-  const lastRawRef    = useRef<{ lat: number; lng: number } | null>(null);
-  const lastSnappedRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const routePtsRef   = useRef<{ latitude: number; longitude: number }[]>([]);
+  const lastRawRef      = useRef<{ lat: number; lng: number } | null>(null);
+  const lastSnappedRef  = useRef<{ latitude: number; longitude: number } | null>(null);
+  const routePtsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
+  // DAP-to-Road: map-matched road segment (fallback when no route loaded)
+  const roadMatchPtsRef = useRef<{ latitude: number; longitude: number }[]>([]);
 
   // Ustaw punkty trasy do snapowania (np. z previewRoute)
   const setRoutePoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
     routePtsRef.current = pts;
+  }, []);
+
+  // Ustaw punkty z Map Matching API (DAP-to-Road — używane gdy brak załadowanej trasy)
+  const setRoadMatchPoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
+    roadMatchPtsRef.current = pts;
   }, []);
 
   // Główna funkcja — zwraca snapped pozycję lub oryginalną
@@ -21,8 +28,15 @@ export function useDrivingSnap() {
     longitude: number;
     snapped:   boolean;
   } => {
-    // Snap tylko gdy jedzie i nie ma nawigacji (nawigacja ma własny snap)
-    if (isNavigating || speedKmh <= 10 || routePtsRef.current.length < 2) {
+    // Nawigacja ma własny snap — nie ingeruj
+    if (isNavigating) return { latitude: lat, longitude: lng, snapped: false };
+
+    // Wybierz źródło punktów: załadowana trasa ma pierwszeństwo, potem droga z Map Matching
+    const pts = routePtsRef.current.length >= 2
+      ? routePtsRef.current
+      : roadMatchPtsRef.current;
+
+    if (speedKmh <= 5 || pts.length < 2) {
       return { latitude: lat, longitude: lng, snapped: false };
     }
 
@@ -38,16 +52,16 @@ export function useDrivingSnap() {
 
     lastRawRef.current = { lat, lng };
 
-    const result = snapToRoute(lat, lng, routePtsRef.current, SNAP_RADIUS_M);
+    const result = snapToRoute(lat, lng, pts, SNAP_RADIUS_M);
     const snapped = { latitude: result.latitude, longitude: result.longitude };
     lastSnappedRef.current = snapped;
     return { ...snapped, snapped: true };
   }, []);
 
   const reset = useCallback(() => {
-    lastRawRef.current    = null;
+    lastRawRef.current     = null;
     lastSnappedRef.current = null;
   }, []);
 
-  return { snap, setRoutePoints, reset };
+  return { snap, setRoutePoints, setRoadMatchPoints, reset };
 }

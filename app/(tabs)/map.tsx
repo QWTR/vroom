@@ -74,6 +74,7 @@ import { useNavigationSimulator }    from '../../hooks/useNavigationSimulator';
 import { useTripStats }              from '../../hooks/useTripStats';
 import { useAdaptiveGPS }            from '../../hooks/useAdaptiveGPS';
 import { useDrivingSnap }            from '../../hooks/useDrivingSnap';
+import { useDrivingMapMatch }        from '../../hooks/useDrivingMapMatch';
 import { useSpeedCameras }           from '../../hooks/useSpeedCamera';
 import { useSpeedLimit }             from '../../hooks/useSpeedLimit';
 import { useSnapCameras }            from '../../hooks/useSnapCameras';
@@ -247,7 +248,8 @@ export default function MapScreen() {
     : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
   const { startConversation } = useChat();
 
-  const { snap: drivingSnap, setRoutePoints: setSnapPoints, reset: resetSnap } = useDrivingSnap();
+  const { snap: drivingSnap, setRoutePoints: setSnapPoints, setRoadMatchPoints, reset: resetSnap } = useDrivingSnap();
+  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch } = useDrivingMapMatch();
   const [gpsMode, setGpsMode] = useState<'idle' | 'driving' | 'navigating'>('idle');
 
   const {
@@ -362,8 +364,8 @@ export default function MapScreen() {
         setDrTick(t => t + 1);
       }
 
-      // Camera animation only in navigation mode — driving mode drives camera from GPS callback
-      if (isNavigatingRef.current) {
+      // Smooth 60-fps camera animation in both navigation and driving mode
+      if (isNavigatingRef.current || isDrivingRef.current) {
         animateCameraLive({
           center:  snappedPos,
           pitch:   NAV_PITCH,
@@ -618,15 +620,6 @@ export default function MapScreen() {
   // DRIVING MODE helpers
   // ─────────────────────────────────────────────────────────
 
-  const enterDrivingMode = useCallback(() => {
-    if (isDrivingRef.current) return;
-    isDrivingRef.current = true;
-    setIsDriving(true);
-    drivingKmRef.current    = 0;
-    drivingLastLocRef.current = null;
-    setDrivingKm(0);
-  }, []);
-
   const exitDrivingMode = useCallback(() => {
     isDrivingRef.current        = false;
     drivingKmRef.current        = 0;
@@ -637,45 +630,14 @@ export default function MapScreen() {
     }
     stopDR();
     resetDRRefs();
+    resetMapMatch();
+    setRoadMatchPoints([]);
     setIsDriving(false);
     setDrivingKm(0);
+    console.log('[DrivingMode] Exited driving mode');
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, [stopDR, resetDRRefs]);
-
-  // Wywołuj przy każdej aktualizacji GPS — zarządza timerem stopu
-  const handleDrivingSpeedUpdate = useCallback((kmh: number, lat: number, lng: number) => {
-    if (isNavigatingRef.current) return; // nawigacja przejmuje kontrolę
-
-    if (kmh >= DRIVING_SPEED_KMH) {
-      // Jedzie — anuluj timer stopu i aktywuj tryb
-      if (drivingStopTimerRef.current) {
-        clearTimeout(drivingStopTimerRef.current);
-        drivingStopTimerRef.current = null;
-      }
-      enterDrivingMode();
-
-      // Licz km
-      if (drivingLastLocRef.current) {
-        const dist = haversineKm(
-          drivingLastLocRef.current.lat, drivingLastLocRef.current.lng,
-          lat, lng,
-        );
-        drivingKmRef.current += dist;
-        setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
-      }
-      drivingLastLocRef.current = { lat, lng };
-
-    } else {
-      // Wolno / stoi — uruchom timer stopu jeśli jeszcze nie ma
-      if (isDrivingRef.current && !drivingStopTimerRef.current) {
-        drivingStopTimerRef.current = setTimeout(() => {
-          exitDrivingMode();
-          drivingStopTimerRef.current = null;
-        }, DRIVING_STOP_DELAY_MS);
-      }
-    }
-  }, [enterDrivingMode, exitDrivingMode]);
+  }, [stopDR, resetDRRefs, resetMapMatch, setRoadMatchPoints]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -765,6 +727,17 @@ export default function MapScreen() {
 
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
+
+        // ── DAP-to-Road: feed map matcher & update road snap points ──
+        // Do this before snapping so the latest matched road is available
+        if (kmh >= 5) {
+          addMatchPosition(lat, lng);
+          const matchedPts = getMatchedPoints();
+          if (matchedPts && matchedPts.length > 1) {
+            setRoadMatchPoints(matchedPts);
+          }
+        }
+
         const snapped = drivingSnap(lat, lng, kmh, false);
 
         // ── DEAD ZONE — ignoruj jitter gdy stoisz ────────────
@@ -801,6 +774,7 @@ export default function MapScreen() {
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
+            console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               rawSpeedMs,
@@ -831,6 +805,7 @@ export default function MapScreen() {
             lastHeadingRef.current,
           );
 
+          // GPS-level camera update (DR onFrame provides smooth 60fps interpolation)
           animateCameraLive({
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
@@ -850,6 +825,9 @@ export default function MapScreen() {
               drivingStopTimerRef.current = null;
               setIsDriving(false);
               setDrivingKm(0);
+              resetMapMatch();
+              setRoadMatchPoints([]);
+              console.log('[DrivingMode] Exited driving mode (stop timer fired)');
               if (lastGoodLocRef.current) {
                 exitDrivingCamera({
                   latitude:  lastGoodLocRef.current.lat,
@@ -872,8 +850,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch]),
   });
 
   useEffect(() => {
