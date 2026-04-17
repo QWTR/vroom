@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL, GOOGLE_MAPS_APIKEY } from '../constants/mapConfig';
+import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
 import { haversineKm } from '../scripts/navigationUtils';
 
 export type RoutePin = {
@@ -68,23 +68,21 @@ export function useRouteBuilder() {
         const destination = pinsToSnap[i + 1];
 
         const url =
-          `https://maps.googleapis.com/maps/api/directions/json` +
-          `?origin=${origin.latitude},${origin.longitude}` +
-          `&destination=${destination.latitude},${destination.longitude}` +
-          `&mode=driving` +
-          `&key=${GOOGLE_MAPS_APIKEY}`;
+          `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+          `${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}` +
+          `?geometries=polyline&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
 
         segmentPromises.push(
           fetch(url)
             .then(r => r.json())
             .then(json => {
-              if (json.status !== 'OK' || !json.routes?.[0]) {
+              if (!json.routes?.[0]) {
                 return [
                   { latitude: origin.latitude,      longitude: origin.longitude },
                   { latitude: destination.latitude, longitude: destination.longitude },
                 ];
               }
-              return decodePolyline(json.routes[0].overview_polyline.points);
+              return decodePolyline(json.routes[0].geometry);
             })
             .catch(() => [
               { latitude: origin.latitude,      longitude: origin.longitude },

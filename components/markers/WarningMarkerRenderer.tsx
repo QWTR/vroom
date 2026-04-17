@@ -57,7 +57,7 @@ export const WarningMarkerRenderer = ({ warning, onCapture }: WarningMarkerRende
             paddingHorizontal: 6, paddingVertical: 2, marginTop: 4,
           }}>
             <Text style={{ color, fontSize: 9, fontWeight: '700' }}>
-              {15 - timeLeft}min
+              {Math.max(0, 15 - timeLeft)}min
             </Text>
           </View>
         </View>

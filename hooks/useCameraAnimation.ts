@@ -9,8 +9,8 @@ interface CameraParams {
   altitude?: number;
 }
 
-const RETURN_TO_USER_MS    = 6000;
-const NAV_LOOKAHEAD_METERS = 1050;
+const RETURN_TO_USER_MS    = 5000;
+const NAV_LOOKAHEAD_METERS = 50;
 
 function offsetCenter(
   lat: number, lng: number,
@@ -46,7 +46,7 @@ function headingDiff(a: number, b: number): number {
   return Math.abs(((b - a + 540) % 360) - 180);
 }
 
-export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
+export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const lastHeadingRef  = useRef(0);
   const lastCenterRef   = useRef<{ latitude: number; longitude: number } | null>(null);
   const cameraLockedRef = useRef(false);
@@ -60,7 +60,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
   function doAnimate(params: CameraParams, duration: number) {
     lastHeadingRef.current = params.heading;
     lastCenterRef.current  = params.center;
-    (mapRef.current as any)?.setCamera({
+    (cameraRef.current as any)?.setCamera({
       centerCoordinate: [params.center.longitude, params.center.latitude],
       pitch:            params.pitch,
       heading:          params.heading,
@@ -70,9 +70,13 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
     });
   }
 
-  function scheduleReturn(params: CameraParams) {
+  function scheduleReturn() {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     returnTimerRef.current = setTimeout(() => {
+      // Read the latest DR position at fire-time so camera returns to where
+      // the vehicle actually IS now, not where it was when the user started panning.
+      const params = lastDRPosRef.current;
+      if (!params) return;
       cameraLockedRef.current = false;
       const lookahead = offsetCenter(
         params.center.latitude, params.center.longitude,
@@ -85,7 +89,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
   const onUserPan = useCallback(() => {
     cameraLockedRef.current = true;
     if (lastDRPosRef.current) {
-      scheduleReturn(lastDRPosRef.current);
+      scheduleReturn();
     }
   }, []);
 
@@ -112,17 +116,17 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
     const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
-    (mapRef.current as any)?.setCamera({
+    (cameraRef.current as any)?.setCamera({
       centerCoordinate: [lookahead.longitude, lookahead.latitude],
-      pitch:            90,
+      pitch:            55,
       heading,
-      zoomLevel:        16.5,
+      zoomLevel:        14.5,
       animationDuration: 800,
       animationMode:    'flyTo',
     });
     lastHeadingRef.current = heading;
     lastCenterRef.current  = lookahead;
-  }, [mapRef]);
+  }, [cameraRef]);
 
   // ── exitDrivingCamera — powrót do widoku 2D ───────────────
   const exitDrivingCamera = useCallback((center: { latitude: number; longitude: number }) => {
@@ -133,7 +137,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
     lastDRPosRef.current    = null;
     lastLiveCallRef.current = 0;
     lastHeadingRef.current  = 0;
-    (mapRef.current as any)?.setCamera({
+    (cameraRef.current as any)?.setCamera({
       centerCoordinate: [center.longitude, center.latitude],
       pitch:            0,
       heading:          0,
@@ -141,7 +145,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
       animationDuration: 700,
       animationMode:    'flyTo',
     });
-  }, [mapRef]);
+  }, [cameraRef]);
 
   const animateCameraLive = useCallback((params: CameraParams) => {
     lastDRPosRef.current = params;
@@ -168,7 +172,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
       params.heading, NAV_LOOKAHEAD_METERS,
     );
     doAnimate({ ...params, center: lookahead }, LIVE_INTERVAL_MS + 20);
-  }, [mapRef]);
+  }, [cameraRef]);
 
   const animateCameraSmooth = useCallback((params: CameraParams) => {
     if (cameraLockedRef.current) return;
@@ -188,7 +192,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
       params.heading, NAV_LOOKAHEAD_METERS,
     );
     doAnimate({ ...params, center: lookahead }, 150);
-  }, [mapRef]);
+  }, [cameraRef]);
 
   const resetCamera = useCallback((
     center: { latitude: number; longitude: number },
@@ -201,7 +205,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
     lastHeadingRef.current   = 0;
     lastDRPosRef.current     = null;
     lastLiveCallRef.current  = 0;
-    (mapRef.current as any)?.setCamera({
+    (cameraRef.current as any)?.setCamera({
       centerCoordinate: [center.longitude, center.latitude],
       pitch:            0,
       heading:          0,
@@ -209,7 +213,7 @@ export function useCameraAnimation(mapRef: React.RefObject<Mapbox.MapView>) {
       animationDuration: 800,
       animationMode:    'flyTo',
     });
-  }, [mapRef]);
+  }, [cameraRef]);
 
   return {
     animateCameraSmooth,

@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
-import { API_URL, GOOGLE_MAPS_APIKEY } from '../constants/mapConfig';
+import { API_URL } from '../constants/mapConfig';
 import { snapToRoute } from '../scripts/navigationUtils';
 
 export interface LiveUser {
@@ -59,21 +59,6 @@ async function fetchWithTimeout(
   }
 }
 
-async function snapToRoadGoogle(
-  lat: number,
-  lng: number,
-): Promise<{ latitude: number; longitude: number }> {
-  try {
-    const url  = `https://roads.googleapis.com/v1/snapToRoads?path=${lat},${lng}&key=${GOOGLE_MAPS_APIKEY}`;
-    const res  = await fetchWithTimeout(url, {}, 5000);
-    const json = await res.json();
-    const pt   = json.snappedPoints?.[0]?.location;
-    if (pt) return { latitude: pt.latitude, longitude: pt.longitude };
-  } catch (e) {
-    console.log('snapToRoadGoogle error:', e);
-  }
-  return { latitude: lat, longitude: lng };
-}
 
 export function useLiveMap(
   isSharing:       boolean,
@@ -92,6 +77,11 @@ export function useLiveMap(
   const isSharingRef       = useRef(isSharing);
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
+
+  // ── Position smoothing for live users (prevents teleportation) ───
+  const smoothedPosRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
+  const SMOOTH_ALPHA   = 0.35;   // 0 = frozen, 1 = instant
+  const MIN_MOVE_M     = 4;      // ignore jitter smaller than 4 m
 
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
@@ -177,14 +167,34 @@ export function useLiveMap(
 
       socket.on('user:location', (data) => {
         if (!isSharingRef.current) return;
+
+        // EWMA smoothing — prevents teleportation from GPS jitter
+        const prev = smoothedPosRef.current.get(data.id);
+        let sLat = data.lat as number;
+        let sLng = data.lng as number;
+        if (prev) {
+          const distM = distanceKm(prev.lat, prev.lng, sLat, sLng) * 1000;
+          if (distM < MIN_MOVE_M) {
+            // Ignore sub-4m jitter — keep last smoothed position
+            sLat = prev.lat;
+            sLng = prev.lng;
+          } else {
+            sLat = prev.lat + SMOOTH_ALPHA * (sLat - prev.lat);
+            sLng = prev.lng + SMOOTH_ALPHA * (sLng - prev.lng);
+          }
+        }
+        smoothedPosRef.current.set(data.id, { lat: sLat, lng: sLng });
+        const smoothedData = { ...data, lat: sLat, lng: sLng };
+
         setLiveUsers(prev => {
           const exists = prev.find(u => u.id === data.id);
-          if (exists) return prev.map(u => u.id === data.id ? { ...u, ...data } : u);
-          return [...prev, data];
+          if (exists) return prev.map(u => u.id === data.id ? { ...u, ...smoothedData } : u);
+          return [...prev, smoothedData];
         });
       });
 
       socket.on('user:offline', (data) => {
+        smoothedPosRef.current.delete(data.id);
         setLiveUsers(prev => prev.filter(u => u.id !== data.id));
       });
 
@@ -335,9 +345,9 @@ export function useLiveMap(
         snappedLat = snapped.latitude;
         snappedLng = snapped.longitude;
       } else {
-        const snapped = await snapToRoadGoogle(lat, lng);
-        snappedLat = snapped.latitude;
-        snappedLng = snapped.longitude;
+        // Brak punktów trasy — użyj surowej pozycji GPS
+        snappedLat = lat;
+        snappedLng = lng;
       }
     } catch (e) {
       console.log('warning snap error — using raw GPS:', e);
