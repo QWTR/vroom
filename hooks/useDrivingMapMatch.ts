@@ -62,10 +62,24 @@ export function useDrivingMapMatch() {
       const url     = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
       const res  = await fetch(url);
-      const json = await res.json() as any;
+      if (!res.ok) {
+        console.warn('[DrivingMapMatch] HTTP error:', res.status);
+        return;
+      }
+
+      interface MapMatchResponse {
+        code:      string;
+        matchings: Array<{
+          geometry: {
+            coordinates: [number, number][];
+          };
+        }>;
+      }
+
+      const json = await res.json() as MapMatchResponse;
 
       if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
-        const matched = (json.matchings[0].geometry.coordinates as [number, number][]).map(
+        const matched = json.matchings[0].geometry.coordinates.map(
           ([lng, lat]) => ({ latitude: lat, longitude: lng }),
         );
         matchedPtsRef.current  = matched;

@@ -107,8 +107,10 @@ const NAV_PITCH           = 75;
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
-const DRIVING_STOP_DELAY_MS = 12 * 60 * 1000; // 12 minut
-const DRIVING_SPEED_KMH     = 10;
+const DRIVING_STOP_DELAY_MS  = 12 * 60 * 1000; // 12 minut
+const DRIVING_SPEED_KMH      = 10;
+// Ile km/h ponad limit zanim kolor prędkości zmienia się na czerwony
+const SPEED_LIMIT_TOLERANCE  = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
@@ -1732,12 +1734,12 @@ export default function MapScreen() {
                     <View style={{
                       width: 36, height: 36, borderRadius: 18,
                       backgroundColor: '#fff', borderWidth: 3,
-                      borderColor: speedKmh > speedLimit + 5 ? '#e33835' : '#333',
+                      borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
                       alignItems: 'center', justifyContent: 'center',
                     }}>
                       <Text style={{
                         fontFamily: 'Orbitron', fontSize: speedLimit >= 100 ? 8 : 10,
-                        color: speedKmh > speedLimit + 5 ? '#e33835' : '#111',
+                        color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
                         fontWeight: '900',
                       }}>
                         {speedLimit}
@@ -1756,7 +1758,7 @@ export default function MapScreen() {
                   }}>
                     <Text style={{
                       fontFamily: 'Orbitron', fontSize: 24,
-                      color: speedLimit !== null && speedKmh > speedLimit + 5 ? '#e33835' : '#fff',
+                      color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#fff',
                       fontWeight: '700',
                     }}>
                       {Math.round(speedKmh)}
@@ -2175,13 +2177,13 @@ export default function MapScreen() {
               <View style={{
                 width: 44, height: 44, borderRadius: 22,
                 backgroundColor: '#fff', borderWidth: 4,
-                borderColor: speedKmh > speedLimit + 5 ? '#e33835' : '#333',
+                borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
                 alignItems: 'center', justifyContent: 'center',
                 marginBottom: 4, alignSelf: 'center',
               }}>
                 <Text style={{
                   fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900',
-                  color: speedKmh > speedLimit + 5 ? '#e33835' : '#111',
+                  color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
                 }}>
                   {speedLimit}
                 </Text>
@@ -2189,7 +2191,7 @@ export default function MapScreen() {
             )}
             <Text style={[
               styles.speedValue,
-              speedLimit !== null && speedKmh > speedLimit + 5 && { color: '#e33835' },
+              speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE && { color: '#e33835' },
             ]}>
               {formatSpeed(speed)}
             </Text>
