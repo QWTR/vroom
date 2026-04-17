@@ -432,7 +432,6 @@ export default function MapScreen() {
   const { route: rerouteResult } = useGoogleDirections(
     offRoute ? userLocation : null,
     offRoute ? endLocation  : null,
-    GOOGLE_MAPS_APIKEY,
     offRoute ? lastHeadingRef.current : undefined,
   );
 

@@ -9,7 +9,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "updates": {
-      "url": "https://u.expo.dev/0dceda47-6f18-40dc-a736-be4f23c2769f",
+      "url": "https://u.expo.dev/3142aa8a-ca54-4d98-8120-657b87a714c3",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -26,6 +26,8 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
         "UIBackgroundModes": [
           "location",
+          "fetch",
+          "location",
           "fetch"
         ]
       }
@@ -41,6 +43,14 @@
       "googleServicesFile": "./google-services.json",
       "config": {},
       "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
