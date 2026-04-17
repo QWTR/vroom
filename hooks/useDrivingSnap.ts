@@ -2,7 +2,7 @@ import { useRef, useCallback } from 'react';
 import { snapToRoute }         from '../scripts/navigationUtils';
 
 // Prosty cache ostatnio pobranej trasy snap
-const SNAP_RADIUS_M    = 25;
+const SNAP_RADIUS_M    = 50;
 const MIN_MOVE_DEG     = 0.00005; // ~5m
 
 export function useDrivingSnap() {

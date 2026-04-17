@@ -101,8 +101,8 @@ import { TripStatsModal }            from '../../components/modals/TripStatsModa
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 14.1;
-const NAV_PITCH           = 70;
+const NAV_ZOOM            = 14.5;
+const NAV_PITCH           = 55;
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
@@ -341,9 +341,9 @@ export default function MapScreen() {
       const points = routePointsRef.current;
       let snappedPos = pos;
 
-      // Only snap to route in navigation mode; driving mode already snaps in GPS callback
-      if (isNavigatingRef.current && points.length > 1) {
-        const snapped = snapToRoute(pos.latitude, pos.longitude, points, 25);
+      // Snap to route in both navigation and driving mode when route points are available
+      if (points.length > 1) {
+        const snapped = snapToRoute(pos.latitude, pos.longitude, points, 35);
         snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
       }
 
@@ -760,7 +760,7 @@ export default function MapScreen() {
 
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
-        const snapped = drivingSnap(lat, lng, kmh, isDrivingRef.current);
+        const snapped = drivingSnap(lat, lng, kmh, false);
 
         setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
 
@@ -834,8 +834,14 @@ export default function MapScreen() {
           }
         }
       } else {
-        // ── Nawigacja — ustaw pozycję z Kalmana, DR animuje kamerę
-        setUserLocation({ latitude: lat, longitude: lng });
+        // ── Nawigacja — snap do trasy, DR animuje kamerę
+        const navPts = routePointsRef.current;
+        if (navPts.length > 1) {
+          const navSnapped = snapToRoute(lat, lng, navPts, 35);
+          setUserLocation({ latitude: navSnapped.latitude, longitude: navSnapped.longitude });
+        } else {
+          setUserLocation({ latitude: lat, longitude: lng });
+        }
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
