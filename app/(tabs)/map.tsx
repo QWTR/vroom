@@ -6,6 +6,7 @@ import {
   Platform, Alert, StyleSheet, NativeModules, StatusBar,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
 import { MAPBOX_TOKEN } from '../../constants/mapConfig';
@@ -251,7 +252,8 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const styles = makeMapStyles(theme, isDark);
+  const insets = useSafeAreaInsets();
+  const styles = makeMapStyles(theme, isDark, insets.top);
   const mapStyle = mapType === 'satellite'
     ? MAPBOX_STYLE_SATELLITE
     : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
@@ -1699,7 +1701,7 @@ export default function MapScreen() {
 
         {/* ── Panel DRIVING MODE (góra) ────────────────────── */}
         {isDriving && !isNavigating && (
-          <View style={[styles.navigationPanelTop, { top: 100 }]}>
+          <View style={[styles.navigationPanelTop, { top: insets.top + 52 }]}>
             <View style={styles.instructionBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{
@@ -2153,7 +2155,7 @@ export default function MapScreen() {
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
-            position: 'absolute', top: Platform.OS === 'ios' ? 160 : 145,
+            position: 'absolute', top: insets.top + 122,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -2259,7 +2261,7 @@ export default function MapScreen() {
 
           {connected && isSharing && (
             <View style={{
-              position: 'absolute', top: Platform.OS === 'ios' ? 54 : 38, right: 12,
+              position: 'absolute', top: insets.top + 8, right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
               borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,

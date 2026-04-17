@@ -3,10 +3,12 @@ import { AppTheme } from '../constants/theme';
 
 const { height } = Dimensions.get('window');
 
-export function makeMapStyles(t: AppTheme, isDark = true) {
+export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
   const SURF  = t.surface;
   const SURF2 = t.surface2;
   const SURF3 = t.surface3;
+  // Minimum clearance from top of screen (status bar + small margin)
+  const TOP = topInset + 12;
 
   return StyleSheet.create({
 
@@ -119,7 +121,7 @@ export function makeMapStyles(t: AppTheme, isDark = true) {
     // ═══════════════════════════════════════════
     topSearchButton: {
       position: 'absolute',
-      top: Platform.OS === 'ios' ? 58 : 42,
+      top: TOP,
       left: 12,
       right: 12,
       flexDirection: 'row',
@@ -147,7 +149,7 @@ export function makeMapStyles(t: AppTheme, isDark = true) {
     // ═══════════════════════════════════════════
     navigationPanelTop: {
       position: 'absolute',
-      top: Platform.OS === 'ios' ? 58 : 42,
+      top: TOP,
       left: 12,
       right: 12,
       backgroundColor: isDark ? SURF : '#fffffff0',
