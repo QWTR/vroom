@@ -24,6 +24,7 @@
     "production": {
       "channel": "production",
       "autoIncrement": true,
+      "environment": "production",
       "android": { "image": "latest" },
       "ios": { "image": "latest" }
     }
