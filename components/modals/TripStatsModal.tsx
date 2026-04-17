@@ -4,10 +4,10 @@ import {
   ScrollView, Platform, Pressable, Dimensions,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import Mapbox from '@rnmapbox/maps';
+import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { TripStats } from '../../hooks/useTripStats';
-import { customMapStyle, lightMapStyle } from '../../constants/mapConfig';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -40,17 +40,12 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
   const pts = stats.trackedPoints;
   const hasRoute = pts.length > 1;
 
-  const mapRegion = hasRoute ? (() => {
+  const mapBounds = hasRoute ? (() => {
     const lats  = pts.map(p => p.latitude);
     const lngs  = pts.map(p => p.longitude);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    return {
-      latitude:       (minLat + maxLat) / 2,
-      longitude:      (minLng + maxLng) / 2,
-      latitudeDelta:  Math.max((maxLat - minLat) * 1.5, 0.004),
-      longitudeDelta: Math.max((maxLng - minLng) * 1.5, 0.004),
-    };
+    return { minLat, maxLat, minLng, maxLng };
   })() : null;
   useModalBackHandler(visible, onClose);
   return (
@@ -118,67 +113,89 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
             </View>
 
             {/* ── Mapa historii trasy ───────────────────────── */}
-            {hasRoute && mapRegion ? (
+            {hasRoute && mapBounds ? (
               <View style={{
                 borderRadius: 16, overflow: 'hidden',
                 marginBottom: 14, height: 180,
                 borderWidth: 1, borderColor: theme.border,
               }}>
-                <MapView
-                  provider={PROVIDER_GOOGLE}
+                <Mapbox.MapView
                   style={{ flex: 1 }}
-                  customMapStyle={isDark ? customMapStyle : lightMapStyle}
-                  initialRegion={mapRegion}
+                  styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
+                  logoEnabled={false}
+                  attributionEnabled={false}
                   scrollEnabled={false}
                   zoomEnabled={false}
                   pitchEnabled={false}
                   rotateEnabled={false}
-                  toolbarEnabled={false}
-                  liteMode
                 >
+                  <Mapbox.Camera
+                    bounds={{
+                      ne: [mapBounds.maxLng, mapBounds.maxLat],
+                      sw: [mapBounds.minLng, mapBounds.minLat],
+                      paddingTop: 30,
+                      paddingBottom: 30,
+                      paddingLeft: 30,
+                      paddingRight: 30,
+                    }}
+                  />
                   {/* Cień */}
-                  <Polyline
-                    coordinates={pts}
-                    strokeColor="#00000060"
-                    strokeWidth={8}
-                    geodesic
-                    lineCap="round"
-                    lineJoin="round"
-                  />
+                  <Mapbox.ShapeSource
+                    id="tripShadowSource"
+                    shape={{
+                      type: 'Feature',
+                      geometry: {
+                        type: 'LineString',
+                        coordinates: pts.map(p => [p.longitude, p.latitude]),
+                      },
+                      properties: {},
+                    }}
+                  >
+                    <Mapbox.LineLayer
+                      id="tripShadowLayer"
+                      style={{ lineColor: '#00000060', lineWidth: 8, lineCap: 'round', lineJoin: 'round' }}
+                    />
+                  </Mapbox.ShapeSource>
                   {/* Linia trasy */}
-                  <Polyline
-                    coordinates={pts}
-                    strokeColor="#e33835"
-                    strokeWidth={4}
-                    geodesic
-                    lineCap="round"
-                    lineJoin="round"
-                  />
+                  <Mapbox.ShapeSource
+                    id="tripRouteSource"
+                    shape={{
+                      type: 'Feature',
+                      geometry: {
+                        type: 'LineString',
+                        coordinates: pts.map(p => [p.longitude, p.latitude]),
+                      },
+                      properties: {},
+                    }}
+                  >
+                    <Mapbox.LineLayer
+                      id="tripRouteLayer"
+                      style={{ lineColor: '#e33835', lineWidth: 4, lineCap: 'round', lineJoin: 'round' }}
+                    />
+                  </Mapbox.ShapeSource>
                   {/* Start */}
-                  <Marker
-                    coordinate={pts[0]}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                    tracksViewChanges={false}
+                  <Mapbox.PointAnnotation
+                    id="tripStart"
+                    coordinate={[pts[0].longitude, pts[0].latitude]}
                   >
                     <View style={{
                       width: 12, height: 12, borderRadius: 6,
                       backgroundColor: '#4de926',
                       borderWidth: 2, borderColor: '#fff',
                     }} />
-                  </Marker>
+                  </Mapbox.PointAnnotation>
                   {/* Koniec */}
-                  <Marker
-                    coordinate={pts[pts.length - 1]}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                    tracksViewChanges={false}
+                  <Mapbox.PointAnnotation
+                    id="tripEnd"
+                    coordinate={[pts[pts.length - 1].longitude, pts[pts.length - 1].latitude]}
                   >
                     <View style={{
                       width: 12, height: 12, borderRadius: 6,
                       backgroundColor: '#e33835',
                       borderWidth: 2, borderColor: '#fff',
                     }} />
-                  </Marker>
-                </MapView>
+                  </Mapbox.PointAnnotation>
+                </Mapbox.MapView>
 
                 {/* Dystans overlay */}
                 <View style={{

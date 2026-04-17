@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, Image } from 'react-native';
-import { Marker } from 'react-native-maps';
+import { View, Text, Image, TouchableOpacity } from 'react-native';
+import Mapbox from '@rnmapbox/maps';
 import { User } from '../../constants/types';
 
 interface UserCarMarkerProps {
@@ -8,8 +8,6 @@ interface UserCarMarkerProps {
   distance: number;
   onPress:  () => void;
   imageUri: string | null;
-  // czy to demo user — wtedy śledź zmiany pozycji
-  isDemo?:  boolean;
 }
 
 const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
@@ -75,34 +73,23 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
 });
 
 export const UserCarMarker = memo(({
-  user, distance, onPress, imageUri, isDemo = false,
+  user, distance, onPress, imageUri,
 }: UserCarMarkerProps) => {
-  // Demo: tracksViewChanges=true żeby marker się przesuwał
-  // Live: tracksViewChanges=false dla wydajności (pozycja rzadko się zmienia)
-  const tracks = isDemo;
-
   if (!imageUri) {
     return (
-      <Marker
-        coordinate={{ latitude: user.latitude, longitude: user.longitude }}
-        onPress={onPress}
-        anchor={{ x: 0.5, y: 1 }}
-        zIndex={999}
-        tracksViewChanges={tracks}
-      >
-        <FallbackMarker user={user} distance={distance} />
-      </Marker>
+      <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }}>
+        <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+          <FallbackMarker user={user} distance={distance} />
+        </TouchableOpacity>
+      </Mapbox.MarkerView>
     );
   }
 
   return (
-    <Marker
-      coordinate={{ latitude: user.latitude, longitude: user.longitude }}
-      onPress={onPress}
-      anchor={{ x: 0.5, y: 1 }}
-      zIndex={999}
-      tracksViewChanges={tracks}
-      image={{ uri: imageUri }}
-    />
+    <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+        <Image source={{ uri: imageUri }} style={{ width: 80, height: 80 }} resizeMode="contain" />
+      </TouchableOpacity>
+    </Mapbox.MarkerView>
   );
 });

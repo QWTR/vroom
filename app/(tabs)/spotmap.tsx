@@ -3,12 +3,12 @@ import {
   View, Text, TouchableOpacity,
   ActivityIndicator, ScrollView,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Marker, MapType } from 'react-native-maps';
+import Mapbox from '@rnmapbox/maps';
+import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE, MAPBOX_TOKEN } from '../../constants/mapConfig';
+Mapbox.setAccessToken(MAPBOX_TOKEN);
 import { makeMapStyles } from '../../styles/mapstyle';
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
-
-import { customMapStyle, lightMapStyle } from '../../constants/mapConfig';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORIES, OFFROAD_CATEGORIES } from '../../constants/spotTypes';
 import { useSpots }  from '../../hooks/useSpots';
 import { useTheme }  from '../../contexts/ThemeContext';
@@ -24,15 +24,11 @@ type PickingState = 'idle' | 'picking';
 // Próg zoomu — poniżej: dot, powyżej: full pin z nazwą
 const LABEL_ZOOM_THRESHOLD = 13;
 
-function getZoomFromDelta(latitudeDelta: number): number {
-  return Math.round(Math.log2(360 / latitudeDelta));
-}
-
 export default function SpotMap() {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<Mapbox.MapView>(null);
   const { theme, isDark } = useTheme();
   const styles         = makeMapStyles(theme, isDark);
-  const activeMapStyle = isDark ? customMapStyle : lightMapStyle;
+  const mapStyle       = isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
 
   const {
     region, visibleSpots, maxDistance, setMaxDistance,
@@ -49,7 +45,7 @@ export default function SpotMap() {
   const [selectedSpot,    setSelectedSpot]    = useState<Spot | null>(null);
   const [picking,         setPicking]         = useState<PickingState>('idle');
   const [pickedCoord,     setPickedCoord]     = useState<{ latitude: number; longitude: number } | null>(null);
-  const [mapType,         setMapType]         = useState<MapType>('standard');
+  const [isSatellite,     setIsSatellite]     = useState(false);
   const [currentZoom,     setCurrentZoom]     = useState(12);
 
   // Słownik: spotId → uri obrazka pinu
@@ -57,7 +53,6 @@ export default function SpotMap() {
   // Słownik: spotId → typ pinu jaki już wyrenderowano
   const [renderedZoom, setRenderedZoom] = useState<Record<string, 'dot' | 'full'>>({});
 
-  const isSatellite = mapType === 'satellite';
   const showLabels  = currentZoom >= LABEL_ZOOM_THRESHOLD;
   const panelBg     = theme.surface + 'f0';
   const panelBorder = theme.border2;
@@ -66,23 +61,22 @@ export default function SpotMap() {
   const visibleIds = useMemo(() => new Set(visibleSpots.map(s => s.id)), [visibleSpots]);
   // (można dodać useEffect czyszczący pinImages gdy zmienia się visibleIds)
 
-  const handleRegionChange = useCallback((r: any) => {
-    const zoom = getZoomFromDelta(r.latitudeDelta);
+  const handleRegionChange = useCallback((e: any) => {
+    const zoom = e.properties?.zoomLevel ?? 12;
     setCurrentZoom(zoom);
   }, []);
 
   const toggleMapType = useCallback(() => {
-    setMapType(prev => prev === 'standard' ? 'satellite' : 'standard');
+    setIsSatellite(prev => !prev);
   }, []);
 
   const handleLocateMe = useCallback(() => {
     if (!userLocation) return;
-    mapRef.current?.animateToRegion({
-      latitude:       userLocation.latitude,
-      longitude:      userLocation.longitude,
-      latitudeDelta:  0.008,
-      longitudeDelta: 0.008,
-    }, 600);
+    (mapRef.current as any)?.setCamera({
+      centerCoordinate: [userLocation.longitude, userLocation.latitude],
+      zoomLevel: 14,
+      animationDuration: 600,
+    });
   }, [userLocation]);
 
   const handleStartPicking = useCallback(() => setPicking('picking'), []);
@@ -101,7 +95,8 @@ export default function SpotMap() {
 
   const handleMapPress = useCallback((e: any) => {
     if (picking !== 'picking') return;
-    setPickedCoord(e.nativeEvent.coordinate);
+    const [longitude, latitude] = e.geometry.coordinates;
+    setPickedCoord({ latitude, longitude });
     setPicking('idle');
     setAddVisible(true);
   }, [picking]);
@@ -142,48 +137,63 @@ export default function SpotMap() {
       })}
 
       {/* MAPA */}
-      <MapView
+      <Mapbox.MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-        customMapStyle={isSatellite ? [] : activeMapStyle}
-        mapType={mapType}
-        initialRegion={region}
-        showsUserLocation
-        showsMyLocationButton={false}
-        showsCompass={false}
-        toolbarEnabled={false}
+        styleURL={isSatellite ? MAPBOX_STYLE_SATELLITE : mapStyle}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
         onPress={handleMapPress}
-        onRegionChange={handleRegionChange}
+        onRegionDidChange={handleRegionChange}
       >
-        {/* Piny spotów — renderowane jako obrazki (tak jak CarMarker w map.tsx) */}
+        <Mapbox.Camera
+          defaultSettings={{
+            centerCoordinate: [region?.longitude ?? 19.0, region?.latitude ?? 52.0],
+            zoomLevel: 12,
+          }}
+        />
+        <Mapbox.UserLocation visible={true} />
+
+        {/* Piny spotów */}
         {visibleSpots.map(spot => {
           const imgUri = pinImages[spot.id];
           const color  = CATEGORY_COLORS[spot.category] ?? '#e33835';
 
+          if (imgUri) {
+            return (
+              <Mapbox.MarkerView
+                key={spot.id}
+                coordinate={[spot.longitude, spot.latitude]}
+                anchor={showLabels ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
+              >
+                <TouchableOpacity onPress={() => handleSelectSpot(spot)} activeOpacity={0.8}>
+                  <View style={{ width: 48, height: 48 }}>
+                    <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: theme.surface3, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: color }}>
+                      <MaterialIcons name={CATEGORY_ICONS[spot.category] as any} size={20} color={color} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </Mapbox.MarkerView>
+            );
+          }
+
           return (
-            <Marker
+            <Mapbox.MarkerView
               key={spot.id}
-              coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
-              tracksViewChanges={!imgUri}   // false gdy obrazek gotowy → optymalizacja
-              anchor={showLabels ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
-              zIndex={10}
-              onPress={() => handleSelectSpot(spot)}
-              {...(imgUri
-                ? { image: { uri: imgUri } }
-                : { pinColor: color }       // fallback dopóki renderer nie skończy
-              )}
-            />
+              coordinate={[spot.longitude, spot.latitude]}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <TouchableOpacity onPress={() => handleSelectSpot(spot)} activeOpacity={0.8}>
+                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: color, borderWidth: 2, borderColor: '#fff' }} />
+              </TouchableOpacity>
+            </Mapbox.MarkerView>
           );
         })}
 
         {/* Pin wybranej lokalizacji (picking) */}
         {pickedCoord && (
-          <Marker
-            coordinate={pickedCoord}
-            tracksViewChanges={false}
-            anchor={{ x: 0.5, y: 1 }}
-          >
+          <Mapbox.MarkerView coordinate={[pickedCoord.longitude, pickedCoord.latitude]} anchor={{ x: 0.5, y: 1 }}>
             <View style={{ alignItems: 'center' }}>
               <View style={{
                 width: 40, height: 40, borderRadius: 20,
@@ -200,9 +210,9 @@ export default function SpotMap() {
                 borderTopColor: '#e33835', marginTop: -1,
               }} />
             </View>
-          </Marker>
+          </Mapbox.MarkerView>
         )}
-      </MapView>
+      </Mapbox.MapView>
 
       {/* GÓRNY PASEK */}
       {picking === 'idle' && (

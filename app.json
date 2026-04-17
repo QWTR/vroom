@@ -9,7 +9,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "updates": {
-      "url": "https://u.expo.dev/0dceda47-6f18-40dc-a736-be4f23c2769f",
+      "url": "https://u.expo.dev/3142aa8a-ca54-4d98-8120-657b87a714c3",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -24,7 +24,12 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -36,12 +41,16 @@
       "package": "com.lexuuw.vroom",
       "backgroundColor": "#0a0a0a",
       "googleServicesFile": "./google-services.json",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyAIViHITDEhTzTsfK_eIhA53PKlAL3dpTw"
-        }
-      },
+      "config": {},
       "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
@@ -58,6 +67,13 @@
       "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsImpl": "mapbox",
+          "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
@@ -101,9 +117,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0dceda47-6f18-40dc-a736-be4f23c2769f"
+        "projectId": "3142aa8a-ca54-4d98-8120-657b87a714c3"
       }
     },
-    "owner": "lexuuw"
+    "owner": "vroomapps-organization"
   }
 }
