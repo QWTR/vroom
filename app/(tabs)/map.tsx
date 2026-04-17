@@ -58,6 +58,8 @@ import { useRouteLeaderboard }       from '../../hooks/useRouteLeaderboard';
 import {
   useLiveMap,
   getWarningLabel,
+  getWarningColor,
+  getWarningIcon,
   LiveWarning,
   clusterWarnings,
 } from '../../hooks/useLiveMap';
@@ -86,7 +88,6 @@ import { CarMarker }                 from '../../components/markers/CarMarker';
 import { CarMarkerRenderer }         from '../../components/markers/CarMarkerRenderer';
 import { UserCarMarker }             from '../../components/markers/UserCarMarker';
 import { MarkerRenderer }            from '../../components/markers/MarkerRenderer';
-import { WarningMarkerRenderer }     from '../../components/markers/WarningMarkerRenderer';
 import { UserInfoModal }             from '../../components/modals/UserInfoModal';
 import { SearchModal }               from '../../components/modals/SearchModal';
 import { SettingsModal }             from '../../components/modals/SettingsModal';
@@ -100,7 +101,7 @@ import { TripStatsModal }            from '../../components/modals/TripStatsModa
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 15.3;
+const NAV_ZOOM            = 14.8;
 const NAV_PITCH           = 90;
 
 // ── DRIVING MODE ──────────────────────────────────────────
@@ -184,7 +185,6 @@ export default function MapScreen() {
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
   const [markerImages,        setMarkerImages]        = useState<Record<string, string>>({});
-  const [warningImages,       setWarningImages]       = useState<Record<number, string>>({});
   const [pinImages,           setPinImages]           = useState<Record<string, string>>({});
   const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
 
@@ -336,12 +336,13 @@ export default function MapScreen() {
   // ── Dead-reckoning ────────────────────────────────────────
   const { feed: feedDR, reset: resetDR, stop: stopDR } = useDeadReckoning({
     onFrame: useCallback((pos: any, hdg: number) => {
-      if (!isNavigatingRef.current) return;
+      if (!isNavigatingRef.current && !isDrivingRef.current) return;
 
       const points = routePointsRef.current;
       let snappedPos = pos;
 
-      if (points.length > 1) {
+      // Only snap to route in navigation mode; driving mode already snaps in GPS callback
+      if (isNavigatingRef.current && points.length > 1) {
         const snapped = snapToRoute(pos.latitude, pos.longitude, points, 25);
         snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
       }
@@ -355,12 +356,15 @@ export default function MapScreen() {
         setDrTick(t => t + 1);
       }
 
-      animateCameraLive({
-        center:  snappedPos,
-        pitch:   NAV_PITCH,
-        heading: hdg,
-        zoom:    NAV_ZOOM,
-      });
+      // Camera animation only in navigation mode — driving mode drives camera from GPS callback
+      if (isNavigatingRef.current) {
+        animateCameraLive({
+          center:  snappedPos,
+          pitch:   NAV_PITCH,
+          heading: hdg,
+          zoom:    NAV_ZOOM,
+        });
+      }
     }, [animateCameraLive]),
     stallTimeout: 2500,
   });
@@ -581,17 +585,6 @@ export default function MapScreen() {
     });
   }, [pins]);
 
-  useEffect(() => {
-    const activeIds = new Set(warnings.map(w => w.id));
-    setWarningImages(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => {
-        if (!activeIds.has(Number(k))) delete next[Number(k)];
-      });
-      return next;
-    });
-  }, [warnings]);
-
   // ── Init GPS ──────────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -636,11 +629,13 @@ export default function MapScreen() {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
     }
+    stopDR();
+    resetDRRefs();
     setIsDriving(false);
     setDrivingKm(0);
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, []);
+  }, [stopDR, resetDRRefs]);
 
   // Wywołuj przy każdej aktualizacji GPS — zarządza timerem stopu
   const handleDrivingSpeedUpdate = useCallback((kmh: number, lat: number, lng: number) => {
@@ -781,6 +776,12 @@ export default function MapScreen() {
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
+            // Seed DR so marker doesn't jump on the first driving frame
+            feedDR(
+              { latitude: snapped.latitude, longitude: snapped.longitude },
+              rawSpeedMs,
+              lastHeadingRef.current,
+            );
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               lastHeadingRef.current,
@@ -799,6 +800,13 @@ export default function MapScreen() {
             }
           }
           drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+
+          // Feed DR for smooth marker interpolation between GPS updates
+          feedDR(
+            { latitude: snapped.latitude, longitude: snapped.longitude },
+            rawSpeedMs,
+            lastHeadingRef.current,
+          );
 
           animateCameraLive({
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
@@ -832,7 +840,7 @@ export default function MapScreen() {
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drivingSnap, feedSpeed, feedPosition, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
+  }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
     // ↑ celowo minimalne deps — reszta przez refy
   });
 
@@ -1227,10 +1235,6 @@ export default function MapScreen() {
     else    Toast.show({ type: 'error', text1: 'Nie można otworzyć czatu' });
   }, [selectedUser, startConversation, router]);
 
-  const handleWarningCapture = useCallback((id: number, uri: string) => {
-    setWarningImages(prev => ({ ...prev, [id]: uri }));
-  }, []);
-
   const handleToggleSharing = useCallback(async () => {
     setIsSharing(await toggleSharing());
   }, [toggleSharing]);
@@ -1520,16 +1524,16 @@ export default function MapScreen() {
     ? snappedRoute
     : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
 
-  const markerLat = (isNavigating && drLatRef.current !== 0)
+  const markerLat = ((isNavigating || isDriving) && drLatRef.current !== 0)
   ? drLatRef.current
   : userLocation?.latitude ?? 0;
 
-  const markerLng = (isNavigating && drLngRef.current !== 0)
+  const markerLng = ((isNavigating || isDriving) && drLngRef.current !== 0)
     ? drLngRef.current
     : userLocation?.longitude ?? 0;
 
   // heading dla driving mode — zawsze lastHeadingRef dla płynności
-  const markerHdg = (isNavigating && drHdgRef.current !== 0)
+  const markerHdg = ((isNavigating || isDriving) && drHdgRef.current !== 0)
     ? drHdgRef.current
     : lastHeadingRef.current !== 0
       ? lastHeadingRef.current
@@ -1614,14 +1618,6 @@ export default function MapScreen() {
             onCapture={setCarMarkerImage}
           />
         )}
-
-        {clusteredWarnings.map(w => (
-          <WarningMarkerRenderer
-            key={`wrenderer_${w.id}_${w.confirmCount}`}
-            warning={w}
-            onCapture={handleWarningCapture}
-          />
-        ))}
 
         {isBuilding && pins.map((pin, index) => (
           <RoutePinRenderer
@@ -1775,14 +1771,6 @@ export default function MapScreen() {
             }}
           />
           <Mapbox.UserLocation visible={false} />
-          {userLocation && (
-            <CarMarker
-              latitude={markerLat}
-              longitude={markerLng}
-              heading={markerHdg}
-              imageUri={carMarkerImage}
-            />
-          )}
 
           {endLocation && !arrived && (
             <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
@@ -1919,22 +1907,53 @@ export default function MapScreen() {
           )}
 
           {clusteredWarnings
-            .filter(w => warningImages[w.id] && !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
-            .map(w => (
-              <Mapbox.PointAnnotation
-                key={`warning_${w.id}`}
-                id={`warning_${w.id}`}
-                coordinate={[Number(w.lng), Number(w.lat)]}
-                onSelected={() => setSelectedWarning(w)}
-              >
-                <Image
-                  source={{ uri: warningImages[w.id] }}
-                  style={{ width: 64, height: 80 }}
-                  resizeMode="contain"
-                />
-              </Mapbox.PointAnnotation>
-            ))
+            .filter(w => !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
+            .map(w => {
+              const color = getWarningColor(w.type);
+              const icon  = getWarningIcon(w.type);
+              return (
+                <Mapbox.MarkerView
+                  key={`warning_${w.id}`}
+                  coordinate={[Number(w.lng), Number(w.lat)]}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  allowOverlapWithPuck
+                >
+                  <TouchableOpacity onPress={() => setSelectedWarning(w)} activeOpacity={0.8}>
+                    <View style={{ alignItems: 'center' }}>
+                      {w.confirmCount > 0 && (
+                        <View style={{
+                          backgroundColor: color, borderRadius: 10,
+                          paddingHorizontal: 6, paddingVertical: 2, marginBottom: 3,
+                          minWidth: 28, alignItems: 'center',
+                        }}>
+                          <Text style={{ color: '#000', fontSize: 8, fontWeight: '700' }}>
+                            +{w.confirmCount}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{
+                        width: 44, height: 44, borderRadius: 22,
+                        backgroundColor: `${color}22`, borderWidth: 2.5, borderColor: color,
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <MaterialCommunityIcons name={icon as any} size={22} color={color} />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </Mapbox.MarkerView>
+              );
+            })
           }
+
+          {/* CarMarker rendered last — always on top of all other markers */}
+          {userLocation && (
+            <CarMarker
+              latitude={markerLat}
+              longitude={markerLng}
+              heading={markerHdg}
+              imageUri={carMarkerImage}
+            />
+          )}
         </Mapbox.MapView>
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}

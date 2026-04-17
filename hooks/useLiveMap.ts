@@ -78,6 +78,11 @@ export function useLiveMap(
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
 
+  // ── Position smoothing for live users (prevents teleportation) ───
+  const smoothedPosRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
+  const SMOOTH_ALPHA   = 0.35;   // 0 = frozen, 1 = instant
+  const MIN_MOVE_M     = 4;      // ignore jitter smaller than 4 m
+
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
   useEffect(() => { userLocationRef.current = userLocation; },   [userLocation]);
@@ -162,14 +167,34 @@ export function useLiveMap(
 
       socket.on('user:location', (data) => {
         if (!isSharingRef.current) return;
+
+        // EWMA smoothing — prevents teleportation from GPS jitter
+        const prev = smoothedPosRef.current.get(data.id);
+        let sLat = data.lat as number;
+        let sLng = data.lng as number;
+        if (prev) {
+          const distM = distanceKm(prev.lat, prev.lng, sLat, sLng) * 1000;
+          if (distM < MIN_MOVE_M) {
+            // Ignore sub-4m jitter — keep last smoothed position
+            sLat = prev.lat;
+            sLng = prev.lng;
+          } else {
+            sLat = prev.lat + SMOOTH_ALPHA * (sLat - prev.lat);
+            sLng = prev.lng + SMOOTH_ALPHA * (sLng - prev.lng);
+          }
+        }
+        smoothedPosRef.current.set(data.id, { lat: sLat, lng: sLng });
+        const smoothedData = { ...data, lat: sLat, lng: sLng };
+
         setLiveUsers(prev => {
           const exists = prev.find(u => u.id === data.id);
-          if (exists) return prev.map(u => u.id === data.id ? { ...u, ...data } : u);
-          return [...prev, data];
+          if (exists) return prev.map(u => u.id === data.id ? { ...u, ...smoothedData } : u);
+          return [...prev, smoothedData];
         });
       });
 
       socket.on('user:offline', (data) => {
+        smoothedPosRef.current.delete(data.id);
         setLiveUsers(prev => prev.filter(u => u.id !== data.id));
       });
 

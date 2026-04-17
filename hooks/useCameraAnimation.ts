@@ -70,9 +70,11 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     });
   }
 
-  function scheduleReturn(params: CameraParams) {
+  function scheduleReturn() {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     returnTimerRef.current = setTimeout(() => {
+      const params = lastDRPosRef.current;
+      if (!params) return;
       cameraLockedRef.current = false;
       const lookahead = offsetCenter(
         params.center.latitude, params.center.longitude,
@@ -85,7 +87,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const onUserPan = useCallback(() => {
     cameraLockedRef.current = true;
     if (lastDRPosRef.current) {
-      scheduleReturn(lastDRPosRef.current);
+      scheduleReturn();
     }
   }, []);
 
