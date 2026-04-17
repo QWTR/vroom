@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { GOOGLE_MAPS_APIKEY } from '../constants/mapConfig';
+import { MAPBOX_TOKEN } from '../constants/mapConfig';
 
 export interface NearbyPlace {
   placeId:   string;
@@ -107,17 +107,19 @@ export function detectBrand(query: string): { type: PlaceCategory; label: string
   return null;
 }
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R    = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a    =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// Mapowanie kategorii aplikacji → Mapbox Search Box
+const MAPBOX_CATEGORY: Record<PlaceCategory, string> = {
+  gas_station: 'gas_station',
+  restaurant:  'restaurant',
+  cafe:        'cafe',
+  parking:     'parking_lot',
+  car_wash:    'car_wash',
+  car_repair:  'auto_repair',
+  hotel:       'hotel',
+  atm:         'atm',
+  supermarket: 'supermarket',
+  store:       'convenience_store',
+};
 
 export function usePlacesNearby() {
   const [places,         setPlaces]         = useState<NearbyPlace[]>([]);
@@ -128,30 +130,34 @@ export function usePlacesNearby() {
     lat:      number,
     lng:      number,
     category: PlaceCategory,
-    radiusM = 5000,
+    // Mapbox Search Box używa własnego zasięgu (~5 km); parametr jest ignorowany
+    // ale zachowany dla zachowania kompatybilności z dotychczasowym API hooka.
+    radiusM = 5000, // eslint-disable-line @typescript-eslint/no-unused-vars
   ) => {
     setLoading(true);
     setActiveCategory(category);
     setPlaces([]);
     try {
+      const mapboxCategory = MAPBOX_CATEGORY[category];
       const url =
-        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
-        `location=${lat},${lng}&radius=${radiusM}&type=${category}` +
-        `&key=${GOOGLE_MAPS_APIKEY}&language=pl`;
+        `https://api.mapbox.com/search/searchbox/v1/category/${mapboxCategory}` +
+        `?proximity=${lng},${lat}&limit=20&language=pl&access_token=${MAPBOX_TOKEN}`;
       const res  = await fetch(url);
       const data = await res.json();
-      if (data.results) {
-        const mapped: NearbyPlace[] = data.results
+      if (data.features) {
+        const mapped: NearbyPlace[] = data.features
           .slice(0, 20)
-          .map((p: any) => ({
-            placeId:  p.place_id,
-            name:     p.name,
-            address:  p.vicinity ?? '',
-            lat:      p.geometry.location.lat,
-            lng:      p.geometry.location.lng,
-            rating:   p.rating,
-            isOpen:   p.opening_hours?.open_now,
-            distance: haversineKm(lat, lng, p.geometry.location.lat, p.geometry.location.lng),
+          .map((f: any) => ({
+            placeId:  f.properties.mapbox_id ?? f.id,
+            name:     f.properties.name,
+            address:  f.properties.full_address ?? f.properties.address ?? '',
+            lat:      f.geometry.coordinates[1],
+            lng:      f.geometry.coordinates[0],
+            rating:   f.properties.rating,
+            isOpen:   f.properties.metadata?.open_hours?.open_now,
+            distance: f.properties.distance != null
+              ? f.properties.distance / 1000
+              : undefined,
           }))
           .sort((a: NearbyPlace, b: NearbyPlace) => (a.distance ?? 0) - (b.distance ?? 0));
         setPlaces(mapped);

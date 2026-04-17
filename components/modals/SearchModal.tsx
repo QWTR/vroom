@@ -10,7 +10,7 @@ import debounce from 'lodash.debounce';
 import Toast from 'react-native-toast-message';
 import { User, LocationState } from '../../constants/types';
 import { calculateDistance } from '../../scripts/distance';
-import { GOOGLE_MAPS_APIKEY, MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
+import { MAPBOX_TOKEN, MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   usePlacesNearby,
@@ -19,6 +19,14 @@ import {
   NearbyPlace,
   detectBrand,
 } from '../../hooks/usePlacesNearby';
+
+interface GeocodingResult {
+  mapboxId:      string;
+  mainText:      string;
+  secondaryText: string;
+  latitude:      number;
+  longitude:     number;
+}
 
 interface SearchModalProps {
   visible:       boolean;
@@ -40,7 +48,7 @@ export const SearchModal = memo(({
 
   const [activeTab,      setActiveTab]      = useState<'start' | 'end'>('end');
   const [searchQuery,    setSearchQuery]    = useState('');
-  const [filteredPlaces, setFilteredPlaces] = useState<any[]>([]);
+  const [filteredPlaces, setFilteredPlaces] = useState<GeocodingResult[]>([]);
   const [filteredUsers,  setFilteredUsers]  = useState<User[]>([]);
   const [isSearching,    setIsSearching]    = useState(false);
   const [detectedBrand,  setDetectedBrand]  = useState<string | null>(null);
@@ -151,13 +159,32 @@ export const SearchModal = memo(({
     setFilteredUsers([]);
     clearPlaces();
     try {
+      const proximity = userLocation
+        ? `&proximity=${userLocation.longitude},${userLocation.latitude}`
+        : '';
       const res = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?` +
-        `input=${encodeURIComponent(query)}&key=${GOOGLE_MAPS_APIKEY}&language=pl&` +
-        `location=${userLocation?.latitude ?? 52.2297},${userLocation?.longitude ?? 21.0122}&radius=50000`,
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+        `?access_token=${MAPBOX_TOKEN}&language=pl&limit=5${proximity}`,
       );
       const data = await res.json();
-      setFilteredPlaces(data.predictions || []);
+      const features = data.features ?? [];
+      setFilteredPlaces(features.map((f: any) => {
+        const mainText = f.text ?? f.place_name ?? '';
+        const fullName = f.place_name ?? '';
+        const idx = mainText && fullName.includes(mainText)
+          ? fullName.indexOf(mainText) + mainText.length
+          : -1;
+        const secondaryText = idx > 0
+          ? fullName.substring(idx).replace(/^[,\s]+/, '')
+          : fullName;
+        return {
+          mapboxId:      f.id ?? '',
+          mainText:      mainText,
+          secondaryText: secondaryText,
+          latitude:      f.geometry.coordinates[1] as number,
+          longitude:     f.geometry.coordinates[0] as number,
+        } as GeocodingResult;
+      }));
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
     } finally {
@@ -179,20 +206,11 @@ export const SearchModal = memo(({
     }
   }, [activeTab, onSelectStart, onSelectEnd, onClose, resetToInitial]);
 
-  const handleSelectAutocomplete = useCallback(async (placeId: string, name: string) => {
-    setIsSearching(true);
-    try {
-      const res  = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${GOOGLE_MAPS_APIKEY}`);
-      const data = await res.json();
-      if (data.result?.geometry) {
-        const c = data.result.geometry.location;
-        selectLocation({ latitude: c.lat, longitude: c.lng, name, placeId }, name);
-      }
-    } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie mogę pobrać szczegółów miejsca' });
-    } finally {
-      setIsSearching(false);
-    }
+  const handleSelectAutocomplete = useCallback((item: GeocodingResult) => {
+    selectLocation(
+      { latitude: item.latitude, longitude: item.longitude, name: item.mainText, placeId: item.mapboxId },
+      item.mainText,
+    );
   }, [selectLocation]);
 
   const handleSelectNearby = useCallback((place: NearbyPlace) => {
@@ -633,10 +651,7 @@ export const SearchModal = memo(({
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[ss.row, { borderBottomColor: t.border }]}
-                    onPress={() => handleSelectAutocomplete(
-                      item.place_id,
-                      item.structured_formatting.main_text,
-                    )}
+                    onPress={() => handleSelectAutocomplete(item)}
                     activeOpacity={0.7}
                   >
                     <View style={[ss.placeBox, { backgroundColor: t.primaryBg, borderColor: t.primaryBorder }]}>
@@ -644,11 +659,11 @@ export const SearchModal = memo(({
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[ss.rowTitle, { color: t.text }]} numberOfLines={1}>
-                        {item.structured_formatting.main_text}
+                        {item.mainText}
                       </Text>
-                      {item.structured_formatting.secondary_text ? (
+                      {item.secondaryText ? (
                         <Text style={[ss.rowSub, { color: t.textDim }]} numberOfLines={1}>
-                          {item.structured_formatting.secondary_text}
+                          {item.secondaryText}
                         </Text>
                       ) : null}
                     </View>

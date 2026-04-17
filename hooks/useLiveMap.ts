@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
-import { API_URL, GOOGLE_MAPS_APIKEY } from '../constants/mapConfig';
+import { API_URL } from '../constants/mapConfig';
 import { snapToRoute } from '../scripts/navigationUtils';
 
 export interface LiveUser {
@@ -59,21 +59,6 @@ async function fetchWithTimeout(
   }
 }
 
-async function snapToRoadGoogle(
-  lat: number,
-  lng: number,
-): Promise<{ latitude: number; longitude: number }> {
-  try {
-    const url  = `https://roads.googleapis.com/v1/snapToRoads?path=${lat},${lng}&key=${GOOGLE_MAPS_APIKEY}`;
-    const res  = await fetchWithTimeout(url, {}, 5000);
-    const json = await res.json();
-    const pt   = json.snappedPoints?.[0]?.location;
-    if (pt) return { latitude: pt.latitude, longitude: pt.longitude };
-  } catch (e) {
-    console.log('snapToRoadGoogle error:', e);
-  }
-  return { latitude: lat, longitude: lng };
-}
 
 export function useLiveMap(
   isSharing:       boolean,
@@ -335,9 +320,9 @@ export function useLiveMap(
         snappedLat = snapped.latitude;
         snappedLng = snapped.longitude;
       } else {
-        const snapped = await snapToRoadGoogle(lat, lng);
-        snappedLat = snapped.latitude;
-        snappedLng = snapped.longitude;
+        // Brak punktów trasy — użyj surowej pozycji GPS
+        snappedLat = lat;
+        snappedLng = lng;
       }
     } catch (e) {
       console.log('warning snap error — using raw GPS:', e);

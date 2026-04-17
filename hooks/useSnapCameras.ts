@@ -1,5 +1,4 @@
 import { useRef, useCallback } from 'react';
-import { GOOGLE_MAPS_APIKEY }  from '../constants/mapConfig';
 import type { SpeedCamera }    from './useSpeedCameras';
 
 // Cache snap — żeby nie snappować za każdym razem
@@ -10,27 +9,8 @@ async function snapPointToRoad(
   lng: number,
   cameraId: number,
 ): Promise<{ lat: number; lng: number }> {
-  // Sprawdź cache
   if (snapCache.has(cameraId)) return snapCache.get(cameraId)!;
-
-  try {
-    const url = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${GOOGLE_MAPS_APIKEY}`;
-    const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    const data = await res.json();
-
-    if (data.snappedPoints?.[0]) {
-      const snapped = {
-        lat: data.snappedPoints[0].location.latitude,
-        lng: data.snappedPoints[0].location.longitude,
-      };
-      snapCache.set(cameraId, snapped);
-      return snapped;
-    }
-  } catch (e) {
-    console.warn(`Snap camera ${cameraId} failed:`, e);
-  }
-
-  // Fallback — oryginalna pozycja
+  // Brak Google Roads API — używamy oryginalnej pozycji z GPS
   const orig = { lat, lng };
   snapCache.set(cameraId, orig);
   return orig;
