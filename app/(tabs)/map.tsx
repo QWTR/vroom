@@ -1925,7 +1925,6 @@ export default function MapScreen() {
                 key={`warning_${w.id}`}
                 id={`warning_${w.id}`}
                 coordinate={[Number(w.lng), Number(w.lat)]}
-                anchor={{ x: 0.5, y: 0.5 }}
                 onSelected={() => setSelectedWarning(w)}
               >
                 <Image
