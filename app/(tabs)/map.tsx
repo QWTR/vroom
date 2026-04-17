@@ -760,6 +760,9 @@ export default function MapScreen() {
 
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
+        // Pass false (not isDrivingRef.current) — the hook's 4th param is called
+        // `isNavigating` and skips snapping when truthy. We are already in the
+        // !isNavigatingRef.current branch, so false is always correct here.
         const snapped = drivingSnap(lat, lng, kmh, false);
 
         setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });

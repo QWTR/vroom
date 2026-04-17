@@ -73,6 +73,8 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   function scheduleReturn() {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     returnTimerRef.current = setTimeout(() => {
+      // Read the latest DR position at fire-time so camera returns to where
+      // the vehicle actually IS now, not where it was when the user started panning.
       const params = lastDRPosRef.current;
       if (!params) return;
       cameraLockedRef.current = false;
