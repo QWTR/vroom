@@ -9,8 +9,8 @@ interface CameraParams {
   altitude?: number;
 }
 
-const RETURN_TO_USER_MS    = 6000;
-const NAV_LOOKAHEAD_METERS = 1050;
+const RETURN_TO_USER_MS    = 5000;
+const NAV_LOOKAHEAD_METERS = 750;
 
 function offsetCenter(
   lat: number, lng: number,

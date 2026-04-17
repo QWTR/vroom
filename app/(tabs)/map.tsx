@@ -101,8 +101,8 @@ import { TripStatsModal }            from '../../components/modals/TripStatsModa
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 14.8;
-const NAV_PITCH           = 90;
+const NAV_ZOOM            = 14.1;
+const NAV_PITCH           = 70;
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
