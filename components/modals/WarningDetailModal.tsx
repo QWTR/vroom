@@ -29,7 +29,7 @@ export const WarningDetailModal = memo(({
   const icon     = getWarningIcon(warning.type);
   const label    = getWarningLabel(warning.type);
   const timeLeft = Math.max(0, Math.round((new Date(warning.expiresAt).getTime() - Date.now()) / 60000));
-  const isOwn    = warning.user.id === currentUserId;
+  const isOwn    = warning.user?.id === currentUserId;
 
   const handleCancel = async () => {
     if (!onCancel) return;
@@ -61,7 +61,7 @@ export const WarningDetailModal = memo(({
             <View style={{ flex: 1 }}>
               <Text style={[styles.drawerTitle, { marginBottom: 4 }]}>{label.toUpperCase()}</Text>
               <Text style={styles.drawerSectionLabel}>
-                Zgłoszone przez {warning.user.username}
+                Zgłoszone przez {warning.user?.username ?? 'Nieznany'}
               </Text>
             </View>
             <TouchableOpacity style={styles.drawerCloseBtn} onPress={onClose}>
@@ -91,7 +91,7 @@ export const WarningDetailModal = memo(({
             }}>
               <MaterialIcons name="schedule" size={18} color={theme.textDim} />
               <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', marginTop: 4 }}>
-                {15 - timeLeft}
+                {Math.max(0, 15 - timeLeft)}
               </Text>
               <Text style={styles.statLabel}>MIN TEMU</Text>
             </View>

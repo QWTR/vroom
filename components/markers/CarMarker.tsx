@@ -11,7 +11,7 @@ interface CarMarkerProps {
 }
 
 export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => (
-  <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }}>
+  <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }} allowOverlapWithPuck>
     <View style={{ transform: [{ rotate: `${heading}deg` }] }}>
       {imageUri
         ? <Image source={{ uri: imageUri }} style={{ width: 48, height: 48 }} resizeMode="contain" />

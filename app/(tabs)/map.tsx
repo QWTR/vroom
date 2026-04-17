@@ -2,7 +2,7 @@ import React, {
   useState, useEffect, useRef, useMemo, useCallback,
 } from 'react';
 import {
-  View, Text, ActivityIndicator, TouchableOpacity,
+  View, Text, ActivityIndicator, TouchableOpacity, Image,
   Platform, Alert, StyleSheet, NativeModules, StatusBar,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -114,6 +114,7 @@ export default function MapScreen() {
 
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
+  const cameraRef            = useRef<Mapbox.Camera>(null);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
@@ -315,7 +316,7 @@ export default function MapScreen() {
     cameraLockedRef,
     enterDrivingCamera,   // ← NOWE
     exitDrivingCamera,    // ← NOWE
-  } = useCameraAnimation(mapRef);
+  } = useCameraAnimation(cameraRef);
 
   useEffect(() => {
     if (!userLocation) return;
@@ -875,7 +876,7 @@ export default function MapScreen() {
       const lookaheadLat = lat + (dLat * 180) / Math.PI;
       const lookaheadLng = lng + (dLng * 180) / Math.PI;
 
-      (mapRef.current as any)?.setCamera({
+      (cameraRef.current as any)?.setCamera({
         centerCoordinate: [lookaheadLng, lookaheadLat],
         pitch:            NAV_PITCH,
         heading:          hdg,
@@ -1250,7 +1251,7 @@ export default function MapScreen() {
     if (!userLocation) return;
     unlockCamera();
     if (isNavigating || isDriving) {
-      (mapRef.current as any)?.setCamera({
+      (cameraRef.current as any)?.setCamera({
         centerCoordinate: [userLocation.longitude, userLocation.latitude],
         pitch:            NAV_PITCH,
         heading:          lastHeadingRef.current,
@@ -1355,7 +1356,7 @@ export default function MapScreen() {
     const startLng = userLocation.longitude;
     const startHdg = lastHeadingRef.current;
 
-    (mapRef.current as any)?.setCamera({
+    (cameraRef.current as any)?.setCamera({
       centerCoordinate: [startLng, startLat],
       pitch:            NAV_PITCH,
       heading:          startHdg,
@@ -1366,7 +1367,7 @@ export default function MapScreen() {
 
     setTimeout(() => {
       if (!isNavigatingRef.current) return;
-      (mapRef.current as any)?.setCamera({
+      (cameraRef.current as any)?.setCamera({
         centerCoordinate: [
           drLngRef.current || startLng,
           drLatRef.current || startLat,
@@ -1766,6 +1767,7 @@ export default function MapScreen() {
           }}
         >
           <Mapbox.Camera
+            ref={cameraRef}
             defaultSettings={{
               centerCoordinate: [userLocation?.longitude ?? 19.0, userLocation?.latitude ?? 52.0],
               zoomLevel: 14,
@@ -1919,19 +1921,19 @@ export default function MapScreen() {
           {clusteredWarnings
             .filter(w => warningImages[w.id] && !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
             .map(w => (
-              <Mapbox.MarkerView
+              <Mapbox.PointAnnotation
                 key={`warning_${w.id}`}
+                id={`warning_${w.id}`}
                 coordinate={[Number(w.lng), Number(w.lat)]}
                 anchor={{ x: 0.5, y: 0.5 }}
+                onSelected={() => setSelectedWarning(w)}
               >
-                <TouchableOpacity onPress={() => setSelectedWarning(w)} activeOpacity={0.8}>
-                  <View style={{ width: 48, height: 48 }}>
-                    <View style={{ width: 48, height: 48, borderRadius: 24, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
-                      <MaterialCommunityIcons name="alert" size={28} color="#ff922b" />
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              </Mapbox.MarkerView>
+                <Image
+                  source={{ uri: warningImages[w.id] }}
+                  style={{ width: 64, height: 80 }}
+                  resizeMode="contain"
+                />
+              </Mapbox.PointAnnotation>
             ))
           }
         </Mapbox.MapView>
