@@ -8,8 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": {
-        "image": "latest",
-        "newArchEnabled": true
+        "image": "latest"
       },
       "ios": {
         "image": "latest"
@@ -18,20 +17,13 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
       }
     },
-    "development-simulator": {
-      "extends": "development",
-      "ios": {
-        "simulator": true
-      }
-    },
     "preview": {
       "distribution": "internal",
       "channel": "main",
       "environment": "production",
       "android": {
         "image": "latest",
-        "buildType": "apk",
-        "newArchEnabled": true
+        "buildType": "apk"
       },
       "ios": {
         "image": "latest"
@@ -45,8 +37,7 @@
       "autoIncrement": true,
       "environment": "production",
       "android": {
-        "image": "latest",
-        "newArchEnabled": true
+        "image": "latest"
       },
       "ios": {
         "image": "latest"
@@ -55,8 +46,5 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
       }
     }
-  },
-  "submit": {
-    "production": {}
   }
 }
