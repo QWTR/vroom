@@ -630,6 +630,7 @@ export default function MapScreen() {
     }
     stopDR();
     resetDRRefs();
+    resetSnap();
     resetMapMatch();
     setRoadMatchPoints([]);
     setIsDriving(false);
@@ -637,7 +638,7 @@ export default function MapScreen() {
     console.log('[DrivingMode] Exited driving mode');
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, [stopDR, resetDRRefs, resetMapMatch, setRoadMatchPoints]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -825,6 +826,7 @@ export default function MapScreen() {
               drivingStopTimerRef.current = null;
               setIsDriving(false);
               setDrivingKm(0);
+              resetSnap();
               resetMapMatch();
               setRoadMatchPoints([]);
               console.log('[DrivingMode] Exited driving mode (stop timer fired)');
@@ -850,7 +852,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap]),
   });
 
   useEffect(() => {
