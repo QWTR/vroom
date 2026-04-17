@@ -1,11 +1,9 @@
-// Dynamic Expo config that reads the Mapbox token from an environment variable.
-// Set EXPO_PUBLIC_MAPBOX_TOKEN in your .env file or in EAS secrets.
-
 const base = require('./app.json');
 
 /** @type {import('@expo/config').ExpoConfig} */
 module.exports = ({ config }) => {
-  const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
+  // Używamy Tajnego Tokenu do pobierania (zmienna bez EXPO_PUBLIC)
+  const downloadToken = process.env.RNMAPBOX_MAPS_DOWNLOAD_TOKEN || '';
 
   return {
     ...base.expo,
@@ -16,7 +14,8 @@ module.exports = ({ config }) => {
           '@rnmapbox/maps',
           {
             RNMapboxMapsImpl: 'mapbox',
-            RNMapboxMapsDownloadToken: mapboxToken,
+            // POPRAWIONA NAZWA KLUCZA I ZMIENNA
+            RNMAPBOX_MAPS_DOWNLOAD_TOKEN: downloadToken,
           },
         ];
       }
