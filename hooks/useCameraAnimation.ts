@@ -52,6 +52,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const cameraLockedRef = useRef(false);
   const startLockRef    = useRef(false);
   const returnTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDRPosRef    = useRef<CameraParams | null>(null);
 
   const lastLiveCallRef = useRef(0);
@@ -95,6 +96,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
 
   const unlockCamera = useCallback(() => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    if (startLockTimerRef.current) clearTimeout(startLockTimerRef.current);
     cameraLockedRef.current = false;
     startLockRef.current    = false;
   }, []);
@@ -106,6 +108,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
 
   // ── NOWE: wejście w tryb jazdy — płynna animacja do pitch+zoom ──
   // Wywołaj raz gdy isDriving przechodzi false→true
+  const DRIVING_ENTRY_LOCK_MS = 850;
   const enterDrivingCamera = useCallback((
     center: { latitude: number; longitude: number },
     heading: number,
@@ -113,14 +116,17 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   ) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
-    startLockRef.current    = false;
+    // Lock camera during entry animation so DR onFrame doesn't compete with flyTo
+    if (startLockTimerRef.current) clearTimeout(startLockTimerRef.current);
+    startLockRef.current    = true;
+    startLockTimerRef.current = setTimeout(() => { startLockRef.current = false; }, DRIVING_ENTRY_LOCK_MS);
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
     const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
     const zoom = Math.max(15.5, 18.9 - (Math.min(speedKmh, 140) / 140) * 3.4);
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [lookahead.longitude, lookahead.latitude],
-      pitch:            55,
+      pitch:            75,
       heading,
       zoomLevel:        zoom,
       animationDuration: 800,
@@ -133,6 +139,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   // ── exitDrivingCamera — powrót do widoku 2D ───────────────
   const exitDrivingCamera = useCallback((center: { latitude: number; longitude: number }) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    if (startLockTimerRef.current) clearTimeout(startLockTimerRef.current);
     cameraLockedRef.current = false;
     startLockRef.current    = false;
     lastCenterRef.current   = null;
@@ -201,6 +208,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     zoom = 15,
   ) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    if (startLockTimerRef.current) clearTimeout(startLockTimerRef.current);
     cameraLockedRef.current  = false;
     startLockRef.current     = false;
     lastCenterRef.current    = null;

@@ -11,7 +11,7 @@ import { haversineKm }         from '../scripts/navigationUtils';
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 const MIN_INTERVAL_MS = 4000;   // call API at most every 4 s
 const BUFFER_SIZE     = 5;      // number of GPS points sent to API
-const MATCH_RADIUS_M  = 25;     // snap radius (m) — how far GPS may deviate from road
+const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
 const MIN_POINT_DIST_KM = 0.005; // ~5 m — skip points that haven't moved
 
