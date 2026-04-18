@@ -1270,6 +1270,9 @@ export default function MapScreen() {
     const now   = Date.now();
     const since = now - lastRerouteTimeRef.current;
 
+    // Cooldown check: only enter this block when time budget has NOT yet expired.
+    // The haversine distance is computed only here — once the cooldown expires,
+    // we skip straight to triggering the reroute without any distance calculation.
     if (since < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
       const movedM = haversineKm(
         userLocation.latitude, userLocation.longitude,
@@ -1341,7 +1344,7 @@ export default function MapScreen() {
       const movedM  = lastSendLocRef.current
         ? haversineKm(loc.latitude, loc.longitude,
             lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
-        : Infinity; // first send always goes through
+        : Infinity; // no previous position → treat as "moved far enough", always send first time
 
       if (movedM < SEND_MIN_DIST_M && elapsed < SEND_MAX_ELAPSED_MS) {
         if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');

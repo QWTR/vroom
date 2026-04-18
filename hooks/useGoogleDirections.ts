@@ -68,6 +68,9 @@ const directionsCache = new Map<string, CacheEntry>();
 
 // In-flight deduplication: if a fetch for a given key is already running,
 // skip launching another one for the same hook instance.
+// JavaScript is single-threaded, so there are no true race conditions here;
+// this guards against the same async IIFE being started twice within one
+// event loop tick (e.g., rapid dep changes triggering consecutive effects).
 const inflightKeys = new Set<string>();
 
 function makeCacheKey(
