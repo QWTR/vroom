@@ -114,6 +114,28 @@ const ANNOUNCE_M          = 250;
 const NAV_ZOOM            = 18.9;
 const NAV_PITCH           = 75;
 
+// ─── Adaptive camera zoom ─────────────────────────────────────────────────────
+// faster = smaller zoom (farther), slower = larger zoom (closer)
+const ZOOM_NEAR           = 19.2; // 0–20 km/h
+const ZOOM_MID            = 18.4; // ~60 km/h
+const ZOOM_FAR            = 17.4; // 120+ km/h
+const ZOOM_SMOOTHING_ALPHA = 0.15; // low-pass filter weight (0 = no change, 1 = instant)
+
+function clampNum(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+function lerpNum(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+function zoomFromSpeedKmh(speedKmh: number): number {
+  const s = Math.max(0, speedKmh);
+  if (s <= 20)  return ZOOM_NEAR;
+  if (s <= 60)  return lerpNum(ZOOM_NEAR, ZOOM_MID, (s - 20) / 40);
+  if (s <= 120) return lerpNum(ZOOM_MID,  ZOOM_FAR,  (s - 60) / 60);
+  return ZOOM_FAR;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
 const DRIVING_STOP_DELAY_MS  = 12 * 60 * 1000; // 12 minut
@@ -175,7 +197,18 @@ export default function MapScreen() {
   const isDrivingRef          = useRef(false);
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
-  const lastGoodTimeRef = useRef<number>(Date.now());
+  const lastGoodTimeRef   = useRef<number>(Date.now());
+  const smoothedZoomRef   = useRef<number>(NAV_ZOOM);
+
+  // Adaptive zoom — low-pass filtered zoom based on current speed
+  // Defined early so it can be referenced in useDeadReckoning / onLocation / simulator callbacks below
+  const getAdaptiveZoom = useCallback((speedKmhValue: number): number => {
+    const target = zoomFromSpeedKmh(speedKmhValue);
+    const prev   = smoothedZoomRef.current;
+    const next   = prev * (1 - ZOOM_SMOOTHING_ALPHA) + target * ZOOM_SMOOTHING_ALPHA;
+    smoothedZoomRef.current = clampNum(next, ZOOM_FAR, ZOOM_NEAR);
+    return smoothedZoomRef.current;
+  }, []);
   
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -390,10 +423,10 @@ export default function MapScreen() {
           center:  snappedPos,
           pitch:   NAV_PITCH,
           heading: hdg,
-          zoom:    NAV_ZOOM,
+          zoom:    getAdaptiveZoom(speedKmhRef.current),
         });
       }
-    }, [animateCameraLive]),
+    }, [animateCameraLive, getAdaptiveZoom]),
     stallTimeout: 2500,
   });
 
@@ -838,7 +871,7 @@ export default function MapScreen() {
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
             heading: lastHeadingRef.current,
-            zoom:    NAV_ZOOM,
+            zoom:    getAdaptiveZoom(kmh),
           });
 
         } else {
@@ -879,7 +912,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom]),
   });
 
   useEffect(() => {
@@ -926,7 +959,7 @@ export default function MapScreen() {
         centerCoordinate: [lookaheadLng, lookaheadLat],
         pitch:            NAV_PITCH,
         heading:          hdg,
-        zoomLevel:        NAV_ZOOM,
+        zoomLevel:        getAdaptiveZoom(speedMs * 3.6),
         animationDuration: 90,
         animationMode:    'flyTo',
       });
@@ -956,7 +989,7 @@ export default function MapScreen() {
         );
       }
       lastNavLocRef.current = { latitude: lat, longitude: lng };
-    }, []),
+    }, [getAdaptiveZoom]),
     speedKmh:   120,
     intervalMs: 100,
   });
@@ -1325,14 +1358,14 @@ export default function MapScreen() {
         centerCoordinate: [userLocation.longitude, userLocation.latitude],
         pitch:            NAV_PITCH,
         heading:          lastHeadingRef.current,
-        zoomLevel:        NAV_ZOOM,
+        zoomLevel:        getAdaptiveZoom(speedKmhRef.current),
         animationDuration: 500,
         animationMode:    'flyTo',
       });
     } else {
       resetCamera(userLocation);
     }
-  }, [userLocation, isNavigating, isDriving, resetCamera, unlockCamera]);
+  }, [userLocation, isNavigating, isDriving, resetCamera, unlockCamera, getAdaptiveZoom]);
 
   // ── handleArrived ─────────────────────────────────────────
   const handleArrived = useCallback(async () => {
@@ -1433,7 +1466,7 @@ export default function MapScreen() {
       centerCoordinate: [startLng, startLat],
       pitch:            NAV_PITCH,
       heading:          startHdg,
-      zoomLevel:        NAV_ZOOM,
+      zoomLevel:        getAdaptiveZoom(speedKmhRef.current),
       animationDuration: 800,
       animationMode:    'flyTo',
     });
@@ -1447,7 +1480,7 @@ export default function MapScreen() {
         ],
         pitch:            NAV_PITCH,
         heading:          drHdgRef.current || startHdg,
-        zoomLevel:        NAV_ZOOM,
+        zoomLevel:        getAdaptiveZoom(speedKmhRef.current),
         animationDuration: 300,
         animationMode:    'flyTo',
       });
@@ -1455,7 +1488,7 @@ export default function MapScreen() {
 
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
   }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, unlockCamera,
-      lockForStart, resetDR, resetDRRefs, exitDrivingMode, activeRoute]);
+      lockForStart, resetDR, resetDRRefs, exitDrivingMode, activeRoute, getAdaptiveZoom]);
 
   // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
@@ -1741,23 +1774,27 @@ export default function MapScreen() {
                 </View>
                 {/* Prędkość w nagłówku */}
                 <View style={{ alignItems: 'center', gap: 4 }}>
-                  {/* Znak ograniczenia prędkości (gdy dostępny) */}
-                  {speedLimit !== null && (
-                    <View style={{
-                      width: 36, height: 36, borderRadius: 18,
-                      backgroundColor: '#fff', borderWidth: 3,
-                      borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Text style={{
-                        fontFamily: 'Orbitron', fontSize: speedLimit >= 100 ? 8 : 10,
-                        color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
-                        fontWeight: '900',
+                  {/* Znak ograniczenia prędkości — zawsze widoczny */}
+                  {(() => {
+                    const overLimit = speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE;
+                    const smallFont = speedLimit !== null && speedLimit >= 100;
+                    return (
+                      <View style={{
+                        width: 36, height: 36, borderRadius: 18,
+                        backgroundColor: '#fff', borderWidth: 3,
+                        borderColor: overLimit ? '#e33835' : '#333',
+                        alignItems: 'center', justifyContent: 'center',
                       }}>
-                        {speedLimit}
-                      </Text>
-                    </View>
-                  )}
+                        <Text style={{
+                          fontFamily: 'Orbitron', fontSize: smallFont ? 8 : 10,
+                          color: overLimit ? '#e33835' : '#111',
+                          fontWeight: '900',
+                        }}>
+                          {speedLimit ?? '—'}
+                        </Text>
+                      </View>
+                    );
+                  })()}
                   <View style={{
                     backgroundColor: '#fa391f57',
                     borderRadius: 12,
@@ -1794,7 +1831,7 @@ export default function MapScreen() {
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
             backgroundColor: '#e33835',
-            paddingTop:    Platform.OS === 'ios' ? 54 : 36,
+            paddingTop:    insets.top + 12,
             paddingBottom: 14, paddingHorizontal: 16,
             flexDirection: 'row', alignItems: 'center', gap: 10,
             shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
@@ -2185,22 +2222,21 @@ export default function MapScreen() {
             styles.speedPanelNav,
             !isNavigating && { bottom: 200 },
           ]}>
-            {speedLimit !== null && (
-              <View style={{
-                width: 44, height: 44, borderRadius: 22,
-                backgroundColor: '#fff', borderWidth: 4,
-                borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
-                alignItems: 'center', justifyContent: 'center',
-                marginBottom: 4, alignSelf: 'center',
+            {/* Znak ograniczenia prędkości — zawsze widoczny */}
+            <View style={{
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: '#fff', borderWidth: 4,
+              borderColor: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
+              alignItems: 'center', justifyContent: 'center',
+              marginBottom: 4, alignSelf: 'center',
+            }}>
+              <Text style={{
+                fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900',
+                color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
               }}>
-                <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900',
-                  color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
-                }}>
-                  {speedLimit}
-                </Text>
-              </View>
-            )}
+                {speedLimit ?? '—'}
+              </Text>
+            </View>
             <Text style={[
               styles.speedValue,
               speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE && { color: '#e33835' },
