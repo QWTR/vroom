@@ -1,118 +1,118 @@
-import React, {
-  useState, useEffect, useRef, useMemo, useCallback,
-} from 'react';
-import {
-  View, Text, ActivityIndicator, TouchableOpacity, Image,
-  Platform, Alert, StyleSheet, NativeModules, StatusBar,
-} from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_TOKEN } from '../../constants/mapConfig';
-Mapbox.setAccessToken(MAPBOX_TOKEN);
-import * as Location from 'expo-location';
-import * as Speech from 'expo-speech';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
-import { useRouter } from 'expo-router';
-import { useChat } from '../../hooks/useChats';
 import { useKeepAwake } from 'expo-keep-awake';
+import * as Location from 'expo-location';
+import { useFocusEffect, useRouter } from 'expo-router';
+import * as Speech from 'expo-speech';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  NativeModules,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message';
+import { MAPBOX_TOKEN } from '../../constants/mapConfig';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useChat } from '../../hooks/useChats';
+import { makeMapStyles } from '../../styles/mapstyle';
+Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const { UsersModule } = NativeModules;
-import { useTheme } from '../../contexts/ThemeContext';
-import { makeMapStyles } from '../../styles/mapstyle';
 
-import { User, LocationState, RouteInfo } from '../../constants/types';
 import {
   MAPBOX_STYLE_DARK,
   MAPBOX_STYLE_LIGHT,
   MAPBOX_STYLE_SATELLITE,
-  MAX_NEARBY_USERS_DISTANCE,
-  API_URL,
+  MAX_NEARBY_USERS_DISTANCE
 } from '../../constants/mapConfig';
+import { LocationState, RouteInfo, User } from '../../constants/types';
 
 import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
 // ── NOWE: sanity check ────────────────────────────────────
 import { isSaneLocation } from '../../scripts/kalmanFilter';
 
-import { calculateDistance }         from '../../scripts/distance';
+import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
 import {
-  cleanInstruction,
-  formatDuration,
-  formatSpeed,
-  detectCurrentStep,
-  isOnRoute,
-  getManeuverIcon,
-  haversineKm,
-  findClosestPointIndex,
-  snapToRoute,
-} from '../../scripts/navigationUtils';
+  feedNavDistance,
+  feedSpeedSample,
+  resetSpeedStats,
+  useBackgroundTracking,
+} from '../../hooks/useBackgroundTracking';
+import { useCameraAnimation } from '../../hooks/useCameraAnimation';
+import { useDeadReckoning } from '../../hooks/useDeadReckoning';
+import { useDemoUsers } from '../../hooks/useDemoUsers';
+import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
+import { useDrivingSnap } from '../../hooks/useDrivingSnap';
 import { useGoogleDirections, useGoogleDirectionsAlternatives } from '../../hooks/useGoogleDirections';
-import { useCameraAnimation }        from '../../hooks/useCameraAnimation';
-import { useNavigationPoints }       from '../../hooks/useNavigationPoints';
-import { useNavigationNotification } from '../../hooks/useNavigationNotification';
-import { useDeadReckoning }          from '../../hooks/useDeadReckoning';
-import { useDemoUsers }              from '../../hooks/useDemoUsers';
-import { useRouteTimer }             from '../../hooks/useRouteTimer';
-import { useRouteLeaderboard }       from '../../hooks/useRouteLeaderboard';
 import {
-  useLiveMap,
-  getWarningLabel,
+  clusterWarnings,
   getWarningColor,
   getWarningIcon,
+  getWarningLabel,
   LiveWarning,
-  clusterWarnings,
+  useLiveMap,
 } from '../../hooks/useLiveMap';
+import { useNavigationNotification } from '../../hooks/useNavigationNotification';
+import { useNavigationPoints } from '../../hooks/useNavigationPoints';
+import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
+import { useRouteBuilder } from '../../hooks/useRouteBuilder';
+import { useRouteLeaderboard } from '../../hooks/useRouteLeaderboard';
+import { useRouteTimer } from '../../hooks/useRouteTimer';
+import { useSnapCameras } from '../../hooks/useSnapCameras';
+import { useSpeedCameras } from '../../hooks/useSpeedCamera';
+import { useSpeedLimit } from '../../hooks/useSpeedLimit';
+import { useTripStats } from '../../hooks/useTripStats';
+import { calculateDistance } from '../../scripts/distance';
 import {
-  useBackgroundTracking,
-  feedSpeedSample,
-  feedNavDistance,
-  resetSpeedStats,
-} from '../../hooks/useBackgroundTracking';
-import { useRouteBuilder }           from '../../hooks/useRouteBuilder';
-import { useNavigationSimulator }    from '../../hooks/useNavigationSimulator';
-import { useTripStats }              from '../../hooks/useTripStats';
-import { useAdaptiveGPS }            from '../../hooks/useAdaptiveGPS';
-import { useDrivingSnap }            from '../../hooks/useDrivingSnap';
-import { useDrivingMapMatch }        from '../../hooks/useDrivingMapMatch';
-import { useSpeedCameras }           from '../../hooks/useSpeedCamera';
-import { useSpeedLimit }             from '../../hooks/useSpeedLimit';
-import { useSnapCameras }            from '../../hooks/useSnapCameras';
+  cleanInstruction,
+  detectCurrentStep,
+  findClosestPointIndex,
+  formatDuration,
+  formatSpeed,
+  getManeuverIcon,
+  haversineKm,
+  isOnRoute,
+  snapToRoute,
+} from '../../scripts/navigationUtils';
 
-import { SpeedCameraDetailModal }    from '../../components/modals/SpeedCameraDetailModal';
-import { AddSpeedCameraModal }       from '../../components/modals/AddSpeedCameraModal';
-import { SpeedCameraAlert }          from '../../components/ui/SpeedCameraAlert';
-import { SpeedCameraRenderer }       from '../../components/markers/SpeedCameraRenderer';
-import { SpeedCameraMarker }         from '../../components/markers/SpeedCameraMarker';
-import { SaveRouteModal }            from '../../components/modals/SaveRouteModal';
-import { CarMarker }                 from '../../components/markers/CarMarker';
-import { CarMarkerRenderer }         from '../../components/markers/CarMarkerRenderer';
-import { UserCarMarker }             from '../../components/markers/UserCarMarker';
-import { MarkerRenderer }            from '../../components/markers/MarkerRenderer';
-import { UserInfoModal }             from '../../components/modals/UserInfoModal';
-import { SearchModal }               from '../../components/modals/SearchModal';
-import { SettingsModal }             from '../../components/modals/SettingsModal';
-import { ReportModal }               from '../../components/modals/ReportModal';
-import { WarningDetailModal }        from '../../components/modals/WarningDetailModal';
-import { RoutePinRenderer }          from '../../components/markers/RoutePinRenderer';
-import { RouteEndpointRenderer }     from '@/components/markers/RouteEndpointRenderer';
-import { RouteLeaderboardModal }     from '../../components/modals/RouteLeaderboardModal';
-import { TripStatsModal }            from '../../components/modals/TripStatsModal';
+import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
+import { CarMarker } from '../../components/markers/CarMarker';
+import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
+import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
+import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
+import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
+import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
+import { UserCarMarker } from '../../components/markers/UserCarMarker';
+import { AddSpeedCameraModal } from '../../components/modals/AddSpeedCameraModal';
+import { ReportModal } from '../../components/modals/ReportModal';
+import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
+import { SaveRouteModal } from '../../components/modals/SaveRouteModal';
+import { SearchModal } from '../../components/modals/SearchModal';
+import { SettingsModal } from '../../components/modals/SettingsModal';
+import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetailModal';
+import { TripStatsModal } from '../../components/modals/TripStatsModal';
+import { UserInfoModal } from '../../components/modals/UserInfoModal';
+import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM_MAX        = 18.9;   // zoom przy staniu / bardzo wolno
-const NAV_ZOOM_MIN        = 15.5;   // zoom przy bardzo dużych prędkościach
+const NAV_ZOOM            = 18.9;
 const NAV_PITCH           = 75;
-
-/** Dynamiczny zoom kamery zależny od prędkości (km/h). */
-function navZoomForSpeed(kmh: number): number {
-  // Liniowa interpolacja: 0 km/h → NAV_ZOOM_MAX, 140 km/h → NAV_ZOOM_MIN
-  const clamped = Math.max(0, Math.min(kmh, 140));
-  return NAV_ZOOM_MAX - (clamped / 140) * (NAV_ZOOM_MAX - NAV_ZOOM_MIN);
-}
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
@@ -167,6 +167,7 @@ export default function MapScreen() {
 
   // ── Ref — throttle powiadomień nawigacyjnych (co 30s) ─────
   const notifThrottleRef = useRef(0);
+  const speedKmhRef = useRef(0);
 
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
@@ -175,7 +176,6 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef = useRef<number>(Date.now());
-  const speedKmhRef           = useRef(0);
   
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -262,10 +262,7 @@ export default function MapScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  // On Android with edgeToEdgeEnabled:false the safe-area insets are 0;
-  // fall back to StatusBar.currentHeight so elements don't overlap the status bar.
-  const topInset = Math.max(insets.top, StatusBar.currentHeight ?? 0);
-  const styles = makeMapStyles(theme, isDark, topInset);
+  const styles = makeMapStyles(theme, isDark, insets.top);
   const mapStyle = mapType === 'satellite'
     ? MAPBOX_STYLE_SATELLITE
     : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
@@ -393,7 +390,7 @@ export default function MapScreen() {
           center:  snappedPos,
           pitch:   NAV_PITCH,
           heading: hdg,
-          zoom:    navZoomForSpeed(speedKmhRef.current),
+          zoom:    NAV_ZOOM,
         });
       }
     }, [animateCameraLive]),
@@ -515,6 +512,14 @@ export default function MapScreen() {
         end_location:   { lat: next.latitude, lng: next.longitude },
       };
     });
+  }, []);
+
+  
+  const resetDRRefs = useCallback(() => {
+    drLatRef.current  = 0;
+    drLngRef.current  = 0;
+    drHdgRef.current  = 0;
+    drTickRef.current = 0;
   }, []);
 
   // ─────────────────────────────────────────────────��───────
@@ -806,7 +811,6 @@ export default function MapScreen() {
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               lastHeadingRef.current,
-              kmh,
             );
             return;
           }
@@ -834,7 +838,7 @@ export default function MapScreen() {
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
             heading: lastHeadingRef.current,
-            zoom:    navZoomForSpeed(kmh),
+            zoom:    NAV_ZOOM,
           });
 
         } else {
@@ -1242,12 +1246,6 @@ export default function MapScreen() {
     }, 200);
   }, []);
 
-  const resetDRRefs = useCallback(() => {
-    drLatRef.current  = 0;
-    drLngRef.current  = 0;
-    drHdgRef.current  = 0;
-    drTickRef.current = 0;
-  }, []);
 
   // ─────────────────────────────────────────────────────────
   // Handlers
@@ -1614,8 +1612,7 @@ export default function MapScreen() {
       : heading;
 
   // ── Czy pokazać prędkościomierz ───────────────────────────
-  // Zawsze pokazuj gdy jest znany limit prędkości na drodze
-  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5 || speedLimit !== null;
+  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5;
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -1714,7 +1711,7 @@ export default function MapScreen() {
 
         {/* ── Panel DRIVING MODE (góra) ────────────────────── */}
         {isDriving && !isNavigating && (
-          <View style={[styles.navigationPanelTop, { top: topInset + 52 }]}>
+          <View style={[styles.navigationPanelTop, { top: insets.top + 52 }]}>
             <View style={styles.instructionBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{
@@ -1797,7 +1794,7 @@ export default function MapScreen() {
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
             backgroundColor: '#e33835',
-            paddingTop:    topInset + 14,
+            paddingTop:    Platform.OS === 'ios' ? 54 : 36,
             paddingBottom: 14, paddingHorizontal: 16,
             flexDirection: 'row', alignItems: 'center', gap: 10,
             shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
@@ -2168,7 +2165,7 @@ export default function MapScreen() {
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
-            position: 'absolute', top: topInset + 122,
+            position: 'absolute', top: insets.top + 122,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -2274,7 +2271,7 @@ export default function MapScreen() {
 
           {connected && isSharing && (
             <View style={{
-              position: 'absolute', top: topInset + 8, right: 12,
+              position: 'absolute', top: insets.top + 8, right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
               borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,
