@@ -423,13 +423,21 @@ export default function MapScreen() {
         setDrTick(t => t + 1);
       }
 
-      // Camera animation: only navigation mode drives the camera from DR onFrame.
-      // Driving mode camera is driven by GPS-level animateCameraLive in onLocation.
+      // Camera animation: both navigation and driving modes use DR onFrame for smooth 60fps camera.
       if (isNavigatingRef.current) {
         animateCameraLive({
           center:  snappedPos,
           pitch:   NAV_PITCH,
           heading: hdg,
+          zoom:    getAdaptiveZoom(speedKmhRef.current),
+        });
+      } else if (isDrivingRef.current) {
+        // Driving mode: use bearing-based heading (lastHeadingRef) — avoids GPS vs DR heading conflict.
+        // Fall back to DR-interpolated hdg if no bearing has been established yet.
+        animateCameraLive({
+          center:  snappedPos,
+          pitch:   NAV_PITCH,
+          heading: lastHeadingRef.current !== 0 ? lastHeadingRef.current : hdg,
           zoom:    getAdaptiveZoom(speedKmhRef.current),
         });
       }
@@ -747,10 +755,12 @@ export default function MapScreen() {
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
 
       // ══ 2. Kalman ════════════════════════════════════════════
-      const lat = isNavigatingRef.current
+      // Use nav-quality filters (higher process noise, lower measurement noise) for both
+      // navigation and driving modes — both require accurate, responsive position tracking.
+      const lat = (isNavigatingRef.current || isDrivingRef.current)
         ? navLatFilter.filter(rawLat, acc)
         : latFilter.filter(rawLat, acc);
-      const lng = isNavigatingRef.current
+      const lng = (isNavigatingRef.current || isDrivingRef.current)
         ? navLngFilter.filter(rawLng, acc)
         : lngFilter.filter(rawLng, acc);
 
@@ -888,6 +898,9 @@ export default function MapScreen() {
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
+            // Reset nav-quality Kalman filters to start fresh in driving mode
+            navLatFilter.reset();
+            navLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
@@ -918,14 +931,7 @@ export default function MapScreen() {
             rawSpeedMs,
             drivingHeading,
           );
-
-          // GPS-level camera update in driving mode (DR onFrame does NOT animate camera in driving mode)
-          animateCameraLive({
-            center:  { latitude: snapped.latitude, longitude: snapped.longitude },
-            pitch:   NAV_PITCH,
-            heading: drivingHeading,
-            zoom:    getAdaptiveZoom(kmh),
-          });
+          // Camera is now driven by DR onFrame at ~60fps (same as navigation mode)
 
         } else {
           // ── Wolno / stoi — reset licznika ────────────────────
