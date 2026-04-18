@@ -175,7 +175,6 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef = useRef<number>(Date.now());
-  const speedKmhRef           = useRef(0);   // aktualizowany przez useEffect → dostępny w DR
   
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -284,9 +283,6 @@ export default function MapScreen() {
   const { speedLimit, updateSpeedLimit } = useSpeedLimit(true);
   const speedKmh = (speed ?? 0) * 3.6;
   const showCameras = true;
-
-  // Keep a ref of current speed for DR callback (no stale-closure issue)
-  useEffect(() => { speedKmhRef.current = speedKmh; }, [speedKmh]);
 
   const ALERT_DIST = 400;
   const cameraAlertVisible = nearestCamera !== null && nearestCamera.distanceM <= ALERT_DIST;
