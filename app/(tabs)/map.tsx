@@ -1,102 +1,112 @@
-import React, {
-  useState, useEffect, useRef, useMemo, useCallback,
-} from 'react';
-import {
-  View, Text, ActivityIndicator, TouchableOpacity, Image,
-  Platform, Alert, StyleSheet, NativeModules, StatusBar,
-} from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_TOKEN } from '../../constants/mapConfig';
-Mapbox.setAccessToken(MAPBOX_TOKEN);
-import * as Location from 'expo-location';
-import * as Speech from 'expo-speech';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
-import { useRouter } from 'expo-router';
-import { useChat } from '../../hooks/useChats';
 import { useKeepAwake } from 'expo-keep-awake';
+import * as Location from 'expo-location';
+import { useFocusEffect, useRouter } from 'expo-router';
+import * as Speech from 'expo-speech';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  NativeModules,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message';
+import { MAPBOX_TOKEN } from '../../constants/mapConfig';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useChat } from '../../hooks/useChats';
+import { makeMapStyles } from '../../styles/mapstyle';
+Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const { UsersModule } = NativeModules;
-import { useTheme } from '../../contexts/ThemeContext';
-import { makeMapStyles } from '../../styles/mapstyle';
 
-import { User, LocationState, RouteInfo } from '../../constants/types';
 import {
   MAPBOX_STYLE_DARK,
   MAPBOX_STYLE_LIGHT,
   MAPBOX_STYLE_SATELLITE,
-  MAX_NEARBY_USERS_DISTANCE,
-  API_URL,
+  MAX_NEARBY_USERS_DISTANCE
 } from '../../constants/mapConfig';
+import { LocationState, RouteInfo, User } from '../../constants/types';
 
 import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
 // ── NOWE: sanity check ────────────────────────────────────
 import { isSaneLocation } from '../../scripts/kalmanFilter';
 
-import { calculateDistance }         from '../../scripts/distance';
+import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
 import {
-  cleanInstruction,
-  formatDuration,
-  formatSpeed,
-  detectCurrentStep,
-  isOnRoute,
-  getManeuverIcon,
-  haversineKm,
-  findClosestPointIndex,
-  snapToRoute,
-} from '../../scripts/navigationUtils';
+  feedNavDistance,
+  feedSpeedSample,
+  resetSpeedStats,
+  useBackgroundTracking,
+} from '../../hooks/useBackgroundTracking';
+import { useCameraAnimation } from '../../hooks/useCameraAnimation';
+import { useDeadReckoning } from '../../hooks/useDeadReckoning';
+import { useDemoUsers } from '../../hooks/useDemoUsers';
+import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
+import { useDrivingSnap } from '../../hooks/useDrivingSnap';
 import { useGoogleDirections, useGoogleDirectionsAlternatives } from '../../hooks/useGoogleDirections';
-import { useCameraAnimation }        from '../../hooks/useCameraAnimation';
-import { useNavigationPoints }       from '../../hooks/useNavigationPoints';
-import { useNavigationNotification } from '../../hooks/useNavigationNotification';
-import { useDeadReckoning }          from '../../hooks/useDeadReckoning';
-import { useDemoUsers }              from '../../hooks/useDemoUsers';
-import { useRouteTimer }             from '../../hooks/useRouteTimer';
-import { useRouteLeaderboard }       from '../../hooks/useRouteLeaderboard';
 import {
-  useLiveMap,
-  getWarningLabel,
+  clusterWarnings,
   getWarningColor,
   getWarningIcon,
+  getWarningLabel,
   LiveWarning,
-  clusterWarnings,
+  useLiveMap,
 } from '../../hooks/useLiveMap';
+import { useNavigationNotification } from '../../hooks/useNavigationNotification';
+import { useNavigationPoints } from '../../hooks/useNavigationPoints';
+import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
+import { useRouteBuilder } from '../../hooks/useRouteBuilder';
+import { useRouteLeaderboard } from '../../hooks/useRouteLeaderboard';
+import { useRouteTimer } from '../../hooks/useRouteTimer';
+import { useSnapCameras } from '../../hooks/useSnapCameras';
+import { useSpeedCameras } from '../../hooks/useSpeedCamera';
+import { useSpeedLimit } from '../../hooks/useSpeedLimit';
+import { useTripStats } from '../../hooks/useTripStats';
+import { calculateDistance } from '../../scripts/distance';
 import {
-  useBackgroundTracking,
-  feedSpeedSample,
-  feedNavDistance,
-  resetSpeedStats,
-} from '../../hooks/useBackgroundTracking';
-import { useRouteBuilder }           from '../../hooks/useRouteBuilder';
-import { useNavigationSimulator }    from '../../hooks/useNavigationSimulator';
-import { useTripStats }              from '../../hooks/useTripStats';
-import { useAdaptiveGPS }            from '../../hooks/useAdaptiveGPS';
-import { useDrivingSnap }            from '../../hooks/useDrivingSnap';
-import { useSpeedCameras }           from '../../hooks/useSpeedCamera';
-import { useSpeedLimit }             from '../../hooks/useSpeedLimit';
-import { useSnapCameras }            from '../../hooks/useSnapCameras';
+  cleanInstruction,
+  detectCurrentStep,
+  findClosestPointIndex,
+  formatDuration,
+  formatSpeed,
+  getManeuverIcon,
+  haversineKm,
+  isOnRoute,
+  snapToRoute,
+} from '../../scripts/navigationUtils';
 
-import { SpeedCameraDetailModal }    from '../../components/modals/SpeedCameraDetailModal';
-import { AddSpeedCameraModal }       from '../../components/modals/AddSpeedCameraModal';
-import { SpeedCameraAlert }          from '../../components/ui/SpeedCameraAlert';
-import { SpeedCameraRenderer }       from '../../components/markers/SpeedCameraRenderer';
-import { SpeedCameraMarker }         from '../../components/markers/SpeedCameraMarker';
-import { SaveRouteModal }            from '../../components/modals/SaveRouteModal';
-import { CarMarker }                 from '../../components/markers/CarMarker';
-import { CarMarkerRenderer }         from '../../components/markers/CarMarkerRenderer';
-import { UserCarMarker }             from '../../components/markers/UserCarMarker';
-import { MarkerRenderer }            from '../../components/markers/MarkerRenderer';
-import { UserInfoModal }             from '../../components/modals/UserInfoModal';
-import { SearchModal }               from '../../components/modals/SearchModal';
-import { SettingsModal }             from '../../components/modals/SettingsModal';
-import { ReportModal }               from '../../components/modals/ReportModal';
-import { WarningDetailModal }        from '../../components/modals/WarningDetailModal';
-import { RoutePinRenderer }          from '../../components/markers/RoutePinRenderer';
-import { RouteEndpointRenderer }     from '@/components/markers/RouteEndpointRenderer';
-import { RouteLeaderboardModal }     from '../../components/modals/RouteLeaderboardModal';
-import { TripStatsModal }            from '../../components/modals/TripStatsModal';
+import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
+import { CarMarker } from '../../components/markers/CarMarker';
+import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
+import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
+import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
+import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
+import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
+import { UserCarMarker } from '../../components/markers/UserCarMarker';
+import { AddSpeedCameraModal } from '../../components/modals/AddSpeedCameraModal';
+import { ReportModal } from '../../components/modals/ReportModal';
+import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
+import { SaveRouteModal } from '../../components/modals/SaveRouteModal';
+import { SearchModal } from '../../components/modals/SearchModal';
+import { SettingsModal } from '../../components/modals/SettingsModal';
+import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetailModal';
+import { TripStatsModal } from '../../components/modals/TripStatsModal';
+import { UserInfoModal } from '../../components/modals/UserInfoModal';
+import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
@@ -106,8 +116,10 @@ const NAV_PITCH           = 75;
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
-const DRIVING_STOP_DELAY_MS = 12 * 60 * 1000; // 12 minut
-const DRIVING_SPEED_KMH     = 10;
+const DRIVING_STOP_DELAY_MS  = 12 * 60 * 1000; // 12 minut
+const DRIVING_SPEED_KMH      = 10;
+// Ile km/h ponad limit zanim kolor prędkości zmienia się na czerwony
+const SPEED_LIMIT_TOLERANCE  = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
@@ -153,6 +165,10 @@ export default function MapScreen() {
   // ── Ref – navRoute bez stale closure ─────────────────────
   const navRouteRef = useRef<typeof navRoute | null>(null);
 
+  // ── Ref — throttle powiadomień nawigacyjnych (co 30s) ─────
+  const notifThrottleRef = useRef(0);
+  const speedKmhRef = useRef(0);
+
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,6 +201,10 @@ export default function MapScreen() {
   // ── NOWY State — tryb driving ─────────────────────────────
   const [isDriving,    setIsDriving]    = useState(false);
   const [drivingKm,    setDrivingKm]    = useState(0);   // km przejechane w trybie
+
+  // ── State — live distances (nawigacja) ────────────────────
+  const [distToTurnM,     setDistToTurnM]     = useState<number | null>(null);
+  const [remainingDistKm, setRemainingDistKm] = useState<number | null>(null);
 
   // ── State – markery ───────────────────────────────────────
   const [carMarkerImage,      setCarMarkerImage]      = useState<string | null>(null);
@@ -241,13 +261,15 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const styles = makeMapStyles(theme, isDark);
+  const insets = useSafeAreaInsets();
+  const styles = makeMapStyles(theme, isDark, insets.top);
   const mapStyle = mapType === 'satellite'
     ? MAPBOX_STYLE_SATELLITE
     : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
   const { startConversation } = useChat();
 
-  const { snap: drivingSnap, setRoutePoints: setSnapPoints, reset: resetSnap } = useDrivingSnap();
+  const { snap: drivingSnap, setRoutePoints: setSnapPoints, setRoadMatchPoints, reset: resetSnap } = useDrivingSnap();
+  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch } = useDrivingMapMatch();
   const [gpsMode, setGpsMode] = useState<'idle' | 'driving' | 'navigating'>('idle');
 
   const {
@@ -362,8 +384,8 @@ export default function MapScreen() {
         setDrTick(t => t + 1);
       }
 
-      // Camera animation only in navigation mode — driving mode drives camera from GPS callback
-      if (isNavigatingRef.current) {
+      // Smooth 60-fps camera animation in both navigation and driving mode
+      if (isNavigatingRef.current || isDrivingRef.current) {
         animateCameraLive({
           center:  snappedPos,
           pitch:   NAV_PITCH,
@@ -492,6 +514,14 @@ export default function MapScreen() {
     });
   }, []);
 
+  
+  const resetDRRefs = useCallback(() => {
+    drLatRef.current  = 0;
+    drLngRef.current  = 0;
+    drHdgRef.current  = 0;
+    drTickRef.current = 0;
+  }, []);
+
   // ─────────────────────────────────────────────────��───────
   // Effects
   // ─────────────────────────────────────────────────────────
@@ -618,15 +648,6 @@ export default function MapScreen() {
   // DRIVING MODE helpers
   // ─────────────────────────────────────────────────────────
 
-  const enterDrivingMode = useCallback(() => {
-    if (isDrivingRef.current) return;
-    isDrivingRef.current = true;
-    setIsDriving(true);
-    drivingKmRef.current    = 0;
-    drivingLastLocRef.current = null;
-    setDrivingKm(0);
-  }, []);
-
   const exitDrivingMode = useCallback(() => {
     isDrivingRef.current        = false;
     drivingKmRef.current        = 0;
@@ -637,50 +658,19 @@ export default function MapScreen() {
     }
     stopDR();
     resetDRRefs();
+    resetSnap();
+    resetMapMatch();
+    setRoadMatchPoints([]);
     setIsDriving(false);
     setDrivingKm(0);
+    console.log('[DrivingMode] Exited driving mode');
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, [stopDR, resetDRRefs]);
-
-  // Wywołuj przy każdej aktualizacji GPS — zarządza timerem stopu
-  const handleDrivingSpeedUpdate = useCallback((kmh: number, lat: number, lng: number) => {
-    if (isNavigatingRef.current) return; // nawigacja przejmuje kontrolę
-
-    if (kmh >= DRIVING_SPEED_KMH) {
-      // Jedzie — anuluj timer stopu i aktywuj tryb
-      if (drivingStopTimerRef.current) {
-        clearTimeout(drivingStopTimerRef.current);
-        drivingStopTimerRef.current = null;
-      }
-      enterDrivingMode();
-
-      // Licz km
-      if (drivingLastLocRef.current) {
-        const dist = haversineKm(
-          drivingLastLocRef.current.lat, drivingLastLocRef.current.lng,
-          lat, lng,
-        );
-        drivingKmRef.current += dist;
-        setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
-      }
-      drivingLastLocRef.current = { lat, lng };
-
-    } else {
-      // Wolno / stoi — uruchom timer stopu jeśli jeszcze nie ma
-      if (isDrivingRef.current && !drivingStopTimerRef.current) {
-        drivingStopTimerRef.current = setTimeout(() => {
-          exitDrivingMode();
-          drivingStopTimerRef.current = null;
-        }, DRIVING_STOP_DELAY_MS);
-      }
-    }
-  }, [enterDrivingMode, exitDrivingMode]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
   // ─────────────────────────────────────────────────────────
-  const speedKmhRef = useRef(0);
   speedKmhRef.current = (speed ?? 0) * 3.6;
 
   const { start: startGPS, stop: stopGPS } = useAdaptiveGPS({
@@ -765,6 +755,17 @@ export default function MapScreen() {
 
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
+
+        // ── DAP-to-Road: feed map matcher & update road snap points ──
+        // Do this before snapping so the latest matched road is available
+        if (kmh >= 5) {
+          addMatchPosition(lat, lng);
+          const matchedPts = getMatchedPoints();
+          if (matchedPts && matchedPts.length > 1) {
+            setRoadMatchPoints(matchedPts);
+          }
+        }
+
         const snapped = drivingSnap(lat, lng, kmh, false);
 
         // ── DEAD ZONE — ignoruj jitter gdy stoisz ────────────
@@ -801,6 +802,7 @@ export default function MapScreen() {
             drivingLastLocRef.current = null;
             setIsDriving(true);
             setDrivingKm(0);
+            console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               rawSpeedMs,
@@ -831,6 +833,7 @@ export default function MapScreen() {
             lastHeadingRef.current,
           );
 
+          // GPS-level camera update (DR onFrame provides smooth 60fps interpolation)
           animateCameraLive({
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
@@ -850,6 +853,10 @@ export default function MapScreen() {
               drivingStopTimerRef.current = null;
               setIsDriving(false);
               setDrivingKm(0);
+              resetSnap();
+              resetMapMatch();
+              setRoadMatchPoints([]);
+              console.log('[DrivingMode] Exited driving mode (stop timer fired)');
               if (lastGoodLocRef.current) {
                 exitDrivingCamera({
                   latitude:  lastGoodLocRef.current.lat,
@@ -872,8 +879,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap]),
   });
 
   useEffect(() => {
@@ -996,6 +1002,8 @@ export default function MapScreen() {
         const prefix = distToStepEnd < 100 ? 'Teraz' : `Za ${Math.round(distToStepEnd)} metrów`;
         speak(`${prefix}: ${cleanInstruction(steps[nextStep].html_instructions)}`);
       }
+      // Aktualizuj live dystans do zakrętu
+      setDistToTurnM(distToStepEnd);
     }
 
     // ── Off-route check ──
@@ -1008,17 +1016,46 @@ export default function MapScreen() {
       }
     }
 
-    // ── Aktualizuj remainingRoutePoints na bieżąco ──
+    // ── Aktualizuj remainingRoutePoints + live dystans do celu ──
     if (points.length > 1) {
       const idx = findClosestPointIndex(lat, lng, points);
-      setRemainingRoutePoints([
+      const remPts = [
         { latitude: lat, longitude: lng },
         ...points.slice(idx + 1),
-      ]);
+      ];
+      setRemainingRoutePoints(remPts);
+
+      // Suma odległości po pozostałych punktach trasy
+      let remKm = 0;
+      for (let i = 0; i < remPts.length - 1; i++) {
+        remKm += haversineKm(
+          remPts[i].latitude, remPts[i].longitude,
+          remPts[i + 1].latitude, remPts[i + 1].longitude,
+        );
+      }
+      setRemainingDistKm(remKm);
+
+      // Aktualizuj powiadomienie systemowe z live dystansem (co 30 s)
+      const nowMs = Date.now();
+      if (nowMs - notifThrottleRef.current > 30_000) {
+        notifThrottleRef.current = nowMs;
+        const stepForNotif = steps[nextStep];
+        if (stepForNotif) {
+          const distStr = remKm < 1
+            ? `${Math.round(remKm * 1000)} m`
+            : `${remKm.toFixed(1)} km`;
+          const ri = routeInfoRef.current;
+          showNavigationNotification(
+            stepForNotif,
+            distStr,
+            ri ? formatDuration(ri.duration) : '',
+          );
+        }
+      }
     }
 
-  // ← DODAJ drTick do deps — efekt odpala się przy każdej klatce DR
-  }, [userLocation, isNavigating, drTick]);
+  // ← drTick wyzwala efekt przy każdej klatce DR; showNavigationNotification jest stabilna
+  }, [userLocation, isNavigating, drTick, showNavigationNotification]);
 
   useEffect(() => {
     if (isOffroadRoute && offroadPreviewRoute) {
@@ -1055,6 +1092,9 @@ export default function MapScreen() {
   const activeRoute = isNavigating ? navRoute : previewRoute;
   navRouteRef.current = navRoute ?? null;
   const activeSteps = navRoute?.steps ?? previewRoute?.steps ?? [];
+  // Sync routeInfo into a ref so the DR effect can read it without stale closure
+  const routeInfoRef = useRef(routeInfo);
+  routeInfoRef.current = routeInfo;
 
   useEffect(() => {
     routePointsRef.current = activeRoute?.points ?? [];
@@ -1206,12 +1246,6 @@ export default function MapScreen() {
     }, 200);
   }, []);
 
-  const resetDRRefs = useCallback(() => {
-    drLatRef.current  = 0;
-    drLngRef.current  = 0;
-    drHdgRef.current  = 0;
-    drTickRef.current = 0;
-  }, []);
 
   // ─────────────────────────────────────────────────────────
   // Handlers
@@ -1308,6 +1342,9 @@ export default function MapScreen() {
     setTimeout(() => setTripStatsVisible(true), 2000);
     setIsNavigating(false);
     setArrived(true);
+    setDistToTurnM(null);
+    setRemainingDistKm(null);
+    notifThrottleRef.current = 0;
     dismissNavigationNotification();
     flushPendingKm(true);
     Speech.stop().catch(() => {});
@@ -1473,6 +1510,9 @@ export default function MapScreen() {
     setOffRoute(false);
     setArrived(false);
     setNavStartLoc(null);
+    setDistToTurnM(null);
+    setRemainingDistKm(null);
+    notifThrottleRef.current = 0;
     dismissNavigationNotification();
     setRouteEndpointImages({});
     Speech.stop().catch(() => {});
@@ -1671,7 +1711,7 @@ export default function MapScreen() {
 
         {/* ── Panel DRIVING MODE (góra) ────────────────────── */}
         {isDriving && !isNavigating && (
-          <View style={[styles.navigationPanelTop, { top: 100 }]}>
+          <View style={[styles.navigationPanelTop, { top: insets.top + 52 }]}>
             <View style={styles.instructionBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{
@@ -1700,28 +1740,48 @@ export default function MapScreen() {
                   </Text>
                 </View>
                 {/* Prędkość w nagłówku */}
-                <View style={{
-                  backgroundColor: '#fa391f57',
-                  borderRadius: 12,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderWidth: 1,
-                  borderColor: '#fa391f',
-                  alignItems: 'center',
-                  minWidth: 64,
-                }}>
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 24,
-                    color: '#fff', fontWeight: '700',
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  {/* Znak ograniczenia prędkości (gdy dostępny) */}
+                  {speedLimit !== null && (
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 18,
+                      backgroundColor: '#fff', borderWidth: 3,
+                      borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{
+                        fontFamily: 'Orbitron', fontSize: speedLimit >= 100 ? 8 : 10,
+                        color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
+                        fontWeight: '900',
+                      }}>
+                        {speedLimit}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={{
+                    backgroundColor: '#fa391f57',
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderWidth: 1,
+                    borderColor: '#fa391f',
+                    alignItems: 'center',
+                    minWidth: 64,
                   }}>
-                    {Math.round(speedKmh)}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 7,
-                    color: '#ffffff50', letterSpacing: 2,
-                  }}>
-                    km/h
-                  </Text>
+                    <Text style={{
+                      fontFamily: 'Orbitron', fontSize: 24,
+                      color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#fff',
+                      fontWeight: '700',
+                    }}>
+                      {Math.round(speedKmh)}
+                    </Text>
+                    <Text style={{
+                      fontFamily: 'Orbitron', fontSize: 7,
+                      color: '#ffffff50', letterSpacing: 2,
+                    }}>
+                      km/h
+                    </Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -2034,8 +2094,13 @@ export default function MapScreen() {
                       <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color="#fff" />
                     </View>
                     <View style={{ flex: 1 }}>
+                      {/* Live dystans do następnego skrętu */}
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
-                        {currentStepData.distance?.text}
+                        {distToTurnM !== null
+                          ? distToTurnM < 1000
+                            ? `${Math.round(distToTurnM / 10) * 10} m`
+                            : `${(distToTurnM / 1000).toFixed(1)} km`
+                          : currentStepData.distance?.text}
                       </Text>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffcc', marginTop: 2 }} numberOfLines={1}>
                         {cleanInstruction(currentStepData.html_instructions)}
@@ -2062,6 +2127,18 @@ export default function MapScreen() {
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50', letterSpacing: 1 }}>
                       Krok {currentStep + 1}/{activeSteps.length}
                     </Text>
+                    {/* Live pozostały dystans do celu */}
+                    {remainingDistKm !== null && (
+                      <>
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <MaterialIcons name="straighten" size={10} color="#00bfff" />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>
+                          {remainingDistKm < 1
+                            ? `${Math.round(remainingDistKm * 1000)} m`
+                            : `${remainingDistKm.toFixed(1)} km`}
+                        </Text>
+                      </>
+                    )}
                     {routeInfo && (
                       <>
                         <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
@@ -2088,7 +2165,7 @@ export default function MapScreen() {
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
-            position: 'absolute', top: Platform.OS === 'ios' ? 160 : 145,
+            position: 'absolute', top: insets.top + 122,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -2112,13 +2189,13 @@ export default function MapScreen() {
               <View style={{
                 width: 44, height: 44, borderRadius: 22,
                 backgroundColor: '#fff', borderWidth: 4,
-                borderColor: speedKmh > speedLimit + 5 ? '#e33835' : '#333',
+                borderColor: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
                 alignItems: 'center', justifyContent: 'center',
                 marginBottom: 4, alignSelf: 'center',
               }}>
                 <Text style={{
                   fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900',
-                  color: speedKmh > speedLimit + 5 ? '#e33835' : '#111',
+                  color: speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
                 }}>
                   {speedLimit}
                 </Text>
@@ -2126,7 +2203,7 @@ export default function MapScreen() {
             )}
             <Text style={[
               styles.speedValue,
-              speedLimit !== null && speedKmh > speedLimit + 5 && { color: '#e33835' },
+              speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE && { color: '#e33835' },
             ]}>
               {formatSpeed(speed)}
             </Text>
@@ -2194,7 +2271,7 @@ export default function MapScreen() {
 
           {connected && isSharing && (
             <View style={{
-              position: 'absolute', top: Platform.OS === 'ios' ? 54 : 38, right: 12,
+              position: 'absolute', top: insets.top + 8, right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
               borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,

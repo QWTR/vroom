@@ -109,6 +109,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const enterDrivingCamera = useCallback((
     center: { latitude: number; longitude: number },
     heading: number,
+    speedKmh = 0,
   ) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
@@ -116,11 +117,12 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
     const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
+    const zoom = Math.max(15.5, 18.9 - (Math.min(speedKmh, 140) / 140) * 3.4);
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [lookahead.longitude, lookahead.latitude],
       pitch:            55,
       heading,
-      zoomLevel:        14.5,
+      zoomLevel:        zoom,
       animationDuration: 800,
       animationMode:    'flyTo',
     });
