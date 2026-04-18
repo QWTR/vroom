@@ -717,6 +717,28 @@ export default function MapScreen() {
     // — nawigacja sama przejmuje kamerę przez lockForStart
   }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
 
+  // Ręczny przełącznik trybu jazdy (przycisk w UI)
+  const handleToggleDrivingMode = useCallback(() => {
+    if (isNavigating) return;
+    if (isDriving) {
+      exitDrivingMode();
+      if (userLocation) exitDrivingCamera(userLocation);
+    } else {
+      isDrivingRef.current        = true;
+      drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+      drivingKmRef.current        = 0;
+      drivingLastLocRef.current   = null;
+      navLatFilter.reset();
+      navLngFilter.reset();
+      setIsDriving(true);
+      setDrivingKm(0);
+      if (userLocation) {
+        enterDrivingCamera(userLocation, lastHeadingRef.current);
+      }
+      console.log('[DrivingMode] Manually entered driving mode');
+    }
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera]);
+
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
   // ─────────────────────────────────────────────────────────
@@ -2245,7 +2267,7 @@ export default function MapScreen() {
                         </Text>
                         <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
                         <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
-                          cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+                          cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </>
                     )}
@@ -2323,6 +2345,26 @@ export default function MapScreen() {
             bottom: 120
           },
         ]}>
+          {/* ── Przycisk trybu jazdy ─────────────────────── */}
+          {!isNavigating && (
+            <TouchableOpacity
+              style={[
+                styles.sideBtn,
+                isDriving
+                  ? { backgroundColor: '#268bff25', borderColor: '#268bff70' }
+                  : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+              ]}
+              onPress={handleToggleDrivingMode}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons
+                name="car-outline"
+                size={20}
+                color={isDriving ? '#268bff' : theme.textDim}
+              />
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={[
               styles.sideBtn,
