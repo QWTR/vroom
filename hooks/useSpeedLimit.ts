@@ -1,8 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 
 const OVERPASS         = 'https://overpass-api.de/api/interpreter';
-const REFETCH_DIST_DEG = 0.0004; // ~40m
-const MIN_INTERVAL_MS  = 6000;
+// Minimum distance (degrees, ~330 m) the user must move before re-fetching the
+// speed limit.  Raise to reduce Overpass API requests while driving on a straight road.
+const REFETCH_DIST_DEG = 0.003;   // ~330 m (was 0.0004 / ~44 m)
+// Minimum time between Overpass requests regardless of movement.
+// Raise to cap query frequency on stop-and-go or oscillating GPS.
+const MIN_INTERVAL_MS  = 20_000;  // 20 s (was 6 s)
 
 function parseLimit(raw: string | undefined): number | null {
   if (!raw) return null;

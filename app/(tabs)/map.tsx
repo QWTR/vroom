@@ -115,6 +115,24 @@ const ANNOUNCE_M          = 250;
 const NAV_ZOOM            = 18.9;
 const NAV_PITCH           = 75;
 
+// ── Cost-optimization thresholds ─────────────────────────────────────────────
+// Set DEBUG_NETWORK = true to see throttle/suppression logs in the console.
+const DEBUG_NETWORK = false;
+
+// Live location sharing — interval + distance/time gate
+const SEND_INTERVAL_MS    = 5_000;  // poll period (ms)
+const SEND_MIN_DIST_M     = 15;     // min movement before sending (saves bandwidth while stationary)
+const SEND_MAX_ELAPSED_MS = 20_000; // heartbeat: force-send after this long even without movement
+
+// updateCameras + updateSpeedLimit — skip if user hasn't moved this far
+// (each hook also has its own internal throttle; this gate prevents even the
+//  cheap recalc/sort from running on every sub-second GPS tick)
+const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
+
+// Reroute cooldown — avoids hammering Directions API while continuously off-route
+const REROUTE_COOLDOWN_MS = 30_000; // minimum ms between reroute requests
+const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this far from last point
+
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
 const ZOOM_NEAR           = 19.2; // 0–20 km/h
@@ -192,6 +210,18 @@ export default function MapScreen() {
   const notifThrottleRef = useRef(0);
   const speedKmhRef = useRef(0);
 
+  // ── Cost-optimisation refs ────────────────────────────────
+  // sendLocation: track last sent position + time to apply distance/heartbeat gate
+  const lastSendTimeRef    = useRef<number>(0);
+  const lastSendLocRef     = useRef<{ lat: number; lng: number } | null>(null);
+  // updateCameras / updateSpeedLimit: skip if user hasn't moved CAMERA_SPEED_LIMIT_GATE_M
+  const lastCameraUpdateLocRef = useRef<{ lat: number; lng: number } | null>(null);
+  // reroute cooldown: limit reroute trigger frequency
+  const lastRerouteTimeRef  = useRef<number>(0);
+  const lastRerouteLocRef   = useRef<{ lat: number; lng: number } | null>(null);
+  // currentLocRef: latest userLocation readable inside stable interval callbacks
+  const currentLocRef       = useRef<{ latitude: number; longitude: number } | null>(null);
+
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,6 +256,10 @@ export default function MapScreen() {
   const [navStartLoc,  setNavStartLoc]  = useState<LocationState | null>(null);
   const [currentStep,  setCurrentStep]  = useState(0);
   const [offRoute,     setOffRoute]     = useState(false);
+  // rerouteOrigin is set (with cooldown) when user goes off-route.
+  // Using a dedicated state instead of `userLocation` prevents the
+  // reroute Directions hook from re-firing on every GPS tick while off-route.
+  const [rerouteOrigin, setRerouteOrigin] = useState<LocationState | null>(null);
   const [arrived,      setArrived]      = useState(false);
   const [routeInfo,    setRouteInfo]    = useState<RouteInfo | null>(null);
   const [isOffroadRoute, setIsOffroadRoute] = useState(false);
@@ -381,10 +415,30 @@ export default function MapScreen() {
     exitDrivingCamera,    // ← NOWE
   } = useCameraAnimation(cameraRef);
 
+  // ── Sync currentLocRef so stable interval callbacks read latest position ──
+  useEffect(() => { currentLocRef.current = userLocation; }, [userLocation]);
+
   useEffect(() => {
     if (!userLocation) return;
-    updateCameras(userLocation.latitude, userLocation.longitude);
-    updateSpeedLimit(userLocation.latitude, userLocation.longitude);
+    const { latitude: lat, longitude: lng } = userLocation;
+
+    // Distance gate: skip if user hasn't moved CAMERA_SPEED_LIMIT_GATE_M since
+    // last call. Both hooks have their own internal guards (useSpeedCameras:
+    // REFETCH_DIST_M=500m; useSpeedLimit: 20s + 330m), but this prevents even
+    // the cheap recalc/sort from running on every sub-second GPS tick.
+    if (lastCameraUpdateLocRef.current) {
+      const movedM = haversineKm(lat, lng,
+        lastCameraUpdateLocRef.current.lat, lastCameraUpdateLocRef.current.lng) * 1000;
+      if (movedM < CAMERA_SPEED_LIMIT_GATE_M) {
+        if (DEBUG_NETWORK) console.log('[cameras/speedlimit] gate — moved only', movedM.toFixed(0), 'm');
+        return;
+      }
+    }
+    lastCameraUpdateLocRef.current = { lat, lng };
+
+    if (DEBUG_NETWORK) console.log('[cameras/speedlimit] updating at', lat.toFixed(5), lng.toFixed(5));
+    updateCameras(lat, lng);
+    updateSpeedLimit(lat, lng);
   }, [userLocation]);
 
   useEffect(() => {
@@ -511,9 +565,9 @@ export default function MapScreen() {
   );
 
   const { route: rerouteResult } = useGoogleDirections(
-    offRoute ? userLocation : null,
-    offRoute ? endLocation  : null,
-    offRoute ? lastHeadingRef.current : undefined,
+    rerouteOrigin,
+    rerouteOrigin ? endLocation : null,
+    rerouteOrigin ? (lastHeadingRef.current as any) : undefined,
   );
 
   const clusteredWarnings = useMemo(
@@ -1196,7 +1250,42 @@ export default function MapScreen() {
     announcedStepRef.current = -1;
     lastSpokenRef.current    = '';
     setOffRoute(false);
+    setRerouteOrigin(null); // clear so hook doesn't keep the stale request alive
   }, [rerouteResult, offRoute, userLocation]);
+
+  // ── Reroute origin management (cooldown gate) ─────────────────────────────
+  // Only update rerouteOrigin when:
+  //   - offRoute just became true AND
+  //   - REROUTE_COOLDOWN_MS has elapsed since the last reroute, OR
+  //   - user moved REROUTE_MIN_MOVED_M from the point that triggered the last reroute.
+  // This prevents the Directions API from being called on every GPS tick while
+  // the user is continuously off-route.
+  useEffect(() => {
+    if (!offRoute) {
+      setRerouteOrigin(null);
+      return;
+    }
+    if (!userLocation || !endLocation) return;
+
+    const now   = Date.now();
+    const since = now - lastRerouteTimeRef.current;
+
+    if (since < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
+      const movedM = haversineKm(
+        userLocation.latitude, userLocation.longitude,
+        lastRerouteLocRef.current.lat, lastRerouteLocRef.current.lng,
+      ) * 1000;
+      if (movedM < REROUTE_MIN_MOVED_M) {
+        if (DEBUG_NETWORK) console.log('[reroute] cooldown — moved', movedM.toFixed(0), 'm, since last', since, 'ms');
+        return;
+      }
+    }
+
+    if (DEBUG_NETWORK) console.log('[reroute] triggering new reroute request');
+    lastRerouteTimeRef.current = now;
+    lastRerouteLocRef.current  = { lat: userLocation.latitude, lng: userLocation.longitude };
+    setRerouteOrigin({ ...userLocation, name: 'Moja pozycja' });
+  }, [offRoute, userLocation, endLocation]);
 
   useEffect(() => {
     if (!startIsMyLocationRef.current || !userLocation || isNavigating) return;
@@ -1229,19 +1318,48 @@ export default function MapScreen() {
     ]);
   }, [isNavigating, activeRoute]);
 
+  // ── Live location sharing ────────────────────────────────────────────────────
+  // Single interval-based mechanism (replaces the previous dual send: event + interval).
+  // Sends at most once per SEND_INTERVAL_MS, and only when:
+  //   - user moved > SEND_MIN_DIST_M since last send (saves bandwidth while stationary), OR
+  //   - SEND_MAX_ELAPSED_MS has elapsed (heartbeat to confirm user is still online).
+  // routePointsRef.current is used instead of activeRoute to avoid recreating the
+  // interval on every route/location change (was a major source of the duplicate sends).
   useEffect(() => {
-    if (!userLocation || !isSharing) return;
-    sendLocation(userLocation.latitude, userLocation.longitude, activeRoute?.points ?? []);
-  }, [userLocation, isSharing, activeRoute]);
-
-  useEffect(() => {
-    if (!isSharing) return;
+    if (!isSharing) {
+      // Clear throttle state so the first send after re-enabling goes through immediately.
+      lastSendTimeRef.current = 0;
+      lastSendLocRef.current  = null;
+      return;
+    }
     const interval = setInterval(() => {
-      if (!userLocation) return;
-      sendLocation(userLocation.latitude, userLocation.longitude, activeRoute?.points ?? []);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isSharing, userLocation, activeRoute, sendLocation]);
+      const loc = currentLocRef.current;
+      if (!loc) return;
+
+      const now     = Date.now();
+      const elapsed = now - lastSendTimeRef.current;
+      const movedM  = lastSendLocRef.current
+        ? haversineKm(loc.latitude, loc.longitude,
+            lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
+        : Infinity; // first send always goes through
+
+      if (movedM < SEND_MIN_DIST_M && elapsed < SEND_MAX_ELAPSED_MS) {
+        if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
+        return;
+      }
+
+      if (DEBUG_NETWORK) console.log('[sendLocation] → sending: moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
+      lastSendTimeRef.current = now;
+      lastSendLocRef.current  = { lat: loc.latitude, lng: loc.longitude };
+      sendLocation(loc.latitude, loc.longitude, routePointsRef.current);
+    }, SEND_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+      lastSendTimeRef.current = 0;
+      lastSendLocRef.current  = null;
+    };
+  }, [isSharing, sendLocation]);
 
   useEffect(() => {
     if (!isNavigating) { dismissNavigationNotification(); return; }
