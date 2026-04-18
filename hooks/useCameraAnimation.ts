@@ -9,8 +9,12 @@ interface CameraParams {
   altitude?: number;
 }
 
-const RETURN_TO_USER_MS    = 5000;
-const NAV_LOOKAHEAD_METERS = 50;
+const RETURN_TO_USER_MS           = 5000;
+const NAV_LOOKAHEAD_METERS        = 50;
+// Duration of the driving-mode entry animation (ms). The start-lock is held
+// for this duration + 50 ms buffer so DR onFrame cannot override the flyTo.
+const DRIVING_ENTRY_ANIMATION_MS  = 800;
+const DRIVING_ENTRY_LOCK_MS       = DRIVING_ENTRY_ANIMATION_MS + 50;
 
 function offsetCenter(
   lat: number, lng: number,
@@ -105,7 +109,9 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   }, []);
 
   // ── NOWE: wejście w tryb jazdy — płynna animacja do pitch+zoom ──
-  // Wywołaj raz gdy isDriving przechodzi false→true
+  // Wywołaj raz gdy isDriving przechodzi false→true.
+  // Blokujemy startLockRef na czas animacji wejścia (850 ms), żeby DR onFrame
+  // nie nadpisał flyTo w pierwszych klatkach i nie "obrócił" kamery bokiem.
   const enterDrivingCamera = useCallback((
     center: { latitude: number; longitude: number },
     heading: number,
@@ -113,7 +119,9 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   ) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
-    startLockRef.current    = false;
+    // Lock during entry animation — prevents DR onFrame from overriding the
+    // heading before the 800 ms flyTo finishes pointing the camera forward.
+    startLockRef.current    = true;
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
     const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
@@ -123,11 +131,13 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       pitch:            55,
       heading,
       zoomLevel:        zoom,
-      animationDuration: 800,
+      animationDuration: DRIVING_ENTRY_ANIMATION_MS,
       animationMode:    'flyTo',
     });
     lastHeadingRef.current = heading;
     lastCenterRef.current  = lookahead;
+    // Release lock after entry animation completes
+    setTimeout(() => { startLockRef.current = false; }, DRIVING_ENTRY_LOCK_MS);
   }, [cameraRef]);
 
   // ── exitDrivingCamera — powrót do widoku 2D ───────────────

@@ -402,8 +402,12 @@ export default function MapScreen() {
       const points = routePointsRef.current;
       let snappedPos = pos;
 
-      // Snap to route in both navigation and driving mode when route points are available
-      if (points.length > 1) {
+      // In navigation mode, snap the DR position onto the loaded route so the
+      // marker stays on-road during 60 fps interpolation.
+      // In driving mode the GPS callback already called drivingSnap() before
+      // feeding DR, so the position is pre-snapped — do NOT re-snap here to
+      // avoid jumping the marker onto a stale/unrelated navigation route.
+      if (isNavigatingRef.current && points.length > 1) {
         const snapped = snapToRoute(pos.latitude, pos.longitude, points, 35);
         snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
       }
@@ -417,12 +421,23 @@ export default function MapScreen() {
         setDrTick(t => t + 1);
       }
 
+      // In driving mode we use lastHeadingRef.current (GPS-smoothed) as the
+      // camera heading instead of the DR-interpolated hdg.  This avoids a
+      // conflict where DR onFrame "pulls back" the heading toward an older
+      // value every 60 ms, counteracting the GPS-level animateCameraLive call
+      // that already set the correct forward heading.
+      // In navigation mode hdg (DR-interpolated) is fine because there is no
+      // competing GPS-level animateCameraLive call for heading.
+      const cameraHeading = isDrivingRef.current
+        ? lastHeadingRef.current  // GPS-smoothed — consistent with GPS callback
+        : hdg;                    // DR-interpolated — used only in navigation
+
       // Smooth 60-fps camera animation in both navigation and driving mode
       if (isNavigatingRef.current || isDrivingRef.current) {
         animateCameraLive({
           center:  snappedPos,
           pitch:   NAV_PITCH,
-          heading: hdg,
+          heading: cameraHeading,
           zoom:    getAdaptiveZoom(speedKmhRef.current),
         });
       }
