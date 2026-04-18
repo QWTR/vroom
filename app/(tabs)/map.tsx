@@ -115,10 +115,11 @@ const NAV_ZOOM            = 18.9;
 const NAV_PITCH           = 75;
 
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
-// szybciej = mniejszy zoom (dalej), wolniej = większy zoom (bliżej)
-const ZOOM_NEAR = 19.2; // 0–20 km/h
-const ZOOM_MID  = 18.4; // ~60 km/h
-const ZOOM_FAR  = 17.4; // 120+ km/h
+// faster = smaller zoom (farther), slower = larger zoom (closer)
+const ZOOM_NEAR           = 19.2; // 0–20 km/h
+const ZOOM_MID            = 18.4; // ~60 km/h
+const ZOOM_FAR            = 17.4; // 120+ km/h
+const ZOOM_SMOOTHING_ALPHA = 0.15; // low-pass filter weight (0 = no change, 1 = instant)
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -204,7 +205,7 @@ export default function MapScreen() {
   const getAdaptiveZoom = useCallback((speedKmhValue: number): number => {
     const target = zoomFromSpeedKmh(speedKmhValue);
     const prev   = smoothedZoomRef.current;
-    const next   = prev * 0.85 + target * 0.15;
+    const next   = prev * (1 - ZOOM_SMOOTHING_ALPHA) + target * ZOOM_SMOOTHING_ALPHA;
     smoothedZoomRef.current = clampNum(next, ZOOM_FAR, ZOOM_NEAR);
     return smoothedZoomRef.current;
   }, []);
@@ -1774,20 +1775,26 @@ export default function MapScreen() {
                 {/* Prędkość w nagłówku */}
                 <View style={{ alignItems: 'center', gap: 4 }}>
                   {/* Znak ograniczenia prędkości — zawsze widoczny */}
-                  <View style={{
-                    width: 36, height: 36, borderRadius: 18,
-                    backgroundColor: '#fff', borderWidth: 3,
-                    borderColor: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Text style={{
-                      fontFamily: 'Orbitron', fontSize: speedLimit !== null && speedLimit >= 100 ? 8 : 10,
-                      color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
-                      fontWeight: '900',
-                    }}>
-                      {speedLimit ?? '—'}
-                    </Text>
-                  </View>
+                  {(() => {
+                    const overLimit = speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE;
+                    const smallFont = speedLimit !== null && speedLimit >= 100;
+                    return (
+                      <View style={{
+                        width: 36, height: 36, borderRadius: 18,
+                        backgroundColor: '#fff', borderWidth: 3,
+                        borderColor: overLimit ? '#e33835' : '#333',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Text style={{
+                          fontFamily: 'Orbitron', fontSize: smallFont ? 8 : 10,
+                          color: overLimit ? '#e33835' : '#111',
+                          fontWeight: '900',
+                        }}>
+                          {speedLimit ?? '—'}
+                        </Text>
+                      </View>
+                    );
+                  })()}
                   <View style={{
                     backgroundColor: '#fa391f57',
                     borderRadius: 12,
