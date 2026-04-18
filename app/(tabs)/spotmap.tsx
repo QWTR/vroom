@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity,
   ActivityIndicator, ScrollView,
 } from 'react-native';
+import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
 import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE, MAPBOX_TOKEN } from '../../constants/mapConfig';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
@@ -26,6 +27,8 @@ const LABEL_ZOOM_THRESHOLD = 13;
 
 export default function SpotMap() {
   const mapRef = useRef<Mapbox.MapView>(null);
+  // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
+  const cameraRef = useRef<Mapbox.Camera>(null);
   const { theme, isDark } = useTheme();
   const styles         = makeMapStyles(theme, isDark);
   const mapStyle       = isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
@@ -70,13 +73,35 @@ export default function SpotMap() {
     setIsSatellite(prev => !prev);
   }, []);
 
-  const handleLocateMe = useCallback(() => {
-    if (!userLocation) return;
-    (mapRef.current as any)?.setCamera({
-      centerCoordinate: [userLocation.longitude, userLocation.latitude],
-      zoomLevel: 14,
-      animationDuration: 600,
-    });
+  // NOTE: Używamy ref na Mapbox.Camera (nie MapView) — tylko komponent Camera
+  //       udostępnia setCamera/flyTo. Wywołanie tych metod na MapView nie działa.
+  const handleLocateMe = useCallback(async () => {
+    if (userLocation) {
+      cameraRef.current?.setCamera({
+        centerCoordinate: [userLocation.longitude, userLocation.latitude],
+        zoomLevel: 14,
+        animationDuration: 600,
+      });
+      return;
+    }
+    // Brak userLocation — spróbuj pobrać aktualną pozycję
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Włącz uprawnienia lokalizacji' });
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = loc.coords;
+      cameraRef.current?.setCamera({
+        centerCoordinate: [longitude, latitude],
+        zoomLevel: 14,
+        animationDuration: 600,
+      });
+    } catch (error) {
+      console.error('[SpotMap] handleLocateMe error:', error);
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można pobrać lokalizacji' });
+    }
   }, [userLocation]);
 
   const handleStartPicking = useCallback(() => setPicking('picking'), []);
@@ -148,6 +173,7 @@ export default function SpotMap() {
         onRegionDidChange={handleRegionChange}
       >
         <Mapbox.Camera
+          ref={cameraRef}
           defaultSettings={{
             centerCoordinate: [region?.longitude ?? 19.0, region?.latitude ?? 52.0],
             zoomLevel: 12,
