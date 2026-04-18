@@ -1,4 +1,4 @@
-import { Dimensions, Platform, StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { AppTheme } from '../constants/theme';
 
 const { height } = Dimensions.get('window');
@@ -273,7 +273,7 @@ export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
       borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
       borderBottomWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
       borderColor: t.border2,
-      paddingTop: Platform.OS === 'ios' ? 54 : 14,
+      paddingTop: TOP + 8,
       elevation: 20, shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12,
       zIndex: 12,

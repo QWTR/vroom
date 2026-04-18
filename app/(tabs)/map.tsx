@@ -103,8 +103,16 @@ import { TripStatsModal }            from '../../components/modals/TripStatsModa
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 18.9;
+const NAV_ZOOM_MAX        = 18.9;   // zoom przy staniu / bardzo wolno
+const NAV_ZOOM_MIN        = 15.5;   // zoom przy bardzo dużych prędkościach
 const NAV_PITCH           = 75;
+
+/** Dynamiczny zoom kamery zależny od prędkości (km/h). */
+function navZoomForSpeed(kmh: number): number {
+  // Liniowa interpolacja: 0 km/h → NAV_ZOOM_MAX, 140 km/h → NAV_ZOOM_MIN
+  const clamped = Math.max(0, Math.min(kmh, 140));
+  return NAV_ZOOM_MAX - (clamped / 140) * (NAV_ZOOM_MAX - NAV_ZOOM_MIN);
+}
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
@@ -167,6 +175,7 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef = useRef<number>(Date.now());
+  const speedKmhRef           = useRef(0);   // aktualizowany przez useEffect → dostępny w DR
   
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -253,7 +262,10 @@ export default function MapScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const styles = makeMapStyles(theme, isDark, insets.top);
+  // On Android with edgeToEdgeEnabled:false the safe-area insets are 0;
+  // fall back to StatusBar.currentHeight so elements don't overlap the status bar.
+  const topInset = Math.max(insets.top, StatusBar.currentHeight ?? 0);
+  const styles = makeMapStyles(theme, isDark, topInset);
   const mapStyle = mapType === 'satellite'
     ? MAPBOX_STYLE_SATELLITE
     : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
@@ -272,6 +284,9 @@ export default function MapScreen() {
   const { speedLimit, updateSpeedLimit } = useSpeedLimit(true);
   const speedKmh = (speed ?? 0) * 3.6;
   const showCameras = true;
+
+  // Keep a ref of current speed for DR callback (no stale-closure issue)
+  useEffect(() => { speedKmhRef.current = speedKmh; }, [speedKmh]);
 
   const ALERT_DIST = 400;
   const cameraAlertVisible = nearestCamera !== null && nearestCamera.distanceM <= ALERT_DIST;
@@ -381,7 +396,7 @@ export default function MapScreen() {
           center:  snappedPos,
           pitch:   NAV_PITCH,
           heading: hdg,
-          zoom:    NAV_ZOOM,
+          zoom:    navZoomForSpeed(speedKmhRef.current),
         });
       }
     }, [animateCameraLive]),
@@ -795,6 +810,7 @@ export default function MapScreen() {
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               lastHeadingRef.current,
+              kmh,
             );
             return;
           }
@@ -822,7 +838,7 @@ export default function MapScreen() {
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
             heading: lastHeadingRef.current,
-            zoom:    NAV_ZOOM,
+            zoom:    navZoomForSpeed(kmh),
           });
 
         } else {
@@ -1602,7 +1618,8 @@ export default function MapScreen() {
       : heading;
 
   // ── Czy pokazać prędkościomierz ───────────────────────────
-  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5;
+  // Zawsze pokazuj gdy jest znany limit prędkości na drodze
+  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5 || speedLimit !== null;
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -1701,7 +1718,7 @@ export default function MapScreen() {
 
         {/* ── Panel DRIVING MODE (góra) ────────────────────── */}
         {isDriving && !isNavigating && (
-          <View style={[styles.navigationPanelTop, { top: insets.top + 52 }]}>
+          <View style={[styles.navigationPanelTop, { top: topInset + 52 }]}>
             <View style={styles.instructionBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{
@@ -1784,7 +1801,7 @@ export default function MapScreen() {
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
             backgroundColor: '#e33835',
-            paddingTop:    Platform.OS === 'ios' ? 54 : 36,
+            paddingTop:    topInset + 14,
             paddingBottom: 14, paddingHorizontal: 16,
             flexDirection: 'row', alignItems: 'center', gap: 10,
             shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
@@ -2155,7 +2172,7 @@ export default function MapScreen() {
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
-            position: 'absolute', top: insets.top + 122,
+            position: 'absolute', top: topInset + 122,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -2261,7 +2278,7 @@ export default function MapScreen() {
 
           {connected && isSharing && (
             <View style={{
-              position: 'absolute', top: insets.top + 8, right: 12,
+              position: 'absolute', top: topInset + 8, right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
               borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,
