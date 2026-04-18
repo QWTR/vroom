@@ -1,5 +1,20 @@
 import { Step } from '../hooks/useGoogleDirections';
 
+/** Oblicza azymut (bearing) z punktu 1 do punktu 2 w stopniach 0..360 */
+export function bearingBetween(
+  lat1: number, lng1: number,
+  lat2: number, lng2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng  = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) -
+            Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return (((Math.atan2(y, x) * 180) / Math.PI) % 360 + 360) % 360;
+}
+
 /** Oblicza odległość między dwoma punktami (Haversine, km) */
 export function haversineKm(
   lat1: number, lon1: number,

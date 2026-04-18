@@ -78,6 +78,7 @@ import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
 import { calculateDistance } from '../../scripts/distance';
 import {
+  bearingBetween,
   cleanInstruction,
   detectCurrentStep,
   findClosestPointIndex,
@@ -197,6 +198,7 @@ export default function MapScreen() {
   const isDrivingRef          = useRef(false);
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
+  const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef   = useRef<number>(Date.now());
   const smoothedZoomRef   = useRef<number>(NAV_ZOOM);
 
@@ -399,26 +401,31 @@ export default function MapScreen() {
     onFrame: useCallback((pos: any, hdg: number) => {
       if (!isNavigatingRef.current && !isDrivingRef.current) return;
 
-      const points = routePointsRef.current;
       let snappedPos = pos;
 
-      // Snap to route in both navigation and driving mode when route points are available
-      if (points.length > 1) {
-        const snapped = snapToRoute(pos.latitude, pos.longitude, points, 35);
-        snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
+      if (isNavigatingRef.current) {
+        // Navigation mode: snap to route using routePointsRef
+        const points = routePointsRef.current;
+        if (points.length > 1) {
+          const snapped = snapToRoute(pos.latitude, pos.longitude, points, 35);
+          snappedPos = { latitude: snapped.latitude, longitude: snapped.longitude };
+        }
+        drHdgRef.current = hdg;
       }
+      // Driving mode: snapping and heading are managed by GPS pipeline (onLocation)
+      // — do not snap here, do not overwrite drHdgRef
 
       drLatRef.current = snappedPos.latitude;
       drLngRef.current = snappedPos.longitude;
-      drHdgRef.current = hdg;
 
       drTickRef.current += 1;
       if (drTickRef.current % 2 === 0) {
         setDrTick(t => t + 1);
       }
 
-      // Smooth 60-fps camera animation in both navigation and driving mode
-      if (isNavigatingRef.current || isDrivingRef.current) {
+      // Camera animation: only navigation mode drives the camera from DR onFrame.
+      // Driving mode camera is driven by GPS-level animateCameraLive in onLocation.
+      if (isNavigatingRef.current) {
         animateCameraLive({
           center:  snappedPos,
           pitch:   NAV_PITCH,
@@ -685,6 +692,7 @@ export default function MapScreen() {
     isDrivingRef.current        = false;
     drivingKmRef.current        = 0;
     drivingLastLocRef.current   = null;
+    lastDrivingPosRef.current   = null;
     if (drivingStopTimerRef.current) {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
@@ -774,15 +782,20 @@ export default function MapScreen() {
       }
 
       // ══ 7. Heading ═══════════════════════════════════════════
-      const newH = loc.heading ?? lastHeadingRef.current;
-      if (kmh > 3 && newH >= 0) {
-        const diff           = newH - lastHeadingRef.current;
-        const normalizedDiff = ((diff + 540) % 360) - 180;
-        const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-        const finalHeading   = ((smoothed % 360) + 360) % 360;
-        if (Math.abs(normalizedDiff) > 2) {
-          setHeading(finalHeading);
-          lastHeadingRef.current = finalHeading;
+      // In driving mode, heading is derived from the movement vector
+      // (calculated below in the driving pipeline after snapping).
+      // For navigation / idle modes, use the GPS-reported heading.
+      if (!isDrivingRef.current) {
+        const newH = loc.heading ?? lastHeadingRef.current;
+        if (kmh > 3 && newH >= 0) {
+          const diff           = newH - lastHeadingRef.current;
+          const normalizedDiff = ((diff + 540) % 360) - 180;
+          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
+          const finalHeading   = ((smoothed % 360) + 360) % 360;
+          if (Math.abs(normalizedDiff) > 2) {
+            setHeading(finalHeading);
+            lastHeadingRef.current = finalHeading;
+          }
         }
       }
 
@@ -800,6 +813,46 @@ export default function MapScreen() {
         }
 
         const snapped = drivingSnap(lat, lng, kmh, false);
+
+        // ── Driving heading from movement vector (more reliable than loc.heading) ──
+        // Use bearing between last two snapped positions when moved ≥ 5 m and kmh ≥ 5.
+        // Fallback: GPS loc.heading (if ≥ 0), or keep lastHeadingRef unchanged.
+        let drivingHeading = lastHeadingRef.current;
+        if (kmh >= 5 && lastDrivingPosRef.current) {
+          const distM = haversineKm(
+            lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+            snapped.latitude, snapped.longitude,
+          ) * 1000;
+          if (distM >= 5) {
+            const brg        = bearingBetween(
+              lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+              snapped.latitude, snapped.longitude,
+            );
+            const brgDiff    = ((brg - lastHeadingRef.current + 540) % 360) - 180;
+            const smoothed   = lastHeadingRef.current + brgDiff * 0.4;
+            drivingHeading   = ((smoothed % 360) + 360) % 360;
+            lastHeadingRef.current = drivingHeading;
+            setHeading(drivingHeading);
+          }
+        } else if (loc.heading != null && loc.heading >= 0 && kmh > 3) {
+          // Fallback: smooth GPS heading when bearing is not computable
+          const diff           = loc.heading - lastHeadingRef.current;
+          const normalizedDiff = ((diff + 540) % 360) - 180;
+          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
+          const finalHeading   = ((smoothed % 360) + 360) % 360;
+          if (Math.abs(normalizedDiff) > 2) {
+            drivingHeading         = finalHeading;
+            lastHeadingRef.current = drivingHeading;
+            setHeading(drivingHeading);
+          }
+        }
+        // Always track last snapped position for next bearing calculation
+        lastDrivingPosRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+
+        // Keep DR refs in sync with driving pipeline (heading comes from bearing, not DR)
+        drLatRef.current = snapped.latitude;
+        drLngRef.current = snapped.longitude;
+        drHdgRef.current = drivingHeading;
 
         // ── DEAD ZONE — ignoruj jitter gdy stoisz ────────────
         if (lastSetLocRef.current && kmh < 5) {
@@ -839,11 +892,11 @@ export default function MapScreen() {
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               rawSpeedMs,
-              lastHeadingRef.current,
+              drivingHeading,
             );
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
-              lastHeadingRef.current,
+              drivingHeading,
             );
             return;
           }
@@ -863,14 +916,14 @@ export default function MapScreen() {
           feedDR(
             { latitude: snapped.latitude, longitude: snapped.longitude },
             rawSpeedMs,
-            lastHeadingRef.current,
+            drivingHeading,
           );
 
-          // GPS-level camera update (DR onFrame provides smooth 60fps interpolation)
+          // GPS-level camera update in driving mode (DR onFrame does NOT animate camera in driving mode)
           animateCameraLive({
             center:  { latitude: snapped.latitude, longitude: snapped.longitude },
             pitch:   NAV_PITCH,
-            heading: lastHeadingRef.current,
+            heading: drivingHeading,
             zoom:    getAdaptiveZoom(kmh),
           });
 
@@ -883,6 +936,7 @@ export default function MapScreen() {
               isDrivingRef.current        = false;
               drivingKmRef.current        = 0;
               drivingLastLocRef.current   = null;
+              lastDrivingPosRef.current   = null;
               drivingStopTimerRef.current = null;
               setIsDriving(false);
               setDrivingKm(0);
