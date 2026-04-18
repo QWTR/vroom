@@ -175,6 +175,7 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef = useRef<number>(Date.now());
+  const speedKmhRef           = useRef(0);
   
   // ── State – lokalizacja ───────────────────────────────────
   const [userLocation,  setUserLocation]  = useState<LocationState | null>(null);
@@ -665,7 +666,6 @@ export default function MapScreen() {
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
   // ─────────────────────────────────────────────────────────
-  const speedKmhRef = useRef(0);
   speedKmhRef.current = (speed ?? 0) * 3.6;
 
   const { start: startGPS, stop: stopGPS } = useAdaptiveGPS({
