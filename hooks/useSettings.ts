@@ -27,7 +27,7 @@ const DEFAULTS: AppSettings = {
   notifMessages:      true,       
   notifFriends:       true,      
   notifAchievements:  true, 
-  locationMarkerStyle: 'arrow',
+  locationMarkerStyle: 'profile',
 };
 
 export function useSettings() {
