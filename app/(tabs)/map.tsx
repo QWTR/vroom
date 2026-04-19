@@ -53,6 +53,7 @@ import {
   resetSpeedStats,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
+import { useSettings } from '../../hooks/useSettings';
 import { useCameraAnimation } from '../../hooks/useCameraAnimation';
 import { useDeadReckoning } from '../../hooks/useDeadReckoning';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
@@ -92,6 +93,7 @@ import {
 } from '../../scripts/navigationUtils';
 
 import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
+import { ArrowMarkerRenderer } from '../../components/markers/ArrowMarkerRenderer';
 import { CarMarker } from '../../components/markers/CarMarker';
 import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
 import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
@@ -279,6 +281,7 @@ export default function MapScreen() {
 
   // ── State – markery ───────────────────────────────────────
   const [carMarkerImage,      setCarMarkerImage]      = useState<string | null>(null);
+  const [arrowMarkerImage,    setArrowMarkerImage]    = useState<string | null>(null);
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
   const [markerImages,        setMarkerImages]        = useState<Record<string, string>>({});
@@ -332,6 +335,7 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top);
   const mapStyle =
@@ -1947,6 +1951,10 @@ export default function MapScreen() {
           />
         )}
 
+        {userLocation && (
+          <ArrowMarkerRenderer onCapture={setArrowMarkerImage} />
+        )}
+
         {isBuilding && pins.map((pin, index) => (
           <RoutePinRenderer
             key={`pinrender_${pin.id}_${index}_${pins.length}`}
@@ -2303,7 +2311,7 @@ export default function MapScreen() {
               latitude={markerLat}
               longitude={markerLng}
               heading={markerHdg}
-              imageUri={carMarkerImage}
+              imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
             />
           )}
         </Mapbox.MapView>

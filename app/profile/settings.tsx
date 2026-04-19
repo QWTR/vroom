@@ -41,9 +41,8 @@ const THEME_OPTIONS: { key: ThemeMode; label: string; icon: string; color: strin
 ];
 
 const MARKER_STYLES = [
-  { key: 'arrow' as const, label: 'STRZAŁKA', icon: 'navigation' },
-  { key: 'car'   as const, label: 'AUTO',     icon: 'directions-car' },
-  { key: 'dot'   as const, label: 'KROPKA',   icon: 'radio-button-checked' },
+  { key: 'arrow'   as const, label: 'STRZAŁKA',  icon: 'navigation' },
+  { key: 'profile' as const, label: 'PROFILOWE', icon: 'account-circle' },
 ];
 
 export default function SettingsScreen() {
