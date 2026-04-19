@@ -521,7 +521,7 @@ export default function MapScreen() {
     stallTimeout: 2500,
   });
 
-  const { flushPendingKm }                                            = useBackgroundTracking(isSharing);
+  const { flushPendingKm }                                            = useBackgroundTracking(isSharing, settings.backgroundTracking);
   const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
 
   useEffect(() => {

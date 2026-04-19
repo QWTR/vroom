@@ -35,7 +35,7 @@ export function getSpeedDebug() {
   return { samples: _speedSamples.length, max: _speedMax, distKm: _navDistKm };
 }
 
-// ── Wywołaj RAZ — czyści i zwraca ─────────────────────────────────────────────
+// ── Flush foreground stats and return ────────────────────────────────────────
 function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: number } {
   const avg = _speedSamples.length > 0
     ? _speedSamples.reduce((a, b) => a + b, 0) / _speedSamples.length
@@ -45,19 +45,23 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
     maxSpeed: Math.round(_speedMax * 10) / 10,
     distKm:   Math.round(_navDistKm * 1000) / 1000,
   };
-  // Wyczyść po pobraniu
   _speedSamples = [];
   _speedMax     = 0;
   _navDistKm    = 0;
   return result;
 }
 
-// ── BG task ───────────────────────────────────────────────────────────────────
+// ── AsyncStorage keys ─────────────────────────────────────────────────────────
 const BG_SPEED_SAMPLES_KEY = 'nav_speed_samples';
 const BG_SPEED_MAX_KEY     = 'nav_speed_max';
 const BG_PENDING_KM_KEY    = 'bg_pending_km';
 const BG_LAST_LOC_KEY      = 'bg_last_location';
+// Flag: 'true' when live-sharing is active — read by the background task
+const BG_IS_SHARING_KEY    = 'bg_is_sharing';
+// Threshold (km) at which background stats are auto-saved as a passive trip
+const BG_AUTO_FLUSH_KM     = 5;
 
+// ── BG task ───────────────────────────────────────────────────────────────────
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
   if (error || !data) return;
   const location = data.locations?.[0];
@@ -69,12 +73,17 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 
     const { latitude, longitude, speed } = location.coords;
 
-    await fetch(`${API_URL}/api/live/location`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ lat: latitude, lng: longitude, shareLocation: true }),
-    });
+    // ── Send live location only when sharing is active ────────────────────
+    const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
+    if (sharingFlag === 'true') {
+      await fetch(`${API_URL}/api/live/location`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ lat: latitude, lng: longitude, shareLocation: true }),
+      }).catch(() => {});
+    }
 
+    // ── Accumulate speed stats ────────────────────────────────────────────
     if (speed != null && speed * 3.6 >= 1) {
       const kmh        = speed * 3.6;
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
@@ -88,13 +97,44 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       ]);
     }
 
+    // ── Accumulate distance ───────────────────────────────────────────────
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
     if (lastRaw) {
       const last   = JSON.parse(lastRaw);
       const distKm = haversineKm(last.latitude, last.longitude, latitude, longitude);
       if (distKm > 0.01 && distKm < 0.5) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
-        await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + distKm));
+        const newPending = pending + distKm;
+        await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));
+
+        // ── Auto-flush as passive trip when threshold is reached ──────────
+        if (newPending >= BG_AUTO_FLUSH_KM) {
+          const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
+          const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
+          const maxRaw     = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
+          const maxSpeed   = parseFloat(maxRaw ?? '0');
+          const avgSpeed   = samples.length > 0
+            ? samples.reduce((a, b) => a + b, 0) / samples.length
+            : 0;
+
+          await fetch(`${API_URL}/api/activity/save`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              distance: Math.round(newPending * 1000) / 1000,
+              maxSpeed: Math.round(maxSpeed * 10) / 10,
+              avgSpeed: Math.round(avgSpeed * 10) / 10,
+              duration: null,
+            }),
+          }).catch(() => {});
+
+          // Reset accumulators after save
+          await Promise.all([
+            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+            AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+            AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+          ]);
+        }
       }
     }
     await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({ latitude, longitude }));
@@ -115,70 +155,92 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Hook ─────────────────────────────────────────────────────���────────────────
-export function useBackgroundTracking(isSharing: boolean) {
+// ── Hook ──────────────────────────────────────────────────────────────────────
+// bgEnabled: comes from settings.backgroundTracking — starts the task independently
+//            of live sharing so that stats are collected whenever the user drives.
+export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = true) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
+  // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
   useEffect(() => {
-    const sub = AppState.addEventListener('change', s => { appStateRef.current = s; });
-    return () => sub.remove();
-  }, []);
+    AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing ? 'true' : 'false').catch(() => {});
+  }, [isSharing]);
 
+  // ── Flush helpers ─────────────────────────────────────────────────────────
   const flushPendingKm = useCallback(async (fromNavigation = false) => {
     try {
       const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        console.log('❌ flushPendingKm — brak tokenu');
-        return;
-      }
+      if (!token) return;
 
       if (fromNavigation) {
-        // ── Pobierz dane RAZ — flushSpeedStatsSync czyści po pobraniu ──
+        // Collect foreground stats (fg) + background distance (bg) together
         const { avgSpeed, maxSpeed, distKm } = flushSpeedStatsSync();
 
-        // Uzupełnij dystansem z BG jeśli apka była w tle
         const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
         const bgPending    = parseFloat(bgPendingStr ?? '0');
+        // Take the larger of fg and bg measurements to avoid double-counting
         const finalDist    = Math.max(distKm, bgPending);
 
-        // Wyczyść BG accumulatory
+        // Clear bg accumulators
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
         await Promise.all([
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
         ]);
 
+        if (finalDist < 0.05) return;
 
-        const response = await fetch(`${API_URL}/api/activity/save`, {
+        await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ distance: finalDist, maxSpeed, avgSpeed, duration: null }),
         });
 
-        const json = await response.json();
-
       } else {
-        // ── Tylko sharing bez nawigacji ───────────────────────────────
-        const pendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
-        const pending    = parseFloat(pendingStr ?? '0');
-        if (pending < 0.1) return;
+        // Passive flush: no navigation was active, save whatever background accumulated
+        const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
+        const bgPending    = parseFloat(bgPendingStr ?? '0');
+        if (bgPending < 0.1) return;
 
-        await fetch(`${API_URL}/api/live/distance`, {
+        const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
+        const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
+        const maxRaw    = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
+        const maxSpeed  = parseFloat(maxRaw ?? '0');
+        const avgSpeed  = samples.length > 0
+          ? samples.reduce((a, b) => a + b, 0) / samples.length
+          : 0;
+
+        await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ km: pending }),
+          body: JSON.stringify({
+            distance: Math.round(bgPending * 1000) / 1000,
+            maxSpeed: Math.round(maxSpeed * 10) / 10,
+            avgSpeed: Math.round(avgSpeed * 10) / 10,
+            duration: null,
+          }),
         });
+
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+        await Promise.all([
+          AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+          AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+        ]);
       }
     } catch (e) {
       console.log('flushPendingKm error:', e);
     }
   }, []);
 
+  // ── Task management ───────────────────────────────────────────────────────
   const startBackgroundTracking = useCallback(async () => {
     if (appStateRef.current !== 'active') return;
-    const bgEnabled = await AsyncStorage.getItem('setting_background_tracking');
-    if (bgEnabled === 'false') return;
+
+    // Read setting from app_settings JSON (the SettingsContext storage key)
+    const cached   = await AsyncStorage.getItem('app_settings');
+    const parsed   = cached ? JSON.parse(cached) : {};
+    if (parsed.backgroundTracking === false) return;
+
     try {
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg !== 'granted') return;
@@ -209,17 +271,31 @@ export function useBackgroundTracking(isSharing: boolean) {
     } catch (e: any) {
       console.log('⚠️ stopBackgroundTracking error:', e?.message ?? e);
     }
-    await flushPendingKm(false);
-  }, [flushPendingKm]);
+  }, []);
 
+  // ── Auto-start when bgEnabled is on (independent of isSharing) ───────────
   useEffect(() => {
-    if (isSharing) {
+    if (bgEnabled || isSharing) {
       const timer = setTimeout(() => startBackgroundTracking(), 300);
       return () => clearTimeout(timer);
     } else {
-      stopBackgroundTracking();
+      // Stop task and flush passive stats only when BOTH are off
+      stopBackgroundTracking().then(() => flushPendingKm(false));
     }
-  }, [isSharing]);
+  }, [isSharing, bgEnabled]);
+
+  // ── Flush passive stats when app returns to foreground ───────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+      if ((prev === 'background' || prev === 'inactive') && nextState === 'active') {
+        // App just came back to foreground — save any bg-accumulated stats
+        flushPendingKm(false);
+      }
+    });
+    return () => sub.remove();
+  }, [flushPendingKm]);
 
   return { startBackgroundTracking, stopBackgroundTracking, flushPendingKm };
 }
