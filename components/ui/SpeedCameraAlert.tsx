@@ -24,6 +24,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
 
   if (!camera) return null;
 
+  const isBump     = camera.type === 'bump';
   const limit      = camera.maxspeed;
   const isSpeeding = limit !== null && userSpeed > limit + 3;
   const dist       = Math.round(camera.distanceM);
@@ -75,7 +76,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
           alignItems:      'center',
           justifyContent:  'center',
         }}>
-          <MaterialCommunityIcons name="camera-outline" size={22} color={color} />
+          <MaterialCommunityIcons name={isBump ? 'speedometer-slow' : 'camera-outline'} size={22} color={color} />
         </View>
 
         {/* Teksty */}
@@ -87,7 +88,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
             fontWeight:    '700',
             letterSpacing: 1.5,
           }}>
-            {isSpeeding ? '⚠️ ZA SZYBKO — FOTORADAR' : '📷 FOTORADAR'}
+            {isBump ? '🚧 PRÓG ZWALNIAJĄCY' : (isSpeeding ? '⚠️ ZA SZYBKO — FOTORADAR' : '📷 FOTORADAR')}
           </Text>
           <Text style={{
             fontFamily: 'Orbitron',

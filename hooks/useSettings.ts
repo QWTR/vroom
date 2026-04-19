@@ -13,6 +13,7 @@ export interface AppSettings {
   notifMessages:      boolean;    
   notifFriends:       boolean;    
   notifAchievements:  boolean;
+  locationMarkerStyle: 'arrow' | 'car' | 'dot';
 }
 
 const DEFAULTS: AppSettings = {
@@ -26,6 +27,7 @@ const DEFAULTS: AppSettings = {
   notifMessages:      true,       
   notifFriends:       true,      
   notifAchievements:  true, 
+  locationMarkerStyle: 'arrow',
 };
 
 export function useSettings() {

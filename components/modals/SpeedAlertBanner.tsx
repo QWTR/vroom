@@ -30,6 +30,7 @@ export function SpeedAlertBanner({ camera, userSpeed, visible }: Props) {
 
   if (!camera) return null;
 
+  const isBump     = camera.type === 'bump';
   const isSpeeding = camera.maxspeed !== null && userSpeed > camera.maxspeed + 3;
   const color      = isSpeeding ? '#e33835' : '#ff922b';
   const dist       = Math.round(camera.distanceM);
@@ -65,7 +66,7 @@ export function SpeedAlertBanner({ camera, userSpeed, visible }: Props) {
           alignItems:      'center',
           justifyContent:  'center',
         }}>
-          <MaterialCommunityIcons name="camera-outline" size={22} color={color} />
+          <MaterialCommunityIcons name={isBump ? 'speedometer-slow' : 'camera-outline'} size={22} color={color} />
         </View>
 
         {/* Tekst */}
@@ -77,7 +78,7 @@ export function SpeedAlertBanner({ camera, userSpeed, visible }: Props) {
             letterSpacing: 2,
             fontWeight:    '700',
           }}>
-            {isSpeeding ? '⚠️ FOTORADAR — ZA SZYBKO!' : '📷 FOTORADAR AHEAD'}
+            {isBump ? '🚧 PRÓG ZWALNIAJĄCY' : (isSpeeding ? '⚠️ FOTORADAR — ZA SZYBKO!' : '📷 FOTORADAR AHEAD')}
           </Text>
           <Text style={{
             fontFamily: 'Orbitron',
