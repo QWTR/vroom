@@ -335,7 +335,7 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const { settings, fetchSettings } = useSettings();
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top);
   const mapStyle =
@@ -735,8 +735,6 @@ export default function MapScreen() {
       } catch (e) { console.log('nav_destination error:', e); }
     })();
   }, [userLocation]));
-
-  useFocusEffect(useCallback(() => { fetchSettings(); }, [fetchSettings]));
 
   useEffect(() => {
     const pinIds = new Set(pins.map(p => p.id));

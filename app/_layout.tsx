@@ -17,6 +17,7 @@ import { SafeAreaProvider }      from 'react-native-safe-area-context';
 import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import { SettingsProvider } from '../contexts/SettingsContext';
 import { API_URL } from '../constants/config';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -106,7 +107,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <RootLayoutInner />
+        <SettingsProvider>
+          <RootLayoutInner />
+        </SettingsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
