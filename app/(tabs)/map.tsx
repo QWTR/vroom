@@ -111,6 +111,7 @@ import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetai
 import { TripStatsModal } from '../../components/modals/TripStatsModal';
 import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
+import { AdBanner }           from '../../components/ads/AdBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
@@ -2897,6 +2898,13 @@ export default function MapScreen() {
           }}
           currentUserId={currentUserId}
         />
+
+        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
+        {!isNavigating && !isDriving && (
+          <View style={{ position: 'absolute', bottom: 80, left: 0, right: 0, zIndex: 10 }}>
+            <AdBanner />
+          </View>
+        )}
       </View>
     </>
   );
