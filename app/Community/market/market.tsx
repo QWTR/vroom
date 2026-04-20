@@ -13,7 +13,8 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 
-const PAGE = 20;
+const PAGE               = 20;
+const SEARCH_DEBOUNCE_MS = 400;
 
 interface Seller {
   id: number;
@@ -165,7 +166,7 @@ export default function MarketScreen() {
   const handleSearch = (q: string) => {
     setSearch(q);
     clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => fetchListings(true, q, filters), 400);
+    searchTimer.current = setTimeout(() => fetchListings(true, q, filters), SEARCH_DEBOUNCE_MS);
   };
 
   const applyFilters = () => {

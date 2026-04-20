@@ -12,6 +12,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { API_URL } from '../../../../constants/config';
 
+const MAX_CHAT_PHOTOS  = 5;
+
 const INPUT_MIN_HEIGHT = 40;
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE        = 30;
@@ -115,14 +117,14 @@ export default function MarketChatScreen() {
   }, [hasMore, loadingMore, nextCursor]);
 
   const handlePickPhoto = async () => {
-    if (photos.length >= 5) return;
+    if (photos.length >= MAX_CHAT_PHOTOS) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       quality: 0.85,
     });
     if (!result.canceled) {
-      setPhotos(prev => [...prev, ...result.assets.map(a => a.uri)].slice(0, 5));
+      setPhotos(prev => [...prev, ...result.assets.map(a => a.uri)].slice(0, MAX_CHAT_PHOTOS));
     }
   };
 

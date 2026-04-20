@@ -403,6 +403,7 @@ export default function MapScreen() {
   }, []);
 
   // ── Fuel stations — trigger fetch on location change ──────
+  // The hook internally throttles by time (30s) and distance (500m) to avoid excessive API calls.
   useEffect(() => {
     if (userLocation) onFuelLocationChange(userLocation);
   }, [userLocation?.latitude, userLocation?.longitude]);

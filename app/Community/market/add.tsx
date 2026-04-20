@@ -17,6 +17,7 @@ import { API_URL } from '../../../constants/config';
 const CATEGORIES   = ['auto', 'moto', 'części', 'inne'];
 const DRIVE_OPTS   = ['FWD', 'RWD', 'AWD', '4x4'];
 const TRANS_OPTS   = ['manualna', 'automatyczna'];
+const MAX_PHOTOS   = 10;
 
 export default function AddListingScreen() {
   const router = useRouter();
@@ -79,8 +80,8 @@ export default function AddListingScreen() {
   }, [editId]);
 
   const pickPhoto = async () => {
-    if (photos.length >= 10) {
-      Alert.alert('Limit zdjęć', 'Możesz dodać maksymalnie 10 zdjęć.');
+    if (photos.length >= MAX_PHOTOS) {
+      Alert.alert('Limit zdjęć', `Możesz dodać maksymalnie ${MAX_PHOTOS} zdjęć.`);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -90,7 +91,7 @@ export default function AddListingScreen() {
     });
     if (!result.canceled) {
       const newUris = result.assets.map(a => a.uri);
-      setPhotos(prev => [...prev, ...newUris].slice(0, 10));
+      setPhotos(prev => [...prev, ...newUris].slice(0, MAX_PHOTOS));
     }
   };
 
@@ -209,7 +210,7 @@ export default function AddListingScreen() {
                   </TouchableOpacity>
                 </View>
               ))}
-              {photos.length < 10 && (
+              {photos.length < MAX_PHOTOS && (
                 <TouchableOpacity
                   style={{ width: 90, height: 90, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 4 }}
                   onPress={pickPhoto}
@@ -221,7 +222,7 @@ export default function AddListingScreen() {
             </View>
           </ScrollView>
           <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginTop: 6 }}>
-            Min. 1, max. 10 zdjęć • Pierwsze zdjęcie to miniatura
+            Min. 1, max. {MAX_PHOTOS} zdjęć • Pierwsze zdjęcie to miniatura
           </Text>
         </FormSection>
 
