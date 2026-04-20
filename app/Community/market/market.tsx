@@ -10,6 +10,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../../contexts/ThemeContext';
+import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 
 const PAGE = 20;
@@ -91,7 +92,7 @@ export default function MarketScreen() {
   const [pendingFilters, setPendingFilters] = useState<Filters>(filters);
 
   const fetchingRef = useRef(false);
-  const searchTimer = useRef<any>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -516,7 +517,7 @@ function FilterSection({ label, children }: { label: string; children: React.Rea
   );
 }
 
-function FilterInput({ placeholder, value, onChangeText, theme }: { placeholder: string; value: string; onChangeText: (v: string) => void; theme: any }) {
+function FilterInput({ placeholder, value, onChangeText, theme }: { placeholder: string; value: string; onChangeText: (v: string) => void; theme: AppTheme }) {
   return (
     <TextInput
       style={{

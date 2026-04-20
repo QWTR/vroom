@@ -63,10 +63,11 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
     setSaving(true);
     try {
       const payload: { pb95?: number; pb98?: number; diesel?: number; lpg?: number } = {};
-      if (prices.pb95   && !isNaN(Number(prices.pb95)))   payload.pb95   = Number(prices.pb95);
-      if (prices.pb98   && !isNaN(Number(prices.pb98)))   payload.pb98   = Number(prices.pb98);
-      if (prices.diesel && !isNaN(Number(prices.diesel))) payload.diesel = Number(prices.diesel);
-      if (prices.lpg    && !isNaN(Number(prices.lpg)))    payload.lpg    = Number(prices.lpg);
+      const fuelKeys = ['pb95', 'pb98', 'diesel', 'lpg'] as const;
+      for (const k of fuelKeys) {
+        const v = prices[k];
+        if (v && !isNaN(Number(v))) payload[k] = Number(v);
+      }
 
       if (Object.keys(payload).length === 0) {
         Toast.show({ type: 'error', text1: 'Błąd', text2: 'Podaj co najmniej jedną cenę.' });

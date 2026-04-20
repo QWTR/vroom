@@ -47,12 +47,15 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ~5.5 km radius at the equator; longitude delta is adjusted by cos(lat) for accuracy
 function bboxFromLocation(loc: LocationState, deltaDeg = 0.05): BBox {
+  const cosLat = Math.cos((loc.latitude * Math.PI) / 180);
+  const lngDelta = cosLat > 0 ? deltaDeg / cosLat : deltaDeg;
   return {
     minLat: loc.latitude  - deltaDeg,
     maxLat: loc.latitude  + deltaDeg,
-    minLng: loc.longitude - deltaDeg,
-    maxLng: loc.longitude + deltaDeg,
+    minLng: loc.longitude - lngDelta,
+    maxLng: loc.longitude + lngDelta,
   };
 }
 

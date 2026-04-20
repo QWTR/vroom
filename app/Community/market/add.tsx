@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
+import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 
 const CATEGORIES   = ['auto', 'moto', 'części', 'inne'];
@@ -37,6 +38,7 @@ export default function AddListingScreen() {
   const [description,  setDescription]  = useState('');
   const [price,        setPrice]        = useState('');
   const [photos,       setPhotos]       = useState<string[]>([]);
+  const originalPhotosRef = React.useRef<string[]>([]);
   const [submitting,   setSubmitting]   = useState(false);
   const [loadingEdit,  setLoadingEdit]  = useState(false);
 
@@ -66,6 +68,7 @@ export default function AddListingScreen() {
         setDescription(data.description ?? '');
         setPrice(data.price?.toString() ?? '');
         setPhotos(data.photos ?? []);
+        originalPhotosRef.current = data.photos ?? [];
       } catch (e) {
         console.error('loadEdit:', e);
         Toast.show({ type: 'error', text1: 'Błąd ładowania danych' });
@@ -97,7 +100,7 @@ export default function AddListingScreen() {
 
   const validate = (): string | null => {
     if (!title.trim()) return 'Tytuł jest wymagany.';
-    if (!price.trim() || isNaN(Number(price)) || Number(price) <= 0) return 'Prawidłowa cena jest wymagana.';
+    if (!price.trim() || isNaN(Number(price)) || Number(price) <= 0) return 'Prawidłowa cena jest wymagana (wartość > 0).';
     if (photos.length === 0) return 'Dodaj co najmniej jedno zdjęcie.';
     return null;
   };
@@ -125,8 +128,9 @@ export default function AddListingScreen() {
       if (fuel)         formData.append('fuel',         fuel);
       if (description)  formData.append('description',  description.trim());
 
-      // Only append new (local) photos — http(s) URLs are existing server photos
-      const newPhotos = photos.filter(p => !p.startsWith('http'));
+      // Only append new (local) photos — photos already in originalPhotosRef are server-side
+      const originalSet = new Set(originalPhotosRef.current);
+      const newPhotos = photos.filter(p => !originalSet.has(p));
       for (const uri of newPhotos) {
         const filename = uri.split('/').pop() ?? 'photo.jpg';
         const ext      = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -380,7 +384,7 @@ function FormSection({ label, required, children }: { label: string; required?: 
   );
 }
 
-function FieldInput({ value, onChangeText, placeholder, theme, keyboardType }: { value: string; onChangeText: (v: string) => void; placeholder: string; theme: any; keyboardType?: any }) {
+function FieldInput({ value, onChangeText, placeholder, theme, keyboardType }: { value: string; onChangeText: (v: string) => void; placeholder: string; theme: AppTheme; keyboardType?: any }) {
   return (
     <TextInput
       style={{
