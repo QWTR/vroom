@@ -3,9 +3,13 @@ import { View } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const BANNER_ID = __DEV__
-  ? TestIds.ADAPTIVE_BANNER
-  : 'ca-app-pub-1660420496578702/9230988370';
+
+
+const BANNER_ID = TestIds.ADAPTIVE_BANNER
+
+// const BANNER_ID = __DEV__
+//   ? TestIds.ADAPTIVE_BANNER
+//   : 'ca-app-pub-1660420496578702/9230988370';
 
 export function AdBanner() {
   const { theme } = useTheme();
