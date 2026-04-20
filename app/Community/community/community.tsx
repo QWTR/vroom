@@ -23,6 +23,7 @@ import { RouteMiniMap }          from '../../../components/profile/RouteMiniMap'
 import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboardModal';
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import { LinkPreviewCard } from '@/components/chat/LinkPreviewCard';
+import { AdNativePost }    from '../../../components/ads/AdNativePost';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const PAGE_SIZE = 20;
@@ -1175,6 +1176,19 @@ export default function CommunityScreen() {
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
+  type FeedItem = Post | { _adType: 'native'; _adKey: string };
+
+  const feedItems: FeedItem[] = React.useMemo(() => {
+    const result: FeedItem[] = [];
+    filteredPosts.forEach((post, index) => {
+      result.push(post);
+      if ((index + 1) % 5 === 0) {
+        result.push({ _adType: 'native', _adKey: `ad_${index}` });
+      }
+    });
+    return result;
+  }, [filteredPosts]);
+
   const modalBottomPadding = Math.max(insets.bottom, 16);
 
   // ── Empty state helper ───────────────────────────────────
@@ -1275,9 +1289,11 @@ export default function CommunityScreen() {
             </View>
           ) : (
             <FlatList
-              data={filteredPosts}
-              keyExtractor={p => String(p.id)}
-              renderItem={({ item }) => (
+              data={feedItems}
+              keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
+              renderItem={({ item }) => '_adType' in item ? (
+                <AdNativePost />
+              ) : (
                 <PostCard
                   post={item} myId={myId}
                   onLike={handleLikePost} onRepost={handleRepost}

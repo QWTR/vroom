@@ -22,6 +22,7 @@ import { PollModal }  from '../../components/modals/PollModal';
 import { GiftModal }  from '../../components/modals/GiftModal';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { UpdateModal }  from '../../components/modals/UpdateModal';
+import { AdBanner }     from '../../components/ads/AdBanner';
 
 const { width, height } = Dimensions.get('window');
 
@@ -380,6 +381,13 @@ export default function HomeScreen() {
               </View>
             </LinearGradient>
           </TouchableOpacity>
+        </Animated.View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* AD BANNER                                      */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim }}>
+          <AdBanner />
         </Animated.View>
 
         {/* ══════════════════════════════════════════════ */}
