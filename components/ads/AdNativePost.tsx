@@ -23,12 +23,17 @@ export function AdNativePost() {
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
 
   useEffect(() => {
+    let ad: NativeAd | null = null;
     NativeAd.createForAdRequest(NATIVE_ID, {
       requestNonPersonalizedAdsOnly: false,
-    }).then(ad => {
-      setNativeAd(ad);
-      ad.load();
+    }).then(createdAd => {
+      ad = createdAd;
+      setNativeAd(createdAd);
+      createdAd.load();
     });
+    return () => {
+      ad?.destroy();
+    };
   }, []);
 
   if (!nativeAd) return null;
@@ -102,7 +107,7 @@ export function AdNativePost() {
         />
         <TaglineView
           style={{
-            color: theme.textDim ?? '#888',
+            color: theme.textDim,
             fontSize: 13,
             lineHeight: 20,
           }}

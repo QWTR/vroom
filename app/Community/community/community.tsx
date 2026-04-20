@@ -1178,16 +1178,13 @@ export default function CommunityScreen() {
 
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
 
-  const feedItems: FeedItem[] = React.useMemo(() => {
-    const result: FeedItem[] = [];
-    filteredPosts.forEach((post, index) => {
-      result.push(post);
-      if ((index + 1) % 5 === 0) {
-        result.push({ _adType: 'native', _adKey: `ad_${index}` });
-      }
-    });
-    return result;
-  }, [filteredPosts]);
+  const feedItems: FeedItem[] = React.useMemo(() =>
+    filteredPosts.flatMap((post, index) =>
+      (index + 1) % 5 === 0
+        ? [post, { _adType: 'native' as const, _adKey: `ad_${index}` }]
+        : [post]
+    ),
+  [filteredPosts]);
 
   const modalBottomPadding = Math.max(insets.bottom, 16);
 
