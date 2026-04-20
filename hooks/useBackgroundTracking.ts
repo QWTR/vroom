@@ -22,7 +22,10 @@ export function feedSpeedSample(speedMs: number | null) {
 
 export function feedNavDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const d = haversineKm(lat1, lon1, lat2, lon2);
-  if (d > 0 && d < 0.5) _navDistKm += d;
+  // Skip increments < 3 m (GPS jitter while stationary) and > 500 m (bad fix).
+  // The lower bound prevents phantom km from accumulating when the phone sits still.
+  if (d < 0.003 || d >= 0.5) return;
+  _navDistKm += d;
 }
 
 export function resetSpeedStats() {

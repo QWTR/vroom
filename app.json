@@ -2,7 +2,7 @@
   "expo": {
     "name": "vroom",
     "slug": "vroom",
-    "version": "1.0.0",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/images/logotypRed.png",
     "scheme": "vroom",
@@ -14,7 +14,7 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.0.11",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom",
@@ -25,8 +25,6 @@
         "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
         "UIBackgroundModes": [
-          "location",
-          "fetch",
           "location",
           "fetch"
         ]
@@ -50,14 +48,6 @@
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS"
       ]
     },
@@ -72,6 +62,13 @@
         {
           "RNMapboxMapsImpl": "mapbox",
           "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-1660420496578702~8437840948",
+          "iosAppId": "ca-app-pub-1660420496578702~1840643009"
         }
       ],
       "expo-router",

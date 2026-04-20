@@ -850,6 +850,24 @@ export default function MapScreen() {
           navLngFilter.reset();
           return;
         }
+
+        // Absolute-distance cap: a medium-sized drift (e.g. 200 m over 30 s =
+        // 24 km/h) passes the speed check but is still a bad fix when the vehicle
+        // is slow or stationary. Allow 3× expected distance + 100 m headroom.
+        // safeDt uses a 100 ms floor so a very short time-delta between consecutive
+        // GPS fixes never makes an ordinary displacement look unreasonably fast.
+        const distM2    = haversineKm(lastGoodLocRef.current.lat, lastGoodLocRef.current.lng, rawLat, rawLng) * 1000;
+        const reportedKmh = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
+        const expectedM2  = (reportedKmh / 3.6) * (safeDt / 1000);
+        const maxDistM2   = Math.max(100, expectedM2 * 3 + 100);
+        if (distM2 > maxDistM2) {
+          console.warn(`[GPS map] Skok dystansowy odrzucony: ${Math.round(distM2)}m > ${Math.round(maxDistM2)}m`);
+          latFilter.reset();
+          lngFilter.reset();
+          navLatFilter.reset();
+          navLngFilter.reset();
+          return;
+        }
       }
       lastGoodTimeRef.current = now;
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
