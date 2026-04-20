@@ -5,7 +5,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 
 
-const BANNER_ID = 'ca-app-pub-1660420496578702/9230988370'
+const BANNER_ID = TestIds.ADAPTIVE_BANNER
 
 // const BANNER_ID = __DEV__
 //   ? TestIds.ADAPTIVE_BANNER
