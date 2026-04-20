@@ -196,7 +196,7 @@ function RootLayoutInner() {
           router.push(`/Community/chats/${data.conversationId}` as any);
         else if ((data.type === 'like_post' || data.type === 'comment_post') && data.postId) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));
-          router.push(`/Community/community` as any);
+          router.push(`/Community/community/community` as any);
         } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId)
           router.push(`/(tabs)/map` as any);
         else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId)
