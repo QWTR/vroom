@@ -37,6 +37,7 @@ import {
   MAPBOX_STYLE_DARK,
   MAPBOX_STYLE_LIGHT,
   MAPBOX_STYLE_SATELLITE,
+  MAPBOX_STYLE_HYBRID,
   MAX_NEARBY_USERS_DISTANCE
 } from '../../constants/mapConfig';
 import { LocationState, RouteInfo, User } from '../../constants/types';
@@ -52,6 +53,7 @@ import {
   resetSpeedStats,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
+import { useSettings } from '../../hooks/useSettings';
 import { useCameraAnimation } from '../../hooks/useCameraAnimation';
 import { useDeadReckoning } from '../../hooks/useDeadReckoning';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
@@ -91,6 +93,7 @@ import {
 } from '../../scripts/navigationUtils';
 
 import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
+import { ArrowMarkerRenderer } from '../../components/markers/ArrowMarkerRenderer';
 import { CarMarker } from '../../components/markers/CarMarker';
 import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
 import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
@@ -226,6 +229,7 @@ export default function MapScreen() {
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDrivingRef          = useRef(false);
+  const drivingManuallyDisabledRef = useRef(false);
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
@@ -277,6 +281,7 @@ export default function MapScreen() {
 
   // ── State – markery ───────────────────────────────────────
   const [carMarkerImage,      setCarMarkerImage]      = useState<string | null>(null);
+  const [arrowMarkerImage,    setArrowMarkerImage]    = useState<string | null>(null);
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
   const [markerImages,        setMarkerImages]        = useState<Record<string, string>>({});
@@ -330,11 +335,13 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top);
-  const mapStyle = mapType === 'satellite'
-    ? MAPBOX_STYLE_SATELLITE
-    : isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
+  const mapStyle =
+    mapType === 'satellite' ? MAPBOX_STYLE_SATELLITE :
+    mapType === 'hybrid'    ? MAPBOX_STYLE_HYBRID :
+    isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
   const { startConversation } = useChat();
 
   const { snap: drivingSnap, setRoutePoints: setSnapPoints, setRoadMatchPoints, reset: resetSnap } = useDrivingSnap();
@@ -359,10 +366,13 @@ export default function MapScreen() {
     if (!checkAlert(nearestCamera, ALERT_DIST)) return;
     markAlerted(nearestCamera.id);
     if (isSpeechEnabled) {
-      const dist = Math.round(nearestCamera.distanceM);
-      const msg  = nearestCamera.maxspeed
-        ? `Fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed}`
-        : `Fotoradar za ${dist} metrów`;
+      const dist   = Math.round(nearestCamera.distanceM);
+      const isBump = nearestCamera.type === 'bump';
+      const msg    = isBump
+        ? `Próg zwalniający za ${dist} metrów`
+        : nearestCamera.maxspeed
+          ? `Fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed}`
+          : `Fotoradar za ${dist} metrów`;
       speak(msg);
     }
   }, [nearestCamera?.id, nearestCamera?.distanceM]);
@@ -375,6 +385,18 @@ export default function MapScreen() {
       return next;
     });
   }, [cameras]);
+
+  // ── mapType persistence ────────────────────────────────────
+  useEffect(() => {
+    AsyncStorage.getItem('map_type').then(val => {
+      if (val) setMapType(val);
+    }).catch(() => {});
+  }, []);
+
+  const handleChangeMapType = useCallback((type: string) => {
+    setMapType(type);
+    AsyncStorage.setItem('map_type', type).catch(() => {});
+  }, []);
 
   const {
     startTrip, feedSpeed, feedPosition,
@@ -499,7 +521,7 @@ export default function MapScreen() {
     stallTimeout: 2500,
   });
 
-  const { flushPendingKm }                                            = useBackgroundTracking(isSharing);
+  const { flushPendingKm }                                            = useBackgroundTracking(isSharing, settings.backgroundTracking);
   const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
 
   useEffect(() => {
@@ -775,9 +797,11 @@ export default function MapScreen() {
   const handleToggleDrivingMode = useCallback(() => {
     if (isNavigating) return;
     if (isDriving) {
+      drivingManuallyDisabledRef.current = true;
       exitDrivingMode();
       if (userLocation) exitDrivingCamera(userLocation);
     } else {
+      drivingManuallyDisabledRef.current = false;
       isDrivingRef.current        = true;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
       drivingKmRef.current        = 0;
@@ -966,6 +990,7 @@ export default function MapScreen() {
           }
 
           if (!isDrivingRef.current) {
+            if (drivingManuallyDisabledRef.current) return;
             if (drivingConsecutiveRef.current < DRIVING_CONSECUTIVE_REQ) {
               return; // czekaj na potwierdzenie
             }
@@ -1926,6 +1951,10 @@ export default function MapScreen() {
           />
         )}
 
+        {userLocation && (
+          <ArrowMarkerRenderer onCapture={setArrowMarkerImage} />
+        )}
+
         {isBuilding && pins.map((pin, index) => (
           <RoutePinRenderer
             key={`pinrender_${pin.id}_${index}_${pins.length}`}
@@ -2282,7 +2311,7 @@ export default function MapScreen() {
               latitude={markerLat}
               longitude={markerLng}
               heading={markerHdg}
-              imageUri={carMarkerImage}
+              imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
             />
           )}
         </Mapbox.MapView>
@@ -2768,7 +2797,7 @@ export default function MapScreen() {
         <SettingsModal
           visible={settingsVisible}
           mapType={mapType}
-          onChangeMapType={setMapType}
+          onChangeMapType={handleChangeMapType}
           onClose={() => setSettingsVisible(false)}
         />
         <ReportModal
