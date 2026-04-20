@@ -14,11 +14,9 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const NATIVE_ID = TestIds.NATIVE
-
-// const NATIVE_ID = __DEV__
-//   ? TestIds.NATIVE
-//   : 'ca-app-pub-1660420496578702/9615191240';
+const NATIVE_ID = __DEV__
+  ? TestIds.NATIVE
+  : 'ca-app-pub-1660420496578702/9615191240';
 
 export function AdNativePost() {
   const { theme } = useTheme();
@@ -26,14 +24,20 @@ export function AdNativePost() {
 
   useEffect(() => {
     let ad: NativeAd | null = null;
+    let unsubscribe: (() => void) | undefined;
+
     NativeAd.createForAdRequest(NATIVE_ID, {
       requestNonPersonalizedAdsOnly: false,
     }).then(createdAd => {
       ad = createdAd;
-      setNativeAd(createdAd);
+      unsubscribe = createdAd.addAdEventListener('loaded', () => {
+        setNativeAd(createdAd);
+      });
       createdAd.load();
     });
+
     return () => {
+      unsubscribe?.();
       ad?.destroy();
     };
   }, []);
