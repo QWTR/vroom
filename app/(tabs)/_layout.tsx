@@ -6,6 +6,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
 
 const { width } = Dimensions.get('window');
 const TAB_WIDTH      = width / 5;
@@ -60,6 +61,7 @@ const TabIcon = ({
 export default function TabLayout() {
   const insets        = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  usePushNotifications();
 
   // edgeToEdge=false → insets.bottom zazwyczaj = 0 na Androidzie
   // ale zostawiamy dla iOS i ewentualnej przyszłej zmiany

@@ -53,34 +53,53 @@ export async function registerPushToken() {
       });
     }
 
+    const authToken = await getToken();
+    if (!authToken) return;
+
+    const sendTokenToServer = async (token: string) => {
+      try {
+        const res = await fetch(`${API_URL}/api/notifications/push-token`, {
+          method:  'POST',
+          headers: {
+            Authorization:  `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token, platform: Platform.OS }),
+        });
+        console.log('📡 Token zapisany:', res.status, token.substring(0, 40) + '...');
+      } catch (e) {
+        console.error('❌ Błąd zapisu tokenu:', e);
+      }
+    };
+
+    // 1. Expo push token (działa w Expo Go i managed workflow)
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       Constants.easConfig?.projectId;
 
-    if (!projectId) {
-      console.error('❌ Brak projectId w app.json!');
-      return;
+    if (projectId) {
+      try {
+        const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
+        console.log('✅ Expo push token:', expoToken.data);
+        await sendTokenToServer(expoToken.data);
+      } catch (e) {
+        console.warn('⚠️ Expo push token niedostępny:', e);
+      }
+    } else {
+      console.warn('❌ Brak projectId w app.json!');
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-    console.log('✅ Push token:', tokenData.data);
+    // 2. Natywny FCM/APNs device token (standalone EAS build)
+    try {
+      const deviceToken = await Notifications.getDevicePushTokenAsync();
+      if (deviceToken?.data && typeof deviceToken.data === 'string') {
+        console.log('✅ Device push token (FCM):', deviceToken.data.substring(0, 40) + '...');
+        await sendTokenToServer(deviceToken.data);
+      }
+    } catch (e) {
+      console.warn('⚠️ Device push token niedostępny (normalne w Expo Go):', e);
+    }
 
-    const authToken = await getToken();
-    if (!authToken) return;
-
-    const res = await fetch(`${API_URL}/api/notifications/push-token`, {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        token:    tokenData.data,
-        platform: Platform.OS,
-      }),
-    });
-
-    console.log('📡 Token zapisany:', res.status);
   } catch (e) {
     console.error('❌ Push token registration failed:', e);
   }
