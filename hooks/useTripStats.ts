@@ -37,22 +37,23 @@ export function useTripStats() {
     const pts = trackedPts.current;
     if (!pts.length) { pts.push({ latitude: lat, longitude: lng }); return; }
     const last = pts[pts.length - 1];
-    const dLat = Math.abs(lat - last.latitude);
-    const dLng = Math.abs(lng - last.longitude);
-    // co ~10m
-    if (dLat > 0.00009 || dLng > 0.00009) {
-      pts.push({ latitude: lat, longitude: lng });
 
-      // akumuluj dystans
-      const R   = 6371;
-      const dLatR = (lat - last.latitude) * Math.PI / 180;
-      const dLngR = (lng - last.longitude) * Math.PI / 180;
-      const a = Math.sin(dLatR / 2) ** 2 +
-        Math.cos(last.latitude * Math.PI / 180) *
-        Math.cos(lat * Math.PI / 180) *
-        Math.sin(dLngR / 2) ** 2;
-      distanceRef.current += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
+    // Use a proper Haversine distance instead of the old axis-independent check.
+    // Minimum 10 m avoids accumulating GPS jitter while stationary.
+    // Maximum 200 m rejects bad fixes that slipped through the upstream sanity check.
+    const R     = 6371;
+    const dLatR = (lat - last.latitude)  * Math.PI / 180;
+    const dLngR = (lng - last.longitude) * Math.PI / 180;
+    const a = Math.sin(dLatR / 2) ** 2 +
+      Math.cos(last.latitude * Math.PI / 180) *
+      Math.cos(lat * Math.PI / 180) *
+      Math.sin(dLngR / 2) ** 2;
+    const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    if (distKm < 0.010 || distKm > 0.200) return; // < 10 m or > 200 m → skip
+
+    pts.push({ latitude: lat, longitude: lng });
+    distanceRef.current += distKm;
   }, []);
 
   const finishTrip = useCallback(() => {

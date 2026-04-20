@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
+import { haversineKm } from '../scripts/navigationUtils';
 
 export type GPSMode = 'idle' | 'driving' | 'navigating';
 
@@ -107,6 +108,18 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
             );
             if (jumpKmh > MAX_SPEED_KMH) {
               console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
+              return;
+            }
+
+            // Additional absolute-distance cap: when the phone is slow or stationary
+            // a medium-sized GPS drift (e.g. 200 m over 30 s = only 24 km/h) passes
+            // the speed check but is still a bad fix. Cap allowed distance to
+            // 3× the expected travel distance + 100 m headroom (floor: 100 m).
+            const distM    = haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng) * 1000;
+            const expectedM = (speedRef.current / 3.6) * (dtMs / 1000);
+            const maxDistM  = Math.max(100, expectedM * 3 + 100);
+            if (distM > maxDistM) {
+              console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
               return;
             }
           }
