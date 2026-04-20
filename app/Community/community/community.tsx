@@ -1162,6 +1162,7 @@ export default function CommunityScreen() {
       if (!postId) return;
       await AsyncStorage.removeItem('open_post_id');
       const existing = posts.find(p => p.id === Number(postId));
+      setActiveTab('dyskusje');
       if (existing) { openComments(existing); return; }
       try {
         const token = await getToken();
