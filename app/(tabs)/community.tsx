@@ -6,10 +6,10 @@ import {
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../contexts/ThemeContext';
 
 const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 16 * 2 - 12) / 2;
 
 const communityMenu = [
   {
@@ -55,7 +55,7 @@ const communityMenu = [
     icon:    'tag-multiple-outline',
     iconLib: 'material',
     accent:  '#e33835',
-    tag:     'NEW',
+    tag:     'NOWE',
   },
   {
     label:   'KLUBY',
@@ -64,7 +64,7 @@ const communityMenu = [
     icon:    'shield-crown-outline',
     iconLib: 'material',
     accent:  '#00bfff',
-    tag:     'NEW',
+    tag:     'NOWE',
   },
   {
     label:   'THE GRID',
@@ -73,14 +73,14 @@ const communityMenu = [
     icon:    'flag-checkered',
     iconLib: 'material',
     accent:  '#FFD700',
-    tag:     'NEW',
+    tag:     'NOWE',
   },
 ];
 
-// Featured (first two rows as big tiles, rest as list)
-const FEATURED = communityMenu.slice(0, 2);
-const REST      = communityMenu.slice(2);
+const GRID_ITEMS  = communityMenu.slice(0, 4);
+const LIST_ITEMS  = communityMenu.slice(4);
 
+/* ─── Animated press wrapper ─────────────────────────────── */
 function PressCard({
   item,
   style,
@@ -93,8 +93,8 @@ function PressCard({
   const scale = useRef(new Animated.Value(1)).current;
   const router = useRouter();
 
-  const onPressIn  = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 30 }).start();
-  const onPressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 30 }).start();
+  const onPressIn  = () => Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 40 }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 40 }).start();
 
   return (
     <Animated.View style={[{ transform: [{ scale }] }, style]}>
@@ -110,179 +110,304 @@ function PressCard({
   );
 }
 
+/* ─── Icon helper ────────────────────────────────────────── */
+function MenuIcon({ item, size, color }: { item: (typeof communityMenu)[0]; size: number; color: string }) {
+  return item.iconLib === 'material'
+    ? <MaterialCommunityIcons name={item.icon as any} size={size} color={color} />
+    : <Feather name={item.icon as any} size={size} color={color} />;
+}
+
+/* ─── Main screen ────────────────────────────────────────── */
 export default function Community() {
   const { theme, isDark } = useTheme();
 
-  const cardBg     = isDark ? '#111111' : '#ffffff';
-  const cardBorder = isDark ? '#1e1e1e' : '#eeeeee';
-  const subText    = isDark ? '#555555' : '#999999';
+  const surface  = isDark ? '#111111' : '#ffffff';
+  const border   = isDark ? '#222222' : '#eeeeee';
+  const muted    = isDark ? '#888888' : '#aaaaaa';
+  const divider  = isDark ? '#1e1e1e' : '#f0f0f0';
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── HEADER ─────────────────────────────────────── */}
-        <View style={{ paddingTop: 64, paddingHorizontal: 20, paddingBottom: 28 }}>
+
+        {/* ── HEADER ───────────────────────────────────────── */}
+        <View style={{ paddingTop: 64, paddingHorizontal: 20, paddingBottom: 32 }}>
           <Text style={{
-            color: theme.primary, fontSize: 10, fontFamily: 'Orbitron',
-            letterSpacing: 5, marginBottom: 6, opacity: 0.7,
+            color: theme.primary,
+            fontFamily: 'Orbitron',
+            fontSize: 10,
+            letterSpacing: 6,
+            opacity: 0.6,
+            marginBottom: 8,
           }}>
             VROOM
           </Text>
+
           <Text style={{
-            color: theme.text, fontSize: 30, fontFamily: 'Orbitron',
-            fontWeight: '900', letterSpacing: 2, lineHeight: 36,
+            color: theme.text,
+            fontFamily: 'Orbitron',
+            fontSize: 28,
+            fontWeight: '900',
+            letterSpacing: 2,
           }}>
             SPOŁECZNOŚĆ
           </Text>
 
-          {/* Decorative line */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, gap: 8 }}>
-            <View style={{ height: 2, width: 32, backgroundColor: theme.primary, borderRadius: 1 }} />
-            <View style={{ height: 1, flex: 1, backgroundColor: isDark ? '#1a1a1a' : '#e8e8e8', borderRadius: 1 }} />
+          <Text style={{
+            color: muted,
+            fontFamily: 'Orbitron',
+            fontSize: 9,
+            letterSpacing: 1,
+            marginTop: 6,
+          }}>
+            Wybierz sekcję i dołącz do akcji
+          </Text>
+
+          {/* Divider */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginTop: 20,
+            gap: 10,
+          }}>
+            <View style={{ width: 28, height: 3, backgroundColor: theme.primary, borderRadius: 2 }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: divider }} />
           </View>
         </View>
 
-        {/* ── FEATURED TILES ──────────────────────────────── */}
-        <View style={{ paddingHorizontal: 16, flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-          {FEATURED.map((item) => (
-            <PressCard key={item.route} item={item} style={{ flex: 1 }}>
+        {/* ── SECTION LABEL ────��───────────────────────────── */}
+        <View style={{
+          paddingHorizontal: 20,
+          marginBottom: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <Feather name="grid" size={12} color={muted} />
+          <Text style={{
+            fontFamily: 'Orbitron',
+            fontSize: 9,
+            color: muted,
+            letterSpacing: 2,
+          }}>
+            SZYBKI DOSTĘP
+          </Text>
+        </View>
+
+        {/* ── 2×2 GRID ─────────────────────────────────────── */}
+        <View style={{
+          paddingHorizontal: 16,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 24,
+        }}>
+          {GRID_ITEMS.map((item) => (
+            <PressCard
+              key={item.route}
+              item={item}
+              style={{ width: CARD_WIDTH }}
+            >
               <View style={{
-                backgroundColor: cardBg,
-                borderRadius: 20, borderWidth: 1,
-                borderColor: cardBorder,
-                padding: 18, gap: 12,
-                overflow: 'hidden', minHeight: 160,
+                backgroundColor: surface,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: border,
+                padding: 20,
+                minHeight: 148,
+                overflow: 'hidden',
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isDark ? 0.4 : 0.08,
-                shadowRadius: 12, elevation: 6,
+                shadowOpacity: isDark ? 0.35 : 0.07,
+                shadowRadius: 12,
+                elevation: 5,
               }}>
-                {/* Glow bg */}
+
+                {/* Background glow */}
                 <View style={{
-                  position: 'absolute', top: -30, right: -30,
-                  width: 100, height: 100, borderRadius: 50,
-                  backgroundColor: item.accent + '15',
+                  position: 'absolute',
+                  top: -24,
+                  right: -24,
+                  width: 90,
+                  height: 90,
+                  borderRadius: 45,
+                  backgroundColor: item.accent + '12',
+                }} />
+
+                {/* Bottom accent bar */}
+                <View style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 3,
+                  backgroundColor: item.accent,
+                  opacity: 0.5,
+                  borderBottomLeftRadius: 20,
+                  borderBottomRightRadius: 20,
                 }} />
 
                 {/* Icon */}
                 <View style={{
-                  width: 46, height: 46, borderRadius: 14,
+                  width: 50,
+                  height: 50,
+                  borderRadius: 16,
                   backgroundColor: item.accent + '18',
-                  borderWidth: 1, borderColor: item.accent + '30',
-                  alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: item.accent + '35',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 14,
                 }}>
-                  {item.iconLib === 'material'
-                    ? <MaterialCommunityIcons name={item.icon as any} size={24} color={item.accent} />
-                    : <Feather name={item.icon as any} size={22} color={item.accent} />
-                  }
+                  <MenuIcon item={item} size={24} color={item.accent} />
                 </View>
 
                 {/* Label */}
-                <View style={{ gap: 4 }}>
-                  <Text style={{
-                    color: theme.text, fontFamily: 'Orbitron',
-                    fontSize: 11, fontWeight: '800', letterSpacing: 1.5,
-                  }}>
-                    {item.label}
-                  </Text>
-                  <Text style={{
-                    color: subText, fontFamily: 'Orbitron',
-                    fontSize: 8, lineHeight: 13, letterSpacing: 0.2,
-                  }}>
-                    {item.desc}
-                  </Text>
-                </View>
+                <Text style={{
+                  color: theme.text,
+                  fontFamily: 'Orbitron',
+                  fontSize: 11,
+                  fontWeight: '800',
+                  letterSpacing: 1,
+                  marginBottom: 5,
+                }}>
+                  {item.label}
+                </Text>
 
-                {/* Bottom accent line */}
-                <View style={{
-                  position: 'absolute', bottom: 0, left: 0, right: 0,
-                  height: 2, backgroundColor: item.accent + '50',
-                  borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
-                }} />
+                {/* Desc */}
+                <Text style={{
+                  color: muted,
+                  fontFamily: 'Orbitron',
+                  fontSize: 8,
+                  lineHeight: 13,
+                  letterSpacing: 0.3,
+                }}>
+                  {item.desc}
+                </Text>
               </View>
             </PressCard>
           ))}
         </View>
 
-        {/* ── REST LIST ───────────────────────────────────── */}
+        {/* ── SECTION LABEL ────────────────────────────────── */}
+        <View style={{
+          paddingHorizontal: 20,
+          marginBottom: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <Feather name="star" size={12} color={muted} />
+          <Text style={{
+            fontFamily: 'Orbitron',
+            fontSize: 9,
+            color: muted,
+            letterSpacing: 2,
+          }}>
+            NOWOŚCI
+          </Text>
+        </View>
+
+        {/* ── LIST ITEMS (NEW) ──────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, gap: 10 }}>
-          {REST.map((item) => (
+          {LIST_ITEMS.map((item) => (
             <PressCard key={item.route} item={item}>
               <View style={{
-                backgroundColor: cardBg,
-                borderRadius: 18, borderWidth: 1,
-                borderColor: item.tag ? item.accent + '25' : cardBorder,
-                paddingVertical: 16, paddingHorizontal: 16,
-                flexDirection: 'row', alignItems: 'center', gap: 14,
+                backgroundColor: surface,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: item.accent + '30',
+                paddingVertical: 18,
+                paddingHorizontal: 18,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 16,
                 overflow: 'hidden',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: isDark ? 0.3 : 0.05,
-                shadowRadius: 8, elevation: 4,
+                shadowColor: item.accent,
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.12,
+                shadowRadius: 10,
+                elevation: 4,
               }}>
-                {/* Left glow strip */}
+
+                {/* Left accent strip */}
                 <View style={{
-                  position: 'absolute', left: 0, top: 0, bottom: 0,
-                  width: 3, borderTopLeftRadius: 18, borderBottomLeftRadius: 18,
+                  position: 'absolute',
+                  left: 0, top: 0, bottom: 0,
+                  width: 4,
                   backgroundColor: item.accent,
-                  opacity: 0.8,
+                  borderTopLeftRadius: 18,
+                  borderBottomLeftRadius: 18,
                 }} />
 
-                {/* Glow bg (for NEW items) */}
-                {item.tag && (
-                  <View style={{
-                    position: 'absolute', top: -20, right: -20,
-                    width: 80, height: 80, borderRadius: 40,
-                    backgroundColor: item.accent + '10',
-                  }} />
-                )}
+                {/* Background glow */}
+                <View style={{
+                  position: 'absolute',
+                  top: -30, right: -30,
+                  width: 100, height: 100,
+                  borderRadius: 50,
+                  backgroundColor: item.accent + '0D',
+                }} />
 
                 {/* Icon */}
                 <View style={{
-                  width: 48, height: 48, borderRadius: 14,
+                  width: 52,
+                  height: 52,
+                  borderRadius: 16,
                   backgroundColor: item.accent + '15',
-                  borderWidth: 1, borderColor: item.accent + '25',
-                  alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: item.accent + '30',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   flexShrink: 0,
                 }}>
-                  {item.iconLib === 'material'
-                    ? <MaterialCommunityIcons name={item.icon as any} size={26} color={item.accent} />
-                    : <Feather name={item.icon as any} size={24} color={item.accent} />
-                  }
+                  <MenuIcon item={item} size={26} color={item.accent} />
                 </View>
 
-                {/* Text */}
-                <View style={{ flex: 1, gap: 4 }}>
+                {/* Text block */}
+                <View style={{ flex: 1, gap: 5 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={{
-                      color: theme.text, fontFamily: 'Orbitron',
-                      fontSize: 12, fontWeight: '800', letterSpacing: 1,
+                      color: theme.text,
+                      fontFamily: 'Orbitron',
+                      fontSize: 13,
+                      fontWeight: '800',
+                      letterSpacing: 0.8,
                     }}>
                       {item.label}
                     </Text>
+
                     {item.tag && (
                       <View style={{
-                        backgroundColor: item.accent + '20',
-                        borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
-                        borderWidth: 1, borderColor: item.accent + '45',
+                        backgroundColor: item.accent,
+                        borderRadius: 6,
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
                       }}>
                         <Text style={{
-                          fontFamily: 'Orbitron', fontSize: 7,
-                          color: item.accent, letterSpacing: 1.5, fontWeight: '700',
+                          fontFamily: 'Orbitron',
+                          fontSize: 7,
+                          color: '#fff',
+                          letterSpacing: 1.5,
+                          fontWeight: '800',
                         }}>
                           {item.tag}
                         </Text>
                       </View>
                     )}
                   </View>
+
                   <Text style={{
-                    color: subText, fontFamily: 'Orbitron',
-                    fontSize: 9, lineHeight: 14, letterSpacing: 0.2,
+                    color: muted,
+                    fontFamily: 'Orbitron',
+                    fontSize: 9,
+                    lineHeight: 15,
+                    letterSpacing: 0.2,
                   }}>
                     {item.desc}
                   </Text>
@@ -290,55 +415,89 @@ export default function Community() {
 
                 {/* Arrow */}
                 <View style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  backgroundColor: isDark ? '#1a1a1a' : '#f5f5f5',
-                  alignItems: 'center', justifyContent: 'center',
+                  width: 34,
+                  height: 34,
+                  borderRadius: 11,
+                  backgroundColor: item.accent + '15',
+                  borderWidth: 1,
+                  borderColor: item.accent + '25',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   flexShrink: 0,
                 }}>
-                  <Feather name="chevron-right" size={16} color={subText} />
+                  <Feather name="chevron-right" size={16} color={item.accent} />
                 </View>
               </View>
             </PressCard>
           ))}
         </View>
 
-        {/* ── BOTTOM STATS ROW ────────────────────────────── */}
+        {/* ── BOTTOM STATS ─────────────────────────────────── */}
         <View style={{
-          flexDirection: 'row', marginHorizontal: 16, marginTop: 24,
-          backgroundColor: cardBg,
-          borderRadius: 18, borderWidth: 1, borderColor: cardBorder,
+          marginHorizontal: 16,
+          marginTop: 28,
+          backgroundColor: surface,
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: border,
           overflow: 'hidden',
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: isDark ? 0.25 : 0.05,
-          shadowRadius: 8, elevation: 4,
+          shadowOpacity: isDark ? 0.2 : 0.05,
+          shadowRadius: 8,
+          elevation: 3,
         }}>
           {[
-            { icon: 'users',        label: 'SPOŁECZNOŚĆ', value: 'VROOM' },
-            { icon: 'zap',          label: 'AKTYWNOŚĆ',   value: 'LIVE'  },
-            { icon: 'award',        label: 'SEZON',       value: '2026'  },
+            { icon: 'users',  label: 'SPOŁECZNOŚĆ', value: 'VROOM' },
+            { icon: 'zap',    label: 'AKTYWNOŚĆ',   value: 'LIVE'  },
+            { icon: 'award',  label: 'SEZON',        value: '2026'  },
           ].map((s, i) => (
             <View
               key={s.label}
               style={{
-                flex: 1, alignItems: 'center', paddingVertical: 16,
-                borderRightWidth: i < 2 ? 1 : 0,
-                borderRightColor: isDark ? '#1a1a1a' : '#f0f0f0',
-                gap: 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 16,
+                paddingHorizontal: 20,
+                borderBottomWidth: i < 2 ? 1 : 0,
+                borderBottomColor: divider,
+                gap: 14,
               }}
             >
-              <Feather name={s.icon as any} size={18} color={theme.primary} />
-              <Text style={{
-                fontFamily: 'Orbitron', fontSize: 11,
-                color: theme.text, fontWeight: '700',
+              {/* Icon circle */}
+              <View style={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                backgroundColor: theme.primary + '15',
+                borderWidth: 1,
+                borderColor: theme.primary + '25',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}>
-                {s.value}
-              </Text>
+                <Feather name={s.icon as any} size={16} color={theme.primary} />
+              </View>
+
+              {/* Label */}
               <Text style={{
-                fontFamily: 'Orbitron', fontSize: 7,
-                color: subText, letterSpacing: 1,
+                fontFamily: 'Orbitron',
+                fontSize: 9,
+                color: muted,
+                letterSpacing: 1.5,
+                flex: 1,
               }}>
                 {s.label}
+              </Text>
+
+              {/* Value */}
+              <Text style={{
+                fontFamily: 'Orbitron',
+                fontSize: 12,
+                color: theme.text,
+                fontWeight: '800',
+                letterSpacing: 1,
+              }}>
+                {s.value}
               </Text>
             </View>
           ))}

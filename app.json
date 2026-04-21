@@ -17,7 +17,7 @@
     "runtimeVersion": "1.0.11",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lexuuw.vroom",
+      "bundleIdentifier": "com.lexuuw.vroom.app",
       "userInterfaceStyle": "dark",
       "backgroundColor": "#0a0a0a",
       "usesAppleSignIn": true,
@@ -36,7 +36,7 @@
         "backgroundColor": "#0a0a0a"
       },
       "edgeToEdgeEnabled": false,
-      "package": "com.lexuuw.vroom",
+      "package": "com.lexuuw.vroom.app",
       "backgroundColor": "#0a0a0a",
       "googleServicesFile": "./google-services.json",
       "config": {},

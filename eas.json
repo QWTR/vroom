@@ -4,6 +4,16 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "verify": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+      }
+    },
     "development": {
       "developmentClient": true,
       "distribution": "internal",
@@ -37,7 +47,8 @@
       "autoIncrement": true,
       "environment": "production",
       "android": {
-        "image": "latest"
+        "image": "latest",
+        "buildType": "app-bundle"
       },
       "ios": {
         "image": "latest"

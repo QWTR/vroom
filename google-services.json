@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "697216785149",
-    "project_id": "vroom-28a13",
-    "storage_bucket": "vroom-28a13.firebasestorage.app"
+    "project_number": "678142488164",
+    "project_id": "vroomapp-c5998",
+    "storage_bucket": "vroomapp-c5998.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:697216785149:android:67c331829ba172491a7c94",
+        "mobilesdk_app_id": "1:678142488164:android:48b2c42502a2a307c67971",
         "android_client_info": {
-          "package_name": "com.lexuuw.vroom"
+          "package_name": "com.lexuuw.vroom.app"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBS44JIfUrLnK99Q-6aUiShPzqt0NevUvE"
+          "current_key": "AIzaSyBJkqMCFgYOFaoT1ruDKArFylDu544WwXA"
         }
       ],
       "services": {

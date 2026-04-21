@@ -18,8 +18,8 @@ const getDevHost = (): string => {
 // ─── Środowiska ──────────────────────────────────────────────────────────────
 const ENV = {
   dev: {
-    API_URL:    `http://100.123.231.30:5000`,
-    SOCKET_URL: `http://100.123.231.30:5000`,
+    API_URL:    `https://v-room.app`,
+    SOCKET_URL: `https://v-room.app`,
   },
   prod: {
     API_URL:    'https://v-room.app',   // ← zmień na swój prod URL
