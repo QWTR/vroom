@@ -112,9 +112,10 @@ import { TripStatsModal } from '../../components/modals/TripStatsModal';
 import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
 import { AdBanner }           from '../../components/ads/AdBanner';
-import { useFuelStations }    from '../../hooks/useFuelStations';
-import { FuelStationMarker }  from '../../components/markers/FuelStationMarker';
-import { FuelStationModal }   from '../../components/modals/FuelStationModal';
+import { useFuelStations }      from '../../hooks/useFuelStations';
+import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
+import { FuelStationRenderer }  from '../../components/markers/FuelStationRenderer';
+import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
@@ -316,8 +317,9 @@ export default function MapScreen() {
   const [stableStartLocation, setStableStartLocation] = useState<LocationState | null>(null);
 
   // ── State – fuel stations ─────────────────────────────────
-  const [selectedFuelStation,   setSelectedFuelStation]   = useState<any>(null);
+  const [selectedFuelStation,     setSelectedFuelStation]     = useState<any>(null);
   const [fuelStationModalVisible, setFuelStationModalVisible] = useState(false);
+  const [fuelStationImages,       setFuelStationImages]       = useState<Record<string, string>>({});
   const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange } = useFuelStations(userLocation);
   // ── State – live / ostrzeżenia ────────────────────────────
   const [isSharing,           setIsSharing]           = useState(false);
@@ -2007,6 +2009,14 @@ export default function MapScreen() {
           />
         ))}
 
+        {fuelStations.map(station => (
+          <FuelStationRenderer
+            key={`fuelrender_${station.id}_${station.prices?.[0]?.pb95 ?? 0}`}
+            station={station}
+            onCapture={uri => setFuelStationImages(prev => ({ ...prev, [String(station.id)]: uri }))}
+          />
+        ))}
+
         {/* ── Panel DRIVING MODE (góra) ────────────────────── */}
         {isDriving && !isNavigating && (
           <View style={[styles.navigationPanelTop, { top: insets.top + 52 }]}>
@@ -2230,6 +2240,7 @@ export default function MapScreen() {
             <FuelStationMarker
               key={`fuel_${station.id}`}
               station={station}
+              imageUri={fuelStationImages[String(station.id)] ?? null}
               onPress={() => { setSelectedFuelStation(station); setFuelStationModalVisible(true); }}
             />
           ))}
