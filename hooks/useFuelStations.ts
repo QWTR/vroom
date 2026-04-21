@@ -1,6 +1,10 @@
 import { useState, useRef, useCallback } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+
+// Set to false to disable debug popups in production
+const DEBUG_ALERTS = true;
 
 export interface FuelPrice {
   pb95:    number | null;
@@ -70,8 +74,15 @@ export function useFuelStations(userLocation: LocationState | null) {
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
+  const dbg = (title: string, msg: string) => {
+    if (DEBUG_ALERTS) Alert.alert(`[Stacje] ${title}`, msg);
+  };
+
   const fetchStations = useCallback(async (loc: LocationState) => {
-    if (fetchingRef.current) return;
+    if (fetchingRef.current) {
+      dbg('Pomijam', 'Fetch już w toku');
+      return;
+    }
 
     const now       = Date.now();
     const lastLoc   = lastFetchLocRef.current;
@@ -80,14 +91,21 @@ export function useFuelStations(userLocation: LocationState | null) {
     // Throttle: skip if recently fetched AND user hasn't moved enough
     if (timeDelta < THROTTLE_MS && lastLoc) {
       const dist = haversineM(lastLoc.latitude, lastLoc.longitude, loc.latitude, loc.longitude);
-      if (dist < THROTTLE_M) return;
+      if (dist < THROTTLE_M) {
+        dbg('Throttle', `Pominięto — ${Math.round(timeDelta / 1000)}s temu, przesunięcie ${Math.round(dist)}m`);
+        return;
+      }
     }
+
+    dbg('Fetch start', `Lokalizacja: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}`);
 
     fetchingRef.current = true;
     setLoading(true);
 
     try {
       const token = await getToken();
+      dbg('Token', token ? `OK (${token.substring(0, 12)}…)` : '❌ BRAK TOKENU');
+
       const bbox  = bboxFromLocation(loc);
       const params = new URLSearchParams({
         minLat: String(bbox.minLat),
@@ -96,16 +114,29 @@ export function useFuelStations(userLocation: LocationState | null) {
         maxLng: String(bbox.maxLng),
       });
 
-      const r = await fetch(`${API_URL}/api/fuel-stations?${params}`, {
+      const url = `${API_URL}/api/fuel-stations?${params}`;
+      dbg('Request URL', url);
+
+      const r = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!r.ok) throw new Error('Failed to fetch fuel stations');
+
+      dbg('HTTP Status', `${r.status} ${r.statusText}`);
+
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        throw new Error(`HTTP ${r.status}: ${body}`);
+      }
+
       const data = await r.json();
-      setStations(data.stations ?? data ?? []);
+      const list: FuelStation[] = data.stations ?? data ?? [];
+      dbg('Wynik', `Znaleziono ${list.length} stacji`);
+      setStations(list);
       lastFetchTimeRef.current = Date.now();
       lastFetchLocRef.current  = loc;
-    } catch (e) {
+    } catch (e: any) {
       console.error('useFuelStations fetch:', e);
+      dbg('BŁĄD', String(e?.message ?? e));
     } finally {
       setLoading(false);
       fetchingRef.current = false;
