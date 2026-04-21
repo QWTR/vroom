@@ -49,6 +49,15 @@ const communityMenu = [
     tag:     null,
   },
   {
+    label:   'GIEŁDA',
+    desc:    'Kup lub sprzedaj auto, motocykl lub części.',
+    route:   '/Community/market/market',
+    icon:    'tag-multiple-outline',
+    iconLib: 'material',
+    accent:  '#e33835',
+    tag:     'NEW',
+  },
+  {
     label:   'KLUBY',
     desc:    'Dołącz lub stwórz własny klub — czat, rangi, moderacja.',
     route:   '/Community/clubs/clubs',

@@ -112,6 +112,9 @@ import { TripStatsModal } from '../../components/modals/TripStatsModal';
 import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
 import { AdBanner }           from '../../components/ads/AdBanner';
+import { useFuelStations }      from '../../hooks/useFuelStations';
+import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
+import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
@@ -311,6 +314,11 @@ export default function MapScreen() {
   const { snapCameras } = useSnapCameras();
   const [snappedCameras, setSnappedCameras] = useState<any[]>([]);
   const [stableStartLocation, setStableStartLocation] = useState<LocationState | null>(null);
+
+  // ── State – fuel stations ─────────────────────────────────
+  const [selectedFuelStation,     setSelectedFuelStation]     = useState<any>(null);
+  const [fuelStationModalVisible, setFuelStationModalVisible] = useState(false);
+  const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange } = useFuelStations(userLocation);
   // ── State – live / ostrzeżenia ────────────────────────────
   const [isSharing,           setIsSharing]           = useState(false);
   const [isSubmittingWarning, setIsSubmittingWarning] = useState(false);
@@ -393,6 +401,12 @@ export default function MapScreen() {
       if (val) setMapType(val);
     }).catch(() => {});
   }, []);
+
+  // ── Fuel stations — trigger fetch on location change ──────
+  // The hook internally throttles by time (30s) and distance (500m) to avoid excessive API calls.
+  useEffect(() => {
+    if (userLocation) onFuelLocationChange(userLocation);
+  }, [userLocation?.latitude, userLocation?.longitude]);
 
   const handleChangeMapType = useCallback((type: string) => {
     setMapType(type);
@@ -2212,6 +2226,14 @@ export default function MapScreen() {
             />
           ))}
 
+          {currentZoom >= 12 && fuelStations.map(station => (
+            <FuelStationMarker
+              key={`fuel_${station.id}`}
+              station={station}
+              onPress={() => { setSelectedFuelStation(station); setFuelStationModalVisible(true); }}
+            />
+          ))}
+
           {isBuilding && snappedRoute.length > 1 && (
             <>
               <Mapbox.ShapeSource id="snappedShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
@@ -2897,6 +2919,18 @@ export default function MapScreen() {
             return ok;
           }}
           currentUserId={currentUserId}
+        />
+
+        <FuelStationModal
+          visible={fuelStationModalVisible}
+          station={selectedFuelStation}
+          onClose={() => setFuelStationModalVisible(false)}
+          onNavigate={(lat, lng, name) => {
+            setEndLocation({ latitude: lat, longitude: lng, name });
+            setFuelStationModalVisible(false);
+          }}
+          onPricesUpdated={refetchFuelStations}
+          updatePrices={updateFuelPrices}
         />
 
         {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
