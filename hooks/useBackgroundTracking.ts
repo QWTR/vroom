@@ -55,14 +55,21 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
 }
 
 // ── AsyncStorage keys ─────────────────────────────────────────────────────────
-const BG_SPEED_SAMPLES_KEY = 'nav_speed_samples';
-const BG_SPEED_MAX_KEY     = 'nav_speed_max';
-const BG_PENDING_KM_KEY    = 'bg_pending_km';
-const BG_LAST_LOC_KEY      = 'bg_last_location';
+const BG_SPEED_SAMPLES_KEY      = 'nav_speed_samples';
+const BG_SPEED_MAX_KEY          = 'nav_speed_max';
+export const BG_PENDING_KM_KEY  = 'bg_pending_km';
+const BG_LAST_LOC_KEY           = 'bg_last_location';
 // Flag: 'true' when live-sharing is active — read by the background task
-const BG_IS_SHARING_KEY    = 'bg_is_sharing';
+const BG_IS_SHARING_KEY         = 'bg_is_sharing';
+// Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
+const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Threshold (km) at which background stats are auto-saved as a passive trip
-const BG_AUTO_FLUSH_KM     = 5;
+const BG_AUTO_FLUSH_KM          = 5;
+
+// ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
+export async function setNavigatingFlag(active: boolean): Promise<void> {
+  await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
+}
 
 // ── BG task ───────────────────────────────────────────────────────────────────
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
@@ -111,7 +118,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));
 
         // ── Auto-flush as passive trip when threshold is reached ──────────
-        if (newPending >= BG_AUTO_FLUSH_KM) {
+        // Skip auto-flush while foreground navigation is active — the nav
+        // pipeline will flush the correct distance via flushPendingKm(true).
+        const navFlag = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
+        if (newPending >= BG_AUTO_FLUSH_KM && navFlag !== 'true') {
           const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
           const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
           const maxRaw     = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
@@ -184,11 +194,12 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         // Take the larger of fg and bg measurements to avoid double-counting
         const finalDist    = Math.max(distKm, bgPending);
 
-        // Clear bg accumulators
+        // Clear bg accumulators and navigation flag
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
         await Promise.all([
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+          AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
 
         if (finalDist < 0.05) return;

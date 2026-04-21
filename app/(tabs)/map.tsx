@@ -48,9 +48,11 @@ import { isSaneLocation } from '../../scripts/kalmanFilter';
 
 import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
 import {
+  BG_PENDING_KM_KEY,
   feedNavDistance,
   feedSpeedSample,
   resetSpeedStats,
+  setNavigatingFlag,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
 import { useSettings } from '../../hooks/useSettings';
@@ -751,6 +753,14 @@ export default function MapScreen() {
     })();
   }, [userLocation]));
 
+  // Reset the navigation flag on screen focus so that if the app was killed
+  // or crashed mid-navigation the background auto-flush is not permanently blocked.
+  useFocusEffect(useCallback(() => {
+    if (!isNavigatingRef.current) {
+      setNavigatingFlag(false).catch(() => {});
+    }
+  }, []));
+
   useEffect(() => {
     const pinIds = new Set(pins.map(p => p.id));
     setPinImages(prev => {
@@ -788,6 +798,11 @@ export default function MapScreen() {
   // ─────────────────────────────────────────────────────────
 
   const exitDrivingMode = useCallback(() => {
+    // Sync userLocation to last DR position before clearing isDriving so that
+    // the marker source switch (drLatRef → userLocation) is seamless.
+    if (drLatRef.current !== 0 && drLngRef.current !== 0) {
+      setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
+    }
     isDrivingRef.current        = false;
     drivingKmRef.current        = 0;
     drivingLastLocRef.current   = null;
@@ -1030,17 +1045,19 @@ export default function MapScreen() {
             isDrivingRef.current      = true;
             drivingKmRef.current      = 0;
             drivingLastLocRef.current = null;
-            setIsDriving(true);
-            setDrivingKm(0);
             // Reset nav-quality Kalman filters to start fresh in driving mode
             navLatFilter.reset();
             navLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
+            // feedDR before setIsDriving so drLatRef/drLngRef are populated
+            // before the re-render, preventing a one-frame marker teleport.
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               rawSpeedMs,
               drivingHeading,
             );
+            setIsDriving(true);
+            setDrivingKm(0);
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               drivingHeading,
@@ -1078,6 +1095,11 @@ export default function MapScreen() {
               drivingLastLocRef.current   = null;
               lastDrivingPosRef.current   = null;
               drivingStopTimerRef.current = null;
+              // Sync userLocation to last DR position before switching marker source
+              // to prevent a visible teleport when isDriving flips to false.
+              if (drLatRef.current !== 0 && drLngRef.current !== 0) {
+                setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
+              }
               setIsDriving(false);
               setDrivingKm(0);
               resetSnap();
@@ -1689,6 +1711,10 @@ export default function MapScreen() {
 
     lastNavLocRef.current = null;
     resetSpeedStats();
+    // Reset any BG km that accrued before navigation started (would cause double-counting)
+    // and tell the background task to suppress its auto-flush while we navigate.
+    AsyncStorage.setItem(BG_PENDING_KM_KEY, '0').catch(() => {});
+    setNavigatingFlag(true).catch(() => {});
     resetDR();
     navLatFilter.reset();
     navLngFilter.reset();
