@@ -8,13 +8,14 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { FuelStation } from '../../hooks/useFuelStations';
 
+
 interface Props {
   visible:          boolean;
   station:          FuelStation | null;
   onClose:          () => void;
   onNavigate?:      (lat: number, lng: number, name: string) => void;
   onPricesUpdated?: () => void;
-  updatePrices:     (stationId: number, prices: { pb95?: number; pb98?: number; diesel?: number; lpg?: number }) => Promise<boolean>;
+  updatePrices:     (station: FuelStation, prices: { pb95?: number; pb98?: number; diesel?: number; lpg?: number }) => Promise<boolean>;
 }
 
 function timeAgo(iso: string | null | undefined): string {
@@ -74,7 +75,7 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
         return;
       }
 
-      const ok = await updatePrices(station.id, payload);
+      const ok = await updatePrices(station, payload);
       if (ok) {
         Toast.show({ type: 'success', text1: '✅ Ceny zaktualizowane', text2: station.name });
         setEditMode(false);
