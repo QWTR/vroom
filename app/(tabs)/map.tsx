@@ -15,6 +15,7 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   NativeModules,
   Platform,
   StatusBar,
@@ -191,6 +192,7 @@ export default function MapScreen() {
   const cameraRef            = useRef<Mapbox.Camera>(null);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
+  const locationReadyRef     = useRef(false);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const isOffroadRef         = useRef(false);
   const offroadPointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
@@ -1217,6 +1219,45 @@ export default function MapScreen() {
       if (drivingStopTimerRef.current) clearTimeout(drivingStopTimerRef.current);
     };
   }, [locationReady]);
+
+  // Keep locationReadyRef in sync for use inside AppState/focus callbacks
+  useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
+
+  // One-shot location refresh: immediately snaps the marker to the current
+  // position before the watch subscription has had a chance to emit updates.
+  const refreshLocationOneShot = useCallback(() => {
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+      .then((loc) => {
+        const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
+        const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+        lastGoodLocRef.current = { lat, lng };
+        setUserLocation({ latitude: lat, longitude: lng });
+        console.log('[GPS] One-shot fix applied');
+      })
+      .catch((e) => console.warn('[GPS] One-shot fix failed:', e));
+  }, []);
+
+  // ── Restart GPS when app returns to foreground ──────────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && locationReadyRef.current) {
+        console.log('[GPS] App foregrounded — restarting GPS watcher');
+        stopGPS();
+        startGPS();
+        refreshLocationOneShot();
+      }
+    });
+    return () => sub.remove();
+  }, [startGPS, stopGPS, refreshLocationOneShot]);
+
+  // ── Restart GPS when Map screen regains focus ────────────────────────────
+  useFocusEffect(useCallback(() => {
+    if (!locationReadyRef.current) return;
+    console.log('[GPS] Screen focused — restarting GPS watcher');
+    stopGPS();
+    startGPS();
+    refreshLocationOneShot();
+  }, [startGPS, stopGPS, refreshLocationOneShot]));
 
   useEffect(() => {
     setSnapPoints(activeRoute?.points ?? []);
