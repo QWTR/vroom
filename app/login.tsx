@@ -24,7 +24,10 @@ try {
   const g    = require('@react-native-google-signin/google-signin');
   GoogleSignin = g.GoogleSignin;
   statusCodes  = g.statusCodes;
-  GoogleSignin.configure({ webClientId: '422424308025-2suso0t9uculamcjm5rhdv0e5krtie5d.apps.googleusercontent.com' });
+  GoogleSignin.configure({ 
+    webClientId: '422424308025-v8ksqs33clcc1u6gsmsi5esqbrv0dh49.apps.googleusercontent.com',
+    offlineAccess: true 
+  });
 } catch {}
 
 type Screen    = 'login' | 'register' | 'forgot';
@@ -145,10 +148,17 @@ export default function LoginScreen() {
       if (res.ok) await saveAndNavigate(data.token, data.user);
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Błąd Google.' });
     } catch (e: any) {
+      // ← TUTAJ LOGI
+      console.log('GOOGLE ERROR:', JSON.stringify(e));
+      Toast.show({ 
+        type: 'error', 
+        text1: `KOD: ${e.code ?? 'brak'}`, 
+        text2: e.message ?? 'Błąd' 
+      });
       if (e.code === statusCodes?.SIGN_IN_CANCELLED) return;
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Logowanie Google nieudane.' });
     } finally { setGLoading(false); }
   };
+
 
   const handleForgot = async () => {
     if (!forgotEmail) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj e-mail.' });
