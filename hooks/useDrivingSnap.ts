@@ -36,7 +36,9 @@ export function useDrivingSnap() {
       ? routePtsRef.current
       : roadMatchPtsRef.current;
 
-    if (speedKmh <= 5 || pts.length < 2) {
+    // Snap whenever we have road points — speed gate removed because loc.speed is
+    // unreliable on many Android devices (can read 0 km/h even while moving).
+    if (pts.length < 2) {
       return { latitude: lat, longitude: lng, snapped: false };
     }
 
