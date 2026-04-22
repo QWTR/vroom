@@ -166,10 +166,21 @@ function zoomFromSpeedKmh(speedKmh: number): number {
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
-const DRIVING_STOP_DELAY_MS  = 12 * 60 * 1000; // 12 minut
-const DRIVING_SPEED_KMH      = 10;
+const DRIVING_STOP_DELAY_MS      = 12 * 60 * 1000; // 12 minut
+const DRIVING_SPEED_KMH          = 10;
 // Ile km/h ponad limit zanim kolor prędkości zmienia się na czerwony
-const SPEED_LIMIT_TOLERANCE  = 5;
+const SPEED_LIMIT_TOLERANCE      = 5;
+
+// ── Driving-mode distance accumulator safety caps ──────────
+// Maximum realistic speed for per-tick distance cap (km/h)
+const MAX_PLAUSIBLE_SPEED_KMH    = 140;
+// Per-tick distance upper bound regardless of speed (km)
+const MAX_DIST_PER_TICK_KM       = 0.1;   // 100 m
+// Per-tick distance lower bound so extremely short intervals don't cap to ~0 (km)
+const MIN_DIST_PER_TICK_KM       = 0.005; // 5 m
+// Floor value for the dt computation — prevents near-zero dt when ticks arrive
+// faster than the GPS rate (e.g. after a filter reset or rapid double fire)
+const MIN_GPS_TICK_SEC           = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
@@ -1011,8 +1022,8 @@ export default function MapScreen() {
             const brgDiff    = ((brg - lastHeadingRef.current + 540) % 360) - 180;
             // Clamp max heading change per GPS tick to avoid large jumps when
             // the snap point changes abruptly (e.g. after a map-match update).
-            const MAX_HDG_CHANGE = 90;
-            const clamped    = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE);
+            const MAX_HDG_CHANGE_DEG = 90; // degrees
+            const clamped    = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
             const smoothed   = lastHeadingRef.current + clamped * 0.4;
             drivingHeading   = ((smoothed % 360) + 360) % 360;
             lastHeadingRef.current = drivingHeading;
@@ -1098,10 +1109,14 @@ export default function MapScreen() {
               snapped.latitude, snapped.longitude,
             );
             // Safety cap: per-tick distance must be > 0 and physically plausible.
-            // 0.1 km (100 m) per tick is already conservative; additionally cap by
-            // dt * 140 km/h to reject phantom jumps on irregular GPS tick intervals.
-            const dtSec = Math.max(0.5, (now - prevGoodTimeRef.current) / 1000);
-            const maxDistKm = Math.min(0.1, Math.max(0.005, (140 / 3600) * dtSec));
+            // MAX_DIST_PER_TICK_KM (100 m) per tick is already conservative; additionally
+            // cap by dt * MAX_PLAUSIBLE_SPEED_KMH to reject phantom jumps on irregular
+            // GPS tick intervals (e.g. after a long background pause).
+            const dtSec = Math.max(MIN_GPS_TICK_SEC, (now - prevGoodTimeRef.current) / 1000);
+            const maxDistKm = Math.min(
+              MAX_DIST_PER_TICK_KM,
+              Math.max(MIN_DIST_PER_TICK_KM, (MAX_PLAUSIBLE_SPEED_KMH / 3600) * dtSec),
+            );
             if (dist > 0 && dist <= maxDistKm) {
               drivingKmRef.current += dist;
               setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
