@@ -58,7 +58,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const lastLiveCallRef = useRef(0);
   const LIVE_INTERVAL_MS = 60;
 
-  function doAnimate(params: CameraParams, duration: number) {
+  function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
     lastHeadingRef.current = params.heading;
     lastCenterRef.current  = params.center;
     (cameraRef.current as any)?.setCamera({
@@ -67,7 +67,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       heading:          params.heading,
       zoomLevel:        params.zoom,
       animationDuration: duration,
-      animationMode:    'flyTo',
+      animationMode:    mode,
     });
   }
 
@@ -180,7 +180,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       params.center.latitude, params.center.longitude,
       params.heading, NAV_LOOKAHEAD_METERS,
     );
-    doAnimate({ ...params, center: lookahead }, LIVE_INTERVAL_MS + 20);
+    doAnimate({ ...params, center: lookahead }, 130, 'linear');
   }, [cameraRef]);
 
   const animateCameraSmooth = useCallback((params: CameraParams) => {

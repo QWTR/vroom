@@ -1176,8 +1176,8 @@ export default function MapScreen() {
         pitch:            NAV_PITCH,
         heading:          hdg,
         zoomLevel:        getAdaptiveZoom(speedMs * 3.6),
-        animationDuration: 90,
-        animationMode:    'flyTo',
+        animationDuration: 130,
+        animationMode:    'linear',
       });
 
       const points = routePointsRef.current.length > 0
