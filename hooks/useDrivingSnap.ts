@@ -2,7 +2,9 @@ import { useRef, useCallback } from 'react';
 import { snapToRoute }         from '../scripts/navigationUtils';
 
 // Prosty cache ostatnio pobranej trasy snap
-const SNAP_RADIUS_M    = 50;
+// 100 m radius: GPS multipath in urban/residential areas can offset the
+// reported position by 30–60 m, so 50 m was rejecting valid snaps.
+const SNAP_RADIUS_M    = 100;
 const MIN_MOVE_DEG     = 0.00005; // ~5m
 
 export function useDrivingSnap() {

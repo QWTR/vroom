@@ -369,7 +369,7 @@ export default function MapScreen() {
   const { startConversation } = useChat();
 
   const { snap: drivingSnap, setRoutePoints: setSnapPoints, setRoadMatchPoints, reset: resetSnap } = useDrivingSnap();
-  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch } = useDrivingMapMatch();
+  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch, forceMatch: forceMapMatch } = useDrivingMapMatch();
   const [gpsMode, setGpsMode] = useState<'idle' | 'driving' | 'navigating'>('idle');
 
   const {
@@ -860,12 +860,18 @@ export default function MapScreen() {
       setIsDriving(true);
       setDrivingKm(0);
       if (userLocation) {
+        // forceMatch: immediate API call to snap to nearest road right now.
+        // Result is picked up on the next GPS tick via getMatchedPoints().
+        forceMapMatch(userLocation.latitude, userLocation.longitude);
         addMatchPosition(userLocation.latitude, userLocation.longitude);
+        // Anchor the dead-reckoning module at the current position so
+        // onFrame does not keep overwriting drLatRef with a stale position.
+        feedDR({ latitude: userLocation.latitude, longitude: userLocation.longitude }, 0, lastHeadingRef.current);
         enterDrivingCamera(userLocation, lastHeadingRef.current);
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -986,8 +992,18 @@ export default function MapScreen() {
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
 
-        // ── DAP-to-Road: feed map matcher & update road snap points ──
+        // ── DAP-to-Road: refresh snap points + conditionally feed map matcher ──
         // Do this before snapping so the latest matched road is available.
+
+        // Always pull the latest matched road segment into the snap hook.
+        // This picks up forceMatch results (called on driving mode entry) even
+        // when the user is stationary and no new points have been fed.
+        const matchedPts = getMatchedPoints();
+        if (matchedPts && matchedPts.length > 1) {
+          setRoadMatchPoints(matchedPts);
+        }
+
+        // Feed new GPS positions to the API buffer only when there's real movement.
         // Use real movement (meters) as trigger — loc.speed is unreliable on
         // Android and can read 0 km/h even while the vehicle is moving.
         const movedForSnap = lastSetLocRef.current
@@ -995,10 +1011,6 @@ export default function MapScreen() {
           : Infinity;
         if (movedForSnap >= 3 || kmh >= 5) {
           addMatchPosition(lat, lng);
-          const matchedPts = getMatchedPoints();
-          if (matchedPts && matchedPts.length > 1) {
-            setRoadMatchPoints(matchedPts);
-          }
         }
 
         const snapped = drivingSnap(lat, lng, kmh, false);
@@ -1087,6 +1099,8 @@ export default function MapScreen() {
             navLatFilter.reset();
             navLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
+            // Immediate warmup snap — doesn't wait for 4-s API interval + movement
+            forceMapMatch(snapped.latitude, snapped.longitude);
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
@@ -1137,6 +1151,18 @@ export default function MapScreen() {
           // ── Wolno / stoi — reset licznika ────────────────────
           drivingConsecutiveRef.current = 0;
 
+          // Keep DR anchored to the current snapped position even when stopped.
+          // Without this, DR keeps extrapolating from its last feed point (which
+          // may be the un-snapped GPS position), causing drLatRef to be
+          // overwritten at 60fps with stale coordinates and undoing the snap.
+          if (isDrivingRef.current) {
+            feedDR(
+              { latitude: snapped.latitude, longitude: snapped.longitude },
+              0,
+              drivingHeading,
+            );
+          }
+
           if (isDrivingRef.current && !drivingStopTimerRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
               isDrivingRef.current        = false;
@@ -1177,7 +1203,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom, forceMapMatch]),
   });
 
   useEffect(() => {
