@@ -1,10 +1,11 @@
 import { useRef, useCallback } from 'react';
 import { snapToRoute }         from '../scripts/navigationUtils';
 
-// Promień zwiększamy, bo przy 100km/h dryf GPS jest większy
-const SNAP_RADIUS_M_BASE = 45; 
-const SNAP_RADIUS_M_FAST = 80; // Większy margines przy szybkiej jeździe
-const MIN_MOVE_DEG       = 0.00003; // ~3m (zmniejszamy, żeby częściej odświeżał na zakrętach)
+// Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
+// przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
+const SNAP_RADIUS_M_BASE = 45;
+const SNAP_RADIUS_M_FAST = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
+const MIN_MOVE_DEG       = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
 
 export function useDrivingSnap() {
   const lastRawRef      = useRef<{ lat: number; lng: number } | null>(null);
@@ -34,7 +35,9 @@ export function useDrivingSnap() {
       ? roadMatchPtsRef.current
       : routePtsRef.current;
 
-    if (speedKmh <= 5 || pts.length < 2) {
+    // Snap whenever we have road points — speed gate removed because loc.speed is
+    // unreliable on many Android devices (can read 0 km/h even while moving).
+    if (pts.length < 2) {
       return { latitude: lat, longitude: lng, snapped: false };
     }
 

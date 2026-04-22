@@ -304,8 +304,12 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       if ((prev === 'background' || prev === 'inactive') && nextState === 'active') {
-        // App just came back to foreground — save any bg-accumulated stats
-        flushPendingKm(false);
+        // Skip passive flush while foreground navigation is active — the nav end
+        // handler calls flushPendingKm(true) which consolidates bg+fg distances
+        // without double-saving the same km to the API.
+        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY)
+          .then(flag => { if (flag !== 'true') flushPendingKm(false); })
+          .catch(() => { flushPendingKm(false); });
       }
     });
     return () => sub.remove();

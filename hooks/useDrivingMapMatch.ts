@@ -12,13 +12,27 @@ const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 const MIN_INTERVAL_MS = 4000;   // call API at most every 4 s
 const BUFFER_SIZE     = 5;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
+// forceMatch uses a wider radius so a stationary user with GPS inaccuracy still snaps
+const FORCE_MATCH_RADIUS_M = 100;
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
 const MIN_POINT_DIST_KM = 0.005; // ~5 m — skip points that haven't moved
+// Tiny coordinate offset used to form a valid 2-point API call from a single position.
+// 0.00005° ≈ 5 m — small enough to return the same road segment.
+const FORCE_MATCH_OFFSET_DEG = 0.00005;
 
 interface GpsPoint {
   lat:  number;
   lng:  number;
   time: number;
+}
+
+interface MapMatchResponse {
+  code:      string;
+  matchings: Array<{
+    geometry: {
+      coordinates: [number, number][];
+    };
+  }>;
 }
 
 /**
@@ -67,15 +81,6 @@ export function useDrivingMapMatch() {
         return;
       }
 
-      interface MapMatchResponse {
-        code:      string;
-        matchings: Array<{
-          geometry: {
-            coordinates: [number, number][];
-          };
-        }>;
-      }
-
       const json = await res.json() as MapMatchResponse;
 
       if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
@@ -90,6 +95,55 @@ export function useDrivingMapMatch() {
       }
     } catch (e) {
       console.warn('[DrivingMapMatch] API error:', e);
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, []);
+
+  /**
+   * Immediately snaps a single position to the nearest road, bypassing the
+   * normal cooldown and buffer-size requirements.  Used on driving mode entry
+   * so the marker is road-snapped from the very first GPS tick rather than
+   * waiting for the user to move 10+ m and a full 4-second interval to elapse.
+   *
+   * Internally sends two nearly-identical coordinates (5 m apart) because the
+   * Mapbox Map Matching API requires at least 2 points.
+   */
+  const forceMatch = useCallback(async (lat: number, lng: number): Promise<void> => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    lastCallRef.current   = Date.now();
+
+    try {
+      // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum
+      // while returning the same road segment as a single-point request would.
+      const coords = [
+        `${lng - FORCE_MATCH_OFFSET_DEG},${lat}`,
+        `${lng},${lat}`,
+      ].join(';');
+      const radii = `${FORCE_MATCH_RADIUS_M};${FORCE_MATCH_RADIUS_M}`;
+      const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+
+      const res  = await fetch(url);
+      if (!res.ok) {
+        console.warn('[DrivingMapMatch] forceMatch HTTP error:', res.status);
+        return;
+      }
+
+      const json = await res.json() as MapMatchResponse;
+
+      if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
+        const matched = json.matchings[0].geometry.coordinates.map(
+          ([lng, lat]) => ({ latitude: lat, longitude: lng }),
+        );
+        matchedPtsRef.current  = matched;
+        matchedTimeRef.current = Date.now();
+        console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
+      } else {
+        console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
+      }
+    } catch (e) {
+      console.warn('[DrivingMapMatch] forceMatch error:', e);
     } finally {
       isFetchingRef.current = false;
     }
@@ -119,5 +173,5 @@ export function useDrivingMapMatch() {
     console.log('[DrivingMapMatch] reset');
   }, []);
 
-  return { addPosition, getMatchedPoints, reset };
+  return { addPosition, getMatchedPoints, reset, forceMatch };
 }

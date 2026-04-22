@@ -15,6 +15,7 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   NativeModules,
   Platform,
   StatusBar,
@@ -166,10 +167,21 @@ function zoomFromSpeedKmh(speedKmh: number): number {
 
 // ── DRIVING MODE ──────────────────────────────────────────
 // Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
-const DRIVING_STOP_DELAY_MS  = 12 * 60 * 1000; // 12 minut
-const DRIVING_SPEED_KMH      = 10;
+const DRIVING_STOP_DELAY_MS      = 12 * 60 * 1000; // 12 minut
+const DRIVING_SPEED_KMH          = 10;
 // Ile km/h ponad limit zanim kolor prędkości zmienia się na czerwony
-const SPEED_LIMIT_TOLERANCE  = 5;
+const SPEED_LIMIT_TOLERANCE      = 5;
+
+// ── Driving-mode distance accumulator safety caps ──────────
+// Maximum realistic speed for per-tick distance cap (km/h)
+const MAX_PLAUSIBLE_SPEED_KMH    = 140;
+// Per-tick distance upper bound regardless of speed (km)
+const MAX_DIST_PER_TICK_KM       = 0.1;   // 100 m
+// Per-tick distance lower bound so extremely short intervals don't cap to ~0 (km)
+const MIN_DIST_PER_TICK_KM       = 0.005; // 5 m
+// Floor value for the dt computation — prevents near-zero dt when ticks arrive
+// faster than the GPS rate (e.g. after a filter reset or rapid double fire)
+const MIN_GPS_TICK_SEC           = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
@@ -180,6 +192,7 @@ export default function MapScreen() {
   const cameraRef            = useRef<Mapbox.Camera>(null);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
+  const locationReadyRef     = useRef(false);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const isOffroadRef         = useRef(false);
   const offroadPointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
@@ -239,8 +252,10 @@ export default function MapScreen() {
   const drivingKmRef          = useRef(0);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
-  const lastGoodTimeRef   = useRef<number>(Date.now());
-  const smoothedZoomRef   = useRef<number>(NAV_ZOOM);
+  const lastGoodTimeRef       = useRef<number>(Date.now());
+  // Tracks the timestamp of the previous GPS tick for per-tick distance capping.
+  const prevGoodTimeRef       = useRef<number>(Date.now());
+  const smoothedZoomRef       = useRef<number>(NAV_ZOOM);
 
   // Adaptive zoom — low-pass filtered zoom based on current speed
   // Defined early so it can be referenced in useDeadReckoning / onLocation / simulator callbacks below
@@ -356,7 +371,7 @@ export default function MapScreen() {
   const { startConversation } = useChat();
 
   const { snap: drivingSnap, setRoutePoints: setSnapPoints, setRoadMatchPoints, reset: resetSnap } = useDrivingSnap();
-  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch } = useDrivingMapMatch();
+  const { addPosition: addMatchPosition, getMatchedPoints, reset: resetMapMatch, forceMatch: forceMapMatch } = useDrivingMapMatch();
   const [gpsMode, setGpsMode] = useState<'idle' | 'driving' | 'navigating'>('idle');
 
   const {
@@ -836,16 +851,29 @@ export default function MapScreen() {
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
       drivingKmRef.current        = 0;
       drivingLastLocRef.current   = null;
+      lastDrivingPosRef.current   = null;
       navLatFilter.reset();
       navLngFilter.reset();
+      // Reset map-matcher so it starts fresh and immediately seeds the
+      // buffer with the current position — enables snap-to-road from the
+      // very first GPS tick rather than waiting for speed to reach 5 km/h.
+      resetMapMatch();
+      resetSnap();
       setIsDriving(true);
       setDrivingKm(0);
       if (userLocation) {
+        // forceMatch: immediate API call to snap to nearest road right now.
+        // Result is picked up on the next GPS tick via getMatchedPoints().
+        forceMapMatch(userLocation.latitude, userLocation.longitude);
+        addMatchPosition(userLocation.latitude, userLocation.longitude);
+        // Anchor the dead-reckoning module at the current position so
+        // onFrame does not keep overwriting drLatRef with a stale position.
+        feedDR({ latitude: userLocation.latitude, longitude: userLocation.longitude }, 0, lastHeadingRef.current);
         enterDrivingCamera(userLocation, lastHeadingRef.current);
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -899,6 +927,7 @@ export default function MapScreen() {
           return;
         }
       }
+      prevGoodTimeRef.current = lastGoodTimeRef.current;
       lastGoodTimeRef.current = now;
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
 
@@ -922,13 +951,18 @@ export default function MapScreen() {
       feedPosition(lat, lng);
 
       // ══ 5. Feed dystansu nawigacji ════════════════════════════
-      if (lastNavLocRef.current) {
-        feedNavDistance(
-          lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
-          lat, lng,
-        );
+      // Only accumulate nav distance while actually navigating — calling this
+      // unconditionally inflates _navDistKm during driving mode and causes
+      // massive overcounting when flushPendingKm(true) runs at nav end.
+      if (isNavigatingRef.current) {
+        if (lastNavLocRef.current) {
+          feedNavDistance(
+            lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
+            lat, lng,
+          );
+        }
+        lastNavLocRef.current = { latitude: lat, longitude: lng };
       }
-      lastNavLocRef.current = { latitude: lat, longitude: lng };
 
       // ══ 6. Dead reckoning — tylko nawigacja ══════════════════
       if (isNavigatingRef.current) {
@@ -960,23 +994,36 @@ export default function MapScreen() {
       // ══ 8. Pozycja + driving mode ════════════════════════════
       if (!isNavigatingRef.current) {
 
-        // ── DAP-to-Road: feed map matcher & update road snap points ──
-        // Do this before snapping so the latest matched road is available
-        if (kmh >= 5) {
+        // ── DAP-to-Road: refresh snap points + conditionally feed map matcher ──
+        // Do this before snapping so the latest matched road is available.
+
+        // Always pull the latest matched road segment into the snap hook.
+        // This picks up forceMatch results (called on driving mode entry) even
+        // when the user is stationary and no new points have been fed.
+        const matchedPts = getMatchedPoints();
+        if (matchedPts && matchedPts.length > 1) {
+          setRoadMatchPoints(matchedPts);
+        }
+
+        // Feed new GPS positions to the API buffer only when there's real movement.
+        // Use real movement (meters) as trigger — loc.speed is unreliable on
+        // Android and can read 0 km/h even while the vehicle is moving.
+        const movedForSnap = lastSetLocRef.current
+          ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, lat, lng) * 1000
+          : Infinity;
+        if (movedForSnap >= 3 || kmh >= 5) {
           addMatchPosition(lat, lng);
-          const matchedPts = getMatchedPoints();
-          if (matchedPts && matchedPts.length > 1) {
-            setRoadMatchPoints(matchedPts);
-          }
         }
 
         const snapped = drivingSnap(lat, lng, kmh, false);
 
         // ── Driving heading from movement vector (more reliable than loc.heading) ──
-        // Use bearing between last two snapped positions when moved ≥ 5 m and kmh ≥ 5.
+        // Use bearing between last two snapped positions when moved ≥ 5 m.
+        // Trigger on real movement (movedForSnap) in addition to GPS speed so
+        // heading updates even when loc.speed is unreliable.
         // Fallback: GPS loc.heading (if ≥ 0), or keep lastHeadingRef unchanged.
         let drivingHeading = lastHeadingRef.current;
-        if (kmh >= 5 && lastDrivingPosRef.current) {
+        if ((kmh >= 5 || movedForSnap >= 5) && lastDrivingPosRef.current) {
           const distM = haversineKm(
             lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
             snapped.latitude, snapped.longitude,
@@ -987,12 +1034,16 @@ export default function MapScreen() {
               snapped.latitude, snapped.longitude,
             );
             const brgDiff    = ((brg - lastHeadingRef.current + 540) % 360) - 180;
-            const smoothed   = lastHeadingRef.current + brgDiff * 0.4;
+            // Clamp max heading change per GPS tick to avoid large jumps when
+            // the snap point changes abruptly (e.g. after a map-match update).
+            const MAX_HDG_CHANGE_DEG = 90; // degrees
+            const clamped    = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
+            const smoothed   = lastHeadingRef.current + clamped * 0.4;
             drivingHeading   = ((smoothed % 360) + 360) % 360;
             lastHeadingRef.current = drivingHeading;
             setHeading(drivingHeading);
           }
-        } else if (loc.heading != null && loc.heading >= 0 && kmh > 3) {
+        } else if (loc.heading != null && loc.heading >= 0 && (kmh > 3 || movedForSnap >= 3)) {
           // Fallback: smooth GPS heading when bearing is not computable
           const diff           = loc.heading - lastHeadingRef.current;
           const normalizedDiff = ((diff + 540) % 360) - 180;
@@ -1045,10 +1096,13 @@ export default function MapScreen() {
             isDrivingRef.current      = true;
             drivingKmRef.current      = 0;
             drivingLastLocRef.current = null;
+            lastDrivingPosRef.current = null;
             // Reset nav-quality Kalman filters to start fresh in driving mode
             navLatFilter.reset();
             navLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
+            // Immediate warmup snap — doesn't wait for 4-s API interval + movement
+            forceMapMatch(snapped.latitude, snapped.longitude);
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
@@ -1070,9 +1124,20 @@ export default function MapScreen() {
               drivingLastLocRef.current.lat, drivingLastLocRef.current.lng,
               snapped.latitude, snapped.longitude,
             );
-            if (dist > 0 && dist < 0.1) {
+            // Safety cap: per-tick distance must be > 0 and physically plausible.
+            // MAX_DIST_PER_TICK_KM (100 m) per tick is already conservative; additionally
+            // cap by dt * MAX_PLAUSIBLE_SPEED_KMH to reject phantom jumps on irregular
+            // GPS tick intervals (e.g. after a long background pause).
+            const dtSec = Math.max(MIN_GPS_TICK_SEC, (now - prevGoodTimeRef.current) / 1000);
+            const maxDistKm = Math.min(
+              MAX_DIST_PER_TICK_KM,
+              Math.max(MIN_DIST_PER_TICK_KM, (MAX_PLAUSIBLE_SPEED_KMH / 3600) * dtSec),
+            );
+            if (dist > 0 && dist <= maxDistKm) {
               drivingKmRef.current += dist;
               setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
+            } else if (dist > maxDistKm) {
+              console.warn(`[DrivingMode] Tick km odrzucony: ${(dist * 1000).toFixed(0)}m > cap ${(maxDistKm * 1000).toFixed(0)}m (dt=${dtSec.toFixed(1)}s)`);
             }
           }
           drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
@@ -1087,6 +1152,18 @@ export default function MapScreen() {
         } else {
           // ── Wolno / stoi — reset licznika ────────────────────
           drivingConsecutiveRef.current = 0;
+
+          // Keep DR anchored to the current snapped position even when stopped.
+          // Without this, DR keeps extrapolating from its last feed point (which
+          // may be the un-snapped GPS position), causing drLatRef to be
+          // overwritten at 60fps with stale coordinates and undoing the snap.
+          if (isDrivingRef.current) {
+            feedDR(
+              { latitude: snapped.latitude, longitude: snapped.longitude },
+              0,
+              drivingHeading,
+            );
+          }
 
           if (isDrivingRef.current && !drivingStopTimerRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
@@ -1128,7 +1205,7 @@ export default function MapScreen() {
       }
 
       setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom]),
+    }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom, forceMapMatch]),
   });
 
   useEffect(() => {
@@ -1142,6 +1219,45 @@ export default function MapScreen() {
       if (drivingStopTimerRef.current) clearTimeout(drivingStopTimerRef.current);
     };
   }, [locationReady]);
+
+  // Keep locationReadyRef in sync for use inside AppState/focus callbacks
+  useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
+
+  // One-shot location refresh: immediately snaps the marker to the current
+  // position before the watch subscription has had a chance to emit updates.
+  const refreshLocationOneShot = useCallback(() => {
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+      .then((loc) => {
+        const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
+        const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+        lastGoodLocRef.current = { lat, lng };
+        setUserLocation({ latitude: lat, longitude: lng });
+        console.log('[GPS] One-shot fix applied');
+      })
+      .catch((e) => console.warn('[GPS] One-shot fix failed:', e));
+  }, []);
+
+  // ── Restart GPS when app returns to foreground ──────────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && locationReadyRef.current) {
+        console.log('[GPS] App foregrounded — restarting GPS watcher');
+        stopGPS();
+        startGPS();
+        refreshLocationOneShot();
+      }
+    });
+    return () => sub.remove();
+  }, [startGPS, stopGPS, refreshLocationOneShot]);
+
+  // ── Restart GPS when Map screen regains focus ────────────────────────────
+  useFocusEffect(useCallback(() => {
+    if (!locationReadyRef.current) return;
+    console.log('[GPS] Screen focused — restarting GPS watcher');
+    stopGPS();
+    startGPS();
+    refreshLocationOneShot();
+  }, [startGPS, stopGPS, refreshLocationOneShot]));
 
   useEffect(() => {
     setSnapPoints(activeRoute?.points ?? []);
