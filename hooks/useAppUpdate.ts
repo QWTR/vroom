@@ -8,18 +8,19 @@ export function useAppUpdate() {
   const [error,           setError]           = useState<string | null>(null);
 
   useEffect(() => {
-    // if (__DEV__) return;
     checkForUpdate();
   }, []);
 
   const checkForUpdate = async () => {
+    // Nie sprawdzaj w trybie dev lub gdy Updates nie jest skonfigurowane
+    if (__DEV__ || !Updates.isEnabled) return;
+
     try {
       const result = await Updates.checkForUpdateAsync();
-      
-
       if (result.isAvailable) setUpdateAvailable(true);
     } catch (e: any) {
-      Alert.alert('BŁĄD UPDATE', e.message ?? String(e));
+      // Cicho loguj — nie pokazuj użytkownikowi błędu update
+      console.warn('[useAppUpdate] checkForUpdate error:', e.message ?? e);
     }
   };
 

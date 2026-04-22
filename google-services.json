@@ -12,7 +12,20 @@
           "package_name": "com.lexuuw.vroom.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "422424308025-b1piqrdbpgvbhe4ui3hpm4c9lule2a4q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lexuuw.vroom.app",
+            "certificate_hash": "ef7f9d434bb9f0c2a8a4aa7ef1b5c5aaf7c16637"
+          }
+        },
+        {
+          "client_id": "422424308025-v8ksqs33clcc1u6gsmsi5esqbrv0dh49.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBJkqMCFgYOFaoT1ruDKArFylDu544WwXA"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "422424308025-v8ksqs33clcc1u6gsmsi5esqbrv0dh49.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

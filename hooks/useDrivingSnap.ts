@@ -1,66 +1,74 @@
 import { useRef, useCallback } from 'react';
 import { snapToRoute }         from '../scripts/navigationUtils';
 
-// Prosty cache ostatnio pobranej trasy snap
-const SNAP_RADIUS_M    = 50;
-const MIN_MOVE_DEG     = 0.00005; // ~5m
+// Promień zwiększamy, bo przy 100km/h dryf GPS jest większy
+const SNAP_RADIUS_M_BASE = 45; 
+const SNAP_RADIUS_M_FAST = 80; // Większy margines przy szybkiej jeździe
+const MIN_MOVE_DEG       = 0.00003; // ~3m (zmniejszamy, żeby częściej odświeżał na zakrętach)
 
 export function useDrivingSnap() {
   const lastRawRef      = useRef<{ lat: number; lng: number } | null>(null);
   const lastSnappedRef  = useRef<{ latitude: number; longitude: number } | null>(null);
   const routePtsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
-  // DAP-to-Road: map-matched road segment (fallback when no route loaded)
   const roadMatchPtsRef = useRef<{ latitude: number; longitude: number }[]>([]);
 
-  // Ustaw punkty trasy do snapowania (np. z previewRoute)
   const setRoutePoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
     routePtsRef.current = pts;
   }, []);
 
-  // Ustaw punkty z Map Matching API (DAP-to-Road — używane gdy brak załadowanej trasy)
   const setRoadMatchPoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
+    // Map Matching daje nam realną geometrię drogi
     roadMatchPtsRef.current = pts;
   }, []);
 
-  // Główna funkcja — zwraca snapped pozycję lub oryginalną
   const snap = useCallback((lat: number, lng: number, speedKmh: number, isNavigating: boolean): {
     latitude:  number;
     longitude: number;
     snapped:   boolean;
   } => {
-    // Nawigacja ma własny snap — nie ingeruj
     if (isNavigating) return { latitude: lat, longitude: lng, snapped: false };
 
-    // Wybierz źródło punktów: załadowana trasa ma pierwszeństwo, potem droga z Map Matching
-    const pts = routePtsRef.current.length >= 2
-      ? routePtsRef.current
-      : roadMatchPtsRef.current;
+    // Wybieramy punkty. Priorytet ma roadMatchPtsRef, bo to jest aktualna GEOMETRIA drogi, 
+    // po której jedziesz, a nie tylko linia prosta do celu.
+    const pts = roadMatchPtsRef.current.length >= 2
+      ? roadMatchPtsRef.current
+      : routePtsRef.current;
 
     if (speedKmh <= 5 || pts.length < 2) {
       return { latitude: lat, longitude: lng, snapped: false };
     }
 
-    // Nie przeliczaj jeśli ruch < 5m
     const last = lastRawRef.current;
     if (last) {
       const dLat = Math.abs(lat - last.lat);
       const dLng = Math.abs(lng - last.lng);
-      if (dLat < MIN_MOVE_DEG && dLng < MIN_MOVE_DEG && lastSnappedRef.current) {
+      // Na zakrętach (duża prędkość) nie możemy ignorować małych ruchów
+      if (dLat < MIN_MOVE_DEG && dLng < MIN_MOVE_DEG && lastSnappedRef.current && speedKmh < 60) {
         return { ...lastSnappedRef.current, snapped: true };
       }
     }
 
     lastRawRef.current = { lat, lng };
 
-    const result = snapToRoute(lat, lng, pts, SNAP_RADIUS_M);
+    // Dynamiczny promień - im szybciej jedziesz, tym bardziej ufamy drodze niż GPS
+    const dynamicRadius = speedKmh > 70 ? SNAP_RADIUS_M_FAST : SNAP_RADIUS_M_BASE;
+
+    const result = snapToRoute(lat, lng, pts, dynamicRadius);
+    
+    // Jeśli snapToRoute zwróci te same koordynaty (brak drogi w pobliżu), 
+    // to nie uznajemy tego za udany snap
+    const isActuallySnapped = result.latitude !== lat || result.longitude !== lng;
+
     const snapped = { latitude: result.latitude, longitude: result.longitude };
     lastSnappedRef.current = snapped;
-    return { ...snapped, snapped: true };
+    
+    return { ...snapped, snapped: isActuallySnapped };
   }, []);
 
   const reset = useCallback(() => {
     lastRawRef.current     = null;
     lastSnappedRef.current = null;
+    roadMatchPtsRef.current = [];
   }, []);
 
   return { snap, setRoutePoints, setRoadMatchPoints, reset };
