@@ -145,9 +145,9 @@ const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this
 
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
-const ZOOM_NEAR           = 18.5; // 0–20 km/h
-const ZOOM_MID            = 17.8; // ~60 km/h
-const ZOOM_FAR            = 16.8; // 120+ km/h
+const ZOOM_NEAR           = 17.5; // 0–20 km/h
+const ZOOM_MID            = 17.1; // ~60 km/h
+const ZOOM_FAR            = 16.5; // 120+ km/h
 const ZOOM_SMOOTHING_ALPHA = 0.15; // low-pass filter weight (0 = no change, 1 = instant)
 
 function clampNum(n: number, min: number, max: number): number {
