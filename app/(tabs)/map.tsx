@@ -2760,30 +2760,34 @@ export default function MapScreen() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
-            style={[
-              styles.sideBtn,
-              isBuilding
-                ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
-                : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
-            ]}
-            onPress={() => {
-              if (isBuilding) {
-                if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
-                else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
-              } else {
-                startBuilding();
-                Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
-              }
-            }}
-            activeOpacity={0.75}
-          >
-            <MaterialCommunityIcons
-              name={isBuilding ? 'check' : 'map-marker-path'}
-              size={20}
-              color={isBuilding ? '#ffffff' : theme.primary}
-            />
-          </TouchableOpacity>
+          {
+            !isDriving && (
+              <TouchableOpacity
+                style={[
+                  styles.sideBtn,
+                  isBuilding
+                    ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
+                    : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
+                ]}
+                onPress={() => {
+                  if (isBuilding) {
+                    if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
+                    else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
+                  } else {
+                    startBuilding();
+                    Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
+                  }
+                }}
+                activeOpacity={0.75}
+              >
+                <MaterialCommunityIcons
+                  name={isBuilding ? 'check' : 'map-marker-path'}
+                  size={20}
+                  color={isBuilding ? '#ffffff' : theme.primary}
+                />
+              </TouchableOpacity>
+            )
+          }
 
           <TouchableOpacity
             style={[
