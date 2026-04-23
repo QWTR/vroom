@@ -43,7 +43,7 @@ import {
 } from '../../constants/mapConfig';
 import { LocationState, RouteInfo, User } from '../../constants/types';
 
-import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
+import { latFilter, lngFilter, navLatFilter, navLngFilter, drivLatFilter, drivLngFilter } from '../../scripts/kalmanFilter';
 // ── NOWE: sanity check ────────────────────────────────────
 import { isSaneLocation } from '../../scripts/kalmanFilter';
 
@@ -854,6 +854,8 @@ export default function MapScreen() {
       lastDrivingPosRef.current   = null;
       navLatFilter.reset();
       navLngFilter.reset();
+      drivLatFilter.reset();
+      drivLngFilter.reset();
       // Reset map-matcher so it starts fresh and immediately seeds the
       // buffer with the current position — enables snap-to-road from the
       // very first GPS tick rather than waiting for speed to reach 5 km/h.
@@ -899,6 +901,7 @@ export default function MapScreen() {
           lastGoodLocRef.current.lng,
           250,
           safeDt,
+          isDrivingRef.current,
         );
         if (!sane) {
           console.warn('[GPS map] Skok odrzucony');
@@ -906,6 +909,8 @@ export default function MapScreen() {
           lngFilter.reset();
           navLatFilter.reset();
           navLngFilter.reset();
+          drivLatFilter.reset();
+          drivLngFilter.reset();
           return;
         }
 
@@ -914,16 +919,21 @@ export default function MapScreen() {
         // is slow or stationary. Allow 3× expected distance + 100 m headroom.
         // safeDt uses a 100 ms floor so a very short time-delta between consecutive
         // GPS fixes never makes an ordinary displacement look unreasonably fast.
+        // In driving mode, use a higher floor (300 m) to accommodate GPS drift at
+        // highway speeds when loc.speed may report 0 on Android.
         const distM2    = haversineKm(lastGoodLocRef.current.lat, lastGoodLocRef.current.lng, rawLat, rawLng) * 1000;
         const reportedKmh = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
         const expectedM2  = (reportedKmh / 3.6) * (safeDt / 1000);
-        const maxDistM2   = Math.max(100, expectedM2 * 3 + 100);
+        const distFloor   = isDrivingRef.current ? 300 : 100;
+        const maxDistM2   = Math.max(distFloor, expectedM2 * 3 + 100);
         if (distM2 > maxDistM2) {
           console.warn(`[GPS map] Skok dystansowy odrzucony: ${Math.round(distM2)}m > ${Math.round(maxDistM2)}m`);
           latFilter.reset();
           lngFilter.reset();
           navLatFilter.reset();
           navLngFilter.reset();
+          drivLatFilter.reset();
+          drivLngFilter.reset();
           return;
         }
       }
@@ -932,14 +942,19 @@ export default function MapScreen() {
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
 
       // ══ 2. Kalman ════════════════════════════════════════════
-      // Use nav-quality filters (higher process noise, lower measurement noise) for both
-      // navigation and driving modes — both require accurate, responsive position tracking.
-      const lat = (isNavigatingRef.current || isDrivingRef.current)
-        ? navLatFilter.filter(rawLat, acc)
-        : latFilter.filter(rawLat, acc);
-      const lng = (isNavigatingRef.current || isDrivingRef.current)
-        ? navLngFilter.filter(rawLng, acc)
-        : lngFilter.filter(rawLng, acc);
+      // Driving mode uses dedicated filters with higher process noise for faster
+      // response to direction changes. Navigation uses nav-quality filters.
+      // Idle uses standard (low-noise) filters.
+      const lat = isDrivingRef.current
+        ? drivLatFilter.filter(rawLat, acc)
+        : isNavigatingRef.current
+          ? navLatFilter.filter(rawLat, acc)
+          : latFilter.filter(rawLat, acc);
+      const lng = isDrivingRef.current
+        ? drivLngFilter.filter(rawLng, acc)
+        : isNavigatingRef.current
+          ? navLngFilter.filter(rawLng, acc)
+          : lngFilter.filter(rawLng, acc);
 
       // ══ 3. Prędkość ══════════════════════════════════════════
       const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : 0;
@@ -1017,42 +1032,56 @@ export default function MapScreen() {
 
         const snapped = drivingSnap(lat, lng, kmh, false);
 
-        // ── Driving heading from movement vector (more reliable than loc.heading) ──
-        // Use bearing between last two snapped positions when moved ≥ 5 m.
-        // Trigger on real movement (movedForSnap) in addition to GPS speed so
-        // heading updates even when loc.speed is unreliable.
-        // Fallback: GPS loc.heading (if ≥ 0), or keep lastHeadingRef unchanged.
+        // ── Driving heading ────────────────────────────────────────────────────
+        // Priority order:
+        // 1. targetHeading from snap (polyline segment bearing) — stable, no GPS jitter
+        // 2. Movement vector between last two snapped positions — good for curves
+        // 3. GPS loc.heading — fallback when neither is available
+        // Heading updates are frozen when speed is very low (< 2 m/s ~7 km/h)
+        // to prevent the car icon from spinning when stationary or in low signal.
         let drivingHeading = lastHeadingRef.current;
-        if ((kmh >= 5 || movedForSnap >= 5) && lastDrivingPosRef.current) {
-          const distM = haversineKm(
-            lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-            snapped.latitude, snapped.longitude,
-          ) * 1000;
-          if (distM >= 5) {
-            const brg        = bearingBetween(
+        const isMovingFast = kmh >= 7 || movedForSnap >= 5;
+
+        if (isMovingFast) {
+          if (snapped.snapped) {
+            // Best source: polyline segment bearing from useDrivingSnap
+            const tgtDiff  = ((snapped.targetHeading - lastHeadingRef.current + 540) % 360) - 180;
+            const MAX_HDG_CHANGE_DEG = 90;
+            const clamped  = Math.sign(tgtDiff) * Math.min(Math.abs(tgtDiff), MAX_HDG_CHANGE_DEG);
+            const smoothed = lastHeadingRef.current + clamped * 0.4;
+            drivingHeading = ((smoothed % 360) + 360) % 360;
+            lastHeadingRef.current = drivingHeading;
+            setHeading(drivingHeading);
+          } else if (lastDrivingPosRef.current) {
+            // Second source: bearing from movement vector
+            const distM = haversineKm(
               lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
               snapped.latitude, snapped.longitude,
-            );
-            const brgDiff    = ((brg - lastHeadingRef.current + 540) % 360) - 180;
-            // Clamp max heading change per GPS tick to avoid large jumps when
-            // the snap point changes abruptly (e.g. after a map-match update).
-            const MAX_HDG_CHANGE_DEG = 90; // degrees
-            const clamped    = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
-            const smoothed   = lastHeadingRef.current + clamped * 0.4;
-            drivingHeading   = ((smoothed % 360) + 360) % 360;
-            lastHeadingRef.current = drivingHeading;
-            setHeading(drivingHeading);
-          }
-        } else if (loc.heading != null && loc.heading >= 0 && (kmh > 3 || movedForSnap >= 3)) {
-          // Fallback: smooth GPS heading when bearing is not computable
-          const diff           = loc.heading - lastHeadingRef.current;
-          const normalizedDiff = ((diff + 540) % 360) - 180;
-          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-          const finalHeading   = ((smoothed % 360) + 360) % 360;
-          if (Math.abs(normalizedDiff) > 2) {
-            drivingHeading         = finalHeading;
-            lastHeadingRef.current = drivingHeading;
-            setHeading(drivingHeading);
+            ) * 1000;
+            if (distM >= 5) {
+              const brg     = bearingBetween(
+                lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+                snapped.latitude, snapped.longitude,
+              );
+              const brgDiff = ((brg - lastHeadingRef.current + 540) % 360) - 180;
+              const MAX_HDG_CHANGE_DEG = 90;
+              const clamped = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
+              const smoothed = lastHeadingRef.current + clamped * 0.4;
+              drivingHeading = ((smoothed % 360) + 360) % 360;
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            }
+          } else if (loc.heading != null && loc.heading >= 0) {
+            // Fallback: smooth GPS heading when snap/bearing is not available
+            const diff           = loc.heading - lastHeadingRef.current;
+            const normalizedDiff = ((diff + 540) % 360) - 180;
+            const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
+            const finalHeading   = ((smoothed % 360) + 360) % 360;
+            if (Math.abs(normalizedDiff) > 2) {
+              drivingHeading         = finalHeading;
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            }
           }
         }
         // Always track last snapped position for next bearing calculation
@@ -1100,6 +1129,8 @@ export default function MapScreen() {
             // Reset nav-quality Kalman filters to start fresh in driving mode
             navLatFilter.reset();
             navLngFilter.reset();
+            drivLatFilter.reset();
+            drivLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
             // Immediate warmup snap — doesn't wait for 4-s API interval + movement
             forceMapMatch(snapped.latitude, snapped.longitude);

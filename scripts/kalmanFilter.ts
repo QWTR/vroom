@@ -70,12 +70,13 @@ export class KalmanFilter {
 // ── isSaneLocation — max 200 m/s (720 km/h) między odczytami ──
 // Ale uwzględnij czas — sprawdzaj prędkość, nie odległość
 export function isSaneLocation(
-  newLat:  number,
-  newLng:  number,
-  prevLat: number,
-  prevLng: number,
-  maxSpeedKmh = 250,  // max rozsądna prędkość pojazdu
-  dtMs = 1000,        // czas od ostatniego odczytu w ms
+  newLat:     number,
+  newLng:     number,
+  prevLat:    number,
+  prevLng:    number,
+  maxSpeedKmh = 250, // max rozsądna prędkość pojazdu
+  dtMs        = 1000, // czas od ostatniego odczytu w ms
+  isDriving   = false, // tryb jazdy — pozwala na większe skoki (GPS dryft przy dużej prędkości)
 ): boolean {
   const R    = 6371000;
   const dLat = ((newLat - prevLat) * Math.PI) / 180;
@@ -85,12 +86,17 @@ export function isSaneLocation(
     Math.cos((prevLat * Math.PI) / 180) *
     Math.cos((newLat  * Math.PI) / 180) *
     Math.sin(dLng / 2) ** 2;
-  const distM  = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distM    = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const speedKmh = (distM / (dtMs / 1000)) * 3.6;
-  return speedKmh <= maxSpeedKmh;
+  // W trybie jazdy dopuszczamy większy próg prędkości (GPS multipath na autostradzie)
+  const effectiveMax = isDriving ? Math.max(maxSpeedKmh, 350) : maxSpeedKmh;
+  return speedKmh <= effectiveMax;
 }
 
 export const latFilter    = new KalmanFilter(0.0001, 0.01);
 export const lngFilter    = new KalmanFilter(0.0001, 0.01);
 export const navLatFilter = new KalmanFilter(0.001,  0.005);
 export const navLngFilter = new KalmanFilter(0.001,  0.005);
+// Tryb jazdy: wyższy processNoise (szybsza reakcja na zakręty/zmiany kierunku)
+export const drivLatFilter = new KalmanFilter(0.005, 0.005);
+export const drivLngFilter = new KalmanFilter(0.005, 0.005);
