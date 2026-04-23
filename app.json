@@ -4,7 +4,7 @@
     "slug": "vroom",
     "version": "1.0.11",
     "orientation": "portrait",
-    "icon": "./assets/images/logotypRed.png",
+    "icon": "./assets/images/Frame1933.png",
     "scheme": "vroom",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -32,7 +32,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logotypRed.png",
+        "foregroundImage": "./assets/images/Frame1933.png",
         "backgroundColor": "#0a0a0a"
       },
       "edgeToEdgeEnabled": false,
@@ -75,12 +75,12 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/logotypRed.png",
+          "image": "./assets/images/Frame1933.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0a0a0a",
           "dark": {
-            "image": "./assets/images/logotypRed.png",
+            "image": "./assets/images/Frame1933.png",
             "backgroundColor": "#0a0a0a"
           }
         }
@@ -89,7 +89,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/logotypRed.png",
+          "icon": "./assets/images/Frame1933.png",
           "color": "#e33835",
           "defaultChannel": "vroom_alerts",
           "sounds": []
