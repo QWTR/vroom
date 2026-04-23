@@ -29,6 +29,7 @@ import type { ParticipatedRoute }   from '../../hooks/useParticipatedRoutes';
 import { useChat }                  from '../../hooks/useChats';
 import { FriendsModal }             from '../modals/FriendsModal';
 import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
+import { useFollowCounts }          from '../../hooks/useFollowCounts';
 
 const { width } = Dimensions.get('window');
 
@@ -99,6 +100,7 @@ export default function ProfileView({
   const { theme, isDark } = useTheme();
   const router = useRouter();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat();
+  const { counts: followCounts } = useFollowCounts(profile?.id);
 
   const [selectedSpot,        setSelectedSpot]        = useState<Spot | null>(null);
   const [localSpots,          setLocalSpots]          = useState<SpotPreview[]>([]);
@@ -326,6 +328,24 @@ export default function ProfileView({
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 17, color: theme.text, fontWeight: '900' }}>{item.value}</Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1 }}>{item.unit}</Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 0.5 }}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* ══ OBSERWACJE ══ */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: 'OBSERWUJĄCY', value: profile?.followersCount ?? 0, color: '#4de926', icon: 'visibility'   as const },
+              { label: 'OBSERWACJE',  value: profile?.followingCount ?? 0, color: '#a855f7', icon: 'person-add'   as const },
+            ].map(item => (
+              <View key={item.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name={item.icon} size={16} color={item.color} />
+                </View>
+                <View>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900' }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1, marginTop: 2 }}>{item.label}</Text>
+                </View>
               </View>
             ))}
           </View>

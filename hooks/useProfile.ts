@@ -25,10 +25,12 @@ function mapToProfile(u: any): UserProfile {
     meetCount:     u.meetCount     ?? 0,
     cityCount:     u.cityCount     ?? 0,
     position:      u.position      ?? null,
-    // ── Klub — tylko z /api/profile/me i /api/profile/:id ──
     club:          u.club          ?? null,
+    followersCount: u.followersCount ?? 0,  
+    followingCount: u.followingCount ?? 0,  
   };
 }
+
 
 export function useProfile() {
   const [profile,       setProfile]       = useState<UserProfile | null>(null);

@@ -349,6 +349,7 @@ export default function SettingsScreen() {
               { icon: 'person-add',          iconBg: '#00BCD4', label: 'Znajomi',             sub: 'Zaproszenia i akceptacje znajomych',       key: 'notifFriends'      },
               { icon: 'emoji-events',        iconBg: '#FFC107', label: 'Osiągnięcia',         sub: 'Gdy odblokujesz nowe osiągnięcie',         key: 'notifAchievements' },
               { icon: 'warning-amber',       iconBg: '#FF9800', label: 'Ostrzeżenia drogowe', sub: 'Alert gdy jesteś blisko ostrzeżenia',      key: 'notifWarnings'     },
+              { icon: 'visibility',          iconBg: '#4de926', label: 'Posty obserwowanych', sub: 'Nowy post od obserwowanego użytkownika',   key: 'notifFollowedPosts'},
             ] as const).map((item, i, arr) => (
               <Row key={item.key} icon={item.icon} iconBg={item.iconBg} label={item.label} sublabel={item.sub} last={i === arr.length - 1}
                 right={<Switch value={(settings as any)[item.key]} onValueChange={v => updateSetting(item.key as any, v)} {...swProps} />}

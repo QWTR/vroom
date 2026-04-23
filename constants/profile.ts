@@ -12,7 +12,9 @@ export interface UserProfile {
   meetCount: number;
   cityCount: number;
   position: number | null;
-  isOwner?: boolean; // true gdy oglądający = właściciel
+  isOwner?: boolean; 
+  followersCount?: number;  
+  followingCount?: number;
   club?: {
     id:          number;
     name:        string;
