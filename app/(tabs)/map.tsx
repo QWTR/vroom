@@ -861,7 +861,7 @@ export default function MapScreen() {
   }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
 
   // Ręczny przełącznik trybu jazdy (przycisk w UI)
-  const handleToggleDrivingMode = useCallback(() => {
+  const handleToggleDrivingMode = useCallback(async () => {
     if (isNavigating) return;
     if (isDriving) {
       drivingManuallyDisabledRef.current = true;
@@ -886,18 +886,40 @@ export default function MapScreen() {
       setIsDriving(true);
       setDrivingKm(0);
       if (userLocation) {
-        // forceMatch: immediate API call to snap to nearest road right now.
-        // Result is picked up on the next GPS tick via getMatchedPoints().
-        forceMapMatch(userLocation.latitude, userLocation.longitude);
-        addMatchPosition(userLocation.latitude, userLocation.longitude);
-        // Anchor the dead-reckoning module at the current position so
-        // onFrame does not keep overwriting drLatRef with a stale position.
-        feedDR({ latitude: userLocation.latitude, longitude: userLocation.longitude }, 0, lastHeadingRef.current);
+        const startLat = userLocation.latitude;
+        const startLng = userLocation.longitude;
+
+        // Anchor dead-reckoning at current position immediately.
+        feedDR({ latitude: startLat, longitude: startLng }, 0, lastHeadingRef.current);
         enterDrivingCamera(userLocation, lastHeadingRef.current);
+
+        // forceMatch: await the API result so we can snap immediately —
+        // this is essential when stationary (speed = 0) because the GPS
+        // pipeline's dead-zone guard would otherwise skip the snap update.
+        addMatchPosition(startLat, startLng);
+        const matchedPts = await forceMapMatch(startLat, startLng);
+
+        if (matchedPts && matchedPts.length >= 2 && isDrivingRef.current) {
+          // Push the road geometry into the snap hook so drivingSnap can use it.
+          setRoadMatchPoints(matchedPts);
+          const snapped = drivingSnap(startLat, startLng, 0, false);
+          if (snapped.snapped) {
+            // Apply the snapped road position directly — bypasses the GPS pipeline
+            // dead-zone which would otherwise block updates while speed is 0.
+            drLatRef.current = snapped.latitude;
+            drLngRef.current = snapped.longitude;
+            lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+            setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+            // Re-anchor dead-reckoning at the snapped position so the camera
+            // follows the correct road-snapped location.
+            feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, lastHeadingRef.current);
+            console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
+          }
+        }
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
