@@ -13,6 +13,7 @@ export interface AppSettings {
   notifMessages:       boolean;
   notifFriends:        boolean;
   notifAchievements:   boolean;
+  notifFollowedPosts:  boolean;
   locationMarkerStyle: 'arrow' | 'profile';
   friendsOnlyMessages: boolean;
 }
@@ -28,6 +29,7 @@ const DEFAULTS: AppSettings = {
   notifMessages:       true,
   notifFriends:        true,
   notifAchievements:   true,
+  notifFollowedPosts:  true,
   locationMarkerStyle: 'profile',
   friendsOnlyMessages: false,
 };

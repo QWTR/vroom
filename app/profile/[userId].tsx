@@ -85,6 +85,7 @@ export default function PublicProfileScreen() {
   const [isFollowing,    setIsFollowing]    = useState(false);
   const [followLoading,  setFollowLoading]  = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   const { startConversation } = useChat();
 
@@ -118,7 +119,7 @@ export default function PublicProfileScreen() {
         fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers }),
         fetch(`${API_URL}/api/chat/friends/status/${userId}`,  { headers }),
         fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
-        fetch(`${API_URL}/api/follow/count/${userId}`,         { headers }),
+        fetch(`${API_URL}/api/follow/counts/${userId}`,        { headers }),
       ]);
       if (profileRes.ok) setProfile(await profileRes.json());
       if (carsRes.ok)    setCars(await carsRes.json());
@@ -143,7 +144,8 @@ export default function PublicProfileScreen() {
       }
       if (followCountRes.ok) {
         const fc = await followCountRes.json();
-        setFollowersCount(fc.followersCount ?? fc.count ?? 0);
+        setFollowersCount(fc.followers ?? fc.followersCount ?? fc.count ?? 0);
+        setFollowingCount(fc.following ?? fc.followingCount ?? 0);
       }
       runEntrance();
     } catch {
@@ -458,6 +460,24 @@ export default function PublicProfileScreen() {
             ))}
           </View>
 
+          {/* Follow counts */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'OBSERWUJĄCY', value: followersCount, color: '#4de926', icon: 'visibility'  as const },
+              { label: 'OBSERWACJE',  value: followingCount, color: '#a855f7', icon: 'person-add'  as const },
+            ].map(item => (
+              <View key={item.label} style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff0a', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name={item.icon} size={16} color={item.color} />
+                </View>
+                <View>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1, marginTop: 2 }}>{item.label}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
           {/* Friend Button */}
           <FriendButton />
 
@@ -497,16 +517,9 @@ export default function PublicProfileScreen() {
                       size={16}
                       color={isFollowing ? '#4de926' : '#ffffff60'}
                     />
-                    <View>
-                      <Text style={[s.friendBtnTxt, { color: isFollowing ? '#4de926' : '#ffffff60' }]}>
-                        {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
-                      </Text>
-                      {followersCount > 0 && (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: isFollowing ? '#4de92699' : '#ffffff30', textAlign: 'center', marginTop: 2 }}>
-                          {followersCount} obserwujących
-                        </Text>
-                      )}
-                    </View>
+                    <Text style={[s.friendBtnTxt, { color: isFollowing ? '#4de926' : '#ffffff60' }]}>
+                      {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                    </Text>
                   </>
               }
             </TouchableOpacity>
