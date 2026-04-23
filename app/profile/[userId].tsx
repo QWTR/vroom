@@ -18,6 +18,7 @@ import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
 import type { SpotPreview } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
+import { useChat }         from '../../hooks/useChats';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -75,11 +76,17 @@ export default function PublicProfileScreen() {
   const [localSpots,    setLocalSpots]    = useState<PublicSpot[]>([]);
   const [achievements,  setAchievements]  = useState<Achievement[]>([]);
   const [loading,       setLoading]       = useState(true);
-  const [myUserId,      setMyUserId]      = useState<number | null>(null);
-  const [friendStatus,  setFriendStatus]  = useState<FriendStatus>('none');
-  const [friendshipId,  setFriendshipId]  = useState<number | null>(null);
-  const [friendLoading, setFriendLoading] = useState(false);
-  const [selectedSpot,  setSelectedSpot]  = useState<Spot | null>(null);
+  const [myUserId,       setMyUserId]       = useState<number | null>(null);
+  const [friendStatus,   setFriendStatus]   = useState<FriendStatus>('none');
+  const [friendshipId,   setFriendshipId]   = useState<number | null>(null);
+  const [friendLoading,  setFriendLoading]  = useState(false);
+  const [selectedSpot,   setSelectedSpot]   = useState<Spot | null>(null);
+  const [chatLoading,    setChatLoading]     = useState(false);
+  const [isFollowing,    setIsFollowing]    = useState(false);
+  const [followLoading,  setFollowLoading]  = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+
+  const { startConversation } = useChat();
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
@@ -104,12 +111,14 @@ export default function PublicProfileScreen() {
     try {
       const token = await getToken();
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const [profileRes, carsRes, spotsRes, achRes, fsRes] = await Promise.all([
+      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes, followCountRes] = await Promise.all([
         fetch(`${API_URL}/api/profile/${userId}`,              { headers }),
         fetch(`${API_URL}/api/profile/${userId}/cars`,         { headers }),
         fetch(`${API_URL}/api/profile/${userId}/spots`,        { headers }),
         fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers }),
         fetch(`${API_URL}/api/chat/friends/status/${userId}`,  { headers }),
+        fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
+        fetch(`${API_URL}/api/follow/count/${userId}`,         { headers }),
       ]);
       if (profileRes.ok) setProfile(await profileRes.json());
       if (carsRes.ok)    setCars(await carsRes.json());
@@ -127,6 +136,14 @@ export default function PublicProfileScreen() {
         const s = await fsRes.json();
         setFriendStatus(s.status ?? 'none');
         setFriendshipId(s.friendshipId ?? null);
+      }
+      if (followRes.ok) {
+        const f = await followRes.json();
+        setIsFollowing(f.isFollowing ?? false);
+      }
+      if (followCountRes.ok) {
+        const fc = await followCountRes.json();
+        setFollowersCount(fc.followersCount ?? fc.count ?? 0);
       }
       runEntrance();
     } catch {
@@ -202,6 +219,48 @@ export default function PublicProfileScreen() {
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' }); }
     finally { setFriendLoading(false); }
   }, [friendshipId]);
+
+  const handleStartChat = useCallback(async () => {
+    setChatLoading(true);
+    try {
+      const convId = await startConversation([Number(userId)], false);
+      router.push({ pathname: '/Community/chats/[id]', params: { id: String(convId) } });
+    } catch (err: unknown) {
+      const e = err as Error & { code?: string | null };
+      if (e?.code === 'FRIENDS_ONLY_MESSAGES') {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Użytkownik przyjmuje wiadomości tylko od znajomych' });
+      } else {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+      }
+    } finally { setChatLoading(false); }
+  }, [userId, startConversation, router]);
+
+  const handleFollowToggle = useCallback(async () => {
+    setFollowLoading(true);
+    try {
+      const token = await getToken();
+      if (isFollowing) {
+        const res = await fetch(`${API_URL}/api/follow/${userId}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setIsFollowing(false);
+          setFollowersCount(prev => Math.max(0, prev - 1));
+          Toast.show({ type: 'success', text1: '✅ Przestałeś obserwować' });
+        }
+      } else {
+        const res = await fetch(`${API_URL}/api/follow/${userId}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setIsFollowing(true);
+          setFollowersCount(prev => prev + 1);
+          Toast.show({ type: 'success', text1: '✅ Obserwujesz!' });
+        }
+      }
+    } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' }); }
+    finally { setFollowLoading(false); }
+  }, [userId, isFollowing]);
 
   // ── LOADING ──────────────────────────────────────────────
   if (loading) {
@@ -401,6 +460,57 @@ export default function PublicProfileScreen() {
 
           {/* Friend Button */}
           <FriendButton />
+
+          {/* ══ NAPISZ + OBSERWUJ ══ */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+            {/* Napisz */}
+            <TouchableOpacity
+              style={[s.friendBtn, { flex: 1, marginBottom: 0, backgroundColor: '#268bff18', borderColor: '#268bff40' }]}
+              onPress={handleStartChat}
+              activeOpacity={0.8}
+              disabled={chatLoading}
+            >
+              {chatLoading
+                ? <ActivityIndicator size="small" color="#268bff" />
+                : <>
+                    <MaterialIcons name="chat" size={16} color="#268bff" />
+                    <Text style={[s.friendBtnTxt, { color: '#268bff' }]}>NAPISZ</Text>
+                  </>
+              }
+            </TouchableOpacity>
+
+            {/* Obserwuj */}
+            <TouchableOpacity
+              style={[s.friendBtn, { flex: 1, marginBottom: 0,
+                backgroundColor: isFollowing ? '#4de92618' : '#ffffff08',
+                borderColor:     isFollowing ? '#4de92640' : '#ffffff18',
+              }]}
+              onPress={handleFollowToggle}
+              activeOpacity={0.8}
+              disabled={followLoading}
+            >
+              {followLoading
+                ? <ActivityIndicator size="small" color={isFollowing ? '#4de926' : '#ffffff60'} />
+                : <>
+                    <MaterialIcons
+                      name={isFollowing ? 'visibility' : 'visibility-off'}
+                      size={16}
+                      color={isFollowing ? '#4de926' : '#ffffff60'}
+                    />
+                    <View>
+                      <Text style={[s.friendBtnTxt, { color: isFollowing ? '#4de926' : '#ffffff60' }]}>
+                        {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                      </Text>
+                      {followersCount > 0 && (
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: isFollowing ? '#4de92699' : '#ffffff30', textAlign: 'center', marginTop: 2 }}>
+                          {followersCount} obserwujących
+                        </Text>
+                      )}
+                    </View>
+                  </>
+              }
+            </TouchableOpacity>
+          </View>
 
           {/* ══ AUTA ══ */}
           <SectionHeader title="AUTA" count={cars.length} icon="directions-car" />
