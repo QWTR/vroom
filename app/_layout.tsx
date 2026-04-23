@@ -194,7 +194,7 @@ function RootLayoutInner() {
       setTimeout(async () => {
         if (data.type === 'new_message' && data.conversationId)
           router.push(`/Community/chats/${data.conversationId}` as any);
-        else if ((data.type === 'like_post' || data.type === 'comment_post') && data.postId) {
+        else if ((data.type === 'like_post' || data.type === 'comment_post' || data.type === 'new_follow_post') && data.postId) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));
           router.push(`/Community/community/community` as any);
         } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId)

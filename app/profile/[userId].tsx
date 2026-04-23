@@ -76,14 +76,15 @@ export default function PublicProfileScreen() {
   const [localSpots,    setLocalSpots]    = useState<PublicSpot[]>([]);
   const [achievements,  setAchievements]  = useState<Achievement[]>([]);
   const [loading,       setLoading]       = useState(true);
-  const [myUserId,      setMyUserId]      = useState<number | null>(null);
-  const [friendStatus,  setFriendStatus]  = useState<FriendStatus>('none');
-  const [friendshipId,  setFriendshipId]  = useState<number | null>(null);
-  const [friendLoading, setFriendLoading] = useState(false);
-  const [selectedSpot,  setSelectedSpot]  = useState<Spot | null>(null);
-  const [chatLoading,   setChatLoading]   = useState(false);
-  const [isFollowing,   setIsFollowing]   = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
+  const [myUserId,       setMyUserId]       = useState<number | null>(null);
+  const [friendStatus,   setFriendStatus]   = useState<FriendStatus>('none');
+  const [friendshipId,   setFriendshipId]   = useState<number | null>(null);
+  const [friendLoading,  setFriendLoading]  = useState(false);
+  const [selectedSpot,   setSelectedSpot]   = useState<Spot | null>(null);
+  const [chatLoading,    setChatLoading]     = useState(false);
+  const [isFollowing,    setIsFollowing]    = useState(false);
+  const [followLoading,  setFollowLoading]  = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
 
   const { startConversation } = useChat();
 
@@ -110,13 +111,14 @@ export default function PublicProfileScreen() {
     try {
       const token = await getToken();
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes] = await Promise.all([
+      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes, followCountRes] = await Promise.all([
         fetch(`${API_URL}/api/profile/${userId}`,              { headers }),
         fetch(`${API_URL}/api/profile/${userId}/cars`,         { headers }),
         fetch(`${API_URL}/api/profile/${userId}/spots`,        { headers }),
         fetch(`${API_URL}/api/profile/${userId}/achievements`, { headers }),
         fetch(`${API_URL}/api/chat/friends/status/${userId}`,  { headers }),
         fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
+        fetch(`${API_URL}/api/follow/count/${userId}`,         { headers }),
       ]);
       if (profileRes.ok) setProfile(await profileRes.json());
       if (carsRes.ok)    setCars(await carsRes.json());
@@ -138,6 +140,10 @@ export default function PublicProfileScreen() {
       if (followRes.ok) {
         const f = await followRes.json();
         setIsFollowing(f.isFollowing ?? false);
+      }
+      if (followCountRes.ok) {
+        const fc = await followCountRes.json();
+        setFollowersCount(fc.followersCount ?? fc.count ?? 0);
       }
       runEntrance();
     } catch {
@@ -239,6 +245,7 @@ export default function PublicProfileScreen() {
         });
         if (res.ok) {
           setIsFollowing(false);
+          setFollowersCount(prev => Math.max(0, prev - 1));
           Toast.show({ type: 'success', text1: '✅ Przestałeś obserwować' });
         }
       } else {
@@ -247,6 +254,7 @@ export default function PublicProfileScreen() {
         });
         if (res.ok) {
           setIsFollowing(true);
+          setFollowersCount(prev => prev + 1);
           Toast.show({ type: 'success', text1: '✅ Obserwujesz!' });
         }
       }
@@ -489,9 +497,16 @@ export default function PublicProfileScreen() {
                       size={16}
                       color={isFollowing ? '#4de926' : '#ffffff60'}
                     />
-                    <Text style={[s.friendBtnTxt, { color: isFollowing ? '#4de926' : '#ffffff60' }]}>
-                      {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
-                    </Text>
+                    <View>
+                      <Text style={[s.friendBtnTxt, { color: isFollowing ? '#4de926' : '#ffffff60' }]}>
+                        {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                      </Text>
+                      {followersCount > 0 && (
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: isFollowing ? '#4de92699' : '#ffffff30', textAlign: 'center', marginTop: 2 }}>
+                          {followersCount} obserwujących
+                        </Text>
+                      )}
+                    </View>
                   </>
               }
             </TouchableOpacity>
