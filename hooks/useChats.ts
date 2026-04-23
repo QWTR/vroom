@@ -141,8 +141,9 @@ export function useChat() {
       const h = await headers();
       const r = await fetch(`${API}/conversations`, { headers: h });
       const d = await r.json();
-      // API może zwrócić obiekt błędu zamiast tablicy — zawsze zabezpiecz
-      setConversations(Array.isArray(d) ? d : []);
+      // Backend zwraca { conversations, nextCursor } lub tablicę (stary format)
+      const list = Array.isArray(d) ? d : (Array.isArray(d?.conversations) ? d.conversations : []);
+      setConversations(list);
     } catch (e) {
       console.error('fetchConversations:', e);
       setConversations([]);
@@ -198,19 +199,21 @@ export function useChat() {
     isGroup = false,
     name?: string,
   ): Promise<number | null> => {
-    try {
-      const h = await headers();
-      const r = await fetch(`${API}/conversations`, {
-        method:  'POST',
-        headers: h,
-        body:    JSON.stringify({ userIds, isGroup, name }),
-      });
-      const d = await r.json();
-      await fetchConversations();
-      return d.id ?? null;
-    } catch {
-      return null;
+    const h = await headers();
+    const r = await fetch(`${API}/conversations`, {
+      method:  'POST',
+      headers: h,
+      body:    JSON.stringify({ userIds, isGroup, name }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      const err: any = new Error(d?.error ?? 'startConversation failed');
+      err.code = d?.code ?? null;
+      err.status = r.status;
+      throw err;
     }
+    await fetchConversations();
+    return d.id ?? null;
   }, [headers, fetchConversations]);
 
   // ── Send friend request ──────────────────────────────────

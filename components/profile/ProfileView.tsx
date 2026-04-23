@@ -28,6 +28,7 @@ import ParticipatedRoutesSection    from './ParticipatedRouteCard';
 import type { ParticipatedRoute }   from '../../hooks/useParticipatedRoutes';
 import { useChat }                  from '../../hooks/useChats';
 import { FriendsModal }             from '../modals/FriendsModal';
+import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
 
 const { width } = Dimensions.get('window');
 
@@ -107,6 +108,7 @@ export default function ProfileView({
   const [lbRouteId,           setLbRouteId]           = useState<number | null>(null);
   const [lbRouteName,         setLbRouteName]         = useState('');
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
+  const [invitesModalVisible, setInvitesModalVisible] = useState(false);
   const ROUTES_PREVIEW = 0;
 
   const { data: lbData, runsData: lbRunsData, loading: lbLoading, fetchLeaderboard, fetchRuns } = useRouteLeaderboard();
@@ -379,40 +381,29 @@ export default function ProfileView({
           )}
 
           {/* ══ ZAPROSZENIA ══ */}
-          {isOwner && requests.length > 0 && (
-            <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: '#e3383530', marginBottom: 20, overflow: 'hidden' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
-                <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="person-add" size={16} color="#e33835" />
+          {isOwner && (
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: requests.length > 0 ? '#e3383530' : theme.border, marginBottom: 12 }}
+              onPress={() => setInvitesModalVisible(true)} activeOpacity={0.8}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="person-add" size={18} color="#e33835" />
                 </View>
-                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700', flex: 1 }}>ZAPROSZENIA</Text>
-                <View style={{ backgroundColor: '#e3383520', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: '#e3383540' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', fontWeight: '700' }}>{requests.length}</Text>
+                <View>
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }}>ZAPROSZENIA DO ZNAJOMYCH</Text>
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }}>{requests.length} oczekujących</Text>
                 </View>
               </View>
-              {requests.map((req, index) => (
-                <View key={req.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: index < requests.length - 1 ? 1 : 0, borderBottomColor: theme.border }}>
-                  <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-                    {req.requester.avatarUrl
-                      ? <Image source={{ uri: req.requester.avatarUrl }} style={{ width: 42, height: 42 }} />
-                      : <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.textDim, fontWeight: '700' }}>{req.requester.username.slice(0, 2).toUpperCase()}</Text>
-                    }
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {requests.length > 0 && (
+                  <View style={{ backgroundColor: '#e3383520', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: '#e3383540' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', fontWeight: '700' }}>{requests.length}</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>{req.requester.username}</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>chce zostać Twoim znajomym</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity onPress={() => acceptRequest(req.id)} style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: '#4de92620', borderWidth: 1, borderColor: '#4de92645', alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialIcons name="check" size={17} color="#4de926" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => rejectRequest(req.id)} style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: '#e3383520', borderWidth: 1, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialIcons name="close" size={17} color="#e33835" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </View>
+                )}
+                <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
+              </View>
+            </TouchableOpacity>
           )}
 
           {/* ══ ZNAJOMI ══ */}
@@ -558,6 +549,13 @@ export default function ProfileView({
 
       <RouteLeaderboardModal visible={lbVisible} routeId={lbRouteId} routeName={lbRouteName} data={lbData} runsData={lbRunsData} loading={lbLoading} onClose={() => { setLbVisible(false); setLbRouteId(null); setLbRouteName(''); }} />
       <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend(f.id); fetchFriends(); }} />
+      <FriendRequestsModal
+        visible={invitesModalVisible}
+        requests={requests}
+        onClose={() => setInvitesModalVisible(false)}
+        onAccept={async (id) => { await acceptRequest(id); }}
+        onReject={async (id) => { await rejectRequest(id); }}
+      />
     </>
   );
 }

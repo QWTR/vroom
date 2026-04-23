@@ -14,6 +14,7 @@ export interface AppSettings {
   notifFriends:        boolean;
   notifAchievements:   boolean;
   locationMarkerStyle: 'arrow' | 'profile';
+  friendsOnlyMessages: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -28,6 +29,7 @@ const DEFAULTS: AppSettings = {
   notifFriends:        true,
   notifAchievements:   true,
   locationMarkerStyle: 'profile',
+  friendsOnlyMessages: false,
 };
 
 interface SettingsContextType {

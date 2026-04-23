@@ -334,7 +334,8 @@ export default function SettingsScreen() {
           <SectionLabel title="PRYWATNOŚĆ" />
           <Card>
             <Row icon="leaderboard"  iconBg="#9C27B0" label="Tryb prywatny"     sublabel="Ukryj swój profil w rankingu"           right={<Switch value={settings.privateProfile} onValueChange={v => updateSetting('privateProfile', v)} {...swProps} />} />
-            <Row icon="location-off" iconBg="#FF9800" label="Ukryj lokalizację" sublabel="Nie pokazuj swojej pozycji na mapie" last right={<Switch value={settings.hideLocation}    onValueChange={v => updateSetting('hideLocation', v)}    {...swProps} />} />
+            <Row icon="location-off" iconBg="#FF9800" label="Ukryj lokalizację" sublabel="Nie pokazuj swojej pozycji na mapie"     right={<Switch value={settings.hideLocation}    onValueChange={v => updateSetting('hideLocation', v)}    {...swProps} />} />
+            <Row icon="message"      iconBg="#9C27B0" label="Tylko znajomi mogą pisać" sublabel="Tylko znajomi mogą wysyłać Ci wiadomości PV" last right={<Switch value={settings.friendsOnlyMessages} onValueChange={v => updateSetting('friendsOnlyMessages', v)} {...swProps} />} />
           </Card>
 
           {/* POWIADOMIENIA */}
