@@ -1081,37 +1081,75 @@ export default function MapScreen() {
 
         // ── Driving heading ────────────────────────────────────────────────────
         // Priority order:
-        // 1. targetHeading from snap (polyline segment bearing) — stable, no GPS jitter
-        // 2. Movement vector between last two snapped positions — good for curves
-        // 3. GPS loc.heading — fallback when neither is available
+        // 1. GPS loc.heading (course-over-ground) — most reliable at kmh >= 10,
+        //    direct measure of travel direction from the GPS chip.
+        //    Anti-parallel guard: if it differs from current by >150° it's a GPS
+        //    flip/spike — skip and fall through to movement vector.
+        // 2. Movement vector between last two snapped positions — reliable on
+        //    curves and when GPS heading lags or is unavailable.
+        // 3. targetHeading from snap (polyline segment bearing) — last resort,
+        //    validated: reject if it differs from current heading by >90°
+        //    (anti-parallel snap on the wrong lane direction).
+        // 4. GPS loc.heading at any speed — final fallback.
         // Heading updates are frozen when speed is very low (< 7 km/h)
         // to prevent the car icon from spinning when stationary or in low signal.
         let drivingHeading = lastHeadingRef.current;
         const shouldUpdateHeading = kmh >= 7 || movedForSnap >= 5;
 
         if (shouldUpdateHeading) {
-          if (snapped.snapped) {
-            // Best source: polyline segment bearing from useDrivingSnap
-            drivingHeading = smoothHeading(lastHeadingRef.current, snapped.targetHeading, 0.4, 90);
-            lastHeadingRef.current = drivingHeading;
-            setHeading(drivingHeading);
+          if (kmh >= 10 && loc.heading != null && loc.heading >= 0) {
+            // Primary: GPS course-over-ground — direct measure of travel direction.
+            // Anti-parallel guard: reject if GPS heading suddenly flips >150° from
+            // current (GPS chip glitch) and fall through to movement vector.
+            const gpsDiff = Math.abs(((loc.heading - lastHeadingRef.current + 540) % 360) - 180);
+            if (gpsDiff <= 150) {
+              drivingHeading = smoothHeading(lastHeadingRef.current, loc.heading, 0.35, 60);
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            } else if (lastDrivingPosRef.current) {
+              // GPS flipped 180° — fall back to movement vector immediately
+              const distM = haversineKm(
+                lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+                snapped.latitude, snapped.longitude,
+              ) * 1000;
+              if (distM >= 5) {
+                const brg = bearingBetween(
+                  lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+                  snapped.latitude, snapped.longitude,
+                );
+                drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 60);
+                lastHeadingRef.current = drivingHeading;
+                setHeading(drivingHeading);
+              }
+            }
           } else if (lastDrivingPosRef.current) {
-            // Second source: bearing from movement vector
+            // Secondary: bearing from movement vector between consecutive snapped
+            // positions — good for curves and low-speed GPS heading unreliability.
             const distM = haversineKm(
               lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
               snapped.latitude, snapped.longitude,
             ) * 1000;
             if (distM >= 5) {
-              const brg  = bearingBetween(
+              const brg = bearingBetween(
                 lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
                 snapped.latitude, snapped.longitude,
               );
-              drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 90);
+              drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 60);
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            }
+          } else if (snapped.snapped) {
+            // Tertiary: polyline segment bearing from snap.
+            // Anti-parallel guard: reject if it differs from current heading by >90°
+            // (snap landed on a segment going the opposite direction).
+            const snapDiff = Math.abs(((snapped.targetHeading - lastHeadingRef.current + 540) % 360) - 180);
+            if (snapDiff <= 90) {
+              drivingHeading = smoothHeading(lastHeadingRef.current, snapped.targetHeading, 0.3, 45);
               lastHeadingRef.current = drivingHeading;
               setHeading(drivingHeading);
             }
           } else if (loc.heading != null && loc.heading >= 0) {
-            // Fallback: smooth GPS heading when snap/bearing is not available
+            // Final fallback: GPS heading even at low speed
             const candidate = smoothHeading(lastHeadingRef.current, loc.heading, 0.4, 180);
             if (Math.abs(((loc.heading - lastHeadingRef.current + 540) % 360) - 180) > 2) {
               drivingHeading         = candidate;
