@@ -43,7 +43,7 @@ import {
 } from '../../constants/mapConfig';
 import { LocationState, RouteInfo, User } from '../../constants/types';
 
-import { latFilter, lngFilter, navLatFilter, navLngFilter } from '../../scripts/kalmanFilter';
+import { latFilter, lngFilter, navLatFilter, navLngFilter, drivLatFilter, drivLngFilter } from '../../scripts/kalmanFilter';
 // ── NOWE: sanity check ────────────────────────────────────
 import { isSaneLocation } from '../../scripts/kalmanFilter';
 
@@ -122,8 +122,8 @@ import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 18.9;
-const NAV_PITCH           = 75;
+const NAV_ZOOM            = 18.5;
+const NAV_PITCH           = 62;
 
 // ── Cost-optimization thresholds ─────────────────────────────────────────────
 // Set DEBUG_NETWORK = true to see throttle/suppression logs in the console.
@@ -145,9 +145,9 @@ const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this
 
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
-const ZOOM_NEAR           = 19.2; // 0–20 km/h
-const ZOOM_MID            = 18.4; // ~60 km/h
-const ZOOM_FAR            = 17.4; // 120+ km/h
+const ZOOM_NEAR           = 17.5; // 0–20 km/h
+const ZOOM_MID            = 17.1; // ~60 km/h
+const ZOOM_FAR            = 16.5; // 120+ km/h
 const ZOOM_SMOOTHING_ALPHA = 0.15; // low-pass filter weight (0 = no change, 1 = instant)
 
 function clampNum(n: number, min: number, max: number): number {
@@ -162,6 +162,28 @@ function zoomFromSpeedKmh(speedKmh: number): number {
   if (s <= 60)  return lerpNum(ZOOM_NEAR, ZOOM_MID, (s - 20) / 40);
   if (s <= 120) return lerpNum(ZOOM_MID,  ZOOM_FAR,  (s - 60) / 60);
   return ZOOM_FAR;
+}
+
+/**
+ * Smoothly blends current heading toward target heading using a low-pass filter.
+ * Handles the 0°/360° wraparound correctly and clamps the per-tick change to
+ * maxChangeDeg to prevent large jumps when the snap point shifts abruptly.
+ * @param current   Current heading in degrees [0, 360)
+ * @param target    Desired heading in degrees [0, 360)
+ * @param alpha     Smoothing factor [0, 1] — higher = faster tracking
+ * @param maxChange Maximum allowed change per call in degrees
+ * @returns New smoothed heading in degrees [0, 360)
+ */
+function smoothHeading(
+  current:   number,
+  target:    number,
+  alpha:     number,
+  maxChange: number,
+): number {
+  const diff     = ((target - current + 540) % 360) - 180;
+  const clamped  = Math.sign(diff) * Math.min(Math.abs(diff), maxChange);
+  const smoothed = current + clamped * alpha;
+  return ((smoothed % 360) + 360) % 360;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -826,6 +848,11 @@ export default function MapScreen() {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
     }
+    // Clear the last-good-location reference so the first GPS fix after
+    // exiting driving (e.g. walking away from parked car) is always accepted
+    // instead of being rejected as a teleport jump against the stale driving position.
+    lastGoodLocRef.current  = null;
+    lastGoodTimeRef.current = Date.now();
     stopDR();
     resetDRRefs();
     resetSnap();
@@ -839,7 +866,7 @@ export default function MapScreen() {
   }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
 
   // Ręczny przełącznik trybu jazdy (przycisk w UI)
-  const handleToggleDrivingMode = useCallback(() => {
+  const handleToggleDrivingMode = useCallback(async () => {
     if (isNavigating) return;
     if (isDriving) {
       drivingManuallyDisabledRef.current = true;
@@ -854,6 +881,8 @@ export default function MapScreen() {
       lastDrivingPosRef.current   = null;
       navLatFilter.reset();
       navLngFilter.reset();
+      drivLatFilter.reset();
+      drivLngFilter.reset();
       // Reset map-matcher so it starts fresh and immediately seeds the
       // buffer with the current position — enables snap-to-road from the
       // very first GPS tick rather than waiting for speed to reach 5 km/h.
@@ -862,18 +891,40 @@ export default function MapScreen() {
       setIsDriving(true);
       setDrivingKm(0);
       if (userLocation) {
-        // forceMatch: immediate API call to snap to nearest road right now.
-        // Result is picked up on the next GPS tick via getMatchedPoints().
-        forceMapMatch(userLocation.latitude, userLocation.longitude);
-        addMatchPosition(userLocation.latitude, userLocation.longitude);
-        // Anchor the dead-reckoning module at the current position so
-        // onFrame does not keep overwriting drLatRef with a stale position.
-        feedDR({ latitude: userLocation.latitude, longitude: userLocation.longitude }, 0, lastHeadingRef.current);
+        const startLat = userLocation.latitude;
+        const startLng = userLocation.longitude;
+
+        // Anchor dead-reckoning at current position immediately.
+        feedDR({ latitude: startLat, longitude: startLng }, 0, lastHeadingRef.current);
         enterDrivingCamera(userLocation, lastHeadingRef.current);
+
+        // forceMatch: await the API result so we can snap immediately —
+        // this is essential when stationary (speed = 0) because the GPS
+        // pipeline's dead-zone guard would otherwise skip the snap update.
+        addMatchPosition(startLat, startLng);
+        const matchedPts = await forceMapMatch(startLat, startLng);
+
+        if (matchedPts && matchedPts.length >= 2 && isDrivingRef.current) {
+          // Push the road geometry into the snap hook so drivingSnap can use it.
+          setRoadMatchPoints(matchedPts);
+          const snapped = drivingSnap(startLat, startLng, 0, false);
+          if (snapped.snapped) {
+            // Apply the snapped road position directly — bypasses the GPS pipeline
+            // dead-zone which would otherwise block updates while speed is 0.
+            drLatRef.current = snapped.latitude;
+            drLngRef.current = snapped.longitude;
+            lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+            setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+            // Re-anchor dead-reckoning at the snapped position so the camera
+            // follows the correct road-snapped location.
+            feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, lastHeadingRef.current);
+            console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
+          }
+        }
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -899,6 +950,7 @@ export default function MapScreen() {
           lastGoodLocRef.current.lng,
           250,
           safeDt,
+          isDrivingRef.current,
         );
         if (!sane) {
           console.warn('[GPS map] Skok odrzucony');
@@ -906,6 +958,8 @@ export default function MapScreen() {
           lngFilter.reset();
           navLatFilter.reset();
           navLngFilter.reset();
+          drivLatFilter.reset();
+          drivLngFilter.reset();
           return;
         }
 
@@ -914,16 +968,21 @@ export default function MapScreen() {
         // is slow or stationary. Allow 3× expected distance + 100 m headroom.
         // safeDt uses a 100 ms floor so a very short time-delta between consecutive
         // GPS fixes never makes an ordinary displacement look unreasonably fast.
+        // In driving mode, use a higher floor (300 m) to accommodate GPS drift at
+        // highway speeds when loc.speed may report 0 on Android.
         const distM2    = haversineKm(lastGoodLocRef.current.lat, lastGoodLocRef.current.lng, rawLat, rawLng) * 1000;
         const reportedKmh = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
         const expectedM2  = (reportedKmh / 3.6) * (safeDt / 1000);
-        const maxDistM2   = Math.max(100, expectedM2 * 3 + 100);
+        const distFloor   = isDrivingRef.current ? 300 : 100;
+        const maxDistM2   = Math.max(distFloor, expectedM2 * 3 + 100);
         if (distM2 > maxDistM2) {
           console.warn(`[GPS map] Skok dystansowy odrzucony: ${Math.round(distM2)}m > ${Math.round(maxDistM2)}m`);
           latFilter.reset();
           lngFilter.reset();
           navLatFilter.reset();
           navLngFilter.reset();
+          drivLatFilter.reset();
+          drivLngFilter.reset();
           return;
         }
       }
@@ -932,14 +991,19 @@ export default function MapScreen() {
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
 
       // ══ 2. Kalman ════════════════════════════════════════════
-      // Use nav-quality filters (higher process noise, lower measurement noise) for both
-      // navigation and driving modes — both require accurate, responsive position tracking.
-      const lat = (isNavigatingRef.current || isDrivingRef.current)
-        ? navLatFilter.filter(rawLat, acc)
-        : latFilter.filter(rawLat, acc);
-      const lng = (isNavigatingRef.current || isDrivingRef.current)
-        ? navLngFilter.filter(rawLng, acc)
-        : lngFilter.filter(rawLng, acc);
+      // Driving mode uses dedicated filters with higher process noise for faster
+      // response to direction changes. Navigation uses nav-quality filters.
+      // Idle uses standard (low-noise) filters.
+      const lat = isDrivingRef.current
+        ? drivLatFilter.filter(rawLat, acc)
+        : isNavigatingRef.current
+          ? navLatFilter.filter(rawLat, acc)
+          : latFilter.filter(rawLat, acc);
+      const lng = isDrivingRef.current
+        ? drivLngFilter.filter(rawLng, acc)
+        : isNavigatingRef.current
+          ? navLngFilter.filter(rawLng, acc)
+          : lngFilter.filter(rawLng, acc);
 
       // ══ 3. Prędkość ══════════════════════════════════════════
       const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : 0;
@@ -980,11 +1044,9 @@ export default function MapScreen() {
       if (!isDrivingRef.current) {
         const newH = loc.heading ?? lastHeadingRef.current;
         if (kmh > 3 && newH >= 0) {
-          const diff           = newH - lastHeadingRef.current;
-          const normalizedDiff = ((diff + 540) % 360) - 180;
-          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-          const finalHeading   = ((smoothed % 360) + 360) % 360;
+          const normalizedDiff = ((newH - lastHeadingRef.current + 540) % 360) - 180;
           if (Math.abs(normalizedDiff) > 2) {
+            const finalHeading = smoothHeading(lastHeadingRef.current, newH, 0.4, 180);
             setHeading(finalHeading);
             lastHeadingRef.current = finalHeading;
           }
@@ -1017,42 +1079,45 @@ export default function MapScreen() {
 
         const snapped = drivingSnap(lat, lng, kmh, false);
 
-        // ── Driving heading from movement vector (more reliable than loc.heading) ──
-        // Use bearing between last two snapped positions when moved ≥ 5 m.
-        // Trigger on real movement (movedForSnap) in addition to GPS speed so
-        // heading updates even when loc.speed is unreliable.
-        // Fallback: GPS loc.heading (if ≥ 0), or keep lastHeadingRef unchanged.
+        // ── Driving heading ────────────────────────────────────────────────────
+        // Priority order:
+        // 1. targetHeading from snap (polyline segment bearing) — stable, no GPS jitter
+        // 2. Movement vector between last two snapped positions — good for curves
+        // 3. GPS loc.heading — fallback when neither is available
+        // Heading updates are frozen when speed is very low (< 7 km/h)
+        // to prevent the car icon from spinning when stationary or in low signal.
         let drivingHeading = lastHeadingRef.current;
-        if ((kmh >= 5 || movedForSnap >= 5) && lastDrivingPosRef.current) {
-          const distM = haversineKm(
-            lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-            snapped.latitude, snapped.longitude,
-          ) * 1000;
-          if (distM >= 5) {
-            const brg        = bearingBetween(
+        const shouldUpdateHeading = kmh >= 7 || movedForSnap >= 5;
+
+        if (shouldUpdateHeading) {
+          if (snapped.snapped) {
+            // Best source: polyline segment bearing from useDrivingSnap
+            drivingHeading = smoothHeading(lastHeadingRef.current, snapped.targetHeading, 0.4, 90);
+            lastHeadingRef.current = drivingHeading;
+            setHeading(drivingHeading);
+          } else if (lastDrivingPosRef.current) {
+            // Second source: bearing from movement vector
+            const distM = haversineKm(
               lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
               snapped.latitude, snapped.longitude,
-            );
-            const brgDiff    = ((brg - lastHeadingRef.current + 540) % 360) - 180;
-            // Clamp max heading change per GPS tick to avoid large jumps when
-            // the snap point changes abruptly (e.g. after a map-match update).
-            const MAX_HDG_CHANGE_DEG = 90; // degrees
-            const clamped    = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
-            const smoothed   = lastHeadingRef.current + clamped * 0.4;
-            drivingHeading   = ((smoothed % 360) + 360) % 360;
-            lastHeadingRef.current = drivingHeading;
-            setHeading(drivingHeading);
-          }
-        } else if (loc.heading != null && loc.heading >= 0 && (kmh > 3 || movedForSnap >= 3)) {
-          // Fallback: smooth GPS heading when bearing is not computable
-          const diff           = loc.heading - lastHeadingRef.current;
-          const normalizedDiff = ((diff + 540) % 360) - 180;
-          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-          const finalHeading   = ((smoothed % 360) + 360) % 360;
-          if (Math.abs(normalizedDiff) > 2) {
-            drivingHeading         = finalHeading;
-            lastHeadingRef.current = drivingHeading;
-            setHeading(drivingHeading);
+            ) * 1000;
+            if (distM >= 5) {
+              const brg  = bearingBetween(
+                lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
+                snapped.latitude, snapped.longitude,
+              );
+              drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 90);
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            }
+          } else if (loc.heading != null && loc.heading >= 0) {
+            // Fallback: smooth GPS heading when snap/bearing is not available
+            const candidate = smoothHeading(lastHeadingRef.current, loc.heading, 0.4, 180);
+            if (Math.abs(((loc.heading - lastHeadingRef.current + 540) % 360) - 180) > 2) {
+              drivingHeading         = candidate;
+              lastHeadingRef.current = drivingHeading;
+              setHeading(drivingHeading);
+            }
           }
         }
         // Always track last snapped position for next bearing calculation
@@ -1100,9 +1165,26 @@ export default function MapScreen() {
             // Reset nav-quality Kalman filters to start fresh in driving mode
             navLatFilter.reset();
             navLngFilter.reset();
+            drivLatFilter.reset();
+            drivLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
-            // Immediate warmup snap — doesn't wait for 4-s API interval + movement
-            forceMapMatch(snapped.latitude, snapped.longitude);
+            // Immediate warmup snap — apply result as soon as API responds.
+            // The GPS callback is synchronous so we use .then() to apply the
+            // snapped position on the next event-loop tick after the fetch resolves.
+            const entryLat = snapped.latitude;
+            const entryLng = snapped.longitude;
+            forceMapMatch(entryLat, entryLng).then((matchedPts) => {
+              if (!matchedPts || matchedPts.length < 2 || !isDrivingRef.current) return;
+              setRoadMatchPoints(matchedPts);
+              const forcedSnap = drivingSnap(entryLat, entryLng, 0, false);
+              if (forcedSnap.snapped) {
+                drLatRef.current = forcedSnap.latitude;
+                drLngRef.current = forcedSnap.longitude;
+                lastSetLocRef.current = { lat: forcedSnap.latitude, lng: forcedSnap.longitude };
+                setUserLocation({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude });
+                feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs, drivingHeading);
+              }
+            });
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
@@ -1183,10 +1265,16 @@ export default function MapScreen() {
               resetMapMatch();
               setRoadMatchPoints([]);
               console.log('[DrivingMode] Exited driving mode (stop timer fired)');
-              if (lastGoodLocRef.current) {
+              // Capture camera exit target before clearing lastGoodLocRef.
+              const exitLoc = lastGoodLocRef.current;
+              // Clear stale driving position so the first walking GPS fix is not
+              // rejected as a teleport jump against the old driving position.
+              lastGoodLocRef.current  = null;
+              lastGoodTimeRef.current = Date.now();
+              if (exitLoc) {
                 exitDrivingCamera({
-                  latitude:  lastGoodLocRef.current.lat,
-                  longitude: lastGoodLocRef.current.lng,
+                  latitude:  exitLoc.lat,
+                  longitude: exitLoc.lng,
                 });
               }
             }, DRIVING_STOP_DELAY_MS);
@@ -1242,6 +1330,10 @@ export default function MapScreen() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && locationReadyRef.current) {
         console.log('[GPS] App foregrounded — restarting GPS watcher');
+        // Clear stale position so the first GPS fix after resuming is accepted
+        // instead of being rejected as a jump against the pre-background position.
+        lastGoodLocRef.current  = null;
+        lastGoodTimeRef.current = Date.now();
         stopGPS();
         startGPS();
         refreshLocationOneShot();
@@ -1254,6 +1346,9 @@ export default function MapScreen() {
   useFocusEffect(useCallback(() => {
     if (!locationReadyRef.current) return;
     console.log('[GPS] Screen focused — restarting GPS watcher');
+    // Clear stale position so the first GPS fix after re-focus is not rejected.
+    lastGoodLocRef.current  = null;
+    lastGoodTimeRef.current = Date.now();
     stopGPS();
     startGPS();
     refreshLocationOneShot();
@@ -2698,30 +2793,34 @@ export default function MapScreen() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
-            style={[
-              styles.sideBtn,
-              isBuilding
-                ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
-                : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
-            ]}
-            onPress={() => {
-              if (isBuilding) {
-                if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
-                else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
-              } else {
-                startBuilding();
-                Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
-              }
-            }}
-            activeOpacity={0.75}
-          >
-            <MaterialCommunityIcons
-              name={isBuilding ? 'check' : 'map-marker-path'}
-              size={20}
-              color={isBuilding ? '#ffffff' : theme.primary}
-            />
-          </TouchableOpacity>
+          {
+            !isDriving && (
+              <TouchableOpacity
+                style={[
+                  styles.sideBtn,
+                  isBuilding
+                    ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
+                    : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
+                ]}
+                onPress={() => {
+                  if (isBuilding) {
+                    if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
+                    else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
+                  } else {
+                    startBuilding();
+                    Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
+                  }
+                }}
+                activeOpacity={0.75}
+              >
+                <MaterialCommunityIcons
+                  name={isBuilding ? 'check' : 'map-marker-path'}
+                  size={20}
+                  color={isBuilding ? '#ffffff' : theme.primary}
+                />
+              </TouchableOpacity>
+            )
+          }
 
           <TouchableOpacity
             style={[

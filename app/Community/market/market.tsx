@@ -54,11 +54,13 @@ interface Filters {
   yearMax: string;
   drive: string;
   transmission: string;
+  fuel: string;
 }
 
 const CATEGORY_OPTIONS = ['wszystkie', 'auto', 'moto', 'części', 'inne'];
 const DRIVE_OPTIONS    = ['wszystkie', 'FWD', 'RWD', 'AWD', '4x4'];
 const TRANS_OPTIONS    = ['wszystkie', 'manualna', 'automatyczna'];
+const FUEL_OPTIONS     = ['wszystkie', 'benzyna', 'diesel', 'LPG', 'hybryda', 'elektryczny', 'inne'];
 
 function formatPrice(price: number) {
   return price.toLocaleString('pl-PL') + ' PLN';
@@ -89,6 +91,7 @@ export default function MarketScreen() {
     yearMin: '', yearMax: '',
     drive: 'wszystkie',
     transmission: 'wszystkie',
+    fuel: 'wszystkie',
   });
   const [pendingFilters, setPendingFilters] = useState<Filters>(filters);
 
@@ -117,6 +120,7 @@ export default function MarketScreen() {
       if (f.yearMax)   params.append('yearMax',   f.yearMax);
       if (f.drive !== 'wszystkie')        params.append('drive', f.drive);
       if (f.transmission !== 'wszystkie') params.append('transmission', f.transmission);
+      if (f.fuel !== 'wszystkie')         params.append('fuel', f.fuel);
 
       const r    = await fetch(`${API_URL}/api/market?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -146,6 +150,7 @@ export default function MarketScreen() {
       const params = new URLSearchParams({ limit: String(PAGE), cursor: String(cursor) });
       if (search) params.append('search', search);
       if (filters.category !== 'wszystkie') params.append('category', filters.category);
+      if (filters.fuel !== 'wszystkie') params.append('fuel', filters.fuel);
       const r    = await fetch(`${API_URL}/api/market?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await r.json();
       const list = data.listings ?? [];
@@ -180,6 +185,7 @@ export default function MarketScreen() {
       category: 'wszystkie', priceMin: '', priceMax: '',
       powerMin: '', powerMax: '', mileageMax: '',
       yearMin: '', yearMax: '', drive: 'wszystkie', transmission: 'wszystkie',
+      fuel: 'wszystkie',
     };
     setPendingFilters(empty);
     setFilters(empty);
@@ -195,6 +201,7 @@ export default function MarketScreen() {
     !!filters.yearMin || !!filters.yearMax,
     filters.drive !== 'wszystkie',
     filters.transmission !== 'wszystkie',
+    filters.fuel !== 'wszystkie',
   ].filter(Boolean).length;
 
   const renderItem = useCallback(({ item }: { item: Listing }) => (
@@ -480,6 +487,17 @@ export default function MarketScreen() {
                       <Text style={{ color: pendingFilters.transmission === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
                         {opt.toUpperCase()}
                       </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </FilterSection>
+
+              {/* Fuel */}
+              <FilterSection label="PALIWO">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {FUEL_OPTIONS.map(opt => (
+                    <TouchableOpacity key={opt} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: pendingFilters.fuel === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: pendingFilters.fuel === opt ? theme.primary : theme.border, }} onPress={() => setPendingFilters(f => ({ ...f, fuel: opt }))}>
+                      <Text style={{ color: pendingFilters.fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>

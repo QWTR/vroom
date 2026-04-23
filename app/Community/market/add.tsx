@@ -17,6 +17,7 @@ import { API_URL } from '../../../constants/config';
 const CATEGORIES   = ['auto', 'moto', 'części', 'inne'];
 const DRIVE_OPTS   = ['FWD', 'RWD', 'AWD', '4x4'];
 const TRANS_OPTS   = ['manualna', 'automatyczna'];
+const FUEL_OPTS    = ['benzyna', 'diesel', 'LPG', 'hybryda', 'elektryczny', 'inne'];
 const MAX_PHOTOS   = 10;
 
 export default function AddListingScreen() {
@@ -309,19 +310,25 @@ export default function AddListingScreen() {
           </View>
         </FormSection>
 
-        {/* Color + Fuel */}
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <FormSection label="KOLOR">
-              <FieldInput value={color} onChangeText={setColor} placeholder="Czarny" theme={theme} />
-            </FormSection>
+        {/* Color */}
+        <FormSection label="KOLOR">
+          <FieldInput value={color} onChangeText={setColor} placeholder="Czarny" theme={theme} />
+        </FormSection>
+
+        {/* Fuel */}
+        <FormSection label="PALIWO">
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {FUEL_OPTS.map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: fuel === opt ? theme.primary : theme.surface2, borderWidth: 1, borderColor: fuel === opt ? theme.primary : theme.border }}
+                onPress={() => setFuel(fuel === opt ? '' : opt)}
+              >
+                <Text style={{ color: fuel === opt ? '#fff' : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{opt.toUpperCase()}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
-          <View style={{ flex: 1 }}>
-            <FormSection label="PALIWO">
-              <FieldInput value={fuel} onChangeText={setFuel} placeholder="Benzyna" theme={theme} />
-            </FormSection>
-          </View>
-        </View>
+        </FormSection>
 
         {/* Description */}
         <FormSection label="OPIS">

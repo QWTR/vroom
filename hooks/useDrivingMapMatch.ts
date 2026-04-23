@@ -108,46 +108,60 @@ export function useDrivingMapMatch() {
    *
    * Internally sends two nearly-identical coordinates (5 m apart) because the
    * Mapbox Map Matching API requires at least 2 points.
+   *
+   * @returns The matched road-geometry points, or null if the API call failed /
+   *          returned no match.  The result is also stored in the internal cache
+   *          so subsequent calls to `getMatchedPoints()` return it as usual.
    */
-  const forceMatch = useCallback(async (lat: number, lng: number): Promise<void> => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    lastCallRef.current   = Date.now();
+  const forceMatch = useCallback(
+    async (lat: number, lng: number): Promise<{ latitude: number; longitude: number }[] | null> => {
+      if (isFetchingRef.current) return null;
+      isFetchingRef.current = true;
+      // NOTE: intentionally do NOT update lastCallRef here.
+      // forceMatch is a one-shot entry snap that bypasses the normal cooldown.
+      // Leaving lastCallRef untouched means the regular addPosition pipeline can
+      // fire its next fetch immediately after forceMatch completes, so fresh
+      // multi-point road geometry arrives without the usual 4-second wait.
 
-    try {
-      // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum
-      // while returning the same road segment as a single-point request would.
-      const coords = [
-        `${lng - FORCE_MATCH_OFFSET_DEG},${lat}`,
-        `${lng},${lat}`,
-      ].join(';');
-      const radii = `${FORCE_MATCH_RADIUS_M};${FORCE_MATCH_RADIUS_M}`;
-      const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+      try {
+        // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum
+        // while returning the same road segment as a single-point request would.
+        const coords = [
+          `${lng - FORCE_MATCH_OFFSET_DEG},${lat}`,
+          `${lng},${lat}`,
+        ].join(';');
+        const radii = `${FORCE_MATCH_RADIUS_M};${FORCE_MATCH_RADIUS_M}`;
+        const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
-      const res  = await fetch(url);
-      if (!res.ok) {
-        console.warn('[DrivingMapMatch] forceMatch HTTP error:', res.status);
-        return;
+        const res  = await fetch(url);
+        if (!res.ok) {
+          console.warn('[DrivingMapMatch] forceMatch HTTP error:', res.status);
+          return null;
+        }
+
+        const json = await res.json() as MapMatchResponse;
+
+        if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
+          const matched = json.matchings[0].geometry.coordinates.map(
+            ([lng, lat]) => ({ latitude: lat, longitude: lng }),
+          );
+          matchedPtsRef.current  = matched;
+          matchedTimeRef.current = Date.now();
+          console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
+          return matched;
+        } else {
+          console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
+          return null;
+        }
+      } catch (e) {
+        console.warn('[DrivingMapMatch] forceMatch error:', e);
+        return null;
+      } finally {
+        isFetchingRef.current = false;
       }
-
-      const json = await res.json() as MapMatchResponse;
-
-      if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
-        const matched = json.matchings[0].geometry.coordinates.map(
-          ([lng, lat]) => ({ latitude: lat, longitude: lng }),
-        );
-        matchedPtsRef.current  = matched;
-        matchedTimeRef.current = Date.now();
-        console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
-      } else {
-        console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
-      }
-    } catch (e) {
-      console.warn('[DrivingMapMatch] forceMatch error:', e);
-    } finally {
-      isFetchingRef.current = false;
-    }
-  }, []);
+    },
+    [],
+  );
 
   /**
    * Returns the latest map-matched road segment, or null if unavailable /

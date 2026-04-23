@@ -208,14 +208,7 @@ export default function ProfileView({
                   )
                 }
               </View>
-              {isOwner && (
-                <TouchableOpacity
-                  onPress={onEdit}
-                  style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.bg }}
-                >
-                  <MaterialIcons name="edit" size={11} color="#fff" />
-                </TouchableOpacity>
-              )}
+              
             </View>
 
             {/* Name + info */}

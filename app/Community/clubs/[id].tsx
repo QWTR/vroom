@@ -12,13 +12,27 @@ import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcon
 import * as ImagePicker           from 'expo-image-picker';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
 import { io, Socket }             from 'socket.io-client';
+import Toast                      from 'react-native-toast-message';
 import { useTheme }               from '../../../contexts/ThemeContext';
 import { API_URL }                from '../../../constants/config';
 import { UAv }                    from '../../../components/clubs/ClubCard';
+import { Club }                   from '../../../components/clubs/types';
+import EditClubModal              from '../../../components/clubs/EditClubModal';
 
 const WS_URL   = 'https://v-room.app';
 const getToken = () => AsyncStorage.getItem('token');
 const PAGE     = 30;
+
+const CHAT_THEMES = [
+  { id: 'default', name: 'Domyślny', myBubble: '#e33835', theirBubble: null as string | null },
+  { id: 'ocean',   name: 'Ocean',    myBubble: '#1a6fa8', theirBubble: '#163a52' },
+  { id: 'forest',  name: 'Las',      myBubble: '#2a7a3b', theirBubble: '#1a3d23' },
+  { id: 'sunset',  name: 'Zachód',   myBubble: '#c45e1a', theirBubble: '#3d2010' },
+  { id: 'purple',  name: 'Fiolet',   myBubble: '#7c3aed', theirBubble: '#3b1a6e' },
+  { id: 'gold',    name: 'Złoto',    myBubble: '#b8860b', theirBubble: '#3d2c05' },
+];
+
+const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
 
 interface ClubMessage {
   id:        number;
@@ -31,18 +45,20 @@ interface ClubMessage {
   pinnedAt:  string | null;
   sender:  { id: number; username: string; avatarUrl: string | null };
   replyTo: { id: number; content: string | null; sender: { id: number; username: string } } | null;
+  reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }
 
 // ── Context Menu ──────────────────────────────────────────
 function MessageMenu({
   visible, message, isMe, canPin, canDelete,
-  onReply, onPin, onDelete, onClose,
+  onReact, onReply, onPin, onDelete, onClose,
 }: {
   visible:   boolean;
   message:   ClubMessage | null;
   isMe:      boolean;
   canPin:    boolean;
   canDelete: boolean;
+  onReact:   (emoji: string) => void;
   onReply:   () => void;
   onPin:     () => void;
   onDelete:  () => void;
@@ -76,6 +92,16 @@ function MessageMenu({
             borderTopWidth: 1, borderColor: theme.border2,
           }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
+
+            {/* Emoji reaction row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.border, marginBottom: 4 }}>
+              {REACTION_EMOJIS.map(emoji => (
+                <TouchableOpacity key={emoji} onPress={() => { onReact(emoji); onClose(); }}
+                  style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 22 }}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             {/* Message preview */}
             <View style={{
@@ -133,6 +159,7 @@ export default function ClubChatScreen() {
   const insets            = useSafeAreaInsets();
 
   const [clubName,    setClubName]    = useState('');
+  const [clubData,    setClubData]    = useState<Club | null>(null);
   const [myId,        setMyId]        = useState<number | null>(null);
   const [myRole,      setMyRole]      = useState<string | null>(null);
   const [myRank,      setMyRank]      = useState<any>(null);
@@ -150,6 +177,9 @@ export default function ClubChatScreen() {
   const [sending,     setSending]     = useState(false);
   const [showPinned,  setShowPinned]  = useState(false);
   const [menuMsg,     setMenuMsg]     = useState<ClubMessage | null>(null);
+  const [editVisible, setEditVisible] = useState(false);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [chatThemeId, setChatThemeId] = useState('default');
 
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -172,7 +202,11 @@ export default function ClubChatScreen() {
         setClubName(club.name);
         setMyRole(club.myRole);
         setMyRank(club.myRank);
+        setClubData(club);
       }
+
+      const savedTheme = await AsyncStorage.getItem(`chat_theme_club_${clubId}`);
+      if (savedTheme) setChatThemeId(savedTheme);
 
       const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
       socket.emit('club:join', clubId);
@@ -274,8 +308,21 @@ export default function ClubChatScreen() {
     });
   };
 
+  const handleReact = async (msgId: number, emoji: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}/react`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
+        body: JSON.stringify({ emoji }),
+      });
+      if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
+    } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
+  };
+
   const canPin    = myRole === 'owner' || !!myRank?.canPin;
   const canKick   = myRole === 'owner' || !!myRank?.canKick;
+
+  const activeChatTheme = CHAT_THEMES.find(t => t.id === chatThemeId) ?? CHAT_THEMES[0];
 
   // ── Render message ────────────────────────────────────────
   const renderMessage = useCallback(({ item, index }: { item: ClubMessage; index: number }) => {
@@ -290,6 +337,9 @@ export default function ClubChatScreen() {
       ? { borderTopLeftRadius: R, borderBottomLeftRadius: R, borderTopRightRadius: isFirst ? R : T, borderBottomRightRadius: isLast ? R : T }
       : { borderTopRightRadius: R, borderBottomRightRadius: R, borderTopLeftRadius: isFirst ? R : T, borderBottomLeftRadius: isLast ? R : T };
 
+    const myBubbleColor    = activeChatTheme.myBubble;
+    const theirBubbleColor = activeChatTheme.theirBubble ?? theme.surface2;
+
     return (
       <View style={[
         { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 1, marginBottom: isLast ? 8 : 2 },
@@ -301,65 +351,87 @@ export default function ClubChatScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[{
-            maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4,
-            ...(isMe
-              ? { backgroundColor: theme.primary }
-              : { backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }),
-          }, bubbleStyle]}
-          onLongPress={() => setMenuMsg(item)}
-          delayLongPress={350}
-          activeOpacity={0.85}
-        >
-          {!isMe && isFirst && (
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
-              {item.sender.username}
+        <View style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+          <TouchableOpacity
+            style={[{
+              maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4,
+              ...(isMe
+                ? { backgroundColor: myBubbleColor }
+                : { backgroundColor: theirBubbleColor, borderWidth: 1, borderColor: theme.border }),
+            }, bubbleStyle]}
+            onLongPress={() => setMenuMsg(item)}
+            delayLongPress={350}
+            activeOpacity={0.85}
+          >
+            {!isMe && isFirst && (
+              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
+                {item.sender.username}
+              </Text>
+            )}
+            {item.isPinned && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                <MaterialIcons name="push-pin" size={9} color="#FFD700" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PRZYPIĘTA</Text>
+              </View>
+            )}
+            {item.replyTo && (
+              <View style={{
+                backgroundColor: '#00000020', borderRadius: 8,
+                borderLeftWidth: 3, borderLeftColor: isMe ? '#ffffff90' : '#ffffff60',
+                paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4, gap: 2,
+              }}>
+                <Text style={{ color: '#ffffffaa', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+                  {item.replyTo.sender.username}
+                </Text>
+                <Text style={{ color: '#ffffff70', fontSize: 11 }} numberOfLines={1}>
+                  {item.replyTo.content || '📷 Zdjęcie'}
+                </Text>
+              </View>
+            )}
+            {item.photos?.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                {item.photos.map((uri, i) => (
+                  <Image key={i} source={{ uri }}
+                    style={item.photos.length === 1
+                      ? { width: 200, height: 150, borderRadius: 12 }
+                      : { width: 120, height: 90,  borderRadius: 8 }}
+                  />
+                ))}
+              </View>
+            )}
+            {!!item.content && (
+              <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>
+                {item.content}
+              </Text>
+            )}
+            <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: isMe ? '#ffffff60' : theme.textDim }}>
+              {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
             </Text>
-          )}
-          {item.isPinned && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 }}>
-              <MaterialIcons name="push-pin" size={9} color="#FFD700" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PRZYPIĘTA</Text>
-            </View>
-          )}
-          {item.replyTo && (
-            <View style={{
-              backgroundColor: '#00000020', borderRadius: 8,
-              borderLeftWidth: 3, borderLeftColor: isMe ? '#ffffff90' : '#ffffff60',
-              paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4, gap: 2,
-            }}>
-              <Text style={{ color: '#ffffffaa', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
-                {item.replyTo.sender.username}
-              </Text>
-              <Text style={{ color: '#ffffff70', fontSize: 11 }} numberOfLines={1}>
-                {item.replyTo.content || '📷 Zdjęcie'}
-              </Text>
-            </View>
-          )}
-          {item.photos?.length > 0 && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-              {item.photos.map((uri, i) => (
-                <Image key={i} source={{ uri }}
-                  style={item.photos.length === 1
-                    ? { width: 200, height: 150, borderRadius: 12 }
-                    : { width: 120, height: 90,  borderRadius: 8 }}
-                />
+          </TouchableOpacity>
+
+          {item.reactions && item.reactions.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, paddingHorizontal: 2 }}>
+              {item.reactions.map(r => (
+                <TouchableOpacity
+                  key={r.emoji}
+                  onPress={() => handleReact(item.id, r.emoji)}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 3,
+                    backgroundColor: r.myReaction ? `${theme.primary}30` : theme.surface2,
+                    borderRadius: 12, paddingHorizontal: 7, paddingVertical: 3,
+                    borderWidth: 1, borderColor: r.myReaction ? theme.primary : theme.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
+                  <Text style={{ fontSize: 10, color: r.myReaction ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>{r.count}</Text>
+                </TouchableOpacity>
               ))}
             </View>
           )}
-          {!!item.content && (
-            <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>
-              {item.content}
-            </Text>
-          )}
-          <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: isMe ? '#ffffff60' : theme.textDim }}>
-            {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        </TouchableOpacity>
+        </View>
       </View>
     );
-  }, [myId, messages, theme]);
+  }, [myId, messages, theme, activeChatTheme]);
 
   const canDeleteMenu = menuMsg ? (menuMsg.senderId === myId || canKick) : false;
 
@@ -397,6 +469,22 @@ export default function ClubChatScreen() {
               {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRank ? myRank.name.toUpperCase() : 'CZAT KLUBU'}
             </Text>
           </View>
+
+          <TouchableOpacity
+            style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2 }}
+            onPress={() => setThemePickerOpen(true)}
+          >
+            <MaterialCommunityIcons name="palette" size={18} color={theme.textDim} />
+          </TouchableOpacity>
+
+          {myRole === 'owner' && (
+            <TouchableOpacity
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2 }}
+              onPress={() => setEditVisible(true)}
+            >
+              <MaterialIcons name="settings" size={18} color={theme.textDim} />
+            </TouchableOpacity>
+          )}
 
           {pinned.length > 0 && (
             <TouchableOpacity
@@ -569,11 +657,40 @@ export default function ClubChatScreen() {
         isMe={menuMsg?.senderId === myId}
         canPin={canPin}
         canDelete={canDeleteMenu}
+        onReact={(emoji) => { if (menuMsg) handleReact(menuMsg.id, emoji); }}
         onReply={() => { if (menuMsg) setReplyTo(menuMsg); }}
         onPin={()   => { if (menuMsg) handlePin(menuMsg.id, menuMsg.isPinned); }}
         onDelete={() => { if (menuMsg) handleDelete(menuMsg.id); }}
         onClose={() => setMenuMsg(null)}
       />
+
+      <EditClubModal
+        visible={editVisible}
+        club={clubData}
+        onClose={() => setEditVisible(false)}
+        onUpdated={(updated) => { setClubName(updated.name); setClubData(updated); setEditVisible(false); }}
+      />
+
+      <Modal visible={themePickerOpen} transparent animationType="slide" onRequestClose={() => setThemePickerOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setThemePickerOpen(false)}>
+          <Pressable onPress={e => e.stopPropagation()}>
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 20, borderTopWidth: 1, borderColor: theme.border2 }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 20 }}>MOTYW CZATU</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                {CHAT_THEMES.map(t => (
+                  <TouchableOpacity key={t.id} onPress={async () => { setChatThemeId(t.id); await AsyncStorage.setItem(`chat_theme_club_${clubId}`, t.id); setThemePickerOpen(false); }} style={{ alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.myBubble, borderWidth: 2, borderColor: chatThemeId === t.id ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {chatThemeId === t.id && <MaterialIcons name="check" size={18} color="#fff" />}
+                    </View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>{t.name.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

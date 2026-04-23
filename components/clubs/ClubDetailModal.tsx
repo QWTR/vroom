@@ -12,6 +12,7 @@ import { API_URL }            from '../../constants/config';
 import { Club }               from './types';
 import { UAv, RankBadge }     from './ClubCard';
 import { InviteModal }        from './InviteModal';
+import EditClubModal          from './EditClubModal';
 
 const getToken = () => AsyncStorage.getItem('token');
 
@@ -35,6 +36,7 @@ export default function ClubDetailModal({
   const { theme }                   = useTheme();
   const [assigning, setAssigning]   = useState<number | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [editOpen,   setEditOpen]   = useState(false);
 
   if (!club) return null;
 
@@ -267,6 +269,22 @@ export default function ClubDetailModal({
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {isOwner && (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row', alignItems: 'center',
+                      justifyContent: 'center', gap: 6,
+                      backgroundColor: `${theme.primary}15`, borderRadius: 14,
+                      paddingVertical: 12, borderWidth: 1, borderColor: `${theme.primary}35`,
+                    }}
+                    onPress={() => setEditOpen(true)}
+                    activeOpacity={0.85}
+                  >
+                    <MaterialIcons name="edit" size={16} color={theme.primary} />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700' }}>EDYTUJ KLUB</Text>
+                  </TouchableOpacity>
+                )}
 
                 {/* Join / Leave / Delete / Prywatny lock */}
                 {isOwner ? (
@@ -516,6 +534,13 @@ export default function ClubDetailModal({
         visible={inviteOpen}
         clubId={club.id}
         onClose={() => { setInviteOpen(false); onRefresh(); }}
+      />
+
+      <EditClubModal
+        visible={editOpen}
+        club={club}
+        onClose={() => setEditOpen(false)}
+        onUpdated={() => { onRefresh(); setEditOpen(false); }}
       />
     </>
   );
