@@ -121,7 +121,21 @@ export default function PublicProfileScreen() {
         fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
         fetch(`${API_URL}/api/follow/counts/${userId}`,        { headers }),
       ]);
-      if (profileRes.ok) setProfile(await profileRes.json());
+
+      // Accumulate follow counts from whichever endpoint(s) provide them
+      let resolvedFollowers = 0;
+      let resolvedFollowing = 0;
+      let resolvedIsFollowing = false;
+
+      if (profileRes.ok) {
+        const pd = await profileRes.json();
+        setProfile(pd);
+        // Profile endpoint may embed follower counts
+        if (typeof pd.followersCount === 'number') resolvedFollowers = pd.followersCount;
+        else if (typeof pd.followers === 'number') resolvedFollowers = pd.followers;
+        if (typeof pd.followingCount === 'number') resolvedFollowing = pd.followingCount;
+        else if (typeof pd.following === 'number') resolvedFollowing = pd.following;
+      }
       if (carsRes.ok)    setCars(await carsRes.json());
       if (spotsRes.ok) {
         const s = await spotsRes.json();
@@ -140,22 +154,37 @@ export default function PublicProfileScreen() {
       }
       if (followRes.ok) {
         const f = await followRes.json();
-        setIsFollowing(f.isFollowing ?? false);
+        resolvedIsFollowing = f.isFollowing ?? false;
+        // Status endpoint may also carry counts
+        if (typeof f.followersCount === 'number') resolvedFollowers = f.followersCount;
+        else if (typeof f.followers === 'number') resolvedFollowers = f.followers;
+        if (typeof f.followingCount === 'number') resolvedFollowing = f.followingCount;
+        else if (typeof f.following === 'number') resolvedFollowing = f.following;
       }
       if (followCountRes.ok) {
         const fc = await followCountRes.json();
-        setFollowersCount(fc.followers ?? fc.followersCount ?? fc.count ?? 0);
-        setFollowingCount(fc.following ?? fc.followingCount ?? 0);
+        const fc_followers = fc.followers ?? fc.followersCount ?? fc.count;
+        const fc_following = fc.following ?? fc.followingCount;
+        if (typeof fc_followers === 'number') resolvedFollowers = fc_followers;
+        if (typeof fc_following === 'number') resolvedFollowing = fc_following;
       } else {
         // Fallback: legacy single endpoint (followers only)
         try {
           const legacyRes = await fetch(`${API_URL}/api/follow/count/${userId}`, { headers });
           if (legacyRes.ok) {
             const lc = await legacyRes.json();
-            setFollowersCount(lc.followersCount ?? lc.count ?? 0);
+            const lc_followers = lc.followersCount ?? lc.count;
+            if (typeof lc_followers === 'number') resolvedFollowers = lc_followers;
           }
         } catch {}
       }
+
+      // Safety floor: if the current user is following this person, they have at least 1 follower
+      if (resolvedIsFollowing && resolvedFollowers === 0) resolvedFollowers = 1;
+
+      setIsFollowing(resolvedIsFollowing);
+      setFollowersCount(resolvedFollowers);
+      setFollowingCount(resolvedFollowing);
       runEntrance();
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można załadować profilu.' });
