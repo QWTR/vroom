@@ -848,6 +848,11 @@ export default function MapScreen() {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
     }
+    // Clear the last-good-location reference so the first GPS fix after
+    // exiting driving (e.g. walking away from parked car) is always accepted
+    // instead of being rejected as a teleport jump against the stale driving position.
+    lastGoodLocRef.current  = null;
+    lastGoodTimeRef.current = Date.now();
     stopDR();
     resetDRRefs();
     resetSnap();
@@ -1260,10 +1265,16 @@ export default function MapScreen() {
               resetMapMatch();
               setRoadMatchPoints([]);
               console.log('[DrivingMode] Exited driving mode (stop timer fired)');
-              if (lastGoodLocRef.current) {
+              // Capture camera exit target before clearing lastGoodLocRef.
+              const exitLoc = lastGoodLocRef.current;
+              // Clear stale driving position so the first walking GPS fix is not
+              // rejected as a teleport jump against the old driving position.
+              lastGoodLocRef.current  = null;
+              lastGoodTimeRef.current = Date.now();
+              if (exitLoc) {
                 exitDrivingCamera({
-                  latitude:  lastGoodLocRef.current.lat,
-                  longitude: lastGoodLocRef.current.lng,
+                  latitude:  exitLoc.lat,
+                  longitude: exitLoc.lng,
                 });
               }
             }, DRIVING_STOP_DELAY_MS);
@@ -1319,6 +1330,10 @@ export default function MapScreen() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && locationReadyRef.current) {
         console.log('[GPS] App foregrounded — restarting GPS watcher');
+        // Clear stale position so the first GPS fix after resuming is accepted
+        // instead of being rejected as a jump against the pre-background position.
+        lastGoodLocRef.current  = null;
+        lastGoodTimeRef.current = Date.now();
         stopGPS();
         startGPS();
         refreshLocationOneShot();
@@ -1331,6 +1346,9 @@ export default function MapScreen() {
   useFocusEffect(useCallback(() => {
     if (!locationReadyRef.current) return;
     console.log('[GPS] Screen focused — restarting GPS watcher');
+    // Clear stale position so the first GPS fix after re-focus is not rejected.
+    lastGoodLocRef.current  = null;
+    lastGoodTimeRef.current = Date.now();
     stopGPS();
     startGPS();
     refreshLocationOneShot();
