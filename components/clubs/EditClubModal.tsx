@@ -8,6 +8,8 @@ import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
+
+const getToken = () => AsyncStorage.getItem('token');
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
@@ -49,7 +51,7 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
     if (!club) return;
     setSaving(true);
     try {
-      const token    = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+      const token    = (await getToken()) ?? '';
       const formData = new FormData();
       formData.append('name',        name.trim());
       formData.append('description', desc.trim());
