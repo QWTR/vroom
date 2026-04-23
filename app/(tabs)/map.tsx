@@ -122,8 +122,8 @@ import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
 const ANNOUNCE_M          = 250;
-const NAV_ZOOM            = 18.9;
-const NAV_PITCH           = 75;
+const NAV_ZOOM            = 18.5;
+const NAV_PITCH           = 62;
 
 // ── Cost-optimization thresholds ─────────────────────────────────────────────
 // Set DEBUG_NETWORK = true to see throttle/suppression logs in the console.
@@ -145,9 +145,9 @@ const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this
 
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
-const ZOOM_NEAR           = 19.2; // 0–20 km/h
-const ZOOM_MID            = 18.4; // ~60 km/h
-const ZOOM_FAR            = 17.4; // 120+ km/h
+const ZOOM_NEAR           = 18.5; // 0–20 km/h
+const ZOOM_MID            = 17.8; // ~60 km/h
+const ZOOM_FAR            = 16.8; // 120+ km/h
 const ZOOM_SMOOTHING_ALPHA = 0.15; // low-pass filter weight (0 = no change, 1 = instant)
 
 function clampNum(n: number, min: number, max: number): number {

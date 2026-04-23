@@ -10,7 +10,7 @@ interface CameraParams {
 }
 
 const RETURN_TO_USER_MS    = 5000;
-const NAV_LOOKAHEAD_METERS = 50;
+const NAV_LOOKAHEAD_METERS = 80;
 
 function offsetCenter(
   lat: number, lng: number,
@@ -123,10 +123,10 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
     const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
-    const zoom = Math.max(15.5, 18.9 - (Math.min(speedKmh, 140) / 140) * 3.4);
+    const zoom = Math.max(16.0, 18.5 - (Math.min(speedKmh, 140) / 140) * 2.5);
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [lookahead.longitude, lookahead.latitude],
-      pitch:            75,
+      pitch:            62,
       heading,
       zoomLevel:        zoom,
       animationDuration: 800,
