@@ -207,8 +207,8 @@ export function useChat() {
     });
     const d = await r.json();
     if (!r.ok) {
-      const err: any = new Error(d?.error ?? 'startConversation failed');
-      err.code = d?.code ?? null;
+      const err: Error & { code?: string | null; status?: number } = new Error(d?.error ?? 'startConversation failed');
+      err.code   = d?.code ?? null;
       err.status = r.status;
       throw err;
     }

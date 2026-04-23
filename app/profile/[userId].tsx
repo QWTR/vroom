@@ -218,13 +218,10 @@ export default function PublicProfileScreen() {
     setChatLoading(true);
     try {
       const convId = await startConversation([Number(userId)], false);
-      if (convId) {
-        router.push({ pathname: '/Community/chats/[id]', params: { id: String(convId) } });
-      } else {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można otworzyć rozmowy' });
-      }
-    } catch (err: any) {
-      if (err?.code === 'FRIENDS_ONLY_MESSAGES') {
+      router.push({ pathname: '/Community/chats/[id]', params: { id: String(convId) } });
+    } catch (err: unknown) {
+      const e = err as Error & { code?: string | null };
+      if (e?.code === 'FRIENDS_ONLY_MESSAGES') {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Użytkownik przyjmuje wiadomości tylko od znajomych' });
       } else {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });

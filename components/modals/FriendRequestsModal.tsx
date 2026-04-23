@@ -11,8 +11,8 @@ interface Props {
   visible:       boolean;
   requests:      FriendRequest[];
   onClose:       () => void;
-  onAccept:      (id: number) => void;
-  onReject:      (id: number) => void;
+  onAccept:      (id: number) => Promise<void>;
+  onReject:      (id: number) => Promise<void>;
 }
 
 export function FriendRequestsModal({ visible, requests, onClose, onAccept, onReject }: Props) {
