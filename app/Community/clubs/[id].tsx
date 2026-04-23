@@ -12,6 +12,7 @@ import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcon
 import * as ImagePicker           from 'expo-image-picker';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
 import { io, Socket }             from 'socket.io-client';
+import Toast                      from 'react-native-toast-message';
 import { useTheme }               from '../../../contexts/ThemeContext';
 import { API_URL }                from '../../../constants/config';
 import { UAv }                    from '../../../components/clubs/ClubCard';
@@ -309,12 +310,13 @@ export default function ClubChatScreen() {
 
   const handleReact = async (msgId: number, emoji: string) => {
     try {
-      await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}/react`, {
+      const res = await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}/react`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
         body: JSON.stringify({ emoji }),
       });
-    } catch {}
+      if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
+    } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
   };
 
   const canPin    = myRole === 'owner' || !!myRank?.canPin;

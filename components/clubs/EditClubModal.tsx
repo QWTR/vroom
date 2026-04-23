@@ -57,7 +57,9 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
       if (avatar) {
         const filename = avatar.split('/').pop() ?? 'avatar.jpg';
         const ext      = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
-        formData.append('avatar', { uri: avatar, name: filename, type: ext === 'png' ? 'image/png' : 'image/jpeg' } as any);
+        // React Native's FormData accepts blob-like objects; cast required for TS
+        const avatarBlob = { uri: avatar, name: filename, type: ext === 'png' ? 'image/png' : 'image/jpeg' };
+        formData.append('avatar', avatarBlob as unknown as Blob);
       }
       const res = await fetch(`${API_URL}/api/clubs/${club.id}`, {
         method:  'PUT',
