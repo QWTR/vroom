@@ -117,7 +117,11 @@ export function useDrivingMapMatch() {
     async (lat: number, lng: number): Promise<{ latitude: number; longitude: number }[] | null> => {
       if (isFetchingRef.current) return null;
       isFetchingRef.current = true;
-      lastCallRef.current   = Date.now();
+      // NOTE: intentionally do NOT update lastCallRef here.
+      // forceMatch is a one-shot entry snap that bypasses the normal cooldown.
+      // Leaving lastCallRef untouched means the regular addPosition pipeline can
+      // fire its next fetch immediately after forceMatch completes, so fresh
+      // multi-point road geometry arrives without the usual 4-second wait.
 
       try {
         // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum

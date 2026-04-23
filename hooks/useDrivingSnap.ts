@@ -3,7 +3,7 @@ import { bearingBetween, distanceToSegmentMeters } from '../scripts/navigationUt
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
-const SNAP_RADIUS_M_BASE = 45;
+const SNAP_RADIUS_M_BASE = 65;  // 65 m: covers urban GPS multipath (typically 20-60 m)
 const SNAP_RADIUS_M_FAST = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
 const MIN_MOVE_DEG       = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
 
@@ -150,8 +150,12 @@ export function useDrivingSnap() {
 
     const result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);
 
-    // Brak drogi w promieniu — nie aktualizuj lastSnappedRef (zapobiega "ucieczce do lasu")
+    // Brak drogi w promieniu — użyj ostatniej pozycji na drodze jeśli jest dostępna,
+    // żeby uniknąć skoku markera do surowego GPS między odświeżeniami geometrii drogi.
     if (!result) {
+      if (lastSnappedRef.current) {
+        return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+      }
       return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
     }
 
