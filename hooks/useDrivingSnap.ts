@@ -3,9 +3,12 @@ import { bearingBetween, distanceToSegmentMeters } from '../scripts/navigationUt
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
-const SNAP_RADIUS_M_BASE = 65;  // 65 m: covers urban GPS multipath (typically 20-60 m)
-const SNAP_RADIUS_M_FAST = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
-const MIN_MOVE_DEG       = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
+const SNAP_RADIUS_M_BASE    = 65;  // 65 m: covers urban GPS multipath (typically 20-60 m)
+const SNAP_RADIUS_M_FAST    = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
+// Map Matching API returns verified road geometry — use a wider radius so GPS
+// errors in parking lots / courtyards (often 80-150 m) still snap to the road.
+const SNAP_RADIUS_M_MATCHED = 200;
+const MIN_MOVE_DEG          = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
 
 /**
  * Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360°.
@@ -145,8 +148,15 @@ export function useDrivingSnap() {
 
     lastRawRef.current = { lat, lng };
 
-    // Dynamiczny promień - im szybciej jedziesz, tym bardziej ufamy drodze niż GPS
-    const dynamicRadius = speedKmh > 70 ? SNAP_RADIUS_M_FAST : SNAP_RADIUS_M_BASE;
+    // Dynamiczny promień snapowania.
+    // Dla geometrii z Map Matching API (roadMatchPtsRef) używamy szerszego promienia —
+    // ta geometria jest zweryfikowana przez Mapbox i zawsze odpowiada prawdziwej drodze.
+    // Dla zwykłej trasy (routePtsRef) używamy mniejszego promienia, żeby nie skakać
+    // na odległe drogi gdy użytkownik jedzie po polnej drodze lub poza trasą.
+    const usingMatchedRoad = roadMatchPtsRef.current.length >= 2;
+    const dynamicRadius = usingMatchedRoad
+      ? SNAP_RADIUS_M_MATCHED
+      : speedKmh > 70 ? SNAP_RADIUS_M_FAST : SNAP_RADIUS_M_BASE;
 
     const result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);
 

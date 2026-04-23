@@ -1163,8 +1163,23 @@ export default function MapScreen() {
             drivLatFilter.reset();
             drivLngFilter.reset();
             console.log('[DrivingMode] Entered driving mode, speed:', Math.round(kmh), 'km/h');
-            // Immediate warmup snap — doesn't wait for 4-s API interval + movement
-            forceMapMatch(snapped.latitude, snapped.longitude);
+            // Immediate warmup snap — apply result as soon as API responds.
+            // The GPS callback is synchronous so we use .then() to apply the
+            // snapped position on the next event-loop tick after the fetch resolves.
+            const entryLat = snapped.latitude;
+            const entryLng = snapped.longitude;
+            forceMapMatch(entryLat, entryLng).then((matchedPts) => {
+              if (!matchedPts || matchedPts.length < 2 || !isDrivingRef.current) return;
+              setRoadMatchPoints(matchedPts);
+              const forcedSnap = drivingSnap(entryLat, entryLng, 0, false);
+              if (forcedSnap.snapped) {
+                drLatRef.current = forcedSnap.latitude;
+                drLngRef.current = forcedSnap.longitude;
+                lastSetLocRef.current = { lat: forcedSnap.latitude, lng: forcedSnap.longitude };
+                setUserLocation({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude });
+                feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs, drivingHeading);
+              }
+            });
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
