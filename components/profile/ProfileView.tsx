@@ -332,18 +332,18 @@ export default function ProfileView({
             ))}
           </View>
 
-          {/* ══ FOLLOW COUNTS ══ */}
+          {/* ══ OBSERWACJE ══ */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
             {[
-              { label: 'OBSERWUJĄCY', value: String(followCounts.followers), color: '#4de926', icon: 'visibility' as const },
-              { label: 'OBSERWACJE',  value: String(followCounts.following), color: '#a855f7', icon: 'person-add'  as const },
+              { label: 'OBSERWUJĄCY', value: profile?.followersCount ?? 0, color: '#4de926', icon: 'visibility'   as const },
+              { label: 'OBSERWACJE',  value: profile?.followingCount ?? 0, color: '#a855f7', icon: 'person-add'   as const },
             ].map(item => (
               <View key={item.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={item.icon} size={16} color={item.color} />
                 </View>
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900', letterSpacing: -0.5 }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900' }}>{item.value}</Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1, marginTop: 2 }}>{item.label}</Text>
                 </View>
               </View>
