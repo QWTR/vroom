@@ -146,6 +146,15 @@ export default function PublicProfileScreen() {
         const fc = await followCountRes.json();
         setFollowersCount(fc.followers ?? fc.followersCount ?? fc.count ?? 0);
         setFollowingCount(fc.following ?? fc.followingCount ?? 0);
+      } else {
+        // Fallback: legacy single endpoint (followers only)
+        try {
+          const legacyRes = await fetch(`${API_URL}/api/follow/count/${userId}`, { headers });
+          if (legacyRes.ok) {
+            const lc = await legacyRes.json();
+            setFollowersCount(lc.followersCount ?? lc.count ?? 0);
+          }
+        } catch {}
       }
       runEntrance();
     } catch {
