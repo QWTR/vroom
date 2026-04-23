@@ -7,7 +7,13 @@ const SNAP_RADIUS_M_BASE = 45;
 const SNAP_RADIUS_M_FAST = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
 const MIN_MOVE_DEG       = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
 
-/** Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360° */
+/**
+ * Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360°.
+ * @param a Start angle in degrees [0, 360)
+ * @param b Target angle in degrees [0, 360)
+ * @param t Interpolation factor [0, 1] — 0 returns a, 1 returns b
+ * @returns Interpolated angle in degrees [0, 360)
+ */
 function lerpAngle(a: number, b: number, t: number): number {
   const diff = ((b - a + 540) % 360) - 180;
   return ((a + diff * t) + 360) % 360;
@@ -22,8 +28,12 @@ interface SnapResult {
 }
 
 /**
- * Snap + informacje o segmencie.
- * Zwraca null gdy wszystkie segmenty są dalej niż maxRadiusM.
+ * Snap to the nearest road segment and return snap metadata.
+ * @param userLat  User latitude in degrees
+ * @param userLng  User longitude in degrees
+ * @param pts      Polyline points (road geometry)
+ * @param maxRadiusM  Maximum distance in metres — returns null if all segments are farther
+ * @returns Snap result with snapped coordinates, distance, and segment bearing; null when too far
  */
 function snapToRouteWithInfo(
   userLat: number,

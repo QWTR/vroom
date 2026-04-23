@@ -163,6 +163,28 @@ function zoomFromSpeedKmh(speedKmh: number): number {
   if (s <= 120) return lerpNum(ZOOM_MID,  ZOOM_FAR,  (s - 60) / 60);
   return ZOOM_FAR;
 }
+
+/**
+ * Smoothly blends current heading toward target heading using a low-pass filter.
+ * Handles the 0°/360° wraparound correctly and clamps the per-tick change to
+ * maxChangeDeg to prevent large jumps when the snap point shifts abruptly.
+ * @param current   Current heading in degrees [0, 360)
+ * @param target    Desired heading in degrees [0, 360)
+ * @param alpha     Smoothing factor [0, 1] — higher = faster tracking
+ * @param maxChange Maximum allowed change per call in degrees
+ * @returns New smoothed heading in degrees [0, 360)
+ */
+function smoothHeading(
+  current:   number,
+  target:    number,
+  alpha:     number,
+  maxChange: number,
+): number {
+  const diff     = ((target - current + 540) % 360) - 180;
+  const clamped  = Math.sign(diff) * Math.min(Math.abs(diff), maxChange);
+  const smoothed = current + clamped * alpha;
+  return ((smoothed % 360) + 360) % 360;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── DRIVING MODE ──────────────────────────────────────────
@@ -995,11 +1017,9 @@ export default function MapScreen() {
       if (!isDrivingRef.current) {
         const newH = loc.heading ?? lastHeadingRef.current;
         if (kmh > 3 && newH >= 0) {
-          const diff           = newH - lastHeadingRef.current;
-          const normalizedDiff = ((diff + 540) % 360) - 180;
-          const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-          const finalHeading   = ((smoothed % 360) + 360) % 360;
+          const normalizedDiff = ((newH - lastHeadingRef.current + 540) % 360) - 180;
           if (Math.abs(normalizedDiff) > 2) {
+            const finalHeading = smoothHeading(lastHeadingRef.current, newH, 0.4, 180);
             setHeading(finalHeading);
             lastHeadingRef.current = finalHeading;
           }
@@ -1037,19 +1057,15 @@ export default function MapScreen() {
         // 1. targetHeading from snap (polyline segment bearing) — stable, no GPS jitter
         // 2. Movement vector between last two snapped positions — good for curves
         // 3. GPS loc.heading — fallback when neither is available
-        // Heading updates are frozen when speed is very low (< 2 m/s ~7 km/h)
+        // Heading updates are frozen when speed is very low (< 7 km/h)
         // to prevent the car icon from spinning when stationary or in low signal.
         let drivingHeading = lastHeadingRef.current;
-        const isMovingFast = kmh >= 7 || movedForSnap >= 5;
+        const shouldUpdateHeading = kmh >= 7 || movedForSnap >= 5;
 
-        if (isMovingFast) {
+        if (shouldUpdateHeading) {
           if (snapped.snapped) {
             // Best source: polyline segment bearing from useDrivingSnap
-            const tgtDiff  = ((snapped.targetHeading - lastHeadingRef.current + 540) % 360) - 180;
-            const MAX_HDG_CHANGE_DEG = 90;
-            const clamped  = Math.sign(tgtDiff) * Math.min(Math.abs(tgtDiff), MAX_HDG_CHANGE_DEG);
-            const smoothed = lastHeadingRef.current + clamped * 0.4;
-            drivingHeading = ((smoothed % 360) + 360) % 360;
+            drivingHeading = smoothHeading(lastHeadingRef.current, snapped.targetHeading, 0.4, 90);
             lastHeadingRef.current = drivingHeading;
             setHeading(drivingHeading);
           } else if (lastDrivingPosRef.current) {
@@ -1059,26 +1075,19 @@ export default function MapScreen() {
               snapped.latitude, snapped.longitude,
             ) * 1000;
             if (distM >= 5) {
-              const brg     = bearingBetween(
+              const brg  = bearingBetween(
                 lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
                 snapped.latitude, snapped.longitude,
               );
-              const brgDiff = ((brg - lastHeadingRef.current + 540) % 360) - 180;
-              const MAX_HDG_CHANGE_DEG = 90;
-              const clamped = Math.sign(brgDiff) * Math.min(Math.abs(brgDiff), MAX_HDG_CHANGE_DEG);
-              const smoothed = lastHeadingRef.current + clamped * 0.4;
-              drivingHeading = ((smoothed % 360) + 360) % 360;
+              drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 90);
               lastHeadingRef.current = drivingHeading;
               setHeading(drivingHeading);
             }
           } else if (loc.heading != null && loc.heading >= 0) {
             // Fallback: smooth GPS heading when snap/bearing is not available
-            const diff           = loc.heading - lastHeadingRef.current;
-            const normalizedDiff = ((diff + 540) % 360) - 180;
-            const smoothed       = lastHeadingRef.current + normalizedDiff * 0.4;
-            const finalHeading   = ((smoothed % 360) + 360) % 360;
-            if (Math.abs(normalizedDiff) > 2) {
-              drivingHeading         = finalHeading;
+            const candidate = smoothHeading(lastHeadingRef.current, loc.heading, 0.4, 180);
+            if (Math.abs(((loc.heading - lastHeadingRef.current + 540) % 360) - 180) > 2) {
+              drivingHeading         = candidate;
               lastHeadingRef.current = drivingHeading;
               setHeading(drivingHeading);
             }
