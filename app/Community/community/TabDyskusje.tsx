@@ -132,6 +132,9 @@ const PostCard = React.memo(({
   );
 });
 
+// Reklama co N postów
+const AD_INSERTION_INTERVAL = 2;
+
 // ─────────────────────────────────────────────────────────
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
@@ -155,7 +158,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
   const feedItems: FeedItem[] = useMemo(() =>
     posts.flatMap((post, index) =>
-      (index + 1) % 2 === 0
+      (index + 1) % AD_INSERTION_INTERVAL === 0
         ? [post, { _adType: 'native' as const, _adKey: `ad_${index}` }]
         : [post]
     ),

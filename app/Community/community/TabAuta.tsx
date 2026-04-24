@@ -147,7 +147,7 @@ function GaragePickerModal({ visible, onClose, onShareToggle }: {
           const carsData = await carsRes.json();
           setGarageCars(Array.isArray(carsData) ? carsData : []);
         }
-      } catch {} finally { setLoading(false); }
+      } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania garażu' }); } finally { setLoading(false); }
     })();
   }, [visible]);
 
@@ -167,7 +167,7 @@ function GaragePickerModal({ visible, onClose, onShareToggle }: {
       });
       onShareToggle();
     } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD' });
+      Toast.show({ type: 'error', text1: 'Nie udało się zaktualizować statusu auta' });
     } finally { setToggling(null); }
   };
 
