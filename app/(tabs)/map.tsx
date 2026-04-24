@@ -2408,6 +2408,12 @@ export default function MapScreen() {
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
+        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
+        {!isNavigating && !isDriving && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999999999 }}>
+            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
+          </View>
+        )}
         <Mapbox.MapView
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
@@ -3212,12 +3218,7 @@ export default function MapScreen() {
           updatePrices={updateFuelPrices}
         />
 
-        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
-        {!isNavigating && !isDriving && (
-          <View style={{ position: 'absolute', bottom: 80, left: 0, right: 0, zIndex: 10 }}>
-            <AdBanner />
-          </View>
-        )}
+        
       </View>
     </>
   );

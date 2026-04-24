@@ -171,7 +171,9 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         data={feedItems}
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
         renderItem={({ item }) => '_adType' in item ? (
-          <AdBanner/>
+          <AdBanner
+            BANNERID="ca-app-pub-1660420496578702/3363343740"
+          />
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
             onComment={onComment} onDelete={onDelete} onProfile={onProfile} />

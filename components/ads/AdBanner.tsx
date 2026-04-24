@@ -11,7 +11,7 @@ const BANNER_ID = "ca-app-pub-1660420496578702/5609918502"
 //   ? TestIds.ADAPTIVE_BANNER
 //   : 'ca-app-pub-1660420496578702/5609918502';
 
-export function AdBanner() {
+export function AdBanner({BANNERID = BANNER_ID}) {
   const { theme } = useTheme();
   const [loaded, setLoaded] = useState(false);
 
@@ -27,7 +27,7 @@ export function AdBanner() {
       alignItems: 'center',
     }}>
       <BannerAd
-        unitId={BANNER_ID}
+        unitId={BANNERID}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ requestNonPersonalizedAdsOnly: false }}
         onAdLoaded={() => setLoaded(true)}

@@ -387,7 +387,9 @@ export default function HomeScreen() {
         {/* AD BANNER                                      */}
         {/* ══════════════════════════════════════════════ */}
         <Animated.View style={{ opacity: fadeAnim }}>
-          <AdBanner />
+          <AdBanner
+            BANNERID="ca-app-pub-1660420496578702/2956669151"
+          />
         </Animated.View>
 
         {/* ══════════════════════════════════════════════ */}
