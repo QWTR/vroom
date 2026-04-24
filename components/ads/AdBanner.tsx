@@ -7,9 +7,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 const BANNER_ID = "ca-app-pub-1660420496578702/5609918502"
 
-// const BANNER_ID = __DEV__
-//   ? TestIds.ADAPTIVE_BANNER
-//   : 'ca-app-pub-1660420496578702/5609918502';
+
 
 export function AdBanner() {
   const { theme } = useTheme();
