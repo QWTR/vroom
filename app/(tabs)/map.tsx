@@ -3106,7 +3106,7 @@ export default function MapScreen() {
         {!isNavigating && !isBuilding && !startLocation && !endLocation && !searchModalVisible && !isDriving && (
           <View style={styles.emptyStateContainer}>
             <View style={styles.emptyState}>
-              <MaterialIcons name="location-on" size={40} color="#e33835ce" />
+              <MaterialIcons name="location-on" size={28} color="#e33835ce" />
               <Text style={styles.emptyTitle}>WYBIERZ TRASĘ</Text>
               <Text style={styles.emptySubtitle}>Dotknij paska wyszukiwania</Text>
             </View>

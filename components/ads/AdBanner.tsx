@@ -18,7 +18,7 @@ export function AdBanner({BANNERID = BANNER_ID}) {
   return (
     <View style={{
       marginHorizontal: 20,
-      marginVertical: 8,
+      marginVertical: 3,
       borderRadius: 16,
       overflow: 'hidden',
       borderWidth: loaded ? 1 : 0,
