@@ -16,14 +16,54 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187'
 
+// ─────────────────────────────────────────────────────────
+// PLACEHOLDER — pokazywany gdy reklama się nie załaduje
+// ─────────────────────────────────────────────────────────
+function AdPlaceholder() {
+  const { theme } = useTheme();
+  return (
+    <View style={{
+      marginHorizontal: 12,
+      marginBottom: 12,
+      backgroundColor: theme.surface,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: '#e3383530',
+      borderStyle: 'dashed',
+      overflow: 'hidden',
+      padding: 20,
+      alignItems: 'center',
+      gap: 10,
+    }}>
+      <View style={{
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        backgroundColor: '#e3383510', borderRadius: 10,
+        paddingHorizontal: 12, paddingVertical: 6,
+      }}>
+        <MaterialIcons name="campaign" size={14} color="#e33835" />
+        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 2 }}>
+          REKLAMA
+        </Text>
+      </View>
+      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', letterSpacing: 1 }}>
+        TU POWINNA BYĆ REKLAMA
+      </Text>
+      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', opacity: 0.5 }}>
+        Reklama się ładuje lub jest niedostępna w tym regionie
+      </Text>
+    </View>
+  );
+}
 
 export function AdNativePost() {
   const { theme } = useTheme();
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
+  const [failed,   setFailed]   = useState(false);
 
   useEffect(() => {
     let ad: NativeAd | null = null;
     let unsubscribe: (() => void) | undefined;
+    let unsubscribeError: (() => void) | undefined;
 
     NativeAd.createForAdRequest(NATIVE_ID, {
       requestNonPersonalizedAdsOnly: false,
@@ -32,16 +72,22 @@ export function AdNativePost() {
       unsubscribe = createdAd.addAdEventListener('loaded', () => {
         setNativeAd(createdAd);
       });
+      unsubscribeError = createdAd.addAdEventListener('error', () => {
+        setFailed(true);
+      });
       createdAd.load();
+    }).catch(() => {
+      setFailed(true);
     });
 
     return () => {
       unsubscribe?.();
+      unsubscribeError?.();
       ad?.destroy();
     };
   }, []);
 
-  if (!nativeAd) return null;
+  if (!nativeAd) return <AdPlaceholder />;
 
   return (
     <NativeAdView
