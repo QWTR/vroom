@@ -6,7 +6,8 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
-import { AdNativePost }        from '../../../components/ads/AdNativePost';
+import { AdBanner }            from '../../../components/ads/AdBanner';
+import { BannerAdSize }        from 'react-native-google-mobile-ads';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
@@ -169,7 +170,13 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
       <FlatList
         data={feedItems}
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
-        renderItem={({ item }) => '_adType' in item ? <AdNativePost /> : (
+        renderItem={({ item }) => '_adType' in item ? (
+          <AdBanner
+            unitId="ca-app-pub-1660420496578702/3363343740"
+            size={BannerAdSize.LARGE_BANNER}
+            marginHorizontal={12}
+          />
+        ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
             onComment={onComment} onDelete={onDelete} onProfile={onProfile} />
         )}
