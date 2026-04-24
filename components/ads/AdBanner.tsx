@@ -25,6 +25,7 @@ export function AdBanner({BANNERID = BANNER_ID}) {
       borderColor: theme.border,
       backgroundColor: loaded ? theme.surface : 'transparent',
       alignItems: 'center',
+      minHeight: 50,
     }}>
       <BannerAd
         unitId={BANNERID}

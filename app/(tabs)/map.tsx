@@ -143,6 +143,8 @@ const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
 const REROUTE_COOLDOWN_MS = 30_000; // minimum ms between reroute requests
 const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this far from last point
 
+const AD_BANNER_HEIGHT = 50; // minimalna zarezerwowana wysokość banera (px)
+
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
 const ZOOM_NEAR           = 17.5; // 0–20 km/h
@@ -385,7 +387,8 @@ export default function MapScreen() {
   const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
-  const styles = makeMapStyles(theme, isDark, insets.top);
+  const showBanner = !isNavigating && !isDriving && !isBuilding;
+  const styles = makeMapStyles(theme, isDark, showBanner ? 0 : insets.top);
   const mapStyle =
     mapType === 'satellite' ? MAPBOX_STYLE_SATELLITE :
     mapType === 'hybrid'    ? MAPBOX_STYLE_HYBRID :
@@ -2190,7 +2193,21 @@ export default function MapScreen() {
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+      <View style={{ flex: 1, backgroundColor: '#0a0a0a', flexDirection: 'column' }}>
+
+        {/* ── Ad Banner nad mapą ───────────────────────────── */}
+        {showBanner && (
+          <View style={{
+            paddingTop: insets.top,
+            backgroundColor: '#0a0a0a',
+            minHeight: insets.top + AD_BANNER_HEIGHT,
+          }}>
+            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
+          </View>
+        )}
+
+        {/* ── Kontener mapy (flex:1 poniżej banera) ──────────── */}
+        <View style={{ flex: 1 }}>
 
         {/* ── Timer trasy ─────────────────────────────────── */}
         {isNavigating && timerRunning && (
@@ -2408,12 +2425,6 @@ export default function MapScreen() {
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
-        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
-        {!isNavigating && !isDriving && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999999999 }}>
-            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
-          </View>
-        )}
         <Mapbox.MapView
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
@@ -3219,6 +3230,7 @@ export default function MapScreen() {
         />
 
         
+        </View>{/* ── Koniec kontenera mapy ─────────────────────── */}
       </View>
     </>
   );
