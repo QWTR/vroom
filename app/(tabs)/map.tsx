@@ -109,6 +109,7 @@ import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
 import { SaveRouteModal } from '../../components/modals/SaveRouteModal';
 import { SearchModal } from '../../components/modals/SearchModal';
+import { MapActionsModal } from '../../components/modals/MapActionsModal';
 import { SettingsModal } from '../../components/modals/SettingsModal';
 import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetailModal';
 import { TripStatsModal } from '../../components/modals/TripStatsModal';
@@ -336,6 +337,7 @@ export default function MapScreen() {
   // ── State – UI ────────────────────────────────────────────
   const [mapType,            setMapType]            = useState('standard');
   const [settingsVisible,    setSettingsVisible]    = useState(false);
+  const [mapActionsVisible,  setMapActionsVisible]  = useState(false);
   const [reportVisible,      setReportVisible]      = useState(false);
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [userInfoVisible,    setUserInfoVisible]    = useState(false);
@@ -2848,34 +2850,18 @@ export default function MapScreen() {
             </TouchableOpacity>
           )}
 
-          {
-            !isDriving && (
-              <TouchableOpacity
-                style={[
-                  styles.sideBtn,
-                  isBuilding
-                    ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
-                    : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
-                ]}
-                onPress={() => {
-                  if (isBuilding) {
-                    if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
-                    else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
-                  } else {
-                    startBuilding();
-                    Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
-                  }
-                }}
-                activeOpacity={0.75}
-              >
-                <MaterialCommunityIcons
-                  name={isBuilding ? 'check' : 'map-marker-path'}
-                  size={20}
-                  color={isBuilding ? '#ffffff' : theme.primary}
-                />
-              </TouchableOpacity>
-            )
-          }
+          {!isDriving && isBuilding && (
+            <TouchableOpacity
+              style={[styles.sideBtn, { backgroundColor: '#db1e1e', borderColor: '#000000c7' }]}
+              onPress={() => {
+                if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
+                else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
+              }}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons name="check" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={[
@@ -2911,23 +2897,6 @@ export default function MapScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.sideBtn,
-              !isSpeechEnabled
-                ? { backgroundColor: '#e3383525', borderColor: '#e3383545' }
-                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
-            ]}
-            onPress={() => setIsSpeechEnabled(v => !v)}
-            activeOpacity={0.75}
-          >
-            <MaterialIcons
-              name={isSpeechEnabled ? 'volume-up' : 'volume-off'}
-              size={20}
-              color={isSpeechEnabled ? theme.textMuted : theme.primary}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[styles.sideBtn, { borderColor: '#ff922b45', backgroundColor: '#ff922b12' }]}
             onPress={() => setReportVisible(true)}
             activeOpacity={0.75}
@@ -2943,8 +2912,18 @@ export default function MapScreen() {
             <MaterialCommunityIcons name="camera-plus-outline" size={20} color="#FFD700" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.sideBtn} onPress={() => setSettingsVisible(true)} activeOpacity={0.75}>
-            <MaterialCommunityIcons name="layers-outline" size={22} color={theme.textMuted} />
+          {/* Single actions button — voice / map type / create route */}
+          <TouchableOpacity
+            style={[
+              styles.sideBtn,
+              (isBuilding || !isSpeechEnabled)
+                ? { backgroundColor: theme.primaryBg, borderColor: theme.primaryBorder }
+                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+            ]}
+            onPress={() => setMapActionsVisible(true)}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="tune" size={22} color={(isBuilding || !isSpeechEnabled) ? theme.primary : theme.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -3136,6 +3115,21 @@ export default function MapScreen() {
           mapType={mapType}
           onChangeMapType={handleChangeMapType}
           onClose={() => setSettingsVisible(false)}
+        />
+        <MapActionsModal
+          visible={mapActionsVisible}
+          isSpeechEnabled={isSpeechEnabled}
+          isBuilding={isBuilding}
+          pinsCount={pins.length}
+          onToggleVoice={() => setIsSpeechEnabled(v => !v)}
+          onOpenMapType={() => setSettingsVisible(true)}
+          onStartBuilding={() => {
+            startBuilding();
+            Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
+          }}
+          onFinishBuilding={() => { finishPin(); setSaveRouteVisible(true); }}
+          onCancelBuilding={() => { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }}
+          onClose={() => setMapActionsVisible(false)}
         />
         <ReportModal
           visible={reportVisible}
