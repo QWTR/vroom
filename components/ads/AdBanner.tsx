@@ -7,23 +7,17 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 const BANNER_ID = "ca-app-pub-1660420496578702/5609918502"
 
+// const BANNER_ID = __DEV__
+//   ? TestIds.ADAPTIVE_BANNER
+//   : 'ca-app-pub-1660420496578702/5609918502';
 
-
-export function AdBanner({
-  unitId = BANNER_ID,
-  size = BannerAdSize.ANCHORED_ADAPTIVE_BANNER,
-  marginHorizontal = 20,
-}: {
-  unitId?: string;
-  size?: BannerAdSize;
-  marginHorizontal?: number;
-} = {}) {
+export function AdBanner() {
   const { theme } = useTheme();
   const [loaded, setLoaded] = useState(false);
 
   return (
     <View style={{
-      marginHorizontal,
+      marginHorizontal: 20,
       marginVertical: 8,
       borderRadius: 16,
       overflow: 'hidden',
@@ -33,8 +27,8 @@ export function AdBanner({
       alignItems: 'center',
     }}>
       <BannerAd
-        unitId={unitId}
-        size={size}
+        unitId={BANNER_ID}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ requestNonPersonalizedAdsOnly: false }}
         onAdLoaded={() => setLoaded(true)}
         onAdFailedToLoad={() => setLoaded(false)}

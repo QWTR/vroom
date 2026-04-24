@@ -14,7 +14,7 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187'
+const NATIVE_ID = 'ca-app-pub-1660420496578702/3363343740'
 
 // ─────────────────────────────────────────────────────────
 // PLACEHOLDER — pokazywany gdy reklama się nie załaduje
