@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, ScrollView, TouchableOpacity,
   Image, ActivityIndicator, Text, Animated,
-  Dimensions, StyleSheet,
+  Dimensions, StyleSheet, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -31,6 +31,12 @@ interface PublicProfile {
   bio: string | null; avatarUrl: string | null; createdAt: string;
   totalDistance: number; points: number; meetCount: number;
   cityCount: number; position: number | null;
+  topSpeed?: number;
+  avgSpeed?: number;
+  streak?: number;
+  weeklyDistance?: number;
+  monthlyDistance?: number;
+  totalRides?: number;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -86,6 +92,8 @@ export default function PublicProfileScreen() {
   const [followLoading,  setFollowLoading]  = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [statsModalVisible,    setStatsModalVisible]    = useState(false);
+  const [topSpeedModalVisible, setTopSpeedModalVisible] = useState(false);
 
   const { startConversation } = useChat();
 
@@ -479,24 +487,86 @@ export default function PublicProfileScreen() {
             <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff30', letterSpacing: 1 }}>Dołączył {joinedLabel}</Text>
           </View>
 
-          {/* Stats */}
+          {/* Stats — klikalne karty */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-            {[
-              { icon: 'straighten',    value: Math.round(profile.totalDistance).toLocaleString('pl-PL'), unit: 'km',    color: RED       },
-              { icon: 'emoji-events',  value: String(profile.points),                                    unit: 'pkt',   color: '#f5c518' },
-              { icon: 'flag',          value: String(profile.meetCount),                                 unit: 'meety', color: '#ff6b35' },
-              { icon: 'location-city', value: String(profile.cityCount),                                 unit: 'miast', color: '#268bff' },
-            ].map(stat => (
-              <View key={stat.unit} style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}>
-                <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: stat.color + '10' }} />
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: stat.color + '18', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name={stat.icon as any} size={15} color={stat.color} />
-                </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{stat.value}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: stat.color + 'aa', letterSpacing: 1 }}>{stat.unit.toUpperCase()}</Text>
+            {/* Dystans — klikalny, otwiera StatsModal */}
+            <TouchableOpacity
+              style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}
+              onPress={() => setStatsModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: RED + '10' }} />
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: RED + '18', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="straighten" size={15} color={RED} />
               </View>
-            ))}
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>
+                {Math.round(profile.totalDistance).toLocaleString('pl-PL')}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: RED + 'aa', letterSpacing: 1 }}>KM</Text>
+              <MaterialIcons name="expand-more" size={12} color={RED + '60'} style={{ marginTop: 2 }} />
+            </TouchableOpacity>
+
+            {/* Top Speed — klikalny, otwiera TopSpeedModal */}
+            <TouchableOpacity
+              style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}
+              onPress={() => setTopSpeedModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: '#ff6b3510' }} />
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#ff6b3518', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialCommunityIcons name="speedometer" size={15} color="#ff6b35" />
+              </View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>
+                {Math.round(profile.topSpeed ?? 0)}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff6b35aa', letterSpacing: 1 }}>KM/H</Text>
+              <MaterialIcons name="expand-more" size={12} color={'#ff6b3560'} style={{ marginTop: 2 }} />
+            </TouchableOpacity>
+
+            {/* Meety */}
+            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}>
+              <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: '#ff6b3510' }} />
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#ff6b3518', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="flag" size={15} color="#ff6b35" />
+              </View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{profile.meetCount}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff6b35aa', letterSpacing: 1 }}>MEETY</Text>
+            </View>
+
+            {/* Miasta */}
+            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}>
+              <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: '#268bff10' }} />
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#268bff18', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="location-city" size={15} color="#268bff" />
+              </View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{profile.cityCount}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#268bffaa', letterSpacing: 1 }}>MIASTA</Text>
+            </View>
           </View>
+
+          {/* Streak + Pozycja */}
+          {(!!profile.streak || !!profile.position) && (
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              {!!profile.streak && (
+                <View style={{ flex: 1, backgroundColor: '#ff922b12', borderRadius: 14, borderWidth: 1, borderColor: '#ff922b30', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Text style={{ fontSize: 20 }}>🔥</Text>
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#ff922b', fontWeight: '900' }}>{profile.streak}</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#ff922b80', letterSpacing: 1 }}>STREAK</Text>
+                  </View>
+                </View>
+              )}
+              {!!profile.position && (
+                <View style={{ flex: 1, backgroundColor: RED + '12', borderRadius: 14, borderWidth: 1, borderColor: RED + '30', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <MaterialIcons name="emoji-events" size={20} color={RED} />
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: RED, fontWeight: '900' }}>#{profile.position}</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: RED + '80', letterSpacing: 1 }}>RANKING</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Follow counts */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
@@ -644,6 +714,80 @@ export default function PublicProfileScreen() {
         getDistance={() => 0}
         onLikeToggle={handleLikeToggle}
       />
+
+      {/* ══ STATS MODAL ══ */}
+      <Modal
+        visible={statsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStatsModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#111', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 }}>
+            <View style={{ width: 40, height: 4, backgroundColor: '#ffffff20', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 4, marginBottom: 16 }}>STATYSTYKI DYSTANSU</Text>
+            <View style={{ backgroundColor: RED + '12', borderRadius: 18, borderWidth: 1, borderColor: RED + '30', padding: 20, marginBottom: 12, alignItems: 'center' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 48, color: RED, fontWeight: '900', letterSpacing: -2 }}>
+                {Math.round(profile?.totalDistance ?? 0).toLocaleString('pl-PL')}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: RED + '80' }}>KM ŁĄCZNIE</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+              {[
+                { label: 'TEN TYDZIEŃ', value: Math.round(profile?.weeklyDistance ?? 0), color: '#268bff' },
+                { label: 'TEN MIESIĄC', value: Math.round(profile?.monthlyDistance ?? 0), color: '#a855f7' },
+              ].map(item => (
+                <View key={item.label} style={{ flex: 1, backgroundColor: item.color + '12', borderRadius: 14, borderWidth: 1, borderColor: item.color + '30', padding: 16, alignItems: 'center' }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: item.color + '80', letterSpacing: 1 }}>KM</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#ffffff40', letterSpacing: 1, marginTop: 4 }}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={{ backgroundColor: '#ffffff08', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff10', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff60' }}>ŁĄCZNIE TRAS</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>{profile?.totalRides ?? 0}</Text>
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: 20, backgroundColor: RED + '18', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: RED + '30' }}
+              onPress={() => setStatsModalVisible(false)}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: RED, fontWeight: '700' }}>ZAMKNIJ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ══ TOP SPEED MODAL ══ */}
+      <Modal
+        visible={topSpeedModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTopSpeedModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#111', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 }}>
+            <View style={{ width: 40, height: 4, backgroundColor: '#ffffff20', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff6b35', letterSpacing: 4, marginBottom: 16 }}>STATYSTYKI PRĘDKOŚCI</Text>
+            <View style={{ backgroundColor: '#ff6b3512', borderRadius: 18, borderWidth: 1, borderColor: '#ff6b3530', padding: 20, marginBottom: 12, alignItems: 'center' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 72, color: '#ff6b35', fontWeight: '900', letterSpacing: -3, lineHeight: 78 }}>
+                {Math.round(profile?.topSpeed ?? 0)}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#ff6b3580' }}>KM/H REKORD</Text>
+            </View>
+            <View style={{ backgroundColor: '#ffffff08', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff10', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff60' }}>ŚREDNIA PRĘDKOŚĆ</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>{Math.round(profile?.avgSpeed ?? 0)} km/h</Text>
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: 8, backgroundColor: '#ff6b3518', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#ff6b3530' }}
+              onPress={() => setTopSpeedModalVisible(false)}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ff6b35', fontWeight: '700' }}>ZAMKNIJ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }

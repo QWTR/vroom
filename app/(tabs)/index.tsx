@@ -11,7 +11,6 @@ import { Text } from '@react-navigation/elements';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
 import { AnnouncementsModal } from '../../components/modals/AnnouncementsModal';
@@ -23,6 +22,7 @@ import { GiftModal }  from '../../components/modals/GiftModal';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { UpdateModal }  from '../../components/modals/UpdateModal';
 import { AdBanner }     from '../../components/ads/AdBanner';
+import { PartnerBannersSection } from '../../components/home/PartnerBannersSection';
 
 const { width, height } = Dimensions.get('window');
 
@@ -203,7 +203,7 @@ export default function HomeScreen() {
         {/* ══════════════════════════════════════════════ */}
         {/* CINEMATIC HERO                                 */}
         {/* ══════════════════════════════════════════════ */}
-        <View style={{ height: height * 0.52, position: 'relative', overflow: 'hidden' }}>
+        <View style={{ height: height * 0.42, position: 'relative', overflow: 'hidden' }}>
           {/* BG gradient */}
           <LinearGradient
             colors={isDark
@@ -220,8 +220,8 @@ export default function HomeScreen() {
 
           {/* Scan line effect */}
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.52 / 12), height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000004' }} />
+            {Array.from({ length: 10 }).map((_, i) => (
+              <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.42 / 10), height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000004' }} />
             ))}
           </View>
 
@@ -254,9 +254,9 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-          {/* MAIN HERO CONTENT */}
+          {/* MAIN HERO CONTENT — anchored to bottom */}
           <Animated.View style={{
-            flex: 1, paddingHorizontal: 22, justifyContent: 'center', paddingTop: 16,
+            flex: 1, paddingHorizontal: 22, justifyContent: 'flex-end', paddingBottom: 48,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
           }}>
@@ -275,22 +275,27 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* MEGA STATS ROW */}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 24 }}>
-              {/* Position */}
-              <View style={{ flex: 1, backgroundColor: '#e3383512', borderRadius: 16, borderWidth: 1, borderColor: '#e3383530', padding: 14, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#e33835', fontWeight: '900' }}>#{user.position ?? '—'}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>POZYCJA</Text>
+            {/* Quick stats row */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialCommunityIcons name="road-variant" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{Math.round(user.totalDistance)}</Text> km
+                </Text>
               </View>
-              {/* Points */}
-              <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000008', borderRadius: 16, borderWidth: 1, borderColor: isDark ? '#ffffff12' : '#00000012', padding: 14, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: t.text, fontWeight: '900' }}>{user.points ?? 0}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>PUNKTY</Text>
+              <View style={{ width: 1, height: 10, backgroundColor: isDark ? '#ffffff20' : '#00000020' }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialCommunityIcons name="speedometer" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{Math.round(user.topSpeed)}</Text> top
+                </Text>
               </View>
-              {/* Streak */}
-              <View style={{ flex: 1, backgroundColor: user.streak > 0 ? '#ff922b12' : (isDark ? '#ffffff08' : '#00000008'), borderRadius: 16, borderWidth: 1, borderColor: user.streak > 0 ? '#ff922b35' : (isDark ? '#ffffff12' : '#00000012'), padding: 14, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: user.streak > 0 ? '#ff922b' : t.text, fontWeight: '900' }}>{user.streak ?? 0}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 3 }}>🔥 STREAK</Text>
+              <View style={{ width: 1, height: 10, backgroundColor: isDark ? '#ffffff20' : '#00000020' }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialIcons name="route" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{user.totalRides}</Text> tras
+                </Text>
               </View>
             </View>
           </Animated.View>
@@ -302,62 +307,6 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* ══════════════════════════════════════════════ */}
-        {/* TOP SPEED — SIGNATURE CARD                    */}
-        {/* ══════════════════════════════════════════════ */}
-        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginTop: -10, marginBottom: 16 }}>
-          <View style={{ borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#e3383540' }}>
-            <LinearGradient
-              colors={isDark ? ['#1a0808', '#100404', '#0a0a0a'] : ['#fff5f5', '#fff0f0', '#fafafa']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={{ padding: 22 }}
-            >
-              <View style={{ position: 'absolute', top: -30, right: -30, width: 160, height: 160, borderRadius: 80, backgroundColor: '#e3383510' }} />
-              <View style={{ position: 'absolute', top: -10, right: -10, width: 90, height: 90, borderRadius: 45, backgroundColor: '#e3383518' }} />
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <View style={{ backgroundColor: '#e3383520', padding: 6, borderRadius: 8 }}>
-                      <MaterialCommunityIcons name="speedometer" size={14} color="#e33835" />
-                    </View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 3 }}>TOP SPEED · REKORD</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 64, color: '#e33835', fontWeight: '900', letterSpacing: -3, lineHeight: 70 }}>
-                      {user.topSpeed ?? 0}
-                    </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#e3383580', fontWeight: '700', marginBottom: 8 }}>km/h</Text>
-                  </View>
-                </View>
-
-                <View style={{ gap: 14, alignItems: 'flex-end' }}>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '700' }}>{user.avgSpeed} km/h</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 2 }}>ŚREDNIA</Text>
-                  </View>
-                  <View style={{ width: 60, height: 1, backgroundColor: isDark ? '#ffffff15' : '#00000015' }} />
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '700' }}>{user.totalRides ?? 0}</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 2, marginTop: 2 }}>TRASY</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Progress bar — totalDistance */}
-              <View style={{ marginTop: 18, gap: 8 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 2 }}>ŁĄCZNY DYSTANS</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.text, fontWeight: '700' }}>{Math.round(user.totalDistance)} km</Text>
-                </View>
-                <View style={{ height: 4, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderRadius: 2, overflow: 'hidden' }}>
-                  <View style={{ height: '100%', width: `${Math.min((user.totalDistance / 10000) * 100, 100)}%`, backgroundColor: '#e33835', borderRadius: 2 }} />
-                </View>
-              </View>
-            </LinearGradient>
-          </View>
-        </Animated.View>
-            
         {/* ══════════════════════════════════════════════ */}
         {/* SUPPORT BANNER                                 */}
         {/* ══════════════════════════════════════════════ */}
@@ -507,68 +456,9 @@ export default function HomeScreen() {
         />
 
         {/* ══════════════════════════════════════════════ */}
-        {/* STATS GRID                                     */}
+        {/* PARTNER BANNERS                                */}
         {/* ══════════════════════════════════════════════ */}
-        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 16 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4, marginBottom: 14 }}>STATYSTYKI</Text>
-
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-            <StatBigCard
-              label="TEN TYDZIEŃ"
-              value={`${Math.round(user.weeklyDistance)}`} unit="km"
-              icon={<MaterialCommunityIcons name="road-variant" size={18} color="#e33835" />}
-              theme={t} isDark={isDark} accent="#e33835"
-            />
-            <StatBigCard
-              label="TEN MIESIĄC"
-              value={`${Math.round(user.monthlyDistance)}`} unit="km"
-              icon={<FontAwesome5 name="route" size={16} color="#ff6b35" />}
-              theme={t} isDark={isDark} accent="#ff6b35"
-            />
-          </View>
-
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-            <StatBigCard
-              label="ŁĄCZNIE"
-              value={`${Math.round(user.totalDistance)}`} unit="km"
-              icon={<MaterialIcons name="straighten" size={18} color="#268bff" />}
-              theme={t} isDark={isDark} accent="#268bff"
-            />
-            <StatBigCard
-              label="MIASTA"
-              value={String(user.cityCount ?? 0)} unit="odw."
-              icon={<MaterialIcons name="location-city" size={18} color="#a855f7" />}
-              theme={t} isDark={isDark} accent="#a855f7"
-            />
-          </View>
-
-          {/* 4-kolumnowy rząd */}
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {[
-              { label: 'GARAŻ',      value: user.carCount ?? 0,        unit: 'aut',       color: '#ff922b', icon: 'garage',         lib: 'mci', route: '/account' },
-              { label: 'SPOTY',      value: user.spotCount ?? 0,       unit: 'dodane',    color: '#4de926', icon: 'place',          lib: 'mi',  route: '/(tabs)/spotmap' },
-              { label: 'MEETY',      value: user.meetCount ?? 0,       unit: 'łącznie',   color: '#e33835', icon: 'flag-checkered', lib: 'mci', route: '/Community/meets/events' },
-              { label: 'TROFEA',     value: user.achievementCount ?? 0, unit: 'odbl.',    color: '#f5c518', icon: 'emoji-events',   lib: 'mi',  route: '/account' },
-            ].map(item => (
-              <TouchableOpacity
-                key={item.label}
-                onPress={() => router.push(item.route as any)}
-                style={{ flex: 1, backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border, padding: 12, alignItems: 'center', gap: 4 }}
-                activeOpacity={0.8}
-              >
-                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
-                  {item.lib === 'mci'
-                    ? <MaterialCommunityIcons name={item.icon as any} size={16} color={item.color} />
-                    : <MaterialIcons name={item.icon as any} size={16} color={item.color} />
-                  }
-                </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: t.text, fontWeight: '900' }}>{item.value}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: t.textDim, letterSpacing: 1 }}>{item.unit}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 0.5, marginTop: 2 }}>{item.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Animated.View>
+        <PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
 
         {/* ══════════════════════════════════════════════ */}
         {/* ACHIEVEMENT BANNER                             */}
@@ -672,20 +562,4 @@ export default function HomeScreen() {
   );
 }
 
-// ── StatBigCard ───────────────────────────────────────────
-function StatBigCard({ label, value, unit, icon, theme: t, isDark, accent }: {
-  label: string; value: string; unit: string;
-  icon: React.ReactNode; theme: any; isDark: boolean; accent: string;
-}) {
-  return (
-    <View style={{ flex: 1, backgroundColor: t.surface, borderRadius: 18, borderWidth: 1, borderColor: t.border, padding: 16, overflow: 'hidden' }}>
-      <View style={{ position: 'absolute', right: -15, top: -15, width: 80, height: 80, borderRadius: 40, backgroundColor: accent + '10' }} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <View style={{ backgroundColor: accent + '18', padding: 6, borderRadius: 8 }}>{icon}</View>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim, letterSpacing: 1.5, flex: 1 }}>{label}</Text>
-      </View>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: t.text, fontWeight: '900', letterSpacing: -1 }}>{value}</Text>
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: accent, letterSpacing: 1, marginTop: 2 }}>{unit}</Text>
-    </View>
-  );
-}
+// ── StatBigCard removed (no longer used)
