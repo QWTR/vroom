@@ -24,6 +24,7 @@ export function usePartnerBanners() {
     } catch (err) {
       console.error('Failed to fetch banners:', err);
     } finally { setLoading(false); }
+  }, []);
 
   return { banners, loading, fetchBanners };
 })
