@@ -8,6 +8,13 @@ export interface UserProfile {
   totalDistance: number;
   dailyDistance?: number;
   topSpeed?: number;
+  avgSpeed?: number;
+  avgMaxSpeed?: number;
+  monthlyDistance?: number;
+  weeklyDistance?: number;
+  totalRides?: number;
+  monthlyRides?: number;
+  streak?: number;
   points: number;
   meetCount: number;
   cityCount: number;
