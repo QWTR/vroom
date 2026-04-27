@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar,
+  Image, Animated, Dimensions, StatusBar, Modal,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -111,7 +111,20 @@ export default function ProfileView({
   const [lbRouteName,         setLbRouteName]         = useState('');
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
   const [invitesModalVisible, setInvitesModalVisible] = useState(false);
+  const [statsModalVisible,   setStatsModalVisible]   = useState(false);
+  const [showAllSpots,        setShowAllSpots]        = useState(false);
+  const statsSlide = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
+  const SPOTS_PREVIEW  = 4;
+
+  const openStats = () => {
+    setStatsModalVisible(true);
+    statsSlide.setValue(1);
+    Animated.spring(statsSlide, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
+  };
+  const closeStats = () => {
+    Animated.timing(statsSlide, { toValue: 1, duration: 220, useNativeDriver: true }).start(() => setStatsModalVisible(false));
+  };
 
   const { data: lbData, runsData: lbRunsData, loading: lbLoading, fetchLeaderboard, fetchRuns } = useRouteLeaderboard();
 
@@ -254,83 +267,79 @@ export default function ProfileView({
             </View>
           )}
 
-          {/* Dołączył + edit btn */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.surface, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: theme.border }}>
-              <MaterialIcons name="calendar-today" size={13} color={theme.textDim} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>Dołączył: {joinedLabel}</Text>
-            </View>
-            {isOwner && (
+          {/* Dołączył */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.surface, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: theme.border, marginBottom: 20 }}>
+            <MaterialIcons name="calendar-today" size={13} color={theme.textDim} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>Dołączył: {joinedLabel}</Text>
+          </View>
+
+          {/* ══ 3 KEY STAT PILLS + ACTION BUTTONS ══ */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {/* Pts pill */}
+            <TouchableOpacity
+              onPress={openStats} activeOpacity={0.75}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#e3383540', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+            >
+              <Text style={{ fontSize: 14 }}>🏆</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#e33835', fontWeight: '900' }}>{unlocked.length}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>OSIĄGN.</Text>
+            </TouchableOpacity>
+            {/* km pill */}
+            <TouchableOpacity
+              onPress={openStats} activeOpacity={0.75}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#268bff40', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+            >
+              <Text style={{ fontSize: 14 }}>🛣️</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#268bff', fontWeight: '900' }}>{Math.round(profile?.totalDistance ?? 0)}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>KM</Text>
+            </TouchableOpacity>
+            {/* ranking pill */}
+            <TouchableOpacity
+              onPress={openStats} activeOpacity={0.75}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#4de92640', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+            >
+              <Text style={{ fontSize: 14 }}>📍</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#4de926', fontWeight: '900' }}>
+                {profile?.position ? `#${profile.position}` : '—'}
+              </Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>RANKING</Text>
+            </TouchableOpacity>
+            {/* Stats button */}
+            <TouchableOpacity
+              onPress={openStats} activeOpacity={0.75}
+              style={{ flex: 1.2, backgroundColor: '#e3383515', borderRadius: 14, borderWidth: 1, borderColor: '#e3383540', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 3 }}
+            >
+              <MaterialIcons name="bar-chart" size={18} color="#e33835" />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#e33835', letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* ══ ACTION BUTTONS ROW ══ */}
+          {isOwner && (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
               <TouchableOpacity
-                style={{ backgroundColor: '#e33835', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                style={{ flex: 1, backgroundColor: '#e33835', borderRadius: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 onPress={onEdit} activeOpacity={0.85}
               >
-                <MaterialIcons name="edit" size={14} color="#fff" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', fontWeight: '700' }}>EDYTUJ</Text>
+                <MaterialIcons name="edit" size={13} color="#fff" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>EDYTUJ</Text>
               </TouchableOpacity>
-            )}
-          </View>
-
-          {/* ══ STATS GRID ══ */}
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 4, marginBottom: 12 }}>STATYSTYKI</Text>
-
-          {/* TOP SPEED card */}
-          <View style={{ borderRadius: 20, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: '#e3383540' }}>
-            <LinearGradient
-              colors={isDark ? ['#1a0808', '#0d0404', '#080808'] : ['#fff5f5', '#fffafa']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={{ padding: 18, flexDirection: 'row', alignItems: 'center' }}
-            >
-              <View style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: '#e3383510' }} />
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <View style={{ backgroundColor: '#e3383520', padding: 5, borderRadius: 7 }}>
-                    <MaterialCommunityIcons name="speedometer" size={12} color="#e33835" />
-                  </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', letterSpacing: 3 }}>TOP SPEED</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 52, color: '#e33835', fontWeight: '900', letterSpacing: -2, lineHeight: 58 }}>
-                    {Math.round(profile?.topSpeed ?? 0)}
-                  </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#e3383570', fontWeight: '700' }}>km/h</Text>
-                </View>
-              </View>
-              <View style={{ gap: 12, alignItems: 'flex-end' }}>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700' }}>{Math.round(profile?.totalDistance ?? 0)} km</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, letterSpacing: 2, marginTop: 2 }}>ŁĄCZNIE</Text>
-                </View>
-                <View style={{ width: 50, height: 1, backgroundColor: isDark ? '#ffffff15' : '#00000015' }} />
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700' }}>{profile?.meetCount ?? 0}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, letterSpacing: 2, marginTop: 2 }}>MEETY</Text>
-                </View>
-              </View>
-            </LinearGradient>
-          </View>
-
-          {/* 4-stat grid */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-            {[
-              { label: 'KILOMETRY', value: `${Math.round(profile?.totalDistance ?? 0)}`, unit: 'km',   color: '#268bff', icon: 'road-variant',   lib: 'mci' },
-              { label: 'ZLOTY',     value: String(profile?.meetCount ?? 0),               unit: 'szt.', color: '#ff6b35', icon: 'flag-checkered', lib: 'mci' },
-              { label: 'MIASTA',    value: String(profile?.cityCount ?? 0),               unit: 'odw.', color: '#a855f7', icon: 'location-city',  lib: 'mi'  },
-              { label: 'STREAK',    value: String((profile as any)?.streak ?? 0),         unit: '🔥',   color: '#ff922b', icon: 'fire',           lib: 'mci' },
-            ].map(item => (
-              <View key={item.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, alignItems: 'center', gap: 4 }}>
-                <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
-                  {item.lib === 'mci'
-                    ? <MaterialCommunityIcons name={item.icon as any} size={14} color={item.color} />
-                    : <MaterialIcons name={item.icon as any} size={14} color={item.color} />
-                  }
-                </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 17, color: theme.text, fontWeight: '900' }}>{item.value}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1 }}>{item.unit}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 0.5 }}>{item.label}</Text>
-              </View>
-            ))}
-          </View>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 12, paddingVertical: 11, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                onPress={onSettings} activeOpacity={0.85}
+              >
+                <Ionicons name="settings-outline" size={13} color={theme.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, fontWeight: '700' }}>USTAWIENIA</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#4de92615', borderRadius: 12, paddingVertical: 11, borderWidth: 1, borderColor: '#4de92630', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                onPress={onAddCar} activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons name="car-plus" size={13} color="#4de926" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '700' }}>DODAJ AUTO</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* ══ OBSERWACJE ══ */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
@@ -552,11 +561,23 @@ export default function ProfileView({
             {localSpots.length === 0
               ? <EmptyState text="Brak spotów" />
               : (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
-                  {localSpots.map(spot => (
-                    <SpotPreviewCard key={spot.id} spot={spot} isOwner={isOwner} onPress={() => setSelectedSpot(toSpot(spot))} onDeleted={id => setLocalSpots(prev => prev.filter(s => s.id !== id))} />
-                  ))}
-                </View>
+                <>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
+                    {(showAllSpots ? localSpots : localSpots.slice(0, SPOTS_PREVIEW)).map(spot => (
+                      <SpotPreviewCard key={spot.id} spot={spot} isOwner={isOwner} onPress={() => setSelectedSpot(toSpot(spot))} onDeleted={id => setLocalSpots(prev => prev.filter(s => s.id !== id))} />
+                    ))}
+                  </View>
+                  {localSpots.length > SPOTS_PREVIEW && (
+                    <TouchableOpacity
+                      style={{ marginTop: 10, paddingVertical: 12, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
+                      onPress={() => setShowAllSpots(p => !p)} activeOpacity={0.75}
+                    >
+                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1 }}>
+                        {showAllSpots ? '▲  UKRYJ' : `▼  ZOBACZ WIĘCEJ (${localSpots.length - SPOTS_PREVIEW})`}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
               )
             }
           </Section>
@@ -576,6 +597,87 @@ export default function ProfileView({
         onAccept={async (id) => { await acceptRequest(id); }}
         onReject={async (id) => { await rejectRequest(id); }}
       />
+
+      {/* ══ STATS MODAL ══ */}
+      <Modal visible={statsModalVisible} transparent animationType="none" onRequestClose={closeStats} statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeStats} />
+          <Animated.View
+            style={{
+              transform: [{ translateY: statsSlide.interpolate({ inputRange: [0, 1], outputRange: [0, Dimensions.get('window').height] }) }],
+              backgroundColor: isDark ? '#111' : '#f8f8f8',
+              borderTopLeftRadius: 28, borderTopRightRadius: 28,
+              borderWidth: 1, borderBottomWidth: 0, borderColor: isDark ? '#ffffff10' : '#00000010',
+              maxHeight: '92%',
+            }}
+          >
+            {/* Modal handle */}
+            <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 4 }}>
+              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: isDark ? '#ffffff25' : '#00000020' }} />
+            </View>
+
+            {/* Modal header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderColor: isDark ? '#ffffff0a' : '#0000000a' }}>
+              <View style={{ backgroundColor: '#e3383515', borderRadius: 10, padding: 8, marginRight: 12 }}>
+                <MaterialIcons name="bar-chart" size={18} color="#e33835" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: isDark ? '#fff' : '#000', fontWeight: '900', letterSpacing: 1 }}>STATYSTYKI</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 2, marginTop: 2 }}>{profile?.username ?? ''}</Text>
+              </View>
+              <TouchableOpacity onPress={closeStats} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? '#ffffff10' : '#00000010', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="close" size={18} color={isDark ? '#fff' : '#000'} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+              {/* PRĘDKOŚĆ */}
+              <StatsModalSection title="PRĘDKOŚĆ" color="#e33835" icon="speedometer">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <StatsModalItem label="TOP SPEED" value={`${Math.round(profile?.topSpeed ?? 0)}`} unit="km/h" color="#e33835" isDark={isDark} />
+                  <StatsModalItem label="ŚR. PRĘDKOŚĆ" value={`${Math.round((profile as any)?.avgSpeed ?? 0)}`} unit="km/h" color="#ff6b35" isDark={isDark} />
+                  <StatsModalItem label="ŚR. MAX" value={`${Math.round((profile as any)?.avgMaxSpeed ?? 0)}`} unit="km/h" color="#ff922b" isDark={isDark} />
+                </View>
+              </StatsModalSection>
+
+              {/* DYSTANS */}
+              <StatsModalSection title="DYSTANS" color="#268bff" icon="road-variant">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <StatsModalItem label="ŁĄCZNIE" value={`${Math.round(profile?.totalDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
+                  <StatsModalItem label="MIESIĘCZNY" value={`${Math.round((profile as any)?.monthlyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
+                  <StatsModalItem label="TYGODNIOWY" value={`${Math.round((profile as any)?.weeklyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
+                  <StatsModalItem label="DZIENNY" value={`${Math.round((profile as any)?.dailyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
+                </View>
+              </StatsModalSection>
+
+              {/* AKTYWNOŚĆ */}
+              <StatsModalSection title="AKTYWNOŚĆ" color="#4de926" icon="fire">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <StatsModalItem label="TRASY ŁĄCZNIE" value={`${routes.length}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="TRASY MIES." value={`${(profile as any)?.monthlyRoutes ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="MEETY" value={`${profile?.meetCount ?? 0}`} unit="szt." color="#ff6b35" isDark={isDark} />
+                  <StatsModalItem label="STREAK" value={`${(profile as any)?.streak ?? 0}`} unit="🔥" color="#ff922b" isDark={isDark} />
+                  <StatsModalItem label="MIASTA" value={`${profile?.cityCount ?? 0}`} unit="odw." color="#a855f7" isDark={isDark} />
+                  <StatsModalItem label="SPOTY" value={`${localSpots.length}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="SAMOCHODY" value={`${cars.length}`} unit="szt." color="#268bff" isDark={isDark} />
+                </View>
+              </StatsModalSection>
+
+              {/* OSIĄGNIĘCIA */}
+              <StatsModalSection title="OSIĄGNIĘCIA" color="#f5c518" icon="trophy">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <StatsModalItem label="ODBLOKOWANE" value={`${unlocked.length}`} unit="szt." color="#f5c518" isDark={isDark} />
+                  <StatsModalItem label="WSZYSTKIE" value={`${achievements.length}`} unit="szt." color="#f5c518" isDark={isDark} />
+                  <StatsModalItem label="OBSERWUJĄCY" value={`${profile?.followersCount ?? 0}`} unit="os." color="#4de926" isDark={isDark} />
+                  {!!profile?.position && (
+                    <StatsModalItem label="RANKING" value={`#${profile.position}`} color="#e33835" isDark={isDark} />
+                  )}
+                </View>
+              </StatsModalSection>
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -622,6 +724,31 @@ function RarityDivider({ meta, count }: { meta: { label: string; color: string; 
       </View>
       <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />
       <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: meta.color }}>{count}</Text>
+    </View>
+  );
+}
+
+function StatsModalSection({ title, color, icon, children }: { title: string; color: string; icon: string; children: React.ReactNode }) {
+  return (
+    <View style={{ marginBottom: 24 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: color + '20', alignItems: 'center', justifyContent: 'center' }}>
+          <MaterialCommunityIcons name={icon as any} size={14} color={color} />
+        </View>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color, letterSpacing: 3, fontWeight: '700' }}>{title}</Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: color + '25', marginLeft: 4 }} />
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function StatsModalItem({ label, value, unit, color, isDark }: { label: string; value: string; unit?: string; color: string; isDark: boolean }) {
+  return (
+    <View style={{ minWidth: '30%', flex: 1, backgroundColor: isDark ? '#1a1a1a' : '#f0f0f0', borderRadius: 14, borderWidth: 1, borderColor: color + '30', padding: 12, alignItems: 'center', gap: 3 }}>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color, fontWeight: '900', letterSpacing: -0.5 }}>{value}</Text>
+      {!!unit && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: color + 'bb', letterSpacing: 1 }}>{unit}</Text>}
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: isDark ? '#ffffff50' : '#00000050', letterSpacing: 0.5, textAlign: 'center', marginTop: 2 }}>{label}</Text>
     </View>
   );
 }
