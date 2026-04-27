@@ -203,7 +203,7 @@ export default function HomeScreen() {
         {/* ══════════════════════════════════════════════ */}
         {/* CINEMATIC HERO                                 */}
         {/* ══════════════════════════════════════════════ */}
-        <View style={{ height: height * 0.52, position: 'relative', overflow: 'hidden' }}>
+        <View style={{ height: height * 0.42, position: 'relative', overflow: 'hidden' }}>
           {/* BG gradient */}
           <LinearGradient
             colors={isDark
@@ -220,8 +220,8 @@ export default function HomeScreen() {
 
           {/* Scan line effect */}
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.52 / 12), height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000004' }} />
+            {Array.from({ length: 10 }).map((_, i) => (
+              <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.42 / 10), height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000004' }} />
             ))}
           </View>
 
@@ -254,9 +254,9 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-          {/* MAIN HERO CONTENT */}
+          {/* MAIN HERO CONTENT — anchored to bottom */}
           <Animated.View style={{
-            flex: 1, paddingHorizontal: 22, justifyContent: 'center', paddingTop: 16,
+            flex: 1, paddingHorizontal: 22, justifyContent: 'flex-end', paddingBottom: 48,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
           }}>
@@ -274,6 +274,30 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
+
+            {/* Quick stats row */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialCommunityIcons name="road-variant" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{Math.round(user.totalDistance)}</Text> km
+                </Text>
+              </View>
+              <View style={{ width: 1, height: 10, backgroundColor: isDark ? '#ffffff20' : '#00000020' }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialCommunityIcons name="speedometer" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{Math.round(user.topSpeed)}</Text> top
+                </Text>
+              </View>
+              <View style={{ width: 1, height: 10, backgroundColor: isDark ? '#ffffff20' : '#00000020' }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <MaterialIcons name="route" size={12} color={t.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.textDim }}>
+                  <Text style={{ color: t.text, fontWeight: '700' }}>{user.totalRides}</Text> tras
+                </Text>
+              </View>
+            </View>
           </Animated.View>
 
           {/* Bottom fade */}
