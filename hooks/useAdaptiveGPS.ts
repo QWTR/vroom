@@ -6,6 +6,7 @@ export type GPSMode = 'idle' | 'driving' | 'navigating';
 
 interface Options {
   isNavigating: boolean;
+  isDriving?:   boolean;
   speedKmh:     number;
   onLocation:   (loc: {
     latitude:  number;
@@ -16,7 +17,7 @@ interface Options {
   }) => void;
 }
 
-const DRIVE_SPEED_KMH  = 12;
+const DRIVE_SPEED_KMH  = 5;
 const MAX_ACCURACY_M   = 40;
 const MAX_SPEED_KMH    = 250;
 
@@ -51,12 +52,13 @@ function calcSpeedKmh(
   return (distM / (dtMs / 1000)) * 3.6;
 }
 
-export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) {
+export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }: Options) {
   const subRef            = useRef<any>(null);
   const isActiveRef       = useRef(false);
   const onLocRef          = useRef(onLocation);
   const speedRef          = useRef(speedKmh);
   const navRef            = useRef(isNavigating);
+  const drivingRef        = useRef(isDriving ?? false);
 
   const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
@@ -64,6 +66,7 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
   useEffect(() => { navRef.current   = isNavigating; }, [isNavigating]);
+  useEffect(() => { drivingRef.current = isDriving ?? false; }, [isDriving]);
 
   const subscribe = useCallback(async (active: boolean) => {
     subRef.current?.remove();
@@ -146,7 +149,7 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
 
           // ══ 6. Auto-upgrade idle → active ════════════════════
           if (!isActiveRef.current &&
-              (navRef.current || speedMs * 3.6 > DRIVE_SPEED_KMH)) {
+              (navRef.current || drivingRef.current || speedMs * 3.6 > DRIVE_SPEED_KMH)) {
             isActiveRef.current = true;
             subscribe(true);
           }
@@ -160,7 +163,7 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
   }, []);
 
   const needsActiveConfig = useCallback((): boolean => {
-    return navRef.current || speedRef.current > DRIVE_SPEED_KMH;
+    return navRef.current || drivingRef.current || speedRef.current > DRIVE_SPEED_KMH;
   }, []);
 
   useEffect(() => {
@@ -168,7 +171,7 @@ export function useAdaptiveGPS({ isNavigating, speedKmh, onLocation }: Options) 
     if (shouldBeActive !== isActiveRef.current) {
       subscribe(shouldBeActive);
     }
-  }, [isNavigating, needsActiveConfig, subscribe]);
+  }, [isNavigating, isDriving, needsActiveConfig, subscribe]);
 
   const start = useCallback(async () => {
     await subscribe(needsActiveConfig());

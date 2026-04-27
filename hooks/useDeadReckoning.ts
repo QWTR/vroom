@@ -29,7 +29,7 @@ export function useDeadReckoning({
   const toHdg   = useRef(0);
 
   const lerpStartMs    = useRef(0);
-  const lerpDurMs      = useRef(500);
+  const lerpDurMs      = useRef(300);
   const lastFeedMs     = useRef(0);
   const hasFirstFeed   = useRef(false);
   const rafRef         = useRef<number | null>(null);
@@ -126,7 +126,7 @@ export function useDeadReckoning({
   const reset = useCallback(() => {
     hasFirstFeed.current = false;
     lastFeedMs.current   = 0;
-    lerpDurMs.current    = 500;
+    lerpDurMs.current    = 300;
     lerpStartMs.current  = 0;
     fromLat.current = toLat.current = displayLat.current = 0;
     fromLng.current = toLng.current = displayLng.current = 0;
