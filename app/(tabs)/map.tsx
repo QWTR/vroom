@@ -2501,7 +2501,7 @@ export default function MapScreen() {
             />
           ))}
 
-          {currentZoom >= 12 && fuelStations.map(station => (
+          {fuelStations.map(station => (
             <FuelStationMarker
               key={`fuel_${station.id}`}
               station={station}
