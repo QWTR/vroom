@@ -109,6 +109,7 @@ import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
 import { SaveRouteModal } from '../../components/modals/SaveRouteModal';
 import { SearchModal } from '../../components/modals/SearchModal';
+import { MapActionsModal } from '../../components/modals/MapActionsModal';
 import { SettingsModal } from '../../components/modals/SettingsModal';
 import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetailModal';
 import { TripStatsModal } from '../../components/modals/TripStatsModal';
@@ -142,6 +143,8 @@ const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
 // Reroute cooldown — avoids hammering Directions API while continuously off-route
 const REROUTE_COOLDOWN_MS = 30_000; // minimum ms between reroute requests
 const REROUTE_MIN_MOVED_M = 200;    // OR allow early reroute if user moved this far from last point
+
+const AD_BANNER_HEIGHT = 50; // minimalna zarezerwowana wysokość banera (px)
 
 // ─── Adaptive camera zoom ─────────────────────────────────────────────────────
 // faster = smaller zoom (farther), slower = larger zoom (closer)
@@ -340,6 +343,7 @@ export default function MapScreen() {
   // ── State – UI ────────────────────────────────────────────
   const [mapType,            setMapType]            = useState('standard');
   const [settingsVisible,    setSettingsVisible]    = useState(false);
+  const [mapActionsVisible,  setMapActionsVisible]  = useState(false);
   const [reportVisible,      setReportVisible]      = useState(false);
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [userInfoVisible,    setUserInfoVisible]    = useState(false);
@@ -391,7 +395,8 @@ export default function MapScreen() {
   const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
-  const styles = makeMapStyles(theme, isDark, insets.top);
+  const showBanner = !isNavigating && !isDriving && !isBuilding;
+  const styles = makeMapStyles(theme, isDark, showBanner ? 0 : insets.top);
   const mapStyle =
     mapType === 'satellite' ? MAPBOX_STYLE_SATELLITE :
     mapType === 'hybrid'    ? MAPBOX_STYLE_HYBRID :
@@ -2184,7 +2189,21 @@ export default function MapScreen() {
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+      <View style={{ flex: 1, backgroundColor: '#0a0a0a', flexDirection: 'column' }}>
+
+        {/* ── Ad Banner nad mapą ───────────────────────────── */}
+        {showBanner && (
+          <View style={{
+            paddingTop: insets.top,
+            backgroundColor: '#0a0a0a',
+            minHeight: insets.top + AD_BANNER_HEIGHT,
+          }}>
+            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
+          </View>
+        )}
+
+        {/* ── Kontener mapy (flex:1 poniżej banera) ──────────── */}
+        <View style={{ flex: 1 }}>
 
         {/* ── Timer trasy ─────────────────────────────────── */}
         {isNavigating && timerRunning && (
@@ -2402,12 +2421,6 @@ export default function MapScreen() {
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
-        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
-        {!isNavigating && !isDriving && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999999999 }}>
-            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
-          </View>
-        )}
         <Mapbox.MapView
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
@@ -2831,34 +2844,18 @@ export default function MapScreen() {
             </TouchableOpacity>
           )}
 
-          {
-            !isDriving && (
-              <TouchableOpacity
-                style={[
-                  styles.sideBtn,
-                  isBuilding
-                    ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
-                    : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
-                ]}
-                onPress={() => {
-                  if (isBuilding) {
-                    if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
-                    else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
-                  } else {
-                    startBuilding();
-                    Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
-                  }
-                }}
-                activeOpacity={0.75}
-              >
-                <MaterialCommunityIcons
-                  name={isBuilding ? 'check' : 'map-marker-path'}
-                  size={20}
-                  color={isBuilding ? '#ffffff' : theme.primary}
-                />
-              </TouchableOpacity>
-            )
-          }
+          {!isDriving && isBuilding && (
+            <TouchableOpacity
+              style={[styles.sideBtn, { backgroundColor: '#db1e1e', borderColor: '#000000c7' }]}
+              onPress={() => {
+                if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
+                else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
+              }}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons name="check" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={[
@@ -2894,23 +2891,6 @@ export default function MapScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.sideBtn,
-              !isSpeechEnabled
-                ? { backgroundColor: '#e3383525', borderColor: '#e3383545' }
-                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
-            ]}
-            onPress={() => setIsSpeechEnabled(v => !v)}
-            activeOpacity={0.75}
-          >
-            <MaterialIcons
-              name={isSpeechEnabled ? 'volume-up' : 'volume-off'}
-              size={20}
-              color={isSpeechEnabled ? theme.textMuted : theme.primary}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[styles.sideBtn, { borderColor: '#ff922b45', backgroundColor: '#ff922b12' }]}
             onPress={() => setReportVisible(true)}
             activeOpacity={0.75}
@@ -2926,8 +2906,18 @@ export default function MapScreen() {
             <MaterialCommunityIcons name="camera-plus-outline" size={20} color="#FFD700" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.sideBtn} onPress={() => setSettingsVisible(true)} activeOpacity={0.75}>
-            <MaterialCommunityIcons name="layers-outline" size={22} color={theme.textMuted} />
+          {/* Single actions button — voice / map type / create route */}
+          <TouchableOpacity
+            style={[
+              styles.sideBtn,
+              (isBuilding || !isSpeechEnabled)
+                ? { backgroundColor: theme.primaryBg, borderColor: theme.primaryBorder }
+                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+            ]}
+            onPress={() => setMapActionsVisible(true)}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="tune" size={22} color={(isBuilding || !isSpeechEnabled) ? theme.primary : theme.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -3089,7 +3079,7 @@ export default function MapScreen() {
         {!isNavigating && !isBuilding && !startLocation && !endLocation && !searchModalVisible && !isDriving && (
           <View style={styles.emptyStateContainer}>
             <View style={styles.emptyState}>
-              <MaterialIcons name="location-on" size={40} color="#e33835ce" />
+              <MaterialIcons name="location-on" size={28} color="#e33835ce" />
               <Text style={styles.emptyTitle}>WYBIERZ TRASĘ</Text>
               <Text style={styles.emptySubtitle}>Dotknij paska wyszukiwania</Text>
             </View>
@@ -3119,6 +3109,21 @@ export default function MapScreen() {
           mapType={mapType}
           onChangeMapType={handleChangeMapType}
           onClose={() => setSettingsVisible(false)}
+        />
+        <MapActionsModal
+          visible={mapActionsVisible}
+          isSpeechEnabled={isSpeechEnabled}
+          isBuilding={isBuilding}
+          pinsCount={pins.length}
+          onToggleVoice={() => setIsSpeechEnabled(v => !v)}
+          onOpenMapType={() => setSettingsVisible(true)}
+          onStartBuilding={() => {
+            startBuilding();
+            Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
+          }}
+          onFinishBuilding={() => { finishPin(); setSaveRouteVisible(true); }}
+          onCancelBuilding={() => { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }}
+          onClose={() => setMapActionsVisible(false)}
         />
         <ReportModal
           visible={reportVisible}
@@ -3213,6 +3218,7 @@ export default function MapScreen() {
         />
 
         
+        </View>{/* ── Koniec kontenera mapy ─────────────────────── */}
       </View>
     </>
   );
