@@ -20,11 +20,20 @@ export function feedSpeedSample(speedMs: number | null) {
   if (kmh > _speedMax) _speedMax = kmh;
 }
 
-export function feedNavDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+export function feedNavDistance(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number,
+  speedKmh?: number,
+) {
+  // Skip if GPS says we're below 2 km/h — prevents jitter accumulation when stopped.
+  // When speedKmh is unknown (undefined) we allow the distance through.
+  if (speedKmh !== undefined && speedKmh < 2) return;
+
   const d = haversineKm(lat1, lon1, lat2, lon2);
-  // Skip increments < 3 m (GPS jitter while stationary) and > 500 m (bad fix).
-  // The lower bound prevents phantom km from accumulating when the phone sits still.
-  if (d < 0.003 || d >= 0.5) return;
+  // Skip increments < 10 m (GPS jitter) and >= 2 km (GPS teleportation).
+  // The 2 km upper limit allows for low-frequency background GPS that fires
+  // less often than the foreground watcher (e.g. when screen is off).
+  if (d < 0.010 || d >= 2.0) return;
   _navDistKm += d;
 }
 
@@ -110,9 +119,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     // ── Accumulate distance ───────────────────────────────────────────────
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
     if (lastRaw) {
-      const last   = JSON.parse(lastRaw);
-      const distKm = haversineKm(last.latitude, last.longitude, latitude, longitude);
-      if (distKm > 0.01 && distKm < 0.5) {
+      const last    = JSON.parse(lastRaw);
+      const distKm  = haversineKm(last.latitude, last.longitude, latitude, longitude);
+      // Skip if GPS says we're below 2 km/h (stationary jitter).
+      // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
+      const speedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
+      if (distKm > 0.010 && distKm < 2.0 && (speedKmh === null || speedKmh >= 2)) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
         const newPending = pending + distKm;
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));

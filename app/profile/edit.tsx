@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, Image, Text,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter }     from 'expo-router';
 import * as ImagePicker  from 'expo-image-picker';
@@ -62,7 +63,12 @@ export default function EditProfileScreen() {
   const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
 
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
@@ -121,5 +127,6 @@ export default function EditProfileScreen() {
         }
       </TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

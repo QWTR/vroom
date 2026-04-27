@@ -1019,7 +1019,7 @@ export default function MapScreen() {
       // ══ 4. Feed stats ════════════════════════════════════════
       feedSpeedSample(rawSpeedMs);
       feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-      feedPosition(lat, lng);
+      feedPosition(lat, lng, rawSpeedMs);
 
       // ══ 5. Feed dystansu nawigacji ════════════════════════════
       // Only accumulate nav distance while actually navigating — calling this
@@ -1030,6 +1030,7 @@ export default function MapScreen() {
           feedNavDistance(
             lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
             lat, lng,
+            kmh,
           );
         }
         lastNavLocRef.current = { latitude: lat, longitude: lng };
@@ -1456,6 +1457,7 @@ export default function MapScreen() {
         feedNavDistance(
           lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
           lat, lng,
+          speedMs * 3.6,
         );
       }
       lastNavLocRef.current = { latitude: lat, longitude: lng };

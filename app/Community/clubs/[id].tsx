@@ -436,12 +436,13 @@ export default function ClubChatScreen() {
   const canDeleteMenu = menuMsg ? (menuMsg.senderId === myId || canKick) : false;
 
   // ── Render ────────────────────────────────────────────────
+  const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
       >
         {/* HEADER */}
         <View style={{
