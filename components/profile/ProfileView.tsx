@@ -282,7 +282,7 @@ export default function ProfileView({
             >
               <Text style={{ fontSize: 14 }}>🏆</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#e33835', fontWeight: '900' }}>{unlocked.length}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>OSI.</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>OSIĄGN.</Text>
             </TouchableOpacity>
             {/* km pill */}
             <TouchableOpacity
@@ -310,7 +310,7 @@ export default function ProfileView({
               style={{ flex: 1.2, backgroundColor: '#e3383515', borderRadius: 14, borderWidth: 1, borderColor: '#e3383540', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 3 }}
             >
               <MaterialIcons name="bar-chart" size={18} color="#e33835" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#e33835', letterSpacing: 1, textAlign: 'center' }}>STAT{'\n'}YSTYKI</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#e33835', letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
             </TouchableOpacity>
           </View>
 
@@ -604,7 +604,7 @@ export default function ProfileView({
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeStats} />
           <Animated.View
             style={{
-              transform: [{ translateY: statsSlide.interpolate({ inputRange: [0, 1], outputRange: [0, 700] }) }],
+              transform: [{ translateY: statsSlide.interpolate({ inputRange: [0, 1], outputRange: [0, Dimensions.get('window').height] }) }],
               backgroundColor: isDark ? '#111' : '#f8f8f8',
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
               borderWidth: 1, borderBottomWidth: 0, borderColor: isDark ? '#ffffff10' : '#00000010',
@@ -670,7 +670,7 @@ export default function ProfileView({
                   <StatsModalItem label="WSZYSTKIE" value={`${achievements.length}`} unit="szt." color="#f5c518" isDark={isDark} />
                   <StatsModalItem label="OBSERWUJĄCY" value={`${profile?.followersCount ?? 0}`} unit="os." color="#4de926" isDark={isDark} />
                   {!!profile?.position && (
-                    <StatsModalItem label="RANKING" value={`#${profile.position}`} unit="" color="#e33835" isDark={isDark} />
+                    <StatsModalItem label="RANKING" value={`#${profile.position}`} color="#e33835" isDark={isDark} />
                   )}
                 </View>
               </StatsModalSection>
@@ -743,7 +743,7 @@ function StatsModalSection({ title, color, icon, children }: { title: string; co
   );
 }
 
-function StatsModalItem({ label, value, unit, color, isDark }: { label: string; value: string; unit: string; color: string; isDark: boolean }) {
+function StatsModalItem({ label, value, unit, color, isDark }: { label: string; value: string; unit?: string; color: string; isDark: boolean }) {
   return (
     <View style={{ minWidth: '30%', flex: 1, backgroundColor: isDark ? '#1a1a1a' : '#f0f0f0', borderRadius: 14, borderWidth: 1, borderColor: color + '30', padding: 12, alignItems: 'center', gap: 3 }}>
       <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color, fontWeight: '900', letterSpacing: -0.5 }}>{value}</Text>
