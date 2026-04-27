@@ -19,8 +19,12 @@ import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { API_URL } from '../constants/config';
+import MobileAds from 'react-native-google-mobile-ads';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Initialize Google Mobile Ads SDK — must be called once before any ad component renders
+MobileAds().initialize().catch(() => {});
 
 const { width, height } = Dimensions.get('window');
 const R = '#e33835';
