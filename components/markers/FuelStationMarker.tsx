@@ -17,7 +17,7 @@ export const FuelStationMarker = memo(({ station, onPress }: Props) => {
   const pb95 = prices?.[0]?.pb95;
 
   return (
-    <Mapbox.MarkerView coordinate={[lng, lat]} anchor={{ x: 0.5, y: 1 }}>
+    <Mapbox.MarkerView coordinate={[lng, lat]} anchor={{ x: 0.5, y: 1 }} allowOverlap allowOverlapWithPuck>
       <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
         <View style={{ alignItems: 'center' }}>
           <View style={{

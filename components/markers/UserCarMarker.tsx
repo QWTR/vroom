@@ -77,7 +77,7 @@ export const UserCarMarker = memo(({
 }: UserCarMarkerProps) => {
   if (!imageUri) {
     return (
-      <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck>
+      <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
         <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
           <FallbackMarker user={user} distance={distance} />
         </TouchableOpacity>
@@ -86,7 +86,7 @@ export const UserCarMarker = memo(({
   }
 
   return (
-    <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck>
+    <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
       <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
         <Image source={{ uri: imageUri }} style={{ width: 80, height: 80 }} resizeMode="contain" />
       </TouchableOpacity>

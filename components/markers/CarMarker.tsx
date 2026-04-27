@@ -11,7 +11,7 @@ interface CarMarkerProps {
 }
 
 export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => (
-  <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }} allowOverlapWithPuck>
+  <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }} allowOverlapWithPuck allowOverlap>
     {/* elevation + zIndex ensure the car marker renders on top of all other MarkerViews on Android */}
     <View style={{ transform: [{ rotate: `${heading}deg` }], zIndex: 999, elevation: 999 }}>
       {imageUri

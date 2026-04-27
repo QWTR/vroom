@@ -180,7 +180,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       params.center.latitude, params.center.longitude,
       params.heading, NAV_LOOKAHEAD_METERS,
     );
-    doAnimate({ ...params, center: lookahead }, 130, 'linear');
+    doAnimate({ ...params, center: lookahead }, 180, 'linear');
   }, [cameraRef]);
 
   const animateCameraSmooth = useCallback((params: CameraParams) => {

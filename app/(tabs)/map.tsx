@@ -205,6 +205,12 @@ const MIN_DIST_PER_TICK_KM       = 0.005; // 5 m
 // faster than the GPS rate (e.g. after a filter reset or rapid double fire)
 const MIN_GPS_TICK_SEC           = 0.5;
 
+// ── GPS resume/focus grace period ─────────────────────────
+// After restarting GPS on foreground/focus, backdate lastGoodTimeRef by this
+// amount so the sanity-check allows larger position jumps for the first few
+// fixes (accommodates inaccurate first fix after a cold GPS restart).
+const GPS_RESUME_GRACE_PERIOD_MS = 5000;
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
   useKeepAwake(); 
@@ -933,6 +939,7 @@ export default function MapScreen() {
 
   const { start: startGPS, stop: stopGPS } = useAdaptiveGPS({
     isNavigating,
+    isDriving,
     speedKmh: speedKmhRef.current,
     onLocation: useCallback((loc) => {
       const rawLat = loc.latitude;
@@ -1012,7 +1019,7 @@ export default function MapScreen() {
       // ══ 4. Feed stats ════════════════════════════════════════
       feedSpeedSample(rawSpeedMs);
       feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-      feedPosition(lat, lng);
+      feedPosition(lat, lng, rawSpeedMs);
 
       // ══ 5. Feed dystansu nawigacji ════════════════════════════
       // Only accumulate nav distance while actually navigating — calling this
@@ -1023,6 +1030,7 @@ export default function MapScreen() {
           feedNavDistance(
             lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
             lat, lng,
+            kmh,
           );
         }
         lastNavLocRef.current = { latitude: lat, longitude: lng };
@@ -1161,9 +1169,8 @@ export default function MapScreen() {
         // Always track last snapped position for next bearing calculation
         lastDrivingPosRef.current = { lat: snapped.latitude, lng: snapped.longitude };
 
-        // Keep DR refs in sync with driving pipeline (heading comes from bearing, not DR)
-        drLatRef.current = snapped.latitude;
-        drLngRef.current = snapped.longitude;
+        // Keep only heading in sync with driving pipeline — lat/lng are driven
+        // by DR onFrame at 60fps to prevent marker teleportation on each GPS tick.
         drHdgRef.current = drivingHeading;
 
         // ── DEAD ZONE — ignoruj jitter gdy stoisz ────────────
@@ -1368,10 +1375,9 @@ export default function MapScreen() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && locationReadyRef.current) {
         console.log('[GPS] App foregrounded — restarting GPS watcher');
-        // Clear stale position so the first GPS fix after resuming is accepted
-        // instead of being rejected as a jump against the pre-background position.
-        lastGoodLocRef.current  = null;
-        lastGoodTimeRef.current = Date.now();
+        // Keep last-known position but backdate it by 5 s so the sanity check
+        // allows larger jumps during the grace period after resuming.
+        lastGoodTimeRef.current = Date.now() - GPS_RESUME_GRACE_PERIOD_MS;
         stopGPS();
         startGPS();
         refreshLocationOneShot();
@@ -1384,9 +1390,9 @@ export default function MapScreen() {
   useFocusEffect(useCallback(() => {
     if (!locationReadyRef.current) return;
     console.log('[GPS] Screen focused — restarting GPS watcher');
-    // Clear stale position so the first GPS fix after re-focus is not rejected.
-    lastGoodLocRef.current  = null;
-    lastGoodTimeRef.current = Date.now();
+    // Keep last-known position but backdate it by 5 s so the sanity check
+    // allows larger jumps during the grace period after screen re-focus.
+    lastGoodTimeRef.current = Date.now() - GPS_RESUME_GRACE_PERIOD_MS;
     stopGPS();
     startGPS();
     refreshLocationOneShot();
@@ -1451,6 +1457,7 @@ export default function MapScreen() {
         feedNavDistance(
           lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
           lat, lng,
+          speedMs * 3.6,
         );
       }
       lastNavLocRef.current = { latitude: lat, longitude: lng };
@@ -1762,19 +1769,6 @@ export default function MapScreen() {
     }, 1500);
     return () => clearInterval(interval);
   }, [isNavigating, stopNavigation]);
-
-  useEffect(() => {
-    if (!userLocation) return;
-    setNearbyUsers(
-      liveUsers
-        .filter(u => String(u.id) !== String(currentUserId))
-        .map(u => ({
-          id: String(u.id), name: u.username,
-          latitude: u.lat, longitude: u.lng,
-          avatar: u.avatarUrl ?? '🚗', status: 'Online' as const, isFriend: false,
-        })),
-    );
-  }, [liveUsers, currentUserId, userLocation]);
 
   useDemoUsers(
     locationReady && !isNavigating && !isSharing,
@@ -2507,7 +2501,7 @@ export default function MapScreen() {
             />
           ))}
 
-          {currentZoom >= 12 && fuelStations.map(station => (
+          {fuelStations.map(station => (
             <FuelStationMarker
               key={`fuel_${station.id}`}
               station={station}

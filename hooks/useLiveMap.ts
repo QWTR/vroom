@@ -83,6 +83,17 @@ export function useLiveMap(
   const SMOOTH_ALPHA   = 0.35;   // 0 = frozen, 1 = instant
   const MIN_MOVE_M     = 4;      // ignore jitter smaller than 4 m
 
+  // ── Time-based interpolation state for live users ─────────────────
+  type InterpEntry = {
+    fromLat: number; fromLng: number;
+    toLat:   number; toLng:   number;
+    startMs: number; durationMs: number;
+    lastUpdateMs: number;
+  };
+  const interpRef = useRef<Map<number, InterpEntry>>(new Map());
+  const INTERP_TICK_MS     = 50;   // ticker interval (20 fps)
+  const MIN_INTERP_DUR_MS  = 50;   // minimum lerp duration guard
+
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
   useEffect(() => { userLocationRef.current = userLocation; },   [userLocation]);
@@ -184,10 +195,25 @@ export function useLiveMap(
           }
         }
         smoothedPosRef.current.set(data.id, { lat: sLat, lng: sLng });
-        const smoothedData = { ...data, lat: sLat, lng: sLng };
+
+        // Time-based interpolation: record from→to segment + timing so the
+        // interval ticker can smoothly move the marker between GPS updates.
+        const now = Date.now();
+        const existing = interpRef.current.get(data.id);
+        const fromLat = existing ? existing.toLat : sLat;
+        const fromLng = existing ? existing.toLng : sLng;
+        const lastMs  = existing?.lastUpdateMs ?? now;
+        const durMs   = Math.min(Math.max(now - lastMs, 1000), 10000);
+        interpRef.current.set(data.id, {
+          fromLat, fromLng,
+          toLat:   sLat, toLng: sLng,
+          startMs: now, durationMs: durMs,
+          lastUpdateMs: now,
+        });
 
         setLiveUsers(prev => {
           const exists = prev.find(u => u.id === data.id);
+          const smoothedData = { ...data, lat: sLat, lng: sLng };
           if (exists) return prev.map(u => u.id === data.id ? { ...u, ...smoothedData } : u);
           return [...prev, smoothedData];
         });
@@ -195,6 +221,7 @@ export function useLiveMap(
 
       socket.on('user:offline', (data) => {
         smoothedPosRef.current.delete(data.id);
+        interpRef.current.delete(data.id);
         setLiveUsers(prev => prev.filter(u => u.id !== data.id));
       });
 
@@ -228,6 +255,32 @@ export function useLiveMap(
     })();
     return () => { socketRef.current?.disconnect(); };
   }, [fetchInitialData]);
+
+  // ── Time-based interpolation ticker — smoothly moves live-user markers ──
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const updates: { id: number; lat: number; lng: number }[] = [];
+      interpRef.current.forEach((entry, userId) => {
+        const { fromLat, fromLng, toLat, toLng, startMs, durationMs } = entry;
+        const t = Math.min((now - startMs) / Math.max(durationMs, MIN_INTERP_DUR_MS), 1);
+        if (t >= 1) return; // already at target — no update needed
+        updates.push({
+          id:  userId,
+          lat: fromLat + (toLat - fromLat) * t,
+          lng: fromLng + (toLng - fromLng) * t,
+        });
+      });
+      if (updates.length === 0) return;
+      setLiveUsers(prev =>
+        prev.map(u => {
+          const update = updates.find(up => up.id === u.id);
+          return update ? { ...u, lat: update.lat, lng: update.lng } : u;
+        }),
+      );
+    }, INTERP_TICK_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {
