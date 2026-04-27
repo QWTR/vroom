@@ -26,4 +26,5 @@ export function usePartnerBanners() {
     } finally { setLoading(false); }
 
   return { banners, loading, fetchBanners };
-}
+})
+};
