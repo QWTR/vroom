@@ -8,11 +8,12 @@ import { API_URL }        from '../constants/config';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert:  true,
-    shouldPlaySound:  true,
+    // Foreground: nie pokazuj systemowego pusha gdy user jest w appce.
+    shouldShowAlert:  false,
+    shouldPlaySound:  false,
     shouldSetBadge:   true,
-    shouldShowBanner: true,
-    shouldShowList:   true,
+    shouldShowBanner: false,
+    shouldShowList:   false,
   }),
 });
 

@@ -30,8 +30,9 @@ const R = '#e33835';
 // ─── NOTIFICATIONS ────────────────────────────────────────
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true, shouldPlaySound: true,
-    shouldSetBadge: true, shouldShowBanner: true, shouldShowList: true,
+    // Foreground: brak systemowych popupów/listy/dźwięku.
+    shouldShowAlert: false, shouldPlaySound: false,
+    shouldSetBadge: true, shouldShowBanner: false, shouldShowList: false,
   }),
 });
 Notifications.setNotificationChannelAsync('default', {
@@ -190,11 +191,8 @@ function RootLayoutInner() {
   // Notifications
   useEffect(() => {
     notifListener.current = Notifications.addNotificationReceivedListener(notification => {
-      const { title, body } = notification.request.content;
-      const data = notification.request.content.data as any;
-      const type = data?.type ?? '';
-      const toastType = type === 'achievement' ? 'success' : type.includes('friend') ? 'success' : 'info';
-      Toast.show({ type: toastType, text1: title ?? 'Powiadomienie', text2: body ?? '', visibilityTime: 4000 });
+      // Foreground: nie pokazujemy toastów z pushy (żadnych popupów w trakcie używania appki).
+      // Powiadomienia dalej zapisują się w bazie i są w centrum powiadomień in-app.
     });
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       handleNotificationNavigation(response.notification.request.content.data as any);
