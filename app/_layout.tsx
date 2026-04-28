@@ -18,13 +18,11 @@ import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
+import { PremiumProvider, usePremium } from '../contexts/PremiumContext';
 import { API_URL } from '../constants/config';
 import MobileAds from 'react-native-google-mobile-ads';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-// Initialize Google Mobile Ads SDK — must be called once before any ad component renders
-MobileAds().initialize().catch(() => {});
 
 const { width, height } = Dimensions.get('window');
 const R = '#e33835';
@@ -112,7 +110,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <SettingsProvider>
-          <RootLayoutInner />
+          <PremiumProvider>
+            <RootLayoutInner />
+          </PremiumProvider>
         </SettingsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
@@ -155,6 +155,7 @@ function StatusLine() {
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
   const { isDark }     = useTheme();
+  const { isPremium }  = usePremium();
   const router         = useRouter();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
 
@@ -162,6 +163,13 @@ function RootLayoutInner() {
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
     OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
   });
+
+  // Inicjalizacja MobileAds tylko dla użytkowników bez premium
+  useEffect(() => {
+    if (!isPremium) {
+      MobileAds().initialize().catch(() => {});
+    }
+  }, [isPremium]);
 
   // Anim values
   const masterFade    = useRef(new Animated.Value(0)).current;

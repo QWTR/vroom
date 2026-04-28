@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePremium } from '../../contexts/PremiumContext';
 
 import { useProfile }      from '../../hooks/useProfile';
 import { useCars }         from '../../hooks/useCars';
@@ -16,9 +17,12 @@ import { ShareRouteModal } from '../../components/modals/ShareRouteModal';
 import { useParticipatedRoutes } from '../../hooks/useParticipatedRoutes';
 import type { ParticipatedRoute } from '../../hooks/useParticipatedRoutes';
 
+const FREE_CAR_LIMIT = 3;
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const { isPremium } = usePremium();
 
   const { profile, loading: pLoad, avatarLoading, fetchProfile } = useProfile();
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
@@ -61,6 +65,14 @@ export default function ProfileScreen() {
     fetchUserSpots(userId); fetchMyRoutes(); fetchParticipated();
   };
 
+  const handleAddCar = () => {
+    if (!isPremium && cars.length >= FREE_CAR_LIMIT) {
+      router.push('/premium' as any);
+      return;
+    }
+    router.push('/profile/add-car');
+  };
+
   const handleNavigateRoute = async (route: MyRoute) => {
     if (route.points.length < 2) return;
     await AsyncStorage.setItem('nav_route', JSON.stringify({
@@ -98,6 +110,8 @@ export default function ProfileScreen() {
     ? new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
     : '—';
 
+  const showCarLimit = !isPremium && cars.length >= FREE_CAR_LIMIT;
+
   return (
     <>
       <ProfileView
@@ -108,7 +122,7 @@ export default function ProfileScreen() {
         avatarUploading={avatarLoading}
         onSettings={()  => router.push('/profile/settings')}
         onEdit={()      => router.push('/profile/edit')}
-        onAddCar={()    => router.push('/profile/add-car')}
+        onAddCar={handleAddCar}
         onCarPress={id  => router.push({ pathname: '/profile/car-detail', params: { id } })}
         onSpotPress={_  => {}}
         routes={routes} routesLoading={rLoad}
@@ -118,6 +132,18 @@ export default function ProfileScreen() {
         participatedRoutes={participatedRoutes}
         participatedRoutesLoading={prLoad}
         onNavigateParticipated={handleNavigateParticipated}
+        carLimitBanner={showCarLimit ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
+              Limit free: 3 auta •{' '}
+            </Text>
+            <TouchableOpacity onPress={() => router.push('/premium' as any)}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '700' }}>
+                Upgrade
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       />
       <ShareRouteModal
         visible={shareRoute !== null} route={shareRoute}
