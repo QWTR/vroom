@@ -62,8 +62,24 @@ export default function ProfileScreen() {
     await AsyncStorage.setItem('locationFriendsOnly', String(v));
   };
 
-  const handleBannerChange = async (_uri: string) => {
+  const handleBannerChange = async (mode?: 'delete') => {
     try {
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+      setBannerLoading(true);
+      if (mode === 'delete') {
+        const res = await fetch(`${API_URL}/api/profile/banner`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          await fetchProfile();
+          Toast.show({ type: 'success', text1: '✅ Baner usunięty!' });
+          return;
+        }
+        const d = await res.json();
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: d.error ?? 'Spróbuj ponownie' });
+        return;
+      }
       const ImagePicker = await import('expo-image-picker');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -73,22 +89,20 @@ export default function ProfileScreen() {
       });
       if (result.canceled || !result.assets?.[0]) return;
       const uri = result.assets[0].uri;
-      setBannerLoading(true);
-      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       const formData = new FormData();
-      formData.append('banner', { uri, name: 'banner.jpg', type: 'image/jpeg' } as any);
+      formData.append('banner', { uri, name: `banner_${Date.now()}.jpg`, type: 'image/jpeg' } as any);
       const res = await fetch(`${API_URL}/api/profile/banner`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-      if (res.ok) {
-        await fetchProfile();
-        Toast.show({ type: 'success', text1: '✅ Baner zaktualizowany!' });
-      } else {
+      if (!res.ok) {
         const d = await res.json();
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: d.error ?? 'Spróbuj ponownie' });
+        return;
       }
+      await fetchProfile();
+      Toast.show({ type: 'success', text1: '✅ Baner zaktualizowany!' });
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
     } finally {
@@ -198,7 +212,7 @@ export default function ProfileScreen() {
         monthlyCompare={monthlyCompare}
         locationFriendsOnly={locationFriendsOnly}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
-        onBannerChange={handleBannerChange}
+        onBannerChange={(arg: any) => handleBannerChange(arg)}
         bannerUploading={bannerLoading}
         carLimitBanner={showCarLimit ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 }}>

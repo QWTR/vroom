@@ -272,16 +272,30 @@ export default function ProfileView({
             {isOwner && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 {isPremium && onBannerChange && (
-                  <TouchableOpacity
-                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFD70020', borderWidth: 1, borderColor: '#FFD70040', alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => onBannerChange('')}
-                    disabled={bannerUploading}
-                  >
-                    {bannerUploading
-                      ? <ActivityIndicator size="small" color="#FFD700" />
-                      : <MaterialIcons name="add-photo-alternate" size={18} color="#FFD700" />
-                    }
-                  </TouchableOpacity>
+                  <>
+                    {!!profile?.bannerUrl && (
+                      <TouchableOpacity
+                        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#ff3b3020', borderWidth: 1, borderColor: '#ff3b3040', alignItems: 'center', justifyContent: 'center' }}
+                        onPress={() => onBannerChange('delete' as any)}
+                        disabled={bannerUploading}
+                      >
+                        {bannerUploading
+                          ? <ActivityIndicator size="small" color="#ff3b30" />
+                          : <MaterialIcons name="delete-outline" size={18} color="#ff3b30" />
+                        }
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFD70020', borderWidth: 1, borderColor: '#FFD70040', alignItems: 'center', justifyContent: 'center' }}
+                      onPress={() => onBannerChange('' as any)}
+                      disabled={bannerUploading}
+                    >
+                      {bannerUploading
+                        ? <ActivityIndicator size="small" color="#FFD700" />
+                        : <MaterialIcons name="add-photo-alternate" size={18} color="#FFD700" />
+                      }
+                    </TouchableOpacity>
+                  </>
                 )}
                 <TouchableOpacity
                   style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015', alignItems: 'center', justifyContent: 'center' }}
