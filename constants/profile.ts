@@ -4,6 +4,7 @@ export interface UserProfile {
   location?: string;
   bio?: string;
   avatarUrl?: string;
+  bannerUrl?: string | null;
   createdAt: string;
   totalDistance: number;
   dailyDistance?: number;
@@ -19,6 +20,7 @@ export interface UserProfile {
   meetCount: number;
   cityCount: number;
   position: number | null;
+  isPremium?: boolean;
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;

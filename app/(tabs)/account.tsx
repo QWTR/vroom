@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const { isPremium } = usePremium();
 
   const { profile, loading: pLoad, avatarLoading, fetchProfile } = useProfile();
+  const effectivePremium = !!(isPremium || profile?.isPremium);
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
   const { achievements, fetchMyAchievements }                    = useAchievements();
   const { spots,   loading: sLoad, fetchUserSpots }              = useProfileSpots();
@@ -111,7 +112,7 @@ export default function ProfileScreen() {
   };
 
   const handleAddCar = () => {
-    if (!isPremium && cars.length >= FREE_CAR_LIMIT) {
+    if (!effectivePremium && cars.length >= FREE_CAR_LIMIT) {
       router.push('/premium' as any);
       return;
     }
@@ -155,7 +156,7 @@ export default function ProfileScreen() {
     ? new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
     : '—';
 
-  const showCarLimit = !isPremium && cars.length >= FREE_CAR_LIMIT;
+  const showCarLimit = !effectivePremium && cars.length >= FREE_CAR_LIMIT;
 
   return (
     <>
@@ -177,7 +178,7 @@ export default function ProfileScreen() {
         participatedRoutes={participatedRoutes}
         participatedRoutesLoading={prLoad}
         onNavigateParticipated={handleNavigateParticipated}
-        isPremium={isPremium}
+        isPremium={effectivePremium}
         locationFriendsOnly={locationFriendsOnly}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
         onBannerChange={handleBannerChange}

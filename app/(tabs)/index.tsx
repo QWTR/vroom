@@ -35,6 +35,7 @@ type Achievement = { type: string; label: string; unlockedAt: string };
 type User = {
   username: string; email: string; userId: string;
   avatar?: string; bio?: string; location?: string; createdAt?: string;
+  isPremium?: boolean;
   position: number; points: number;
   totalDistance: number; monthlyDistance: number; weeklyDistance: number; dailyDistance: number;
   topSpeed: number; avgSpeed: string | number; avgMaxSpeed: string | number;
@@ -73,6 +74,7 @@ export default function HomeScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [user,       setUser]       = useState<User | null>(null);
+  const effectivePremium = !!(isPremium || user?.isPremium);
   const { unseenCount, load: loadAnnouncements } = useAnnouncements();
   const [showAnnouncements, setShowAnnouncements] = useState(false);
 
@@ -358,7 +360,7 @@ export default function HomeScreen() {
         {/* PREMIUM BANNER / STATUS                       */}
         {/* ══════════════════════════════════════════════ */}
         <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 20 }}>
-          {isPremium ? (
+          {effectivePremium ? (
             /* ── Premium aktywny — złoty status ── */
             <View style={{
               borderRadius: 18, borderWidth: 1, borderColor: `${GOLD}40`,
@@ -434,11 +436,13 @@ export default function HomeScreen() {
         {/* ══════════════════════════════════════════════ */}
         {/* AD BANNER                                      */}
         {/* ══════════════════════════════════════════════ */}
-        <Animated.View style={{ opacity: fadeAnim }}>
-          <AdBanner
-            BANNERID="ca-app-pub-1660420496578702/2956669151"
-          />
-        </Animated.View>
+        {!effectivePremium && (
+          <Animated.View style={{ opacity: fadeAnim }}>
+            <AdBanner
+              BANNERID="ca-app-pub-1660420496578702/2956669151"
+            />
+          </Animated.View>
+        )}
 
         {/* ══════════════════════════════════════════════ */}
         {/* QUICK NAV — DUŻE PRZYCISKI                    */}
