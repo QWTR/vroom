@@ -176,19 +176,24 @@ export default function SettingsScreen() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ nickColor: color }),
       });
-      if (res.ok) {
-        setNickColor(color);
-        setColorPickerVisible(false);
-        const raw = await AsyncStorage.getItem('user');
-        if (raw) {
-          try {
-            const u = JSON.parse(raw);
-            u.nickColor = color;
-            await AsyncStorage.setItem('user', JSON.stringify(u));
-          } catch {}
-        }
-        Toast.show({ type: 'success', text1: '✅ Kolor nicku zapisany!' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data?.error ?? 'Nie udało się zapisać koloru' });
+        return;
       }
+      setNickColor(color);
+      setColorPickerVisible(false);
+      const raw = await AsyncStorage.getItem('user');
+      if (raw) {
+        try {
+          const u = JSON.parse(raw);
+          u.nickColor = color;
+          await AsyncStorage.setItem('user', JSON.stringify(u));
+        } catch (e) {
+          console.warn('handleNickColorSave: failed to update AsyncStorage user', e);
+        }
+      }
+      Toast.show({ type: 'success', text1: '✅ Kolor nicku zapisany!' });
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
     } finally {
