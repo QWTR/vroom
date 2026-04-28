@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView, Pressable,
+  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -301,10 +301,8 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                       activationDistance={4}
                       onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
                       renderItem={({ item, drag, isActive }) => (
-                        <View style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Pressable onLongPress={drag} delayLongPress={120} hitSlop={8}>
-                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </Pressable>
+                        <TouchableOpacity activeOpacity={0.9} onLongPress={drag} delayLongPress={120} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
                           <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
                           <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
                             <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
@@ -321,7 +319,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                           }}>
                             <MaterialIcons name="delete-outline" size={17} color="#e33835" />
                           </TouchableOpacity>
-                        </View>
+                        </TouchableOpacity>
                       )}
                     />
                   </View>
@@ -346,10 +344,8 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                       activationDistance={4}
                       onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
                       renderItem={({ item, drag, isActive }) => (
-                        <View style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Pressable onLongPress={drag} delayLongPress={120} hitSlop={8}>
-                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </Pressable>
+                        <TouchableOpacity activeOpacity={0.9} onLongPress={drag} delayLongPress={120} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: theme.text }}># {item.name}</Text>
                             <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
@@ -372,7 +368,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                           }}>
                             <MaterialIcons name="delete-outline" size={17} color="#e33835" />
                           </TouchableOpacity>
-                        </View>
+                        </TouchableOpacity>
                       )}
                     />
                   </View>

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   Image, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal, Pressable, ScrollView, Dimensions, Alert,
+  Platform, Modal, Pressable, ScrollView, Dimensions, Alert, Animated,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather }                from '@expo/vector-icons';
@@ -185,15 +186,35 @@ export default function ClubChatScreen() {
   const [editVisible, setEditVisible] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [chatThemeId, setChatThemeId] = useState('default');
-  const [activePane, setActivePane] = useState<'chat' | 'members'>('chat');
+  const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
   const paneRef = useRef<ScrollView>(null);
   const [memberModal, setMemberModal] = useState<any | null>(null);
+  const tabSlide = useRef(new Animated.Value(Dimensions.get('window').width / 3)).current;
+  const tabHapticSkip = useRef(true);
 
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
   const activeChannelIdRef = useRef<number | null>(null);
   activeChannelIdRef.current = activeChannelId;
+
+  useEffect(() => {
+    const seg = Dimensions.get('window').width / 3;
+    const scrollIdx = activePane === 'channels' ? 0 : activePane === 'chat' ? 1 : 2;
+    const tabBarIdx = 2 - scrollIdx;
+    Animated.spring(tabSlide, {
+      toValue: tabBarIdx * seg,
+      useNativeDriver: true,
+      stiffness: 320,
+      damping: 28,
+      mass: 0.75,
+    }).start();
+    if (tabHapticSkip.current) {
+      tabHapticSkip.current = false;
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, [activePane]);
 
   // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
@@ -486,6 +507,8 @@ export default function ClubChatScreen() {
   // ── Render ────────────────────────────────────────────────
   const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
   const SCREEN_W = Dimensions.get('window').width;
+  const TAB_SEG_W = SCREEN_W / 3;
+  const sidebarBg = isDark ? '#1b1c1f' : theme.surface2;
   const members = clubData?.members ?? [];
   const ownerGroup = members.filter((m: any) => m.role === 'owner');
   const rankedGroup = members.filter((m: any) => m.role !== 'owner' && !!m.rank);
@@ -616,13 +639,54 @@ export default function ClubChatScreen() {
           )}
         </View>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 6, backgroundColor: theme.surface }}>
-          <TouchableOpacity onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.primary : theme.textDim }}>UŻYTKOWNICY</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setActivePane('chat'); paneRef.current?.scrollTo({ x: SCREEN_W, animated: true }); }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'chat' ? theme.primary : theme.textDim }}>KANAŁY I CZAT</Text>
-          </TouchableOpacity>
+        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+          <View style={{ flexDirection: 'row', paddingTop: 2 }}>
+            <TouchableOpacity
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
+              onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: SCREEN_W * 2, animated: true }); }}
+            >
+              <Text
+                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.text : theme.textDim, fontWeight: activePane === 'members' ? '800' : '600' }}
+                numberOfLines={1}
+              >
+                UŻYTKOWNICY
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
+              onPress={() => { setActivePane('chat'); paneRef.current?.scrollTo({ x: SCREEN_W, animated: true }); }}
+            >
+              <Text
+                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'chat' ? theme.text : theme.textDim, fontWeight: activePane === 'chat' ? '800' : '600' }}
+                numberOfLines={1}
+              >
+                {(channels.find((c: any) => c.id === activeChannelId)?.name ?? 'Kanał').toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
+              onPress={() => { setActivePane('channels'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}
+            >
+              <Text
+                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'channels' ? theme.text : theme.textDim, fontWeight: activePane === 'channels' ? '800' : '600' }}
+                numberOfLines={1}
+              >
+                CZATY
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ height: 3, backgroundColor: theme.border2 }}>
+            <Animated.View
+              style={{
+                height: 3,
+                width: TAB_SEG_W,
+                backgroundColor: theme.primary,
+                borderTopLeftRadius: 2,
+                borderTopRightRadius: 2,
+                transform: [{ translateX: tabSlide }],
+              }}
+            />
+          </View>
         </View>
 
         <ScrollView
@@ -630,136 +694,205 @@ export default function ClubChatScreen() {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
+          nestedScrollEnabled
           onMomentumScrollEnd={(e) => {
             const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
-            setActivePane(idx === 0 ? 'members' : 'chat');
+            if (idx === 0) setActivePane('channels');
+            else if (idx === 1) setActivePane('chat');
+            else setActivePane('members');
           }}
           contentOffset={{ x: SCREEN_W, y: 0 }}
           style={{ flex: 1 }}
         >
-          <View style={{ width: SCREEN_W, paddingHorizontal: 12, paddingTop: 8 }}>
+          <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 6, paddingTop: 10, paddingBottom: 40 }}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
+              {categorySections.map((cat: any) => (
+                <View key={cat.id} style={{ marginBottom: 4 }}>
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: '800',
+                      letterSpacing: 0.6,
+                      color: theme.textDim,
+                      marginBottom: 6,
+                      marginLeft: 6,
+                      marginTop: 4,
+                    }}
+                  >
+                    {cat.name.toUpperCase()}
+                  </Text>
+                  <View style={{ gap: 2 }}>
+                    {cat.channels.map((ch: any) => {
+                      const active = activeChannelId === ch.id;
+                      return (
+                        <TouchableOpacity
+                          key={ch.id}
+                          onPress={() => {
+                            Haptics.selectionAsync().catch(() => {});
+                            setActiveChannelId(ch.id);
+                            setActivePane('chat');
+                            paneRef.current?.scrollTo({ x: SCREEN_W, animated: true });
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingVertical: 6,
+                            paddingHorizontal: 8,
+                            marginLeft: 2,
+                            borderRadius: 4,
+                            borderLeftWidth: 3,
+                            borderLeftColor: active ? theme.primary : 'transparent',
+                            backgroundColor: active ? `${theme.primary}18` : 'transparent',
+                          }}
+                        >
+                          <MaterialCommunityIcons name="pound" size={16} color={active ? theme.text : theme.textDim} />
+                          <Text
+                            style={{
+                              fontFamily: 'Orbitron',
+                              fontSize: 11,
+                              fontWeight: active ? '700' : '500',
+                              color: active ? theme.text : theme.textMuted,
+                              marginLeft: 4,
+                              flex: 1,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {ch.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+
+          <View style={{ width: SCREEN_W }}>
+            {showPinned && pinned.length > 0 && (
+              <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 4 }}>
+                  📌 PRZYPIĘTE ({pinned.length})
+                </Text>
+                {pinned.map(p => (
+                  <View key={p.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <UAv uri={p.sender.avatarUrl} name={p.sender.username} size={22} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>{p.sender.username}</Text>
+                      <Text style={{ color: theme.textMuted, fontSize: 12 }} numberOfLines={1}>{p.content || '📷 Zdjęcie'}</Text>
+                    </View>
+                    {canPin && (
+                      <TouchableOpacity onPress={() => handlePin(p.id, true)}>
+                        <MaterialIcons name="close" size={14} color={theme.textDim} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {loading ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator color="#e33835" size="large" />
+              </View>
+            ) : (
+              <FlatList
+                ref={listRef}
+                data={messages}
+                keyExtractor={m => String(m.id)}
+                renderItem={renderMessage}
+                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, flexGrow: 1 }}
+                keyboardShouldPersistTaps="handled"
+                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+                ListHeaderComponent={
+                  hasMore ? (
+                    loadingMore
+                      ? <ActivityIndicator color={theme.primary} style={{ marginVertical: 14 }} />
+                      : (
+                        <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
+                          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>↑ ZAŁADUJ STARSZE</Text>
+                        </TouchableOpacity>
+                      )
+                  ) : (
+                    messages.length > 0
+                      ? <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>POCZĄTEK CZATU KLUBU</Text>
+                        </View>
+                      : null
+                  )
+                }
+                ListEmptyComponent={
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 80 }}>
+                    <MaterialCommunityIcons name="chat-outline" size={40} color={theme.border3} />
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>Brak wiadomości</Text>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Napisz pierwszą!</Text>
+                  </View>
+                }
+              />
+            )}
+          </View>
+
+          <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 10, paddingBottom: 40 }}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
             {[
               { title: 'WŁAŚCICIEL', data: ownerGroup },
               ...rankSections,
               { title: 'CZŁONKOWIE', data: memberGroup },
             ].map(section => (
-              <View key={section.title} style={{ marginBottom: 12 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 6 }}>{section.title} ({section.data.length})</Text>
+              <View key={section.title} style={{ marginBottom: 8 }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: '800',
+                    letterSpacing: 0.6,
+                    color: theme.textDim,
+                    marginBottom: 8,
+                    marginLeft: 4,
+                  }}
+                >
+                  {section.title} ({section.data.length})
+                </Text>
                 {section.data.map((m: any) => (
-                  <TouchableOpacity key={m.id} onPress={() => openMemberActions(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-                    <UAv uri={m.avatarUrl} name={m.username} size={28} />
+                  <TouchableOpacity
+                    key={m.id}
+                    onPress={() => openMemberActions(m)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      paddingVertical: 8,
+                      paddingHorizontal: 6,
+                      borderRadius: 6,
+                      marginBottom: 2,
+                      backgroundColor: isDark ? '#222327' : theme.surface,
+                    }}
+                  >
+                    <UAv uri={m.avatarUrl} name={m.username} size={30} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>{m.username}</Text>
-                      {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10 }}>{m.rank.name}</Text>}
+                      {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10, marginTop: 1 }}>{m.rank.name}</Text>}
                     </View>
                     <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
                   </TouchableOpacity>
                 ))}
               </View>
             ))}
-          </View>
-
-          <View style={{ width: SCREEN_W }}>
-        <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-          {categorySections.map((cat: any) => (
-            <View key={cat.id} style={{ marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 4 }}>
-                {cat.name.toUpperCase()}
-              </Text>
-              <View style={{ gap: 6 }}>
-                {cat.channels.map((ch: any) => (
-                  <TouchableOpacity
-                    key={ch.id}
-                    onPress={() => setActiveChannelId(ch.id)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 8,
-                      borderRadius: 10,
-                      backgroundColor: activeChannelId === ch.id ? `${theme.primary}25` : theme.surface2,
-                      borderWidth: 1,
-                      borderColor: activeChannelId === ch.id ? theme.primary : theme.border,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <MaterialCommunityIcons name="pound" size={14} color={activeChannelId === ch.id ? theme.primary : theme.textDim} />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activeChannelId === ch.id ? theme.primary : theme.textDim }}>
-                      {ch.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ))}
-        </View>
-        {/* PINNED PANEL */}
-        {showPinned && pinned.length > 0 && (
-          <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 4 }}>
-              📌 PRZYPIĘTE ({pinned.length})
-            </Text>
-            {pinned.map(p => (
-              <View key={p.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                <UAv uri={p.sender.avatarUrl} name={p.sender.username} size={22} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>{p.sender.username}</Text>
-                  <Text style={{ color: theme.textMuted, fontSize: 12 }} numberOfLines={1}>{p.content || '📷 Zdjęcie'}</Text>
-                </View>
-                {canPin && (
-                  <TouchableOpacity onPress={() => handlePin(p.id, true)}>
-                    <MaterialIcons name="close" size={14} color={theme.textDim} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* MESSAGES */}
-        {loading ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <ActivityIndicator color="#e33835" size="large" />
-          </View>
-        ) : (
-          <FlatList
-            ref={listRef}
-            data={messages}
-            keyExtractor={m => String(m.id)}
-            renderItem={renderMessage}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
-            ListHeaderComponent={
-              hasMore ? (
-                loadingMore
-                  ? <ActivityIndicator color={theme.primary} style={{ marginVertical: 14 }} />
-                  : (
-                    <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
-                      <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>↑ ZAŁADUJ STARSZE</Text>
-                    </TouchableOpacity>
-                  )
-              ) : (
-                messages.length > 0
-                  ? <View style={{ alignItems: 'center', paddingVertical: 12 }}>
-                      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>POCZĄTEK CZATU KLUBU</Text>
-                    </View>
-                  : null
-              )
-            }
-            ListEmptyComponent={
-              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 80 }}>
-                <MaterialCommunityIcons name="chat-outline" size={40} color={theme.border3} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>Brak wiadomości</Text>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Napisz pierwszą!</Text>
-              </View>
-            }
-          />
-        )}
+            </ScrollView>
           </View>
         </ScrollView>
 
         {/* INPUT */}
+        {activePane === 'chat' && (
         <View style={{
           backgroundColor: theme.surface,
           borderTopWidth: 1, borderTopColor: theme.border,
@@ -866,6 +999,7 @@ export default function ClubChatScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        )}
       </KeyboardAvoidingView>
 
       <MessageMenu
