@@ -31,6 +31,7 @@ import { GiftModal } from "../../components/modals/GiftModal";
 import { useAppUpdate } from "../../hooks/useAppUpdate";
 import { UpdateModal } from "../../components/modals/UpdateModal";
 import { AdBanner } from "../../components/ads/AdBanner";
+import { usePremium } from "../../contexts/PremiumContext";
 
 const { width, height } = Dimensions.get("window");
 
@@ -97,6 +98,7 @@ async function fetchFreshUser(): Promise<User | null> {
 export default function HomeScreen() {
 	const router = useRouter();
 	const { theme, isDark } = useTheme();
+	const { isPremium, isLoading: premiumLoading } = usePremium();
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [user, setUser] = useState<User | null>(null);
@@ -113,15 +115,14 @@ export default function HomeScreen() {
 	const scaleAnim = useRef(new Animated.Value(0.92)).current;
 	const pulseAnim = useRef(new Animated.Value(1)).current;
 
-	const pollRef = useRef(poll);
-	const votedRef = useRef(voted);
-
 	useEffect(() => {
 		loadAnnouncements();
 	}, []);
 
 	const { poll, voted, fetchActivePoll, vote } = usePolls();
 	const { gifts, fetchAvailableGifts, claimGift } = useGifts();
+	const pollRef = useRef(poll);
+	const votedRef = useRef(voted);
 
 	const { updateAvailable, downloading, applyUpdate, dismiss } = useAppUpdate();
 
@@ -667,9 +668,121 @@ export default function HomeScreen() {
 						}}
 					/>
 				</View>
-
 				{/* ══════════════════════════════════════════════ */}
-				{/* TOP SPEED — SIGNATURE CARD                    */}
+				{/* ANNOUNCEMENTS BANNER                           */}
+				{/* ══════════════════════════════════════════════ */}
+				<Animated.View
+					style={{
+						opacity: fadeAnim,
+						paddingHorizontal: 20,
+						marginBottom: 20,
+					}}>
+					<TouchableOpacity
+						onPress={() => setShowAnnouncements(true)}
+						activeOpacity={0.85}>
+						<LinearGradient
+							colors={isDark ? ["#1a0a1a", "#0f0f0f"] : ["#f8f0ff", "#f5f5f5"]}
+							start={{ x: 0, y: 0 }}
+							end={{ x: 1, y: 1 }}
+							style={{
+								borderRadius: 18,
+								borderWidth: 1,
+								borderColor: unseenCount > 0 ? "#a855f750" : t.border2,
+								padding: 18,
+								flexDirection: "row",
+								alignItems: "center",
+								gap: 14,
+								overflow: "hidden",
+							}}>
+							<View
+								style={{
+									position: "absolute",
+									right: -20,
+									top: -20,
+									width: 100,
+									height: 100,
+									borderRadius: 50,
+									backgroundColor: "#a855f710",
+								}}
+							/>
+
+							<View
+								style={{
+									width: 46,
+									height: 46,
+									borderRadius: 14,
+									backgroundColor: "#a855f720",
+									borderWidth: 1,
+									borderColor: "#a855f740",
+									alignItems: "center",
+									justifyContent: "center",
+								}}>
+								<Text style={{ fontSize: 22 }}>📢</Text>
+							</View>
+
+							<View style={{ flex: 1 }}>
+								<Text
+									style={{
+										fontFamily: "Orbitron",
+										fontSize: 13,
+										color: t.text,
+										fontWeight: "700",
+										marginBottom: 3,
+									}}>
+									Ogłoszenia
+								</Text>
+								<Text
+									style={{
+										fontFamily: "Orbitron",
+										fontSize: 8,
+										color: t.textDim,
+									}}>
+									Nowości · Aktualizacje · Eventy
+								</Text>
+							</View>
+
+							{/* Badge z liczbą nieprzeczytanych */}
+							{unseenCount > 0 && (
+								<View
+									style={{
+										backgroundColor: "#a855f7",
+										borderRadius: 10,
+										paddingHorizontal: 8,
+										paddingVertical: 4,
+										minWidth: 24,
+										alignItems: "center",
+									}}>
+									<Text
+										style={{
+											fontFamily: "Orbitron",
+											fontSize: 10,
+											color: "#fff",
+											fontWeight: "900",
+										}}>
+										{unseenCount}
+									</Text>
+								</View>
+							)}
+
+							<View
+								style={{
+									backgroundColor: "#a855f715",
+									borderRadius: 10,
+									padding: 8,
+									borderWidth: 1,
+									borderColor: "#a855f730",
+								}}>
+								<MaterialIcons
+									name='arrow-forward-ios'
+									size={13}
+									color='#a855f7'
+								/>
+							</View>
+						</LinearGradient>
+					</TouchableOpacity>
+				</Animated.View>
+				{/* ══════════════════════════════════════════════ */}
+				{/* PREMIUM STATUS BANNER                          */}
 				{/* ══════════════════════════════════════════════ */}
 				<Animated.View
 					style={{
@@ -678,210 +791,170 @@ export default function HomeScreen() {
 						marginTop: -10,
 						marginBottom: 16,
 					}}>
-					<View
-						style={{
-							borderRadius: 24,
-							overflow: "hidden",
-							borderWidth: 1,
-							borderColor: "#e3383540",
-						}}>
+					<TouchableOpacity
+						onPress={() => router.push("/premium" as any)}
+						activeOpacity={0.86}>
 						<LinearGradient
 							colors={
-								isDark
-									? ["#1a0808", "#100404", "#0a0a0a"]
-									: ["#fff5f5", "#fff0f0", "#fafafa"]
+								premiumLoading
+									? isDark
+										? ["#141414", "#0d0d0d"]
+										: ["#f5f5f5", "#efefef"]
+									: isPremium
+										? ["#2a2000", "#1a1500", "#0a0a0a"]
+										: isDark
+											? ["#1a0808", "#100404", "#0a0a0a"]
+											: ["#fff5f5", "#fff0f0", "#fafafa"]
 							}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
-							style={{ padding: 22 }}>
+							style={{
+								borderRadius: 20,
+								borderWidth: 1,
+								borderColor: premiumLoading
+									? t.border
+									: isPremium
+										? "#FFD70040"
+										: "#e3383540",
+								padding: 18,
+								flexDirection: "row",
+								alignItems: "center",
+								gap: 14,
+								overflow: "hidden",
+							}}>
 							<View
 								style={{
 									position: "absolute",
-									top: -30,
-									right: -30,
-									width: 160,
-									height: 160,
-									borderRadius: 80,
-									backgroundColor: "#e3383510",
-								}}
-							/>
-							<View
-								style={{
-									position: "absolute",
-									top: -10,
-									right: -10,
-									width: 90,
-									height: 90,
-									borderRadius: 45,
-									backgroundColor: "#e3383518",
+									right: -18,
+									top: -22,
+									width: 110,
+									height: 110,
+									borderRadius: 55,
+									backgroundColor: premiumLoading
+										? isDark
+											? "#ffffff08"
+											: "#00000006"
+										: isPremium
+											? "#FFD70018"
+											: "#e3383510",
 								}}
 							/>
 
 							<View
 								style={{
-									flexDirection: "row",
+									width: 48,
+									height: 48,
+									borderRadius: 14,
+									backgroundColor: premiumLoading
+										? isDark
+											? "#ffffff10"
+											: "#00000010"
+										: isPremium
+											? "#FFD70020"
+											: "#e3383520",
+									borderWidth: 1,
+									borderColor: premiumLoading
+										? isDark
+											? "#ffffff20"
+											: "#00000020"
+										: isPremium
+											? "#FFD70040"
+											: "#e3383540",
 									alignItems: "center",
-									justifyContent: "space-between",
+									justifyContent: "center",
 								}}>
-								<View style={{ flex: 1 }}>
-									<View
-										style={{
-											flexDirection: "row",
-											alignItems: "center",
-											gap: 8,
-											marginBottom: 4,
-										}}>
-										<View
-											style={{
-												backgroundColor: "#e3383520",
-												padding: 6,
-												borderRadius: 8,
-											}}>
-											<MaterialCommunityIcons
-												name='speedometer'
-												size={14}
-												color='#e33835'
-											/>
-										</View>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 8,
-												color: "#e33835",
-												letterSpacing: 3,
-											}}>
-											TOP SPEED · REKORD
-										</Text>
-									</View>
-									<View
-										style={{
-											flexDirection: "row",
-											alignItems: "baseline",
-											gap: 6,
-											marginTop: 8,
-										}}>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 64,
-												color: "#e33835",
-												fontWeight: "900",
-												letterSpacing: -3,
-												lineHeight: 70,
-											}}>
-											{user.topSpeed ?? 0}
-										</Text>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 16,
-												color: "#e3383580",
-												fontWeight: "700",
-												marginBottom: 8,
-											}}>
-											km/h
-										</Text>
-									</View>
-								</View>
-
-								<View style={{ gap: 14, alignItems: "flex-end" }}>
-									<View style={{ alignItems: "flex-end" }}>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 18,
-												color: t.text,
-												fontWeight: "700",
-											}}>
-											{user.avgSpeed} km/h
-										</Text>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 7,
-												color: t.textDim,
-												letterSpacing: 2,
-												marginTop: 2,
-											}}>
-											ŚREDNIA
-										</Text>
-									</View>
-									<View
-										style={{
-											width: 60,
-											height: 1,
-											backgroundColor: isDark ? "#ffffff15" : "#00000015",
-										}}
-									/>
-									<View style={{ alignItems: "flex-end" }}>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 18,
-												color: t.text,
-												fontWeight: "700",
-											}}>
-											{user.totalRides ?? 0}
-										</Text>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 7,
-												color: t.textDim,
-												letterSpacing: 2,
-												marginTop: 2,
-											}}>
-											TRASY
-										</Text>
-									</View>
-								</View>
+								<MaterialIcons
+									name={isPremium ? "workspace-premium" : "lock-open"}
+									size={22}
+									color={
+										premiumLoading
+											? t.textDim
+											: isPremium
+												? "#FFD700"
+												: "#e33835"
+									}
+								/>
 							</View>
 
-							{/* Progress bar — totalDistance */}
-							<View style={{ marginTop: 18, gap: 8 }}>
-								<View
+							<View style={{ flex: 1 }}>
+								<Text
 									style={{
-										flexDirection: "row",
-										justifyContent: "space-between",
+										fontFamily: "Orbitron",
+										fontSize: 8,
+										color: premiumLoading
+											? t.textDim
+											: isPremium
+												? "#FFD700"
+												: "#e33835",
+										letterSpacing: 2.2,
+										marginBottom: 4,
 									}}>
-									<Text
-										style={{
-											fontFamily: "Orbitron",
-											fontSize: 8,
-											color: t.textDim,
-											letterSpacing: 2,
-										}}>
-										ŁĄCZNY DYSTANS
-									</Text>
-									<Text
-										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
-											color: t.text,
-											fontWeight: "700",
-										}}>
-										{Math.round(user.totalDistance)} km
-									</Text>
-								</View>
-								<View
+									{premiumLoading
+										? "SPRAWDZANIE PREMIUM"
+										: isPremium
+											? "VROOM PREMIUM"
+											: "DOSTĘP PREMIUM"}
+								</Text>
+								<Text
 									style={{
-										height: 4,
-										backgroundColor: isDark ? "#ffffff10" : "#00000010",
-										borderRadius: 2,
-										overflow: "hidden",
+										fontFamily: "Orbitron",
+										fontSize: 12,
+										color: t.text,
+										fontWeight: "700",
+										marginBottom: 3,
 									}}>
-									<View
-										style={{
-											height: "100%",
-											width: `${Math.min((user.totalDistance / 10000) * 100, 100)}%`,
-											backgroundColor: "#e33835",
-											borderRadius: 2,
-										}}
-									/>
-								</View>
+									{premiumLoading
+										? "Ładowanie statusu konta..."
+										: isPremium
+											? "Premium jest aktywne na tym koncie"
+											: "Odblokuj Premium i dodatkowe funkcje"}
+								</Text>
+								<Text
+									style={{
+										fontFamily: "Orbitron",
+										fontSize: 8,
+										color: t.textDim,
+									}}>
+									{isPremium
+										? "Dziękujemy za wsparcie projektu"
+										: "Dotknij, aby przejść do zakupu"}
+								</Text>
+							</View>
+
+							<View
+								style={{
+									backgroundColor: premiumLoading
+										? isDark
+											? "#ffffff10"
+											: "#00000010"
+										: isPremium
+											? "#FFD70018"
+											: "#e3383515",
+									borderRadius: 10,
+									padding: 8,
+									borderWidth: 1,
+									borderColor: premiumLoading
+										? isDark
+											? "#ffffff20"
+											: "#00000020"
+										: isPremium
+											? "#FFD70040"
+											: "#e3383535",
+								}}>
+								<MaterialIcons
+									name={isPremium ? "check" : "arrow-forward-ios"}
+									size={13}
+									color={
+										premiumLoading
+											? t.textDim
+											: isPremium
+												? "#FFD700"
+												: "#e33835"
+									}
+								/>
 							</View>
 						</LinearGradient>
-					</View>
+					</TouchableOpacity>
 				</Animated.View>
 
 				{/* ══════════════════════════════════════════════ */}
@@ -1164,119 +1237,6 @@ export default function HomeScreen() {
 							</TouchableOpacity>
 						))}
 					</View>
-				</Animated.View>
-				{/* ══════════════════════════════════════════════ */}
-				{/* ANNOUNCEMENTS BANNER                           */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 20,
-					}}>
-					<TouchableOpacity
-						onPress={() => setShowAnnouncements(true)}
-						activeOpacity={0.85}>
-						<LinearGradient
-							colors={isDark ? ["#1a0a1a", "#0f0f0f"] : ["#f8f0ff", "#f5f5f5"]}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
-							style={{
-								borderRadius: 18,
-								borderWidth: 1,
-								borderColor: unseenCount > 0 ? "#a855f750" : t.border2,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -20,
-									top: -20,
-									width: 100,
-									height: 100,
-									borderRadius: 50,
-									backgroundColor: "#a855f710",
-								}}
-							/>
-
-							<View
-								style={{
-									width: 46,
-									height: 46,
-									borderRadius: 14,
-									backgroundColor: "#a855f720",
-									borderWidth: 1,
-									borderColor: "#a855f740",
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
-								<Text style={{ fontSize: 22 }}>📢</Text>
-							</View>
-
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 13,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Ogłoszenia
-								</Text>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
-										color: t.textDim,
-									}}>
-									Nowości · Aktualizacje · Eventy
-								</Text>
-							</View>
-
-							{/* Badge z liczbą nieprzeczytanych */}
-							{unseenCount > 0 && (
-								<View
-									style={{
-										backgroundColor: "#a855f7",
-										borderRadius: 10,
-										paddingHorizontal: 8,
-										paddingVertical: 4,
-										minWidth: 24,
-										alignItems: "center",
-									}}>
-									<Text
-										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
-											color: "#fff",
-											fontWeight: "900",
-										}}>
-										{unseenCount}
-									</Text>
-								</View>
-							)}
-
-							<View
-								style={{
-									backgroundColor: "#a855f715",
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: "#a855f730",
-								}}>
-								<MaterialIcons
-									name='arrow-forward-ios'
-									size={13}
-									color='#a855f7'
-								/>
-							</View>
-						</LinearGradient>
-					</TouchableOpacity>
 				</Animated.View>
 
 				{/* Modal ogłoszeń */}
