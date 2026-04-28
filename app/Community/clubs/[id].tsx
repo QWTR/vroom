@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   Image, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal, Pressable,
+  Platform, Modal, Pressable, ScrollView, Dimensions, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -176,6 +176,7 @@ export default function ClubChatScreen() {
   const [cursor,      setCursor]      = useState<number | null>(null);
 
   const [text,        setText]        = useState('');
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [photos,      setPhotos]      = useState<string[]>([]);
   const [replyTo,     setReplyTo]     = useState<ClubMessage | null>(null);
   const [sending,     setSending]     = useState(false);
@@ -184,6 +185,8 @@ export default function ClubChatScreen() {
   const [editVisible, setEditVisible] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [chatThemeId, setChatThemeId] = useState('default');
+  const [activePane, setActivePane] = useState<'chat' | 'members'>('chat');
+  const paneRef = useRef<ScrollView>(null);
 
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -361,6 +364,10 @@ export default function ClubChatScreen() {
 
   const canPin    = myRole === 'owner' || !!myRank?.canPin;
   const canKick   = myRole === 'owner' || !!myRank?.canKick;
+  const canManage = myRole === 'owner' || !!myRank?.canManage;
+  const mentionSuggestions = (clubData?.members ?? [])
+    .filter((m: any) => mentionQuery && m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
+    .slice(0, 6);
 
   const activeChatTheme = CHAT_THEMES.find(t => t.id === chatThemeId) ?? CHAT_THEMES[0];
 
@@ -477,6 +484,41 @@ export default function ClubChatScreen() {
 
   // ── Render ────────────────────────────────────────────────
   const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
+  const SCREEN_W = Dimensions.get('window').width;
+  const members = clubData?.members ?? [];
+  const ownerGroup = members.filter((m: any) => m.role === 'owner');
+  const rankedGroup = members.filter((m: any) => m.role !== 'owner' && !!m.rank);
+  const memberGroup = members.filter((m: any) => m.role !== 'owner' && !m.rank);
+
+  const openMemberActions = (m: any) => {
+    const actions: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [
+      { text: 'Anuluj', style: 'cancel' },
+      { text: 'Wyświetl profil', onPress: () => router.push(`/profile/${m.userId}` as any) },
+    ];
+    if (canManage && m.userId !== myId && m.role !== 'owner') {
+      actions.push({
+        text: 'Nadaj rolę',
+        onPress: () => {
+          const rankIds = [null, ...(clubData?.ranks ?? []).map((r: any) => r.id)];
+          const names = ['Brak rangi', ...(clubData?.ranks ?? []).map((r: any) => r.name)];
+          Alert.alert('Nadaj rolę', m.username, names.map((n, i) => ({
+            text: n,
+            onPress: async () => {
+              const token = await getToken() ?? '';
+              await fetch(`${API_URL}/api/clubs/${clubId}/members/${m.userId}/rank`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ rankId: rankIds[i] }),
+              });
+              const r = await fetch(`${API_URL}/api/clubs/${clubId}`, { headers: { Authorization: `Bearer ${token}` } });
+              if (r.ok) setClubData(await r.json());
+            },
+          })));
+        },
+      });
+    }
+    Alert.alert(m.username, 'Wybierz akcję', actions);
+  };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
       <KeyboardAvoidingView
@@ -569,6 +611,49 @@ export default function ClubChatScreen() {
           </View>
         )}
 
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 6, backgroundColor: theme.surface }}>
+          <TouchableOpacity onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.primary : theme.textDim }}>UŻYTKOWNICY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setActivePane('chat'); paneRef.current?.scrollTo({ x: SCREEN_W, animated: true }); }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'chat' ? theme.primary : theme.textDim }}>KANAŁY I CZAT</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          ref={paneRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+            setActivePane(idx === 0 ? 'members' : 'chat');
+          }}
+          contentOffset={{ x: SCREEN_W, y: 0 }}
+          style={{ flex: 1 }}
+        >
+          <View style={{ width: SCREEN_W, paddingHorizontal: 12, paddingTop: 8 }}>
+            {[
+              { title: 'WŁAŚCICIEL', data: ownerGroup },
+              { title: 'RANGI', data: rankedGroup },
+              { title: 'CZŁONKOWIE', data: memberGroup },
+            ].map(section => (
+              <View key={section.title} style={{ marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 6 }}>{section.title} ({section.data.length})</Text>
+                {section.data.map((m: any) => (
+                  <TouchableOpacity key={m.id} onPress={() => openMemberActions(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                    <UAv uri={m.avatarUrl} name={m.username} size={28} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: 13 }}>{m.username}</Text>
+                      {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10 }}>{m.rank.name}</Text>}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ))}
+          </View>
+
+          <View style={{ width: SCREEN_W }}>
         {/* PINNED PANEL */}
         {showPinned && pinned.length > 0 && (
           <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
@@ -632,6 +717,8 @@ export default function ClubChatScreen() {
             }
           />
         )}
+          </View>
+        </ScrollView>
 
         {/* INPUT */}
         <View style={{
@@ -697,12 +784,33 @@ export default function ClubChatScreen() {
                 minHeight: 40, maxHeight: 120,
               }}
               value={text}
-              onChangeText={setText}
+              onChangeText={(v) => {
+                setText(v);
+                const match = v.match(/(?:^|\s)@([a-zA-Z0-9_.-]{1,32})$/);
+                setMentionQuery(match ? match[1] : null);
+              }}
               placeholder="Napisz na czacie klubu..."
               placeholderTextColor={theme.textDim}
               multiline
               maxLength={2000}
             />
+            {!!mentionQuery && mentionSuggestions.length > 0 && (
+              <View style={{ position: 'absolute', left: 48, right: 56, bottom: 52, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 10, maxHeight: 140 }}>
+                {mentionSuggestions.map((u: any) => (
+                  <TouchableOpacity
+                    key={u.id}
+                    onPress={() => {
+                      setText(prev => prev.replace(/(^|\s)@([a-zA-Z0-9_.-]{1,32})$/, (_m, prefix) => `${prefix}@${u.username} `));
+                      setMentionQuery(null);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}
+                  >
+                    <UAv uri={u.avatarUrl} name={u.username} size={22} />
+                    <Text style={{ color: theme.text, fontSize: 12 }}>{u.username}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <TouchableOpacity
               style={[

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, Switch, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
@@ -32,6 +32,8 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const [joinChannelId, setJoinChannelId] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState('');
   const [newChannel, setNewChannel] = useState('');
+  const [draftCategories, setDraftCategories] = useState<any[]>([]);
+  const [draftChannels, setDraftChannels] = useState<any[]>([]);
   const [saving,  setSaving]      = useState(false);
 
   useEffect(() => {
@@ -41,6 +43,8 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       setPriv(club.isPrivate);
       setAvatar(null);
       setJoinChannelId(club.joinNotificationChannelId ?? null);
+      setDraftCategories((club.categories ?? []).map(c => ({ ...c })));
+      setDraftChannels((club.channels ?? []).map(c => ({ ...c })));
     }
   }, [club, visible]);
 
@@ -79,7 +83,66 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
         Toast.show({ type: 'error', text1: d.error ?? 'Błąd zapisu' });
         return;
       }
-      const updated = await res.json();
+      let updated = await res.json();
+
+      // utwórz nowe kategorie lokalne (tempId) i mapuj na real id
+      const categoryIdMap = new Map<number, number>();
+      for (const dc of draftCategories) {
+        if (dc.id > 0) continue;
+        const cres = await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name: dc.name }),
+        });
+        if (cres.ok) {
+          const created = await cres.json();
+          categoryIdMap.set(dc.id, created.id);
+        }
+      }
+
+      for (const ch of draftChannels) {
+        if (ch.id > 0) continue;
+        const mappedCategoryId = ch.categoryId && ch.categoryId < 0 ? categoryIdMap.get(ch.categoryId) : ch.categoryId;
+        await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name: ch.name, categoryId: mappedCategoryId ?? null }),
+        });
+      }
+
+      const refreshedAfterCreate = await fetch(`${API_URL}/api/clubs/${club.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refreshedAfterCreate.ok) updated = await refreshedAfterCreate.json();
+
+      const finalCategories = (updated.categories ?? []).map((c: any, idx: number) => ({
+        id: c.id,
+        position: (draftCategories.find((d: any) => d.name === c.name)?.position ?? idx),
+      }));
+      const finalChannels = (updated.channels ?? []).map((c: any, idx: number) => {
+        const draft = draftChannels.find((d: any) => d.name === c.name);
+        const categoryName = draft?.categoryId
+          ? draftCategories.find((dc: any) => dc.id === draft.categoryId)?.name
+          : null;
+        const mappedCategory = categoryName
+          ? (updated.categories ?? []).find((uc: any) => uc.name === categoryName)
+          : null;
+        return {
+          id: c.id,
+          position: draft?.position ?? idx,
+          categoryId: mappedCategory?.id ?? c.categoryId ?? null,
+        };
+      });
+      const structRes = await fetch(`${API_URL}/api/clubs/${club.id}/structure`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          categories: finalCategories,
+          channels: finalChannels,
+          joinNotificationChannelId: joinChannelId,
+        }),
+      });
+      if (structRes.ok) updated = await structRes.json();
       Toast.show({ type: 'success', text1: '✅ Klub zaktualizowany' });
       onUpdated(updated);
       onClose();
@@ -92,31 +155,26 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
 
   if (!club) return null;
 
-  const createCategory = async () => {
+  const createCategory = () => {
     if (!newCategory.trim()) return;
-    const token = (await getToken()) ?? '';
-    await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name: newCategory.trim() }),
-    });
+    const tmpId = -Date.now();
+    setDraftCategories(prev => [...prev, { id: tmpId, name: newCategory.trim(), position: prev.length }]);
     setNewCategory('');
-    const refreshed = await fetch(`${API_URL}/api/clubs/${club.id}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (refreshed.ok) onUpdated(await refreshed.json());
   };
 
-  const createChannel = async () => {
+  const createChannel = () => {
     if (!newChannel.trim()) return;
-    const token = (await getToken()) ?? '';
-    const categoryId = club.categories?.[0]?.id ?? null;
-    await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name: newChannel.trim(), categoryId }),
-    });
+    const tmpId = -(Date.now() + 1);
+    const categoryId = draftCategories[0]?.id ?? null;
+    setDraftChannels(prev => [...prev, { id: tmpId, name: newChannel.trim(), categoryId, position: prev.length }]);
     setNewChannel('');
-    const refreshed = await fetch(`${API_URL}/api/clubs/${club.id}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (refreshed.ok) onUpdated(await refreshed.json());
+  };
+
+  const moveItem = (arr: any[], from: number, to: number) => {
+    const next = [...arr];
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    return next.map((x, i) => ({ ...x, position: i }));
   };
 
   const avatarSrc = avatar ?? club.avatarUrl;
@@ -126,7 +184,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
         <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={{
+          <ScrollView contentContainerStyle={{
             backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
             padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20,
             borderTopWidth: 1, borderColor: theme.border2,
@@ -235,6 +293,13 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
               <TouchableOpacity onPress={createCategory} style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, alignItems: 'center' }}>
                 <Text style={{ color: theme.textDim, fontSize: 12 }}>Dodaj kategorię</Text>
               </TouchableOpacity>
+              {draftCategories.map((c, idx) => (
+                <View key={String(c.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ flex: 1, color: theme.text }}>{c.name}</Text>
+                  <TouchableOpacity disabled={idx === 0} onPress={() => setDraftCategories(prev => moveItem(prev, idx, idx - 1))}><Text style={{ color: theme.textDim }}>↑</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={idx === draftCategories.length - 1} onPress={() => setDraftCategories(prev => moveItem(prev, idx, idx + 1))}><Text style={{ color: theme.textDim }}>↓</Text></TouchableOpacity>
+                </View>
+              ))}
 
               <TextInput
                 style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, color: theme.text }}
@@ -246,8 +311,20 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
               <TouchableOpacity onPress={createChannel} style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, alignItems: 'center' }}>
                 <Text style={{ color: theme.textDim, fontSize: 12 }}>Dodaj kanał</Text>
               </TouchableOpacity>
+              {draftChannels.map((ch, idx) => (
+                <View key={String(ch.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ flex: 1, color: theme.text }}># {ch.name}</Text>
+                  <TouchableOpacity onPress={() => {
+                    const curIdx = draftCategories.findIndex(c => c.id === ch.categoryId);
+                    const nextIdx = (curIdx + 1) % Math.max(1, draftCategories.length);
+                    setDraftChannels(prev => prev.map(p => p.id === ch.id ? { ...p, categoryId: draftCategories[nextIdx]?.id ?? null } : p));
+                  }}><Text style={{ color: theme.primary, fontSize: 11 }}>Kategoria</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={idx === 0} onPress={() => setDraftChannels(prev => moveItem(prev, idx, idx - 1))}><Text style={{ color: theme.textDim }}>↑</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={idx === draftChannels.length - 1} onPress={() => setDraftChannels(prev => moveItem(prev, idx, idx + 1))}><Text style={{ color: theme.textDim }}>↓</Text></TouchableOpacity>
+                </View>
+              ))}
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </View>
     </Modal>
