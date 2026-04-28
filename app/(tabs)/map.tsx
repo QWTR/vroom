@@ -1720,6 +1720,7 @@ export default function MapScreen() {
           id: String(u.id), name: u.username,
           latitude: u.lat, longitude: u.lng,
           avatar: u.avatarUrl ?? '🚗', status: 'Online' as const, isFriend: false,
+          isPremium: u.isPremium ?? false,
         })),
     );
   }, [liveUsers, currentUserId, userLocation, isSharing]);

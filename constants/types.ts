@@ -7,6 +7,7 @@ export interface User {
   status?: string;
   distance?: number;
   isFriend?: boolean;
+  isPremium?: boolean;
 }
 
 export interface LocationState {

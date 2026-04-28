@@ -37,6 +37,8 @@ interface PublicProfile {
   weeklyDistance?: number;
   monthlyDistance?: number;
   totalRides?: number;
+  isPremium?: boolean;
+  bannerUrl?: string | null;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -388,11 +390,22 @@ export default function PublicProfileScreen() {
       >
         {/* ══ HERO HEADER ══════════════════════════════════ */}
         <View style={{ height: height * 0.36, position: 'relative', overflow: 'hidden' }}>
-          <LinearGradient
-            colors={['#1a0404', '#0e0202', '#090909']}
-            start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          {profile.bannerUrl ? (
+            <Image
+              source={{ uri: profile.bannerUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+          ) : (
+            <LinearGradient
+              colors={['#1a0404', '#0e0202', '#090909']}
+              start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          {!!profile.bannerUrl && (
+            <View style={{ ...StyleSheet.absoluteFill, backgroundColor: '#00000055' }} />
+          )}
 
           {/* Dekoracje */}
           <View style={{ position: 'absolute', top: -70, right: -70, width: 260, height: 260, borderRadius: 130, backgroundColor: RED + '10', borderWidth: 1, borderColor: RED + '20' }} />
@@ -432,7 +445,7 @@ export default function PublicProfileScreen() {
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
               <View style={{ position: 'relative' }}>
-                <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', borderWidth: 2.5, borderColor: RED, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', borderWidth: 2.5, borderColor: profile.isPremium ? '#FFD700' : RED, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
                   {profile.avatarUrl
                     ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 80, height: 80 }} />
                     : <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: RED, fontWeight: '900' }}>{initials}</Text>
@@ -446,9 +459,12 @@ export default function PublicProfileScreen() {
               </View>
               <View style={{ flex: 1, paddingBottom: 4 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, letterSpacing: 4, marginBottom: 4 }}>PROFIL UŻYTKOWNIKA</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
-                  {profile.username}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                    {profile.username}
+                  </Text>
+                  {profile.isPremium && <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />}
+                </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5 }}>
                   {!!profile.location && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
