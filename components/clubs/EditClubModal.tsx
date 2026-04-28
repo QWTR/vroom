@@ -17,6 +17,7 @@ import { Club } from './types';
 import RanksModal from './RanksModal';
 
 const getToken = () => AsyncStorage.getItem('token');
+const mkId = () => `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 interface Props {
   visible: boolean;
@@ -28,6 +29,7 @@ interface Props {
 
 export default function EditClubModal({ visible, club, channels = [], onClose, onUpdated }: Props) {
   const { theme } = useTheme();
+  const [tab, setTab] = useState<'general' | 'structure'>('general');
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [priv, setPriv] = useState(false);
@@ -35,7 +37,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const [joinChannelId, setJoinChannelId] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState('');
   const [newChannel, setNewChannel] = useState('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
   const [draftCategories, setDraftCategories] = useState<any[]>([]);
   const [draftChannels, setDraftChannels] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -48,111 +50,138 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     setPriv(club.isPrivate);
     setAvatar(null);
     setJoinChannelId(club.joinNotificationChannelId ?? null);
-    const sortedCats = [...(club.categories ?? [])].sort((a, b) => a.position - b.position);
-    const sortedCh = [...(club.channels ?? [])].sort((a, b) => a.position - b.position);
-    setDraftCategories(sortedCats.map((c, i) => ({ ...c, position: i })));
-    setDraftChannels(sortedCh.map((c, i) => ({ ...c, position: i })));
-    setSelectedCategoryId(sortedCats[0]?.id ?? null);
+
+    const cats = [...(club.categories ?? [])]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((c: any, i: number) => ({ key: `cat_${c.id}`, id: c.id, name: c.name, position: i }));
+
+    const chs = [...(club.channels ?? [])]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((c: any, i: number) => ({ key: `ch_${c.id}`, id: c.id, name: c.name, categoryRef: c.categoryId ? `cat_${c.categoryId}` : null, position: i }));
+
+    setDraftCategories(cats);
+    setDraftChannels(chs);
+    setSelectedCategoryKey(cats[0]?.key ?? null);
   }, [club, visible]);
 
   if (!club) return null;
 
   const pick = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8,
-    });
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!r.canceled) setAvatar(r.assets[0].uri);
   };
 
   const addCategory = () => {
     if (!newCategory.trim()) return;
-    const id = -Date.now();
-    setDraftCategories(prev => [...prev, { id, name: newCategory.trim(), position: prev.length }]);
-    setSelectedCategoryId(id);
+    const key = mkId();
+    setDraftCategories(prev => [...prev, { key, id: null, name: newCategory.trim(), position: prev.length }]);
+    setSelectedCategoryKey(key);
     setNewCategory('');
   };
 
   const addChannel = () => {
     if (!newChannel.trim()) return;
-    const id = -(Date.now() + Math.floor(Math.random() * 1000));
-    const categoryId = selectedCategoryId ?? draftCategories[0]?.id ?? null;
-    setDraftChannels(prev => [...prev, { id, name: newChannel.trim(), categoryId, position: prev.length }]);
+    const key = mkId();
+    const catKey = selectedCategoryKey ?? draftCategories[0]?.key ?? null;
+    setDraftChannels(prev => [...prev, { key, id: null, name: newChannel.trim(), categoryRef: catKey, position: prev.length }]);
     setNewChannel('');
   };
+
+  const categoryNameByRef = (ref: string | null) => draftCategories.find((c: any) => c.key === ref)?.name ?? 'Brak kategorii';
 
   const submit = async () => {
     if (!name.trim()) return Toast.show({ type: 'error', text1: 'Podaj nazwę klubu' });
     setSaving(true);
     try {
       const token = (await getToken()) ?? '';
-      const formData = new FormData();
-      formData.append('name', name.trim());
-      formData.append('description', desc.trim());
-      formData.append('isPrivate', priv ? 'true' : 'false');
-      if (joinChannelId) formData.append('joinNotificationChannelId', String(joinChannelId));
+
+      const form = new FormData();
+      form.append('name', name.trim());
+      form.append('description', desc.trim());
+      form.append('isPrivate', priv ? 'true' : 'false');
+      if (joinChannelId) form.append('joinNotificationChannelId', String(joinChannelId));
       if (avatar) {
         const filename = avatar.split('/').pop() ?? 'avatar.jpg';
-        formData.append('avatar', { uri: avatar, name: filename, type: 'image/jpeg' } as any);
+        form.append('avatar', { uri: avatar, name: filename, type: 'image/jpeg' } as any);
       }
+
       const baseRes = await fetch(`${API_URL}/api/clubs/${club.id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+        body: form,
       });
       if (!baseRes.ok) {
         const d = await baseRes.json().catch(() => ({}));
-        return Toast.show({ type: 'error', text1: d.error ?? 'Błąd zapisu' });
+        return Toast.show({ type: 'error', text1: d.error ?? 'Błąd zapisu ustawień' });
       }
 
-      // najpierw tworzymy brakujące encje
-      const categoryIdMap = new Map<number, number>();
+      const categoryIdByKey = new Map<string, number>();
       for (const c of draftCategories) {
-        if (c.id > 0) continue;
+        if (c.id) {
+          categoryIdByKey.set(c.key, c.id);
+          continue;
+        }
         const r = await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ name: c.name }),
         });
-        if (r.ok) categoryIdMap.set(c.id, (await r.json()).id);
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kategorii: ${c.name}` });
+        }
+        const created = await r.json();
+        categoryIdByKey.set(c.key, created.id);
       }
 
+      const channelIdByKey = new Map<string, number>();
       for (const ch of draftChannels) {
-        if (ch.id > 0) continue;
-        const mappedCategoryId = ch.categoryId && ch.categoryId < 0 ? categoryIdMap.get(ch.categoryId) : ch.categoryId;
-        await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
+        if (ch.id) {
+          channelIdByKey.set(ch.key, ch.id);
+          continue;
+        }
+        const categoryId = ch.categoryRef ? categoryIdByKey.get(ch.categoryRef) : null;
+        const r = await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ name: ch.name, categoryId: mappedCategoryId ?? null }),
+          body: JSON.stringify({ name: ch.name, categoryId: categoryId ?? null }),
         });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kanału: ${ch.name}` });
+        }
+        const created = await r.json();
+        channelIdByKey.set(ch.key, created.id);
       }
 
-      const freshRes = await fetch(`${API_URL}/api/clubs/${club.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      let updated = freshRes.ok ? await freshRes.json() : await baseRes.json();
+      const categoriesPayload = draftCategories.map((c, idx) => ({
+        id: categoryIdByKey.get(c.key) ?? c.id,
+        position: idx,
+      })).filter((c: any) => !!c.id);
 
-      const draftCategoryNameById = new Map(draftCategories.map(c => [c.id, c.name]));
-      const realCategoryByName = new Map((updated.categories ?? []).map((c: any) => [c.name, c.id]));
-      const categoriesPayload = draftCategories.map((c, i) => ({
-        id: realCategoryByName.get(c.name) ?? c.id,
-        position: i,
-      })).filter(c => c.id > 0);
-
-      const channelsPayload = draftChannels.map((ch, i) => {
-        const categoryName = ch.categoryId ? draftCategoryNameById.get(ch.categoryId) : null;
-        const mappedCategoryId = categoryName ? (realCategoryByName.get(categoryName) ?? null) : null;
-        const realChannel = (updated.channels ?? []).find((c: any) => c.name === ch.name);
-        return { id: realChannel?.id ?? ch.id, position: i, categoryId: mappedCategoryId };
-      }).filter(c => c.id > 0);
+      const channelsPayload = draftChannels.map((ch, idx) => ({
+        id: channelIdByKey.get(ch.key) ?? ch.id,
+        position: idx,
+        categoryId: ch.categoryRef ? (categoryIdByKey.get(ch.categoryRef) ?? null) : null,
+      })).filter((c: any) => !!c.id);
 
       const structRes = await fetch(`${API_URL}/api/clubs/${club.id}/structure`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ categories: categoriesPayload, channels: channelsPayload, joinNotificationChannelId: joinChannelId }),
+        body: JSON.stringify({
+          categories: categoriesPayload,
+          channels: channelsPayload,
+          joinNotificationChannelId: joinChannelId,
+        }),
       });
-      if (structRes.ok) updated = await structRes.json();
+      if (!structRes.ok) {
+        const d = await structRes.json().catch(() => ({}));
+        return Toast.show({ type: 'error', text1: d.error ?? 'Nie udało się zapisać struktury' });
+      }
+
+      const updated = await structRes.json();
       onUpdated(updated);
-      Toast.show({ type: 'success', text1: 'Ustawienia zapisane' });
+      Toast.show({ type: 'success', text1: 'Ustawienia klubu zapisane' });
       onClose();
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });
@@ -162,7 +191,6 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   };
 
   const avatarSrc = avatar ?? club.avatarUrl;
-  const categoryName = (id: number | null) => draftCategories.find(c => c.id === id)?.name ?? 'Brak';
 
   return (
     <>
@@ -170,138 +198,148 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, maxHeight: '92%' }}>
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, height: '92%' }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 12 }} />
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 14 }}>
-                  USTAWIENIA KLUBU
-                </Text>
 
-                <TouchableOpacity style={{ alignSelf: 'center', marginBottom: 14 }} onPress={pick}>
-                  <View style={{ width: 72, height: 72, borderRadius: 16, overflow: 'hidden', backgroundColor: '#e3383515', borderWidth: 2, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center' }}>
-                    {avatarSrc ? <Image source={{ uri: avatarSrc }} style={{ width: 72, height: 72 }} contentFit="cover" /> : <MaterialCommunityIcons name="shield-crown-outline" size={28} color="#e33835" />}
-                  </View>
+              <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 10 }}>
+                <TouchableOpacity onPress={() => setTab('general')} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: tab === 'general' ? `${theme.primary}22` : theme.surface2, borderWidth: 1, borderColor: tab === 'general' ? theme.primary : theme.border }}>
+                  <Text style={{ textAlign: 'center', fontFamily: 'Orbitron', fontSize: 9, color: tab === 'general' ? theme.primary : theme.textDim }}>OGÓLNE</Text>
                 </TouchableOpacity>
-
-                <TextInput
-                  style={{ backgroundColor: theme.surface2, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: theme.text, fontSize: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 9 }}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Nazwa klubu *"
-                  placeholderTextColor={theme.textDim}
-                />
-                <TextInput
-                  style={{ backgroundColor: theme.surface2, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border, marginBottom: 10, minHeight: 64, textAlignVertical: 'top' }}
-                  value={desc}
-                  onChangeText={setDesc}
-                  placeholder="Opis"
-                  placeholderTextColor={theme.textDim}
-                  multiline
-                />
-                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12, backgroundColor: theme.surface2, borderRadius: 11, padding: 12, borderWidth: 1, borderColor: theme.border }} onPress={() => setPriv(v => !v)}>
-                  <MaterialIcons name={priv ? 'lock' : 'lock-open'} size={17} color={priv ? '#e33835' : theme.textDim} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>PRYWATNY KLUB</Text>
-                  </View>
-                  <Switch value={priv} onValueChange={setPriv} trackColor={{ true: '#e33835' }} />
+                <TouchableOpacity onPress={() => setTab('structure')} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: tab === 'structure' ? `${theme.primary}22` : theme.surface2, borderWidth: 1, borderColor: tab === 'structure' ? theme.primary : theme.border }}>
+                  <Text style={{ textAlign: 'center', fontFamily: 'Orbitron', fontSize: 9, color: tab === 'structure' ? theme.primary : theme.textDim }}>KATEGORIE I KANAŁY</Text>
                 </TouchableOpacity>
+              </View>
 
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 6 }}>KANAŁ POWITAŃ</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                    {channels.map(ch => (
-                      <TouchableOpacity key={ch.id} onPress={() => setJoinChannelId(ch.id)} style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: joinChannelId === ch.id ? '#e33835' : theme.border }}>
-                        <Text style={{ fontSize: 11, color: joinChannelId === ch.id ? '#e33835' : theme.textDim }}># {ch.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+              {tab === 'general' ? (
+                <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 20 }}>
+                  <TouchableOpacity style={{ alignSelf: 'center', marginBottom: 14 }} onPress={pick}>
+                    <View style={{ width: 72, height: 72, borderRadius: 16, overflow: 'hidden', backgroundColor: '#e3383515', borderWidth: 2, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center' }}>
+                      {avatarSrc ? <Image source={{ uri: avatarSrc }} style={{ width: 72, height: 72 }} contentFit="cover" /> : <MaterialCommunityIcons name="shield-crown-outline" size={28} color="#e33835" />}
+                    </View>
+                  </TouchableOpacity>
 
-                <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, marginBottom: 12 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZECIĄGNIJ)</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                    <TextInput
-                      value={newCategory}
-                      onChangeText={setNewCategory}
-                      placeholder="Nowa kategoria"
-                      placeholderTextColor={theme.textDim}
-                      style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
-                    />
-                    <TouchableOpacity onPress={addCategory} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
-                      <MaterialIcons name="add" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                  <DraggableFlatList
-                    data={draftCategories}
-                    keyExtractor={(item) => String(item.id)}
-                    scrollEnabled={false}
-                    onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
-                    renderItem={({ item, drag, isActive }) => (
-                      <TouchableOpacity onLongPress={drag} delayLongPress={120} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                        <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
-                        <TouchableOpacity onPress={() => setSelectedCategoryId(item.id)}>
-                          <Text style={{ color: selectedCategoryId === item.id ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-                    )}
+                  <TextInput
+                    style={{ backgroundColor: theme.surface2, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: theme.text, fontSize: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 9 }}
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Nazwa klubu *"
+                    placeholderTextColor={theme.textDim}
                   />
-                </View>
-
-                <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY TEKSTOWE (PRZECIĄGNIJ)</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                    <TextInput
-                      value={newChannel}
-                      onChangeText={setNewChannel}
-                      placeholder="Nowy kanał"
-                      placeholderTextColor={theme.textDim}
-                      style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
-                    />
-                    <TouchableOpacity onPress={addChannel} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
-                      <MaterialIcons name="add" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                  <DraggableFlatList
-                    data={draftChannels}
-                    keyExtractor={(item) => String(item.id)}
-                    scrollEnabled={false}
-                    onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
-                    renderItem={({ item, drag, isActive }) => (
-                      <TouchableOpacity onLongPress={drag} delayLongPress={120} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: theme.text }}># {item.name}</Text>
-                          <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryName(item.categoryId)}</Text>
-                        </View>
-                        <TouchableOpacity onPress={() => {
-                          const idx = draftCategories.findIndex(c => c.id === item.categoryId);
-                          const nextIdx = (idx + 1) % Math.max(1, draftCategories.length);
-                          setDraftChannels(prev => prev.map(p => p.id === item.id ? { ...p, categoryId: draftCategories[nextIdx]?.id ?? null } : p));
-                        }}>
-                          <Text style={{ color: theme.primary, fontSize: 11 }}>Przenieś</Text>
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-                    )}
+                  <TextInput
+                    style={{ backgroundColor: theme.surface2, borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border, marginBottom: 10, minHeight: 64, textAlignVertical: 'top' }}
+                    value={desc}
+                    onChangeText={setDesc}
+                    placeholder="Opis"
+                    placeholderTextColor={theme.textDim}
+                    multiline
                   />
+                  <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12, backgroundColor: theme.surface2, borderRadius: 11, padding: 12, borderWidth: 1, borderColor: theme.border }} onPress={() => setPriv(v => !v)}>
+                    <MaterialIcons name={priv ? 'lock' : 'lock-open'} size={17} color={priv ? '#e33835' : theme.textDim} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }}>PRYWATNY KLUB</Text>
+                    </View>
+                    <Switch value={priv} onValueChange={setPriv} trackColor={{ true: '#e33835' }} />
+                  </TouchableOpacity>
+
+                  <View style={{ marginBottom: 14 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 6 }}>KANAŁ POWITAŃ</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {channels.map(ch => (
+                        <TouchableOpacity key={ch.id} onPress={() => setJoinChannelId(ch.id)} style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: joinChannelId === ch.id ? '#e33835' : theme.border }}>
+                          <Text style={{ fontSize: 11, color: joinChannelId === ch.id ? '#e33835' : theme.textDim }}># {ch.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={{ marginTop: 6, backgroundColor: '#FFD7001A', borderWidth: 1, borderColor: '#FFD70055', borderRadius: 10, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                    onPress={() => setRanksOpen(true)}
+                  >
+                    <MaterialCommunityIcons name="shield-star" size={16} color="#FFD700" />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI I UPRAWNIENIA</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              ) : (
+                <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: 10 }}>
+                  <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, marginBottom: 10 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZYTRZYMAJ I PRZECIĄGNIJ)</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                      <TextInput
+                        value={newCategory}
+                        onChangeText={setNewCategory}
+                        placeholder="Nowa kategoria"
+                        placeholderTextColor={theme.textDim}
+                        style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
+                      />
+                      <TouchableOpacity onPress={addCategory} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
+                        <MaterialIcons name="add" size={18} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                    <DraggableFlatList
+                      data={draftCategories}
+                      keyExtractor={(item) => item.key}
+                      onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
+                      renderItem={({ item, drag, isActive }) => (
+                        <TouchableOpacity onLongPress={drag} delayLongPress={160} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
+                          <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
+                          <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
+                            <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      )}
+                    />
+                  </View>
+
+                  <View style={{ flex: 1, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY (PRZYTRZYMAJ I PRZECIĄGNIJ)</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                      <TextInput
+                        value={newChannel}
+                        onChangeText={setNewChannel}
+                        placeholder="Nowy kanał"
+                        placeholderTextColor={theme.textDim}
+                        style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
+                      />
+                      <TouchableOpacity onPress={addChannel} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
+                        <MaterialIcons name="add" size={18} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                    <DraggableFlatList
+                      data={draftChannels}
+                      keyExtractor={(item) => item.key}
+                      onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
+                      renderItem={({ item, drag, isActive }) => (
+                        <TouchableOpacity onLongPress={drag} delayLongPress={160} style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: theme.text }}># {item.name}</Text>
+                            <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => {
+                            const idx = draftCategories.findIndex((c: any) => c.key === item.categoryRef);
+                            const nextIdx = (idx + 1) % Math.max(1, draftCategories.length);
+                            setDraftChannels(prev => prev.map((p: any) => p.key === item.key ? { ...p, categoryRef: draftCategories[nextIdx]?.key ?? null } : p));
+                          }}>
+                            <Text style={{ color: theme.primary, fontSize: 11 }}>Przenieś</Text>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      )}
+                    />
+                  </View>
                 </View>
+              )}
 
+              <View style={{ paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 24 : 14 }}>
                 <TouchableOpacity
-                  style={{ marginTop: 12, backgroundColor: '#FFD7001A', borderWidth: 1, borderColor: '#FFD70055', borderRadius: 10, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
-                  onPress={() => setRanksOpen(true)}
-                >
-                  <MaterialCommunityIcons name="shield-star" size={16} color="#FFD700" />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI I UPRAWNIENIA</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[{ marginTop: 14, backgroundColor: '#e33835', borderRadius: 12, paddingVertical: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }, saving && { opacity: 0.6 }]}
+                  style={[{ marginTop: 8, backgroundColor: '#e33835', borderRadius: 12, paddingVertical: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }, saving && { opacity: 0.6 }]}
                   onPress={submit}
                   disabled={saving}
                 >
                   {saving ? <ActivityIndicator color="#fff" size={16} /> : <><MaterialCommunityIcons name="content-save" size={15} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>}
                 </TouchableOpacity>
-              </ScrollView>
+              </View>
             </View>
           </KeyboardAvoidingView>
         </View>
