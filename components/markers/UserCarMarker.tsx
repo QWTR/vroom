@@ -32,9 +32,9 @@ const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
 });
 
 const FallbackMarker = memo(({ user, distance }: { user: User; distance: number }) => {
-  const color       = user.isFriend ? '#4de926' : '#00bfff';
-  const bgColor     = user.isFriend ? '#4de92620' : '#00bfff20';
-  const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92645' : '#00bfff45');
+  const color       = user.isPremium ? '#FFD700' : user.isFriend ? '#4de926' : '#00bfff';
+  const bgColor     = user.isPremium ? '#FFD70020' : user.isFriend ? '#4de92620' : '#00bfff20';
+  const borderColor = user.isPremium ? '#FFD70045' : user.isFriend ? '#4de92645' : '#00bfff45';
 
   return (
     <View style={{ alignItems: 'center' }}>

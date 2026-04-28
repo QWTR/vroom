@@ -8,13 +8,13 @@ import { API_URL } from '../constants/mapConfig';
 import { snapToRoute } from '../scripts/navigationUtils';
 
 export interface LiveUser {
-  id:         number;
-  username:   string;
-  avatarUrl:  string | null;
-  lat:        number;
-  lng:        number;
-  online:     boolean;
-  isFriend?:  boolean;
+  id:        number;
+  username:  string;
+  avatarUrl: string | null;
+  lat:       number;
+  lng:       number;
+  online:    boolean;
+  isFriend?: boolean;
   isPremium?: boolean;
 }
 
