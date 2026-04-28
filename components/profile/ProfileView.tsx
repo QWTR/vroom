@@ -30,7 +30,6 @@ import { useChat }                  from '../../hooks/useChats';
 import { FriendsModal }             from '../modals/FriendsModal';
 import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
 import { useFollowCounts }          from '../../hooks/useFollowCounts';
-import { VictoryAxis, VictoryBar, VictoryChart, VictoryTheme } from 'victory-native';
 import { RouteMiniMap } from './RouteMiniMap';
 import { useSettings } from '../../hooks/useSettings';
 
@@ -919,29 +918,30 @@ export default function ProfileView({
                   </TouchableOpacity>
                 ) : (
                   <>
-                    <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 8 }}>
-                      <VictoryChart theme={VictoryTheme.material} domainPadding={10} height={220}>
-                        <VictoryAxis
-                          style={{
-                            axis: { stroke: '#666' },
-                            tickLabels: { fill: '#888', fontSize: 10 },
-                            grid: { stroke: 'transparent' },
-                          }}
-                          tickFormat={(x) => `${x}`}
-                        />
-                        <VictoryAxis
-                          dependentAxis
-                          style={{
-                            axis: { stroke: '#666' },
-                            tickLabels: { fill: '#888', fontSize: 10 },
-                            grid: { stroke: '#333' },
-                          }}
-                        />
-                        <VictoryBar
-                          style={{ data: { fill: '#e33835' } }}
-                          data={(monthlyStats || []).map((m: any) => ({ x: `${m.month}/${String(m.year).slice(-2)}`, y: Math.round(m.totalDistance || 0) }))}
-                        />
-                      </VictoryChart>
+                    <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
+                      {(monthlyStats || []).length === 0 ? (
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>Brak danych miesięcznych.</Text>
+                      ) : (
+                        <>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 140 }}>
+                            {(monthlyStats || []).slice(-8).map((m: any) => {
+                              const max = Math.max(1, ...(monthlyStats || []).map((x: any) => Number(x.totalDistance || 0)));
+                              const h = Math.max(8, Math.round((Number(m.totalDistance || 0) / max) * 120));
+                              return (
+                                <View key={`${m.year}-${m.month}`} style={{ flex: 1, alignItems: 'center' }}>
+                                  <View style={{ width: '80%', height: h, backgroundColor: '#e33835', borderRadius: 6 }} />
+                                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, marginTop: 4 }}>
+                                    {m.month}/{String(m.year).slice(-2)}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 8 }}>
+                            Dystans miesięczny (km)
+                          </Text>
+                        </>
+                      )}
                     </View>
                     {monthlyCompare && (
                       <View style={{ marginTop: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 }}>
