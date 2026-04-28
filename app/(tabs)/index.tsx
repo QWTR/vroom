@@ -3,7 +3,7 @@ import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import {
-  ActivityIndicator, Dimensions, Image, ScrollView,
+  ActivityIndicator, Dimensions, Image, Modal, ScrollView,
   StyleSheet, TouchableOpacity, View, StatusBar,
   RefreshControl, Linking, Animated,
 } from 'react-native';
@@ -13,6 +13,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { API_URL } from '../../constants/config';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePremium } from '../../contexts/PremiumContext';
 import { AnnouncementsModal } from '../../components/modals/AnnouncementsModal';
 import { useAnnouncements } from '../../hooks/useAnnouncements';
 import { usePolls }   from '../../hooks/usePolls';
@@ -23,6 +24,9 @@ import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { UpdateModal }  from '../../components/modals/UpdateModal';
 import { AdBanner }     from '../../components/ads/AdBanner';
 import { PartnerBannersSection } from '../../components/home/PartnerBannersSection';
+
+const GOLD = '#FFD700';
+const R    = '#e33835';
 
 const { width, height } = Dimensions.get('window');
 
@@ -65,11 +69,18 @@ async function fetchFreshUser(): Promise<User | null> {
 export default function HomeScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { isPremium, getOfferings, purchasePremium, restorePurchases } = usePremium();
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [user,       setUser]       = useState<User | null>(null);
   const { unseenCount, load: loadAnnouncements } = useAnnouncements();
   const [showAnnouncements, setShowAnnouncements] = useState(false);
+
+  const [showPremiumModal, setShowPremiumModal]   = useState(false);
+  const [offerings,        setOfferings]          = useState<any>(null);
+  const [loadingOffers,    setLoadingOffers]       = useState(false);
+  const [buying,           setBuying]             = useState<string | null>(null);
+  const [restoring,        setRestoring]          = useState(false);
 
   const [pollVisible,    setPollVisible]    = useState(false);
   const [giftVisible,    setGiftVisible]    = useState(false);
@@ -175,6 +186,42 @@ export default function HomeScreen() {
   };
 
   const onRefresh = () => { setRefreshing(true); loadUser(false); };
+
+  const openPremiumModal = async () => {
+    setShowPremiumModal(true);
+    if (offerings) return;
+    setLoadingOffers(true);
+    try {
+      const off = await getOfferings();
+      setOfferings(off);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
+
+  const handlePurchase = async (pkg: any) => {
+    setBuying(pkg.identifier);
+    const ok = await purchasePremium(pkg);
+    setBuying(null);
+    if (ok) {
+      Toast.show({ type: 'success', text1: '🏆 VROOM PREMIUM aktywny!', text2: 'Ciesz się pełnymi możliwościami', visibilityTime: 3500 });
+      setShowPremiumModal(false);
+    } else {
+      Toast.show({ type: 'error', text1: 'Zakup nie powiódł się', text2: 'Spróbuj ponownie.' });
+    }
+  };
+
+  const handleRestore = async () => {
+    setRestoring(true);
+    const ok = await restorePurchases();
+    setRestoring(false);
+    if (ok) {
+      Toast.show({ type: 'success', text1: 'Zakupy przywrócone!', text2: 'Premium aktywne ✓' });
+      setShowPremiumModal(false);
+    } else {
+      Toast.show({ type: 'info', text1: 'Brak zakupów do przywrócenia', visibilityTime: 3000 });
+    }
+  };
 
   const t = theme;
 
@@ -306,6 +353,58 @@ export default function HomeScreen() {
             style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 60 }}
           />
         </View>
+
+        {/* ══════════════════════════════════════════════ */}
+        {/* PREMIUM BANNER / STATUS                       */}
+        {/* ══════════════════════════════════════════════ */}
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 20 }}>
+          {isPremium ? (
+            /* ── Premium aktywny — złoty status ── */
+            <View style={{
+              borderRadius: 18, borderWidth: 1, borderColor: `${GOLD}40`,
+              padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14,
+              overflow: 'hidden', backgroundColor: `${GOLD}08`,
+            }}>
+              <LinearGradient
+                colors={[`${GOLD}18`, `${GOLD}06`, 'transparent']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: 50, backgroundColor: `${GOLD}08` }} />
+              <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: `${GOLD}20`, borderWidth: 1, borderColor: `${GOLD}40`, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="workspace-premium" size={24} color={GOLD} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: GOLD, fontWeight: '700', marginBottom: 3 }}>VROOM PREMIUM AKTYWNY</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: `${GOLD}90` }}>Nieograniczony dostęp · Zero reklam · GPX export</Text>
+              </View>
+              <View style={{ backgroundColor: `${GOLD}15`, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: `${GOLD}30` }}>
+                <MaterialIcons name="check-circle" size={16} color={GOLD} />
+              </View>
+            </View>
+          ) : (
+            /* ── Promo — kup premium ── */
+            <TouchableOpacity onPress={openPremiumModal} activeOpacity={0.85}>
+              <LinearGradient
+                colors={['#2a0f00', '#1a0a00', '#0e0808']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={{ borderRadius: 18, borderWidth: 1, borderColor: `${GOLD}40`, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }}
+              >
+                <View style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: `${GOLD}08` }} />
+                <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: `${GOLD}20`, borderWidth: 1, borderColor: `${GOLD}40`, alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="workspace-premium" size={24} color={GOLD} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '700', marginBottom: 3 }}>VROOM PREMIUM</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: `${GOLD}90` }}>Garaż · Trasy · Eksport GPX · Zero reklam</Text>
+                </View>
+                <View style={{ backgroundColor: `${GOLD}15`, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: `${GOLD}40` }}>
+                  <MaterialIcons name="arrow-forward-ios" size={13} color={GOLD} />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+        </Animated.View>
 
         {/* ══════════════════════════════════════════════ */}
         {/* SUPPORT BANNER                                 */}
@@ -533,6 +632,131 @@ export default function HomeScreen() {
         onUpdate={applyUpdate}
         onDismiss={dismiss}
       />
+
+      {/* ══════════════════════════════════════════════ */}
+      {/* PREMIUM MODAL (bottom sheet)                   */}
+      {/* ══════════════════════════════════════════════ */}
+      <Modal
+        visible={showPremiumModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPremiumModal(false)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowPremiumModal(false)} />
+          <View style={{
+            backgroundColor: '#0e0808',
+            borderTopLeftRadius: 28, borderTopRightRadius: 28,
+            borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
+            borderColor: `${GOLD}30`,
+            maxHeight: '90%',
+          }}>
+            {/* Handle */}
+            <View style={{ width: 40, height: 4, backgroundColor: `${GOLD}40`, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 }} />
+
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 22, paddingVertical: 12 }}>
+              <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: `${GOLD}20`, borderWidth: 1, borderColor: `${GOLD}40`, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <MaterialIcons name="workspace-premium" size={20} color={GOLD} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#fff', fontWeight: '900', letterSpacing: 3 }}>VROOM PREMIUM</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: `${GOLD}80`, letterSpacing: 1 }}>Odblokuj pełne możliwości</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowPremiumModal(false)} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#ffffff10', alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+              {/* Benefity */}
+              <View style={{ backgroundColor: '#1a0a0a', borderRadius: 16, borderWidth: 1, borderColor: `${R}30`, padding: 16, marginBottom: 20, overflow: 'hidden' }}>
+                <View style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: 50, backgroundColor: `${R}08` }} />
+                {[
+                  { icon: '🚗', text: 'Nieograniczony garaż',          sub: 'Free: max 3 auta' },
+                  { icon: '🛣️', text: 'Nieograniczone prywatne trasy', sub: 'Free: max 5' },
+                  { icon: '🏠', text: 'Nieograniczona liczba klubów',   sub: 'Free: 1 klub' },
+                  { icon: '📊', text: 'Pełna historia aktywności',     sub: 'Free: 30 dni' },
+                  { icon: '🛒', text: '5 ogłoszeń/mies + promowanie',  sub: 'Free: 1 ogłoszenie' },
+                  { icon: '📤', text: 'Eksport GPX/CSV tras',          sub: '' },
+                  { icon: '🗺️', text: 'Tryb prywatny na mapie',        sub: '' },
+                  { icon: '🚫', text: 'Zero reklam',                   sub: '' },
+                ].map((b, i, arr) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: '#ffffff08' }}>
+                    <Text style={{ fontSize: 18, width: 26, textAlign: 'center' }}>{b.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>{b.text}</Text>
+                      {!!b.sub && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff50', marginTop: 2 }}>{b.sub}</Text>}
+                    </View>
+                    <MaterialIcons name="check-circle" size={14} color={GOLD} />
+                  </View>
+                ))}
+              </View>
+
+              {/* Plany */}
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: R, letterSpacing: 4, textAlign: 'center', marginBottom: 14 }}>WYBIERZ PLAN</Text>
+
+              {loadingOffers ? (
+                <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
+              ) : (offerings?.current?.availablePackages ?? []).length > 0 ? (
+                (offerings.current.availablePackages as any[]).map((pkg: any) => (
+                  <TouchableOpacity
+                    key={pkg.identifier}
+                    style={{ borderRadius: 14, borderWidth: 1, borderColor: `${R}40`, padding: 18, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden', backgroundColor: '#1a0404' }}
+                    onPress={() => handlePurchase(pkg)}
+                    activeOpacity={0.85}
+                    disabled={buying !== null}
+                  >
+                    <LinearGradient colors={['#2a0707', '#1a0404']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '900', letterSpacing: 1, marginBottom: 3 }}>{pkg.product?.title ?? pkg.packageType}</Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff70' }}>{pkg.product?.priceString ?? '—'}</Text>
+                    </View>
+                    {buying === pkg.identifier
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
+                    }
+                  </TouchableOpacity>
+                ))
+              ) : (
+                /* Placeholder gdy brak ofert */
+                <>
+                  <TouchableOpacity style={{ borderRadius: 14, borderWidth: 1, borderColor: `${R}40`, padding: 18, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }} activeOpacity={0.85}>
+                    <LinearGradient colors={['#2a0707', '#1a0404']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '900', letterSpacing: 1, marginBottom: 3 }}>PREMIUM MIESIĘCZNY</Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff70' }}>ok. 19,99 zł/mies</Text>
+                    </View>
+                    <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ borderRadius: 14, borderWidth: 1, borderColor: `${GOLD}50`, padding: 18, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' }} activeOpacity={0.85}>
+                    <LinearGradient colors={['#3a0a0a', '#220505']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '900', letterSpacing: 1, marginBottom: 3 }}>PREMIUM ROCZNY</Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff70' }}>ok. 149,99 zł/rok · oszczędzasz 40%</Text>
+                    </View>
+                    <View style={{ backgroundColor: `${GOLD}20`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${GOLD}40` }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: GOLD, fontWeight: '900' }}>BEST</Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* Restore + full screen link */}
+              <TouchableOpacity style={{ paddingVertical: 14, alignItems: 'center' }} onPress={handleRestore} activeOpacity={0.75} disabled={restoring}>
+                {restoring
+                  ? <ActivityIndicator color="#ffffff60" size="small" />
+                  : <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff40', letterSpacing: 2 }}>PRZYWRÓĆ ZAKUPY</Text>
+                }
+              </TouchableOpacity>
+              <TouchableOpacity style={{ paddingVertical: 10, alignItems: 'center' }} onPress={() => { setShowPremiumModal(false); router.push('/premium' as any); }} activeOpacity={0.75}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: `${GOLD}60`, letterSpacing: 1 }}>WIĘCEJ SZCZEGÓŁÓW →</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }

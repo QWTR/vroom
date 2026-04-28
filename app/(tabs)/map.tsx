@@ -27,7 +27,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { MAPBOX_TOKEN } from '../../constants/mapConfig';
+import { API_URL } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePremium } from '../../contexts/PremiumContext';
 import { useChat } from '../../hooks/useChats';
 import { makeMapStyles } from '../../styles/mapstyle';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
@@ -389,6 +391,7 @@ export default function MapScreen() {
 
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { isPremium } = usePremium();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top);
@@ -3148,6 +3151,24 @@ export default function MapScreen() {
           onSnapToRoad={() => snapToRoad(pins)}
           onCancel={() => setSaveRouteVisible(false)}
           onSave={async (name, desc, isPublic, isOffroad) => {
+            if (!isPublic && !isPremium) {
+              try {
+                const token = await AsyncStorage.getItem('token');
+                if (token) {
+                  const res  = await fetch(`${API_URL}/api/routes/my`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  const json = await res.json();
+                  const privateCount = Array.isArray(json) ? json.filter((r: any) => !r.isPublic).length : 0;
+                  if (privateCount >= 5) {
+                    Toast.show({ type: 'info', text1: '🔒 Limit prywatnych tras', text2: 'Free: max 5 · Odblokuj Premium' });
+                    setSaveRouteVisible(false);
+                    router.push('/premium' as any);
+                    return;
+                  }
+                }
+              } catch {}
+            }
             const result = await saveRoute(name, desc, isPublic, isOffroad);
             setSaveRouteVisible(false);
             if (result) Toast.show({ type: 'success', text1: '✅ TRASA ZAPISANA', text2: name });

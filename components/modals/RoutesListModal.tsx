@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity,
-  FlatList, ActivityIndicator, Dimensions,
+  FlatList, ActivityIndicator, Dimensions, Share,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { MyRoute } from '../../hooks/useMyRoutes';
 import { RouteMiniMap } from '../profile/RouteMiniMap';
 
+const GOLD = '#FFD700';
 const modalCardWidth = Dimensions.get('window').width - 32 - 32;
 
 interface Props {
@@ -19,13 +22,35 @@ interface Props {
   onDelete:      (id: number) => void;
   onLeaderboard: (route: MyRoute) => void;
   isOwner:       boolean;
+  isPremium?:    boolean;
+}
+
+function buildGpx(route: MyRoute): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  const trkpts = route.points
+    .map(p => `      <trkpt lat="${p.latitude.toFixed(6)}" lon="${p.longitude.toFixed(6)}"></trkpt>`)
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="VROOM">\n  <trk>\n    <name>${esc(route.name)}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>\n</gpx>`;
 }
 
 export function RoutesListModal({
-  visible, routes, onClose, onNavigate, onShare, onDelete, onLeaderboard, isOwner,
+  visible, routes, onClose, onNavigate, onShare, onDelete, onLeaderboard, isOwner, isPremium,
 }: Props) {
   const { theme } = useTheme();
+  const router    = useRouter();
   const [deleting, setDeleting] = useState<number | null>(null);
+
+  const handleExportGpx = async (route: MyRoute) => {
+    if (!isPremium) {
+      router.push('/premium' as any);
+      return;
+    }
+    try {
+      await Share.share({ message: buildGpx(route), title: `${route.name}.gpx` });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd eksportu GPX' });
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -133,6 +158,18 @@ export function RoutesListModal({
                     <MaterialIcons name="share" size={14} color="#00bfff" />
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff' }}>WYŚLIJ</Text>
                   </TouchableOpacity>
+
+                  {isOwner && (
+                    <TouchableOpacity
+                      style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: isPremium ? '#4de92615' : theme.surface, borderWidth: 1, borderColor: isPremium ? '#4de92630' : theme.border2, justifyContent: 'center', alignItems: 'center' }}
+                      onPress={() => handleExportGpx(route)} activeOpacity={0.8}
+                    >
+                      {isPremium
+                        ? <MaterialIcons name="file-download" size={14} color="#4de926" />
+                        : <MaterialIcons name="lock" size={14} color={GOLD} />
+                      }
+                    </TouchableOpacity>
+                  )}
 
                   {isOwner && (
                     <TouchableOpacity

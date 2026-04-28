@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal,
+  Image, Animated, Dimensions, StatusBar, Modal, Switch,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -78,6 +78,9 @@ interface Props {
   onSpotPress:               (id: number) => void;
   onBack?:                   () => void;
   carLimitBanner?:           React.ReactNode;
+  isPremium?:                boolean;
+  locationFriendsOnly?:      boolean;
+  onLocationFriendsOnlyChange?: (v: boolean) => void;
 }
 
 function toSpot(s: SpotPreview): Spot {
@@ -97,6 +100,7 @@ export default function ProfileView({
   routes, routesLoading, participatedRoutes, participatedRoutesLoading,
   onNavigateParticipated, onDeleteRoute, onRefresh, onSettings, onEdit,
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
+  isPremium, locationFriendsOnly, onLocationFriendsOnlyChange,
 }: Props) {
   const { theme, isDark } = useTheme();
   const router = useRouter();
@@ -148,6 +152,15 @@ export default function ProfileView({
   const locked         = sortByRarity(achievements.filter(a => !a.active));
   const unlockedGroups = groupByRarity(unlocked);
   const lockedGroups   = groupByRarity(locked);
+
+  // 30-day activity filter for non-premium owners
+  const FREE_ACTIVITY_HISTORY_DAYS = 30;
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - FREE_ACTIVITY_HISTORY_DAYS);
+  const displayRoutes = (isOwner && !isPremium)
+    ? routes.filter(r => new Date(r.createdAt) >= thirtyDaysAgo)
+    : routes;
+  const hiddenRoutesCount = routes.length - displayRoutes.length;
 
   // Club data
   const club = (profile as any)?.club as {
@@ -234,9 +247,12 @@ export default function ProfileView({
               <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', letterSpacing: 3, marginBottom: 3 }}>
                 {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
-                {profile?.username ?? '—'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                  {profile?.username ?? '—'}
+                </Text>
+                {isPremium && <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />}
+              </View>
               {!!profile?.location && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                   <MaterialIcons name="location-on" size={11} color={theme.textDim} />
@@ -460,6 +476,27 @@ export default function ProfileView({
             </TouchableOpacity>
           )}
 
+          {/* ══ LOKALIZACJA TYLKO DLA ZNAJOMYCH (Premium) ══ */}
+          {isOwner && isPremium && onLocationFriendsOnlyChange && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFD70015', borderWidth: 1, borderColor: '#FFD70030', alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="location-on" size={18} color="#FFD700" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>LOK. TYLKO DLA ZNAJOMYCH</Text>
+                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 7, marginTop: 2 }}>Twoja pozycja widoczna tylko dla znajomych</Text>
+                </View>
+              </View>
+              <Switch
+                value={!!locationFriendsOnly}
+                onValueChange={onLocationFriendsOnlyChange}
+                trackColor={{ false: theme.border2, true: '#FFD70060' }}
+                thumbColor={locationFriendsOnly ? '#FFD700' : theme.textDim}
+              />
+            </View>
+          )}
+
           {/* ══ AUTA ══ */}
           <Section
             title={isOwner ? 'MOJE AUTA' : 'AUTA'}
@@ -536,21 +573,37 @@ export default function ProfileView({
           </Section>
 
           {/* ══ MOJE TRASY ══ */}
-          <Section title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={routes.length}>
-            {routes.length === 0
+          <Section title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
+            {isOwner && !isPremium && hiddenRoutesCount > 0 && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD70010', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 10 }}
+                onPress={() => router.push('/premium' as any)}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>HISTORIA OGRANICZONA DO 30 DNI</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 2 }}>
+                    {hiddenRoutesCount} {hiddenRoutesCount === 1 ? 'trasa ukryta' : 'tras ukrytych'} · Odblokuj Premium
+                  </Text>
+                </View>
+                <MaterialIcons name="arrow-forward-ios" size={12} color="#FFD700" />
+              </TouchableOpacity>
+            )}
+            {displayRoutes.length === 0
               ? <EmptyState text={routesLoading ? 'Ładowanie...' : 'Brak zapisanych tras'} />
               : (
                 <>
-                  {routes.slice(0, ROUTES_PREVIEW).map(route => (
+                  {displayRoutes.slice(0, ROUTES_PREVIEW).map(route => (
                     <RouteCard key={route.id} route={route} isOwner={isOwner} onDelete={onDeleteRoute} onNavigate={onNavigateRoute} onShare={onShareRoute} onLeaderboard={handleLeaderboard} />
                   ))}
-                  {routes.length > ROUTES_PREVIEW && (
+                  {displayRoutes.length > ROUTES_PREVIEW && (
                     <TouchableOpacity
                       style={{ marginVertical: 10, paddingVertical: 14, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
                       onPress={() => setRoutesModalVisible(true)} activeOpacity={0.75}
                     >
                       <MaterialIcons name="route" size={16} color="#e33835" />
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, letterSpacing: 1 }}>WSZYSTKIE TRASY ({routes.length})</Text>
+                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, letterSpacing: 1 }}>WSZYSTKIE TRASY ({displayRoutes.length})</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -587,7 +640,7 @@ export default function ProfileView({
         </View>
 
         <SpotDetailModal visible={selectedSpot !== null} spot={selectedSpot} onClose={() => setSelectedSpot(null)} getDistance={() => 0} onLikeToggle={handleLikeToggle} />
-        <RoutesListModal visible={routesModalVisible} routes={routes} onClose={() => setRoutesModalVisible(false)} onNavigate={onNavigateRoute} onShare={onShareRoute} onDelete={onDeleteRoute} onLeaderboard={route => { setRoutesModalVisible(false); setTimeout(() => handleLeaderboard(route), 350); }} isOwner={isOwner} />
+        <RoutesListModal visible={routesModalVisible} routes={displayRoutes} onClose={() => setRoutesModalVisible(false)} onNavigate={onNavigateRoute} onShare={onShareRoute} onDelete={onDeleteRoute} onLeaderboard={route => { setRoutesModalVisible(false); setTimeout(() => handleLeaderboard(route), 350); }} isOwner={isOwner} isPremium={isPremium} />
       </ScrollView>
 
       <RouteLeaderboardModal visible={lbVisible} routeId={lbRouteId} routeName={lbRouteName} data={lbData} runsData={lbRunsData} loading={lbLoading} onClose={() => { setLbVisible(false); setLbRouteId(null); setLbRouteName(''); }} />
