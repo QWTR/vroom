@@ -39,6 +39,9 @@ interface PublicProfile {
   totalRides?: number;
   isPremium?: boolean;
   bannerUrl?: string | null;
+  nickColor?: string | null;
+  profileThemePreset?: string;
+  avatarFramePreset?: string;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -341,6 +344,19 @@ export default function PublicProfileScreen() {
   const initials    = profile.username.slice(0, 2).toUpperCase();
   const joinedLabel = new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
   const isFriend    = friendStatus === 'accepted';
+  const profileThemePreset = profile.profileThemePreset ?? 'default';
+  const heroPresetGradients: Record<string, string[]> = {
+    default: ['#1a0404', '#0e0202', '#090909'],
+    midnight: ['#060d1a', '#08080d', '#090909'],
+    sunset: ['#2a0a02', '#1b0705', '#090909'],
+    neon: ['#031a12', '#071211', '#090909'],
+  };
+  const frameGradients: Record<string, string[]> = {
+    vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
+    sunrise: ['#ff6b35', '#f5c518', '#ff6b35'],
+    ocean: ['#38a5e3', '#1b6eff', '#38a5e3'],
+    lime: ['#4de926', '#a6ff4d', '#4de926'],
+  };
 
   // ── FRIEND BUTTON ────────────────────────────────────────
   const FriendButton = () => {
@@ -398,7 +414,7 @@ export default function PublicProfileScreen() {
             />
           ) : (
             <LinearGradient
-              colors={['#1a0404', '#0e0202', '#090909']}
+              colors={(heroPresetGradients[profileThemePreset] || heroPresetGradients.default) as any}
               start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
@@ -445,12 +461,26 @@ export default function PublicProfileScreen() {
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
               <View style={{ position: 'relative' }}>
-                <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', borderWidth: 2.5, borderColor: profile.isPremium ? '#FFD700' : RED, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-                  {profile.avatarUrl
+                {profile.isPremium ? (
+                  <LinearGradient
+                    colors={(frameGradients[profile.avatarFramePreset || 'vroom'] || frameGradients.vroom) as any}
+                    style={{ width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center', padding: 2 }}
+                  >
+                    <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+                      {profile.avatarUrl
+                        ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 80, height: 80 }} />
+                        : <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: RED, fontWeight: '900' }}>{initials}</Text>
+                      }
+                    </View>
+                  </LinearGradient>
+                ) : (
+                  <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', borderWidth: 2.5, borderColor: RED, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+                    {profile.avatarUrl
                     ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 80, height: 80 }} />
                     : <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: RED, fontWeight: '900' }}>{initials}</Text>
-                  }
-                </View>
+                    }
+                  </View>
+                )}
                 {isFriend && (
                   <View style={{ position: 'absolute', bottom: -4, right: -4, width: 22, height: 22, borderRadius: 11, backgroundColor: '#ff6b9d', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#090909' }}>
                     <MaterialIcons name="favorite" size={10} color="#fff" />
@@ -460,7 +490,7 @@ export default function PublicProfileScreen() {
               <View style={{ flex: 1, paddingBottom: 4 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, letterSpacing: 4, marginBottom: 4 }}>PROFIL UŻYTKOWNIKA</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: profile.nickColor || '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                     {profile.username}
                   </Text>
                   {profile.isPremium && <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />}

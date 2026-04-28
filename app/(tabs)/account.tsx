@@ -25,7 +25,17 @@ export default function ProfileScreen() {
   const { theme } = useTheme();
   const { isPremium } = usePremium();
 
-  const { profile, loading: pLoad, avatarLoading, fetchProfile } = useProfile();
+  const {
+    profile,
+    loading: pLoad,
+    avatarLoading,
+    fetchProfile,
+    activityHistory,
+    monthlyStats,
+    monthlyCompare,
+    fetchActivityHistory,
+    fetchMonthlyStats,
+  } = useProfile();
   const effectivePremium = !!(isPremium || profile?.isPremium);
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
   const { achievements, fetchMyAchievements }                    = useAchievements();
@@ -99,6 +109,8 @@ export default function ProfileScreen() {
       fetchUserSpots(userId);
       fetchMyRoutes();
       fetchParticipated();
+      fetchActivityHistory({ includeRoute: true });
+      fetchMonthlyStats();
     })();
   }, []);
 
@@ -109,6 +121,8 @@ export default function ProfileScreen() {
     const userId: number = localUser.userId ?? localUser.id;
     fetchProfile(); fetchCars(userId); fetchMyAchievements();
     fetchUserSpots(userId); fetchMyRoutes(); fetchParticipated();
+    fetchActivityHistory({ includeRoute: true });
+    fetchMonthlyStats();
   };
 
   const handleAddCar = () => {
@@ -179,6 +193,9 @@ export default function ProfileScreen() {
         participatedRoutesLoading={prLoad}
         onNavigateParticipated={handleNavigateParticipated}
         isPremium={effectivePremium}
+        activityHistory={activityHistory}
+        monthlyStats={monthlyStats}
+        monthlyCompare={monthlyCompare}
         locationFriendsOnly={locationFriendsOnly}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
         onBannerChange={handleBannerChange}

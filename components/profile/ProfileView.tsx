@@ -30,6 +30,9 @@ import { useChat }                  from '../../hooks/useChats';
 import { FriendsModal }             from '../modals/FriendsModal';
 import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
 import { useFollowCounts }          from '../../hooks/useFollowCounts';
+import { VictoryAxis, VictoryBar, VictoryChart, VictoryTheme } from 'victory-native';
+import { RouteMiniMap } from './RouteMiniMap';
+import { useSettings } from '../../hooks/useSettings';
 
 const { width } = Dimensions.get('window');
 
@@ -83,6 +86,9 @@ interface Props {
   onLocationFriendsOnlyChange?: (v: boolean) => void;
   onBannerChange?:           (uri: string) => void;
   bannerUploading?:          boolean;
+  activityHistory?:          any[];
+  monthlyStats?:             any[];
+  monthlyCompare?:           any | null;
 }
 
 function toSpot(s: SpotPreview): Spot {
@@ -104,14 +110,24 @@ export default function ProfileView({
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
   isPremium, locationFriendsOnly, onLocationFriendsOnlyChange,
   onBannerChange, bannerUploading = false,
+  activityHistory = [], monthlyStats = [], monthlyCompare = null,
 }: Props) {
   const { theme, isDark } = useTheme();
-  const profileThemePreset = profile?.profileThemePreset ?? 'default';
+  const { settings } = useSettings();
+  const profileThemePreset = (isOwner ? settings.profileThemePreset : profile?.profileThemePreset) ?? 'default';
+  const avatarFramePreset = (isOwner ? settings.avatarFramePreset : profile?.avatarFramePreset) ?? 'vroom';
+  const profileNickColor = (isOwner ? settings.nickColor : profile?.nickColor) ?? null;
   const heroPresetGradients: Record<string, string[]> = {
     default: isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg],
     midnight: isDark ? ['#060d1a', '#08080d', '#080808'] : ['#eaf0ff', '#eef2ff', theme.bg],
     sunset: isDark ? ['#2a0a02', '#1b0705', '#080808'] : ['#ffe9dc', '#fff0e8', theme.bg],
     neon: isDark ? ['#031a12', '#071211', '#080808'] : ['#ddfff3', '#e8fff7', theme.bg],
+  };
+  const frameGradients: Record<string, string[]> = {
+    vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
+    sunrise: ['#ff6b35', '#f5c518', '#ff6b35'],
+    ocean: ['#38a5e3', '#1b6eff', '#38a5e3'],
+    lime: ['#4de926', '#a6ff4d', '#4de926'],
   };
   const router = useRouter();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat();
@@ -128,6 +144,8 @@ export default function ProfileView({
   const [invitesModalVisible, setInvitesModalVisible] = useState(false);
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
+  const [routeHistoryVisible, setRouteHistoryVisible] = useState(false);
+  const [selectedHistoryRoute, setSelectedHistoryRoute] = useState<any | null>(null);
   const statsSlide = useRef(new Animated.Value(0)).current;
   const premiumRingAnim = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
@@ -296,7 +314,7 @@ export default function ProfileView({
                   }}
                 >
                   <LinearGradient
-                    colors={['#e33835', '#268bff', '#4de926', '#e33835']}
+                    colors={(frameGradients[avatarFramePreset] || frameGradients.vroom) as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={{ width: 80, height: 80, borderRadius: 40 }}
@@ -331,7 +349,7 @@ export default function ProfileView({
                 {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profile?.nickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                   {profile?.username ?? '—'}
                 </Text>
                 {isPremium && <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />}
@@ -694,6 +712,43 @@ export default function ProfileView({
             }
           </Section>
 
+          {/* ══ HISTORIA PRZEJAZDÓW (ŚLAD) ══ */}
+          <Section title="HISTORIA PRZEJAZDÓW" count={activityHistory.length}>
+            {!isPremium ? (
+              <TouchableOpacity
+                style={{ backgroundColor: '#FFD70010', borderRadius: 12, borderWidth: 1, borderColor: '#FFD70030', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                onPress={() => router.push('/premium' as any)}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', flex: 1 }}>
+                  Podgląd pełnej historii śladów trasy dostępny w Premium.
+                </Text>
+                <MaterialIcons name="arrow-forward-ios" size={12} color="#FFD700" />
+              </TouchableOpacity>
+            ) : activityHistory.length === 0 ? (
+              <EmptyState text="Brak zapisanych przejazdów z trasą." />
+            ) : (
+              <>
+                {activityHistory.slice(0, 6).map((a: any) => (
+                  <TouchableOpacity
+                    key={a.id}
+                    style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12, marginBottom: 8 }}
+                    onPress={() => { setSelectedHistoryRoute(a); setRouteHistoryVisible(true); }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text }}>
+                      {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Math.round(a.distance || 0)} km
+                    </Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
+                      Max: {Math.round(a.maxSpeed || 0)} km/h · Avg: {Math.round(a.avgSpeed || 0)} km/h
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+          </Section>
+
           {/* ══ SPOTY ══ */}
           <Section title={isOwner ? 'MOJE SPOTY' : 'SPOTY'} count={localSpots.length}>
             {localSpots.length === 0
@@ -735,6 +790,30 @@ export default function ProfileView({
         onAccept={async (id) => { await acceptRequest(id); }}
         onReject={async (id) => { await rejectRequest(id); }}
       />
+
+      <Modal visible={routeHistoryVisible} transparent animationType="slide" onRequestClose={() => setRouteHistoryVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, maxHeight: '75%' }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 10 }} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, marginBottom: 10 }}>ŚLAD TRASY</Text>
+            {selectedHistoryRoute?.routePoints?.length > 1 ? (
+              <RouteMiniMap
+                points={selectedHistoryRoute.routePoints.map((p: any) => ({ latitude: p.latitude, longitude: p.longitude }))}
+                width={Math.max(220, width - 40)}
+                height={240}
+              />
+            ) : (
+              <EmptyState text="Brak punktów śladu dla tego przejazdu." />
+            )}
+            <TouchableOpacity
+              style={{ marginTop: 12, alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}
+              onPress={() => setRouteHistoryVisible(false)}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.primary }}>ZAMKNIJ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ══ STATS MODAL ══ */}
       <Modal visible={statsModalVisible} transparent animationType="none" onRequestClose={closeStats} statusBarTranslucent>
@@ -811,6 +890,58 @@ export default function ProfileView({
                     <StatsModalItem label="RANKING" value={`#${profile.position}`} color="#e33835" isDark={isDark} />
                   )}
                 </View>
+              </StatsModalSection>
+
+              <StatsModalSection title="WYKRESY MIESIĘCZNE" color="#a855f7" icon="chart-bar">
+                {!isPremium ? (
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#FFD70010', borderWidth: 1, borderColor: '#FFD70030', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                    onPress={() => router.push('/premium' as any)}
+                  >
+                    <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', flex: 1 }}>
+                      Wykresy miesięczne i porównanie m/m odblokujesz w Premium.
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <>
+                    <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 8 }}>
+                      <VictoryChart theme={VictoryTheme.material} domainPadding={10} height={220}>
+                        <VictoryAxis
+                          style={{
+                            axis: { stroke: '#666' },
+                            tickLabels: { fill: '#888', fontSize: 10 },
+                            grid: { stroke: 'transparent' },
+                          }}
+                          tickFormat={(x) => `${x}`}
+                        />
+                        <VictoryAxis
+                          dependentAxis
+                          style={{
+                            axis: { stroke: '#666' },
+                            tickLabels: { fill: '#888', fontSize: 10 },
+                            grid: { stroke: '#333' },
+                          }}
+                        />
+                        <VictoryBar
+                          style={{ data: { fill: '#e33835' } }}
+                          data={(monthlyStats || []).map((m: any) => ({ x: `${m.month}/${String(m.year).slice(-2)}`, y: Math.round(m.totalDistance || 0) }))}
+                        />
+                      </VictoryChart>
+                    </View>
+                    {monthlyCompare && (
+                      <View style={{ marginTop: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text, marginBottom: 6 }}>PORÓWNANIE MIESIĄC DO MIESIĄCA</Text>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>
+                          Dystans: {Math.round(monthlyCompare.delta?.totalDistance || 0)} km ({Math.round(monthlyCompare.pct?.totalDistance || 0)}%)
+                        </Text>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
+                          Przejazdy: {Math.round(monthlyCompare.delta?.ridesCount || 0)} ({Math.round(monthlyCompare.pct?.ridesCount || 0)}%)
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
               </StatsModalSection>
             </ScrollView>
           </Animated.View>

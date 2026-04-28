@@ -470,6 +470,36 @@ export default function HomeScreen() {
             </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
+
+        <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 20 }}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4, marginBottom: 12 }}>CENTRUM DOWODZENIA</Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/account')} activeOpacity={0.85} style={{ flex: 1, backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border2, padding: 14 }}>
+              <MaterialIcons name="person" size={18} color="#e33835" />
+              <Text style={{ fontFamily: 'Orbitron', color: t.text, fontSize: 10, marginTop: 8 }}>PROFIL</Text>
+              <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 7, marginTop: 2 }}>Statystyki, auta, historia</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/community')} activeOpacity={0.85} style={{ flex: 1, backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border2, padding: 14 }}>
+              <MaterialIcons name="groups" size={18} color="#268bff" />
+              <Text style={{ fontFamily: 'Orbitron', color: t.text, fontSize: 10, marginTop: 8 }}>SPOŁECZNOŚĆ</Text>
+              <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 7, marginTop: 2 }}>Posty, czaty, znajomi</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff10', padding: 10 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff55' }}>MIESIĄC</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#fff', marginTop: 4 }}>{Math.round(user.monthlyDistance || 0)} km</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff10', padding: 10 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff55' }}>ŚR. PRĘDKOŚĆ</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#fff', marginTop: 4 }}>{Math.round(Number(user.avgSpeed || 0))} km/h</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 12, borderWidth: 1, borderColor: '#ffffff10', padding: 10 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff55' }}>STREAK</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#fff', marginTop: 4 }}>{user.streak || 0} 🔥</Text>
+            </View>
+          </View>
+        </Animated.View>
         {/* ══════════════════════════════════════════════ */}
         {/* ANNOUNCEMENTS BANNER                           */}
         {/* ══════════════════════════════════════════════ */}
