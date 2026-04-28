@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { bearingBetween, distanceToSegmentMeters } from '../scripts/navigationUtils';
+import { bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts/navigationUtils';
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
@@ -8,7 +8,8 @@ const SNAP_RADIUS_M_FAST    = 100; // 100 m: GPS multipath w mieście może odch
 // Map Matching API returns verified road geometry — use a wider radius so GPS
 // errors in parking lots / courtyards (often 80-150 m) still snap to the road.
 const SNAP_RADIUS_M_MATCHED = 200;
-const MIN_MOVE_DEG          = 0.00003; // ~3m (częstsze odświeżanie na zakrętach)
+const MIN_MOVE_DEG          = 0.00002; // ~2m
+const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
 
 /**
  * Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360°.
@@ -169,8 +170,33 @@ export function useDrivingSnap() {
       return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
     }
 
-    // Snap udany — aktualizuj referencje
-    const snappedCoord = { latitude: result.latitude, longitude: result.longitude };
+    // Snap udany — anty-jitter / anty-skok:
+    // gdy nowy snap jest daleko od poprzedniego, łagodnie dociągamy pozycję
+    // zamiast natychmiastowego przeskoku markera między segmentami.
+    let snappedCoord = { latitude: result.latitude, longitude: result.longitude };
+    const prevSnapped = lastSnappedRef.current;
+    if (prevSnapped) {
+      const jumpM = haversineKm(
+        prevSnapped.latitude,
+        prevSnapped.longitude,
+        result.latitude,
+        result.longitude,
+      ) * 1000;
+      if (jumpM > SNAP_MAX_JUMP_M) {
+        const pull = speedKmh > 70 ? 0.5 : 0.35;
+        snappedCoord = {
+          latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * pull,
+          longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * pull,
+        };
+      } else if (jumpM > 8) {
+        const smooth = speedKmh > 70 ? 0.8 : 0.65;
+        snappedCoord = {
+          latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * smooth,
+          longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * smooth,
+        };
+      }
+    }
+
     lastSnappedRef.current = snappedCoord;
 
     // Wygładzony heading oparty na kierunku segmentu polyline (stabilny, nie szumi)

@@ -9,13 +9,13 @@ import { haversineKm }         from '../scripts/navigationUtils';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
-const MIN_INTERVAL_MS = 4000;   // call API at most every 4 s
-const BUFFER_SIZE     = 5;      // number of GPS points sent to API
+const MIN_INTERVAL_MS = 2200;   // call API at most every ~2.2 s
+const BUFFER_SIZE     = 8;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
 // forceMatch uses a wider radius so a stationary user with GPS inaccuracy still snaps
 const FORCE_MATCH_RADIUS_M = 100;
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
-const MIN_POINT_DIST_KM = 0.005; // ~5 m — skip points that haven't moved
+const MIN_POINT_DIST_KM = 0.0025; // ~2.5 m — more responsive on curves
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;

@@ -29,7 +29,7 @@ export function useDeadReckoning({
   const toHdg   = useRef(0);
 
   const lerpStartMs    = useRef(0);
-  const lerpDurMs      = useRef(300);
+  const lerpDurMs      = useRef(260);
   const lastFeedMs     = useRef(0);
   const hasFirstFeed   = useRef(false);
   const rafRef         = useRef<number | null>(null);
@@ -62,7 +62,7 @@ export function useDeadReckoning({
     }
 
     const elapsed = now - lerpStartMs.current;
-    const t = Math.min(elapsed / Math.max(lerpDurMs.current, 50), 1.2);
+    const t = Math.min(elapsed / Math.max(lerpDurMs.current, 70), 1.0);
 
     const lat = fromLat.current + (toLat.current - fromLat.current) * t;
     const lng = fromLng.current + (toLng.current - fromLng.current) * t;
@@ -92,7 +92,10 @@ export function useDeadReckoning({
     if (hasFirstFeed.current && lastFeedMs.current > 0) {
       const dt = now - lastFeedMs.current;
       if (dt > 0 && dt < 3000) {
-        lerpDurMs.current = lerpDurMs.current * 0.6 + dt * 0.4;
+        const blended = lerpDurMs.current * 0.55 + dt * 0.45;
+        // Keep interpolation in a stable window so marker "flows"
+        // but does not lag too much behind current GPS/snap point.
+        lerpDurMs.current = Math.max(120, Math.min(420, blended));
       }
     }
 
@@ -126,7 +129,7 @@ export function useDeadReckoning({
   const reset = useCallback(() => {
     hasFirstFeed.current = false;
     lastFeedMs.current   = 0;
-    lerpDurMs.current    = 300;
+    lerpDurMs.current    = 260;
     lerpStartMs.current  = 0;
     fromLat.current = toLat.current = displayLat.current = 0;
     fromLng.current = toLng.current = displayLng.current = 0;
