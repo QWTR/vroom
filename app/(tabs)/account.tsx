@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
+import { API_URL } from '../../constants/config';
 
 import { useProfile }      from '../../hooks/useProfile';
 import { useCars }         from '../../hooks/useCars';
@@ -34,6 +35,7 @@ export default function ProfileScreen() {
   const [shareRoute,          setShareRoute]          = useState<MyRoute | null>(null);
   const [myId,                setMyId]                = useState<number | null>(null);
   const [locationFriendsOnly, setLocationFriendsOnly] = useState(false);
+  const [bannerLoading,       setBannerLoading]       = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -47,6 +49,40 @@ export default function ProfileScreen() {
   const handleLocationFriendsOnly = async (v: boolean) => {
     setLocationFriendsOnly(v);
     await AsyncStorage.setItem('locationFriendsOnly', String(v));
+  };
+
+  const handleBannerChange = async (_uri: string) => {
+    try {
+      const ImagePicker = await import('expo-image-picker');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 5] as [number, number],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const uri = result.assets[0].uri;
+      setBannerLoading(true);
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+      const formData = new FormData();
+      formData.append('banner', { uri, name: 'banner.jpg', type: 'image/jpeg' } as any);
+      const res = await fetch(`${API_URL}/api/profile/banner`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        await fetchProfile();
+        Toast.show({ type: 'success', text1: '✅ Baner zaktualizowany!' });
+      } else {
+        const d = await res.json();
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: d.error ?? 'Spróbuj ponownie' });
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+    } finally {
+      setBannerLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -144,6 +180,8 @@ export default function ProfileScreen() {
         isPremium={isPremium}
         locationFriendsOnly={locationFriendsOnly}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
+        onBannerChange={handleBannerChange}
+        bannerUploading={bannerLoading}
         carLimitBanner={showCarLimit ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 }}>
             <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>

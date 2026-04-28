@@ -15,6 +15,7 @@ export interface LiveUser {
   lng:       number;
   online:    boolean;
   isFriend?: boolean;
+  isPremium?: boolean;
 }
 
 export interface LiveWarning {

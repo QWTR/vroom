@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal, Switch,
+  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -81,6 +81,8 @@ interface Props {
   isPremium?:                boolean;
   locationFriendsOnly?:      boolean;
   onLocationFriendsOnlyChange?: (v: boolean) => void;
+  onBannerChange?:           (uri: string) => void;
+  bannerUploading?:          boolean;
 }
 
 function toSpot(s: SpotPreview): Spot {
@@ -101,6 +103,7 @@ export default function ProfileView({
   onNavigateParticipated, onDeleteRoute, onRefresh, onSettings, onEdit,
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
   isPremium, locationFriendsOnly, onLocationFriendsOnlyChange,
+  onBannerChange, bannerUploading = false,
 }: Props) {
   const { theme, isDark } = useTheme();
   const router = useRouter();
@@ -183,11 +186,22 @@ export default function ProfileView({
         {/* HERO HEADER                                    */}
         {/* ══════════════════════════════════════════════ */}
         <View style={{ height: 240, position: 'relative', overflow: 'hidden' }}>
-          <LinearGradient
-            colors={isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg]}
-            start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
-            style={{ ...StyleSheet.absoluteFillObject }}
-          />
+          {(profile as any)?.bannerUrl ? (
+            <Image
+              source={{ uri: (profile as any).bannerUrl }}
+              style={{ ...StyleSheet.absoluteFillObject }}
+              resizeMode="cover"
+            />
+          ) : (
+            <LinearGradient
+              colors={isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg]}
+              start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{ ...StyleSheet.absoluteFillObject }}
+            />
+          )}
+          {!!(profile as any)?.bannerUrl && (
+            <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: '#00000055' }} />
+          )}
           {/* Decorative rings */}
           <View style={{ position: 'absolute', top: -60, right: -60, width: 260, height: 260, borderRadius: 130, borderWidth: 1, borderColor: '#e3383518' }} />
           <View style={{ position: 'absolute', top: -20, right: -20, width: 150, height: 150, borderRadius: 75, borderWidth: 1, borderColor: '#e3383530', backgroundColor: '#e3383508' }} />
@@ -216,12 +230,26 @@ export default function ProfileView({
               )}
             </View>
             {isOwner && (
-              <TouchableOpacity
-                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015', alignItems: 'center', justifyContent: 'center' }}
-                onPress={onSettings}
-              >
-                <Ionicons name="settings-outline" size={18} color={theme.textDim} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {isPremium && onBannerChange && (
+                  <TouchableOpacity
+                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFD70020', borderWidth: 1, borderColor: '#FFD70040', alignItems: 'center', justifyContent: 'center' }}
+                    onPress={() => onBannerChange('')}
+                    disabled={bannerUploading}
+                  >
+                    {bannerUploading
+                      ? <ActivityIndicator size="small" color="#FFD700" />
+                      : <MaterialIcons name="add-photo-alternate" size={18} color="#FFD700" />
+                    }
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015', alignItems: 'center', justifyContent: 'center' }}
+                  onPress={onSettings}
+                >
+                  <Ionicons name="settings-outline" size={18} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
 
@@ -229,7 +257,7 @@ export default function ProfileView({
           <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
             {/* Avatar */}
             <View style={{ position: 'relative' }}>
-              <View style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: '#e33835', overflow: 'hidden', backgroundColor: theme.surface }}>
+              <View style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: isPremium ? '#FFD700' : '#e33835', overflow: 'hidden', backgroundColor: theme.surface }}>
                 {profile?.avatarUrl
                   ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 80, height: 80 }} />
                   : (
