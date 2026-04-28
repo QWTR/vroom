@@ -37,6 +37,7 @@ const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
 interface ClubMessage {
   id:        number;
   clubId:    number;
+  channelId: number | null;
   senderId:  number;
   content:   string | null;
   photos:    string[];
@@ -160,6 +161,9 @@ export default function ClubChatScreen() {
 
   const [clubName,    setClubName]    = useState('');
   const [clubData,    setClubData]    = useState<Club | null>(null);
+  const [categories,  setCategories]  = useState<any[]>([]);
+  const [channels,    setChannels]    = useState<any[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
   const [myId,        setMyId]        = useState<number | null>(null);
   const [myRole,      setMyRole]      = useState<string | null>(null);
   const [myRank,      setMyRank]      = useState<any>(null);
@@ -184,6 +188,8 @@ export default function ClubChatScreen() {
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
+  const activeChannelIdRef = useRef<number | null>(null);
+  activeChannelIdRef.current = activeChannelId;
 
   // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
@@ -208,10 +214,21 @@ export default function ClubChatScreen() {
       const savedTheme = await AsyncStorage.getItem(`chat_theme_club_${clubId}`);
       if (savedTheme) setChatThemeId(savedTheme);
 
+      const structRes = await fetch(`${API_URL}/api/clubs/${clubId}/structure`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (structRes.ok) {
+        const s = await structRes.json();
+        setCategories(s.categories ?? []);
+        setChannels(s.channels ?? []);
+        const general = (s.channels ?? []).find((c: any) => c.isDefaultGeneral) ?? (s.channels ?? [])[0];
+        setActiveChannelId(general?.id ?? null);
+      }
+
       const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
       socket.emit('club:join', clubId);
       socket.on('club:message', (msg: ClubMessage) => {
-        if (msg.clubId === clubId) {
+        if (msg.clubId === clubId && (!activeChannelIdRef.current || msg.channelId === activeChannelIdRef.current)) {
           setMessages(prev => [...prev, msg]);
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
@@ -228,9 +245,13 @@ export default function ClubChatScreen() {
         setPinned(prev => prev.filter(m => m.id !== msgId));
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPinned: false } : m));
       });
+      socket.on('club:reaction', ({ messageId, reactions }: { messageId: number; reactions: any[] }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+        setPinned(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+      });
       socketRef.current = socket;
 
-      await loadMessages(token);
+      await loadMessages(token, undefined, activeChannelIdRef.current ?? undefined);
     })();
 
     return () => {
@@ -239,10 +260,12 @@ export default function ClubChatScreen() {
     };
   }, [clubId]);
 
-  const loadMessages = async (token: string, cur?: number) => {
+  const loadMessages = async (token: string, cur?: number, channelIdArg?: number) => {
     try {
       const params = new URLSearchParams({ limit: String(PAGE) });
       if (cur) params.append('cursor', String(cur));
+      const channelIdToUse = channelIdArg ?? activeChannelIdRef.current;
+      if (channelIdToUse) params.append('channelId', String(channelIdToUse));
       const res  = await fetch(`${API_URL}/api/clubs/${clubId}/messages?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -261,8 +284,18 @@ export default function ClubChatScreen() {
   const loadMore = useCallback(() => {
     if (!cursor || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    loadMessages(tokenRef.current, cursor);
-  }, [cursor, loadingMore, hasMore]);
+    loadMessages(tokenRef.current, cursor, activeChannelId ?? undefined);
+  }, [cursor, loadingMore, hasMore, activeChannelId]);
+
+  useEffect(() => {
+    if (!activeChannelId || !tokenRef.current) return;
+    setLoading(true);
+    setMessages([]);
+    setPinned([]);
+    setCursor(null);
+    setHasMore(true);
+    loadMessages(tokenRef.current, undefined, activeChannelId);
+  }, [activeChannelId]);
 
   const handleSend = useCallback(async () => {
     if (!text.trim() && !photos.length) return;
@@ -272,9 +305,11 @@ export default function ClubChatScreen() {
     setText(''); setPhotos([]); setReplyTo(null);
     setSending(true);
     try {
+      if (!activeChannelId) return;
       const form = new FormData();
       if (t) form.append('content', t);
       if (r) form.append('replyToId', String(r.id));
+      form.append('channelId', String(activeChannelId));
       p.forEach((uri, i) => form.append('photos', { uri, type: 'image/jpeg', name: `p${i}.jpg` } as any));
       await fetch(`${API_URL}/api/clubs/${clubId}/messages`, {
         method: 'POST',
@@ -282,7 +317,7 @@ export default function ClubChatScreen() {
         body: form,
       });
     } finally { setSending(false); }
-  }, [text, photos, replyTo, clubId]);
+  }, [text, photos, replyTo, clubId, activeChannelId]);
 
   const handlePickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
@@ -310,10 +345,15 @@ export default function ClubChatScreen() {
 
   const handleReact = async (msgId: number, emoji: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/clubs/${clubId}/messages/${msgId}/react`, {
-        method: 'POST',
+      const msg = messages.find(m => m.id === msgId);
+      const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
+      const endpoint = hasMine
+        ? `${API_URL}/api/clubs/${clubId}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
+        : `${API_URL}/api/clubs/${clubId}/messages/${msgId}/reactions`;
+      const res = await fetch(endpoint, {
+        method: hasMine ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
-        body: JSON.stringify({ emoji }),
+        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
       });
       if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
     } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
@@ -500,6 +540,35 @@ export default function ClubChatScreen() {
           )}
         </View>
 
+        {channels.length > 0 && (
+          <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingBottom: 8 }}>
+            <FlatList
+              horizontal
+              data={channels}
+              keyExtractor={(c) => String(c.id)}
+              contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => setActiveChannelId(item.id)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    backgroundColor: activeChannelId === item.id ? `${theme.primary}25` : theme.surface2,
+                    borderWidth: 1,
+                    borderColor: activeChannelId === item.id ? theme.primary : theme.border,
+                  }}
+                >
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activeChannelId === item.id ? theme.primary : theme.textDim }}>
+                    # {item.name}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        )}
+
         {/* PINNED PANEL */}
         {showPinned && pinned.length > 0 && (
           <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
@@ -668,8 +737,9 @@ export default function ClubChatScreen() {
       <EditClubModal
         visible={editVisible}
         club={clubData}
+        channels={channels}
         onClose={() => setEditVisible(false)}
-        onUpdated={(updated) => { setClubName(updated.name); setClubData(updated); setEditVisible(false); }}
+        onUpdated={(updated) => { setClubName(updated.name); setClubData(updated); setChannels(updated.channels ?? channels); setCategories(updated.categories ?? categories); setEditVisible(false); }}
       />
 
       <Modal visible={themePickerOpen} transparent animationType="slide" onRequestClose={() => setThemePickerOpen(false)}>

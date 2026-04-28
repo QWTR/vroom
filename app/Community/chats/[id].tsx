@@ -145,6 +145,9 @@ export default function ChatScreen() {
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
       });
+      socket.on('chat:reaction', ({ messageId, reactions }: { messageId: number; reactions: any[] }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+      });
 
       // ✅ FIX: sprawdzamy czy username istnieje przed ustawieniem
       socket.on('chat:typing', ({ isTyping, username }: { isTyping: boolean; username?: string }) => {
@@ -268,10 +271,15 @@ export default function ChatScreen() {
 
   const handleReact = async (msgId: number, emoji: string) => {
     try {
-      const res = await fetch(`${API}/conversations/${convId}/messages/${msgId}/react`, {
-        method: 'POST',
+      const msg = messages.find(m => m.id === msgId);
+      const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
+      const endpoint = hasMine
+        ? `${API}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
+        : `${API}/messages/${msgId}/reactions`;
+      const res = await fetch(endpoint, {
+        method: hasMine ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
-        body: JSON.stringify({ emoji }),
+        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
       });
       if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
     } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }

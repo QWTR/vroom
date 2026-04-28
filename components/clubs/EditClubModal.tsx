@@ -18,16 +18,20 @@ import { Club }               from './types';
 interface Props {
   visible:   boolean;
   club:      Club | null;
+  channels?: { id: number; name: string }[];
   onClose:   () => void;
   onUpdated: (club: Club) => void;
 }
 
-export default function EditClubModal({ visible, club, onClose, onUpdated }: Props) {
+export default function EditClubModal({ visible, club, channels = [], onClose, onUpdated }: Props) {
   const { theme }                 = useTheme();
   const [name,    setName]        = useState('');
   const [desc,    setDesc]        = useState('');
   const [priv,    setPriv]        = useState(false);
   const [avatar,  setAvatar]      = useState<string | null>(null);
+  const [joinChannelId, setJoinChannelId] = useState<number | null>(null);
+  const [newCategory, setNewCategory] = useState('');
+  const [newChannel, setNewChannel] = useState('');
   const [saving,  setSaving]      = useState(false);
 
   useEffect(() => {
@@ -36,6 +40,7 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
       setDesc(club.description ?? '');
       setPriv(club.isPrivate);
       setAvatar(null);
+      setJoinChannelId(club.joinNotificationChannelId ?? null);
     }
   }, [club, visible]);
 
@@ -56,6 +61,7 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
       formData.append('name',        name.trim());
       formData.append('description', desc.trim());
       formData.append('isPrivate',   priv ? 'true' : 'false');
+      if (joinChannelId) formData.append('joinNotificationChannelId', String(joinChannelId));
       if (avatar) {
         const filename = avatar.split('/').pop() ?? 'avatar.jpg';
         const ext      = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -64,7 +70,7 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
         formData.append('avatar', avatarBlob as unknown as Blob);
       }
       const res = await fetch(`${API_URL}/api/clubs/${club.id}`, {
-        method:  'PUT',
+        method:  'PATCH',
         headers: { Authorization: `Bearer ${token}` },
         body:    formData,
       });
@@ -85,6 +91,33 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
   };
 
   if (!club) return null;
+
+  const createCategory = async () => {
+    if (!newCategory.trim()) return;
+    const token = (await getToken()) ?? '';
+    await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: newCategory.trim() }),
+    });
+    setNewCategory('');
+    const refreshed = await fetch(`${API_URL}/api/clubs/${club.id}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (refreshed.ok) onUpdated(await refreshed.json());
+  };
+
+  const createChannel = async () => {
+    if (!newChannel.trim()) return;
+    const token = (await getToken()) ?? '';
+    const categoryId = club.categories?.[0]?.id ?? null;
+    await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: newChannel.trim(), categoryId }),
+    });
+    setNewChannel('');
+    const refreshed = await fetch(`${API_URL}/api/clubs/${club.id}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (refreshed.ok) onUpdated(await refreshed.json());
+  };
 
   const avatarSrc = avatar ?? club.avatarUrl;
 
@@ -179,6 +212,41 @@ export default function EditClubModal({ visible, club, onClose, onUpdated }: Pro
                 </>
               )}
             </TouchableOpacity>
+
+            <View style={{ marginTop: 14, backgroundColor: theme.surface2, borderRadius: 11, padding: 10, borderWidth: 1, borderColor: theme.border }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁ POWITAŃ</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {channels.map(ch => (
+                  <TouchableOpacity key={ch.id} onPress={() => setJoinChannelId(ch.id)} style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: joinChannelId === ch.id ? '#e33835' : theme.border }}>
+                    <Text style={{ fontSize: 11, color: joinChannelId === ch.id ? '#e33835' : theme.textDim }}># {ch.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={{ marginTop: 12, gap: 8 }}>
+              <TextInput
+                style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, color: theme.text }}
+                value={newCategory}
+                onChangeText={setNewCategory}
+                placeholder="Nowa kategoria (np. Eventy)"
+                placeholderTextColor={theme.textDim}
+              />
+              <TouchableOpacity onPress={createCategory} style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, alignItems: 'center' }}>
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>Dodaj kategorię</Text>
+              </TouchableOpacity>
+
+              <TextInput
+                style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, color: theme.text }}
+                value={newChannel}
+                onChangeText={setNewChannel}
+                placeholder="Nowy kanał tekstowy"
+                placeholderTextColor={theme.textDim}
+              />
+              <TouchableOpacity onPress={createChannel} style={{ backgroundColor: theme.surface2, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, alignItems: 'center' }}>
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>Dodaj kanał</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </View>

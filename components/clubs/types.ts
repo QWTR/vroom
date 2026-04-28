@@ -40,5 +40,8 @@ export interface Club {
   myRole:      'owner' | 'ranked' | 'member' | null;
   myRank:      ClubRank | null;
   ranks?:      ClubRank[];
+  categories?: { id: number; name: string; position: number }[];
+  channels?:   { id: number; name: string; categoryId: number | null; position: number; isDefaultGeneral?: boolean }[];
+  joinNotificationChannelId?: number | null;
   members?:    ClubMemberItem[];
 }
