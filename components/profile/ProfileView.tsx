@@ -154,8 +154,9 @@ export default function ProfileView({
   const lockedGroups   = groupByRarity(locked);
 
   // 30-day activity filter for non-premium owners
+  const FREE_ACTIVITY_HISTORY_DAYS = 30;
   const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - FREE_ACTIVITY_HISTORY_DAYS);
   const displayRoutes = (isOwner && !isPremium)
     ? routes.filter(r => new Date(r.createdAt) >= thirtyDaysAgo)
     : routes;

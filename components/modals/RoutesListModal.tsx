@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { MyRoute } from '../../hooks/useMyRoutes';
 import { RouteMiniMap } from '../profile/RouteMiniMap';
@@ -25,10 +26,11 @@ interface Props {
 }
 
 function buildGpx(route: MyRoute): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
   const trkpts = route.points
     .map(p => `      <trkpt lat="${p.latitude.toFixed(6)}" lon="${p.longitude.toFixed(6)}"></trkpt>`)
     .join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="VROOM">\n  <trk>\n    <name>${route.name.replace(/[<>&"']/g, '')}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>\n</gpx>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="VROOM">\n  <trk>\n    <name>${esc(route.name)}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>\n</gpx>`;
 }
 
 export function RoutesListModal({
@@ -45,7 +47,9 @@ export function RoutesListModal({
     }
     try {
       await Share.share({ message: buildGpx(route), title: `${route.name}.gpx` });
-    } catch {}
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd eksportu GPX' });
+    }
   };
 
   return (
