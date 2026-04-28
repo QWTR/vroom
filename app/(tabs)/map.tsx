@@ -414,6 +414,7 @@ export default function MapScreen() {
 
   const { speedLimit, updateSpeedLimit } = useSpeedLimit(true);
   const speedKmh = (speed ?? 0) * 3.6;
+  const effectiveSpeedLimit = speedLimit ?? (nearestCamera?.maxspeed ?? null);
   const showCameras = true;
 
   const ALERT_DIST = 400;
@@ -1910,7 +1911,13 @@ export default function MapScreen() {
     setRemainingDistKm(null);
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
-    flushPendingKm(true);
+    flushPendingKm(true, {
+      distanceKm: finalStats.distanceKm,
+      maxSpeedKmh: finalStats.maxSpeedKmh,
+      avgSpeedKmh: finalStats.avgSpeedKmh,
+      durationSec: finalStats.elapsedSec,
+      routePoints: finalStats.trackedPoints,
+    });
     Speech.stop().catch(() => {});
     speak('Dotarłeś do celu!');
     Toast.show({ type: 'success', text1: '🏁 DOTARŁEŚ DO CELU!', text2: endLocation?.name ?? '' });
@@ -1950,7 +1957,7 @@ export default function MapScreen() {
 
     exitDrivingMode();
 
-    if (routeInfo?.duration) startTrip(routeInfo.duration);
+    startTrip(routeInfo?.duration ?? 0);
 
     resetDRRefs();
     unlockCamera();
@@ -2087,7 +2094,14 @@ export default function MapScreen() {
     Speech.stop().catch(() => {});
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
-    flushPendingKm(true);
+    const finalStats = finishTrip();
+    flushPendingKm(true, {
+      distanceKm: finalStats.distanceKm,
+      maxSpeedKmh: finalStats.maxSpeedKmh,
+      avgSpeedKmh: finalStats.avgSpeedKmh,
+      durationSec: finalStats.elapsedSec,
+      routePoints: finalStats.trackedPoints,
+    });
     pendingRouteRef.current = null;
 
     if (timerRunning) {
@@ -2181,7 +2195,7 @@ export default function MapScreen() {
       : heading;
 
   // ── Czy pokazać prędkościomierz ───────────────────────────
-  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5;
+  const showSpeedPanel = isNavigating || isDriving || speedKmh > 5 || speedLimit !== null;
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -2316,8 +2330,8 @@ export default function MapScreen() {
                 <View style={{ alignItems: 'center', gap: 4 }}>
                   {/* Znak ograniczenia prędkości — zawsze widoczny */}
                   {(() => {
-                    const overLimit = speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE;
-                    const smallFont = speedLimit !== null && speedLimit >= 100;
+                    const overLimit = effectiveSpeedLimit !== null && speedKmh > effectiveSpeedLimit + SPEED_LIMIT_TOLERANCE;
+                    const smallFont = effectiveSpeedLimit !== null && effectiveSpeedLimit >= 100;
                     return (
                       <View style={{
                         width: 36, height: 36, borderRadius: 18,
@@ -2330,7 +2344,7 @@ export default function MapScreen() {
                           color: overLimit ? '#e33835' : '#111',
                           fontWeight: '900',
                         }}>
-                          {speedLimit ?? '—'}
+                          {effectiveSpeedLimit ?? '—'}
                         </Text>
                       </View>
                     );
@@ -2347,7 +2361,7 @@ export default function MapScreen() {
                   }}>
                     <Text style={{
                       fontFamily: 'Orbitron', fontSize: 24,
-                      color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#fff',
+                      color: effectiveSpeedLimit !== null && speedKmh > effectiveSpeedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#fff',
                       fontWeight: '700',
                     }}>
                       {Math.round(speedKmh)}
@@ -2780,20 +2794,20 @@ export default function MapScreen() {
             <View style={{
               width: 44, height: 44, borderRadius: 22,
               backgroundColor: '#fff', borderWidth: 4,
-              borderColor: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
+              borderColor: effectiveSpeedLimit !== null && speedKmh > effectiveSpeedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#333',
               alignItems: 'center', justifyContent: 'center',
               marginBottom: 4, alignSelf: 'center',
             }}>
               <Text style={{
                 fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900',
-                color: speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
+                color: effectiveSpeedLimit !== null && speedKmh > effectiveSpeedLimit + SPEED_LIMIT_TOLERANCE ? '#e33835' : '#111',
               }}>
-                {speedLimit ?? '—'}
+                {effectiveSpeedLimit ?? '—'}
               </Text>
             </View>
             <Text style={[
               styles.speedValue,
-              speedLimit !== null && speedKmh > speedLimit + SPEED_LIMIT_TOLERANCE && { color: '#e33835' },
+              effectiveSpeedLimit !== null && speedKmh > effectiveSpeedLimit + SPEED_LIMIT_TOLERANCE && { color: '#e33835' },
             ]}>
               {formatSpeed(speed)}
             </Text>

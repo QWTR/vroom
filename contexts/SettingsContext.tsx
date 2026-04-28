@@ -66,7 +66,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) {
         // Fallback na cache lokalny
         const cached = await AsyncStorage.getItem('app_settings');
@@ -120,7 +120,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
     // Best-effort sync to API
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) return;
       const res = await fetch(`${API_URL}/api/settings`, {
         method:  'PATCH',

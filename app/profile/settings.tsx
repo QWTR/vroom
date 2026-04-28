@@ -716,101 +716,105 @@ export default function SettingsScreen() {
 					</Card>
 
 					{/* IKONA LOKALIZACJI */}
-					<Card style={{ marginTop: 10 }}>
-						<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-							<View
-								style={{
-									flexDirection: "row",
-									alignItems: "center",
-									gap: 12,
-									marginBottom: 14,
-								}}>
+					<View style={{ marginTop: 10 }}>
+						<Card>
+							<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
 								<View
 									style={{
-										width: 36,
-										height: 36,
-										borderRadius: 11,
-										backgroundColor: RED + "20",
-										borderWidth: 1,
-										borderColor: RED + "30",
-										justifyContent: "center",
+										flexDirection: "row",
 										alignItems: "center",
+										gap: 12,
+										marginBottom: 14,
 									}}>
-									<MaterialIcons name='navigation' size={17} color={RED} />
-								</View>
-								<View>
-									<Text
+									<View
 										style={{
-											fontFamily: "Orbitron",
-											fontSize: 12,
-											color: textMain,
-											fontWeight: "600",
-										}}>
-										Ikona lokalizacji
-									</Text>
-									<Text
-										style={{
-											fontFamily: "Orbitron",
-											fontSize: 9,
-											color: textDim,
-											marginTop: 3,
-										}}>
-										Aktywna:{" "}
-										{MARKER_STYLES.find(
-											o => o.key === settings.locationMarkerStyle,
-										)?.label ?? "—"}
-									</Text>
-								</View>
-							</View>
-							<View style={{ flexDirection: "row", gap: 8 }}>
-								{MARKER_STYLES.map(opt => (
-									<TouchableOpacity
-										key={opt.key}
-										style={{
-											flex: 1,
-											flexDirection: "row",
-											alignItems: "center",
-											justifyContent: "center",
-											gap: 5,
-											paddingVertical: 10,
-											borderRadius: 12,
+											width: 36,
+											height: 36,
+											borderRadius: 11,
+											backgroundColor: RED + "20",
 											borderWidth: 1,
-											backgroundColor:
-												settings.locationMarkerStyle === opt.key
-													? RED + "20"
-													: rowAlt,
-											borderColor:
-												settings.locationMarkerStyle === opt.key
-													? RED + "60"
-													: inputBorder,
-										}}
-										onPress={() =>
-											updateSetting("locationMarkerStyle", opt.key)
-										}>
-										<MaterialIcons
-											name={opt.icon as any}
-											size={13}
-											color={
-												settings.locationMarkerStyle === opt.key ? RED : textDim
-											}
-										/>
+											borderColor: RED + "30",
+											justifyContent: "center",
+											alignItems: "center",
+										}}>
+										<MaterialIcons name='navigation' size={17} color={RED} />
+									</View>
+									<View>
 										<Text
 											style={{
 												fontFamily: "Orbitron",
-												fontSize: 8,
-												color:
+												fontSize: 12,
+												color: textMain,
+												fontWeight: "600",
+											}}>
+											Ikona lokalizacji
+										</Text>
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 9,
+												color: textDim,
+												marginTop: 3,
+											}}>
+											Aktywna:{" "}
+											{MARKER_STYLES.find(
+												o => o.key === settings.locationMarkerStyle,
+											)?.label ?? "—"}
+										</Text>
+									</View>
+								</View>
+								<View style={{ flexDirection: "row", gap: 8 }}>
+									{MARKER_STYLES.map(opt => (
+										<TouchableOpacity
+											key={opt.key}
+											style={{
+												flex: 1,
+												flexDirection: "row",
+												alignItems: "center",
+												justifyContent: "center",
+												gap: 5,
+												paddingVertical: 10,
+												borderRadius: 12,
+												borderWidth: 1,
+												backgroundColor:
+													settings.locationMarkerStyle === opt.key
+														? RED + "20"
+														: rowAlt,
+												borderColor:
+													settings.locationMarkerStyle === opt.key
+														? RED + "60"
+														: inputBorder,
+											}}
+											onPress={() =>
+												updateSetting("locationMarkerStyle", opt.key)
+											}>
+											<MaterialIcons
+												name={opt.icon as any}
+												size={13}
+												color={
 													settings.locationMarkerStyle === opt.key
 														? RED
-														: textDim,
-												letterSpacing: 0.5,
-											}}>
-											{opt.label}
-										</Text>
-									</TouchableOpacity>
-								))}
+														: textDim
+												}
+											/>
+											<Text
+												style={{
+													fontFamily: "Orbitron",
+													fontSize: 8,
+													color:
+														settings.locationMarkerStyle === opt.key
+															? RED
+															: textDim,
+													letterSpacing: 0.5,
+												}}>
+												{opt.label}
+											</Text>
+										</TouchableOpacity>
+									))}
+								</View>
 							</View>
-						</View>
-					</Card>
+						</Card>
+					</View>
 
 					{/* KONTO */}
 					<SectionLabel title='KONTO' />

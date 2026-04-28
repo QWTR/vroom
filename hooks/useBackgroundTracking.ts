@@ -193,7 +193,16 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
   }, [isSharing]);
 
   // ── Flush helpers ─────────────────────────────────────────────────────────
-  const flushPendingKm = useCallback(async (fromNavigation = false) => {
+  const flushPendingKm = useCallback(async (
+    fromNavigation = false,
+    navPayload?: {
+      distanceKm?: number;
+      maxSpeedKmh?: number;
+      avgSpeedKmh?: number;
+      durationSec?: number;
+      routePoints?: { latitude: number; longitude: number }[];
+    },
+  ) => {
     try {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -206,6 +215,9 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         const bgPending    = parseFloat(bgPendingStr ?? '0');
         // Foreground navigation is the source of truth; include only leftover bg drift.
         const finalDist    = distKm + Math.max(0, bgPending - distKm);
+        const distanceToSave = navPayload?.distanceKm != null ? navPayload.distanceKm : finalDist;
+        const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
+        const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
 
         // Clear bg accumulators and navigation flag
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
@@ -215,12 +227,18 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
 
-        if (finalDist < 0.05) return;
+        if (distanceToSave < 0.05) return;
 
         await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ distance: finalDist, maxSpeed, avgSpeed, duration: null }),
+          body: JSON.stringify({
+            distance: distanceToSave,
+            maxSpeed: maxSpeedToSave,
+            avgSpeed: avgSpeedToSave,
+            duration: navPayload?.durationSec ?? null,
+            routePoints: navPayload?.routePoints,
+          }),
         });
 
       } else {

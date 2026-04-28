@@ -11,7 +11,6 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
 import Toast              from 'react-native-toast-message';
 import { API_URL }        from '../../constants/config';
-import { useTheme }       from '../../contexts/ThemeContext';
 import AchievementBox     from '../../components/profile/AchievementBox';
 import type { Achievement } from '../../hooks/useAchievements';
 import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
@@ -19,6 +18,7 @@ import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
 import type { SpotPreview } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
 import { useChat }         from '../../hooks/useChats';
+import { getProfileThemePalette } from '../../constants/profileThemes';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -79,7 +79,6 @@ function toSpot(s: PublicSpot): Spot {
 
 export default function PublicProfileScreen() {
   const router = useRouter();
-  const { theme, isDark } = useTheme();
   const { userId } = useLocalSearchParams<{ userId: string }>();
 
   const [profile,       setProfile]       = useState<PublicProfile | null>(null);
@@ -345,11 +344,18 @@ export default function PublicProfileScreen() {
   const joinedLabel = new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
   const isFriend    = friendStatus === 'accepted';
   const profileThemePreset = profile.profileThemePreset ?? 'default';
+  const palette = getProfileThemePalette(profileThemePreset);
   const heroPresetGradients: Record<string, string[]> = {
     default: ['#1a0404', '#0e0202', '#090909'],
     midnight: ['#060d1a', '#08080d', '#090909'],
     sunset: ['#2a0a02', '#1b0705', '#090909'],
     neon: ['#031a12', '#071211', '#090909'],
+  };
+  const heroBannerOverlays: Record<string, string[]> = {
+    default: ['#00000066', '#00000022'],
+    midnight: ['#06132599', '#0a0f2055'],
+    sunset: ['#2a0a0288', '#2b120855'],
+    neon: ['#03201688', '#0a201855'],
   };
   const frameGradients: Record<string, string[]> = {
     vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
@@ -400,7 +406,7 @@ export default function PublicProfileScreen() {
   return (
     <>
       <ScrollView
-        style={{ flex: 1, backgroundColor: '#090909' }}
+        style={{ flex: 1, backgroundColor: palette.bg }}
         contentContainerStyle={{ paddingBottom: 80 }}
         showsVerticalScrollIndicator={false}
       >
@@ -420,7 +426,12 @@ export default function PublicProfileScreen() {
             />
           )}
           {!!profile.bannerUrl && (
-            <View style={{ ...StyleSheet.absoluteFill, backgroundColor: '#00000055' }} />
+            <LinearGradient
+              colors={(heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) as any}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
           )}
 
           {/* Dekoracje */}
@@ -513,7 +524,7 @@ export default function PublicProfileScreen() {
             </View>
           </Animated.View>
 
-          <LinearGradient colors={['transparent', '#090909']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 }} />
+          <LinearGradient colors={['transparent', palette.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 }} />
         </View>
 
         {/* ══ CONTENT ══════════════════════════════════════ */}
@@ -521,23 +532,23 @@ export default function PublicProfileScreen() {
 
           {/* Bio */}
           {!!profile.bio && (
-            <View style={{ backgroundColor: '#141414', borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#ffffff0a', marginTop: 8 }}>
+            <View style={{ backgroundColor: palette.surface, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: palette.border, marginTop: 8 }}>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 3, marginBottom: 8 }}>BIO</Text>
-              <Text style={{ fontFamily: 'Orbitron', color: '#ffffff70', fontSize: 11, lineHeight: 20 }}>{profile.bio}</Text>
+              <Text style={{ fontFamily: 'Orbitron', color: palette.textDim, fontSize: 11, lineHeight: 20 }}>{profile.bio}</Text>
             </View>
           )}
 
           {/* Joined */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20, marginTop: profile.bio ? 0 : 12 }}>
-            <MaterialIcons name="calendar-today" size={12} color="#ffffff30" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff30', letterSpacing: 1 }}>Dołączył {joinedLabel}</Text>
+            <MaterialIcons name="calendar-today" size={12} color={palette.textDim} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: palette.textDim, letterSpacing: 1 }}>Dołączył {joinedLabel}</Text>
           </View>
 
           {/* Stats — klikalne karty */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
             {/* Dystans — klikalny, otwiera StatsModal */}
             <TouchableOpacity
-              style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}
+              style={{ flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: palette.border, overflow: 'hidden' }}
               onPress={() => setStatsModalVisible(true)}
               activeOpacity={0.8}
             >
@@ -545,7 +556,7 @@ export default function PublicProfileScreen() {
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: RED + '18', alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialIcons name="straighten" size={15} color={RED} />
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
                 {Math.round(profile.totalDistance).toLocaleString('pl-PL')}
               </Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: RED + 'aa', letterSpacing: 1 }}>KM</Text>
@@ -554,7 +565,7 @@ export default function PublicProfileScreen() {
 
             {/* Top Speed — klikalny, otwiera TopSpeedModal */}
             <TouchableOpacity
-              style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}
+              style={{ flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: palette.border, overflow: 'hidden' }}
               onPress={() => setTopSpeedModalVisible(true)}
               activeOpacity={0.8}
             >
@@ -562,7 +573,7 @@ export default function PublicProfileScreen() {
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#ff6b3518', alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialCommunityIcons name="speedometer" size={15} color="#ff6b35" />
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
                 {Math.round(profile.topSpeed ?? 0)}
               </Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff6b35aa', letterSpacing: 1 }}>KM/H</Text>
@@ -570,22 +581,22 @@ export default function PublicProfileScreen() {
             </TouchableOpacity>
 
             {/* Meety */}
-            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}>
+            <View style={{ flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: palette.border, overflow: 'hidden' }}>
               <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: '#ff6b3510' }} />
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#ff6b3518', alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialIcons name="flag" size={15} color="#ff6b35" />
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{profile.meetCount}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>{profile.meetCount}</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff6b35aa', letterSpacing: 1 }}>MEETY</Text>
             </View>
 
             {/* Miasta */}
-            <View style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#ffffff0a', overflow: 'hidden' }}>
+            <View style={{ flex: 1, backgroundColor: palette.surface, borderRadius: 14, padding: 12, alignItems: 'center', gap: 5, borderWidth: 1, borderColor: palette.border, overflow: 'hidden' }}>
               <View style={{ position: 'absolute', top: -14, right: -14, width: 50, height: 50, borderRadius: 25, backgroundColor: '#268bff10' }} />
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#268bff18', alignItems: 'center', justifyContent: 'center' }}>
                 <MaterialIcons name="location-city" size={15} color="#268bff" />
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{profile.cityCount}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>{profile.cityCount}</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#268bffaa', letterSpacing: 1 }}>MIASTA</Text>
             </View>
           </View>
@@ -620,12 +631,12 @@ export default function PublicProfileScreen() {
               { label: 'OBSERWUJĄCY', value: followersCount, color: '#4de926', icon: 'visibility'  as const },
               { label: 'OBSERWACJE',  value: followingCount, color: '#a855f7', icon: 'person-add'  as const },
             ].map(item => (
-              <View key={item.label} style={{ flex: 1, backgroundColor: '#141414', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff0a', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View key={item.label} style={{ flex: 1, backgroundColor: palette.surface, borderRadius: 14, borderWidth: 1, borderColor: palette.border, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center' }}>
                   <MaterialIcons name={item.icon} size={16} color={item.color} />
                 </View>
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900', letterSpacing: -0.5 }}>{item.value}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>{item.value}</Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1, marginTop: 2 }}>{item.label}</Text>
                 </View>
               </View>
@@ -698,7 +709,7 @@ export default function PublicProfileScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '700' }}>{car.brand}</Text>
+                        <Text style={{ fontFamily: 'Orbitron', color: palette.text, fontSize: 13, fontWeight: '700' }}>{car.brand}</Text>
                       {car.isMain && (
                         <View style={{ backgroundColor: RED + '20', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1, borderColor: RED + '40' }}>
                           <Text style={{ fontFamily: 'Orbitron', color: RED, fontSize: 7 }}>GŁÓWNE</Text>
