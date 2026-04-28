@@ -77,6 +77,7 @@ interface Props {
   onCarPress:                (id: number) => void;
   onSpotPress:               (id: number) => void;
   onBack?:                   () => void;
+  carLimitBanner?:           React.ReactNode;
 }
 
 function toSpot(s: SpotPreview): Spot {
@@ -95,7 +96,7 @@ export default function ProfileView({
   isOwner, initials, joinedLabel, avatarUploading = false,
   routes, routesLoading, participatedRoutes, participatedRoutesLoading,
   onNavigateParticipated, onDeleteRoute, onRefresh, onSettings, onEdit,
-  onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute,
+  onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
 }: Props) {
   const { theme, isDark } = useTheme();
   const router = useRouter();
@@ -474,6 +475,7 @@ export default function ProfileView({
               : cars.map(car => <CarCard key={car.id} brand={car.brand} specs={car.specs} isMain={car.isMain} firstPhoto={car.photos?.[0]} onPress={() => onCarPress(car.id)} />)
             }
           </Section>
+          {isOwner && carLimitBanner}
 
           {/* ══ OSIĄGNIĘCIA ══ */}
           <Section title="OSIĄGNIĘCIA" count={`${unlocked.length}/${achievements.length}`}>
