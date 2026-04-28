@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { View, Text, Image, TouchableOpacity } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
+import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 
 interface UserCarMarkerProps {
@@ -33,7 +34,7 @@ const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
 const FallbackMarker = memo(({ user, distance }: { user: User; distance: number }) => {
   const color       = user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isFriend ? '#4de92620' : '#00bfff20';
-  const borderColor = user.isFriend ? '#4de92645' : '#00bfff45';
+  const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92645' : '#00bfff45');
 
   return (
     <View style={{ alignItems: 'center' }}>
@@ -55,18 +56,31 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
           {distance.toFixed(1)} km
         </Text>
       </View>
-      <View style={{
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: bgColor, borderWidth: 1.5, borderColor,
-        alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-      }}>
-        <AvatarOrInitials avatar={user.avatar ?? ''} name={user.name} color={color} size={22} />
+      <View style={{ position: 'relative' }}>
+        <View style={{
+          width: 36, height: 36, borderRadius: 18,
+          backgroundColor: bgColor, borderWidth: user.isPremium ? 3 : 1.5, borderColor,
+          alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+        }}>
+          <AvatarOrInitials avatar={user.avatar ?? ''} name={user.name} color={color} size={22} />
+        </View>
+        {user.isPremium && (
+          <View style={{
+            position: 'absolute', top: -6, right: -6,
+            backgroundColor: '#FFD700', borderRadius: 8,
+            width: 16, height: 16,
+            alignItems: 'center', justifyContent: 'center',
+            zIndex: 10,
+          }}>
+            <MaterialIcons name="workspace-premium" size={10} color="#000" />
+          </View>
+        )}
       </View>
       <View style={{
         width: 0, height: 0,
         borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
         borderStyle: 'solid', borderLeftColor: 'transparent',
-        borderRightColor: 'transparent', borderTopColor: color, marginTop: -1,
+        borderRightColor: 'transparent', borderTopColor: borderColor, marginTop: -1,
       }} />
     </View>
   );
