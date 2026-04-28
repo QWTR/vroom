@@ -41,6 +41,7 @@ type User = {
 	username: string;
 	email: string;
 	userId: string;
+	isPremium?: boolean;
 	avatar?: string;
 	bio?: string;
 	location?: string;
@@ -98,7 +99,11 @@ async function fetchFreshUser(): Promise<User | null> {
 export default function HomeScreen() {
 	const router = useRouter();
 	const { theme, isDark } = useTheme();
-	const { isPremium, isLoading: premiumLoading } = usePremium();
+	const {
+		isPremium,
+		isLoading: premiumLoading,
+		refreshPremiumStatus,
+	} = usePremium();
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [user, setUser] = useState<User | null>(null);
@@ -118,6 +123,10 @@ export default function HomeScreen() {
 	useEffect(() => {
 		loadAnnouncements();
 	}, []);
+
+	useEffect(() => {
+		refreshPremiumStatus().catch(() => {});
+	}, [refreshPremiumStatus]);
 
 	const { poll, voted, fetchActivePoll, vote } = usePolls();
 	const { gifts, fetchAvailableGifts, claimGift } = useGifts();
@@ -237,10 +246,12 @@ export default function HomeScreen() {
 
 	const onRefresh = () => {
 		setRefreshing(true);
+		refreshPremiumStatus().catch(() => {});
 		loadUser(false);
 	};
 
 	const t = theme;
+	const effectivePremium = !!(isPremium || user?.isPremium);
 
 	if (loading || !user) {
 		return (
@@ -800,7 +811,7 @@ export default function HomeScreen() {
 									? isDark
 										? ["#141414", "#0d0d0d"]
 										: ["#f5f5f5", "#efefef"]
-									: isPremium
+									: effectivePremium
 										? ["#2a2000", "#1a1500", "#0a0a0a"]
 										: isDark
 											? ["#1a0808", "#100404", "#0a0a0a"]
@@ -813,7 +824,7 @@ export default function HomeScreen() {
 								borderWidth: 1,
 								borderColor: premiumLoading
 									? t.border
-									: isPremium
+									: effectivePremium
 										? "#FFD70040"
 										: "#e3383540",
 								padding: 18,
@@ -834,7 +845,7 @@ export default function HomeScreen() {
 										? isDark
 											? "#ffffff08"
 											: "#00000006"
-										: isPremium
+										: effectivePremium
 											? "#FFD70018"
 											: "#e3383510",
 								}}
@@ -849,7 +860,7 @@ export default function HomeScreen() {
 										? isDark
 											? "#ffffff10"
 											: "#00000010"
-										: isPremium
+										: effectivePremium
 											? "#FFD70020"
 											: "#e3383520",
 									borderWidth: 1,
@@ -857,19 +868,19 @@ export default function HomeScreen() {
 										? isDark
 											? "#ffffff20"
 											: "#00000020"
-										: isPremium
+										: effectivePremium
 											? "#FFD70040"
 											: "#e3383540",
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
 								<MaterialIcons
-									name={isPremium ? "workspace-premium" : "lock-open"}
+									name={effectivePremium ? "workspace-premium" : "lock-open"}
 									size={22}
 									color={
 										premiumLoading
 											? t.textDim
-											: isPremium
+											: effectivePremium
 												? "#FFD700"
 												: "#e33835"
 									}
@@ -883,7 +894,7 @@ export default function HomeScreen() {
 										fontSize: 8,
 										color: premiumLoading
 											? t.textDim
-											: isPremium
+											: effectivePremium
 												? "#FFD700"
 												: "#e33835",
 										letterSpacing: 2.2,
@@ -891,7 +902,7 @@ export default function HomeScreen() {
 									}}>
 									{premiumLoading
 										? "SPRAWDZANIE PREMIUM"
-										: isPremium
+										: effectivePremium
 											? "VROOM PREMIUM"
 											: "DOSTĘP PREMIUM"}
 								</Text>
@@ -905,7 +916,7 @@ export default function HomeScreen() {
 									}}>
 									{premiumLoading
 										? "Ładowanie statusu konta..."
-										: isPremium
+										: effectivePremium
 											? "Premium jest aktywne na tym koncie"
 											: "Odblokuj Premium i dodatkowe funkcje"}
 								</Text>
@@ -915,7 +926,7 @@ export default function HomeScreen() {
 										fontSize: 8,
 										color: t.textDim,
 									}}>
-									{isPremium
+									{effectivePremium
 										? "Dziękujemy za wsparcie projektu"
 										: "Dotknij, aby przejść do zakupu"}
 								</Text>
@@ -927,7 +938,7 @@ export default function HomeScreen() {
 										? isDark
 											? "#ffffff10"
 											: "#00000010"
-										: isPremium
+										: effectivePremium
 											? "#FFD70018"
 											: "#e3383515",
 									borderRadius: 10,
@@ -937,17 +948,17 @@ export default function HomeScreen() {
 										? isDark
 											? "#ffffff20"
 											: "#00000020"
-										: isPremium
+										: effectivePremium
 											? "#FFD70040"
 											: "#e3383535",
 								}}>
 								<MaterialIcons
-									name={isPremium ? "check" : "arrow-forward-ios"}
+									name={effectivePremium ? "check" : "arrow-forward-ios"}
 									size={13}
 									color={
 										premiumLoading
 											? t.textDim
-											: isPremium
+											: effectivePremium
 												? "#FFD700"
 												: "#e33835"
 									}
