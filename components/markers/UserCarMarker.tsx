@@ -80,7 +80,7 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
         width: 0, height: 0,
         borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
         borderStyle: 'solid', borderLeftColor: 'transparent',
-        borderRightColor: 'transparent', borderTopColor: borderColor, marginTop: -1,
+        borderRightColor: 'transparent', borderTopColor: user.isPremium ? '#FFD700' : color, marginTop: -1,
       }} />
     </View>
   );
