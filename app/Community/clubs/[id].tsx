@@ -43,7 +43,7 @@ interface ClubMessage {
   createdAt: string;
   isPinned:  boolean;
   pinnedAt:  string | null;
-  sender:  { id: number; username: string; avatarUrl: string | null };
+  sender:  { id: number; username: string; avatarUrl: string | null; nickColor?: string | null };
   replyTo: { id: number; content: string | null; sender: { id: number; username: string } } | null;
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }
@@ -364,7 +364,7 @@ export default function ClubChatScreen() {
             activeOpacity={0.85}
           >
             {!isMe && isFirst && (
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
+              <Text style={{ color: item.sender.nickColor ?? theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
                 {item.sender.username}
               </Text>
             )}
