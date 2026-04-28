@@ -43,30 +43,6 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   const [isLoading,    setIsLoading]    = useState(true);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
 
-  // Inicjalizacja SDK + logowanie usera
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!Purchases) return;
-        Purchases.configure({ apiKey: RC_API_KEY });
-
-        const raw = await AsyncStorage.getItem('user');
-        if (raw) {
-          const user = JSON.parse(raw);
-          const uid  = user.userId ?? user.id;
-          if (uid) {
-            await Purchases.logIn(String(uid)).catch(() => {});
-          }
-        }
-
-        await refreshPremiumStatus();
-      } catch {
-      } finally {
-        setIsLoading(false);
-      }
-    })();
-  }, []);
-
   // Sprawdź premium z RevenueCat ORAZ backendu
   const refreshPremiumStatus = useCallback(async () => {
     try {
@@ -101,6 +77,29 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Inicjalizacja SDK + logowanie usera
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!Purchases) return;
+        Purchases.configure({ apiKey: RC_API_KEY });
+
+        const raw = await AsyncStorage.getItem('user');
+        if (raw) {
+          const user = JSON.parse(raw);
+          const uid  = user.userId ?? user.id;
+          if (uid) {
+            await Purchases.logIn(String(uid)).catch(() => {});
+          }
+        }
+
+        await refreshPremiumStatus();
+      } catch {
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [refreshPremiumStatus]);
   const purchasePremium = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
     if (!Purchases) return false;
     try {

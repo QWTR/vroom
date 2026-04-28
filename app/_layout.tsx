@@ -158,16 +158,18 @@ function RootLayoutInner() {
   const { isPremium }  = usePremium();
   const router         = useRouter();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
+  const adsInitialized = useRef(false);
 
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
     OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
   });
 
-  // Inicjalizacja MobileAds tylko dla użytkowników bez premium
+  // Inicjalizacja MobileAds tylko dla użytkowników bez premium (tylko raz)
   useEffect(() => {
-    if (!isPremium) {
+    if (!isPremium && !adsInitialized.current) {
       MobileAds().initialize().catch(() => {});
+      adsInitialized.current = true;
     }
   }, [isPremium]);
 

@@ -45,7 +45,7 @@ export default function PremiumScreen() {
         setLoadingOff(false);
       }
     })();
-  }, []);
+  }, [getOfferings]);
 
   // Zamknij po zakupie
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function PremiumScreen() {
       });
       router.back();
     }
-  }, [isPremium]);
+  }, [isPremium, router]);
 
   const handlePurchase = async (pkg: any) => {
     setBuying(pkg.identifier);
