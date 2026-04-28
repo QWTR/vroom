@@ -187,6 +187,7 @@ export default function ClubChatScreen() {
   const [chatThemeId, setChatThemeId] = useState('default');
   const [activePane, setActivePane] = useState<'chat' | 'members'>('chat');
   const paneRef = useRef<ScrollView>(null);
+  const [memberModal, setMemberModal] = useState<any | null>(null);
 
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -504,34 +505,53 @@ export default function ClubChatScreen() {
       channels: channels.filter((ch: any) => ch.categoryId === c.id).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)),
     }));
 
-  const openMemberActions = (m: any) => {
-    const actions: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [
-      { text: 'Anuluj', style: 'cancel' },
-      { text: 'Wyświetl profil', onPress: () => router.push(`/profile/${m.userId}` as any) },
-    ];
-    if (canManage && m.userId !== myId && m.role !== 'owner') {
-      actions.push({
-        text: 'Nadaj rolę',
-        onPress: () => {
-          const rankIds = [null, ...(clubData?.ranks ?? []).map((r: any) => r.id)];
-          const names = ['Brak rangi', ...(clubData?.ranks ?? []).map((r: any) => r.name)];
-          Alert.alert('Nadaj rolę', m.username, names.map((n, i) => ({
-            text: n,
-            onPress: async () => {
-              const token = await getToken() ?? '';
-              await fetch(`${API_URL}/api/clubs/${clubId}/members/${m.userId}/rank`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ rankId: rankIds[i] }),
-              });
-              const r = await fetch(`${API_URL}/api/clubs/${clubId}`, { headers: { Authorization: `Bearer ${token}` } });
-              if (r.ok) setClubData(await r.json());
-            },
-          })));
-        },
-      });
+  const refreshClub = async () => {
+    const token = await getToken() ?? '';
+    const r = await fetch(`${API_URL}/api/clubs/${clubId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) {
+      const c = await r.json();
+      setClubData(c);
+      setChannels(c.channels ?? []);
+      setCategories(c.categories ?? []);
     }
-    Alert.alert(m.username, 'Wybierz akcję', actions);
+  };
+
+  const openMemberActions = (m: any) => setMemberModal(m);
+
+  const assignRank = async (rankId: number | null) => {
+    if (!memberModal) return;
+    const token = await getToken() ?? '';
+    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/rank`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rankId }),
+    });
+    await refreshClub();
+  };
+
+  const toggleMute = async () => {
+    if (!memberModal) return;
+    const token = await getToken() ?? '';
+    const isMuted = !!memberModal.isMuted;
+    const endpoint = isMuted ? 'unmute' : 'mute';
+    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      ...(isMuted ? {} : { body: JSON.stringify({ durationMinutes: 60 }) }),
+    });
+    await refreshClub();
+  };
+
+  const kickMember = async () => {
+    if (!memberModal) return;
+    const token = await getToken() ?? '';
+    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/kick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: 'Moderacja klubu' }),
+    });
+    setMemberModal(null);
+    await refreshClub();
   };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
@@ -626,12 +646,13 @@ export default function ClubChatScreen() {
               <View key={section.title} style={{ marginBottom: 12 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 6 }}>{section.title} ({section.data.length})</Text>
                 {section.data.map((m: any) => (
-                  <TouchableOpacity key={m.id} onPress={() => openMemberActions(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                  <TouchableOpacity key={m.id} onPress={() => openMemberActions(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}>
                     <UAv uri={m.avatarUrl} name={m.username} size={28} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: 13 }}>{m.username}</Text>
+                      <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>{m.username}</Text>
                       {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10 }}>{m.rank.name}</Text>}
                     </View>
+                    <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -645,22 +666,26 @@ export default function ClubChatScreen() {
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 4 }}>
                 {cat.name.toUpperCase()}
               </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <View style={{ gap: 6 }}>
                 {cat.channels.map((ch: any) => (
                   <TouchableOpacity
                     key={ch.id}
                     onPress={() => setActiveChannelId(ch.id)}
                     style={{
                       paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
+                      paddingVertical: 8,
+                      borderRadius: 10,
                       backgroundColor: activeChannelId === ch.id ? `${theme.primary}25` : theme.surface2,
                       borderWidth: 1,
                       borderColor: activeChannelId === ch.id ? theme.primary : theme.border,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
                     }}
                   >
+                    <MaterialCommunityIcons name="pound" size={14} color={activeChannelId === ch.id ? theme.primary : theme.textDim} />
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activeChannelId === ch.id ? theme.primary : theme.textDim }}>
-                      # {ch.name}
+                      {ch.name}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -880,6 +905,56 @@ export default function ClubChatScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={!!memberModal} transparent animationType="slide" onRequestClose={() => setMemberModal(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setMemberModal(null)}>
+          <Pressable onPress={e => e.stopPropagation()}>
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 18, borderTopWidth: 1, borderColor: theme.border2 }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <UAv uri={memberModal?.avatarUrl} name={memberModal?.username ?? '?'} size={36} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>{memberModal?.username}</Text>
+                  {!!memberModal?.rank?.name && <Text style={{ color: memberModal.rank.color, fontSize: 10 }}>{memberModal.rank.name}</Text>}
+                </View>
+              </View>
+
+              <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => { if (memberModal) router.push(`/profile/${memberModal.userId}` as any); setMemberModal(null); }}>
+                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11 }}>Wyświetl profil</Text>
+              </TouchableOpacity>
+
+              {canManage && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
+                <View style={{ marginTop: 6, marginBottom: 8 }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginBottom: 6 }}>NADAJ ROLĘ</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    <TouchableOpacity onPress={() => assignRank(null)} style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}>
+                      <Text style={{ color: theme.textDim, fontSize: 11 }}>Brak</Text>
+                    </TouchableOpacity>
+                    {(clubData?.ranks ?? []).map((r: any) => (
+                      <TouchableOpacity key={r.id} onPress={() => assignRank(r.id)} style={{ borderWidth: 1, borderColor: r.color, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}>
+                        <Text style={{ color: r.color, fontSize: 11 }}>{r.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {(canKick || canManage) && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  <TouchableOpacity onPress={toggleMute} style={{ flex: 1, borderWidth: 1, borderColor: '#ff922b55', backgroundColor: '#ff922b18', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
+                    <Text style={{ color: '#ff922b', fontFamily: 'Orbitron', fontSize: 10 }}>{memberModal?.isMuted ? 'Odcisz' : 'Wycisz'}</Text>
+                  </TouchableOpacity>
+                  {canKick && (
+                    <TouchableOpacity onPress={kickMember} style={{ flex: 1, borderWidth: 1, borderColor: '#e3383555', backgroundColor: '#e3383518', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
+                      <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 10 }}>Wyrzuć</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           </Pressable>
         </Pressable>
