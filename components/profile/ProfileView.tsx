@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
   Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator,
@@ -122,8 +122,23 @@ export default function ProfileView({
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
   const statsSlide = useRef(new Animated.Value(0)).current;
+  const premiumRingAnim = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
   const SPOTS_PREVIEW  = 4;
+
+  useEffect(() => {
+    if (!isPremium) return;
+    const loop = Animated.loop(
+      Animated.timing(premiumRingAnim, {
+        toValue: 1,
+        duration: 3200,
+        useNativeDriver: true,
+      })
+    );
+    premiumRingAnim.setValue(0);
+    loop.start();
+    return () => loop.stop();
+  }, [isPremium, premiumRingAnim]);
 
   const openStats = () => {
     setStatsModalVisible(true);
@@ -256,10 +271,43 @@ export default function ProfileView({
           {/* Avatar + Name */}
           <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
             {/* Avatar */}
-            <View style={{ position: 'relative' }}>
-              <View style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: isPremium ? '#FFD700' : '#e33835', overflow: 'hidden', backgroundColor: theme.surface }}>
+            <View style={{ position: 'relative', width: 80, height: 80 }}>
+              {isPremium ? (
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    width: 80,
+                    height: 80,
+                    borderRadius: 40,
+                    transform: [{
+                      rotate: premiumRingAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0deg', '360deg'],
+                      }),
+                    }],
+                  }}
+                >
+                  <LinearGradient
+                    colors={['#e33835', '#268bff', '#4de926', '#e33835']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                  />
+                </Animated.View>
+              ) : null}
+              <View style={{
+                width: 74,
+                height: 74,
+                borderRadius: 37,
+                margin: 3,
+                borderWidth: 1.5,
+                borderColor: isPremium ? '#0f0f0fcc' : '#e33835',
+                overflow: 'hidden',
+                backgroundColor: theme.surface,
+              }}>
                 {profile?.avatarUrl
-                  ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 80, height: 80 }} />
+                  ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 74, height: 74 }} />
                   : (
                     <View style={{ flex: 1, backgroundColor: '#e3383515', alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: '#e33835', fontWeight: '900' }}>{initials}</Text>

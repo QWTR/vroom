@@ -42,7 +42,28 @@ interface Listing {
   photos: string[];
   createdAt: string;
   seller: Seller;
-  viewsCount: number;
+  viewsCount?: number;
+  views?: number;
+  isPromoted?: boolean;
+  promotedUntil?: string | null;
+}
+
+interface MarketMeta {
+  isPremium: boolean;
+  limits: {
+    freeActiveLimit: number;
+    premiumActiveLimit: number;
+    maxActiveListings: number;
+  };
+  usage: {
+    activeListings: number;
+  };
+  pricing: {
+    listingPaidPrice: number;
+    promoteWeekPrice: number;
+    promoteMonthPrice: number;
+  };
+  canCreateListing: boolean;
 }
 
 interface Filters {
@@ -77,16 +98,15 @@ export default function MarketScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const { isPremium } = usePremium();
-
-  const FREE_LISTING_LIMIT    = 1;
-  const PREMIUM_LISTING_LIMIT = 5;
+  const [marketMeta, setMarketMeta] = useState<MarketMeta | null>(null);
+  const effectivePremium = !!(isPremium || marketMeta?.isPremium);
 
   const [listings,       setListings]       = useState<Listing[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [loadingMore,    setLoadingMore]    = useState(false);
   const [refreshing,     setRefreshing]     = useState(false);
   const [hasMore,        setHasMore]        = useState(true);
-  const [cursor,         setCursor]         = useState<number | null>(null);
+  const [page,           setPage]           = useState(1);
   const [search,         setSearch]         = useState('');
   const [filterVisible,  setFilterVisible]  = useState(false);
   const [myListingsCount, setMyListingsCount] = useState<number | null>(null);
@@ -108,18 +128,16 @@ export default function MarketScreen() {
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
-  const fetchMyListingsCount = useCallback(async () => {
+  const fetchMarketMeta = useCallback(async () => {
     try {
       const token = await getToken();
-      const raw   = await AsyncStorage.getItem('user');
-      if (!raw) return;
-      const myId  = JSON.parse(raw).userId ?? JSON.parse(raw).id;
-      const res   = await fetch(`${API_URL}/api/market?sellerId=${myId}&limit=100`, {
+      const res = await fetch(`${API_URL}/api/market/meta`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data  = await res.json();
-      const list  = data.listings ?? (Array.isArray(data) ? data : []);
-      setMyListingsCount(list.length);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMarketMeta(data);
+      setMyListingsCount(data?.usage?.activeListings ?? 0);
     } catch {}
   }, []);
 
@@ -153,8 +171,10 @@ export default function MarketScreen() {
         const ids = new Set(prev.map((l: Listing) => l.id));
         return [...prev, ...list.filter((l: Listing) => !ids.has(l.id))];
       });
-      setCursor(data.nextCursor ?? null);
-      setHasMore(!!data.nextCursor);
+      const currentPage = Number(data.page ?? 1);
+      const pages = Number(data.pages ?? 1);
+      setPage(currentPage);
+      setHasMore(currentPage < pages);
     } catch (e) { console.error('fetchListings:', e); }
     finally {
       setLoading(false);
@@ -164,12 +184,12 @@ export default function MarketScreen() {
   }, [search, filters]);
 
   const loadMore = useCallback(async () => {
-    if (fetchingRef.current || !hasMore || !cursor) return;
+    if (fetchingRef.current || !hasMore) return;
     fetchingRef.current = true;
     setLoadingMore(true);
     try {
       const token = await getToken();
-      const params = new URLSearchParams({ limit: String(PAGE), cursor: String(cursor) });
+      const params = new URLSearchParams({ limit: String(PAGE), page: String(page + 1) });
       if (search) params.append('search', search);
       if (filters.category !== 'wszystkie') params.append('category', filters.category);
       if (filters.fuel !== 'wszystkie') params.append('fuel', filters.fuel);
@@ -180,15 +200,17 @@ export default function MarketScreen() {
         const ids = new Set(prev.map((l: Listing) => l.id));
         return [...prev, ...list.filter((l: Listing) => !ids.has(l.id))];
       });
-      setCursor(data.nextCursor ?? null);
-      setHasMore(!!data.nextCursor);
+      const currentPage = Number(data.page ?? 1);
+      const pages = Number(data.pages ?? 1);
+      setPage(currentPage);
+      setHasMore(currentPage < pages);
     } catch (e) { console.error('loadMore:', e); }
     finally { setLoadingMore(false); fetchingRef.current = false; }
-  }, [hasMore, loadingMore, cursor, filters, search]);
+  }, [hasMore, page, filters, search]);
 
   useFocusEffect(useCallback(() => {
     fetchListings(true);
-    fetchMyListingsCount();
+    fetchMarketMeta();
   }, []));
 
   const handleSearch = (q: string) => {
@@ -306,7 +328,9 @@ export default function MarketScreen() {
             </View>
             <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>@{item.seller.username}</Text>
           </View>
-          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>{formatDate(item.createdAt)}</Text>
+          <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
+            {item.isPromoted ? 'PROMOWANE · ' : ''}{formatDate(item.createdAt)}
+          </Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -327,15 +351,15 @@ export default function MarketScreen() {
           </View>
           {myListingsCount !== null && (
             <TouchableOpacity
-              onPress={() => !isPremium && myListingsCount >= FREE_LISTING_LIMIT ? router.push('/premium' as any) : undefined}
-              activeOpacity={isPremium ? 1 : 0.7}
+              onPress={() => !effectivePremium && marketMeta && !marketMeta.canCreateListing ? router.push('/premium' as any) : undefined}
+              activeOpacity={effectivePremium ? 1 : 0.7}
             >
               <View style={{ backgroundColor: theme.surface, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
                 <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
-                <Text style={{ color: myListingsCount >= (isPremium ? PREMIUM_LISTING_LIMIT : FREE_LISTING_LIMIT) ? '#e33835' : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
-                  {myListingsCount}/{isPremium ? PREMIUM_LISTING_LIMIT : FREE_LISTING_LIMIT}
+                <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? '#e33835' : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
+                  {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
                 </Text>
-                {!isPremium && myListingsCount >= FREE_LISTING_LIMIT && (
+                {!effectivePremium && marketMeta && !marketMeta.canCreateListing && (
                   <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>UPGRADE</Text>
                 )}
               </View>

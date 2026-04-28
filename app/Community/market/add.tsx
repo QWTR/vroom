@@ -137,10 +137,15 @@ export default function AddListingScreen() {
         const filename = uri.split('/').pop() ?? 'photo.jpg';
         const ext      = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
         const type     = ext === 'png' ? 'image/png' : 'image/jpeg';
-        formData.append('photos', { uri, name: filename, type } as any);
+        formData.append(isEdit ? 'newPhotos' : 'photos', { uri, name: filename, type } as any);
       }
 
-      const method = isEdit ? 'PUT' : 'POST';
+      if (isEdit) {
+        const removedPhotos = originalPhotosRef.current.filter(p => !photos.includes(p));
+        formData.append('photosToRemove', JSON.stringify(removedPhotos));
+      }
+
+      const method = isEdit ? 'PATCH' : 'POST';
       const url    = isEdit ? `${API_URL}/api/market/${editId}` : `${API_URL}/api/market`;
 
       const r = await fetch(url, {
@@ -150,7 +155,13 @@ export default function AddListingScreen() {
       });
 
       if (r.status === 402) {
-        Toast.show({ type: 'error', text1: '🔒 Limit ogłoszeń', text2: 'Odblokuj Premium aby dodawać więcej ogłoszeń' });
+        const payload = await r.json().catch(() => ({}));
+        const errCode = payload?.error;
+        if (errCode === 'LISTING_LIMIT_REACHED') {
+          Toast.show({ type: 'error', text1: '🔒 Limit aktywnych ogłoszeń', text2: 'Zwiększ limit przez Premium.' });
+        } else {
+          Toast.show({ type: 'error', text1: 'Płatność wymagana', text2: 'Dokończ płatność, aby kontynuować.' });
+        }
         router.push('/premium' as any);
         return;
       }

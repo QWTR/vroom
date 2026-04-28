@@ -37,7 +37,10 @@ interface Listing {
   photos: string[];
   createdAt: string;
   seller: Seller;
-  viewsCount: number;
+  viewsCount?: number;
+  views?: number;
+  isPromoted?: boolean;
+  promotedUntil?: string | null;
 }
 
 function formatPrice(price: number) {
@@ -54,6 +57,7 @@ export default function ListingDetailScreen() {
   const [myId,          setMyId]          = useState<number | null>(null);
   const [contacting,    setContacting]    = useState(false);
   const [deleting,      setDeleting]      = useState(false);
+  const [promoting,     setPromoting]     = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
 
   const getToken = async () =>
@@ -135,6 +139,60 @@ export default function ListingDetailScreen() {
         },
       ],
     );
+  };
+
+  const handlePromote = async (duration: 'week' | 'month') => {
+    if (!listing) return;
+    setPromoting(true);
+    try {
+      const token = await getToken();
+      const quoteRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/quote`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ duration }),
+      });
+      const quote = await quoteRes.json();
+      if (!quoteRes.ok) throw new Error(quote?.error || 'Błąd wyceny');
+
+      const checkoutRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/checkout`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          duration,
+          idempotencyKey: `${listing.id}-${duration}-${Date.now()}`,
+        }),
+      });
+      const checkout = await checkoutRes.json();
+      if (!checkoutRes.ok) throw new Error(checkout?.error || 'Błąd checkout');
+
+      const confirmRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/confirm`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ paymentId: checkout.paymentId }),
+      });
+      const confirm = await confirmRes.json();
+      if (!confirmRes.ok) throw new Error(confirm?.error || 'Błąd aktywacji');
+
+      setListing(confirm.listing ?? listing);
+      Toast.show({
+        type: 'success',
+        text1: '🚀 Ogłoszenie promowane',
+        text2: `Kwota: ${(quote.amount / 100).toFixed(2)} zł`,
+      });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Błąd promowania', text2: e?.message || 'Spróbuj ponownie' });
+    } finally {
+      setPromoting(false);
+    }
   };
 
   if (loading) {
@@ -231,7 +289,9 @@ export default function ListingDetailScreen() {
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <MaterialCommunityIcons name="eye-outline" size={12} color={theme.textDim} />
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>{listing.viewsCount} wyświetleń</Text>
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
+                  {listing.viewsCount ?? listing.views ?? 0} wyświetleń
+                </Text>
               </View>
             </View>
             <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', lineHeight: 26 }}>
@@ -285,27 +345,55 @@ export default function ListingDetailScreen() {
 
           {/* Action buttons */}
           {isOwner ? (
-            <View style={{ flexDirection: 'row', gap: 12, paddingBottom: 20 }}>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderColor: theme.primary, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                onPress={() => router.push({ pathname: '/Community/market/add', params: { editId: String(listing.id) } } as any)}
-              >
-                <Feather name="edit-2" size={16} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>EDYTUJ</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: '#e3383520', borderWidth: 1.5, borderColor: '#e3383540', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                onPress={handleDelete}
-                disabled={deleting}
-              >
-                {deleting
-                  ? <ActivityIndicator size="small" color="#e33835" />
-                  : <>
-                      <Feather name="trash-2" size={16} color="#e33835" />
-                      <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>USUŃ</Text>
-                    </>
-                }
-              </TouchableOpacity>
+            <View style={{ gap: 12, paddingBottom: 20 }}>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderColor: theme.primary, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                  onPress={() => router.push({ pathname: '/Community/market/add', params: { editId: String(listing.id) } } as any)}
+                >
+                  <Feather name="edit-2" size={16} color={theme.primary} />
+                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>EDYTUJ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: '#e3383520', borderWidth: 1.5, borderColor: '#e3383540', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                  onPress={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting
+                    ? <ActivityIndicator size="small" color="#e33835" />
+                    : <>
+                        <Feather name="trash-2" size={16} color="#e33835" />
+                        <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>USUŃ</Text>
+                      </>
+                  }
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, gap: 10 }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
+                  {listing.isPromoted ? 'PROMOWANIE AKTYWNE' : 'PROMUJ OGŁOSZENIE'}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, paddingVertical: 11, borderRadius: 10, backgroundColor: '#268bff20', borderWidth: 1, borderColor: '#268bff40', alignItems: 'center' }}
+                    onPress={() => handlePromote('week')}
+                    disabled={promoting}
+                  >
+                    <Text style={{ color: '#268bff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                      {promoting ? '...' : '7 DNI'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, paddingVertical: 11, borderRadius: 10, backgroundColor: '#FFD70020', borderWidth: 1, borderColor: '#FFD70040', alignItems: 'center' }}
+                    onPress={() => handlePromote('month')}
+                    disabled={promoting}
+                  >
+                    <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                      {promoting ? '...' : '30 DNI'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           ) : (
             <TouchableOpacity
