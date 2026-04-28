@@ -366,31 +366,6 @@ export default function HomeScreen() {
               <MaterialIcons name="arrow-forward-ios" size={18} color="#ffffff60" />
             </LinearGradient>
           </TouchableOpacity>
-
-          {/* Rząd 3 przycisków */}
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            {[
-              { icon: 'flag-checkered', lib: 'mci',  label: 'MEETY',   sub: 'Wydarzenia',  route: '/Community/meets/events', color: '#ff6b35' },
-              { icon: 'leaderboard',    lib: 'mi',   label: 'RANKING',  sub: 'Top gracze',  route: '/Community/Ranks/stats',  color: '#4de926' },
-              { icon: 'chat-bubble',    lib: 'mi',   label: 'CZAT',     sub: 'Znajomi',     route: '/(tabs)/community',       color: '#268bff' },
-            ].map(item => (
-              <TouchableOpacity
-                key={item.label}
-                onPress={() => router.push(item.route as any)}
-                activeOpacity={0.8}
-                style={{ flex: 1, backgroundColor: t.surface, borderRadius: 18, borderWidth: 1, borderColor: t.border, padding: 16, alignItems: 'center', gap: 8 }}
-              >
-                <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: item.color + '20', alignItems: 'center', justifyContent: 'center' }}>
-                  {item.lib === 'mci'
-                    ? <MaterialCommunityIcons name={item.icon as any} size={20} color={item.color} />
-                    : <MaterialIcons name={item.icon as any} size={20} color={item.color} />
-                  }
-                </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: t.text, fontWeight: '700', letterSpacing: 0.5 }}>{item.label}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: t.textDim }}>{item.sub}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
         </Animated.View>
         {/* ══════════════════════════════════════════════ */}
         {/* ANNOUNCEMENTS BANNER                           */}

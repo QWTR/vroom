@@ -26,8 +26,11 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
         "UIBackgroundModes": [
           "location",
+          "fetch",
+          "location",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
