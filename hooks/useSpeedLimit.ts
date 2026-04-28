@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 
 const OVERPASS         = 'https://overpass-api.de/api/interpreter';
-// Minimum distance (degrees, ~330 m) the user must move before re-fetching the
-// speed limit.  Raise to reduce Overpass API requests while driving on a straight road.
-const REFETCH_DIST_DEG = 0.003;   // ~330 m (was 0.0004 / ~44 m)
+// Minimum distance (degrees, ~90 m) the user must move before re-fetching the
+// speed limit. Smaller value is needed for dense urban roads.
+const REFETCH_DIST_DEG = 0.0008;  // ~90 m
 // Minimum time between Overpass requests regardless of movement.
 // Raise to cap query frequency on stop-and-go or oscillating GPS.
-const MIN_INTERVAL_MS  = 20_000;  // 20 s (was 6 s)
+const MIN_INTERVAL_MS  = 8_000;   // 8 s
 
 function parseLimit(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -62,9 +62,9 @@ export function useSpeedLimit(isActive: boolean) {
     try {
       const query = `
         [out:json][timeout:5];
-        way(around:25,${lat},${lng})[highway][maxspeed];
+        way(around:120,${lat},${lng})[highway][maxspeed];
         out tags 1;
-        way(around:25,${lat},${lng})[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service|unclassified)$"];
+        way(around:120,${lat},${lng})[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service|unclassified)$"];
         out tags 1;
       `;
 

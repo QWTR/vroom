@@ -140,6 +140,7 @@ const SEND_MAX_ELAPSED_MS = 20_000; // heartbeat: force-send after this long eve
 // (each hook also has its own internal throttle; this gate prevents even the
 //  cheap recalc/sort from running on every sub-second GPS tick)
 const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
+const CAMERA_SPEED_LIMIT_GATE_NAV_M = 10; // meters in driving/navigation
 
 // Reroute cooldown — avoids hammering Directions API while continuously off-route
 const REROUTE_COOLDOWN_MS = 30_000; // minimum ms between reroute requests
@@ -505,7 +506,10 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (!userLocation) return;
-    const { latitude: lat, longitude: lng } = userLocation;
+    const useDR = (isNavigating || isDriving) && drLatRef.current !== 0 && drLngRef.current !== 0;
+    const lat = useDR ? drLatRef.current : userLocation.latitude;
+    const lng = useDR ? drLngRef.current : userLocation.longitude;
+    const gateM = (isNavigating || isDriving) ? CAMERA_SPEED_LIMIT_GATE_NAV_M : CAMERA_SPEED_LIMIT_GATE_M;
 
     // Distance gate: skip if user hasn't moved CAMERA_SPEED_LIMIT_GATE_M since
     // last call. Both hooks have their own internal guards (useSpeedCameras:
@@ -514,7 +518,7 @@ export default function MapScreen() {
     if (lastCameraUpdateLocRef.current) {
       const movedM = haversineKm(lat, lng,
         lastCameraUpdateLocRef.current.lat, lastCameraUpdateLocRef.current.lng) * 1000;
-      if (movedM < CAMERA_SPEED_LIMIT_GATE_M) {
+      if (movedM < gateM) {
         if (DEBUG_NETWORK) console.log('[cameras/speedlimit] gate — moved only', movedM.toFixed(0), 'm');
         return;
       }
