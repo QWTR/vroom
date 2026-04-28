@@ -1022,31 +1022,9 @@ export default function MapScreen() {
       // ══ 4. Feed stats ════════════════════════════════════════
       feedSpeedSample(rawSpeedMs);
       feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
-      feedPosition(lat, lng, rawSpeedMs);
 
-      // ══ 5. Feed dystansu nawigacji ════════════════════════════
-      // Only accumulate nav distance while actually navigating — calling this
-      // unconditionally inflates _navDistKm during driving mode and causes
-      // massive overcounting when flushPendingKm(true) runs at nav end.
-      if (isNavigatingRef.current) {
-        if (lastNavLocRef.current) {
-          feedNavDistance(
-            lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
-            lat, lng,
-            kmh,
-          );
-        }
-        lastNavLocRef.current = { latitude: lat, longitude: lng };
-      }
-
-      // ══ 6. Dead reckoning — tylko nawigacja ══════════════════
-      if (isNavigatingRef.current) {
-        feedDR(
-          { latitude: lat, longitude: lng },
-          rawSpeedMs,
-          loc.heading ?? lastHeadingRef.current,
-        );
-      }
+      // ══ 5/6 moved below ═══════════════════════════════════════
+      // For navigation we update distance + DR after snapping to route.
 
       // ══ 7. Heading ═══════════════════════════════════════════
       // In driving mode, heading is derived from the movement vector
@@ -1089,6 +1067,7 @@ export default function MapScreen() {
         }
 
         const snapped = drivingSnap(lat, lng, kmh, false);
+        feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs);
 
         // ── Driving heading ────────────────────────────────────────────────────
         // Priority order:
@@ -1334,8 +1313,25 @@ export default function MapScreen() {
         const navPts = routePointsRef.current;
         if (navPts.length > 1) {
           const navSnapped = snapToRoute(lat, lng, navPts, 35);
+          // Distance/statistics for navigation should use snapped route position,
+          // not raw filtered GPS (reduces jitter overcount and missing km spikes).
+          feedPosition(navSnapped.latitude, navSnapped.longitude, rawSpeedMs);
+          if (lastNavLocRef.current) {
+            feedNavDistance(
+              lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
+              navSnapped.latitude, navSnapped.longitude,
+              kmh,
+            );
+          }
+          lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
+          feedDR(
+            { latitude: navSnapped.latitude, longitude: navSnapped.longitude },
+            rawSpeedMs,
+            loc.heading ?? lastHeadingRef.current,
+          );
           setUserLocation({ latitude: navSnapped.latitude, longitude: navSnapped.longitude });
         } else {
+          feedPosition(lat, lng, rawSpeedMs);
           setUserLocation({ latitude: lat, longitude: lng });
         }
       }
@@ -1900,6 +1896,7 @@ export default function MapScreen() {
   // ── handleArrived ─────────────────────────────────────────
   const handleArrived = useCallback(async () => {
     isNavigatingRef.current = false;
+    setNavigatingFlag(false).catch(() => {});
     stopDR();
     const finalStats = finishTrip();
     setTimeout(() => setTripStatsVisible(true), 2000);
@@ -2067,6 +2064,7 @@ export default function MapScreen() {
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async () => {
     isNavigatingRef.current = false;
+    setNavigatingFlag(false).catch(() => {});
     resetDRRefs();
 
     stopSimulation();

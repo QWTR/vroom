@@ -15,7 +15,7 @@ let _navDistKm    = 0;
 export function feedSpeedSample(speedMs: number | null) {
   if (speedMs == null || speedMs < 0) return;
   const kmh = speedMs * 3.6;
-  if (kmh < 1) return;
+  if (kmh < 1 || kmh > 260) return;
   _speedSamples.push(kmh);
   if (kmh > _speedMax) _speedMax = kmh;
 }
@@ -83,7 +83,8 @@ export async function setNavigatingFlag(active: boolean): Promise<void> {
 // ── BG task ───────────────────────────────────────────────────────────────────
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
   if (error || !data) return;
-  const location = data.locations?.[0];
+  const locations = Array.isArray(data.locations) ? data.locations : [];
+  const location = locations[locations.length - 1];
   if (!location) return;
 
   try {
@@ -103,7 +104,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate speed stats ────────────────────────────────────────────
-    if (speed != null && speed * 3.6 >= 1) {
+    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= 260) {
       const kmh        = speed * 3.6;
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples    = samplesRaw ? JSON.parse(samplesRaw) : [];
@@ -203,8 +204,8 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
         const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
         const bgPending    = parseFloat(bgPendingStr ?? '0');
-        // Take the larger of fg and bg measurements to avoid double-counting
-        const finalDist    = Math.max(distKm, bgPending);
+        // Foreground navigation is the source of truth; include only leftover bg drift.
+        const finalDist    = distKm + Math.max(0, bgPending - distKm);
 
         // Clear bg accumulators and navigation flag
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');

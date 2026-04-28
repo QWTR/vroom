@@ -9,7 +9,7 @@ interface CameraParams {
   altitude?: number;
 }
 
-const RETURN_TO_USER_MS    = 5000;
+const RETURN_TO_USER_MS    = 6000;
 const NAV_LOOKAHEAD_METERS = 80;
 
 function offsetCenter(
@@ -56,7 +56,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const lastDRPosRef    = useRef<CameraParams | null>(null);
 
   const lastLiveCallRef = useRef(0);
-  const LIVE_INTERVAL_MS = 60;
+  const LIVE_INTERVAL_MS = 110;
 
   function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
     lastHeadingRef.current = params.heading;
@@ -172,7 +172,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       haversineSimple(
         params.center.latitude,  params.center.longitude,
         lastCenterRef.current.latitude, lastCenterRef.current.longitude,
-      ) > 0.000003;
+      ) > 0.003;
 
     if (!posChanged && hdgDiff < 0.3) return;
 

@@ -30,7 +30,7 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (kmh > 1) speedSamples.current.push(kmh); // ignoruj postoje
+    if (kmh > 1 && kmh <= 260) speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
   }, []);
 
   const feedPosition = useCallback((lat: number, lng: number, speedMs?: number) => {
@@ -44,7 +44,7 @@ export function useTripStats() {
 
     // Use a proper Haversine distance instead of the old axis-independent check.
     // Minimum 10 m avoids accumulating GPS jitter while stationary.
-    // Maximum 1 km rejects GPS teleportation while allowing highway updates at low frequencies.
+    // Maximum 2 km rejects GPS teleportation while allowing low-frequency highway updates.
     const R     = 6371;
     const dLatR = (lat - last.latitude)  * Math.PI / 180;
     const dLngR = (lng - last.longitude) * Math.PI / 180;
@@ -54,7 +54,7 @@ export function useTripStats() {
       Math.sin(dLngR / 2) ** 2;
     const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    if (distKm < 0.010 || distKm > 1.0) return; // < 10 m or > 1 km → skip
+    if (distKm < 0.010 || distKm > 2.0) return; // < 10 m or > 2 km → skip
 
     pts.push({ latitude: lat, longitude: lng });
     distanceRef.current += distKm;
