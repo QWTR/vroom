@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image,
@@ -20,6 +20,8 @@ import { useTheme }     from '../../contexts/ThemeContext';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
+import { usePremium }               from '../../contexts/PremiumContext';
+import ColorPicker                  from 'react-native-wheel-color-picker';
 
 const RED = '#e33835';
 
@@ -49,6 +51,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { theme, isDark, mode, setMode } = useTheme();
   const { settings, loading: settingsLoading, updateSetting } = useSettings();
+  const { isPremium } = usePremium();
 
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = isDark ? '#090909'   : '#f0f2f5';
@@ -82,6 +85,22 @@ export default function SettingsScreen() {
   const [bugCategory,        setBugCategory]        = useState('');
   const [bugDescription,     setBugDescription]     = useState('');
   const [bugPhotos,          setBugPhotos]          = useState<string[]>([]);
+
+  // ── Nick color (premium) ──────────────────────────────
+  const [nickColor,          setNickColor]          = useState<string>('#ffffff');
+  const [colorPickerVisible, setColorPickerVisible] = useState(false);
+  const [nickColorLoading,   setNickColorLoading]   = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('user').then(raw => {
+      if (raw) {
+        try {
+          const u = JSON.parse(raw);
+          if (u.nickColor) setNickColor(u.nickColor);
+        } catch {}
+      }
+    });
+  }, []);
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
@@ -146,6 +165,35 @@ export default function SettingsScreen() {
       Toast.show({ type: 'success', text1: '🐛 ZGŁOSZENIE WYSŁANE' });
     } catch { Toast.show({ type: 'error', text1: 'Błąd wysyłania zgłoszenia' }); }
     finally { setBugLoading(false); }
+  };
+
+  const handleNickColorSave = async (color: string) => {
+    setNickColorLoading(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/profile/nick-color`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickColor: color }),
+      });
+      if (res.ok) {
+        setNickColor(color);
+        setColorPickerVisible(false);
+        const raw = await AsyncStorage.getItem('user');
+        if (raw) {
+          try {
+            const u = JSON.parse(raw);
+            u.nickColor = color;
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+          } catch {}
+        }
+        Toast.show({ type: 'success', text1: '✅ Kolor nicku zapisany!' });
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+    } finally {
+      setNickColorLoading(false);
+    }
   };
 
   // ── Sub-components (wewnątrz — mają dostęp do kolorów) ─
@@ -330,6 +378,29 @@ export default function SettingsScreen() {
             <Row icon="email"          iconBg={RED} label="Zmień e-mail"   sublabel="Zaktualizuj adres e-mail"         onPress={() => router.push('/profile/change-email')} last />
           </Card>
 
+          {/* PREMIUM */}
+          {isPremium && (
+            <>
+              <SectionLabel title="PREMIUM" />
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: cardBg, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 12 }}
+                onPress={() => setColorPickerVisible(true)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFD70015', borderWidth: 1, borderColor: '#FFD70030', alignItems: 'center', justifyContent: 'center' }}>
+                    <MaterialIcons name="palette" size={18} color="#FFD700" />
+                  </View>
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', color: textMain, fontSize: 10, fontWeight: '700' }}>KOLOR NICKU</Text>
+                    <Text style={{ fontFamily: 'Orbitron', color: textDim, fontSize: 7, marginTop: 2 }}>Twój nick w wybranym kolorze w czacie</Text>
+                  </View>
+                </View>
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: nickColor, borderWidth: 2, borderColor: '#FFD70060' }} />
+              </TouchableOpacity>
+            </>
+          )}
+
           {/* PRYWATNOŚĆ */}
           <SectionLabel title="PRYWATNOŚĆ" />
           <Card>
@@ -509,6 +580,51 @@ export default function SettingsScreen() {
       </Modal>
 
       <CustomThemeEditor visible={themeEditorVisible} onClose={() => setThemeEditorVisible(false)} />
+
+      {/* ══ MODAL KOLOR NICKU ══ */}
+      <Modal visible={colorPickerVisible} transparent animationType="slide" onRequestClose={() => setColorPickerVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: isDark ? '#111' : '#f8f8f8', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0, borderColor: '#FFD70030' }}>
+            <View style={{ width: 40, height: 4, backgroundColor: isDark ? '#ffffff25' : '#00000020', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: isDark ? '#fff' : '#000', fontWeight: '900', letterSpacing: 1, marginBottom: 4 }}>KOLOR NICKU</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 20 }}>PREMIUM · WŁASNY STYL</Text>
+
+            <View style={{ backgroundColor: isDark ? '#1a1a1a' : '#f0f0f0', borderRadius: 12, padding: 12, marginBottom: 20, alignItems: 'center' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: nickColor, fontWeight: '700' }}>Podgląd nicku</Text>
+            </View>
+
+            <View style={{ height: 280 }}>
+              <ColorPicker
+                color={nickColor}
+                onColorChangeComplete={(color: string) => setNickColor(color)}
+                thumbSize={30}
+                sliderSize={30}
+                noSnap
+                row={false}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+                onPress={() => setColorPickerVisible(false)}
+              >
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: isDark ? '#ffffff60' : '#00000060' }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 2, backgroundColor: '#FFD700', borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+                onPress={() => handleNickColorSave(nickColor)}
+                disabled={nickColorLoading}
+              >
+                {nickColorLoading
+                  ? <ActivityIndicator color="#000" size="small" />
+                  : <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#000', fontWeight: '900' }}>ZAPISZ KOLOR</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }

@@ -488,7 +488,7 @@ export default function CommunityScreen() {
                         borderWidth: 1, borderColor: theme.border,
                       }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>{item.author.username}</Text>
+                          <Text style={{ fontFamily: 'Orbitron', color: item.author.nickColor ?? theme.text, fontSize: 10, fontWeight: '700' }}>{item.author.username}</Text>
                           <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}
                           </Text>

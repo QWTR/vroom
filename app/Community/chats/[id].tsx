@@ -43,6 +43,7 @@ interface ChatUser {
   username:  string;
   avatarUrl: string | null;
   online?:   boolean;
+  nickColor?: string | null;
 }
 
 interface Message {
@@ -331,7 +332,7 @@ export default function ChatScreen() {
         {routeData ? (
           <View style={isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }}>
             {showName && (
-              <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
+              <Text style={{ color: item.sender.nickColor ?? '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
                 {item.sender.username}
               </Text>
             )}
@@ -353,7 +354,7 @@ export default function ChatScreen() {
               activeOpacity={0.85}
             >
               {showName && (
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
+                <Text style={{ color: item.sender.nickColor ?? '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
                   {item.sender.username}
                 </Text>
               )}
