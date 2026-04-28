@@ -14,7 +14,7 @@ import { useTheme }           from '../../../contexts/ThemeContext';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // ─── Types ────────────────────────────────────────────────
-export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; }
+export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; }
 export interface Comment      { id: number; content: string; photos: string[]; createdAt: string; author: Author; replyTo?: { id: number; username: string } | null; }
 export interface Post         { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; }
 export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }

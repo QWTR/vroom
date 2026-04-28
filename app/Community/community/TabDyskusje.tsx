@@ -66,6 +66,11 @@ const PostCard = React.memo(({
                 <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                   {post.author.username}
                 </Text>
+                {post.author.isPremium && (
+                  <View style={{ backgroundColor: '#FFD70020', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70040', paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ fontFamily: 'Orbitron', color: '#FFD700', fontSize: 8 }}>PREMIUM</Text>
+                  </View>
+                )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#e3383515', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
                   <MaterialIcons name="bolt" size={10} color="#e33835" />
                   <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{post.author.points}</Text>

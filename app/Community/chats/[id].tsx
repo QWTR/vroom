@@ -43,6 +43,7 @@ interface ChatUser {
   username:  string;
   avatarUrl: string | null;
   online?:   boolean;
+  isPremium?: boolean;
 }
 
 interface Message {
@@ -331,9 +332,16 @@ export default function ChatScreen() {
         {routeData ? (
           <View style={isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }}>
             {showName && (
-              <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
-                {item.sender.username}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                  {item.sender.username}
+                </Text>
+                {item.sender.isPremium && (
+                  <View style={{ backgroundColor: '#FFD7001f', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70045', paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 7 }}>PREMIUM</Text>
+                  </View>
+                )}
+              </View>
             )}
             <RouteMessageCard data={routeData} isMe={isMe} onNavigate={handleNavigateRoute} />
             <Text style={{ fontSize: 9, alignSelf: 'flex-end', marginTop: 2, color: isDark ? '#ffffff40' : '#00000040' }}>
@@ -353,9 +361,16 @@ export default function ChatScreen() {
               activeOpacity={0.85}
             >
               {showName && (
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
-                  {item.sender.username}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                    {item.sender.username}
+                  </Text>
+                  {item.sender.isPremium && (
+                    <View style={{ backgroundColor: '#FFD7001f', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70045', paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 7 }}>PREMIUM</Text>
+                    </View>
+                  )}
+                </View>
               )}
 
               {item.replyTo && (

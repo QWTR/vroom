@@ -19,6 +19,7 @@ interface RankUser {
   position: number;
   score:    number;
   sub:      string;
+  isPremium?: boolean;
 }
 
 const PERIODS   = ['Dziś', 'Tydzień', 'Miesiąc', 'Wszystko'] as const;
@@ -164,6 +165,11 @@ export default function StatsScreen() {
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, marginBottom: 3, textAlign: 'center' }} numberOfLines={1}>
                       {u.username}
                     </Text>
+                    {u.isPremium && (
+                      <View style={{ marginBottom: 6, backgroundColor: '#FFD70020', borderRadius: 10, borderWidth: 1, borderColor: '#FFD70040', paddingHorizontal: 7, paddingVertical: 2 }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PREMIUM</Text>
+                      </View>
+                    )}
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isFirst ? '#e33835' : theme.textDim, marginBottom: 8 }}>
                       {u.score.toLocaleString('pl-PL')} {scoreLabel}
                     </Text>
@@ -209,9 +215,16 @@ export default function StatsScreen() {
                       }
                     </View>
                     <View>
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12 }}>
                         {u.username}{isMe ? ' (Ty)' : ''}
-                      </Text>
+                        </Text>
+                        {u.isPremium && (
+                          <View style={{ backgroundColor: '#FFD70018', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70035', paddingHorizontal: 6, paddingVertical: 2 }}>
+                            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PREMIUM</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, marginTop: 2 }}>{u.sub}</Text>
                     </View>
                   </View>

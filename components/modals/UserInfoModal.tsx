@@ -52,7 +52,14 @@ export const UserInfoModal = memo(
               </View>
 
               <View style={styles.userInfoHeaderText}>
-                <Text style={styles.userInfoName}>{user.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.userInfoName}>{user.name}</Text>
+                  {user.isPremium && (
+                    <View style={{ backgroundColor: '#FFD70018', borderRadius: 10, borderWidth: 1, borderColor: '#FFD70040', paddingHorizontal: 7, paddingVertical: 2 }}>
+                      <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 8 }}>PREMIUM</Text>
+                    </View>
+                  )}
+                </View>
                 <View style={styles.userInfoStatusRow}>
                   <View style={[
                     styles.userInfoStatusDot,

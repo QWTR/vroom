@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import { usePremium } from '../contexts/PremiumContext';
 
 export type GiftData = {
   id:          number;
@@ -17,6 +18,7 @@ const getToken = async () =>
 export function useGifts() {
   const [gifts,   setGifts]   = useState<GiftData[]>([]);
   const [loading, setLoading] = useState(false);
+  const { refreshPremiumStatus } = usePremium();
 
   const fetchAvailableGifts = useCallback(async () => {
     setLoading(true);
@@ -45,12 +47,14 @@ export function useGifts() {
       });
       if (!res.ok) return false;
       setGifts(prev => prev.filter(g => g.id !== giftId));
+      // Gift mógł przyznać premium -> odśwież status natychmiast po claimie.
+      await refreshPremiumStatus();
       return true;
     } catch (e) {
       console.log('claimGift error:', e);
       return false;
     }
-  }, []);
+  }, [refreshPremiumStatus]);
 
   return { gifts, loading, fetchAvailableGifts, claimGift };
 }

@@ -45,54 +45,55 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
 
   // Sprawdź premium z RevenueCat ORAZ backendu
   const refreshPremiumStatus = useCallback(async () => {
-    try {
-      let rcPremium = false;
+    let rcPremium = false;
+    let backendPremium = false;
 
-      if (Purchases) {
+    // RevenueCat jest opcjonalny — jego błąd nie może wyłączać premium z backendu (gifty/admin).
+    if (Purchases) {
+      try {
         const info: CustomerInfo = await Purchases.getCustomerInfo();
         setCustomerInfo(info);
         rcPremium = !!info?.entitlements?.active?.['premium'];
-      }
-
-      // Sprawdź backend
-      let backendPremium = false;
-      try {
-        const token =
-          (await AsyncStorage.getItem('userToken')) ??
-          (await AsyncStorage.getItem('token'));
-        if (token) {
-          const res = await fetch(`${API_URL}/api/premium/status`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            backendPremium = !!data?.isPremium;
-          }
-        }
       } catch {}
-
-      setIsPremium(rcPremium || backendPremium);
-    } catch {
-      setIsPremium(false);
     }
+
+    // Sprawdź backend
+    try {
+      const token =
+        (await AsyncStorage.getItem('userToken')) ??
+        (await AsyncStorage.getItem('token'));
+      if (token) {
+        const res = await fetch(`${API_URL}/api/premium/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          backendPremium = !!data?.isPremium;
+        }
+      }
+    } catch {}
+
+    setIsPremium(rcPremium || backendPremium);
   }, []);
 
   // Inicjalizacja SDK + logowanie usera
   useEffect(() => {
     (async () => {
       try {
-        if (!Purchases) return;
-        Purchases.configure({ apiKey: RC_API_KEY });
+        if (Purchases) {
+          Purchases.configure({ apiKey: RC_API_KEY });
 
-        const raw = await AsyncStorage.getItem('user');
-        if (raw) {
-          const user = JSON.parse(raw);
-          const uid  = user.userId ?? user.id;
-          if (uid) {
-            await Purchases.logIn(String(uid)).catch(() => {});
+          const raw = await AsyncStorage.getItem('user');
+          if (raw) {
+            const user = JSON.parse(raw);
+            const uid  = user.userId ?? user.id;
+            if (uid) {
+              await Purchases.logIn(String(uid)).catch(() => {});
+            }
           }
         }
 
+        // ZAWSZE sprawdzaj backend premium (gifty/admin), nawet jeśli RevenueCat nie działa.
         await refreshPremiumStatus();
       } catch {
       } finally {
