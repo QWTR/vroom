@@ -11,6 +11,7 @@ import { Feather }            from '@expo/vector-icons';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
+import { usePremium }         from '../../../contexts/PremiumContext';
 import { API_URL }            from '../../../constants/config';
 
 import ClubCard               from '../../../components/clubs/ClubCard';
@@ -26,6 +27,7 @@ const PAGE     = 20;
 export default function ClubsScreen() {
   const router    = useRouter();
   const { theme } = useTheme();
+  const { isPremium } = usePremium();
 
   const [myId, setMyId] = useState<number | null>(null);
 
@@ -323,7 +325,13 @@ export default function ClubsScreen() {
             paddingHorizontal: 11, paddingVertical: 7,
             flexDirection: 'row', alignItems: 'center', gap: 4,
           }}
-          onPress={() => setCreateVisible(true)}
+          onPress={() => {
+            if (!isPremium && myOwnedClub) {
+              router.push('/premium' as any);
+              return;
+            }
+            setCreateVisible(true);
+          }}
         >
           <MaterialIcons name="add" size={15} color="#fff" />
           <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>NOWY</Text>
@@ -489,7 +497,13 @@ export default function ClubsScreen() {
                     paddingHorizontal: 20, paddingVertical: 11,
                     flexDirection: 'row', alignItems: 'center', gap: 7,
                   }}
-                  onPress={() => setCreateVisible(true)}
+                  onPress={() => {
+                    if (!isPremium && myOwnedClub) {
+                      router.push('/premium' as any);
+                      return;
+                    }
+                    setCreateVisible(true);
+                  }}
                 >
                   <MaterialIcons name="add" size={15} color="#fff" />
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>

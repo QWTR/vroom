@@ -9,7 +9,9 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { usePremium } from '../../../contexts/PremiumContext';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 
@@ -74,15 +76,20 @@ function formatDate(iso: string) {
 export default function MarketScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { isPremium } = usePremium();
 
-  const [listings,    setListings]    = useState<Listing[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing,  setRefreshing]  = useState(false);
-  const [hasMore,     setHasMore]     = useState(true);
-  const [cursor,      setCursor]      = useState<number | null>(null);
-  const [search,      setSearch]      = useState('');
-  const [filterVisible, setFilterVisible] = useState(false);
+  const FREE_LISTING_LIMIT    = 1;
+  const PREMIUM_LISTING_LIMIT = 5;
+
+  const [listings,       setListings]       = useState<Listing[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [loadingMore,    setLoadingMore]    = useState(false);
+  const [refreshing,     setRefreshing]     = useState(false);
+  const [hasMore,        setHasMore]        = useState(true);
+  const [cursor,         setCursor]         = useState<number | null>(null);
+  const [search,         setSearch]         = useState('');
+  const [filterVisible,  setFilterVisible]  = useState(false);
+  const [myListingsCount, setMyListingsCount] = useState<number | null>(null);
   const [filters, setFilters] = useState<Filters>({
     category: 'wszystkie',
     priceMin: '', priceMax: '',
@@ -100,6 +107,21 @@ export default function MarketScreen() {
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+
+  const fetchMyListingsCount = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const raw   = await AsyncStorage.getItem('user');
+      if (!raw) return;
+      const myId  = JSON.parse(raw).userId ?? JSON.parse(raw).id;
+      const res   = await fetch(`${API_URL}/api/market?sellerId=${myId}&limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data  = await res.json();
+      const list  = data.listings ?? (Array.isArray(data) ? data : []);
+      setMyListingsCount(list.length);
+    } catch {}
+  }, []);
 
   const fetchListings = useCallback(async (reset = true, q = search, f = filters) => {
     if (fetchingRef.current) return;
@@ -166,6 +188,7 @@ export default function MarketScreen() {
 
   useFocusEffect(useCallback(() => {
     fetchListings(true);
+    fetchMyListingsCount();
   }, []));
 
   const handleSearch = (q: string) => {
@@ -302,6 +325,22 @@ export default function MarketScreen() {
             <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 4 }}>VROOM</Text>
             <Text style={{ color: theme.text, fontSize: 22, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>GIEŁDA</Text>
           </View>
+          {myListingsCount !== null && (
+            <TouchableOpacity
+              onPress={() => !isPremium && myListingsCount >= FREE_LISTING_LIMIT ? router.push('/premium' as any) : undefined}
+              activeOpacity={isPremium ? 1 : 0.7}
+            >
+              <View style={{ backgroundColor: theme.surface, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
+                <Text style={{ color: myListingsCount >= (isPremium ? PREMIUM_LISTING_LIMIT : FREE_LISTING_LIMIT) ? '#e33835' : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
+                  {myListingsCount}/{isPremium ? PREMIUM_LISTING_LIMIT : FREE_LISTING_LIMIT}
+                </Text>
+                {!isPremium && myListingsCount >= FREE_LISTING_LIMIT && (
+                  <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>UPGRADE</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Search + filter */}

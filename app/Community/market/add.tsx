@@ -149,6 +149,12 @@ export default function AddListingScreen() {
         body: formData,
       });
 
+      if (r.status === 402) {
+        Toast.show({ type: 'error', text1: '🔒 Limit ogłoszeń', text2: 'Odblokuj Premium aby dodawać więcej ogłoszeń' });
+        router.push('/premium' as any);
+        return;
+      }
+
       if (!r.ok) throw new Error('Błąd zapisu');
 
       Toast.show({ type: 'success', text1: isEdit ? '✅ Ogłoszenie zaktualizowane' : '✅ Ogłoszenie dodane', text2: 'Pomyślnie!' });

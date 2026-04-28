@@ -31,14 +31,23 @@ export default function ProfileScreen() {
   const { routes,  loading: rLoad, fetchMyRoutes, deleteRoute }  = useMyRoutes();
   const { routes: participatedRoutes, loading: prLoad, fetchParticipated } = useParticipatedRoutes();
 
-  const [shareRoute, setShareRoute] = useState<MyRoute | null>(null);
-  const [myId,       setMyId]       = useState<number | null>(null);
+  const [shareRoute,          setShareRoute]          = useState<MyRoute | null>(null);
+  const [myId,                setMyId]                = useState<number | null>(null);
+  const [locationFriendsOnly, setLocationFriendsOnly] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
       if (raw) setMyId(JSON.parse(raw).userId ?? null);
     });
+    AsyncStorage.getItem('locationFriendsOnly').then(v => {
+      setLocationFriendsOnly(v === 'true');
+    });
   }, []);
+
+  const handleLocationFriendsOnly = async (v: boolean) => {
+    setLocationFriendsOnly(v);
+    await AsyncStorage.setItem('locationFriendsOnly', String(v));
+  };
 
   useEffect(() => {
     (async () => {
@@ -132,6 +141,9 @@ export default function ProfileScreen() {
         participatedRoutes={participatedRoutes}
         participatedRoutesLoading={prLoad}
         onNavigateParticipated={handleNavigateParticipated}
+        isPremium={isPremium}
+        locationFriendsOnly={locationFriendsOnly}
+        onLocationFriendsOnlyChange={handleLocationFriendsOnly}
         carLimitBanner={showCarLimit ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 4 }}>
             <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
