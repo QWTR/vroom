@@ -489,6 +489,20 @@ export default function ClubChatScreen() {
   const ownerGroup = members.filter((m: any) => m.role === 'owner');
   const rankedGroup = members.filter((m: any) => m.role !== 'owner' && !!m.rank);
   const memberGroup = members.filter((m: any) => m.role !== 'owner' && !m.rank);
+  const rankSections = Object.values(
+    rankedGroup.reduce((acc: any, m: any) => {
+      const key = m.rank?.name ?? 'Ranga';
+      if (!acc[key]) acc[key] = { title: key.toUpperCase(), data: [] };
+      acc[key].data.push(m);
+      return acc;
+    }, {}),
+  );
+  const categorySections = [...categories]
+    .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+    .map((c: any) => ({
+      ...c,
+      channels: channels.filter((ch: any) => ch.categoryId === c.id).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)),
+    }));
 
   const openMemberActions = (m: any) => {
     const actions: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [
@@ -582,35 +596,6 @@ export default function ClubChatScreen() {
           )}
         </View>
 
-        {channels.length > 0 && (
-          <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingBottom: 8 }}>
-            <FlatList
-              horizontal
-              data={channels}
-              keyExtractor={(c) => String(c.id)}
-              contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
-              showsHorizontalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  onPress={() => setActiveChannelId(item.id)}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    backgroundColor: activeChannelId === item.id ? `${theme.primary}25` : theme.surface2,
-                    borderWidth: 1,
-                    borderColor: activeChannelId === item.id ? theme.primary : theme.border,
-                  }}
-                >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activeChannelId === item.id ? theme.primary : theme.textDim }}>
-                    # {item.name}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        )}
-
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 6, backgroundColor: theme.surface }}>
           <TouchableOpacity onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}>
             <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.primary : theme.textDim }}>UŻYTKOWNICY</Text>
@@ -635,7 +620,7 @@ export default function ClubChatScreen() {
           <View style={{ width: SCREEN_W, paddingHorizontal: 12, paddingTop: 8 }}>
             {[
               { title: 'WŁAŚCICIEL', data: ownerGroup },
-              { title: 'RANGI', data: rankedGroup },
+              ...rankSections,
               { title: 'CZŁONKOWIE', data: memberGroup },
             ].map(section => (
               <View key={section.title} style={{ marginBottom: 12 }}>
@@ -654,6 +639,35 @@ export default function ClubChatScreen() {
           </View>
 
           <View style={{ width: SCREEN_W }}>
+        <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+          {categorySections.map((cat: any) => (
+            <View key={cat.id} style={{ marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 4 }}>
+                {cat.name.toUpperCase()}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {cat.channels.map((ch: any) => (
+                  <TouchableOpacity
+                    key={ch.id}
+                    onPress={() => setActiveChannelId(ch.id)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      backgroundColor: activeChannelId === ch.id ? `${theme.primary}25` : theme.surface2,
+                      borderWidth: 1,
+                      borderColor: activeChannelId === ch.id ? theme.primary : theme.border,
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: activeChannelId === ch.id ? theme.primary : theme.textDim }}>
+                      # {ch.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
         {/* PINNED PANEL */}
         {showPinned && pinned.length > 0 && (
           <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
