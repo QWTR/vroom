@@ -44,6 +44,7 @@ interface ChatUser {
   avatarUrl: string | null;
   online?:   boolean;
   isPremium?: boolean;
+  nickColor?: string | null;
 }
 
 interface Message {
@@ -333,7 +334,7 @@ export default function ChatScreen() {
           <View style={isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }}>
             {showName && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                   {item.sender.username}
                 </Text>
                 {item.sender.isPremium && (
@@ -362,7 +363,7 @@ export default function ChatScreen() {
             >
               {showName && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                  <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                     {item.sender.username}
                   </Text>
                   {item.sender.isPremium && (

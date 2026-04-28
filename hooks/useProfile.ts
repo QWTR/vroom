@@ -34,6 +34,11 @@ function mapToProfile(u: any): UserProfile {
     cityCount:     u.cityCount     ?? 0,
     position:      u.position      ?? null,
     isPremium:     !!u.isPremium,
+    premiumExpiresAt: u.premiumExpiresAt ?? null,
+    nickColor: u.nickColor ?? null,
+    profileThemePreset: u.profileThemePreset ?? 'default',
+    avatarFramePreset: u.avatarFramePreset ?? 'vroom',
+    accountTheme: u.accountTheme ?? null,
     club:          u.club          ?? null,
     followersCount: u.followersCount ?? 0,  
     followingCount: u.followingCount ?? 0,  
@@ -46,6 +51,9 @@ export function useProfile() {
   const [loading,       setLoading]       = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
+  const [activityHistory, setActivityHistory] = useState<any[]>([]);
+  const [monthlyStats, setMonthlyStats] = useState<any[]>([]);
+  const [monthlyCompare, setMonthlyCompare] = useState<any | null>(null);
 
   // ── Własny profil ─────────────────────────────────────
   const fetchProfile = useCallback(async () => {
@@ -187,8 +195,44 @@ export function useProfile() {
     }
   }, []);
 
+  const fetchActivityHistory = useCallback(async (opts?: { page?: number; includeRoute?: boolean }) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const page = opts?.page ?? 1;
+      const includeRoute = opts?.includeRoute ? 'true' : 'false';
+      const res = await fetch(`${API_URL}/api/activity/history?page=${page}&limit=20&includeRoute=${includeRoute}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setActivityHistory(data.items ?? []);
+    } catch {}
+  }, []);
+
+  const fetchMonthlyStats = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const [statsRes, compareRes] = await Promise.all([
+        fetch(`${API_URL}/api/activity/monthly-stats?months=12`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/activity/monthly-compare`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setMonthlyStats(data.stats ?? []);
+      }
+      if (compareRes.ok) {
+        const data = await compareRes.json();
+        setMonthlyCompare(data);
+      }
+    } catch {}
+  }, []);
+
   return {
     profile, loading, avatarLoading, error,
+    activityHistory, monthlyStats, monthlyCompare,
     fetchProfile, fetchPublicProfile, updateProfile, uploadAvatar,
+    fetchActivityHistory, fetchMonthlyStats,
   };
 }

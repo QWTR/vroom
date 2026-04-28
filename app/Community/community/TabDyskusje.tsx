@@ -63,7 +63,7 @@ const PostCard = React.memo(({
           <View style={{ flex: 1, marginLeft: 10 }}>
             <TouchableOpacity onPress={() => onProfile(post.author.id)}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Orbitron', color: post.author.nickColor || theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                   {post.author.username}
                 </Text>
                 {post.author.isPremium && (

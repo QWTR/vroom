@@ -44,6 +44,9 @@ const MARKER_STYLES = [
   { key: 'arrow'   as const, label: 'STRZAŁKA',  icon: 'navigation' },
   { key: 'profile' as const, label: 'PROFILOWE', icon: 'account-circle' },
 ];
+const NICK_COLORS = ['#FFFFFF', '#FFD700', '#4DE926', '#38A5E3', '#A855F7', '#FF6B35'];
+const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon'] as const;
+const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -289,6 +292,52 @@ export default function SettingsScreen() {
                   </View>
                   <MaterialIcons name="chevron-right" size={18} color={textDim} />
                 </TouchableOpacity>
+              </>
+            )}
+          </Card>
+
+          <SectionLabel title="PREMIUM PERSONALIZACJA" />
+          <Card>
+            {!settings.isPremium ? (
+              <Row
+                icon="workspace-premium"
+                iconBg="#FFD700"
+                label="Dostępne w Premium"
+                sublabel="Nick color, motyw profilu, ramka avatara i sync motywu konta."
+                last
+              />
+            ) : (
+              <>
+                <View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>Kolor nicku</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {NICK_COLORS.map(c => (
+                      <TouchableOpacity key={c} onPress={() => updateSetting('nickColor', c)} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c, borderWidth: 2, borderColor: settings.nickColor === c ? RED : inputBorder }} />
+                    ))}
+                  </View>
+                </View>
+                <View style={{ height: 1, backgroundColor: divider, marginLeft: 16, marginRight: 16 }} />
+                <View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>Motyw profilu</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    {PROFILE_PRESETS.map(p => (
+                      <TouchableOpacity key={p} onPress={() => updateSetting('profileThemePreset', p)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: settings.profileThemePreset === p ? RED : inputBorder, backgroundColor: settings.profileThemePreset === p ? RED + '22' : rowAlt }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: settings.profileThemePreset === p ? RED : textDim }}>{p.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <View style={{ height: 1, backgroundColor: divider, marginLeft: 16, marginRight: 16 }} />
+                <View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>Ramka avatara</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    {FRAME_PRESETS.map(p => (
+                      <TouchableOpacity key={p} onPress={() => updateSetting('avatarFramePreset', p)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: settings.avatarFramePreset === p ? RED : inputBorder, backgroundColor: settings.avatarFramePreset === p ? RED + '22' : rowAlt }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: settings.avatarFramePreset === p ? RED : textDim }}>{p.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               </>
             )}
           </Card>

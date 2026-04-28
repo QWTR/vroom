@@ -106,6 +106,13 @@ export default function ProfileView({
   onBannerChange, bannerUploading = false,
 }: Props) {
   const { theme, isDark } = useTheme();
+  const profileThemePreset = profile?.profileThemePreset ?? 'default';
+  const heroPresetGradients: Record<string, string[]> = {
+    default: isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg],
+    midnight: isDark ? ['#060d1a', '#08080d', '#080808'] : ['#eaf0ff', '#eef2ff', theme.bg],
+    sunset: isDark ? ['#2a0a02', '#1b0705', '#080808'] : ['#ffe9dc', '#fff0e8', theme.bg],
+    neon: isDark ? ['#031a12', '#071211', '#080808'] : ['#ddfff3', '#e8fff7', theme.bg],
+  };
   const router = useRouter();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat();
   const { counts: followCounts } = useFollowCounts(profile?.id);
@@ -209,7 +216,7 @@ export default function ProfileView({
             />
           ) : (
             <LinearGradient
-              colors={isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg]}
+              colors={(heroPresetGradients[profileThemePreset] || heroPresetGradients.default) as any}
               start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
               style={{ ...StyleSheet.absoluteFillObject }}
             />
@@ -324,7 +331,7 @@ export default function ProfileView({
                 {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profile?.nickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                   {profile?.username ?? '—'}
                 </Text>
                 {isPremium && <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />}

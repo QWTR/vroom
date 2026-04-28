@@ -21,6 +21,11 @@ export interface UserProfile {
   cityCount: number;
   position: number | null;
   isPremium?: boolean;
+  premiumExpiresAt?: string | null;
+  nickColor?: string | null;
+  profileThemePreset?: string;
+  avatarFramePreset?: string;
+  accountTheme?: any;
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;

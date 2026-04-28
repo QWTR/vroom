@@ -16,6 +16,12 @@ export interface AppSettings {
   notifFollowedPosts:  boolean;
   locationMarkerStyle: 'arrow' | 'profile';
   friendsOnlyMessages: boolean;
+  nickColor?: string | null;
+  profileThemePreset?: string;
+  avatarFramePreset?: string;
+  accountTheme?: any;
+  isPremium?: boolean;
+  premiumExpiresAt?: string | null;
 }
 
 const DEFAULTS: AppSettings = {
@@ -32,6 +38,12 @@ const DEFAULTS: AppSettings = {
   notifFollowedPosts:  true,
   locationMarkerStyle: 'profile',
   friendsOnlyMessages: false,
+  nickColor: null,
+  profileThemePreset: 'default',
+  avatarFramePreset: 'vroom',
+  accountTheme: null,
+  isPremium: false,
+  premiumExpiresAt: null,
 };
 
 interface SettingsContextType {
@@ -69,6 +81,19 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setSettings({ ...DEFAULTS, ...data });
         await AsyncStorage.setItem('app_settings', JSON.stringify(data));
       }
+
+      if (token) {
+        const premiumRes = await fetch(`${API_URL}/api/settings/premium-ui`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (premiumRes.ok) {
+          const premiumData = await premiumRes.json();
+          setSettings(prev => ({ ...prev, ...premiumData }));
+          const cached = await AsyncStorage.getItem('app_settings');
+          const current = cached ? JSON.parse(cached) : {};
+          await AsyncStorage.setItem('app_settings', JSON.stringify({ ...current, ...premiumData }));
+        }
+      }
     } catch {
       const cached = await AsyncStorage.getItem('app_settings');
       if (cached) setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
@@ -97,7 +122,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-      await fetch(`${API_URL}/api/settings`, {
+      const res = await fetch(`${API_URL}/api/settings`, {
         method:  'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -105,6 +130,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({ [key]: value }),
       });
+      if (!res.ok) {
+        // rollback optimistic change if backend rejected (e.g. premium write by free user)
+        setSettings(prev => ({ ...prev, [key]: (DEFAULTS as any)[key] }));
+      }
     } catch (e) {
       console.log('updateSetting error:', e);
     }
