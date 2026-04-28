@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 
 interface MarkerRendererProps {
@@ -12,7 +13,7 @@ interface MarkerRendererProps {
 export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProps) => {
   const color       = user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isFriend ? '#4de92622' : '#00bfff22';
-  const borderColor = user.isFriend ? '#4de92650' : '#00bfff50';
+  const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92650' : '#00bfff50');
   const isUrl       = user.avatar?.startsWith('http');
 
   return (
@@ -57,21 +58,34 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
           </View>
 
           {/* Avatar lub inicjały */}
-          <View style={{
-            width: 40, height: 40, borderRadius: 20,
-            backgroundColor: bgColor, justifyContent: 'center',
-            alignItems: 'center', borderWidth: 1.5, borderColor, overflow: 'hidden',
-          }}>
-            {isUrl ? (
-              <Image
-                source={{ uri: user.avatar }}
-                style={{ width: 40, height: 40, borderRadius: 20 }}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={{ color, fontSize: 14, fontWeight: '700' }}>
-                {user.name?.slice(0, 2).toUpperCase() ?? '??'}
-              </Text>
+          <View style={{ position: 'relative' }}>
+            <View style={{
+              width: 40, height: 40, borderRadius: 20,
+              backgroundColor: bgColor, justifyContent: 'center',
+              alignItems: 'center', borderWidth: user.isPremium ? 3 : 1.5, borderColor, overflow: 'hidden',
+            }}>
+              {isUrl ? (
+                <Image
+                  source={{ uri: user.avatar }}
+                  style={{ width: 40, height: 40, borderRadius: 20 }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={{ color, fontSize: 14, fontWeight: '700' }}>
+                  {user.name?.slice(0, 2).toUpperCase() ?? '??'}
+                </Text>
+              )}
+            </View>
+            {user.isPremium && (
+              <View style={{
+                position: 'absolute', top: -6, right: -6,
+                backgroundColor: '#FFD700', borderRadius: 8,
+                width: 16, height: 16,
+                alignItems: 'center', justifyContent: 'center',
+                zIndex: 10,
+              }}>
+                <MaterialIcons name="workspace-premium" size={10} color="#000" />
+              </View>
             )}
           </View>
 
