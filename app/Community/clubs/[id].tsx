@@ -11,6 +11,7 @@ import { Feather }                from '@expo/vector-icons';
 import MaterialIcons              from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker           from 'expo-image-picker';
+import { LinearGradient }         from 'expo-linear-gradient';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
 import { io, Socket }             from 'socket.io-client';
 import Toast                      from 'react-native-toast-message';
@@ -200,8 +201,7 @@ export default function ClubChatScreen() {
 
   useEffect(() => {
     const seg = Dimensions.get('window').width / 3;
-    const scrollIdx = activePane === 'channels' ? 0 : activePane === 'chat' ? 1 : 2;
-    const tabBarIdx = 2 - scrollIdx;
+    const tabBarIdx = activePane === 'channels' ? 0 : activePane === 'chat' ? 1 : 2;
     Animated.spring(tabSlide, {
       toValue: tabBarIdx * seg,
       useNativeDriver: true,
@@ -513,7 +513,7 @@ export default function ClubChatScreen() {
   const ownerGroup = members.filter((m: any) => m.role === 'owner');
   const rankedGroup = members.filter((m: any) => m.role !== 'owner' && !!m.rank);
   const memberGroup = members.filter((m: any) => m.role !== 'owner' && !m.rank);
-  const rankSections = Object.values(
+  const rankSections: any[] = Object.values(
     rankedGroup.reduce((acc: any, m: any) => {
       const key = m.rank?.name ?? 'Ranga';
       if (!acc[key]) acc[key] = { title: key.toUpperCase(), data: [] };
@@ -639,17 +639,17 @@ export default function ClubChatScreen() {
           )}
         </View>
 
-        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-          <View style={{ flexDirection: 'row', paddingTop: 2 }}>
+        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingHorizontal: 8, paddingBottom: 8 }}>
+          <View style={{ flexDirection: 'row', paddingTop: 8, borderWidth: 1, borderColor: theme.border2, borderRadius: 14, backgroundColor: isDark ? '#141519' : theme.surface2 }}>
             <TouchableOpacity
               style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
-              onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: SCREEN_W * 2, animated: true }); }}
+              onPress={() => { setActivePane('channels'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}
             >
               <Text
-                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.text : theme.textDim, fontWeight: activePane === 'members' ? '800' : '600' }}
+                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'channels' ? theme.text : theme.textDim, fontWeight: activePane === 'channels' ? '800' : '600' }}
                 numberOfLines={1}
               >
-                UŻYTKOWNICY
+                CZATY
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -665,17 +665,17 @@ export default function ClubChatScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
-              onPress={() => { setActivePane('channels'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}
+              onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: SCREEN_W * 2, animated: true }); }}
             >
               <Text
-                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'channels' ? theme.text : theme.textDim, fontWeight: activePane === 'channels' ? '800' : '600' }}
+                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.text : theme.textDim, fontWeight: activePane === 'members' ? '800' : '600' }}
                 numberOfLines={1}
               >
-                CZATY
+                UŻYTKOWNICY
               </Text>
             </TouchableOpacity>
           </View>
-          <View style={{ height: 3, backgroundColor: theme.border2 }}>
+          <View style={{ height: 3, backgroundColor: 'transparent', marginTop: 6 }}>
             <Animated.View
               style={{
                 height: 3,
@@ -707,25 +707,30 @@ export default function ClubChatScreen() {
           <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 6, paddingTop: 10, paddingBottom: 40 }}
+              contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
             >
               {categorySections.map((cat: any) => (
-                <View key={cat.id} style={{ marginBottom: 4 }}>
+                <View key={cat.id} style={{ marginBottom: 10, borderRadius: 14, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', backgroundColor: isDark ? '#15171b' : theme.surface }}>
+                  <LinearGradient
+                    colors={isDark ? ['#1a1b20', '#131419'] : [theme.surface, theme.surface2]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ paddingVertical: 8, paddingHorizontal: 10 }}
+                  >
                   <Text
                     style={{
                       fontSize: 10,
                       fontWeight: '800',
                       letterSpacing: 0.6,
                       color: theme.textDim,
-                      marginBottom: 6,
-                      marginLeft: 6,
-                      marginTop: 4,
+                      marginBottom: 2,
                     }}
                   >
                     {cat.name.toUpperCase()}
                   </Text>
+                  </LinearGradient>
                   <View style={{ gap: 2 }}>
                     {cat.channels.map((ch: any) => {
                       const active = activeChannelId === ch.id;
@@ -743,11 +748,14 @@ export default function ClubChatScreen() {
                             alignItems: 'center',
                             paddingVertical: 6,
                             paddingHorizontal: 8,
-                            marginLeft: 2,
-                            borderRadius: 4,
-                            borderLeftWidth: 3,
-                            borderLeftColor: active ? theme.primary : 'transparent',
-                            backgroundColor: active ? `${theme.primary}18` : 'transparent',
+                            marginHorizontal: 6,
+                            marginBottom: 4,
+                            borderRadius: 10,
+                            borderLeftWidth: 1,
+                            borderLeftColor: active ? `${theme.primary}70` : theme.border,
+                            borderWidth: 1,
+                            borderColor: active ? `${theme.primary}55` : theme.border,
+                            backgroundColor: active ? `${theme.primary}16` : (isDark ? '#1b1d22' : theme.surface2),
                           }}
                         >
                           <MaterialCommunityIcons name="pound" size={16} color={active ? theme.text : theme.textDim} />
@@ -840,7 +848,7 @@ export default function ClubChatScreen() {
           <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 10, paddingBottom: 40 }}
+              contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
             >
@@ -849,19 +857,25 @@ export default function ClubChatScreen() {
               ...rankSections,
               { title: 'CZŁONKOWIE', data: memberGroup },
             ].map(section => (
-              <View key={section.title} style={{ marginBottom: 8 }}>
+              <View key={section.title} style={{ marginBottom: 10, borderRadius: 14, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', backgroundColor: isDark ? '#15171b' : theme.surface }}>
+                <LinearGradient
+                  colors={isDark ? ['#1a1b20', '#131419'] : [theme.surface, theme.surface2]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ paddingVertical: 8, paddingHorizontal: 10 }}
+                >
                 <Text
                   style={{
                     fontSize: 10,
                     fontWeight: '800',
                     letterSpacing: 0.6,
                     color: theme.textDim,
-                    marginBottom: 8,
-                    marginLeft: 4,
+                    marginBottom: 0,
                   }}
                 >
                   {section.title} ({section.data.length})
                 </Text>
+                </LinearGradient>
                 {section.data.map((m: any) => (
                   <TouchableOpacity
                     key={m.id}
@@ -870,11 +884,14 @@ export default function ClubChatScreen() {
                       flexDirection: 'row',
                       alignItems: 'center',
                       gap: 10,
-                      paddingVertical: 8,
-                      paddingHorizontal: 6,
-                      borderRadius: 6,
-                      marginBottom: 2,
-                      backgroundColor: isDark ? '#222327' : theme.surface,
+                      paddingVertical: 10,
+                      paddingHorizontal: 10,
+                      borderRadius: 10,
+                      marginHorizontal: 6,
+                      marginBottom: 4,
+                      backgroundColor: isDark ? '#1b1d22' : theme.surface2,
+                      borderWidth: 1,
+                      borderColor: theme.border,
                     }}
                   >
                     <UAv uri={m.avatarUrl} name={m.username} size={30} />
