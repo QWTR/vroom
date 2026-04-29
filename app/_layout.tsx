@@ -190,6 +190,14 @@ function RootLayoutInner() {
 
   // Notifications
   useEffect(() => {
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response?.notification?.request?.content?.data) {
+          handleNotificationNavigation(response.notification.request.content.data as any);
+        }
+      })
+      .catch(() => {});
+
     notifListener.current = Notifications.addNotificationReceivedListener(notification => {
       // Foreground: nie pokazujemy toastów z pushy (żadnych popupów w trakcie używania appki).
       // Powiadomienia dalej zapisują się w bazie i są w centrum powiadomień in-app.
@@ -206,9 +214,18 @@ function RootLayoutInner() {
       setTimeout(async () => {
         if (data.type === 'new_message' && data.conversationId)
           router.push(`/Community/chats/${data.conversationId}` as any);
-        else if ((data.type === 'like_post' || data.type === 'comment_post' || data.type === 'new_follow_post') && data.postId) {
+        else if (
+          (data.type === 'like_post' ||
+            data.type === 'comment_post' ||
+            data.type === 'new_follow_post' ||
+            data.type === 'mention_discussion') &&
+          data.postId
+        ) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));
           router.push(`/Community/community/community` as any);
+        } else if ((data.type === 'club_chat' || data.type === 'mention_club') && data.clubId) {
+          const channelQuery = data.channelId ? `?channelId=${data.channelId}` : '';
+          router.push(`/Community/clubs/${data.clubId}${channelQuery}` as any);
         } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId)
           router.push(`/(tabs)/map` as any);
         else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId)

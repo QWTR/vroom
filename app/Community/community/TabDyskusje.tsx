@@ -17,7 +17,7 @@ import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   type Post,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
-  extractUrl, renderDiscussionBody,
+  extractUrl, renderDiscussionBody, resolveMentionUserId,
 } from './communityShared';
 
 // ─────────────────────────────────────────────────────────
@@ -131,7 +131,12 @@ const PostCard = React.memo(({
         <TouchableOpacity activeOpacity={0.95} onPress={() => onComment(post)}>
           {!!plainText?.length && !routeData && (
             <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 12 }}>
-              {renderDiscussionBody(plainText, theme)}
+              {renderDiscussionBody(plainText, theme, {
+                onMentionPress: async (username) => {
+                  const uid = await resolveMentionUserId(username);
+                  if (uid) onProfile(uid);
+                },
+              })}
             </Text>
           )}
           {!!clubInviteData && (

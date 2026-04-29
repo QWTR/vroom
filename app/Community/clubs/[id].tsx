@@ -158,8 +158,9 @@ function MessageMenu({
 
 // ── Main Screen ───────────────────────────────────────────
 export default function ClubChatScreen() {
-  const { id }            = useLocalSearchParams<{ id: string }>();
-  const clubId            = parseInt(id);
+  const { id, channelId } = useLocalSearchParams<{ id: string; channelId?: string }>();
+  const clubId            = parseInt(String(id), 10);
+  const initialChannelId  = channelId ? parseInt(String(channelId), 10) : NaN;
   const router            = useRouter();
   const { theme, isDark } = useTheme();
   const insets            = useSafeAreaInsets();
@@ -254,7 +255,8 @@ export default function ClubChatScreen() {
         setCategories(s.categories ?? []);
         setChannels(s.channels ?? []);
         const general = (s.channels ?? []).find((c: any) => c.isDefaultGeneral) ?? (s.channels ?? [])[0];
-        setActiveChannelId(general?.id ?? null);
+        const hasInitial = Number.isFinite(initialChannelId) && (s.channels ?? []).some((c: any) => c.id === initialChannelId);
+        setActiveChannelId(hasInitial ? initialChannelId : (general?.id ?? null));
       }
 
       const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
@@ -290,7 +292,7 @@ export default function ClubChatScreen() {
       socketRef.current?.emit('club:leave', clubId);
       socketRef.current?.disconnect();
     };
-  }, [clubId]);
+  }, [clubId, initialChannelId]);
 
   const loadMessages = async (token: string, cur?: number, channelIdArg?: number) => {
     try {
@@ -481,8 +483,31 @@ export default function ClubChatScreen() {
                   item.content,
                   theme,
                   isMe
-                    ? { textColor: '#ffffff', mentionColor: '#b8e8ff', linkColor: '#9fd4ff' }
-                    : { textColor: theme.textMuted, mentionColor: '#4a9eff' },
+                    ? {
+                        textColor: '#ffffff',
+                        mentionColor: '#b8e8ff',
+                        linkColor: '#9fd4ff',
+                        onMentionPress: (username) => {
+                          const member = (clubData?.members ?? []).find(
+                            (m: any) => m.username?.toLowerCase() === username.toLowerCase(),
+                          );
+                          if (member?.userId) {
+                            router.push({ pathname: '/profile/[userId]', params: { userId: String(member.userId) } });
+                          }
+                        },
+                      }
+                    : {
+                        textColor: theme.textMuted,
+                        mentionColor: '#4a9eff',
+                        onMentionPress: (username) => {
+                          const member = (clubData?.members ?? []).find(
+                            (m: any) => m.username?.toLowerCase() === username.toLowerCase(),
+                          );
+                          if (member?.userId) {
+                            router.push({ pathname: '/profile/[userId]', params: { userId: String(member.userId) } });
+                          }
+                        },
+                      },
                 )}
               </Text>
             )}

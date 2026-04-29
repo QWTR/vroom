@@ -21,7 +21,7 @@ import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
   type Author, type Comment, type Post, type PublicRoute, type CommunityCar, type Tab,
   Avatar, PhotoViewer, LoadingView,
-  renderDiscussionBody, searchMentionUsers,
+  renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
 } from './communityShared';
 import { TabDyskusje } from './TabDyskusje';
 import { TabTrasy }    from './TabTrasy';
@@ -482,7 +482,13 @@ export default function CommunityScreen() {
                     <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 3 }}>{commentPost.author.username}</Text>
                     {commentPost.content.length > 0 && (
                       <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
-                        {renderDiscussionBody(commentPost.content, theme, { textColor: theme.textDim })}
+                        {renderDiscussionBody(commentPost.content, theme, {
+                          textColor: theme.textDim,
+                          onMentionPress: async (username) => {
+                            const uid = await resolveMentionUserId(username);
+                            if (uid) router.push({ pathname: '/profile/[userId]', params: { userId: String(uid) } });
+                          },
+                        })}
                       </Text>
                     )}
                     {commentPost.photos?.length > 0 && (
@@ -531,7 +537,12 @@ export default function CommunityScreen() {
                           </Text>
                         )}
                         <Text style={{ fontSize: 13, lineHeight: 19 }}>
-                          {renderDiscussionBody(item.content, theme)}
+                          {renderDiscussionBody(item.content, theme, {
+                            onMentionPress: async (username) => {
+                              const uid = await resolveMentionUserId(username);
+                              if (uid) router.push({ pathname: '/profile/[userId]', params: { userId: String(uid) } });
+                            },
+                          })}
                         </Text>
                         {item.photos?.length > 0 && (
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>

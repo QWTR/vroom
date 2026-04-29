@@ -54,7 +54,12 @@ export function renderTextWithLinks(content: string, baseStyle: object, linkColo
 export function renderDiscussionBody(
   content: string,
   theme: { textMuted: string },
-  opts?: { textColor?: string; mentionColor?: string; linkColor?: string },
+  opts?: {
+    textColor?: string;
+    mentionColor?: string;
+    linkColor?: string;
+    onMentionPress?: (username: string) => void;
+  },
 ) {
   const baseStyle = {
     color: opts?.textColor ?? theme.textMuted,
@@ -63,11 +68,17 @@ export function renderDiscussionBody(
   };
   const mentionColor = opts?.mentionColor ?? '#4a9eff';
   const linkColor = opts?.linkColor ?? '#4a9eff';
-  const parts = content.split(/(@[a-zA-Z0-9_.-]{2,32})/g);
+  const parts = content.split(/(@[a-zA-Z0-9_.-]+)/g);
   return parts.map((part, index) => {
-    if (part.startsWith('@')) {
+    if (/^@[a-zA-Z0-9_.-]+$/.test(part)) {
+      const username = part.slice(1);
       return (
-        <Text key={index} style={[baseStyle, { color: mentionColor, fontWeight: '700' }]}>
+        <Text
+          key={index}
+          style={[baseStyle, { color: mentionColor, fontWeight: '700' }]}
+          onPress={opts?.onMentionPress ? () => opts.onMentionPress?.(username) : undefined}
+          suppressHighlighting={false}
+        >
           {part}
         </Text>
       );
@@ -94,6 +105,14 @@ export async function searchMentionUsers(query: string): Promise<{ id: number; u
   } catch {
     return [];
   }
+}
+
+export async function resolveMentionUserId(username: string): Promise<number | null> {
+  const clean = username.trim().replace(/^@+/, '');
+  if (!clean) return null;
+  const list = await searchMentionUsers(clean);
+  const exact = list.find((u) => u.username.toLowerCase() === clean.toLowerCase());
+  return exact?.id ?? null;
 }
 
 // ─────────────────────────────────────────────────────────
