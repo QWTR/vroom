@@ -3,9 +3,12 @@ import {
   View, Text, FlatList, TouchableOpacity,
   KeyboardAvoidingView, Platform, RefreshControl,
 } from 'react-native';
+import AsyncStorage            from '@react-native-async-storage/async-storage';
+import Toast                   from 'react-native-toast-message';
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
+import { API_URL }             from '../../../constants/config';
 import { AdBanner }            from '../../../components/ads/AdBanner';
 import { BannerAdSize }        from 'react-native-google-mobile-ads';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
@@ -32,8 +35,10 @@ const PostCard = React.memo(({
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
+  const [joiningClub, setJoiningClub] = useState(false);
   const isOwn = post.author.id === myId;
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
+  const getToken = () => AsyncStorage.getItem('token');
 
   function parseRouteMessage(content: string) {
     try {
@@ -43,8 +48,40 @@ const PostCard = React.memo(({
     return null;
   }
 
+  function parseClubInviteMessage(content: string) {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed?.type === 'clubInvite' && parsed?.clubId && parsed?.clubName) return parsed;
+    } catch {}
+    return null;
+  }
+
   const routeData = parseRouteMessage(post.content);
-  const linkUrl   = !routeData ? extractUrl(post.content) : null;
+  const clubInviteData = parseClubInviteMessage(post.content);
+  const plainText = clubInviteData?.message ? String(clubInviteData.message) : post.content;
+  const linkUrl   = (!routeData && !clubInviteData) ? extractUrl(post.content) : null;
+
+  const handleJoinClub = async () => {
+    if (!clubInviteData?.clubId || joiningClub) return;
+    setJoiningClub(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/clubs/${clubInviteData.clubId}/join`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: data?.error ?? 'Nie udało się dołączyć' });
+        return;
+      }
+      Toast.show({ type: 'success', text1: `Dołączono do klubu ${clubInviteData.clubName}` });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } finally {
+      setJoiningClub(false);
+    }
+  };
 
   return (
     <>
@@ -92,13 +129,45 @@ const PostCard = React.memo(({
 
         {/* Treść */}
         <TouchableOpacity activeOpacity={0.95} onPress={() => onComment(post)}>
-          {post.content.length > 0 && (
+          {!!plainText?.length && (
             <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 12 }}>
               {renderTextWithLinks(
-                post.content,
+                plainText,
                 { color: theme.textMuted, fontSize: 14, lineHeight: 22 },
               )}
             </Text>
+          )}
+          {!!clubInviteData && (
+            <View
+              style={{
+                marginHorizontal: 14,
+                marginBottom: 12,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#e3383550',
+                backgroundColor: '#e3383514',
+                padding: 12,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <MaterialCommunityIcons name="shield-crown" size={16} color="#e33835" />
+                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                  {clubInviteData.clubName}
+                </Text>
+              </View>
+              <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
+                {clubInviteData.memberCount ? `Członków: ${clubInviteData.memberCount}` : 'Zaproszenie do klubu'}
+              </Text>
+              <TouchableOpacity
+                style={{ borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', paddingVertical: 9 }}
+                onPress={handleJoinClub}
+                disabled={joiningClub}
+              >
+                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>
+                  {joiningClub ? 'DOŁĄCZANIE...' : 'DOŁĄCZ DO KLUBU'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
           <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
             {!!linkUrl && <LinkPreviewCard url={linkUrl} isMe={isOwn} theme={theme} />}

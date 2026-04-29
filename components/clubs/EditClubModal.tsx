@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView, Pressable,
+  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -10,7 +10,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import { NestableDraggableFlatList, NestableScrollContainer } from 'react-native-draggable-flatlist';
+import DraggableFlatList from 'react-native-draggable-flatlist';
 import { useTheme } from '../../contexts/ThemeContext';
 import { API_URL } from '../../constants/config';
 import { Club } from './types';
@@ -280,9 +280,9 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                   </TouchableOpacity>
                 </ScrollView>
               ) : (
-                <NestableScrollContainer style={{ flex: 1, paddingHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 10 }}>
+                <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: 10 }}>
                   <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, marginBottom: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZYTRZYMAJ IKONĘ I PRZECIĄGNIJ)</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
                     <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
                       <TextInput
                         value={newCategory}
@@ -295,18 +295,26 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                         <MaterialIcons name="add" size={18} color="#fff" />
                       </TouchableOpacity>
                     </View>
-                    <NestableDraggableFlatList
+                    <DraggableFlatList
                       data={draftCategories}
                       keyExtractor={(item) => item.key}
-                      activationDistance={10}
+                      activationDistance={0}
+                      dragHitSlop={{ top: -6, bottom: -6, left: -6, right: -6 }}
                       autoscrollThreshold={36}
                       autoscrollSpeed={140}
+                      scrollEnabled={false}
+                      nestedScrollEnabled={false}
                       onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
                       renderItem={({ item, drag, isActive }) => (
-                        <View style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Pressable onLongPress={drag} delayLongPress={120} hitSlop={6}>
+                        <TouchableOpacity
+                          activeOpacity={0.92}
+                          onLongPress={drag}
+                          delayLongPress={120}
+                          style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                        >
+                          <View>
                             <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </Pressable>
+                          </View>
                           <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
                           <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
                             <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
@@ -323,13 +331,13 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                           }}>
                             <MaterialIcons name="delete-outline" size={17} color="#e33835" />
                           </TouchableOpacity>
-                        </View>
+                        </TouchableOpacity>
                       )}
                     />
                   </View>
 
                   <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY (PRZYTRZYMAJ IKONĘ I PRZECIĄGNIJ)</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
                     <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
                       <TextInput
                         value={newChannel}
@@ -342,18 +350,26 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                         <MaterialIcons name="add" size={18} color="#fff" />
                       </TouchableOpacity>
                     </View>
-                    <NestableDraggableFlatList
+                    <DraggableFlatList
                       data={draftChannels}
                       keyExtractor={(item) => item.key}
-                      activationDistance={10}
+                      activationDistance={0}
+                      dragHitSlop={{ top: -6, bottom: -6, left: -6, right: -6 }}
                       autoscrollThreshold={36}
                       autoscrollSpeed={140}
+                      scrollEnabled={false}
+                      nestedScrollEnabled={false}
                       onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
                       renderItem={({ item, drag, isActive }) => (
-                        <View style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Pressable onLongPress={drag} delayLongPress={120} hitSlop={6}>
+                        <TouchableOpacity
+                          activeOpacity={0.92}
+                          onLongPress={drag}
+                          delayLongPress={120}
+                          style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                        >
+                          <View>
                             <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </Pressable>
+                          </View>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: theme.text }}># {item.name}</Text>
                             <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
@@ -376,11 +392,11 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                           }}>
                             <MaterialIcons name="delete-outline" size={17} color="#e33835" />
                           </TouchableOpacity>
-                        </View>
+                        </TouchableOpacity>
                       )}
                     />
                   </View>
-                </NestableScrollContainer>
+                </View>
               )}
 
               <View style={{ paddingHorizontal: 16, paddingBottom: Platform.OS === 'ios' ? 24 : 14 }}>

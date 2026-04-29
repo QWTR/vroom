@@ -185,6 +185,9 @@ export default function ClubChatScreen() {
   const [showPinned,  setShowPinned]  = useState(false);
   const [menuMsg,     setMenuMsg]     = useState<ClubMessage | null>(null);
   const [editVisible, setEditVisible] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [shareText, setShareText] = useState('');
+  const [sharing, setSharing] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [chatThemeId, setChatThemeId] = useState('default');
   const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
@@ -576,6 +579,36 @@ export default function ClubChatScreen() {
     setMemberModal(null);
     await refreshClub();
   };
+
+  const shareClubToDiscussions = async () => {
+    if (sharing || !clubData) return;
+    setSharing(true);
+    try {
+      const token = await getToken() ?? '';
+      const payload = {
+        type: 'clubInvite',
+        clubId: clubData.id,
+        clubName: clubData.name,
+        memberCount: clubData.memberCount ?? 0,
+        message: shareText.trim(),
+      };
+      const form = new FormData();
+      form.append('content', JSON.stringify(payload));
+      const res = await fetch(`${API_URL}/api/posts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (!res.ok) throw new Error('share-failed');
+      Toast.show({ type: 'success', text1: 'Zaproszenie opublikowane w dyskusjach' });
+      setShareVisible(false);
+      setShareText('');
+    } catch {
+      Toast.show({ type: 'error', text1: 'Nie udało się udostępnić klubu' });
+    } finally {
+      setSharing(false);
+    }
+  };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
       <KeyboardAvoidingView
@@ -621,6 +654,13 @@ export default function ClubChatScreen() {
               onPress={() => setThemePickerOpen(true)}
             >
               <MaterialCommunityIcons name="palette" size={18} color={theme.textDim} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
+              onPress={() => setShareVisible(true)}
+            >
+              <MaterialIcons name="share" size={17} color={theme.textDim} />
             </TouchableOpacity>
 
             {myRole === 'owner' && (
@@ -1062,6 +1102,63 @@ export default function ClubChatScreen() {
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>{t.name.toUpperCase()}</Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={shareVisible} transparent animationType="slide" onRequestClose={() => setShareVisible(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setShareVisible(false)}>
+          <Pressable onPress={e => e.stopPropagation()}>
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 18, borderTopWidth: 1, borderColor: theme.border2 }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
+              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, marginBottom: 4 }}>
+                UDOSTĘPNIJ KLUB W DYSKUSJACH
+              </Text>
+              <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
+                Dodaj opcjonalny tekst do zaproszenia.
+              </Text>
+
+              <TextInput
+                value={shareText}
+                onChangeText={setShareText}
+                placeholder="Np. Szukamy aktywnych osób do wspólnych wyjazdów 🚗"
+                placeholderTextColor={theme.textDim}
+                multiline
+                maxLength={320}
+                style={{
+                  minHeight: 92,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  backgroundColor: theme.surface2,
+                  color: theme.text,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  textAlignVertical: 'top',
+                }}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2, alignItems: 'center', paddingVertical: 11 }}
+                  onPress={() => setShareVisible(false)}
+                  disabled={sharing}
+                >
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>ANULUJ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#e3383560', backgroundColor: '#e33835', alignItems: 'center', paddingVertical: 11 }}
+                  onPress={shareClubToDiscussions}
+                  disabled={sharing}
+                >
+                  {sharing ? (
+                    <ActivityIndicator size={14} color="#fff" />
+                  ) : (
+                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>UDOSTĘPNIJ</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </Pressable>
