@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   Image, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal, Pressable, StatusBar,
+  Platform, Modal, Pressable, StatusBar, ScrollView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -21,6 +21,7 @@ import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
   type Author, type Comment, type Post, type PublicRoute, type CommunityCar, type Tab,
   Avatar, PhotoViewer, LoadingView,
+  renderDiscussionBody, searchMentionUsers,
 } from './communityShared';
 import { TabDyskusje } from './TabDyskusje';
 import { TabTrasy }    from './TabTrasy';
@@ -85,6 +86,28 @@ export default function CommunityScreen() {
   const [commentPhotoViewer, setCommentPhotoViewer] = useState(false);
   const [commentPhotoIdx,    setCommentPhotoIdx]    = useState(0);
   const [commentPhotoUris,   setCommentPhotoUris]   = useState<string[]>([]);
+  const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onCommentTextChange = (v: string) => {
+    setCommentText(v);
+    const match = v.match(/(?:^|\s)@([a-zA-Z0-9_.-]{1,32})$/);
+    const q = match ? match[1] : null;
+    if (commentMentionTimer.current) clearTimeout(commentMentionTimer.current);
+    if (!q) {
+      setCommentMentionUsers([]);
+      return;
+    }
+    commentMentionTimer.current = setTimeout(async () => {
+      const list = await searchMentionUsers(q);
+      setCommentMentionUsers(list);
+    }, 220);
+  };
+
+  const insertCommentMention = (username: string) => {
+    setCommentText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${username} `));
+    setCommentMentionUsers([]);
+  };
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -239,6 +262,7 @@ export default function CommunityScreen() {
 
   const openComments = useCallback(async (post: Post) => {
     setCommentPost(post); setComments([]); setLoadingComments(true);
+    setCommentMentionUsers([]);
     try {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/posts/${post.id}/comments`, { headers: { Authorization: `Bearer ${token}` } });
@@ -457,7 +481,9 @@ export default function CommunityScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 3 }}>{commentPost.author.username}</Text>
                     {commentPost.content.length > 0 && (
-                      <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }} numberOfLines={2}>{commentPost.content}</Text>
+                      <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
+                        {renderDiscussionBody(commentPost.content, theme, { textColor: theme.textDim })}
+                      </Text>
                     )}
                     {commentPost.photos?.length > 0 && (
                       <TouchableOpacity onPress={() => { setCommentPhotoUris(commentPost.photos); setCommentPhotoIdx(0); setCommentPhotoViewer(true); }}>
@@ -504,7 +530,9 @@ export default function CommunityScreen() {
                             ↩ @{item.replyTo.username}
                           </Text>
                         )}
-                        <Text style={{ color: theme.textMuted, fontSize: 13, lineHeight: 19 }}>{item.content}</Text>
+                        <Text style={{ fontSize: 13, lineHeight: 19 }}>
+                          {renderDiscussionBody(item.content, theme)}
+                        </Text>
                         {item.photos?.length > 0 && (
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                             {item.photos.map((uri: string, i: number) => (
@@ -565,10 +593,29 @@ export default function CommunityScreen() {
 
               {/* Input komentarza */}
               <View style={{
-                flexDirection: 'row', alignItems: 'flex-end', gap: 10,
                 paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border,
                 marginTop: 10,
               }}>
+                {commentMentionUsers.length > 0 && (
+                  <View style={{
+                    marginBottom: 8, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+                    backgroundColor: theme.surface2, overflow: 'hidden',
+                  }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {commentMentionUsers.map(u => (
+                        <TouchableOpacity
+                          key={u.id}
+                          onPress={() => insertCommentMention(u.username)}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
+                        >
+                          <Avatar user={u} size={28} />
+                          <Text style={{ color: theme.text, fontSize: 13 }}>{u.username}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
                 <TouchableOpacity onPress={pickCommentPhoto} disabled={commentPhotos.length >= 2}>
                   <MaterialIcons name="add-photo-alternate" size={22} color={commentPhotos.length >= 2 ? theme.textDim : '#e33835'} />
                 </TouchableOpacity>
@@ -580,7 +627,8 @@ export default function CommunityScreen() {
                     borderWidth: 1, borderColor: theme.border,
                   }}
                   value={commentText}
-                  onChangeText={setCommentText}
+                  onChangeText={onCommentTextChange}
+                  onBlur={() => setTimeout(() => setCommentMentionUsers([]), 200)}
                   placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Napisz komentarz...'}
                   placeholderTextColor={theme.textDim}
                   multiline
@@ -599,6 +647,7 @@ export default function CommunityScreen() {
                     : <MaterialIcons name="send" size={16} color="#fff" />
                   }
                 </TouchableOpacity>
+                </View>
               </View>
             </View>
           </KeyboardAvoidingView>

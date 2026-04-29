@@ -4,6 +4,7 @@ import {
   View, Text, Modal, TouchableOpacity, TextInput,
   ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -37,6 +38,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const [joinChannelId, setJoinChannelId] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState('');
   const [newChannel, setNewChannel] = useState('');
+  const [structureView, setStructureView] = useState<'categories' | 'channels'>('categories');
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
   const [draftCategories, setDraftCategories] = useState<any[]>([]);
   const [draftChannels, setDraftChannels] = useState<any[]>([]);
@@ -62,6 +64,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     setDraftCategories(cats);
     setDraftChannels(chs);
     setSelectedCategoryKey(cats[0]?.key ?? null);
+    setStructureView('categories');
   }, [club, visible]);
 
   if (!club) return null;
@@ -216,8 +219,12 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, height: '92%' }}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            enabled={Platform.OS === 'ios'}
+            keyboardVerticalOffset={18}
+          >
+            <GestureHandlerRootView style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, height: '92%' }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 12 }} />
 
               <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 10 }}>
@@ -281,121 +288,124 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                 </ScrollView>
               ) : (
                 <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: 10 }}>
-                  <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, marginBottom: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                      <TextInput
-                        value={newCategory}
-                        onChangeText={setNewCategory}
-                        placeholder="Nowa kategoria"
-                        placeholderTextColor={theme.textDim}
-                        style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
-                      />
-                      <TouchableOpacity onPress={addCategory} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
-                        <MaterialIcons name="add" size={18} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                    <DraggableFlatList
-                      data={draftCategories}
-                      keyExtractor={(item) => item.key}
-                      activationDistance={0}
-                      dragHitSlop={{ top: -6, bottom: -6, left: -6, right: -6 }}
-                      autoscrollThreshold={36}
-                      autoscrollSpeed={140}
-                      scrollEnabled={false}
-                      nestedScrollEnabled={false}
-                      onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
-                      renderItem={({ item, drag, isActive }) => (
-                        <TouchableOpacity
-                          activeOpacity={0.92}
-                          onLongPress={drag}
-                          delayLongPress={120}
-                          style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                        >
-                          <View>
-                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </View>
-                          <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
-                          <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
-                            <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setDraftCategories(prev => moveUp(prev, item.key))}>
-                            <MaterialIcons name="keyboard-arrow-up" size={18} color={theme.textDim} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setDraftCategories(prev => moveDown(prev, item.key))}>
-                            <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => {
-                            setDraftCategories(prev => prev.filter((c: any) => c.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
-                            setDraftChannels(prev => prev.map((ch: any) => ch.categoryRef === item.key ? { ...ch, categoryRef: null } : ch));
-                          }}>
-                            <MaterialIcons name="delete-outline" size={17} color="#e33835" />
-                          </TouchableOpacity>
-                        </TouchableOpacity>
-                      )}
-                    />
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                    <TouchableOpacity onPress={() => setStructureView('categories')} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: structureView === 'categories' ? `${theme.primary}22` : theme.surface2, borderWidth: 1, borderColor: structureView === 'categories' ? theme.primary : theme.border }}>
+                      <Text style={{ textAlign: 'center', fontFamily: 'Orbitron', fontSize: 9, color: structureView === 'categories' ? theme.primary : theme.textDim }}>KATEGORIE</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setStructureView('channels')} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: structureView === 'channels' ? `${theme.primary}22` : theme.surface2, borderWidth: 1, borderColor: structureView === 'channels' ? theme.primary : theme.border }}>
+                      <Text style={{ textAlign: 'center', fontFamily: 'Orbitron', fontSize: 9, color: structureView === 'channels' ? theme.primary : theme.textDim }}>KANAŁY</Text>
+                    </TouchableOpacity>
                   </View>
 
-                  <View style={{ backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                      <TextInput
-                        value={newChannel}
-                        onChangeText={setNewChannel}
-                        placeholder="Nowy kanał"
-                        placeholderTextColor={theme.textDim}
-                        style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
-                      />
-                      <TouchableOpacity onPress={addChannel} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
-                        <MaterialIcons name="add" size={18} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                    <DraggableFlatList
-                      data={draftChannels}
-                      keyExtractor={(item) => item.key}
-                      activationDistance={0}
-                      dragHitSlop={{ top: -6, bottom: -6, left: -6, right: -6 }}
-                      autoscrollThreshold={36}
-                      autoscrollSpeed={140}
-                      scrollEnabled={false}
-                      nestedScrollEnabled={false}
-                      onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
-                      renderItem={({ item, drag, isActive }) => (
-                        <TouchableOpacity
-                          activeOpacity={0.92}
-                          onLongPress={drag}
-                          delayLongPress={120}
-                          style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                        >
-                          <View>
-                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: theme.text }}># {item.name}</Text>
-                            <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
-                          </View>
-                          <TouchableOpacity onPress={() => {
-                            const idx = draftCategories.findIndex((c: any) => c.key === item.categoryRef);
-                            const nextIdx = (idx + 1) % Math.max(1, draftCategories.length);
-                            setDraftChannels(prev => prev.map((p: any) => p.key === item.key ? { ...p, categoryRef: draftCategories[nextIdx]?.key ?? null } : p));
-                          }}>
-                            <Text style={{ color: theme.primary, fontSize: 11 }}>Przenieś</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setDraftChannels(prev => moveUp(prev, item.key))}>
-                            <MaterialIcons name="keyboard-arrow-up" size={18} color={theme.textDim} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setDraftChannels(prev => moveDown(prev, item.key))}>
-                            <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => {
-                            setDraftChannels(prev => prev.filter((ch: any) => ch.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
-                          }}>
-                            <MaterialIcons name="delete-outline" size={17} color="#e33835" />
-                          </TouchableOpacity>
+                  {structureView === 'categories' ? (
+                    <View style={{ flex: 1, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
+                      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                        <TextInput
+                          value={newCategory}
+                          onChangeText={setNewCategory}
+                          placeholder="Nowa kategoria"
+                          placeholderTextColor={theme.textDim}
+                          style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
+                        />
+                        <TouchableOpacity onPress={addCategory} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
+                          <MaterialIcons name="add" size={18} color="#fff" />
                         </TouchableOpacity>
-                      )}
-                    />
-                  </View>
+                      </View>
+                      <DraggableFlatList
+                        data={draftCategories}
+                        keyExtractor={(item) => item.key}
+                        activationDistance={4}
+                        autoscrollThreshold={36}
+                        autoscrollSpeed={140}
+                        keyboardShouldPersistTaps="handled"
+                        onDragEnd={({ data }) => setDraftCategories(data.map((d, i) => ({ ...d, position: i })))}
+                        renderItem={({ item, drag, isActive }) => (
+                          <TouchableOpacity
+                            activeOpacity={0.92}
+                            onLongPress={drag}
+                            delayLongPress={120}
+                            style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                          >
+                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
+                            <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
+                            <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
+                              <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setDraftCategories(prev => moveUp(prev, item.key))}>
+                              <MaterialIcons name="keyboard-arrow-up" size={18} color={theme.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setDraftCategories(prev => moveDown(prev, item.key))}>
+                              <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => {
+                              setDraftCategories(prev => prev.filter((c: any) => c.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
+                              setDraftChannels(prev => prev.map((ch: any) => ch.categoryRef === item.key ? { ...ch, categoryRef: null } : ch));
+                            }}>
+                              <MaterialIcons name="delete-outline" size={17} color="#e33835" />
+                            </TouchableOpacity>
+                          </TouchableOpacity>
+                        )}
+                      />
+                    </View>
+                  ) : (
+                    <View style={{ flex: 1, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KANAŁY (PRZYTRZYMAJ WIERSZ I PRZECIĄGNIJ)</Text>
+                      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                        <TextInput
+                          value={newChannel}
+                          onChangeText={setNewChannel}
+                          placeholder="Nowy kanał"
+                          placeholderTextColor={theme.textDim}
+                          style={{ flex: 1, backgroundColor: theme.bg, borderRadius: 8, paddingHorizontal: 10, color: theme.text, borderWidth: 1, borderColor: theme.border }}
+                        />
+                        <TouchableOpacity onPress={addChannel} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, justifyContent: 'center' }}>
+                          <MaterialIcons name="add" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      <DraggableFlatList
+                        data={draftChannels}
+                        keyExtractor={(item) => item.key}
+                        activationDistance={4}
+                        autoscrollThreshold={36}
+                        autoscrollSpeed={140}
+                        keyboardShouldPersistTaps="handled"
+                        onDragEnd={({ data }) => setDraftChannels(data.map((d, i) => ({ ...d, position: i })))}
+                        renderItem={({ item, drag, isActive }) => (
+                          <TouchableOpacity
+                            activeOpacity={0.92}
+                            onLongPress={drag}
+                            delayLongPress={120}
+                            style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: isActive ? `${theme.primary}22` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                          >
+                            <MaterialCommunityIcons name="drag" size={16} color={theme.textDim} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: theme.text }}># {item.name}</Text>
+                              <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => {
+                              const idx = draftCategories.findIndex((c: any) => c.key === item.categoryRef);
+                              const nextIdx = (idx + 1) % Math.max(1, draftCategories.length);
+                              setDraftChannels(prev => prev.map((p: any) => p.key === item.key ? { ...p, categoryRef: draftCategories[nextIdx]?.key ?? null } : p));
+                            }}>
+                              <Text style={{ color: theme.primary, fontSize: 11 }}>Przenieś</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setDraftChannels(prev => moveUp(prev, item.key))}>
+                              <MaterialIcons name="keyboard-arrow-up" size={18} color={theme.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setDraftChannels(prev => moveDown(prev, item.key))}>
+                              <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => {
+                              setDraftChannels(prev => prev.filter((ch: any) => ch.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
+                            }}>
+                              <MaterialIcons name="delete-outline" size={17} color="#e33835" />
+                            </TouchableOpacity>
+                          </TouchableOpacity>
+                        )}
+                      />
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -408,7 +418,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                   {saving ? <ActivityIndicator color="#fff" size={16} /> : <><MaterialCommunityIcons name="content-save" size={15} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>}
                 </TouchableOpacity>
               </View>
-            </View>
+            </GestureHandlerRootView>
           </KeyboardAvoidingView>
         </View>
       </Modal>

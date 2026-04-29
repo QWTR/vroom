@@ -39,6 +39,8 @@ export interface Club {
   isMember:    boolean;
   myRole:      'owner' | 'ranked' | 'member' | null;
   myRank:      ClubRank | null;
+  /** Gdy true: brak push z czatu tego klubu (tylko dla Ciebie) */
+  myClubPushMuted?: boolean;
   ranks?:      ClubRank[];
   categories?: { id: number; name: string; position: number }[];
   channels?:   { id: number; name: string; categoryId: number | null; position: number; isDefaultGeneral?: boolean }[];

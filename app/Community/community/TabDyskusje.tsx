@@ -17,7 +17,7 @@ import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   type Post,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
-  extractUrl, renderTextWithLinks,
+  extractUrl, renderDiscussionBody,
 } from './communityShared';
 
 // ─────────────────────────────────────────────────────────
@@ -129,12 +129,9 @@ const PostCard = React.memo(({
 
         {/* Treść */}
         <TouchableOpacity activeOpacity={0.95} onPress={() => onComment(post)}>
-          {!!plainText?.length && (
+          {!!plainText?.length && !routeData && (
             <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 12 }}>
-              {renderTextWithLinks(
-                plainText,
-                { color: theme.textMuted, fontSize: 14, lineHeight: 22 },
-              )}
+              {renderDiscussionBody(plainText, theme)}
             </Text>
           )}
           {!!clubInviteData && (
@@ -259,7 +256,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
         keyboardShouldPersistTaps="handled"
       />
-      <ComposeBox onPost={onPost} bottomInset={bottomInset} />
+      <ComposeBox onPost={onPost} bottomInset={bottomInset} mentionsEnabled />
     </KeyboardAvoidingView>
   );
 }

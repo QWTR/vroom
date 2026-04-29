@@ -20,6 +20,7 @@ import { API_URL }                from '../../../constants/config';
 import { UAv }                    from '../../../components/clubs/ClubCard';
 import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
+import { renderDiscussionBody }   from '../community/communityShared';
 
 const WS_URL   = 'https://v-room.app';
 const getToken = () => AsyncStorage.getItem('token');
@@ -118,8 +119,10 @@ function MessageMenu({
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary, fontWeight: '700', marginBottom: 2 }}>
                   {message.sender.username}
                 </Text>
-                <Text style={{ color: theme.textDim, fontSize: 12 }} numberOfLines={2}>
-                  {message.content || '📷 Zdjęcie'}
+                <Text style={{ fontSize: 12 }} numberOfLines={3}>
+                  {message.content
+                    ? renderDiscussionBody(message.content, theme, { textColor: theme.textDim })
+                    : '📷 Zdjęcie'}
                 </Text>
               </View>
               {message.isPinned && <MaterialIcons name="push-pin" size={14} color="#FFD700" />}
@@ -193,6 +196,7 @@ export default function ClubChatScreen() {
   const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
   const paneRef = useRef<ScrollView>(null);
   const [memberModal, setMemberModal] = useState<any | null>(null);
+  const [pushMuteBusy, setPushMuteBusy] = useState(false);
   const tabSlide = useRef(new Animated.Value(Dimensions.get('window').width / 3)).current;
   const tabHapticSkip = useRef(true);
 
@@ -472,8 +476,14 @@ export default function ClubChatScreen() {
               </View>
             )}
             {!!item.content && (
-              <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>
-                {item.content}
+              <Text style={{ fontSize: 14, lineHeight: 20 }}>
+                {renderDiscussionBody(
+                  item.content,
+                  theme,
+                  isMe
+                    ? { textColor: '#ffffff', mentionColor: '#b8e8ff', linkColor: '#9fd4ff' }
+                    : { textColor: theme.textMuted, mentionColor: '#4a9eff' },
+                )}
               </Text>
             )}
             <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: isMe ? '#ffffff60' : theme.textDim }}>
@@ -580,6 +590,33 @@ export default function ClubChatScreen() {
     await refreshClub();
   };
 
+  const toggleClubPushMute = async () => {
+    if (!clubData || pushMuteBusy) return;
+    setPushMuteBusy(true);
+    try {
+      const token = await getToken() ?? '';
+      const next = !clubData.myClubPushMuted;
+      const res = await fetch(`${API_URL}/api/clubs/${clubId}/push-mute`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ muted: next }),
+      });
+      if (res.ok) {
+        setClubData({ ...clubData, myClubPushMuted: next });
+        Toast.show({
+          type: 'success',
+          text1: next ? 'Powiadomienia z czatu wyciszone' : 'Powiadomienia z czatu włączone',
+        });
+      } else {
+        Toast.show({ type: 'error', text1: 'Nie udało się zmienić ustawień' });
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } finally {
+      setPushMuteBusy(false);
+    }
+  };
+
   const shareClubToDiscussions = async () => {
     if (sharing || !clubData) return;
     setSharing(true);
@@ -648,6 +685,20 @@ export default function ClubChatScreen() {
                 {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRank ? myRank.name.toUpperCase() : 'CZAT KLUBU'}
               </Text>
             </View>
+
+            {clubData?.isMember && (
+              <TouchableOpacity
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
+                onPress={toggleClubPushMute}
+                disabled={pushMuteBusy}
+              >
+                <MaterialIcons
+                  name={clubData.myClubPushMuted ? 'notifications-off' : 'notifications-active'}
+                  size={18}
+                  color={clubData.myClubPushMuted ? theme.textDim : theme.primary}
+                />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
@@ -1036,7 +1087,7 @@ export default function ClubChatScreen() {
                   <TouchableOpacity
                     key={u.id}
                     onPress={() => {
-                      setText(prev => prev.replace(/(^|\s)@([a-zA-Z0-9_.-]{1,32})$/, (_m, prefix) => `${prefix}@${u.username} `));
+                      setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${u.username} `));
                       setMentionQuery(null);
                     }}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}

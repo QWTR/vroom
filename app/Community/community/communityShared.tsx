@@ -9,7 +9,9 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
 import { Video, ResizeMode }  from 'expo-av';
 import Toast                  from 'react-native-toast-message';
+import AsyncStorage           from '@react-native-async-storage/async-storage';
 import { useTheme }           from '../../../contexts/ThemeContext';
+import { API_URL }            from '../../../constants/config';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -46,6 +48,52 @@ export function renderTextWithLinks(content: string, baseStyle: object, linkColo
     }
     return <Text key={index} style={baseStyle}>{part}</Text>;
   });
+}
+
+/** Tekst dyskusji / komentarzy / czatu: @wzmianki + linki w pozostałych fragmentach */
+export function renderDiscussionBody(
+  content: string,
+  theme: { textMuted: string },
+  opts?: { textColor?: string; mentionColor?: string; linkColor?: string },
+) {
+  const baseStyle = {
+    color: opts?.textColor ?? theme.textMuted,
+    fontSize: 14,
+    lineHeight: 22,
+  };
+  const mentionColor = opts?.mentionColor ?? '#4a9eff';
+  const linkColor = opts?.linkColor ?? '#4a9eff';
+  const parts = content.split(/(@[a-zA-Z0-9_.-]{2,32})/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('@')) {
+      return (
+        <Text key={index} style={[baseStyle, { color: mentionColor, fontWeight: '700' }]}>
+          {part}
+        </Text>
+      );
+    }
+    return <Text key={index}>{renderTextWithLinks(part, baseStyle, linkColor)}</Text>;
+  });
+}
+
+const getAuthToken = async () =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+
+export async function searchMentionUsers(query: string): Promise<{ id: number; username: string; avatarUrl: string | null }[]> {
+  const q = query.trim();
+  if (q.length < 1) return [];
+  const token = await getAuthToken();
+  if (!token) return [];
+  try {
+    const res = await fetch(`${API_URL}/api/profile/mentions/search?q=${encodeURIComponent(q)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -387,9 +435,12 @@ export const ListFooter = ({ loading }: { loading: boolean }) => {
 export const ComposeBox = ({
   onPost,
   bottomInset,
+  mentionsEnabled = false,
 }: {
   onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
   bottomInset: number;
+  /** Podpowiedzi @username przy pisaniu posta */
+  mentionsEnabled?: boolean;
 }) => {
   const { theme } = useTheme();
   const [text,    setText]    = useState('');
@@ -399,6 +450,8 @@ export const ComposeBox = ({
   const [focused, setFocused] = useState(false);
   const [photoViewer, setPhotoViewer] = useState(false);
   const [photoIdx,    setPhotoIdx]    = useState(0);
+  const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pickPhoto = async () => {
     if (photos.length >= 4 || video) return;
@@ -434,6 +487,28 @@ export const ComposeBox = ({
     await onPost(text.trim(), photos, video);
     setText(''); setPhotos([]); setVideo(null);
     setPosting(false); setFocused(false);
+    setMentionUsers([]);
+  };
+
+  const onChangeText = (v: string) => {
+    setText(v);
+    if (!mentionsEnabled) return;
+    const match = v.match(/(?:^|\s)@([a-zA-Z0-9_.-]{1,32})$/);
+    const q = match ? match[1] : null;
+    if (mentionTimer.current) clearTimeout(mentionTimer.current);
+    if (!q) {
+      setMentionUsers([]);
+      return;
+    }
+    mentionTimer.current = setTimeout(async () => {
+      const list = await searchMentionUsers(q);
+      setMentionUsers(list);
+    }, 220);
+  };
+
+  const insertMention = (username: string) => {
+    setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${username} `));
+    setMentionUsers([]);
   };
 
   return (
@@ -477,6 +552,26 @@ export const ComposeBox = ({
         </ScrollView>
       )}
 
+      {mentionsEnabled && mentionUsers.length > 0 && (
+        <View style={{
+          marginBottom: 8, maxHeight: 140, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+          backgroundColor: theme.surface2, overflow: 'hidden',
+        }}>
+          <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            {mentionUsers.map(u => (
+              <TouchableOpacity
+                key={u.id}
+                onPress={() => insertMention(u.username)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
+              >
+                <Avatar user={u} size={30} />
+                <Text style={{ color: theme.text, fontSize: 13 }}>{u.username}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
         {/* Przyciski mediów */}
         <View style={{ flexDirection: 'column', gap: 8, paddingBottom: 2 }}>
@@ -506,9 +601,9 @@ export const ComposeBox = ({
             borderWidth: 1, borderColor: focused ? '#e3383540' : theme.border,
           }}
           value={text}
-          onChangeText={setText}
+          onChangeText={mentionsEnabled ? onChangeText : setText}
           onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onBlur={() => { setFocused(false); if (mentionsEnabled) setTimeout(() => setMentionUsers([]), 200); }}
           placeholder="Co słychać w garażu?"
           placeholderTextColor={theme.textDim}
           multiline maxLength={500}
