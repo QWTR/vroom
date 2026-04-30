@@ -767,20 +767,8 @@ export default function ProfileView({
           </Section>
 
           {/* ══ HISTORIA PRZEJAZDÓW (ŚLAD) ══ */}
-          <Section title="HISTORIA PRZEJAZDÓW" count={activityHistory.length}>
-            {!isPremium ? (
-              <TouchableOpacity
-                style={{ backgroundColor: '#FFD70010', borderRadius: 12, borderWidth: 1, borderColor: '#FFD70030', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                onPress={() => router.push('/premium' as any)}
-                activeOpacity={0.8}
-              >
-                <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', flex: 1 }}>
-                  Podgląd pełnej historii śladów trasy dostępny w Premium.
-                </Text>
-                <MaterialIcons name="arrow-forward-ios" size={12} color="#FFD700" />
-              </TouchableOpacity>
-            ) : activityHistory.length === 0 ? (
+          <Section title="HISTORIA PRZEJAZDÓW" count={historyWithRoute.length}>
+            {historyWithRoute.length === 0 ? (
               <EmptyState text="Brak zapisanych przejazdów z trasą." />
             ) : (
               <TouchableOpacity
@@ -936,7 +924,7 @@ export default function ProfileView({
             </View>
 
             <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
-              {activityHistory.map((a: any) => {
+              {historyWithRoute.map((a: any) => {
                 const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
                 return (
                   <TouchableOpacity

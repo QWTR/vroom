@@ -54,6 +54,7 @@ import {
   BG_PENDING_KM_KEY,
   feedNavDistance,
   feedSpeedSample,
+  recordDrivingTracePoint,
   resetSpeedStats,
   setNavigatingFlag,
   useBackgroundTracking,
@@ -891,10 +892,12 @@ export default function MapScreen() {
     setRoadMatchPoints([]);
     setIsDriving(false);
     setDrivingKm(0);
+    // Persist passive driving sessions (without navigation) to activity history.
+    flushPendingKm(false);
     console.log('[DrivingMode] Exited driving mode');
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, setRoadMatchPoints, flushPendingKm]);
 
   // Ręczny przełącznik trybu jazdy (przycisk w UI)
   const handleToggleDrivingMode = useCallback(async () => {
@@ -1243,6 +1246,7 @@ export default function MapScreen() {
             );
             setIsDriving(true);
             setDrivingKm(0);
+            recordDrivingTracePoint(snapped.latitude, snapped.longitude, { speedKmh: kmh }).catch(() => {});
             enterDrivingCamera(
               { latitude: snapped.latitude, longitude: snapped.longitude },
               drivingHeading,
@@ -1267,6 +1271,11 @@ export default function MapScreen() {
             if (dist > 0 && dist <= maxDistKm) {
               drivingKmRef.current += dist;
               setDrivingKm(Math.round(drivingKmRef.current * 10) / 10);
+              recordDrivingTracePoint(
+                snapped.latitude,
+                snapped.longitude,
+                { addDistanceKm: dist, speedKmh: kmh },
+              ).catch(() => {});
             } else if (dist > maxDistKm) {
               console.warn(`[DrivingMode] Tick km odrzucony: ${(dist * 1000).toFixed(0)}m > cap ${(maxDistKm * 1000).toFixed(0)}m (dt=${dtSec.toFixed(1)}s)`);
             }

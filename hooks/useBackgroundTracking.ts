@@ -79,6 +79,7 @@ const BG_SPEED_SAMPLES_KEY      = 'nav_speed_samples';
 const BG_SPEED_MAX_KEY          = 'nav_speed_max';
 export const BG_PENDING_KM_KEY  = 'bg_pending_km';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
+const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 // Flag: 'true' when live-sharing is active — read by the background task
 const BG_IS_SHARING_KEY         = 'bg_is_sharing';
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
@@ -87,10 +88,50 @@ const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 const BG_AUTO_FLUSH_KM          = 5;
 const BG_LAST_FIX_MAX_GAP_SEC   = 90;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
+const BG_ROUTE_MAX_POINTS       = 500;
 
 // ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
+}
+
+export async function recordDrivingTracePoint(
+  latitude: number,
+  longitude: number,
+  opts?: { addDistanceKm?: number; speedKmh?: number },
+): Promise<void> {
+  try {
+    const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
+    const routePts = routeRaw ? JSON.parse(routeRaw) : [];
+    const seeded = routePts.length === 0
+      ? [{ latitude, longitude }]
+      : routePts;
+    const nextRoute = [...seeded, { latitude, longitude }].slice(-BG_ROUTE_MAX_POINTS);
+
+    const writes: Promise<any>[] = [
+      AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
+    ];
+
+    if (opts?.addDistanceKm && opts.addDistanceKm > 0) {
+      const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
+      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + opts.addDistanceKm)));
+    }
+
+    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 260) {
+      const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
+      const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
+      const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
+      const curMax = parseFloat(maxRaw ?? '0');
+      const nextMax = Math.max(curMax, opts.speedKmh);
+      samples.push(opts.speedKmh);
+      writes.push(
+        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(samples)),
+        AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(nextMax)),
+      );
+    }
+
+    await Promise.all(writes);
+  } catch {}
 }
 
 // ── BG task ───────────────────────────────────────────────────────────────────
@@ -162,7 +203,20 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       ) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
         const newPending = pending + distKm;
-        await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));
+        const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
+        const routePts = routeRaw ? JSON.parse(routeRaw) : [];
+        const seedPts = routePts.length === 0
+          ? [{ latitude: lastLat, longitude: lastLng }]
+          : routePts;
+        const nextRoute = [
+          ...seedPts,
+          { latitude, longitude },
+        ].slice(-BG_ROUTE_MAX_POINTS);
+
+        await Promise.all([
+          AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending)),
+          AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
+        ]);
 
         // ── Auto-flush as passive trip when threshold is reached ──────────
         // Skip auto-flush while foreground navigation is active — the nav
@@ -185,6 +239,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
               maxSpeed: Math.round(maxSpeed * 10) / 10,
               avgSpeed: Math.round(avgSpeed * 10) / 10,
               duration: null,
+              routePoints: nextRoute,
             }),
           }).catch(() => {});
 
@@ -193,6 +248,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
             AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
             AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
             AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           ]);
         }
       }
@@ -255,11 +311,16 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
         const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
         const bgPending    = parseFloat(bgPendingStr ?? '0');
+        const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
+        const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         // Foreground navigation is the source of truth; include only leftover bg drift.
         const finalDist    = distKm + Math.max(0, bgPending - distKm);
         const distanceToSave = navPayload?.distanceKm != null ? navPayload.distanceKm : finalDist;
         const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
+        const routePointsToSave = navPayload?.routePoints && navPayload.routePoints.length > 1
+          ? navPayload.routePoints
+          : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
 
         // Clear bg accumulators early to prevent duplicate saves when multiple
         // flush triggers fire close together (foreground, focus, app-state).
@@ -267,6 +328,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
           AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+          AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
 
@@ -280,7 +342,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
             maxSpeed: maxSpeedToSave,
             avgSpeed: avgSpeedToSave,
             duration: navPayload?.durationSec ?? null,
-            routePoints: navPayload?.routePoints,
+            routePoints: routePointsToSave,
           }),
         });
 
@@ -288,10 +350,15 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         // Passive flush: no navigation was active, save whatever background accumulated
         const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
         const bgPending    = parseFloat(bgPendingStr ?? '0');
+        const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
+        const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         if (bgPending < 0.1) return;
 
         // Claim and zero before network I/O to avoid duplicate passive saves.
-        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+        await Promise.all([
+          AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+          AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+        ]);
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
         const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
@@ -309,6 +376,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
             maxSpeed: Math.round(maxSpeed * 10) / 10,
             avgSpeed: Math.round(avgSpeed * 10) / 10,
             duration: null,
+            routePoints: bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
           }),
         });
 
