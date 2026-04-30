@@ -7,6 +7,13 @@ import { API_URL }        from '../constants/mapConfig';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
+async function getAuthToken(): Promise<string | null> {
+  return (
+    (await AsyncStorage.getItem('token')) ??
+    (await AsyncStorage.getItem('userToken'))
+  );
+}
+
 // ── In-memory speed tracking (foreground) ────────────────────────────────────
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
@@ -142,7 +149,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
   if (!location) return;
 
   try {
-    const token = await AsyncStorage.getItem('token');
+    const token = await getAuthToken();
     if (!token) return;
 
     const { latitude, longitude, speed, accuracy } = location.coords;
@@ -302,7 +309,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     if (flushInFlightRef.current) return;
     flushInFlightRef.current = true;
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await getAuthToken();
       if (!token) return;
 
       if (fromNavigation) {
@@ -334,7 +341,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
         if (distanceToSave < 0.05) return;
 
-        await fetch(`${API_URL}/api/activity/save`, {
+        const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
@@ -345,6 +352,9 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
             routePoints: routePointsToSave,
           }),
         });
+        if (!saveRes.ok) {
+          console.log('flushPendingKm(nav) save failed:', saveRes.status);
+        }
 
       } else {
         // Passive flush: no navigation was active, save whatever background accumulated
@@ -368,7 +378,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
           ? samples.reduce((a, b) => a + b, 0) / samples.length
           : 0;
 
-        await fetch(`${API_URL}/api/activity/save`, {
+        const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
@@ -379,6 +389,9 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
             routePoints: bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
           }),
         });
+        if (!saveRes.ok) {
+          console.log('flushPendingKm(passive) save failed:', saveRes.status);
+        }
 
         await Promise.all([
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),

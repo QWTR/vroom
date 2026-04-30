@@ -767,8 +767,8 @@ export default function ProfileView({
           </Section>
 
           {/* ══ HISTORIA PRZEJAZDÓW (ŚLAD) ══ */}
-          <Section title="HISTORIA PRZEJAZDÓW" count={historyWithRoute.length}>
-            {historyWithRoute.length === 0 ? (
+          <Section title="HISTORIA PRZEJAZDÓW" count={activityHistory.length}>
+            {activityHistory.length === 0 ? (
               <EmptyState text="Brak zapisanych przejazdów z trasą." />
             ) : (
               <TouchableOpacity
@@ -788,7 +788,7 @@ export default function ProfileView({
                     OTWÓRZ HISTORIĘ PRZEJAZDÓW
                   </Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 3 }}>
-                    Pokaż wszystkie trasy na mapie albo wybierz pojedynczy przejazd.
+                    Pokaż wszystkie ślady na mapie albo wybierz pojedynczy przejazd.
                   </Text>
                 </View>
                 <MaterialIcons name="arrow-forward-ios" size={13} color={theme.textDim} />
@@ -924,8 +924,9 @@ export default function ProfileView({
             </View>
 
             <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
-              {historyWithRoute.map((a: any) => {
+              {activityHistory.map((a: any) => {
                 const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
+                const hasRoute = (a?.routePoints?.length ?? 0) > 1;
                 return (
                   <TouchableOpacity
                     key={a.id}
@@ -938,6 +939,7 @@ export default function ProfileView({
                       marginBottom: 8,
                     }}
                     onPress={() => {
+                      if (!hasRoute) return;
                       setSelectedHistoryRoute(a);
                       setShowAllHistoryOnMap(false);
                     }}
@@ -949,6 +951,11 @@ export default function ProfileView({
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
                       Max: {Math.round(a.maxSpeed || 0)} km/h · Avg: {Math.round(a.avgSpeed || 0)} km/h
                     </Text>
+                    {!hasRoute && (
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>
+                        Brak zapisanego śladu mapy dla tego przejazdu.
+                      </Text>
+                    )}
                   </TouchableOpacity>
                 );
               })}
