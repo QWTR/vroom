@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
+import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -106,6 +107,7 @@ export default function LoginScreen() {
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
     await registerPushToken();
+    await syncRevenueCatLoginFromStorage();
     router.replace('/(tabs)');
   };
 

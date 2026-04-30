@@ -1,8 +1,12 @@
 import React, {
   createContext, useContext, useState, useEffect, useCallback,
 } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { API_URL } from '../constants/config';
+import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
+import { isRevenueCatSdkReady, markRevenueCatSdkReady } from '../lib/revenueCatSdkState';
 
 // ─── RevenueCat types (light stubs so TS compiles without native module) ──────
 let Purchases: any;
@@ -35,7 +39,14 @@ const PremiumContext = createContext<PremiumContextType>({
   refreshPremiumStatus:async () => {},
 });
 
-const RC_API_KEY = 'test_jXMkjOLpGYojUizMZulOGpdnoRG';
+function getRevenueCatApiKey(): string {
+  const extra = Constants.expoConfig?.extra as
+    | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
+    | undefined;
+  const ios = (extra?.revenueCatIosApiKey ?? '').trim();
+  const android = (extra?.revenueCatAndroidApiKey ?? '').trim();
+  return Platform.OS === 'ios' ? ios : android;
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function PremiumProvider({ children }: { children: React.ReactNode }) {
@@ -49,7 +60,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     let backendPremium = false;
 
     // RevenueCat jest opcjonalny — jego błąd nie może wyłączać premium z backendu (gifty/admin).
-    if (Purchases) {
+    if (Purchases && isRevenueCatSdkReady()) {
       try {
         const info: CustomerInfo = await Purchases.getCustomerInfo();
         setCustomerInfo(info);
@@ -81,15 +92,17 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         if (Purchases) {
-          Purchases.configure({ apiKey: RC_API_KEY });
-
-          const raw = await AsyncStorage.getItem('user');
-          if (raw) {
-            const user = JSON.parse(raw);
-            const uid  = user.userId ?? user.id;
-            if (uid) {
-              await Purchases.logIn(String(uid)).catch(() => {});
+          const apiKey = getRevenueCatApiKey();
+          if (apiKey && !isRevenueCatSdkReady()) {
+            try {
+              Purchases.configure({ apiKey });
+              markRevenueCatSdkReady();
+            } catch {
+              /* configure nie powiódł się — nie wołamy innych metod RC */
             }
+          }
+          if (isRevenueCatSdkReady()) {
+            await syncRevenueCatLoginFromStorage();
           }
         }
 
@@ -102,33 +115,35 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refreshPremiumStatus]);
   const purchasePremium = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
-    if (!Purchases) return false;
+    if (!Purchases || !isRevenueCatSdkReady()) return false;
     try {
       const { customerInfo: info } = await Purchases.purchasePackage(pkg);
       setCustomerInfo(info);
       const premium = !!info?.entitlements?.active?.['premium'];
       setIsPremium(premium);
+      if (premium) await refreshPremiumStatus();
       return premium;
     } catch {
       return false;
     }
-  }, []);
+  }, [refreshPremiumStatus]);
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
-    if (!Purchases) return false;
+    if (!Purchases || !isRevenueCatSdkReady()) return false;
     try {
       const info: CustomerInfo = await Purchases.restorePurchases();
       setCustomerInfo(info);
       const premium = !!info?.entitlements?.active?.['premium'];
       setIsPremium(premium);
+      if (premium) await refreshPremiumStatus();
       return premium;
     } catch {
       return false;
     }
-  }, []);
+  }, [refreshPremiumStatus]);
 
   const getOfferings = useCallback(async (): Promise<PurchasesOfferings | null> => {
-    if (!Purchases) return null;
+    if (!Purchases || !isRevenueCatSdkReady()) return null;
     try {
       return await Purchases.getOfferings();
     } catch {

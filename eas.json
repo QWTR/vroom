@@ -57,5 +57,14 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
       }
     }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "o.peciak1011@gmail.com",
+        "ascAppId": "6764661186",
+        "appleTeamId": "76F83L2N26"
+      }
+    }
   }
 }

@@ -20,6 +20,7 @@ import { useTheme }     from '../../contexts/ThemeContext';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
+import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 
 const RED = '#e33835';
 
@@ -101,6 +102,7 @@ export default function SettingsScreen() {
   const handleLogout = async () => {
     setLogoutModal(false);
     await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+    await syncRevenueCatLoginFromStorage();
     Toast.show({ type: 'success', text1: '👋 DO ZOBACZENIA!' });
     router.replace('/login');
   };
@@ -115,6 +117,7 @@ export default function SettingsScreen() {
       });
       if (!res.ok) throw new Error();
       await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+      await syncRevenueCatLoginFromStorage();
       setDeleteModal(false);
       Toast.show({ type: 'success', text1: '🗑️ KONTO USUNIĘTE' });
       router.replace('/login');

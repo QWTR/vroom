@@ -171,35 +171,14 @@ export default function PremiumScreen() {
               </TouchableOpacity>
             ))
           ) : (
-            /* Placeholder gdy brak ofert (sandbox / no connection) */
-            <>
-              <TouchableOpacity style={[s.offerBtn, s.offerBtnPlaceholder]} activeOpacity={0.85}>
-                <LinearGradient
-                  colors={['#2a0707', '#1a0404']}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.offerName}>PREMIUM MIESIĘCZNY</Text>
-                  <Text style={s.offerPrice}>ok. 19,99 zł/mies</Text>
-                </View>
-                <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.offerBtn, s.offerBtnHighlight]} activeOpacity={0.85}>
-                <LinearGradient
-                  colors={['#3a0a0a', '#220505']}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.offerName}>PREMIUM ROCZNY</Text>
-                  <Text style={s.offerPrice}>ok. 149,99 zł/rok • oszczędzasz 40%</Text>
-                </View>
-                <View style={s.badge}>
-                  <Text style={s.badgeTxt}>BEST</Text>
-                </View>
-              </TouchableOpacity>
-            </>
+            /* Brak pakietów z RevenueCat (np. brak current offering albo sieć) */
+            <View style={s.noOffersWrap}>
+              <Text style={s.noOffersTitle}>Nie udało się wczytać oferty</Text>
+              <Text style={s.noOffersBody}>
+                Sprawdź połączenie i konfigurację RevenueCat (Offering „current”, produkt w App Store / Google Play).
+                W sklepie masz na razie tylko subskrypcję miesięczną — po dodaniu planu rocznego pojawi się tu drugi pakiet automatycznie.
+              </Text>
+            </View>
           )}
 
           {/* ─── Przywróć zakupy ─── */}
@@ -351,6 +330,30 @@ const s = StyleSheet.create({
   badgeTxt: {
     fontFamily: 'Orbitron',
     fontSize: 8, color: GOLD, fontWeight: '900',
+  },
+
+  noOffersWrap: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ffffff18',
+    padding: 18,
+    marginBottom: 8,
+    backgroundColor: '#ffffff06',
+  },
+  noOffersTitle: {
+    fontFamily: 'Orbitron',
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '800',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  noOffersBody: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    color: '#ffffff70',
+    lineHeight: 15,
+    textAlign: 'center',
   },
 
   restoreBtn: {
