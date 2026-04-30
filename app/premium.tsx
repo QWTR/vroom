@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, ActivityIndicator,
+  StyleSheet, Dimensions, ActivityIndicator, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView }   from 'react-native-safe-area-context';
@@ -46,12 +46,22 @@ const BENEFITS = [
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
   const router = useRouter();
-  const { getOfferings, purchasePremium, restorePurchases, isPremium, isLoading } = usePremium();
+  const {
+    getOfferings,
+    getRevenueCatDebugSnapshot,
+    purchasePremium,
+    restorePurchases,
+    isPremium,
+    isLoading,
+  } = usePremium();
 
   const [offerings, setOfferings]   = useState<any>(null);
   const [loadingOff, setLoadingOff] = useState(true);
   const [buying, setBuying]         = useState<string | null>(null);
   const [restoring, setRestoring]   = useState(false);
+  const [rcDebugVisible, setRcDebugVisible] = useState(false);
+  const [rcDebugLoading, setRcDebugLoading] = useState(false);
+  const [rcDebugText, setRcDebugText] = useState('');
 
   useEffect(() => {
     if (isLoading) return;
@@ -98,6 +108,20 @@ export default function PremiumScreen() {
       Toast.show({ type: 'success', text1: 'Zakupy przywrócone!', text2: 'Premium aktywne ✓' });
     } else {
       Toast.show({ type: 'info', text1: 'Brak zakupów do przywrócenia', visibilityTime: 3000 });
+    }
+  };
+
+  const handleRevenueCatDebug = async () => {
+    setRcDebugVisible(true);
+    setRcDebugLoading(true);
+    setRcDebugText('Pobieram dane z RevenueCat...');
+    try {
+      const snap = await getRevenueCatDebugSnapshot();
+      setRcDebugText(JSON.stringify(snap, null, 2));
+    } catch (e: any) {
+      setRcDebugText(`Błąd debugowania RC:\n${String(e?.message ?? e)}`);
+    } finally {
+      setRcDebugLoading(false);
     }
   };
 
@@ -215,8 +239,41 @@ export default function PremiumScreen() {
               : <Text style={s.restoreTxt}>PRZYWRÓĆ ZAKUPY</Text>
             }
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.restoreBtn}
+            onPress={handleRevenueCatDebug}
+            activeOpacity={0.75}
+          >
+            <Text style={s.restoreTxt}>SPRAWDŹ RC DEBUG</Text>
+          </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>
+
+      <Modal
+        visible={rcDebugVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setRcDebugVisible(false)}
+      >
+        <View style={s.debugBackdrop}>
+          <View style={s.debugCard}>
+            <View style={s.debugHeader}>
+              <Text style={s.debugTitle}>RC DEBUG</Text>
+              <TouchableOpacity onPress={() => setRcDebugVisible(false)} style={s.debugCloseBtn}>
+                <MaterialIcons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {rcDebugLoading ? (
+              <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
+            ) : (
+              <ScrollView style={s.debugScroll}>
+                <Text style={s.debugText}>{rcDebugText}</Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -387,5 +444,51 @@ const s = StyleSheet.create({
     fontFamily: 'Orbitron',
     fontSize: 10, color: '#ffffff40',
     letterSpacing: 2,
+  },
+  debugBackdrop: {
+    flex: 1,
+    backgroundColor: '#000000cc',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  debugCard: {
+    maxHeight: '80%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ffffff20',
+    backgroundColor: '#111',
+    overflow: 'hidden',
+  },
+  debugHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffffff18',
+  },
+  debugTitle: {
+    color: '#fff',
+    fontFamily: 'OrbitronBold',
+    fontSize: 12,
+    letterSpacing: 1,
+  },
+  debugCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff14',
+  },
+  debugScroll: {
+    maxHeight: '100%',
+  },
+  debugText: {
+    color: '#e6e6e6',
+    fontSize: 11,
+    lineHeight: 16,
+    padding: 12,
   },
 });

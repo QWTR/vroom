@@ -11,7 +11,9 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU"
       }
     },
     "development": {
@@ -24,7 +26,9 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU"
       }
     },
     "preview": {
@@ -39,7 +43,9 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU"
       }
     },
     "production": {
@@ -54,7 +60,9 @@
         "image": "latest"
       },
       "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg"
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU"
       }
     }
   },

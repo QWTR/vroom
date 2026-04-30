@@ -30,6 +30,7 @@ interface PremiumContextType {
   purchasePremium:     (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases:    () => Promise<boolean>;
   getOfferings:        () => Promise<PurchasesOfferings | null>;
+  getRevenueCatDebugSnapshot: () => Promise<any>;
   refreshPremiumStatus:() => Promise<void>;
 }
 
@@ -40,6 +41,7 @@ const PremiumContext = createContext<PremiumContextType>({
   purchasePremium:     async () => false,
   restorePurchases:    async () => false,
   getOfferings:        async () => null,
+  getRevenueCatDebugSnapshot: async () => ({}),
   refreshPremiumStatus:async () => {},
 });
 
@@ -203,10 +205,48 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const getRevenueCatDebugSnapshot = useCallback(async (): Promise<any> => {
+    const { ios, android } = getRevenueCatApiKeys();
+    const selectedKey = Platform.OS === 'ios' ? ios : android;
+    const snapshot: any = {
+      platform: Platform.OS,
+      hasPurchasesModule: !!Purchases,
+      sdkReadyBefore: isRevenueCatSdkReady(),
+      hasIosKey: !!ios,
+      hasAndroidKey: !!android,
+      selectedKeyPrefix: selectedKey ? selectedKey.slice(0, 5) : '',
+    };
+
+    if (!Purchases) return snapshot;
+
+    ensureRevenueCatConfigured();
+    snapshot.sdkReadyAfter = isRevenueCatSdkReady();
+
+    try {
+      const offerings = await Purchases.getOfferings();
+      snapshot.offeringsCurrentId = offerings?.current?.identifier ?? null;
+      snapshot.offeringsCurrentPackageCount = offerings?.current?.availablePackages?.length ?? 0;
+      snapshot.offeringsAllIds = Object.keys(offerings?.all ?? {});
+      snapshot.offeringsRaw = offerings;
+    } catch (e: any) {
+      snapshot.offeringsError = String(e?.message ?? e);
+    }
+
+    try {
+      const info = await Purchases.getCustomerInfo();
+      snapshot.customerInfoRaw = info;
+      snapshot.activeEntitlements = Object.keys(info?.entitlements?.active ?? {});
+    } catch (e: any) {
+      snapshot.customerInfoError = String(e?.message ?? e);
+    }
+
+    return snapshot;
+  }, []);
+
   return (
     <PremiumContext.Provider value={{
       isPremium, isLoading, customerInfo,
-      purchasePremium, restorePurchases, getOfferings, refreshPremiumStatus,
+      purchasePremium, restorePurchases, getOfferings, getRevenueCatDebugSnapshot, refreshPremiumStatus,
     }}>
       {children}
     </PremiumContext.Provider>
