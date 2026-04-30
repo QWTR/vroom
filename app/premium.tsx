@@ -4,6 +4,7 @@ import {
   StyleSheet, Dimensions, ActivityIndicator, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useRouter }      from 'expo-router';
 import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
@@ -123,6 +124,12 @@ export default function PremiumScreen() {
     } finally {
       setRcDebugLoading(false);
     }
+  };
+
+  const handleCopyRevenueCatDebug = async () => {
+    if (!rcDebugText) return;
+    await Clipboard.setStringAsync(rcDebugText);
+    Toast.show({ type: 'success', text1: 'Skopiowano', text2: 'Output RC DEBUG skopiowany.' });
   };
 
   const packages: any[] = packagesFromOfferings(offerings);
@@ -260,9 +267,14 @@ export default function PremiumScreen() {
           <View style={s.debugCard}>
             <View style={s.debugHeader}>
               <Text style={s.debugTitle}>RC DEBUG</Text>
-              <TouchableOpacity onPress={() => setRcDebugVisible(false)} style={s.debugCloseBtn}>
-                <MaterialIcons name="close" size={18} color="#fff" />
-              </TouchableOpacity>
+              <View style={s.debugHeaderActions}>
+                <TouchableOpacity onPress={handleCopyRevenueCatDebug} style={s.debugCopyBtn}>
+                  <MaterialIcons name="content-copy" size={16} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setRcDebugVisible(false)} style={s.debugCloseBtn}>
+                  <MaterialIcons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
             </View>
             {rcDebugLoading ? (
               <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
@@ -475,6 +487,19 @@ const s = StyleSheet.create({
     letterSpacing: 1,
   },
   debugCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff14',
+  },
+  debugHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  debugCopyBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
