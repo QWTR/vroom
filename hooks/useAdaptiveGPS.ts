@@ -20,6 +20,8 @@ interface Options {
 const DRIVE_SPEED_KMH  = 5;
 const MAX_ACCURACY_M   = 40;
 const MAX_SPEED_KMH    = 250;
+const ACTIVE_FIX_TIMEOUT_MS = 12000;
+const IDLE_FIX_TIMEOUT_MS   = 25000;
 
 const GPS_CONFIG = {
   idle: {
@@ -64,6 +66,8 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
 
   const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
+  const lastFixAtRef      = useRef<number>(0);
+  const opSeqRef          = useRef(0);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
@@ -71,6 +75,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
   useEffect(() => { drivingRef.current = isDriving ?? false; }, [isDriving]);
 
   const subscribe = useCallback(async (active: boolean) => {
+    const opId = ++opSeqRef.current;
     subRef.current?.remove();
     subRef.current = null;
 
@@ -84,6 +89,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
         },
         (loc) => {
           const now    = Date.now();
+          lastFixAtRef.current = now;
           const rawLat = loc.coords.latitude;
           const rawLng = loc.coords.longitude;
           const acc    = loc.coords.accuracy ?? 999;
@@ -157,8 +163,13 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
           }
         },
       );
+      if (opId !== opSeqRef.current) {
+        sub.remove();
+        return;
+      }
       subRef.current      = sub;
       isActiveRef.current = active;
+      lastFixAtRef.current = Date.now();
     } catch (e) {
       console.warn('useAdaptiveGPS subscribe error:', e);
     }
@@ -180,10 +191,22 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
   }, [needsActiveConfig, subscribe]);
 
   const stop = useCallback(() => {
+    opSeqRef.current += 1;
     subRef.current?.remove();
     subRef.current      = null;
     lastGoodRef.current = null;
   }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!subRef.current) return;
+      const timeoutMs = isActiveRef.current ? ACTIVE_FIX_TIMEOUT_MS : IDLE_FIX_TIMEOUT_MS;
+      if (Date.now() - lastFixAtRef.current < timeoutMs) return;
+      lastFixAtRef.current = Date.now();
+      subscribe(needsActiveConfig());
+    }, 5000);
+    return () => clearInterval(id);
+  }, [needsActiveConfig, subscribe]);
 
   return { start, stop };
 }

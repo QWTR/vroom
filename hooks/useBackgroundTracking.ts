@@ -11,6 +11,10 @@ export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
 let _navDistKm    = 0;
+let _navLastTsMs  = 0;
+
+const FG_NAV_MAX_PLAUSIBLE_KMH = 220;
+const FG_NAV_MAX_FIX_GAP_SEC   = 60;
 
 export function feedSpeedSample(speedMs: number | null) {
   if (speedMs == null || speedMs < 0) return;
@@ -25,15 +29,20 @@ export function feedNavDistance(
   lat2: number, lon2: number,
   speedKmh?: number,
 ) {
+  const nowMs = Date.now();
   // Skip if GPS says we're below 2 km/h — prevents jitter accumulation when stopped.
   // When speedKmh is unknown (undefined) we allow the distance through.
   if (speedKmh !== undefined && speedKmh < 2) return;
 
   const d = haversineKm(lat1, lon1, lat2, lon2);
+  const dtSec = _navLastTsMs > 0 ? Math.max(0, (nowMs - _navLastTsMs) / 1000) : 0;
+  const maxByDtKm = dtSec > 0 ? (FG_NAV_MAX_PLAUSIBLE_KMH / 3600) * dtSec : 0;
+  _navLastTsMs = nowMs;
+  if (dtSec <= 0 || dtSec > FG_NAV_MAX_FIX_GAP_SEC) return;
   // Skip increments < 10 m (GPS jitter) and >= 2 km (GPS teleportation).
   // The 2 km upper limit allows for low-frequency background GPS that fires
   // less often than the foreground watcher (e.g. when screen is off).
-  if (d < 0.010 || d >= 2.0) return;
+  if (d < 0.010 || d >= 2.0 || d > maxByDtKm) return;
   _navDistKm += d;
 }
 
@@ -41,6 +50,7 @@ export function resetSpeedStats() {
   _speedSamples = [];
   _speedMax     = 0;
   _navDistKm    = 0;
+  _navLastTsMs  = 0;
 }
 
 export function getSpeedDebug() {
@@ -60,6 +70,7 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
   _speedSamples = [];
   _speedMax     = 0;
   _navDistKm    = 0;
+  _navLastTsMs  = 0;
   return result;
 }
 
@@ -74,6 +85,8 @@ const BG_IS_SHARING_KEY         = 'bg_is_sharing';
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Threshold (km) at which background stats are auto-saved as a passive trip
 const BG_AUTO_FLUSH_KM          = 5;
+const BG_LAST_FIX_MAX_GAP_SEC   = 90;
+const BG_MAX_PLAUSIBLE_KMH      = 220;
 
 // ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
 export async function setNavigatingFlag(active: boolean): Promise<void> {
@@ -118,17 +131,35 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate distance ───────────────────────────────────────────────
+    const nowMs = Date.now();
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
     if (lastRaw) {
-      const last    = JSON.parse(lastRaw);
-      const distKm  = haversineKm(last.latitude, last.longitude, latitude, longitude);
+      const last = JSON.parse(lastRaw);
+      const lastLat = Number(last?.latitude);
+      const lastLng = Number(last?.longitude);
+      const lastTs  = Number(last?.time);
+      const lastAcc = Number(last?.accuracy);
+      const hasLastFix = Number.isFinite(lastLat) && Number.isFinite(lastLng) && Number.isFinite(lastTs);
+      const dtSec = hasLastFix ? Math.max(0, (nowMs - lastTs) / 1000) : 0;
+      const distKm = hasLastFix ? haversineKm(lastLat, lastLng, latitude, longitude) : 0;
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
       const speedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
-      const isAccurateFix = accuracy == null || accuracy <= 60;
+      const isAccurateFix = (accuracy == null || accuracy <= 40) && (!Number.isFinite(lastAcc) || lastAcc <= 40);
+      const maxByDtKm = (BG_MAX_PLAUSIBLE_KMH / 3600) * dtSec;
       // When speed is unavailable in background updates, accumulated distance can
       // drift heavily on some devices. Require a valid speed fix to count km.
-      if (distKm > 0.010 && distKm < 2.0 && speedKmh !== null && speedKmh >= 2 && isAccurateFix) {
+      if (
+        hasLastFix &&
+        dtSec > 0 &&
+        dtSec <= BG_LAST_FIX_MAX_GAP_SEC &&
+        distKm > 0.010 &&
+        distKm < 2.0 &&
+        distKm <= maxByDtKm &&
+        speedKmh !== null &&
+        speedKmh >= 2 &&
+        isAccurateFix
+      ) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
         const newPending = pending + distKm;
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));
@@ -166,7 +197,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         }
       }
     }
-    await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({ latitude, longitude }));
+    await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({
+      latitude,
+      longitude,
+      time: nowMs,
+      accuracy: accuracy ?? null,
+    }));
   } catch (e) {
     console.log('BG task error:', e);
   }
@@ -189,6 +225,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 //            of live sharing so that stats are collected whenever the user drives.
 export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = true) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const flushInFlightRef = useRef(false);
 
   // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
   useEffect(() => {
@@ -206,6 +243,8 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       routePoints?: { latitude: number; longitude: number }[];
     },
   ) => {
+    if (flushInFlightRef.current) return;
+    flushInFlightRef.current = true;
     try {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -222,9 +261,10 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
 
-        // Clear bg accumulators and navigation flag
-        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+        // Clear bg accumulators early to prevent duplicate saves when multiple
+        // flush triggers fire close together (foreground, focus, app-state).
         await Promise.all([
+          AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
@@ -250,6 +290,9 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         const bgPending    = parseFloat(bgPendingStr ?? '0');
         if (bgPending < 0.1) return;
 
+        // Claim and zero before network I/O to avoid duplicate passive saves.
+        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
+
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
         const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
         const maxRaw    = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
@@ -269,7 +312,6 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
           }),
         });
 
-        await AsyncStorage.setItem(BG_PENDING_KM_KEY, '0');
         await Promise.all([
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
@@ -277,6 +319,8 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       }
     } catch (e) {
       console.log('flushPendingKm error:', e);
+    } finally {
+      flushInFlightRef.current = false;
     }
   }, []);
 

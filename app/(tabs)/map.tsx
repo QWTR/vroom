@@ -215,6 +215,7 @@ const MIN_GPS_TICK_SEC           = 0.5;
 // amount so the sanity-check allows larger position jumps for the first few
 // fixes (accommodates inaccurate first fix after a cold GPS restart).
 const GPS_RESUME_GRACE_PERIOD_MS = 5000;
+const GPS_RESTART_COOLDOWN_MS    = 2000;
 
 type PersistedNavSession = {
   savedAt: number;
@@ -297,10 +298,12 @@ export default function MapScreen() {
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef       = useRef<number>(Date.now());
+  const lastGpsRestartAtRef   = useRef<number>(0);
   const didRestoreNavSessionRef = useRef(false);
   // Tracks the timestamp of the previous GPS tick for per-tick distance capping.
   const prevGoodTimeRef       = useRef<number>(Date.now());
   const smoothedZoomRef       = useRef<number>(NAV_ZOOM);
+  const navStatsFlushedRef    = useRef(false);
 
   // Adaptive zoom — low-pass filtered zoom based on current speed
   // Defined early so it can be referenced in useDeadReckoning / onLocation / simulator callbacks below
@@ -1359,6 +1362,24 @@ export default function MapScreen() {
     }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom, forceMapMatch]),
   });
 
+  const flushNavigationStatsOnce = useCallback((finalStats: {
+    distanceKm: number;
+    maxSpeedKmh: number;
+    avgSpeedKmh: number;
+    elapsedSec: number;
+    trackedPoints: { latitude: number; longitude: number }[];
+  }) => {
+    if (navStatsFlushedRef.current) return;
+    navStatsFlushedRef.current = true;
+    flushPendingKm(true, {
+      distanceKm: finalStats.distanceKm,
+      maxSpeedKmh: finalStats.maxSpeedKmh,
+      avgSpeedKmh: finalStats.avgSpeedKmh,
+      durationSec: finalStats.elapsedSec,
+      routePoints: finalStats.trackedPoints,
+    });
+  }, [flushPendingKm]);
+
   useEffect(() => {
     if (!locationReady) return;
     lastGoodLocRef.current = userLocation
@@ -1373,6 +1394,20 @@ export default function MapScreen() {
 
   // Keep locationReadyRef in sync for use inside AppState/focus callbacks
   useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
+
+  const restartGPSWatcher = useCallback((reason: 'foreground' | 'focus') => {
+    const now = Date.now();
+    if (now - lastGpsRestartAtRef.current < GPS_RESTART_COOLDOWN_MS) return;
+    lastGpsRestartAtRef.current = now;
+    console.log(`[GPS] Restart watcher (${reason})`);
+    // Allow a slightly larger first jump after watcher re-subscribe.
+    lastGoodTimeRef.current = now - GPS_RESUME_GRACE_PERIOD_MS;
+    // Avoid counting a stale pre-background anchor as the first segment after resume.
+    lastNavLocRef.current = null;
+    drivingLastLocRef.current = null;
+    stopGPS();
+    startGPS();
+  }, [startGPS, stopGPS]);
 
   // One-shot location refresh: immediately snaps the marker to the current
   // position before the watch subscription has had a chance to emit updates.
@@ -1392,29 +1427,21 @@ export default function MapScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && locationReadyRef.current) {
-        console.log('[GPS] App foregrounded — restarting GPS watcher');
-        // Keep last-known position but backdate it by 5 s so the sanity check
-        // allows larger jumps during the grace period after resuming.
-        lastGoodTimeRef.current = Date.now() - GPS_RESUME_GRACE_PERIOD_MS;
-        stopGPS();
-        startGPS();
+        console.log('[GPS] App foregrounded');
+        restartGPSWatcher('foreground');
         refreshLocationOneShot();
       }
     });
     return () => sub.remove();
-  }, [startGPS, stopGPS, refreshLocationOneShot]);
+  }, [restartGPSWatcher, refreshLocationOneShot]);
 
   // ── Restart GPS when Map screen regains focus ────────────────────────────
   useFocusEffect(useCallback(() => {
     if (!locationReadyRef.current) return;
-    console.log('[GPS] Screen focused — restarting GPS watcher');
-    // Keep last-known position but backdate it by 5 s so the sanity check
-    // allows larger jumps during the grace period after screen re-focus.
-    lastGoodTimeRef.current = Date.now() - GPS_RESUME_GRACE_PERIOD_MS;
-    stopGPS();
-    startGPS();
+    console.log('[GPS] Screen focused');
+    restartGPSWatcher('focus');
     refreshLocationOneShot();
-  }, [startGPS, stopGPS, refreshLocationOneShot]));
+  }, [restartGPSWatcher, refreshLocationOneShot]));
 
   useEffect(() => {
     setSnapPoints(activeRoute?.points ?? []);
@@ -2006,13 +2033,7 @@ export default function MapScreen() {
     setRemainingDistKm(null);
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
-    flushPendingKm(true, {
-      distanceKm: finalStats.distanceKm,
-      maxSpeedKmh: finalStats.maxSpeedKmh,
-      avgSpeedKmh: finalStats.avgSpeedKmh,
-      durationSec: finalStats.elapsedSec,
-      routePoints: finalStats.trackedPoints,
-    });
+    flushNavigationStatsOnce(finalStats);
     Speech.stop().catch(() => {});
     speak('Dotarłeś do celu!');
     Toast.show({ type: 'success', text1: '🏁 DOTARŁEŚ DO CELU!', text2: endLocation?.name ?? '' });
@@ -2044,6 +2065,7 @@ export default function MapScreen() {
     endLocation, userLocation, routeInfo, speak, resetCamera,
     onNavigationComplete, timerRunning, stopTimer, formatElapsed,
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns,
+    flushNavigationStatsOnce,
   ]);
 
   // ── beginNavigation ───────────────────────────────────────
@@ -2053,6 +2075,7 @@ export default function MapScreen() {
     exitDrivingMode();
 
     startTrip(routeInfo?.duration ?? 0);
+    navStatsFlushedRef.current = false;
 
     resetDRRefs();
     unlockCamera();
@@ -2190,13 +2213,7 @@ export default function MapScreen() {
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
     const finalStats = finishTrip();
-    flushPendingKm(true, {
-      distanceKm: finalStats.distanceKm,
-      maxSpeedKmh: finalStats.maxSpeedKmh,
-      avgSpeedKmh: finalStats.avgSpeedKmh,
-      durationSec: finalStats.elapsedSec,
-      routePoints: finalStats.trackedPoints,
-    });
+    flushNavigationStatsOnce(finalStats);
     pendingRouteRef.current = null;
 
     if (timerRunning) {
@@ -2224,7 +2241,7 @@ export default function MapScreen() {
       resetCamera(userLocation);
     }
   }, [
-    userLocation, resetCamera, onNavigationCancel, flushPendingKm,
+    userLocation, resetCamera, onNavigationCancel, flushNavigationStatsOnce,
     timerRunning, stopTimer, resetTimer, formatElapsed, elapsedSec,
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns, resetDRRefs,
   ]);

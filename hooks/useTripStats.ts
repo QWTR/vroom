@@ -9,12 +9,16 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
+const TRIP_MAX_PLAUSIBLE_KMH = 220;
+const TRIP_MAX_FIX_GAP_SEC   = 60;
+
 export function useTripStats() {
   const speedSamples = useRef<number[]>([]);
   const trackedPts   = useRef<{ latitude: number; longitude: number }[]>([]);
   const startTimeRef = useRef<number | null>(null);
   const estSecRef    = useRef<number>(0);
   const distanceRef  = useRef<number>(0);
+  const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
 
   const [stats, setStats] = useState<TripStats | null>(null);
 
@@ -24,6 +28,7 @@ export function useTripStats() {
     distanceRef.current  = 0;
     startTimeRef.current = Date.now();
     estSecRef.current    = estimatedDurationSec;
+    lastPointRef.current = null;
     setStats(null);
   }, []);
 
@@ -34,13 +39,19 @@ export function useTripStats() {
   }, []);
 
   const feedPosition = useCallback((lat: number, lng: number, speedMs?: number) => {
+    const now = Date.now();
     // Skip if GPS reports speed below 2 km/h — prevents jitter accumulation while stopped.
     // Matches the same threshold used in feedNavDistance for consistency.
     if (speedMs !== undefined && speedMs * 3.6 < 2) return;
 
     const pts = trackedPts.current;
-    if (!pts.length) { pts.push({ latitude: lat, longitude: lng }); return; }
+    if (!pts.length) {
+      pts.push({ latitude: lat, longitude: lng });
+      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+      return;
+    }
     const last = pts[pts.length - 1];
+    const lastMeta = lastPointRef.current;
 
     // Use a proper Haversine distance instead of the old axis-independent check.
     // Minimum 10 m avoids accumulating GPS jitter while stationary.
@@ -53,10 +64,22 @@ export function useTripStats() {
       Math.cos(lat * Math.PI / 180) *
       Math.sin(dLngR / 2) ** 2;
     const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const dtSec = lastMeta ? Math.max(0, (now - lastMeta.time) / 1000) : 0;
+    const maxByTimeKm = dtSec > 0 ? (TRIP_MAX_PLAUSIBLE_KMH / 3600) * dtSec : 0;
 
-    if (distKm < 0.010 || distKm > 2.0) return; // < 10 m or > 2 km → skip
+    // Reject stale gaps and physically impossible movement even if the absolute
+    // segment is below 2 km (common source of severe overcount on noisy devices).
+    if (dtSec <= 0 || dtSec > TRIP_MAX_FIX_GAP_SEC) {
+      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+      return;
+    }
+    if (distKm < 0.010 || distKm > 2.0 || distKm > maxByTimeKm) {
+      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+      return;
+    } // < 10 m or implausible jump → skip
 
     pts.push({ latitude: lat, longitude: lng });
+    lastPointRef.current = { latitude: lat, longitude: lng, time: now };
     distanceRef.current += distKm;
   }, []);
 
@@ -88,6 +111,7 @@ export function useTripStats() {
     trackedPts.current   = [];
     distanceRef.current  = 0;
     startTimeRef.current = null;
+    lastPointRef.current = null;
   }, []);
 
   return { startTrip, feedSpeed, feedPosition, finishTrip, clearStats, stats };
