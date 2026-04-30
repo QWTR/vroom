@@ -46,9 +46,20 @@ const PremiumContext = createContext<PremiumContextType>({
 });
 
 function getRevenueCatApiKeys(): { ios: string; android: string } {
-  const extra = Constants.expoConfig?.extra as
-    | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
-    | undefined;
+  const extra =
+    (Constants.expoConfig?.extra as
+      | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
+      | undefined) ??
+    ((Constants as any).manifest?.extra as
+      | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
+      | undefined) ??
+    ((Constants as any).manifest2?.extra?.expoClient?.extra as
+      | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
+      | undefined) ??
+    ((Constants as any).manifest2?.extra as
+      | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
+      | undefined);
+
   return {
     ios: (extra?.revenueCatIosApiKey ?? '').trim(),
     android: (extra?.revenueCatAndroidApiKey ?? '').trim(),
