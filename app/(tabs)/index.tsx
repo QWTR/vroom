@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import {
 	ActivityIndicator,
 	Dimensions,
+	FlatList,
 	Image,
 	ScrollView,
 	StyleSheet,
@@ -71,6 +72,14 @@ const getToken = async () =>
 	(await AsyncStorage.getItem("userToken")) ??
 	(await AsyncStorage.getItem("token"));
 
+type ActiveGridVote = {
+	eventId: number;
+	categoryName: string;
+	categorySlug: string;
+	categoryIcon: string;
+	currentRound: number;
+};
+
 async function fetchFreshUser(): Promise<User | null> {
 	try {
 		const token = await getToken();
@@ -109,6 +118,9 @@ export default function HomeScreen() {
 	const [user, setUser] = useState<User | null>(null);
 	const { unseenCount, load: loadAnnouncements } = useAnnouncements();
 	const [showAnnouncements, setShowAnnouncements] = useState(false);
+
+	const [activeGridVotes, setActiveGridVotes] = useState<ActiveGridVote[]>([]);
+	const [gridCarouselIndex, setGridCarouselIndex] = useState(0);
 
 	const [pollVisible, setPollVisible] = useState(false);
 	const [giftVisible, setGiftVisible] = useState(false);
@@ -195,11 +207,62 @@ export default function HomeScreen() {
 		}
 	};
 
+	const fetchActiveGridVotes = useCallback(async () => {
+		try {
+			const token = await getToken();
+			if (!token) {
+				setActiveGridVotes([]);
+				return;
+			}
+			const res = await fetch(`${API_URL}/api/grid/categories`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (!res.ok) {
+				setActiveGridVotes([]);
+				return;
+			}
+			const categories = (await res.json()) as {
+				id: number;
+				name: string;
+				slug: string;
+				icon: string;
+				events?: {
+					id: number;
+					status: string;
+					currentRound?: number;
+				}[];
+			}[];
+			const votes: ActiveGridVote[] = [];
+			for (const cat of categories ?? []) {
+				const evs = Array.isArray(cat.events) ? cat.events : [];
+				for (const ev of evs) {
+					if (ev.status === "active") {
+						votes.push({
+							eventId: ev.id,
+							categoryName: cat.name,
+							categorySlug: cat.slug,
+							categoryIcon: cat.icon ?? "🏁",
+							currentRound: ev.currentRound ?? 1,
+						});
+					}
+				}
+			}
+			setActiveGridVotes(votes);
+		} catch {
+			setActiveGridVotes([]);
+		}
+	}, []);
+
 	useEffect(() => {
 		loadUser();
 		fetchActivePoll();
 		fetchAvailableGifts();
-	}, []);
+		fetchActiveGridVotes();
+	}, [fetchActiveGridVotes]);
+
+	useEffect(() => {
+		setGridCarouselIndex(0);
+	}, [activeGridVotes.length]);
 
 	useEffect(() => {
 		pollRef.current = poll;
@@ -247,11 +310,14 @@ export default function HomeScreen() {
 	const onRefresh = () => {
 		setRefreshing(true);
 		refreshPremiumStatus().catch(() => {});
+		loadAnnouncements();
+		fetchActiveGridVotes();
 		loadUser(false);
 	};
 
 	const t = theme;
 	const effectivePremium = !!(isPremium || user?.isPremium);
+	const gridVoteBannerW = width - 40;
 
 	if (loading || !user) {
 		return (
@@ -792,6 +858,283 @@ export default function HomeScreen() {
 						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
+				{/* ══════════════════════════════════════════════ */}
+				{/* THE GRID — aktywne głosowanie                  */}
+				{/* ══════════════════════════════════════════════ */}
+				{activeGridVotes.length > 0 && (
+					<Animated.View
+						style={{
+							opacity: fadeAnim,
+							paddingHorizontal: 20,
+							marginBottom: 20,
+						}}>
+						<Text
+							style={{
+								fontFamily: "Orbitron",
+								fontSize: 8,
+								letterSpacing: 3,
+								color: t.textDim,
+								marginBottom: 8,
+								marginLeft: 2,
+							}}>
+							THE GRID · GŁOSOWANIE
+						</Text>
+						{activeGridVotes.length === 1 ? (
+							<TouchableOpacity
+								activeOpacity={0.85}
+								onPress={() =>
+									router.push(
+										`/Community/grid/vote?eventId=${activeGridVotes[0].eventId}` as any,
+									)
+								}>
+								<LinearGradient
+									colors={
+										isDark
+											? ["#2a1f05", "#161208", "#0c0c0c"]
+											: ["#fff9e8", "#fff3d0", "#faf6ef"]
+									}
+									start={{ x: 0, y: 0 }}
+									end={{ x: 1, y: 1 }}
+									style={{
+										borderRadius: 18,
+										borderWidth: 1,
+										borderColor: `${t.gold}55`,
+										padding: 18,
+										flexDirection: "row",
+										alignItems: "center",
+										gap: 14,
+										overflow: "hidden",
+									}}>
+									<View
+										style={{
+											position: "absolute",
+											right: -24,
+											top: -24,
+											width: 100,
+											height: 100,
+											borderRadius: 50,
+											backgroundColor: `${t.gold}14`,
+										}}
+									/>
+									<View
+										style={{
+											width: 48,
+											height: 48,
+											borderRadius: 14,
+											backgroundColor: `${t.gold}22`,
+											borderWidth: 1,
+											borderColor: `${t.gold}44`,
+											alignItems: "center",
+											justifyContent: "center",
+										}}>
+										<Text style={{ fontSize: 22 }}>
+											{activeGridVotes[0].categoryIcon}
+										</Text>
+									</View>
+									<View style={{ flex: 1 }}>
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 8,
+												color: t.gold,
+												letterSpacing: 2,
+												marginBottom: 4,
+											}}>
+											RUNDA {activeGridVotes[0].currentRound}
+										</Text>
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 13,
+												color: t.text,
+												fontWeight: "700",
+												marginBottom: 3,
+											}}>
+											{activeGridVotes[0].categoryName.toUpperCase()}
+										</Text>
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 8,
+												color: t.textDim,
+											}}>
+											1v1 Arena · oddaj głos teraz
+										</Text>
+									</View>
+									<View
+										style={{
+											backgroundColor: `${t.gold}18`,
+											borderRadius: 10,
+											padding: 8,
+											borderWidth: 1,
+											borderColor: `${t.gold}40`,
+										}}>
+										<MaterialIcons
+											name='how-to-vote'
+											size={18}
+											color={t.gold}
+										/>
+									</View>
+								</LinearGradient>
+							</TouchableOpacity>
+						) : (
+							<View>
+								<FlatList
+									data={activeGridVotes}
+									horizontal
+									pagingEnabled
+									showsHorizontalScrollIndicator={false}
+									keyExtractor={(it: ActiveGridVote) =>
+										String(it.eventId)
+									}
+									style={{ width: gridVoteBannerW, alignSelf: "center" }}
+									onMomentumScrollEnd={(e: {
+										nativeEvent: { contentOffset: { x: number } };
+									}) => {
+										const idx = Math.round(
+											e.nativeEvent.contentOffset.x / gridVoteBannerW,
+										);
+										setGridCarouselIndex(
+											Math.min(
+												Math.max(0, idx),
+												activeGridVotes.length - 1,
+											),
+										);
+									}}
+									renderItem={({
+										item,
+									}: {
+										item: ActiveGridVote;
+									}) => (
+										<TouchableOpacity
+											activeOpacity={0.85}
+											style={{ width: gridVoteBannerW }}
+											onPress={() =>
+												router.push(
+													`/Community/grid/vote?eventId=${item.eventId}` as any,
+												)
+											}>
+											<LinearGradient
+												colors={
+													isDark
+														? ["#2a1f05", "#161208", "#0c0c0c"]
+														: ["#fff9e8", "#fff3d0", "#faf6ef"]
+												}
+												start={{ x: 0, y: 0 }}
+												end={{ x: 1, y: 1 }}
+												style={{
+													borderRadius: 18,
+													borderWidth: 1,
+													borderColor: `${t.gold}55`,
+													padding: 18,
+													flexDirection: "row",
+													alignItems: "center",
+													gap: 14,
+													overflow: "hidden",
+												}}>
+												<View
+													style={{
+														position: "absolute",
+														right: -24,
+														top: -24,
+														width: 100,
+														height: 100,
+														borderRadius: 50,
+														backgroundColor: `${t.gold}14`,
+													}}
+												/>
+												<View
+													style={{
+														width: 48,
+														height: 48,
+														borderRadius: 14,
+														backgroundColor: `${t.gold}22`,
+														borderWidth: 1,
+														borderColor: `${t.gold}44`,
+														alignItems: "center",
+														justifyContent: "center",
+													}}>
+													<Text style={{ fontSize: 22 }}>
+														{item.categoryIcon}
+													</Text>
+												</View>
+												<View style={{ flex: 1 }}>
+													<Text
+														style={{
+															fontFamily: "Orbitron",
+															fontSize: 8,
+															color: t.gold,
+															letterSpacing: 2,
+															marginBottom: 4,
+														}}>
+														RUNDA {item.currentRound}
+													</Text>
+													<Text
+														style={{
+															fontFamily: "Orbitron",
+															fontSize: 13,
+															color: t.text,
+															fontWeight: "700",
+															marginBottom: 3,
+														}}>
+														{item.categoryName.toUpperCase()}
+													</Text>
+													<Text
+														style={{
+															fontFamily: "Orbitron",
+															fontSize: 8,
+															color: t.textDim,
+														}}>
+														Przesuń palcem · zagłosuj
+													</Text>
+												</View>
+												<View
+													style={{
+														backgroundColor: `${t.gold}18`,
+														borderRadius: 10,
+														padding: 8,
+														borderWidth: 1,
+														borderColor: `${t.gold}40`,
+													}}>
+													<MaterialIcons
+														name='how-to-vote'
+														size={18}
+														color={t.gold}
+													/>
+												</View>
+											</LinearGradient>
+										</TouchableOpacity>
+									)}
+								/>
+								<View
+									style={{
+										flexDirection: "row",
+										justifyContent: "center",
+										alignItems: "center",
+										gap: 6,
+										marginTop: 12,
+									}}>
+									{activeGridVotes.map((_: ActiveGridVote, i: number) => (
+										<View
+											key={i}
+											style={{
+												width: gridCarouselIndex === i ? 18 : 7,
+												height: 7,
+												borderRadius: 4,
+												backgroundColor:
+													gridCarouselIndex === i
+														? t.gold
+														: isDark
+															? "#ffffff28"
+															: "#00000028",
+											}}
+										/>
+									))}
+								</View>
+							</View>
+						)}
+					</Animated.View>
+				)}
 				{/* ══════════════════════════════════════════════ */}
 				{/* PREMIUM STATUS BANNER                          */}
 				{/* ══════════════════════════════════════════════ */}
