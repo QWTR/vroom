@@ -14,6 +14,23 @@ const { width } = Dimensions.get('window');
 const R   = '#e33835';
 const GOLD = '#FFD700';
 
+/** RevenueCat: `current` jest wypełnione tylko gdy oferta jest „Current” w dashboardzie — inaczej pakiety są w `all`. */
+function packagesFromOfferings(offerings: any): any[] {
+  if (!offerings) return [];
+  const cur = offerings.current;
+  if (Array.isArray(cur?.availablePackages) && cur.availablePackages.length > 0) {
+    return cur.availablePackages;
+  }
+  const all = offerings.all;
+  if (all && typeof all === 'object') {
+    for (const id of Object.keys(all)) {
+      const pkgs = all[id]?.availablePackages;
+      if (Array.isArray(pkgs) && pkgs.length > 0) return pkgs;
+    }
+  }
+  return [];
+}
+
 // ─── Benefity ─────────────────────────────────────────────────────────────────
 const BENEFITS = [
   { icon: '🚗', text: 'Nieograniczony garaż',           sub: 'Free: max 3 auta' },
@@ -29,7 +46,7 @@ const BENEFITS = [
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
   const router = useRouter();
-  const { getOfferings, purchasePremium, restorePurchases, isPremium } = usePremium();
+  const { getOfferings, purchasePremium, restorePurchases, isPremium, isLoading } = usePremium();
 
   const [offerings, setOfferings]   = useState<any>(null);
   const [loadingOff, setLoadingOff] = useState(true);
@@ -37,15 +54,19 @@ export default function PremiumScreen() {
   const [restoring, setRestoring]   = useState(false);
 
   useEffect(() => {
+    if (isLoading) return;
+    let cancelled = false;
     (async () => {
+      setLoadingOff(true);
       try {
         const off = await getOfferings();
-        setOfferings(off);
+        if (!cancelled) setOfferings(off);
       } finally {
-        setLoadingOff(false);
+        if (!cancelled) setLoadingOff(false);
       }
     })();
-  }, [getOfferings]);
+    return () => { cancelled = true; };
+  }, [getOfferings, isLoading]);
 
   // Zamknij po zakupie
   useEffect(() => {
@@ -80,8 +101,7 @@ export default function PremiumScreen() {
     }
   };
 
-  // Zbierz pakiety z offerings
-  const packages: any[] = offerings?.current?.availablePackages ?? [];
+  const packages: any[] = packagesFromOfferings(offerings);
 
   return (
     <View style={{ flex: 1 }}>
@@ -175,8 +195,10 @@ export default function PremiumScreen() {
             <View style={s.noOffersWrap}>
               <Text style={s.noOffersTitle}>Nie udało się wczytać oferty</Text>
               <Text style={s.noOffersBody}>
-                Sprawdź połączenie i konfigurację RevenueCat (Offering „current”, produkt w App Store / Google Play).
-                W sklepie masz na razie tylko subskrypcję miesięczną — po dodaniu planu rocznego pojawi się tu drugi pakiet automatycznie.
+                Sprawdź połączenie i RevenueCat: Offering „current”, produkty w App Store Connect / Google Play Console zsynchronizowane z RevenueCat.
+                W RevenueCat: Project → Offerings — jedna oferta musi być oznaczona jako Current (inaczej SDK zwraca puste pakiety mimo dobrego API).
+                Klucze EXPO_PUBLIC_REVENUECAT_* muszą być w tym samym środowisku EAS co profil buildu (np. development ≠ production).
+                W __DEV__ zobaczysz też ostrzeżenia [RevenueCat] w konsoli Metro / Logcat.
               </Text>
             </View>
           )}

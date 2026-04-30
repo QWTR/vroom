@@ -8,10 +8,14 @@ import { API_URL } from '../constants/config';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { isRevenueCatSdkReady, markRevenueCatSdkReady } from '../lib/revenueCatSdkState';
 
-// ─── RevenueCat types (light stubs so TS compiles without native module) ──────
+// ─── RevenueCat (require jak w Expo / web — brak modułu nie wywali bundlera) ───
+// Dokumentacja: configure per platform + getCustomerInfo + entitlements.active
 let Purchases: any;
+let RevenueCatLogLevel: typeof import('react-native-purchases').LOG_LEVEL | undefined;
 try {
-  Purchases = require('react-native-purchases').default;
+  const rc = require('react-native-purchases');
+  Purchases = rc.default;
+  RevenueCatLogLevel = rc.LOG_LEVEL;
 } catch {}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,13 +43,46 @@ const PremiumContext = createContext<PremiumContextType>({
   refreshPremiumStatus:async () => {},
 });
 
-function getRevenueCatApiKey(): string {
+function getRevenueCatApiKeys(): { ios: string; android: string } {
   const extra = Constants.expoConfig?.extra as
     | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
     | undefined;
-  const ios = (extra?.revenueCatIosApiKey ?? '').trim();
-  const android = (extra?.revenueCatAndroidApiKey ?? '').trim();
-  return Platform.OS === 'ios' ? ios : android;
+  return {
+    ios: (extra?.revenueCatIosApiKey ?? '').trim(),
+    android: (extra?.revenueCatAndroidApiKey ?? '').trim(),
+  };
+}
+
+let revenueCatVerboseLogDone = false;
+
+function attachRevenueCatDebugLogging(): void {
+  if (!__DEV__ || !Purchases || revenueCatVerboseLogDone) return;
+  const v = RevenueCatLogLevel?.VERBOSE;
+  if (v == null || typeof Purchases.setLogLevel !== 'function') return;
+  try {
+    Purchases.setLogLevel(v);
+    revenueCatVerboseLogDone = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Jednorazowe configure (wzór z docs RevenueCat / Expo):
+ * iOS → klucz Apple, Android → klucz Google; wołaj przed getOfferings / purchase.
+ */
+function ensureRevenueCatConfigured(): void {
+  if (!Purchases || isRevenueCatSdkReady()) return;
+  attachRevenueCatDebugLogging();
+  const { ios, android } = getRevenueCatApiKeys();
+  const apiKey = Platform.OS === 'ios' ? ios : android;
+  if (!apiKey) return;
+  try {
+    Purchases.configure({ apiKey });
+    markRevenueCatSdkReady();
+  } catch {
+    /* configure nie powiódł się */
+  }
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -92,15 +129,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         if (Purchases) {
-          const apiKey = getRevenueCatApiKey();
-          if (apiKey && !isRevenueCatSdkReady()) {
-            try {
-              Purchases.configure({ apiKey });
-              markRevenueCatSdkReady();
-            } catch {
-              /* configure nie powiódł się — nie wołamy innych metod RC */
-            }
-          }
+          ensureRevenueCatConfigured();
           if (isRevenueCatSdkReady()) {
             await syncRevenueCatLoginFromStorage();
           }
@@ -115,7 +144,9 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refreshPremiumStatus]);
   const purchasePremium = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
-    if (!Purchases || !isRevenueCatSdkReady()) return false;
+    if (!Purchases) return false;
+    ensureRevenueCatConfigured();
+    if (!isRevenueCatSdkReady()) return false;
     try {
       const { customerInfo: info } = await Purchases.purchasePackage(pkg);
       setCustomerInfo(info);
@@ -129,7 +160,9 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPremiumStatus]);
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
-    if (!Purchases || !isRevenueCatSdkReady()) return false;
+    if (!Purchases) return false;
+    ensureRevenueCatConfigured();
+    if (!isRevenueCatSdkReady()) return false;
     try {
       const info: CustomerInfo = await Purchases.restorePurchases();
       setCustomerInfo(info);
@@ -143,10 +176,29 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPremiumStatus]);
 
   const getOfferings = useCallback(async (): Promise<PurchasesOfferings | null> => {
-    if (!Purchases || !isRevenueCatSdkReady()) return null;
+    if (!Purchases) {
+      if (__DEV__) console.warn('[RevenueCat] Brak modułu react-native-purchases (np. zły build / web).');
+      return null;
+    }
+    ensureRevenueCatConfigured();
+    if (!isRevenueCatSdkReady()) {
+      if (__DEV__) {
+        const { ios, android } = getRevenueCatApiKeys();
+        const k = Platform.OS === 'ios' ? ios : android;
+        if (!k) {
+          console.warn(
+            '[RevenueCat] Pusty klucz dla',
+            Platform.OS,
+            '— ustaw EXPO_PUBLIC_REVENUECAT_IOS_KEY / EXPO_PUBLIC_REVENUECAT_ANDROID_KEY (.env lokalnie albo EAS env dla profilu buildu).',
+          );
+        }
+      }
+      return null;
+    }
     try {
       return await Purchases.getOfferings();
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn('[RevenueCat] getOfferings błąd:', e);
       return null;
     }
   }, []);
