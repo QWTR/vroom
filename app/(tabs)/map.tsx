@@ -135,6 +135,8 @@ const DEBUG_NETWORK = false;
 const SEND_INTERVAL_MS    = 5_000;  // poll period (ms)
 const SEND_MIN_DIST_M     = 15;     // min movement before sending (saves bandwidth while stationary)
 const SEND_MAX_ELAPSED_MS = 20_000; // heartbeat: force-send after this long even without movement
+const NAV_SESSION_KEY     = 'nav_session_v1';
+const NAV_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 
 // updateCameras + updateSpeedLimit — skip if user hasn't moved this far
 // (each hook also has its own internal throttle; this gate prevents even the
@@ -214,6 +216,17 @@ const MIN_GPS_TICK_SEC           = 0.5;
 // fixes (accommodates inaccurate first fix after a cold GPS restart).
 const GPS_RESUME_GRACE_PERIOD_MS = 5000;
 
+type PersistedNavSession = {
+  savedAt: number;
+  isOffroadRoute: boolean;
+  startLocation: LocationState | null;
+  endLocation: LocationState | null;
+  navStartLoc: LocationState | null;
+  routeInfo: RouteInfo | null;
+  currentStep: number;
+  offroadPoints: { latitude: number; longitude: number }[];
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
   useKeepAwake(); 
@@ -284,6 +297,7 @@ export default function MapScreen() {
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef       = useRef<number>(Date.now());
+  const didRestoreNavSessionRef = useRef(false);
   // Tracks the timestamp of the previous GPS tick for per-tick distance capping.
   const prevGoodTimeRef       = useRef<number>(Date.now());
   const smoothedZoomRef       = useRef<number>(NAV_ZOOM);
@@ -1642,6 +1656,87 @@ export default function MapScreen() {
   // Sync routeInfo into a ref so the DR effect can read it without stale closure
   const routeInfoRef = useRef(routeInfo);
   routeInfoRef.current = routeInfo;
+
+  // Persist active navigation so it can be restored after app restart.
+  useEffect(() => {
+    if (!isNavigating || !endLocation) {
+      AsyncStorage.removeItem(NAV_SESSION_KEY).catch(() => {});
+      return;
+    }
+
+    const payload: PersistedNavSession = {
+      savedAt: Date.now(),
+      isOffroadRoute,
+      startLocation,
+      endLocation,
+      navStartLoc,
+      routeInfo,
+      currentStep,
+      offroadPoints: isOffroadRoute ? offroadLoadedPointsRef.current : [],
+    };
+
+    AsyncStorage.setItem(NAV_SESSION_KEY, JSON.stringify(payload)).catch(() => {});
+  }, [
+    isNavigating,
+    isOffroadRoute,
+    startLocation,
+    endLocation,
+    navStartLoc,
+    routeInfo,
+    currentStep,
+  ]);
+
+  // Restore pending navigation session after cold start / process kill.
+  useEffect(() => {
+    if (didRestoreNavSessionRef.current || !locationReady) return;
+    didRestoreNavSessionRef.current = true;
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(NAV_SESSION_KEY);
+        if (!raw) return;
+
+        const data: PersistedNavSession = JSON.parse(raw);
+        if (!data?.endLocation) return;
+        if (!data.savedAt || Date.now() - data.savedAt > NAV_SESSION_MAX_AGE_MS) {
+          await AsyncStorage.removeItem(NAV_SESSION_KEY);
+          return;
+        }
+
+        setIsOffroadRoute(Boolean(data.isOffroadRoute));
+        isOffroadRef.current = Boolean(data.isOffroadRoute);
+
+        if (data.isOffroadRoute && data.offroadPoints?.length > 1) {
+          offroadLoadedPointsRef.current = data.offroadPoints;
+          routePointsRef.current = data.offroadPoints;
+        } else {
+          offroadLoadedPointsRef.current = [];
+        }
+
+        if (data.startLocation) setStartLocation(data.startLocation);
+        setEndLocation(data.endLocation);
+        setNavStartLoc(data.navStartLoc ?? data.startLocation ?? userLocation);
+        setRouteInfo(data.routeInfo ?? null);
+        setCurrentStep(Math.max(0, data.currentStep ?? 0));
+        setArrived(false);
+        setOffRoute(false);
+        announcedStepRef.current = -1;
+        lastSpokenRef.current = '';
+
+        isNavigatingRef.current = true;
+        setIsNavigating(true);
+        setNavigatingFlag(true).catch(() => {});
+
+        Toast.show({
+          type: 'success',
+          text1: '↩️ PRZYWRÓCONO NAWIGACJĘ',
+          text2: data.endLocation.name ?? 'Kontynuuj trasę',
+        });
+      } catch (e) {
+        console.log('restore nav_session error:', e);
+      }
+    })();
+  }, [locationReady, userLocation]);
 
   useEffect(() => {
     routePointsRef.current = activeRoute?.points ?? [];

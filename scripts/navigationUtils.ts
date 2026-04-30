@@ -169,47 +169,46 @@ export function detectCurrentStep(
   if (!steps.length) return 0;
   if (currentStep >= steps.length) return steps.length - 1;
 
-  // Sprawdź czy minęliśmy koniec obecnego kroku
-  const step = steps[currentStep];
-  const endLat = step.end_location.lat;
-  const endLon = step.end_location.lng;
-  const distToEnd = haversineKm(userLat, userLon, endLat, endLon) * 1000;
+  // 1) Szybki awans po minięciu końca bieżącego kroku.
+  let resolved = currentStep;
+  while (resolved < steps.length - 1) {
+    const endDistM = haversineKm(
+      userLat,
+      userLon,
+      steps[resolved].end_location.lat,
+      steps[resolved].end_location.lng,
+    ) * 1000;
+    if (endDistM > 45) break;
+    resolved += 1;
+  }
 
-  if (distToEnd < 25 && currentStep < steps.length - 1) {
-    // Sprawdź też czy następny krok jest bliżej niż obecny
-    const nextStep = steps[currentStep + 1];
-    const nextStartLat = nextStep.start_location.lat;
-    const nextStartLon = nextStep.start_location.lng;
-    const distToNextStart = haversineKm(userLat, userLon, nextStartLat, nextStartLon) * 1000;
+  // 2) Lookahead: wybierz najbliższy segment kroku w krótkim oknie do przodu.
+  // Dzięki temu manewr nie "wisi" na poprzednim kroku po szybkich skrzyżowaniach.
+  const LOOKAHEAD_STEPS = 4;
+  let bestStep = resolved;
+  let bestDist = Number.POSITIVE_INFINITY;
 
-    if (distToNextStart < distToEnd + 20) {
-      return currentStep + 1;
+  const lastCandidate = Math.min(steps.length - 1, resolved + LOOKAHEAD_STEPS);
+  for (let i = resolved; i <= lastCandidate; i++) {
+    const step = steps[i];
+    const distM = distanceToSegmentMeters(
+      userLat,
+      userLon,
+      step.start_location.lat,
+      step.start_location.lng,
+      step.end_location.lat,
+      step.end_location.lng,
+    );
+    if (distM < bestDist) {
+      bestDist = distM;
+      bestStep = i;
     }
   }
 
-  // Lookahead — jeśli jesteśmy bardzo blisko początku kolejnego kroku
-  // (np. przejechaliśmy szybko przez skrzyżowanie)
-  if (currentStep < steps.length - 1) {
-    const nextStep = steps[currentStep + 1];
-    const distToNextEnd = haversineKm(
-      userLat, userLon,
-      nextStep.end_location.lat,
-      nextStep.end_location.lng,
-    ) * 1000;
-
-    // Jeśli jesteśmy bliżej końca NASTĘPNEGO kroku niż jego startu — przeskocz dwa
-    const distToNextStart = haversineKm(
-      userLat, userLon,
-      nextStep.start_location.lat,
-      nextStep.start_location.lng,
-    ) * 1000;
-
-    if (distToNextEnd < distToNextStart && distToNextStart < 20 && currentStep + 1 < steps.length - 1) {
-      return currentStep + 2;
-    }
+  if (bestStep > resolved && bestDist <= 80) {
+    return bestStep;
   }
-
-  return currentStep;
+  return resolved;
 }
 
 /**

@@ -91,7 +91,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     const token = await AsyncStorage.getItem('token');
     if (!token) return;
 
-    const { latitude, longitude, speed } = location.coords;
+    const { latitude, longitude, speed, accuracy } = location.coords;
 
     // ── Send live location only when sharing is active ────────────────────
     const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
@@ -125,7 +125,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
       const speedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
-      if (distKm > 0.010 && distKm < 2.0 && (speedKmh === null || speedKmh >= 2)) {
+      const isAccurateFix = accuracy == null || accuracy <= 60;
+      // When speed is unavailable in background updates, accumulated distance can
+      // drift heavily on some devices. Require a valid speed fix to count km.
+      if (distKm > 0.010 && distKm < 2.0 && speedKmh !== null && speedKmh >= 2 && isAccurateFix) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
         const newPending = pending + distKm;
         await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending));

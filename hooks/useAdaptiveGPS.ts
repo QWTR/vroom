@@ -24,13 +24,15 @@ const MAX_SPEED_KMH    = 250;
 const GPS_CONFIG = {
   idle: {
     accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     3000,
+    timeInterval:     3500,
     distanceInterval: 8,
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    timeInterval:     250,
-    distanceInterval: 1,
+    // 250 ms was very battery-heavy and could cause aggressive OS throttling.
+    // 700 ms keeps navigation smooth while significantly reducing wakeups.
+    timeInterval:     700,
+    distanceInterval: 3,
   },
 };
 
