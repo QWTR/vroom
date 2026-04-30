@@ -23,6 +23,11 @@ export type CustomerInfo = any;
 export type PurchasesPackage = any;
 export type PurchasesOfferings = any;
 
+function hasPremiumEntitlement(info: any): boolean {
+  const active = info?.entitlements?.active ?? {};
+  return !!(active?.premium || active?.['vroom Premium'] || active?.['Vroom Premium']);
+}
+
 interface PremiumContextType {
   isPremium:           boolean;
   isLoading:           boolean;
@@ -60,9 +65,14 @@ function getRevenueCatApiKeys(): { ios: string; android: string } {
       | { revenueCatIosApiKey?: string; revenueCatAndroidApiKey?: string }
       | undefined);
 
+  const iosFromExtra = (extra?.revenueCatIosApiKey ?? '').trim();
+  const androidFromExtra = (extra?.revenueCatAndroidApiKey ?? '').trim();
+  const iosFromEnv = (process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '').trim();
+  const androidFromEnv = (process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '').trim();
+
   return {
-    ios: (extra?.revenueCatIosApiKey ?? '').trim(),
-    android: (extra?.revenueCatAndroidApiKey ?? '').trim(),
+    ios: iosFromExtra || iosFromEnv,
+    android: androidFromExtra || androidFromEnv,
   };
 }
 
@@ -110,11 +120,11 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     let backendPremium = false;
 
     // RevenueCat jest opcjonalny — jego błąd nie może wyłączać premium z backendu (gifty/admin).
-    if (Purchases && isRevenueCatSdkReady()) {
+    if (Purchases) {
       try {
         const info: CustomerInfo = await Purchases.getCustomerInfo();
         setCustomerInfo(info);
-        rcPremium = !!info?.entitlements?.active?.['premium'];
+        rcPremium = hasPremiumEntitlement(info);
       } catch {}
     }
 
@@ -159,11 +169,10 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   const purchasePremium = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
     if (!Purchases) return false;
     ensureRevenueCatConfigured();
-    if (!isRevenueCatSdkReady()) return false;
     try {
       const { customerInfo: info } = await Purchases.purchasePackage(pkg);
       setCustomerInfo(info);
-      const premium = !!info?.entitlements?.active?.['premium'];
+      const premium = hasPremiumEntitlement(info);
       setIsPremium(premium);
       if (premium) await refreshPremiumStatus();
       return premium;
@@ -175,11 +184,10 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   const restorePurchases = useCallback(async (): Promise<boolean> => {
     if (!Purchases) return false;
     ensureRevenueCatConfigured();
-    if (!isRevenueCatSdkReady()) return false;
     try {
       const info: CustomerInfo = await Purchases.restorePurchases();
       setCustomerInfo(info);
-      const premium = !!info?.entitlements?.active?.['premium'];
+      const premium = hasPremiumEntitlement(info);
       setIsPremium(premium);
       if (premium) await refreshPremiumStatus();
       return premium;
@@ -194,20 +202,6 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
     ensureRevenueCatConfigured();
-    if (!isRevenueCatSdkReady()) {
-      if (__DEV__) {
-        const { ios, android } = getRevenueCatApiKeys();
-        const k = Platform.OS === 'ios' ? ios : android;
-        if (!k) {
-          console.warn(
-            '[RevenueCat] Pusty klucz dla',
-            Platform.OS,
-            '— ustaw EXPO_PUBLIC_REVENUECAT_IOS_KEY / EXPO_PUBLIC_REVENUECAT_ANDROID_KEY (.env lokalnie albo EAS env dla profilu buildu).',
-          );
-        }
-      }
-      return null;
-    }
     try {
       return await Purchases.getOfferings();
     } catch (e) {

@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, ActivityIndicator, Modal,
+  StyleSheet, Dimensions, ActivityIndicator, Modal, Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView }   from 'react-native-safe-area-context';
 import { useRouter }      from 'expo-router';
 import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
@@ -128,8 +127,8 @@ export default function PremiumScreen() {
 
   const handleCopyRevenueCatDebug = async () => {
     if (!rcDebugText) return;
-    await Clipboard.setStringAsync(rcDebugText);
-    Toast.show({ type: 'success', text1: 'Skopiowano', text2: 'Output RC DEBUG skopiowany.' });
+    await Share.share({ message: rcDebugText });
+    Toast.show({ type: 'success', text1: 'Udostępnij', text2: 'Wybierz „Kopiuj” w systemowym panelu.' });
   };
 
   const packages: any[] = packagesFromOfferings(offerings);
