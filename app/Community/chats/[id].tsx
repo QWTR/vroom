@@ -87,6 +87,12 @@ function extractUrl(text: string): string | null {
   return match ? match[0] : null;
 }
 
+function normalizePhotoUri(uri: string): string {
+  if (!uri) return uri;
+  if (/^https?:\/\//i.test(uri) || /^file:\/\//i.test(uri) || /^content:\/\//i.test(uri)) return uri;
+  return `https://v-room.app${uri.startsWith('/') ? uri : `/${uri}`}`;
+}
+
 export default function ChatScreen() {
   const { id }  = useLocalSearchParams<{ id: string }>();
   const router  = useRouter();
@@ -398,9 +404,9 @@ export default function ChatScreen() {
               {item.photos?.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                   {item.photos.map((uri, i) => (
-                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
+                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(normalizePhotoUri(uri))}>
                       <Image
-                        source={{ uri }}
+                        source={{ uri: normalizePhotoUri(uri) }}
                         style={item.photos.length === 1
                           ? { width: 200, height: 150, borderRadius: 12 }
                           : { width: 120, height: 90, borderRadius: 8 }}

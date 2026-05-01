@@ -37,6 +37,12 @@ const CHAT_THEMES = [
 
 const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
 
+function normalizePhotoUri(uri: string): string {
+  if (!uri) return uri;
+  if (/^https?:\/\//i.test(uri) || /^file:\/\//i.test(uri) || /^content:\/\//i.test(uri)) return uri;
+  return `https://v-room.app${uri.startsWith('/') ? uri : `/${uri}`}`;
+}
+
 interface ClubMessage {
   id:        number;
   clubId:    number;
@@ -194,6 +200,7 @@ export default function ClubChatScreen() {
   const [sharing, setSharing] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [chatThemeId, setChatThemeId] = useState('default');
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
   const paneRef = useRef<ScrollView>(null);
   const [memberModal, setMemberModal] = useState<any | null>(null);
@@ -469,11 +476,17 @@ export default function ClubChatScreen() {
             {item.photos?.length > 0 && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {item.photos.map((uri, i) => (
-                  <Image key={i} source={{ uri }}
-                    style={item.photos.length === 1
-                      ? { width: 200, height: 150, borderRadius: 12 }
-                      : { width: 120, height: 90,  borderRadius: 8 }}
-                  />
+                  <TouchableOpacity
+                    key={i}
+                    activeOpacity={0.85}
+                    onPress={() => setPreviewPhoto(normalizePhotoUri(uri))}
+                  >
+                    <Image source={{ uri: normalizePhotoUri(uri) }}
+                      style={item.photos.length === 1
+                        ? { width: 200, height: 150, borderRadius: 12 }
+                        : { width: 120, height: 90,  borderRadius: 8 }}
+                    />
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
@@ -1181,6 +1194,27 @@ export default function ClubChatScreen() {
               </View>
             </View>
           </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}
+          onPress={() => setPreviewPhoto(null)}
+        >
+          {!!previewPhoto && (
+            <Image
+              source={{ uri: previewPhoto }}
+              style={{ width: SCREEN_W, height: Dimensions.get('window').height * 0.82 }}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setPreviewPhoto(null)}
+            style={{ position: 'absolute', top: insets.top + 12, right: 14, backgroundColor: '#ffffff24', borderRadius: 20, padding: 9 }}
+          >
+            <Feather name="x" size={18} color="#fff" />
+          </TouchableOpacity>
         </Pressable>
       </Modal>
 
