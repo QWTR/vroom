@@ -1,22 +1,30 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, Image, ActivityIndicator,
-  Dimensions, StatusBar, Animated, Modal, FlatList, Platform,ScrollView
+  View, Text, TouchableOpacity, ActivityIndicator,
+  Dimensions, StatusBar, Animated, Modal, FlatList, Platform, ScrollView
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 
 const { width, height } = Dimensions.get('window');
-const STATUS_H  = Platform.OS === 'ios' ? 54 : 32;
+const STATUS_H = Platform.OS === 'ios' ? 54 : 32;
 const DIVIDER_H = 60;
-const BUTTONS_H = 120;
-const CARD_H    = Math.floor((height - STATUS_H - DIVIDER_H - BUTTONS_H) / 2);
+const BUTTONS_H_BASE = 120;
+
+function normalizePhotoUri(uri: string | null | undefined): string {
+  if (!uri) return 'https://via.placeholder.com/600x400/0a0a0a/222?text=+';
+  if (/^https?:\/\//i.test(uri)) return uri;
+  const path = uri.startsWith('/') ? uri : `/${uri}`;
+  return `${API_URL}${path}`;
+}
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -144,11 +152,12 @@ function GalleryModal({ photos, startIdx, username, onClose }: {
 
 // ── Karta zawodnika ──────────────────────────────────────────────────────────
 function EntryCard({
-  entry, photos, isVoted, isLoser, onGallery, label, goldColor,
+  entry, photos, isVoted, isLoser, onGallery, label, goldColor, cardHeight,
 }: {
   entry: Entry; photos: string[];
   isVoted: boolean; isLoser: boolean;
   onGallery: () => void; label: string; goldColor: string;
+  cardHeight: number;
 }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -178,7 +187,7 @@ function EntryCard({
   const displayPhotos = photos.length > 0 ? photos : ['ph'];
 
   return (
-    <View style={{ height: CARD_H, overflow: 'hidden', backgroundColor: '#111' }}>
+    <View style={{ height: cardHeight, overflow: 'hidden', backgroundColor: '#111' }}>
 
       {/* Zdjęcia — ScrollView pagingEnabled zamiast FlatList */}
       <ScrollView
@@ -190,7 +199,7 @@ function EntryCard({
         bounces={false}
         decelerationRate="fast"
         disableIntervalMomentum
-        style={{ position: 'absolute', top: 0, left: 0, width, height: CARD_H }}
+        style={{ position: 'absolute', top: 0, left: 0, width, height: cardHeight }}
         onMomentumScrollEnd={e => {
           const i = Math.round(e.nativeEvent.contentOffset.x / width);
           setPhotoIdx(i);
@@ -200,8 +209,10 @@ function EntryCard({
           <Image
             key={i}
             source={{ uri: uri === 'ph' ? 'https://via.placeholder.com/600x400/0a0a0a/222?text=+' : uri }}
-            style={{ width, height: CARD_H }}
-            resizeMode="cover"
+            style={{ width, height: cardHeight }}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={90}
           />
         ))}
       </ScrollView>
@@ -209,13 +220,13 @@ function EntryCard({
       {/* Gradient góra */}
       <LinearGradient
         colors={['rgba(0,0,0,0.55)', 'transparent']}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: CARD_H * 0.38, pointerEvents: 'none' }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: cardHeight * 0.38, pointerEvents: 'none' }}
       />
 
       {/* Gradient dół */}
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.92)']}
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: CARD_H * 0.6, pointerEvents: 'none' }}
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: cardHeight * 0.6, pointerEvents: 'none' }}
       />
 
       {/* Dim overlay */}
@@ -279,7 +290,7 @@ function EntryCard({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ width: 32, height: 32, borderRadius: 16, overflow: 'hidden', borderWidth: 1.5, borderColor: isVoted ? goldColor : '#ffffff30', backgroundColor: '#1a1a1a' }}>
             {entry.user.avatarUrl
-              ? <Image source={{ uri: entry.user.avatarUrl }} style={{ width: 32, height: 32 }} />
+              ? <Image source={{ uri: normalizePhotoUri(entry.user.avatarUrl) }} style={{ width: 32, height: 32 }} />
               : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9, textAlign: 'center', lineHeight: 32 }}>
                   {entry.user.username.slice(0, 2).toUpperCase()}
                 </Text>
@@ -317,6 +328,7 @@ export default function GridVoteScreen() {
   const { theme }   = useTheme();
   const router      = useRouter();
   const { eventId } = useLocalSearchParams<{ eventId: string }>();
+  const insets      = useSafeAreaInsets();
 
   const [battles,  setBattles]  = useState<Battle[]>([]);
   const [idx,      setIdx]      = useState(0);
@@ -460,8 +472,13 @@ export default function GridVoteScreen() {
   const total   = battle.votesA + battle.votesB;
   const pctA    = total > 0 ? Math.round((battle.votesA / total) * 100) : 50;
   const pctB    = 100 - pctA;
-  const photosA = battle.entryA.photos ?? [];
-  const photosB = battle.entryB.photos ?? [];
+  const photosA = (battle.entryA.photos ?? []).map(normalizePhotoUri);
+  const photosB = (battle.entryB.photos ?? []).map(normalizePhotoUri);
+  const buttonsHeight = BUTTONS_H_BASE + Math.max(insets.bottom, 10);
+  const cardHeight = Math.max(
+    180,
+    Math.floor((height - STATUS_H - DIVIDER_H - buttonsHeight) / 2),
+  );
 
   const barWidthA = barA.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const barWidthB = barB.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
@@ -488,6 +505,7 @@ export default function GridVoteScreen() {
           isLoser={!!myVote && myVote !== battle.entryA.id}
           onGallery={() => setGallery({ photos: photosA, username: battle.entryA.user.username, startIdx: 0 })}
           label="A" goldColor={theme.gold}
+          cardHeight={cardHeight}
         />
 
         {/* ── DIVIDER ── */}
@@ -554,10 +572,11 @@ export default function GridVoteScreen() {
           isLoser={!!myVote && myVote !== battle.entryB.id}
           onGallery={() => setGallery({ photos: photosB, username: battle.entryB.user.username, startIdx: 0 })}
           label="B" goldColor={theme.gold}
+          cardHeight={cardHeight}
         />
 
         {/* ── PRZYCISKI ── */}
-        <View style={{ height: BUTTONS_H, backgroundColor: '#050505', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 14, gap: 0 }}>
+        <View style={{ height: buttonsHeight, backgroundColor: '#050505', paddingHorizontal: 14, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 14), gap: 0 }}>
 
           {/* Głosy info */}
           {myVote && (

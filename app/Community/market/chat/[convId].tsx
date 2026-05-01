@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator,
+  StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +17,7 @@ const MAX_CHAT_PHOTOS  = 5;
 const INPUT_MIN_HEIGHT = 40;
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE        = 30;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 interface MarketConvInfo {
   id: number;
@@ -57,6 +58,7 @@ export default function MarketChatScreen() {
   const [photos,      setPhotos]      = useState<string[]>([]);
   const [myId,        setMyId]        = useState<number | null>(null);
   const [sending,     setSending]     = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const listRef    = useRef<FlatList>(null);
   const tokenRef   = useRef('');
@@ -194,10 +196,12 @@ export default function MarketChatScreen() {
             {item.photos?.length > 0 && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {item.photos.map((uri, i) => (
-                  <Image key={i} source={{ uri }}
-                    style={item.photos.length === 1 ? { width: 200, height: 150, borderRadius: 10 } : { width: 120, height: 90, borderRadius: 8 }}
-                    contentFit="cover"
-                  />
+                  <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
+                    <Image source={{ uri }}
+                      style={item.photos.length === 1 ? { width: 200, height: 150, borderRadius: 10 } : { width: 120, height: 90, borderRadius: 8 }}
+                      contentFit="cover"
+                    />
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
@@ -364,6 +368,24 @@ export default function MarketChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }} onPress={() => setPreviewPhoto(null)}>
+          {!!previewPhoto && (
+            <Image
+              source={{ uri: previewPhoto }}
+              style={{ width: SCREEN_W, height: SCREEN_H * 0.82 }}
+              contentFit="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setPreviewPhoto(null)}
+            style={{ position: 'absolute', top: insets.top + 12, right: 14, backgroundColor: '#ffffff24', borderRadius: 20, padding: 9 }}
+          >
+            <Feather name="x" size={18} color="#fff" />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

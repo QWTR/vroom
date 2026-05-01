@@ -52,7 +52,6 @@ import { isSaneLocation } from '../../scripts/kalmanFilter';
 import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
 import {
   BG_PENDING_KM_KEY,
-  feedNavDistance,
   feedSpeedSample,
   recordDrivingTracePoint,
   resetSpeedStats,
@@ -469,6 +468,20 @@ export default function MapScreen() {
       if (val) setMapType(val);
     }).catch(() => {});
   }, []);
+
+  // ── voice guidance persistence ─────────────────────────────
+  useEffect(() => {
+    AsyncStorage.getItem('map_speech_enabled')
+      .then((val) => {
+        if (val == null) return;
+        setIsSpeechEnabled(val === '1');
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem('map_speech_enabled', isSpeechEnabled ? '1' : '0').catch(() => {});
+  }, [isSpeechEnabled]);
 
   // ── Fuel stations — trigger fetch on location change ──────
   // The hook internally throttles by time (30s) and distance (500m) to avoid excessive API calls.
@@ -1347,13 +1360,6 @@ export default function MapScreen() {
           // Distance/statistics for navigation should use snapped route position,
           // not raw filtered GPS (reduces jitter overcount and missing km spikes).
           feedPosition(navSnapped.latitude, navSnapped.longitude, rawSpeedMs);
-          if (lastNavLocRef.current) {
-            feedNavDistance(
-              lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
-              navSnapped.latitude, navSnapped.longitude,
-              kmh,
-            );
-          }
           lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
           feedDR(
             { latitude: navSnapped.latitude, longitude: navSnapped.longitude },
@@ -1425,12 +1431,46 @@ export default function MapScreen() {
       .then((loc) => {
         const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
         const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+        const speedMs = loc.coords.speed != null && loc.coords.speed >= 0 ? loc.coords.speed : 0;
+        const speedKmh = speedMs * 3.6;
+
+        // Keep route-matched continuity after resume/focus so we don't show a
+        // raw-GPS jump before the continuous watcher pushes the next snapped tick.
+        if (isNavigatingRef.current && routePointsRef.current.length > 1) {
+          const navSnapped = snapToRoute(lat, lng, routePointsRef.current, 35);
+          lastGoodLocRef.current = { lat: navSnapped.latitude, lng: navSnapped.longitude };
+          lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
+          setUserLocation({ latitude: navSnapped.latitude, longitude: navSnapped.longitude });
+          feedPosition(navSnapped.latitude, navSnapped.longitude, speedMs);
+          feedDR(
+            { latitude: navSnapped.latitude, longitude: navSnapped.longitude },
+            speedMs,
+            lastHeadingRef.current,
+          );
+          return;
+        }
+
+        if (isDrivingRef.current) {
+          const matchedPts = getMatchedPoints();
+          if (matchedPts && matchedPts.length > 1) setRoadMatchPoints(matchedPts);
+          const snapped = drivingSnap(lat, lng, speedKmh, false);
+          lastGoodLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+          drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+          setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+          feedDR(
+            { latitude: snapped.latitude, longitude: snapped.longitude },
+            speedMs,
+            lastHeadingRef.current,
+          );
+          return;
+        }
+
         lastGoodLocRef.current = { lat, lng };
-        setUserLocation({ latitude: lat, longitude: lng });
         console.log('[GPS] One-shot fix applied');
+        setUserLocation({ latitude: lat, longitude: lng });
       })
       .catch((e) => console.warn('[GPS] One-shot fix failed:', e));
-  }, []);
+  }, [drivingSnap, feedDR, feedPosition, getMatchedPoints, setRoadMatchPoints]);
 
   // ── Restart GPS when app returns to foreground ──────────────────────────
   useEffect(() => {
@@ -1507,13 +1547,6 @@ export default function MapScreen() {
       }
 
       feedSpeedSample(speedMs);
-      if (lastNavLocRef.current) {
-        feedNavDistance(
-          lastNavLocRef.current.latitude, lastNavLocRef.current.longitude,
-          lat, lng,
-          speedMs * 3.6,
-        );
-      }
       lastNavLocRef.current = { latitude: lat, longitude: lng };
     }, [getAdaptiveZoom]),
     speedKmh:   120,
@@ -1682,9 +1715,11 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (!startIsMyLocationRef.current || !userLocation || isNavigating) return;
-    if (isDriving && endLocation) return; // ← NOWE: w driving mode z celem nie nadpisuj
+    // Keep the selected route anchor stable while destination preview is active.
+    // Without this, tab switches can silently move "start" and produce bad reroute hints.
+    if (endLocation) return;
     setStartLocation(prev => ({ ...userLocation, name: prev?.name ?? 'Moja pozycja' }));
-  }, [userLocation, isNavigating, isDriving, endLocation]);
+  }, [userLocation, isNavigating, endLocation]);
 
   const activeRoute = isNavigating ? navRoute : previewRoute;
   navRouteRef.current = navRoute ?? null;
@@ -2013,11 +2048,14 @@ export default function MapScreen() {
   }, [userLocation, addWarning, activeRoute]);
 
   const handleCenterOnUser = useCallback(() => {
-    if (!userLocation) return;
+    const liveCenter = ((isNavigating || isDriving) && drLatRef.current !== 0 && drLngRef.current !== 0)
+      ? { latitude: drLatRef.current, longitude: drLngRef.current }
+      : userLocation;
+    if (!liveCenter) return;
     unlockCamera();
     if (isNavigating || isDriving) {
       (cameraRef.current as any)?.setCamera({
-        centerCoordinate: [userLocation.longitude, userLocation.latitude],
+        centerCoordinate: [liveCenter.longitude, liveCenter.latitude],
         pitch:            NAV_PITCH,
         heading:          lastHeadingRef.current,
         zoomLevel:        getAdaptiveZoom(speedKmhRef.current),
@@ -2025,7 +2063,7 @@ export default function MapScreen() {
         animationMode:    'flyTo',
       });
     } else {
-      resetCamera(userLocation);
+      resetCamera(liveCenter);
     }
   }, [userLocation, isNavigating, isDriving, resetCamera, unlockCamera, getAdaptiveZoom]);
 

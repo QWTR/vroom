@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
+import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 
 export interface TripStats {
   maxSpeedKmh:   number;
@@ -53,34 +54,35 @@ export function useTripStats() {
     const last = pts[pts.length - 1];
     const lastMeta = lastPointRef.current;
 
-    // Use a proper Haversine distance instead of the old axis-independent check.
-    // Minimum 10 m avoids accumulating GPS jitter while stationary.
-    // Maximum 2 km rejects GPS teleportation while allowing low-frequency highway updates.
-    const R     = 6371;
-    const dLatR = (lat - last.latitude)  * Math.PI / 180;
-    const dLngR = (lng - last.longitude) * Math.PI / 180;
-    const a = Math.sin(dLatR / 2) ** 2 +
-      Math.cos(last.latitude * Math.PI / 180) *
-      Math.cos(lat * Math.PI / 180) *
-      Math.sin(dLngR / 2) ** 2;
-    const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const dtSec = lastMeta ? Math.max(0, (now - lastMeta.time) / 1000) : 0;
-    const maxByTimeKm = dtSec > 0 ? (TRIP_MAX_PLAUSIBLE_KMH / 3600) * dtSec : 0;
-
-    // Reject stale gaps and physically impossible movement even if the absolute
-    // segment is below 2 km (common source of severe overcount on noisy devices).
-    if (dtSec <= 0 || dtSec > TRIP_MAX_FIX_GAP_SEC) {
+    const segment = evaluateDistanceSegment(
+      {
+        latitude: last.latitude,
+        longitude: last.longitude,
+        timestampMs: lastMeta?.time ?? now,
+        speedKmh: speedMs != null ? speedMs * 3.6 : null,
+      },
+      {
+        latitude: lat,
+        longitude: lng,
+        timestampMs: now,
+        speedKmh: speedMs != null ? speedMs * 3.6 : null,
+      },
+      {
+        minSegmentKm: 0.010,
+        maxSegmentKm: 2.0,
+        maxFixGapSec: TRIP_MAX_FIX_GAP_SEC,
+        maxPlausibleKmh: TRIP_MAX_PLAUSIBLE_KMH,
+        minSpeedKmh: 2,
+      },
+    );
+    if (!segment.accepted) {
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return;
     }
-    if (distKm < 0.010 || distKm > 2.0 || distKm > maxByTimeKm) {
-      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
-      return;
-    } // < 10 m or implausible jump → skip
 
     pts.push({ latitude: lat, longitude: lng });
     lastPointRef.current = { latitude: lat, longitude: lng, time: now };
-    distanceRef.current += distKm;
+    distanceRef.current += segment.distanceKm;
   }, []);
 
   const finishTrip = useCallback(() => {

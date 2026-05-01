@@ -4,6 +4,7 @@ import * as TaskManager   from 'expo-task-manager';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
+import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -17,11 +18,6 @@ async function getAuthToken(): Promise<string | null> {
 // ── In-memory speed tracking (foreground) ────────────────────────────────────
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
-let _navDistKm    = 0;
-let _navLastTsMs  = 0;
-
-const FG_NAV_MAX_PLAUSIBLE_KMH = 220;
-const FG_NAV_MAX_FIX_GAP_SEC   = 60;
 
 export function feedSpeedSample(speedMs: number | null) {
   if (speedMs == null || speedMs < 0) return;
@@ -36,32 +32,18 @@ export function feedNavDistance(
   lat2: number, lon2: number,
   speedKmh?: number,
 ) {
-  const nowMs = Date.now();
-  // Skip if GPS says we're below 2 km/h — prevents jitter accumulation when stopped.
-  // When speedKmh is unknown (undefined) we allow the distance through.
-  if (speedKmh !== undefined && speedKmh < 2) return;
-
-  const d = haversineKm(lat1, lon1, lat2, lon2);
-  const dtSec = _navLastTsMs > 0 ? Math.max(0, (nowMs - _navLastTsMs) / 1000) : 0;
-  const maxByDtKm = dtSec > 0 ? (FG_NAV_MAX_PLAUSIBLE_KMH / 3600) * dtSec : 0;
-  _navLastTsMs = nowMs;
-  if (dtSec <= 0 || dtSec > FG_NAV_MAX_FIX_GAP_SEC) return;
-  // Skip increments < 10 m (GPS jitter) and >= 2 km (GPS teleportation).
-  // The 2 km upper limit allows for low-frequency background GPS that fires
-  // less often than the foreground watcher (e.g. when screen is off).
-  if (d < 0.010 || d >= 2.0 || d > maxByDtKm) return;
-  _navDistKm += d;
+  // Deprecated path: distance is now sourced from the route-matched TripStats
+  // pipeline in map.tsx/useTripStats to avoid dual foreground ledgers.
+  void lat1; void lon1; void lat2; void lon2; void speedKmh;
 }
 
 export function resetSpeedStats() {
   _speedSamples = [];
   _speedMax     = 0;
-  _navDistKm    = 0;
-  _navLastTsMs  = 0;
 }
 
 export function getSpeedDebug() {
-  return { samples: _speedSamples.length, max: _speedMax, distKm: _navDistKm };
+  return { samples: _speedSamples.length, max: _speedMax, distKm: 0 };
 }
 
 // ── Flush foreground stats and return ────────────────────────────────────────
@@ -72,12 +54,10 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
   const result = {
     avgSpeed: Math.round(avg       * 10) / 10,
     maxSpeed: Math.round(_speedMax * 10) / 10,
-    distKm:   Math.round(_navDistKm * 1000) / 1000,
+    distKm:   0,
   };
   _speedSamples = [];
   _speedMax     = 0;
-  _navDistKm    = 0;
-  _navLastTsMs  = 0;
   return result;
 }
 
@@ -189,27 +169,48 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       const lastAcc = Number(last?.accuracy);
       const hasLastFix = Number.isFinite(lastLat) && Number.isFinite(lastLng) && Number.isFinite(lastTs);
       const dtSec = hasLastFix ? Math.max(0, (nowMs - lastTs) / 1000) : 0;
-      const distKm = hasLastFix ? haversineKm(lastLat, lastLng, latitude, longitude) : 0;
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
       const speedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
       const isAccurateFix = (accuracy == null || accuracy <= 40) && (!Number.isFinite(lastAcc) || lastAcc <= 40);
-      const maxByDtKm = (BG_MAX_PLAUSIBLE_KMH / 3600) * dtSec;
+      const segment = hasLastFix
+        ? evaluateDistanceSegment(
+          {
+            latitude: lastLat,
+            longitude: lastLng,
+            timestampMs: lastTs,
+            speedKmh,
+            accuracyM: Number.isFinite(lastAcc) ? lastAcc : null,
+          },
+          {
+            latitude,
+            longitude,
+            timestampMs: nowMs,
+            speedKmh,
+            accuracyM: accuracy ?? null,
+          },
+          {
+            minSegmentKm: 0.010,
+            maxSegmentKm: 2.0,
+            maxFixGapSec: BG_LAST_FIX_MAX_GAP_SEC,
+            maxPlausibleKmh: BG_MAX_PLAUSIBLE_KMH,
+            minSpeedKmh: 2,
+            maxAccuracyM: 40,
+          },
+        )
+        : { accepted: false, distanceKm: 0 };
       // When speed is unavailable in background updates, accumulated distance can
       // drift heavily on some devices. Require a valid speed fix to count km.
       if (
         hasLastFix &&
         dtSec > 0 &&
-        dtSec <= BG_LAST_FIX_MAX_GAP_SEC &&
-        distKm > 0.010 &&
-        distKm < 2.0 &&
-        distKm <= maxByDtKm &&
         speedKmh !== null &&
         speedKmh >= 2 &&
-        isAccurateFix
+        isAccurateFix &&
+        segment.accepted
       ) {
         const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
-        const newPending = pending + distKm;
+        const newPending = pending + segment.distanceKm;
         const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const routePts = routeRaw ? JSON.parse(routeRaw) : [];
         const seedPts = routePts.length === 0
@@ -271,18 +272,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
   }
 });
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R    = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a    =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 // ── Hook ──────────────────────────────────────────────────────────────────────
 // bgEnabled: comes from settings.backgroundTracking — starts the task independently
 //            of live sharing so that stats are collected whenever the user drives.
@@ -314,15 +303,15 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
       if (fromNavigation) {
         // Collect foreground stats (fg) + background distance (bg) together
-        const { avgSpeed, maxSpeed, distKm } = flushSpeedStatsSync();
+        const { avgSpeed, maxSpeed } = flushSpeedStatsSync();
 
         const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
         const bgPending    = parseFloat(bgPendingStr ?? '0');
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
-        // Foreground navigation is the source of truth; include only leftover bg drift.
-        const finalDist    = distKm + Math.max(0, bgPending - distKm);
-        const distanceToSave = navPayload?.distanceKm != null ? navPayload.distanceKm : finalDist;
+        // Route-matched navigation distance from map.tsx/useTripStats is source of truth.
+        // Fallback to BG pending only if a nav payload was not provided.
+        const distanceToSave = navPayload?.distanceKm != null ? navPayload.distanceKm : bgPending;
         const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
         const routePointsToSave = navPayload?.routePoints && navPayload.routePoints.length > 1

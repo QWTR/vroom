@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, FlatList, TextInput, TouchableOpacity,
   Image, StatusBar, KeyboardAvoidingView,
-  Platform, ActivityIndicator, Animated, Modal, Pressable,
+  Platform, ActivityIndicator, Animated, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +26,7 @@ const WS  = 'https://v-room.app';
 const INPUT_MIN_HEIGHT = 40;
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE        = 30;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 const CHAT_THEMES = [
   { id: 'default', name: 'Domyślny', myBubble: '#e33835', theirBubble: null as string | null },
@@ -109,6 +110,7 @@ export default function ChatScreen() {
   const [menuMsg,     setMenuMsg]     = useState<Message | null>(null);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [chatThemeId, setChatThemeId] = useState('default');
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   // Animacje wejścia
   const fadeAnim  = useRef(new Animated.Value(0)).current;
@@ -396,12 +398,14 @@ export default function ChatScreen() {
               {item.photos?.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                   {item.photos.map((uri, i) => (
-                    <Image
-                      key={i} source={{ uri }}
-                      style={item.photos.length === 1
-                        ? { width: 200, height: 150, borderRadius: 12 }
-                        : { width: 120, height: 90, borderRadius: 8 }}
-                    />
+                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
+                      <Image
+                        source={{ uri }}
+                        style={item.photos.length === 1
+                          ? { width: 200, height: 150, borderRadius: 12 }
+                          : { width: 120, height: 90, borderRadius: 8 }}
+                      />
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
@@ -785,6 +789,28 @@ export default function ChatScreen() {
               </View>
             </View>
           </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Fullscreen photo preview */}
+      <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}
+          onPress={() => setPreviewPhoto(null)}
+        >
+          {!!previewPhoto && (
+            <Image
+              source={{ uri: previewPhoto }}
+              style={{ width: SCREEN_W, height: SCREEN_H * 0.82 }}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setPreviewPhoto(null)}
+            style={{ position: 'absolute', top: insets.top + 12, right: 14, backgroundColor: '#ffffff24', borderRadius: 20, padding: 9 }}
+          >
+            <Feather name="x" size={18} color="#fff" />
+          </TouchableOpacity>
         </Pressable>
       </Modal>
     </View>

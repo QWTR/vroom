@@ -32,8 +32,6 @@ import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
 import { useFollowCounts }          from '../../hooks/useFollowCounts';
 import { useSettings } from '../../hooks/useSettings';
 import { getProfileThemePalette } from '../../constants/profileThemes';
-import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT } from '../../constants/mapConfig';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
 const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -52,6 +50,7 @@ function groupByRarity(list: Achievement[]) {
     return items.length ? [...acc, { rarity, items }] : acc;
   }, [] as { rarity: string; items: Achievement[] }[]);
 }
+
 
 interface Props {
   profile:                   UserProfile | null;
@@ -163,9 +162,6 @@ export default function ProfileView({
   const [invitesModalVisible, setInvitesModalVisible] = useState(false);
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
-  const [routeHistoryVisible, setRouteHistoryVisible] = useState(false);
-  const [selectedHistoryRoute, setSelectedHistoryRoute] = useState<any | null>(null);
-  const [showAllHistoryOnMap, setShowAllHistoryOnMap] = useState(true);
   const statsSlide = useRef(new Animated.Value(0)).current;
   const premiumRingAnim = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
@@ -225,20 +221,6 @@ export default function ProfileView({
     : routes;
   const hiddenRoutesCount = routes.length - displayRoutes.length;
   const historyWithRoute = activityHistory.filter((a: any) => (a?.routePoints?.length ?? 0) > 1);
-  const mapHistoryItems = showAllHistoryOnMap
-    ? historyWithRoute
-    : (selectedHistoryRoute && (selectedHistoryRoute?.routePoints?.length ?? 0) > 1 ? [selectedHistoryRoute] : []);
-  const historyCoords = mapHistoryItems.flatMap((item: any) =>
-    (item.routePoints || []).map((p: any) => [p.longitude, p.latitude])
-  );
-  const historyBounds = historyCoords.length > 0 ? (() => {
-    const lngs = historyCoords.map(c => c[0]);
-    const lats = historyCoords.map(c => c[1]);
-    return {
-      ne: [Math.max(...lngs), Math.max(...lats)] as [number, number],
-      sw: [Math.min(...lngs), Math.min(...lats)] as [number, number],
-    };
-  })() : null;
 
   // Club data
   const club = (profile as any)?.club as {
@@ -773,11 +755,7 @@ export default function ProfileView({
             ) : (
               <TouchableOpacity
                 style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                onPress={() => {
-                  setSelectedHistoryRoute(null);
-                  setShowAllHistoryOnMap(true);
-                  setRouteHistoryVisible(true);
-                }}
+                onPress={() => router.push('/profile/history-rides' as any)}
                 activeOpacity={0.8}
               >
                 <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: '#268bff18', borderWidth: 1, borderColor: '#268bff30', alignItems: 'center', justifyContent: 'center' }}>
@@ -788,7 +766,7 @@ export default function ProfileView({
                     OTWÓRZ HISTORIĘ PRZEJAZDÓW
                   </Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 3 }}>
-                    Pokaż wszystkie ślady na mapie albo wybierz pojedynczy przejazd.
+                    Trasy z mapą: {historyWithRoute.length} · otwórz pełny ekran historii.
                   </Text>
                 </View>
                 <MaterialIcons name="arrow-forward-ios" size={13} color={theme.textDim} />
@@ -837,139 +815,6 @@ export default function ProfileView({
         onAccept={async (id) => { await acceptRequest(id); }}
         onReject={async (id) => { await rejectRequest(id); }}
       />
-
-      <Modal visible={routeHistoryVisible} transparent animationType="slide" onRequestClose={() => setRouteHistoryVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, maxHeight: '86%' }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 10 }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, marginBottom: 10 }}>
-              HISTORIA PRZEJAZDÓW
-            </Text>
-
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  borderRadius: 10,
-                  paddingVertical: 9,
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: showAllHistoryOnMap ? '#268bff40' : theme.border,
-                  backgroundColor: showAllHistoryOnMap ? '#268bff18' : theme.surface2,
-                }}
-                onPress={() => {
-                  setShowAllHistoryOnMap(true);
-                  setSelectedHistoryRoute(null);
-                }}
-              >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: showAllHistoryOnMap ? '#268bff' : theme.textDim }}>
-                  POKAŻ WSZYSTKO NA MAPIE
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ height: 250, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, marginBottom: 10 }}>
-              {historyBounds ? (
-                <Mapbox.MapView
-                  style={{ flex: 1 }}
-                  styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
-                  logoEnabled={false}
-                  attributionEnabled={false}
-                  pitchEnabled={false}
-                  rotateEnabled={false}
-                >
-                  <Mapbox.Camera
-                    bounds={{
-                      ne: historyBounds.ne,
-                      sw: historyBounds.sw,
-                      paddingTop: 48,
-                      paddingBottom: 48,
-                      paddingLeft: 48,
-                      paddingRight: 48,
-                    }}
-                  />
-
-                  {mapHistoryItems.map((item: any) => (
-                    <Mapbox.ShapeSource
-                      key={`history-route-${item.id}`}
-                      id={`history-route-${item.id}`}
-                      shape={{
-                        type: 'Feature',
-                        geometry: {
-                          type: 'LineString',
-                          coordinates: (item.routePoints || []).map((p: any) => [p.longitude, p.latitude]),
-                        },
-                        properties: {},
-                      } as any}
-                    >
-                      <Mapbox.LineLayer
-                        id={`history-route-layer-${item.id}`}
-                        style={{
-                          lineColor: showAllHistoryOnMap ? '#e33835aa' : '#e33835',
-                          lineWidth: showAllHistoryOnMap ? 3 : 5,
-                          lineCap: 'round',
-                          lineJoin: 'round',
-                        }}
-                      />
-                    </Mapbox.ShapeSource>
-                  ))}
-                </Mapbox.MapView>
-              ) : (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
-                    Brak danych tras do wyświetlenia.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
-              {activityHistory.map((a: any) => {
-                const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
-                const hasRoute = (a?.routePoints?.length ?? 0) > 1;
-                return (
-                  <TouchableOpacity
-                    key={a.id}
-                    style={{
-                      backgroundColor: selected ? '#e3383515' : theme.surface2,
-                      borderWidth: 1,
-                      borderColor: selected ? '#e3383540' : theme.border,
-                      borderRadius: 10,
-                      padding: 10,
-                      marginBottom: 8,
-                    }}
-                    onPress={() => {
-                      if (!hasRoute) return;
-                      setSelectedHistoryRoute(a);
-                      setShowAllHistoryOnMap(false);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text }}>
-                      {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Math.round(a.distance || 0)} km
-                    </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
-                      Max: {Math.round(a.maxSpeed || 0)} km/h · Avg: {Math.round(a.avgSpeed || 0)} km/h
-                    </Text>
-                    {!hasRoute && (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>
-                        Brak zapisanego śladu mapy dla tego przejazdu.
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            <TouchableOpacity
-              style={{ marginTop: 12, alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}
-              onPress={() => setRouteHistoryVisible(false)}
-            >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.primary }}>ZAMKNIJ</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* ══ STATS MODAL ══ */}
       <Modal visible={statsModalVisible} transparent animationType="none" onRequestClose={closeStats} statusBarTranslucent>
