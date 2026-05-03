@@ -860,12 +860,51 @@ export default function ProfileView({
 
               {/* DYSTANS */}
               <StatsModalSection title="DYSTANS" color="#268bff" icon="road-variant">
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  <StatsModalItem label="ŁĄCZNIE" value={`${Math.round(profile?.totalDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#268bff35' : '#268bff25' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#268bff', letterSpacing: 2 }}>TYDZIEŃ</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: isDark ? '#fff' : '#111', marginTop: 6 }}>
+                      {Number((profile as any)?.weeklyDistance ?? 0).toFixed(1)}
+                    </Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#ffffff15' : '#00000012' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>ŁĄCZNIE</Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: isDark ? '#fff' : '#111', marginTop: 6 }}>
+                      {Number(profile?.totalDistance ?? 0).toFixed(1)}
+                    </Text>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
                   <StatsModalItem label="MIESIĘCZNY" value={`${Math.round((profile as any)?.monthlyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
-                  <StatsModalItem label="TYGODNIOWY" value={`${Math.round((profile as any)?.weeklyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
                   <StatsModalItem label="DZIENNY" value={`${Math.round((profile as any)?.dailyDistance ?? 0)}`} unit="km" color="#268bff" isDark={isDark} />
                 </View>
+                {(() => {
+                  const pts = Number(profile?.points ?? 0);
+                  const milestones = [500, 1500, 3000, 6000, 12000, 25000, 50000, 100000];
+                  const nextIdx = milestones.findIndex(m => m > pts);
+                  const nextAt = nextIdx >= 0 ? milestones[nextIdx] : pts;
+                  const prevAt = nextIdx > 0 ? milestones[nextIdx - 1] : 0;
+                  const span = Math.max(1, nextAt - prevAt);
+                  const barPct = nextIdx < 0 ? 100 : Math.min(100, Math.round(((pts - prevAt) / span) * 100));
+                  return (
+                    <View style={{ marginTop: 4 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, letterSpacing: 1 }}>POSTĘP DO KOLEJNEGO PROGU PKT</Text>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835' }}>{pts.toLocaleString('pl-PL')} / {nextAt.toLocaleString('pl-PL')}</Text>
+                      </View>
+                      <View style={{ height: 8, borderRadius: 4, backgroundColor: isDark ? '#ffffff10' : '#00000010', overflow: 'hidden' }}>
+                        <View style={{ width: `${barPct}%`, height: '100%', backgroundColor: '#e33835', borderRadius: 4 }} />
+                      </View>
+                      {!!profile?.position && (
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 8 }}>
+                          Aktualna pozycja w rankingu: #{profile.position}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
               </StatsModalSection>
 
               {/* AKTYWNOŚĆ */}

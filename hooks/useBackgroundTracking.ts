@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as Location      from 'expo-location';
 import * as TaskManager   from 'expo-task-manager';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 
@@ -278,6 +278,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = true) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const flushInFlightRef = useRef(false);
+  const startInFlightRef = useRef(false);
+  const stopInFlightRef = useRef(false);
 
   // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
   useEffect(() => {
@@ -396,14 +398,14 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
   // ── Task management ───────────────────────────────────────────────────────
   const startBackgroundTracking = useCallback(async () => {
-    if (appStateRef.current !== 'active') return;
-
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
     // Read setting from app_settings JSON (the SettingsContext storage key)
-    const cached   = await AsyncStorage.getItem('app_settings');
-    const parsed   = cached ? JSON.parse(cached) : {};
-    if (parsed.backgroundTracking === false) return;
-
     try {
+      const cached   = await AsyncStorage.getItem('app_settings');
+      const parsed   = cached ? JSON.parse(cached) : {};
+      if (parsed.backgroundTracking === false) return;
+
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg !== 'granted') return;
       const { status: bg } = await Location.requestBackgroundPermissionsAsync();
@@ -411,27 +413,40 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRegistered) return;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy:         Location.Accuracy.Balanced,
-        distanceInterval: 50,
-        timeInterval:     30000,
+        // BestForNavigation + tight intervals caused native instability on some devices.
+        accuracy:         Location.Accuracy.High,
+        distanceInterval: 15,
+        timeInterval:     5000,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: '🚗 VROOM aktywne',
           notificationBody:  'Śledzenie trasy w tle',
           notificationColor: '#e33835',
         },
+        ...(Platform.OS === 'ios'
+          ? {
+              pausesUpdatesAutomatically: true,
+              activityType: Location.ActivityType.AutomotiveNavigation,
+            }
+          : {}),
       });
     } catch (e: any) {
       console.log('⚠️ startBackgroundTracking error:', e?.message ?? e);
+    } finally {
+      startInFlightRef.current = false;
     }
   }, []);
 
   const stopBackgroundTracking = useCallback(async () => {
+    if (stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
     try {
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRegistered) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
     } catch (e: any) {
       console.log('⚠️ stopBackgroundTracking error:', e?.message ?? e);
+    } finally {
+      stopInFlightRef.current = false;
     }
   }, []);
 
@@ -445,6 +460,16 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       stopBackgroundTracking().then(() => flushPendingKm(false));
     }
   }, [isSharing, bgEnabled]);
+
+  // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+      if (s === 'active' || s === 'background') {
+        if (bgEnabled || isSharing) startBackgroundTracking();
+      }
+    });
+    return () => sub.remove();
+  }, [isSharing, bgEnabled, startBackgroundTracking]);
 
   // ── Flush passive stats when app returns to foreground ───────────────────
   useEffect(() => {

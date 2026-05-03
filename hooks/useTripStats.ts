@@ -22,6 +22,8 @@ export function useTripStats() {
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
 
   const [stats, setStats] = useState<TripStats | null>(null);
+  /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
+  const [liveDistanceKm, setLiveDistanceKm] = useState(0);
 
   const startTrip = useCallback((estimatedDurationSec: number) => {
     speedSamples.current = [];
@@ -31,6 +33,7 @@ export function useTripStats() {
     estSecRef.current    = estimatedDurationSec;
     lastPointRef.current = null;
     setStats(null);
+    setLiveDistanceKm(0);
   }, []);
 
   const feedSpeed = useCallback((speedMs: number | null) => {
@@ -39,17 +42,17 @@ export function useTripStats() {
     if (kmh > 1 && kmh <= 260) speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
   }, []);
 
-  const feedPosition = useCallback((lat: number, lng: number, speedMs?: number) => {
+  const feedPosition = useCallback((lat: number, lng: number, speedMs?: number): number => {
     const now = Date.now();
     // Skip if GPS reports speed below 2 km/h — prevents jitter accumulation while stopped.
     // Matches the same threshold used in feedNavDistance for consistency.
-    if (speedMs !== undefined && speedMs * 3.6 < 2) return;
+    if (speedMs !== undefined && speedMs * 3.6 < 2) return 0;
 
     const pts = trackedPts.current;
     if (!pts.length) {
       pts.push({ latitude: lat, longitude: lng });
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
-      return;
+      return 0;
     }
     const last = pts[pts.length - 1];
     const lastMeta = lastPointRef.current;
@@ -77,12 +80,14 @@ export function useTripStats() {
     );
     if (!segment.accepted) {
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
-      return;
+      return 0;
     }
 
     pts.push({ latitude: lat, longitude: lng });
     lastPointRef.current = { latitude: lat, longitude: lng, time: now };
     distanceRef.current += segment.distanceKm;
+    setLiveDistanceKm(parseFloat(distanceRef.current.toFixed(2)));
+    return segment.distanceKm;
   }, []);
 
   const finishTrip = useCallback(() => {
@@ -104,6 +109,7 @@ export function useTripStats() {
       trackedPoints: [...trackedPts.current],
     };
     setStats(result);
+    setLiveDistanceKm(result.distanceKm);
     return result;
   }, []);
 
@@ -114,7 +120,8 @@ export function useTripStats() {
     distanceRef.current  = 0;
     startTimeRef.current = null;
     lastPointRef.current = null;
+    setLiveDistanceKm(0);
   }, []);
 
-  return { startTrip, feedSpeed, feedPosition, finishTrip, clearStats, stats };
+  return { startTrip, feedSpeed, feedPosition, finishTrip, clearStats, stats, liveDistanceKm };
 }

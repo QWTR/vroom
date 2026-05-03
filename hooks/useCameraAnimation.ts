@@ -59,6 +59,14 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const LIVE_INTERVAL_MS = 55;
 
   function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
+    if (
+      !Number.isFinite(params.center.latitude) ||
+      !Number.isFinite(params.center.longitude) ||
+      !Number.isFinite(params.heading) ||
+      !Number.isFinite(params.zoom)
+    ) {
+      return;
+    }
     lastHeadingRef.current = params.heading;
     lastCenterRef.current  = params.center;
     (cameraRef.current as any)?.setCamera({
@@ -114,6 +122,14 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     heading: number,
     speedKmh = 0,
   ) => {
+    if (
+      !Number.isFinite(center.latitude) ||
+      !Number.isFinite(center.longitude) ||
+      !Number.isFinite(heading) ||
+      !Number.isFinite(speedKmh)
+    ) {
+      return;
+    }
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     cameraLockedRef.current = false;
     // Lock camera during entry animation so DR onFrame doesn't compete with flyTo
@@ -138,6 +154,9 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
 
   // ── exitDrivingCamera — powrót do widoku 2D ───────────────
   const exitDrivingCamera = useCallback((center: { latitude: number; longitude: number }) => {
+    if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) {
+      return;
+    }
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     if (startLockTimerRef.current) clearTimeout(startLockTimerRef.current);
     cameraLockedRef.current = false;

@@ -51,6 +51,7 @@ export function useDrivingMapMatch() {
   const matchedTimeRef = useRef<number>(0);
 
   const addPosition = useCallback(async (lat: number, lng: number): Promise<void> => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const now  = Date.now();
 
     // Skip duplicate / near-duplicate points
@@ -115,6 +116,7 @@ export function useDrivingMapMatch() {
    */
   const forceMatch = useCallback(
     async (lat: number, lng: number): Promise<{ latitude: number; longitude: number }[] | null> => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
       if (isFetchingRef.current) return null;
       isFetchingRef.current = true;
       // NOTE: intentionally do NOT update lastCallRef here.

@@ -87,6 +87,13 @@ export function useDeadReckoning({
   }, [loop]);
 
   const feed = useCallback((pos: Position, _speedMs: number, heading: number) => {
+    if (
+      !Number.isFinite(pos.latitude) ||
+      !Number.isFinite(pos.longitude) ||
+      !Number.isFinite(heading)
+    ) {
+      return;
+    }
     const now = performance.now();
 
     if (hasFirstFeed.current && lastFeedMs.current > 0) {

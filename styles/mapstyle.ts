@@ -115,6 +115,11 @@ export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
       shadowOpacity: isDark ? 0.4 : 0.18,
       shadowRadius: isDark ? 4 : 8,
     },
+    /** Spójny wygląd ikon w rozwiniętym menu FAB (bez tęczowych obramowań). */
+    fabSheetItem: {
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+      backgroundColor: isDark ? 'rgba(22,22,24,0.94)' : 'rgba(252,252,252,0.97)',
+    },
 
     // ═══════════════════════════════════════════
     // TOP SEARCH BAR

@@ -125,6 +125,13 @@ export function useDrivingSnap() {
   } => {
     if (isNavigating) return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
 
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (lastSnappedRef.current) {
+        return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+      }
+      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+    }
+
     // Wybieramy punkty. Priorytet ma roadMatchPtsRef, bo to jest aktualna GEOMETRIA drogi,
     // po której jedziesz, a nie tylko linia prosta do celu.
     const pts = roadMatchPtsRef.current.length >= 2

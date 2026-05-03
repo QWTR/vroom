@@ -10,7 +10,11 @@ interface CarMarkerProps {
   zIndex?:   number;
 }
 
-export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => (
+export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMarkerProps) => {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(heading)) {
+    return null;
+  }
+  return (
   <Mapbox.MarkerView coordinate={[longitude, latitude]} anchor={{ x: 0.5, y: 0.5 }} allowOverlapWithPuck allowOverlap>
     {/* elevation + zIndex ensure the car marker renders on top of all other MarkerViews on Android */}
     <View style={{ transform: [{ rotate: `${heading}deg` }], zIndex: 999, elevation: 999 }}>
@@ -20,7 +24,8 @@ export const CarMarker = memo(({ latitude, longitude, heading, imageUri }: CarMa
       }
     </View>
   </Mapbox.MarkerView>
-), (prev, next) =>
+  );
+}, (prev, next) =>
   prev.imageUri  === next.imageUri  &&
   prev.heading   === next.heading   &&
   prev.latitude  === next.latitude  &&

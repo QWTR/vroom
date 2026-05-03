@@ -30,11 +30,10 @@ const GPS_CONFIG = {
     distanceInterval: 8,
   },
   active: {
-    accuracy:         Location.Accuracy.BestForNavigation,
-    // 250 ms was very battery-heavy and could cause aggressive OS throttling.
-    // 700 ms keeps navigation smooth while significantly reducing wakeups.
-    timeInterval:     700,
-    distanceInterval: 3,
+    // BestForNavigation + watch churn caused native crashes on some Android builds.
+    accuracy:         Location.Accuracy.High,
+    timeInterval:     900,
+    distanceInterval: 4,
   },
 };
 
@@ -88,11 +87,15 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
           distanceInterval: cfg.distanceInterval,
         },
         (loc) => {
-          const now    = Date.now();
-          lastFixAtRef.current = now;
-          const rawLat = loc.coords.latitude;
-          const rawLng = loc.coords.longitude;
-          const acc    = loc.coords.accuracy ?? 999;
+          try {
+            const now    = Date.now();
+            lastFixAtRef.current = now;
+            const rawLat = loc.coords.latitude;
+            const rawLng = loc.coords.longitude;
+            const acc    = loc.coords.accuracy ?? 999;
+            if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || !Number.isFinite(acc)) {
+              return;
+            }
 
           // ══ 1. ODRZUĆ słaby sygnał GPS ═══════════════════════
           if (acc > MAX_ACCURACY_M) {
@@ -156,10 +159,17 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
           });
 
           // ══ 6. Auto-upgrade idle → active ════════════════════
-          if (!isActiveRef.current &&
-              (navRef.current || drivingRef.current || speedMs * 3.6 > DRIVE_SPEED_KMH)) {
-            isActiveRef.current = true;
-            subscribe(true);
+          // NEVER call subscribe() synchronously from this callback — removing the
+          // current watch while its handler runs crashes native Expo Location on Android.
+            if (!isActiveRef.current &&
+                (navRef.current || drivingRef.current || speedMs * 3.6 > DRIVE_SPEED_KMH)) {
+              isActiveRef.current = true;
+              setTimeout(() => {
+                void subscribe(true);
+              }, 0);
+            }
+          } catch (e) {
+            console.warn('useAdaptiveGPS location callback error:', e);
           }
         },
       );
