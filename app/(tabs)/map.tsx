@@ -218,6 +218,33 @@ const MIN_GPS_TICK_SEC           = 0.5;
 // fixes (accommodates inaccurate first fix after a cold GPS restart).
 const GPS_RESUME_GRACE_PERIOD_MS = 5000;
 const GPS_RESTART_COOLDOWN_MS    = 2000;
+/** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
+const GPS_INIT_MAX_ACCURACY_M = 120;
+/** Jednorazowy fix po wznowieniu — powyżej tego promienia zwykle jest to last-known z komórki, nie GPS. */
+const GPS_ONESHOT_MAX_ACCURACY_M = 100;
+
+function isNullIsland(lat: number, lng: number): boolean {
+  return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;
+}
+
+/** Te same progi co w `onLocation`, ale z rzeczywistym Δt (nie psuje go `GPS_RESUME_GRACE_PERIOD_MS`). */
+function isRawGpsPlausibleVsAnchor(
+  rawLat: number,
+  rawLng: number,
+  anchor: { lat: number; lng: number },
+  wallDtMs: number,
+  reportedSpeedMs: number | null | undefined,
+  isDriving: boolean,
+): boolean {
+  const safeDt = Math.max(wallDtMs, 100);
+  if (!isSaneLocation(rawLat, rawLng, anchor.lat, anchor.lng, 250, safeDt, isDriving)) return false;
+  const distM2 = haversineKm(anchor.lat, anchor.lng, rawLat, rawLng) * 1000;
+  const reportedKmh = reportedSpeedMs != null && reportedSpeedMs >= 0 ? reportedSpeedMs * 3.6 : 0;
+  const expectedM2 = (reportedKmh / 3.6) * (safeDt / 1000);
+  const distFloor = isDriving ? 300 : 100;
+  const maxDistM2 = Math.max(distFloor, expectedM2 * 3 + 100);
+  return distM2 <= maxDistM2;
+}
 
 type PersistedNavSession = {
   savedAt: number;
@@ -299,6 +326,8 @@ export default function MapScreen() {
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef       = useRef<number>(Date.now());
+  /** Rzeczywisty czas ostatniego zaakceptowanego fixu — bez cofania przy resume (walidacja one-shot). */
+  const lastAcceptedFixWallClockRef = useRef<number>(Date.now());
   const lastGpsRestartAtRef   = useRef<number>(0);
   const didRestoreNavSessionRef = useRef(false);
   // Tracks the timestamp of the previous GPS tick for per-tick distance capping.
@@ -837,9 +866,25 @@ export default function MapScreen() {
         const dest = JSON.parse(raw);
         let loc = userLocation;
         if (!loc) {
-          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-          setUserLocation(loc);
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.BestForNavigation,
+            mayShowUserSettingsDialog: true,
+          });
+          const rLat = pos.coords.latitude;
+          const rLng = pos.coords.longitude;
+          const rAcc = pos.coords.accuracy ?? 999;
+          if (
+            Number.isFinite(rLat) && Number.isFinite(rLng) && !isNullIsland(rLat, rLng)
+            && rAcc <= GPS_ONESHOT_MAX_ACCURACY_M
+          ) {
+            loc = { latitude: rLat, longitude: rLng };
+            setUserLocation(loc);
+            lastGoodLocRef.current = { lat: rLat, lng: rLng };
+            lastAcceptedFixWallClockRef.current = Date.now();
+          } else {
+            Toast.show({ type: 'error', text1: 'GPS', text2: 'Za mało dokładna lokalizacja — spróbuj ponownie.' });
+            return;
+          }
         }
         setStartLocation({ ...loc, name: 'Moja pozycja' });
         setEndLocation({ latitude: dest.latitude, longitude: dest.longitude, name: dest.name });
@@ -874,13 +919,30 @@ export default function MapScreen() {
           Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Włącz lokalizację w ustawieniach' });
           return;
         }
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation });
-        const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
-        const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.BestForNavigation,
+          mayShowUserSettingsDialog: true,
+        });
+        const rawLat = loc.coords.latitude;
+        const rawLng = loc.coords.longitude;
+        const acc = loc.coords.accuracy ?? 999;
+        if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) {
+          throw new Error('invalid coords');
+        }
+        if (acc > GPS_INIT_MAX_ACCURACY_M) {
+          Toast.show({
+            type: 'info',
+            text1: 'GPS',
+            text2: 'Czekam na dokładniejszy fix — spróbuj na zewnątrz lub uruchom ponownie.',
+          });
+          return;
+        }
+        const lat = latFilter.filter(rawLat, acc);
+        const lng = lngFilter.filter(rawLng, acc);
         setUserLocation({ latitude: lat, longitude: lng });
         setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.015, longitudeDelta: 0.015 });
-        // Inicjalizuj lastGoodLoc
         lastGoodLocRef.current = { lat, lng };
+        lastAcceptedFixWallClockRef.current = Date.now();
         setLocationReady(true);
       } catch {
         Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Nie można pobrać lokalizacji' });
@@ -906,11 +968,14 @@ export default function MapScreen() {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
     }
-    // Clear the last-good-location reference so the first GPS fix after
-    // exiting driving (e.g. walking away from parked car) is always accepted
-    // instead of being rejected as a teleport jump against the stale driving position.
-    lastGoodLocRef.current  = null;
+    // Zachowaj kotwicę sanity-checku na ostatniej pozycji (DR / pojazd), zamiast
+    // nullować — inaczej pierwszy fix po wyjściu z jazdy omijał teleport-guard
+    // i mógł „przenieść” użytkownika na losowy cache providera.
+    if (drLatRef.current !== 0 && drLngRef.current !== 0) {
+      lastGoodLocRef.current = { lat: drLatRef.current, lng: drLngRef.current };
+    }
     lastGoodTimeRef.current = Date.now();
+    lastAcceptedFixWallClockRef.current = Date.now();
     stopDR();
     resetDRRefs();
     resetSnap();
@@ -1056,6 +1121,7 @@ export default function MapScreen() {
       prevGoodTimeRef.current = lastGoodTimeRef.current;
       lastGoodTimeRef.current = now;
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
+      lastAcceptedFixWallClockRef.current = now;
 
       // ══ 2. Kalman ════════════════════════════════════════════
       // Driving mode uses dedicated filters with higher process noise for faster
@@ -1352,12 +1418,12 @@ export default function MapScreen() {
               resetMapMatch();
               setRoadMatchPoints([]);
               console.log('[DrivingMode] Exited driving mode (stop timer fired)');
-              // Capture camera exit target before clearing lastGoodLocRef.
               const exitLoc = lastGoodLocRef.current;
-              // Clear stale driving position so the first walking GPS fix is not
-              // rejected as a teleport jump against the old driving position.
-              lastGoodLocRef.current  = null;
+              if (drLatRef.current !== 0 && drLngRef.current !== 0) {
+                lastGoodLocRef.current = { lat: drLatRef.current, lng: drLngRef.current };
+              }
               lastGoodTimeRef.current = Date.now();
+              lastAcceptedFixWallClockRef.current = Date.now();
               if (exitLoc) {
                 exitDrivingCamera({
                   latitude:  exitLoc.lat,
@@ -1440,15 +1506,58 @@ export default function MapScreen() {
     drivingLastLocRef.current = null;
     stopGPS();
     startGPS();
+    if (!lastGoodLocRef.current && currentLocRef.current) {
+      const u = currentLocRef.current;
+      if (Number.isFinite(u.latitude) && Number.isFinite(u.longitude)) {
+        lastGoodLocRef.current = { lat: u.latitude, lng: u.longitude };
+      }
+    }
   }, [startGPS, stopGPS]);
 
   // One-shot location refresh: immediately snaps the marker to the current
   // position before the watch subscription has had a chance to emit updates.
   const refreshLocationOneShot = useCallback(() => {
-    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+    Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.BestForNavigation,
+      mayShowUserSettingsDialog: true,
+    })
       .then((loc) => {
-        const lat = latFilter.filter(loc.coords.latitude,  loc.coords.accuracy ?? 10);
-        const lng = lngFilter.filter(loc.coords.longitude, loc.coords.accuracy ?? 10);
+        const rawLat = loc.coords.latitude;
+        const rawLng = loc.coords.longitude;
+        const acc = loc.coords.accuracy ?? 999;
+        if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) {
+          console.warn('[GPS] One-shot: niepoprawne współrzędne');
+          return;
+        }
+        if (acc > GPS_ONESHOT_MAX_ACCURACY_M) {
+          console.warn(`[GPS] One-shot odrzucony: accuracy ${Math.round(acc)} m`);
+          return;
+        }
+        const anchor =
+          lastGoodLocRef.current
+          ?? (currentLocRef.current
+            && Number.isFinite(currentLocRef.current.latitude)
+            && Number.isFinite(currentLocRef.current.longitude)
+            ? { lat: currentLocRef.current.latitude, lng: currentLocRef.current.longitude }
+            : null);
+        const wallDt = Math.max(1, Date.now() - lastAcceptedFixWallClockRef.current);
+        if (
+          anchor
+          && !isRawGpsPlausibleVsAnchor(
+            rawLat,
+            rawLng,
+            anchor,
+            wallDt,
+            loc.coords.speed,
+            isDrivingRef.current,
+          )
+        ) {
+          console.warn('[GPS] One-shot odrzucony: nierealistyczny skok względem ostatniej pozycji');
+          return;
+        }
+
+        const lat = latFilter.filter(rawLat, acc);
+        const lng = lngFilter.filter(rawLng, acc);
         const speedMs = loc.coords.speed != null && loc.coords.speed >= 0 ? loc.coords.speed : 0;
         const speedKmh = speedMs * 3.6;
 
@@ -1465,6 +1574,7 @@ export default function MapScreen() {
             speedMs,
             lastHeadingRef.current,
           );
+          lastAcceptedFixWallClockRef.current = Date.now();
           return;
         }
 
@@ -1484,10 +1594,12 @@ export default function MapScreen() {
             speedMs,
             lastHeadingRef.current,
           );
+          lastAcceptedFixWallClockRef.current = Date.now();
           return;
         }
 
         lastGoodLocRef.current = { lat, lng };
+        lastAcceptedFixWallClockRef.current = Date.now();
         console.log('[GPS] One-shot fix applied');
         setUserLocation({ latitude: lat, longitude: lng });
       })

@@ -203,8 +203,10 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
   const stop = useCallback(() => {
     opSeqRef.current += 1;
     subRef.current?.remove();
-    subRef.current      = null;
-    lastGoodRef.current = null;
+    subRef.current = null;
+    // Intentionally keep lastGoodRef: clearing it made the first post-restart
+    // watch callback skip teleport checks. Stale fused fixes then slipped through
+    // before map.tsx had a chance to anchor against the previous position.
   }, []);
 
   useEffect(() => {
