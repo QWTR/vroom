@@ -1,11 +1,12 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { Platform, View, StyleSheet, Dimensions, Animated } from 'react-native';
+import { Platform, View, StyleSheet, Dimensions, Animated, Text } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAppPresence } from '../../hooks/useAppPresence';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 
 const { width } = Dimensions.get('window');
@@ -58,6 +59,60 @@ const TabIcon = ({
   );
 };
 
+function AppOnlineBadge() {
+  const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const count = useAppPresence();
+  if (count == null) return null;
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        onlineStyles.wrap,
+        {
+          top:               insets.top + 6,
+          backgroundColor:   theme.tabBg,
+          borderColor:       theme.tabBorder,
+        },
+      ]}
+    >
+      <View style={onlineStyles.dot} />
+      <Text style={[onlineStyles.num, { color: theme.text }]}>{count}</Text>
+      <Text style={[onlineStyles.lbl, { color: theme.textDim }]}>ONLINE</Text>
+    </View>
+  );
+}
+
+const onlineStyles = StyleSheet.create({
+  wrap: {
+    position:        'absolute',
+    right:           10,
+    zIndex:          2000,
+    flexDirection:   'row',
+    alignItems:      'center',
+    gap:             5,
+    paddingHorizontal: 10,
+    paddingVertical:   5,
+    borderRadius:      20,
+    borderWidth:       1,
+  },
+  dot: {
+    width: 7, height: 7, borderRadius: 4,
+    backgroundColor: '#4de926',
+  },
+  num: {
+    fontFamily: 'Orbitron',
+    fontSize:   13,
+    fontWeight: '800',
+    minWidth:   18,
+  },
+  lbl: {
+    fontFamily: 'Orbitron',
+    fontSize:   7,
+    letterSpacing: 1.2,
+  },
+});
+
 export default function TabLayout() {
   const insets        = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
@@ -68,6 +123,7 @@ export default function TabLayout() {
   const tabBarHeight  = TAB_BAR_HEIGHT + insets.bottom;
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown:      false,
@@ -100,6 +156,7 @@ export default function TabLayout() {
       <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"    iconLib="material" /> }} />
       <Tabs.Screen name="account"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="user"                      label="PROFIL"   /> }} />
     </Tabs>
+    </View>
   );
 }
 
