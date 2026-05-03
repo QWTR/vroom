@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
 	ActivityIndicator,
 	Dimensions,
@@ -20,7 +20,6 @@ import { Text } from "@react-navigation/elements";
 import { LinearGradient } from "expo-linear-gradient";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import FontAwesome5 from "@expo/vector-icons/FontAwesome5";
 import { API_URL } from "../../constants/config";
 import { useTheme } from "../../contexts/ThemeContext";
 import { AnnouncementsModal } from "../../components/modals/AnnouncementsModal";
@@ -33,6 +32,8 @@ import { useAppUpdate } from "../../hooks/useAppUpdate";
 import { UpdateModal } from "../../components/modals/UpdateModal";
 import { AdBanner } from "../../components/ads/AdBanner";
 import { usePremium } from "../../contexts/PremiumContext";
+import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
+import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 
 const { width, height } = Dimensions.get("window");
 
@@ -125,6 +126,28 @@ export default function HomeScreen() {
 	const [pollVisible, setPollVisible] = useState(false);
 	const [giftVisible, setGiftVisible] = useState(false);
 	const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
+	const [notifUnread, setNotifUnread] = useState(0);
+
+	const fetchNotifUnread = useCallback(async () => {
+		try {
+			const token = await getToken();
+			if (!token) return;
+			const r = await fetch(`${API_URL}/api/notifications?limit=1&page=1`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (!r.ok) return;
+			const j = await r.json();
+			setNotifUnread(typeof j.unreadCount === "number" ? j.unreadCount : 0);
+		} catch {
+			/* ignore */
+		}
+	}, []);
+
+	useFocusEffect(
+		useCallback(() => {
+			fetchNotifUnread();
+		}, [fetchNotifUnread]),
+	);
 
 	// Animacje
 	const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -312,6 +335,7 @@ export default function HomeScreen() {
 		refreshPremiumStatus().catch(() => {});
 		loadAnnouncements();
 		fetchActiveGridVotes();
+		fetchNotifUnread();
 		loadUser(false);
 	};
 
@@ -494,6 +518,40 @@ export default function HomeScreen() {
 						{/* Right side */}
 						<View
 							style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+							<TouchableOpacity
+								onPress={() => router.push("/notifications")}
+								activeOpacity={0.85}
+								style={{
+									width: 40,
+									height: 40,
+									borderRadius: 20,
+									backgroundColor: t.surface,
+									borderWidth: 1,
+									borderColor: t.border2,
+									alignItems: "center",
+									justifyContent: "center",
+								}}>
+								<MaterialIcons name="notifications-none" size={22} color={t.text} />
+								{notifUnread > 0 && (
+									<View
+										style={{
+											position: "absolute",
+											top: 4,
+											right: 4,
+											minWidth: 16,
+											height: 16,
+											borderRadius: 8,
+											backgroundColor: "#e33835",
+											alignItems: "center",
+											justifyContent: "center",
+											paddingHorizontal: 4,
+										}}>
+											<Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" }}>
+												{notifUnread > 99 ? "99+" : notifUnread}
+											</Text>
+										</View>
+								)}
+							</TouchableOpacity>
 							{/* Online pill */}
 							<View
 								style={{
@@ -1599,188 +1657,9 @@ export default function HomeScreen() {
 					onClose={() => setShowAnnouncements(false)}
 				/>
 
-				{/* ══════════════════════════════════════════════ */}
-				{/* STATS GRID                                     */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 16,
-					}}>
-					<Text
-						style={{
-							fontFamily: "Orbitron",
-							fontSize: 8,
-							color: t.textDim,
-							letterSpacing: 4,
-							marginBottom: 14,
-						}}>
-						STATYSTYKI
-					</Text>
+				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
 
-					<View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
-						<StatBigCard
-							label='TEN TYDZIEŃ'
-							value={`${Math.round(user.weeklyDistance)}`}
-							unit='km'
-							icon={
-								<MaterialCommunityIcons
-									name='road-variant'
-									size={18}
-									color='#e33835'
-								/>
-							}
-							theme={t}
-							isDark={isDark}
-							accent='#e33835'
-						/>
-						<StatBigCard
-							label='TEN MIESIĄC'
-							value={`${Math.round(user.monthlyDistance)}`}
-							unit='km'
-							icon={<FontAwesome5 name='route' size={16} color='#ff6b35' />}
-							theme={t}
-							isDark={isDark}
-							accent='#ff6b35'
-						/>
-					</View>
-
-					<View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
-						<StatBigCard
-							label='ŁĄCZNIE'
-							value={`${Math.round(user.totalDistance)}`}
-							unit='km'
-							icon={
-								<MaterialIcons name='straighten' size={18} color='#268bff' />
-							}
-							theme={t}
-							isDark={isDark}
-							accent='#268bff'
-						/>
-						<StatBigCard
-							label='MIASTA'
-							value={String(user.cityCount ?? 0)}
-							unit='odw.'
-							icon={
-								<MaterialIcons name='location-city' size={18} color='#a855f7' />
-							}
-							theme={t}
-							isDark={isDark}
-							accent='#a855f7'
-						/>
-					</View>
-
-					{/* 4-kolumnowy rząd */}
-					<View style={{ flexDirection: "row", gap: 8 }}>
-						{[
-							{
-								label: "GARAŻ",
-								value: user.carCount ?? 0,
-								unit: "aut",
-								color: "#ff922b",
-								icon: "garage",
-								lib: "mci",
-								route: "/account",
-							},
-							{
-								label: "SPOTY",
-								value: user.spotCount ?? 0,
-								unit: "dodane",
-								color: "#4de926",
-								icon: "place",
-								lib: "mi",
-								route: "/(tabs)/spotmap",
-							},
-							{
-								label: "MEETY",
-								value: user.meetCount ?? 0,
-								unit: "łącznie",
-								color: "#e33835",
-								icon: "flag-checkered",
-								lib: "mci",
-								route: "/Community/meets/events",
-							},
-							{
-								label: "TROFEA",
-								value: user.achievementCount ?? 0,
-								unit: "odbl.",
-								color: "#f5c518",
-								icon: "emoji-events",
-								lib: "mi",
-								route: "/account",
-							},
-						].map(item => (
-							<TouchableOpacity
-								key={item.label}
-								onPress={() => router.push(item.route as any)}
-								style={{
-									flex: 1,
-									backgroundColor: t.surface,
-									borderRadius: 14,
-									borderWidth: 1,
-									borderColor: t.border,
-									padding: 12,
-									alignItems: "center",
-									gap: 4,
-								}}
-								activeOpacity={0.8}>
-								<View
-									style={{
-										width: 34,
-										height: 34,
-										borderRadius: 10,
-										backgroundColor: item.color + "18",
-										alignItems: "center",
-										justifyContent: "center",
-										marginBottom: 4,
-									}}>
-									{item.lib === "mci" ? (
-										<MaterialCommunityIcons
-											name={item.icon as any}
-											size={16}
-											color={item.color}
-										/>
-									) : (
-										<MaterialIcons
-											name={item.icon as any}
-											size={16}
-											color={item.color}
-										/>
-									)}
-								</View>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 18,
-										color: t.text,
-										fontWeight: "900",
-									}}>
-									{item.value}
-								</Text>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 6,
-										color: t.textDim,
-										letterSpacing: 1,
-									}}>
-									{item.unit}
-								</Text>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 6,
-										color: item.color,
-										letterSpacing: 0.5,
-										marginTop: 2,
-									}}>
-									{item.label}
-								</Text>
-							</TouchableOpacity>
-						))}
-					</View>
-				</Animated.View>
+				<QuestTrackSection theme={t} fadeAnim={fadeAnim} />
 
 				{/* ══════════════════════════════════════════════ */}
 				{/* ACHIEVEMENT BANNER                             */}
@@ -2072,92 +1951,3 @@ export default function HomeScreen() {
 	);
 }
 
-// ── StatBigCard ───────────────────────────────────────────
-function StatBigCard({
-	label,
-	value,
-	unit,
-	icon,
-	theme: t,
-	isDark,
-	accent,
-}: {
-	label: string;
-	value: string;
-	unit: string;
-	icon: React.ReactNode;
-	theme: any;
-	isDark: boolean;
-	accent: string;
-}) {
-	return (
-		<View
-			style={{
-				flex: 1,
-				backgroundColor: t.surface,
-				borderRadius: 18,
-				borderWidth: 1,
-				borderColor: t.border,
-				padding: 16,
-				overflow: "hidden",
-			}}>
-			<View
-				style={{
-					position: "absolute",
-					right: -15,
-					top: -15,
-					width: 80,
-					height: 80,
-					borderRadius: 40,
-					backgroundColor: accent + "10",
-				}}
-			/>
-			<View
-				style={{
-					flexDirection: "row",
-					alignItems: "center",
-					gap: 8,
-					marginBottom: 10,
-				}}>
-				<View
-					style={{
-						backgroundColor: accent + "18",
-						padding: 6,
-						borderRadius: 8,
-					}}>
-					{icon}
-				</View>
-				<Text
-					style={{
-						fontFamily: "Orbitron",
-						fontSize: 7,
-						color: t.textDim,
-						letterSpacing: 1.5,
-						flex: 1,
-					}}>
-					{label}
-				</Text>
-			</View>
-			<Text
-				style={{
-					fontFamily: "Orbitron",
-					fontSize: 28,
-					color: t.text,
-					fontWeight: "900",
-					letterSpacing: -1,
-				}}>
-				{value}
-			</Text>
-			<Text
-				style={{
-					fontFamily: "Orbitron",
-					fontSize: 8,
-					color: accent,
-					letterSpacing: 1,
-					marginTop: 2,
-				}}>
-				{unit}
-			</Text>
-		</View>
-	);
-}

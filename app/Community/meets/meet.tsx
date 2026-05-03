@@ -55,6 +55,9 @@ export default function MeetDetailScreen() {
   const [loading,      setLoading]      = useState(true);
   const [joinLoading,  setJoinLoading]  = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [inviteModal,  setInviteModal]  = useState(false);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteRadius,  setInviteRadius]  = useState(50);
   const [myId,         setMyId]         = useState<number | null>(null);
 
   const getToken = async () =>
@@ -104,6 +107,28 @@ export default function MeetDetailScreen() {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });
     } finally { setJoinLoading(false); }
   }, [meet, joinLoading]);
+
+  const sendNearbyInvites = useCallback(async () => {
+    if (!meet || inviteSending) return;
+    setInviteSending(true);
+    try {
+      const token = await getToken();
+      const r     = await fetch(`${API_URL}/api/meets/${meet.id}/invite-nearby`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ radiusKm: inviteRadius, maxInvites: 250 }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie udało się wysłać' });
+        return;
+      }
+      Toast.show({ type: 'success', text1: 'WYSŁANO', text2: `Zaproszenia: ${data.sent ?? 0} osób w promieniu ${data.radiusKm} km` });
+      setInviteModal(false);
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } finally { setInviteSending(false); }
+  }, [meet, inviteSending, inviteRadius]);
 
   const openMaps = useCallback(async () => {
     if (!meet?.lat || !meet?.lng) {
@@ -307,6 +332,15 @@ export default function MeetDetailScreen() {
                 <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>NAWIGUJ</Text>
               </View>
             </TouchableOpacity>
+            {isOwner && meet.lat != null && meet.lng != null && (
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: theme.primaryBg, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: theme.primaryBorder }}
+                onPress={() => setInviteModal(true)} activeOpacity={0.85}
+              >
+                <MaterialIcons name="campaign" size={22} color={theme.primary} />
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZAPROŚ UŻYTKOWNIKÓW W POBLIŻU</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* ZASADY */}
@@ -402,6 +436,48 @@ export default function MeetDetailScreen() {
       </View>
 
       {/* MODAL uczestnicy */}
+      <Modal visible={inviteModal} animationType="fade" transparent onRequestClose={() => !inviteSending && setInviteModal(false)}>
+        <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: theme.surface2, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: theme.border }}>
+            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700', marginBottom: 8 }}>Zaproszenia w pobliżu</Text>
+            <Text style={{ color: theme.textDim, fontSize: 12, lineHeight: 18, marginBottom: 16 }}>
+              VROOM wyśle powiadomienie (push + centrum powiadomień) użytkownikom z włączonym udostępnianiem lokalizacji, którzy są w promieniu od punktu meetu. Max raz na 24 h.
+            </Text>
+            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>PROMIEŃ (KM)</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {[25, 50, 100, 150].map(km => (
+                <TouchableOpacity
+                  key={km}
+                  onPress={() => setInviteRadius(km)}
+                  style={{
+                    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: inviteRadius === km ? theme.primary : theme.border2,
+                    backgroundColor: inviteRadius === km ? theme.primaryBg : theme.surface3,
+                  }}
+                >
+                  <Text style={{ color: inviteRadius === km ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{km} km</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border2 }}
+                onPress={() => !inviteSending && setInviteModal(false)} disabled={inviteSending}
+              >
+                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: inviteSending ? 0.7 : 1 }}
+                onPress={sendNearbyInvites} disabled={inviteSending}
+              >
+                {inviteSending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>WYŚLIJ</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: theme.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 20, maxHeight: '85%' }}>

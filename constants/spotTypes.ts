@@ -94,6 +94,6 @@ export const CATEGORY_COLORS: Record<SpotCategory, string> = {
   'Skałki':         '#778ca3',
 };
 
-export const DISTANCE_OPTIONS = [10, 25, 50, 100];
+export const DISTANCE_OPTIONS = [10, 25, 50, 100, 150, 250, 350];
 
 export const MOCK_SPOTS: never[] = [];

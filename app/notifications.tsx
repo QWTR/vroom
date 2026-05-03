@@ -1,0 +1,179 @@
+import React, { useState, useCallback } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl,
+  StatusBar,
+} from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '../contexts/ThemeContext';
+import { API_URL } from '../constants/config';
+
+const getToken = async () =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+
+type Row = {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+  data: Record<string, unknown> | null;
+};
+
+function parseData(data: unknown): Record<string, unknown> | null {
+  if (!data) return null;
+  if (typeof data === 'object' && !Array.isArray(data)) return data as Record<string, unknown>;
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return null; }
+  }
+  return null;
+}
+
+export default function NotificationsScreen() {
+  const router = useRouter();
+  const { theme, isDark } = useTheme();
+  const [rows, setRows]       = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      const r = await fetch(`${API_URL}/api/notifications?limit=100&page=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const list: Row[] = (j.notifications ?? []).map((n: any) => ({
+        ...n,
+        data: parseData(n.data),
+      }));
+      setRows(list);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      void load();
+    }, [load]),
+  );
+
+  const markRead = async (id: number) => {
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/notifications/${id}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRows(prev => prev.map(x => (x.id === id ? { ...x, read: true } : x)));
+    } catch { /* ignore */ }
+  };
+
+  const markAll = async () => {
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRows(prev => prev.map(x => ({ ...x, read: true })));
+    } catch { /* ignore */ }
+  };
+
+  const onPressRow = async (item: Row) => {
+    if (!item.read) await markRead(item.id);
+    const d = item.data;
+    const meetId = d?.meetId != null ? Number(d.meetId) : null;
+    if ((item.type === 'meet_nearby_invite' || item.type === 'meet_joined') && meetId) {
+      router.push({ pathname: '/Community/meets/meet', params: { id: String(meetId) } } as any);
+      return;
+    }
+    if (d?.conversationId != null)
+      router.push(`/Community/chats/${d.conversationId}` as any);
+    else if (d?.postId != null) {
+      await AsyncStorage.setItem('open_post_id', String(d.postId));
+      router.push('/Community/community/community' as any);
+    } else if (d?.clubId != null) {
+      const q = d.channelId ? `?channelId=${d.channelId}` : '';
+      router.push(`/Community/clubs/${d.clubId}${q}` as any);
+    }
+  };
+
+  const renderItem = ({ item }: { item: Row }) => (
+    <TouchableOpacity
+      onPress={() => onPressRow(item)}
+      activeOpacity={0.85}
+      style={{
+        marginHorizontal: 16,
+        marginBottom: 10,
+        padding: 14,
+        borderRadius: 14,
+        backgroundColor: theme.surface,
+        borderWidth: 1,
+        borderColor: item.read ? theme.border2 : theme.primaryBorder,
+        opacity: item.read ? 0.85 : 1,
+      }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+        <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{item.title}</Text>
+        {!item.read && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary, marginTop: 4 }} />}
+      </View>
+      <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 6, lineHeight: 18 }}>{item.body}</Text>
+      <Text style={{ color: theme.textFaint, fontSize: 9, marginTop: 8 }}>
+        {new Date(item.createdAt).toLocaleString('pl-PL')}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <View style={{ paddingTop: 52, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.border }}>
+        <TouchableOpacity onPress={() => router.back()} style={{ padding: 6 }}>
+          <MaterialIcons name="arrow-back" size={22} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700', color: theme.text }}>POWIADOMIENIA</Text>
+        <TouchableOpacity onPress={markAll} style={{ padding: 6 }}>
+          <MaterialIcons name="done-all" size={22} color={theme.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={i => String(i.id)}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingTop: 12, paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); void load(); }}
+              tintColor={theme.primary}
+            />
+          }
+          ListEmptyComponent={(
+            <Text style={{ textAlign: 'center', color: theme.textDim, marginTop: 40, fontFamily: 'Orbitron' }}>
+              Brak powiadomień
+            </Text>
+          )}
+        />
+      )}
+    </View>
+  );
+}

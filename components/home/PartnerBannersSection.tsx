@@ -1,12 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { View, TouchableOpacity, Animated, Linking, Text, FlatList, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { usePartnerBanners } from '../../hooks/usePartnerBanners';
 
-// Definiujemy szerokość karty, aby karuzela wiedziała, gdzie "snapować"
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = 280; // Szerokość Twojego banera + marginesy
-const SNAP_INTERVAL = CARD_WIDTH + 12; // Szerokość karty + gap (odstęp)
+/** Jedna karta ~pełna szerokość z „podglądem” następnej — stabilny snap. */
+const CARD_WIDTH = Math.min(SCREEN_WIDTH - 48, 320);
+const SNAP_INTERVAL = CARD_WIDTH + 12;
 
 interface Props {
   theme: any;
@@ -25,14 +25,14 @@ export function PartnerBannersSection({ theme: t, isDark, fadeAnim }: Props) {
 
   return (
     <Animated.View style={{ opacity: fadeAnim, marginBottom: 20 }}>
-      <Text 
-        style={{ 
-          fontFamily: 'Orbitron', 
-          fontSize: 8, 
-          color: t.textDim, 
-          letterSpacing: 4, 
-          marginBottom: 14, 
-          paddingHorizontal: 20 
+      <Text
+        style={{
+          fontFamily: 'Orbitron',
+          fontSize: 8,
+          color: t.textDim,
+          letterSpacing: 4,
+          marginBottom: 14,
+          paddingHorizontal: 20,
         }}
       >
         PARTNERZY & AKTUALNOŚCI
@@ -43,11 +43,11 @@ export function PartnerBannersSection({ theme: t, isDark, fadeAnim }: Props) {
         keyExtractor={(item) => item.id}
         horizontal
         showsHorizontalScrollIndicator={false}
-        // KLUCZOWE WŁAŚCIWOŚCI DLA KARUZELI:
-        snapToInterval={SNAP_INTERVAL} // Co ile ma "przyciągać" (szerokość karty + przerwa)
-        decelerationRate="fast" // Szybsze zatrzymywanie się
-        contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }} // Odstęp na początku i między kartami
-        
+        snapToInterval={SNAP_INTERVAL}
+        decelerationRate="fast"
+        snapToAlignment="start"
+        disableIntervalMomentum
+        contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
         renderItem={({ item: banner }) => (
           <TouchableOpacity
             onPress={() => banner.linkUrl && Linking.openURL(banner.linkUrl)}
@@ -68,7 +68,7 @@ export function PartnerBannersSection({ theme: t, isDark, fadeAnim }: Props) {
               />
               {!!banner.title && (
                 <View style={{ padding: 12 }}>
-                  <Text 
+                  <Text
                     numberOfLines={1}
                     style={{
                       fontFamily: 'Orbitron',

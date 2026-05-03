@@ -322,7 +322,7 @@ export default function MarketScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {item.seller.avatarUrl
-                ? <Image source={{ uri: item.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                ? <Image source={{ uri: item.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                 : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700' }}>{item.seller.username.charAt(0).toUpperCase()}</Text>
               }
             </View>

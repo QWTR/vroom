@@ -1,13 +1,19 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Modal, View, Text, TouchableOpacity,
-  FlatList, Image, Dimensions, StatusBar,
+  FlatList, Dimensions, StatusBar,
+  type NativeSyntheticEvent, type NativeScrollEvent,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-// PhotoGalleryModal jest pełnoekranowy (czarne tło) — celowo nie używa theme
+/** Wysokość strefy obrazu (header overlay + dots) — stały aspect zapobiega „rozciąganiu” przy swipe. */
+const IMAGE_AREA_TOP = 52;
+const IMAGE_AREA_BOTTOM = 100;
+const IMAGE_H = SCREEN_H - IMAGE_AREA_TOP - IMAGE_AREA_BOTTOM;
+
 interface PhotoGalleryModalProps {
   visible: boolean;
   photos: string[];
@@ -17,19 +23,68 @@ interface PhotoGalleryModalProps {
 }
 
 export const PhotoGalleryModal = ({ visible, photos, initialIndex = 0, spotName, onClose }: PhotoGalleryModalProps) => {
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const flatListRef = useRef<FlatList>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const flatListRef = useRef<FlatList<string>>(null);
 
-  const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) setCurrentIndex(viewableItems[0].index ?? 0);
-  }).current;
+  const safeIndex = useCallback(
+    (idx: number) => {
+      if (!photos.length) return 0;
+      return Math.min(Math.max(0, idx), photos.length - 1);
+    },
+    [photos.length],
+  );
+
+  useEffect(() => {
+    if (!visible || !photos.length) return;
+    const idx = safeIndex(initialIndex);
+    setCurrentIndex(idx);
+    const t = requestAnimationFrame(() => {
+      try {
+        flatListRef.current?.scrollToIndex({ index: idx, animated: false });
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => cancelAnimationFrame(t);
+  }, [visible, initialIndex, photos, safeIndex]);
+
+  const onMomentumScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const x = e.nativeEvent.contentOffset.x;
+    const i = Math.round(x / SCREEN_W);
+    setCurrentIndex(safeIndex(i));
+  }, [safeIndex]);
+
+  const renderItem = useCallback(({ item }: { item: string }) => (
+    <View
+      style={{
+        width: SCREEN_W,
+        height: SCREEN_H,
+        paddingTop: IMAGE_AREA_TOP,
+        paddingBottom: IMAGE_AREA_BOTTOM,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#000',
+      }}
+    >
+      <View style={{ width: SCREEN_W, height: IMAGE_H }}>
+        <Image
+          source={{ uri: item }}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="contain"
+          transition={0}
+          cachePolicy="memory-disk"
+        />
+      </View>
+    </View>
+  ), []);
+
+  if (!photos.length) return null;
 
   return (
     <Modal visible={visible} animationType="fade" transparent={false} statusBarTranslucent onRequestClose={onClose}>
       <StatusBar hidden />
       <View style={{ flex: 1, backgroundColor: '#000' }}>
 
-        {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 50, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: '#000000cc', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}>
           <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#ffffff15', justifyContent: 'center', alignItems: 'center' }} onPress={onClose} activeOpacity={0.8}>
             <MaterialIcons name="close" size={24} color="#fff" />
@@ -41,25 +96,26 @@ export const PhotoGalleryModal = ({ visible, photos, initialIndex = 0, spotName,
           <View style={{ width: 44 }} />
         </View>
 
-        {/* Slider */}
         <FlatList
+          key={visible ? `gal-${initialIndex}-${photos[0]?.slice(-20)}` : 'hidden'}
           ref={flatListRef}
           data={photos}
           keyExtractor={(item, i) => `${item}_${i}`}
-          horizontal pagingEnabled
+          horizontal
+          pagingEnabled
           showsHorizontalScrollIndicator={false}
-          initialScrollIndex={initialIndex}
+          removeClippedSubviews={false}
+          initialScrollIndex={safeIndex(initialIndex)}
           getItemLayout={(_, index) => ({ length: SCREEN_W, offset: SCREEN_W * index, index })}
-          onViewableItemsChanged={handleViewableItemsChanged}
-          viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
-          renderItem={({ item }) => (
-            <View style={{ width: SCREEN_W, height: SCREEN_H, justifyContent: 'center', alignItems: 'center' }}>
-              <Image source={{ uri: item }} style={{ width: SCREEN_W, height: SCREEN_H }} resizeMode="contain" />
-            </View>
-          )}
+          onMomentumScrollEnd={onMomentumScrollEnd}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index, animated: false });
+            }, 100);
+          }}
+          renderItem={renderItem}
         />
 
-        {/* Dots */}
         {photos.length > 1 && (
           <View style={{ position: 'absolute', bottom: 40, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
             {photos.map((_, i) => (
@@ -72,13 +128,16 @@ export const PhotoGalleryModal = ({ visible, photos, initialIndex = 0, spotName,
           </View>
         )}
 
-        {/* Strzałki */}
         {photos.length > 1 && (
           <>
             {currentIndex > 0 && (
               <TouchableOpacity
                 style={{ position: 'absolute', top: '50%', marginTop: -28, left: 12, width: 52, height: 52, borderRadius: 26, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center' }}
-                onPress={() => flatListRef.current?.scrollToIndex({ index: currentIndex - 1, animated: true })} activeOpacity={0.8}
+                onPress={() => {
+                  const next = currentIndex - 1;
+                  flatListRef.current?.scrollToIndex({ index: next, animated: true });
+                  setCurrentIndex(next);
+                }} activeOpacity={0.8}
               >
                 <MaterialIcons name="chevron-left" size={32} color="#fff" />
               </TouchableOpacity>
@@ -86,7 +145,11 @@ export const PhotoGalleryModal = ({ visible, photos, initialIndex = 0, spotName,
             {currentIndex < photos.length - 1 && (
               <TouchableOpacity
                 style={{ position: 'absolute', top: '50%', marginTop: -28, right: 12, width: 52, height: 52, borderRadius: 26, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center' }}
-                onPress={() => flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true })} activeOpacity={0.8}
+                onPress={() => {
+                  const next = currentIndex + 1;
+                  flatListRef.current?.scrollToIndex({ index: next, animated: true });
+                  setCurrentIndex(next);
+                }} activeOpacity={0.8}
               >
                 <MaterialIcons name="chevron-right" size={32} color="#fff" />
               </TouchableOpacity>

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  StatusBar, FlatList, Alert, Platform,
+  StatusBar, FlatList, Alert, Platform, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -46,6 +46,9 @@ interface Listing {
 function formatPrice(price: number) {
   return price.toLocaleString('pl-PL') + ' PLN';
 }
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const GALLERY_H = 280;
 
 export default function ListingDetailScreen() {
   const { id }  = useLocalSearchParams<{ id: string }>();
@@ -256,13 +259,27 @@ export default function ListingDetailScreen() {
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              removeClippedSubviews={false}
               keyExtractor={(_, i) => String(i)}
+              getItemLayout={(_, index) => ({
+                length: SCREEN_W,
+                offset: SCREEN_W * index,
+                index,
+              })}
               onMomentumScrollEnd={e => {
-                const idx = Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width);
-                setActivePhotoIdx(idx);
+                const w = e.nativeEvent.layoutMeasurement.width || SCREEN_W;
+                const idx = Math.round(e.nativeEvent.contentOffset.x / w);
+                setActivePhotoIdx(Math.max(0, Math.min(idx, listing.photos.length - 1)));
               }}
               renderItem={({ item }) => (
-                <Image source={{ uri: item }} style={{ width: 393, height: 280 }} contentFit="cover" />
+                <View style={{ width: SCREEN_W, height: GALLERY_H, backgroundColor: theme.surface2, overflow: 'hidden' }}>
+                  <Image
+                    source={{ uri: item }}
+                    style={{ width: SCREEN_W, height: GALLERY_H }}
+                    contentFit="cover"
+                    transition={0}
+                  />
+                </View>
               )}
             />
             {/* Dots */}
@@ -333,7 +350,7 @@ export default function ListingDetailScreen() {
           <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {listing.seller.avatarUrl
-                ? <Image source={{ uri: listing.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                ? <Image source={{ uri: listing.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                 : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '900' }}>{listing.seller.username.charAt(0).toUpperCase()}</Text>
               }
             </View>

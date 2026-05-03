@@ -3046,6 +3046,7 @@ export default function MapScreen() {
           !isNavigating && !isDriving && {
             bottom: startLocation && endLocation && routeInfo ? 248 : 188
           },
+          isDriving && startLocation && endLocation && routeInfo && {bottom: 328}
         ]}>
           {!isNavigating && (
             <TouchableOpacity
@@ -3273,7 +3274,7 @@ export default function MapScreen() {
           <TouchableOpacity
             style={[
               styles.topSearchButton,
-              isDriving && !isNavigating && { top: insets.top + 118 },
+              isDriving && !isNavigating && { top: insets.top + 148 },
             ]}
             onPress={() => setSearchModalVisible(true)}
             activeOpacity={0.8}

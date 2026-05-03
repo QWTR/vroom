@@ -13,7 +13,7 @@ import { Image } from 'expo-image';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 
@@ -146,6 +146,7 @@ const RankListRow = React.memo(function RankListRow({
 
 export default function StatsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ rankPeriod?: string; rankCategory?: string }>();
   const { theme } = useTheme();
 
   const [category, setCategory] = useState<'points' | 'distance'>('points');
@@ -164,6 +165,15 @@ export default function StatsScreen() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    const rp = params.rankPeriod;
+    const rc = params.rankCategory;
+    const p = (Array.isArray(rp) ? rp[0] : rp) as string | undefined;
+    const c = (Array.isArray(rc) ? rc[0] : rc) as string | undefined;
+    if (p && (PERIODS as readonly string[]).includes(p)) setPeriod(p);
+    if (c === 'points' || c === 'distance') setCategory(c);
+  }, [params.rankPeriod, params.rankCategory]);
 
   const fetchRanking = useCallback(async (cat: string, per: string) => {
     try {
@@ -245,7 +255,7 @@ export default function StatsScreen() {
           ))}
         </View>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
           {PERIODS.map(p => (
             <TouchableOpacity
               key={p}
@@ -266,6 +276,22 @@ export default function StatsScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {category === 'points' && period === 'Miesiąc' && (
+          <Text
+            style={{
+              fontFamily: 'Orbitron',
+              fontSize: 9,
+              color: theme.textDim,
+              textAlign: 'center',
+              marginBottom: 20,
+              paddingHorizontal: 12,
+              lineHeight: 14,
+            }}
+          >
+            Miesięczny wynik liczy się od pierwszego dnia miesiąca (m.in. punkty z tygodniowego toru VROOM). Nagrody dla czołówki ustalane są przez zespół — nie są automatycznie przyznawane w aplikacji.
+          </Text>
+        )}
 
         {topThree.length >= 3 && (
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', marginBottom: 24, height: 260 }}>

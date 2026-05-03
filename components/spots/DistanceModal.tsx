@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, Text, TouchableOpacity } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { DISTANCE_OPTIONS } from '../../constants/spotTypes';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -23,23 +23,27 @@ export const DistanceModal = ({ visible, maxDistance, onSelect, onClose }: Dista
               <MaterialIcons name="close" size={24} color={theme.textDim} />
             </TouchableOpacity>
           </View>
-          <View style={{ flexDirection: 'row', gap: 12, paddingBottom: 8 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ flexDirection: 'row', gap: 10, paddingBottom: 8, paddingRight: 4 }}
+          >
             {DISTANCE_OPTIONS.map(d => (
               <TouchableOpacity
                 key={d}
                 style={[{
-                  flex: 1, height: 52, borderRadius: 12,
+                  minWidth: 72, height: 52, borderRadius: 12, paddingHorizontal: 10,
                   backgroundColor: theme.surface3, justifyContent: 'center', alignItems: 'center',
                   borderWidth: 1, borderColor: theme.border2,
                 }, maxDistance === d && { borderColor: theme.primary, backgroundColor: theme.primaryBg }]}
                 onPress={() => { onSelect(d); onClose(); }} activeOpacity={0.8}
               >
-                <Text style={{ color: maxDistance === d ? theme.primary : theme.textDim, fontSize: 15, fontWeight: '700' }}>
+                <Text style={{ color: maxDistance === d ? theme.primary : theme.textDim, fontSize: 14, fontWeight: '700' }}>
                   {d} km
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>

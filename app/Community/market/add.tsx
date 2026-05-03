@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
+  View, Text, ScrollView, TouchableOpacity, TextInput, FlatList,
   ActivityIndicator, StatusBar, Platform, Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -210,25 +210,15 @@ export default function AddListingScreen() {
 
         {/* Photos */}
         <FormSection label="ZDJĘCIA" required>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              {photos.map((uri, i) => (
-                <View key={i} style={{ position: 'relative' }}>
-                  <Image source={{ uri }} style={{ width: 90, height: 90, borderRadius: 12, borderWidth: 1, borderColor: theme.border }} contentFit="cover" />
-                  {i === 0 && (
-                    <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: theme.primary, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }}>
-                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>GŁÓWNE</Text>
-                    </View>
-                  )}
-                  <TouchableOpacity
-                    style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.bg }}
-                    onPress={() => removePhoto(i)}
-                  >
-                    <Feather name="x" size={10} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {photos.length < MAX_PHOTOS && (
+          <FlatList
+            data={photos}
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(uri, i) => `${uri}-${i}`}
+            contentContainerStyle={{ gap: 10 }}
+            ListFooterComponent={
+              photos.length < MAX_PHOTOS ? (
                 <TouchableOpacity
                   style={{ width: 90, height: 90, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 4 }}
                   onPress={pickPhoto}
@@ -236,9 +226,27 @@ export default function AddListingScreen() {
                   <Feather name="plus" size={24} color={theme.textDim} />
                   <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>DODAJ</Text>
                 </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
+              ) : null
+            }
+            renderItem={({ item: uri, index: i }) => (
+              <View style={{ position: 'relative', width: 90 }}>
+                <View style={{ width: 90, height: 90, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}>
+                  <Image source={{ uri }} style={{ width: 90, height: 90 }} contentFit="cover" transition={0} />
+                </View>
+                {i === 0 && (
+                  <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: theme.primary, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }}>
+                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>GŁÓWNE</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.bg }}
+                  onPress={() => removePhoto(i)}
+                >
+                  <Feather name="x" size={10} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            )}
+          />
           <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginTop: 6 }}>
             Min. 1, max. {MAX_PHOTOS} zdjęć • Pierwsze zdjęcie to miniatura
           </Text>

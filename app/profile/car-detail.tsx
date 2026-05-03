@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, ScrollView, TouchableOpacity,
+  View, ScrollView, TouchableOpacity, FlatList,
   Image, TextInput, ActivityIndicator, Modal, Pressable, Text,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -172,13 +172,25 @@ export default function CarDetailScreen() {
 
         {/* ZDJĘCIA */}
         {car.photos.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-            {car.photos.map((photo, i) => (
-              <TouchableOpacity key={i} onPress={() => { setGalleryIndex(i); setGalleryVisible(true); }} activeOpacity={0.9}>
-                <Image source={{ uri: photo }} style={{ width: 280, height: 200, borderRadius: 16, marginRight: 12 }} resizeMode="cover" />
+          <FlatList
+            data={car.photos}
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ marginBottom: 20 }}
+            keyExtractor={(uri, i) => `${uri}-${i}`}
+            contentContainerStyle={{ gap: 12 }}
+            renderItem={({ item: photo, index: i }) => (
+              <TouchableOpacity
+                onPress={() => { setGalleryIndex(i); setGalleryVisible(true); }}
+                activeOpacity={0.9}
+              >
+                <View style={{ width: 280, height: 200, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.surface3 }}>
+                  <Image source={{ uri: photo }} style={{ width: 280, height: 200 }} resizeMode="cover" />
+                </View>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            )}
+          />
         ) : (
           <View style={{ height: 200, backgroundColor: theme.surface3, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
             <MaterialIcons name="directions-car" size={48} color={theme.primary} />

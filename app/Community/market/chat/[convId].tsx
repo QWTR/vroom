@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity,
+  View, Text, FlatList, TextInput, TouchableOpacity, ScrollView,
   StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -174,7 +174,7 @@ export default function MarketChatScreen() {
         {!isMe && (
           <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginBottom: 2 }}>
             {item.sender.avatarUrl
-              ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+              ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
               : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{item.sender.username.charAt(0).toUpperCase()}</Text>
             }
           </View>
@@ -194,16 +194,26 @@ export default function MarketChatScreen() {
               : { backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }),
           }, bubbleRadius]}>
             {item.photos?.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-                {item.photos.map((uri, i) => (
-                  <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
-                    <Image source={{ uri }}
-                      style={item.photos.length === 1 ? { width: 200, height: 150, borderRadius: 10 } : { width: 120, height: 90, borderRadius: 8 }}
-                      contentFit="cover"
-                    />
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <ScrollView
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 4, flexDirection: 'row' }}
+              >
+                {item.photos.map((uri, i) => {
+                  const single = item.photos.length === 1;
+                  const w = single ? 200 : 120;
+                  const h = single ? 150 : 90;
+                  const r = single ? 10 : 8;
+                  return (
+                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
+                      <View style={{ width: w, height: h, borderRadius: r, overflow: 'hidden' }}>
+                        <Image source={{ uri }} style={{ width: w, height: h }} contentFit="cover" transition={0} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
             {!!item.content && (
               <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>{item.content}</Text>

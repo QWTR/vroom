@@ -234,6 +234,8 @@ function RootLayoutInner() {
           router.push(`/Community/chats` as any);
         else if (data.type === 'achievement')
           router.push(`/(tabs)/account` as any);
+        else if ((data.type === 'meet_nearby_invite' || data.type === 'meet_joined') && data.meetId)
+          router.push({ pathname: '/Community/meets/meet', params: { id: String(data.meetId) } } as any);
       }, 300);
     } catch (e) { console.error('Navigation error:', e); }
   };
@@ -304,6 +306,7 @@ function RootLayoutInner() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
         <Stack.Screen name="Community/clubs/[id]" />
+        <Stack.Screen name="notifications" />
       </Stack>
       <StatusBar style="light" translucent={false} backgroundColor="#0a0a0a" />
       <Toast config={toastConfig} />
