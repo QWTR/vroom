@@ -147,9 +147,12 @@ export default function SettingsScreen() {
       const res = await fetch(`${API_URL}/api/settings/bug-report`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
       });
-      if (!res.ok) throw new Error();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Błąd');
+      const newId = json.id as number | undefined;
       setBugModal(false); setBugCategory(''); setBugDescription(''); setBugPhotos([]);
       Toast.show({ type: 'success', text1: '🐛 ZGŁOSZENIE WYSŁANE' });
+      if (newId) router.push(`/profile/bug-report/${newId}`);
     } catch { Toast.show({ type: 'error', text1: 'Błąd wysyłania zgłoszenia' }); }
     finally { setBugLoading(false); }
   };
@@ -1007,6 +1010,13 @@ export default function SettingsScreen() {
 							label='Zgłoś błąd'
 							sublabel='Pomóż nam ulepszyć aplikację'
 							onPress={() => setBugModal(true)}
+						/>
+						<Row
+							icon='forum'
+							iconBg='#2196F3'
+							label='Moje zgłoszenia'
+							sublabel='Status, odpowiedzi supportu, czat'
+							onPress={() => router.push('/profile/bug-reports')}
 						/>
 						<Row
 							icon='star-outline'
