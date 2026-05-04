@@ -108,7 +108,7 @@ import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
 import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
 import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
 import { UserCarMarker } from '../../components/markers/UserCarMarker';
-import { AddSpeedCameraModal } from '../../components/modals/AddSpeedCameraModal';
+import { AddSpeedCameraModal, type CameraType } from '../../components/modals/AddSpeedCameraModal';
 import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
 import { SaveRouteModal } from '../../components/modals/SaveRouteModal';
@@ -408,6 +408,13 @@ export default function MapScreen() {
   const [tripStatsVisible,     setTripStatsVisible]     = useState(false);
   const [cameraImages,         setCameraImages]         = useState<Record<string, string>>({});
   const [addCameraVisible,     setAddCameraVisible]     = useState(false);
+  const [cameraPickMode,       setCameraPickMode]       = useState(false);
+  const [pendingAddCameraParams, setPendingAddCameraParams] = useState<{
+    maxspeed: number | null;
+    type: CameraType;
+    description: string | null;
+  } | null>(null);
+  const pickCenterRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
   const [selectedCamera,       setSelectedCamera]       = useState<any>(null);
   const [cameraDetailVisible,  setCameraDetailVisible]  = useState(false);
   const { snapCameras } = useSnapCameras();
@@ -479,13 +486,13 @@ export default function MapScreen() {
       const dist   = Math.round(nearestCamera.distanceM);
       const isBump = nearestCamera.type === 'bump';
       const msg    = isBump
-        ? `Próg zwalniający za ${dist} metrów`
+        ? `uwaga, próg zwalniający za ${dist} metrów`
         : nearestCamera.maxspeed
-          ? `Fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed}`
-          : `Fotoradar za ${dist} metrów`;
+          ? `uwaga, fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed} kilometrów na godzinę`
+          : `uwaga, fotoradar za ${dist} metrów`;
       speak(msg);
     }
-  }, [nearestCamera?.id, nearestCamera?.distanceM]);
+  }, [nearestCamera?.id, nearestCamera?.distanceM, isSpeechEnabled, checkAlert, markAlerted]);
 
   useEffect(() => {
     const activeIds = new Set(cameras.map(c => String(c.id)));
@@ -593,9 +600,14 @@ export default function MapScreen() {
     lastCameraUpdateLocRef.current = { lat, lng };
 
     if (DEBUG_NETWORK) console.log('[cameras/speedlimit] updating at', lat.toFixed(5), lng.toFixed(5));
-    updateCameras(lat, lng);
+    updateCameras(lat, lng, {
+      headingDeg: lastHeadingRef.current,
+      speedKmh,
+    });
     updateSpeedLimit(lat, lng);
-  }, [userLocation]);
+    // drTick: pod nawigacją/jazdą pozycja idzie z dead-reckoning — bez tego efekt nie
+    // odpala się przy stabilnym GPS, a lista fotoradarów w 3 km „staje”.
+  }, [userLocation?.latitude, userLocation?.longitude, speedKmh, heading, drTick, updateCameras, updateSpeedLimit]);
 
   useEffect(() => {
     isNavigatingRef.current = isNavigating;
@@ -738,15 +750,23 @@ export default function MapScreen() {
     [warnings],
   );
 
-  const handleAddCamera = useCallback(async (params: {
-    maxspeed: number | null;
-    type: 'fixed' | 'section' | 'mobile' | 'bump';
-    description: string | null;
-  }) => {
-    if (!userLocation) return;
+  const handleAddCamera = useCallback(async (
+    params: {
+      maxspeed: number | null;
+      type: 'fixed' | 'section' | 'mobile' | 'bump';
+      description: string | null;
+    },
+    coords?: { lat: number; lng: number } | null,
+  ) => {
+    const lat = coords?.lat ?? userLocation?.latitude;
+    const lng = coords?.lng ?? userLocation?.longitude;
+    if (lat == null || lng == null) {
+      Toast.show({ type: 'error', text1: 'GPS', text2: 'Brak pozycji — włącz lokalizację lub wskaż na mapie.' });
+      return;
+    }
     const result = await addCamera({
-      lat:         userLocation.latitude,
-      lng:         userLocation.longitude,
+      lat,
+      lng,
       maxspeed:    params.maxspeed,
       type:        params.type,
       description: params.description,
@@ -754,11 +774,33 @@ export default function MapScreen() {
     if (result) {
       Toast.show({ type: 'success', text1: '📷 FOTORADAR DODANY', text2: 'Dziękujemy za zgłoszenie!' });
       invalidate();
-      updateCameras(userLocation.latitude, userLocation.longitude);
+      const refLat = userLocation?.latitude ?? lat;
+      const refLng = userLocation?.longitude ?? lng;
+      updateCameras(refLat, refLng, {
+        headingDeg: lastHeadingRef.current,
+        speedKmh,
+      });
     } else {
       Toast.show({ type: 'info', text1: 'Fotoradar już istnieje w tym miejscu' });
     }
-  }, [userLocation, addCamera, invalidate, updateCameras]);
+  }, [userLocation, addCamera, invalidate, updateCameras, speedKmh]);
+
+  const cancelCameraPick = useCallback(() => {
+    setCameraPickMode(false);
+    setPendingAddCameraParams(null);
+  }, []);
+
+  const confirmCameraPick = useCallback(async () => {
+    if (!pendingAddCameraParams) return;
+    const { lat, lng } = pickCenterRef.current;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+      Toast.show({ type: 'error', text1: 'Mapa', text2: 'Poczekaj chwilę lub przesuń mapę pod celownik.' });
+      return;
+    }
+    await handleAddCamera(pendingAddCameraParams, { lat, lng });
+    setCameraPickMode(false);
+    setPendingAddCameraParams(null);
+  }, [pendingAddCameraParams, handleAddCamera]);
 
   // ── Helper: generuj kroki offroad z punktów trasy ─────────
   const buildOffroadSteps = useCallback((
@@ -2663,7 +2705,13 @@ export default function MapScreen() {
             setCurrentZoom(zoom);
           }}
           onCameraChanged={(e: any) => {
-            if (e.properties?.isUserInteraction) onUserPan();
+            if (cameraPickMode && e?.properties?.center && Array.isArray(e.properties.center)) {
+              const [lng, lat] = e.properties.center;
+              if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                pickCenterRef.current = { lat, lng };
+              }
+            }
+            if (e.properties?.isUserInteraction || e.gestures?.isGestureActive) onUserPan();
           }}
         >
           <Mapbox.Camera
@@ -2867,6 +2915,73 @@ export default function MapScreen() {
             />
           )}
         </Mapbox.MapView>
+
+        {cameraPickMode && (
+          <View
+            pointerEvents="box-none"
+            style={[StyleSheet.absoluteFillObject, { zIndex: 52 }]}
+          >
+            <View
+              pointerEvents="none"
+              style={{
+                marginTop:     insets.top + 48,
+                alignSelf:     'center',
+                backgroundColor: isDark ? '#141414e8' : '#111111dc',
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius:    12,
+                borderWidth:     1,
+                borderColor:     isDark ? '#ffffff28' : '#ffffff35',
+              }}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', textAlign: 'center', letterSpacing: 0.5 }}>
+                PRZESUŃ MAPĘ · ŚRODEK = MIEJSCE FOTORADARU
+              </Text>
+            </View>
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}
+            >
+              <MaterialCommunityIcons name="crosshairs-gps" size={58} color="#ffffffaa" style={{ marginTop: -28 }} />
+            </View>
+            <View style={{
+              position:        'absolute',
+              left:            12,
+              right:           12,
+              bottom:          insets.bottom + 88,
+              flexDirection:   'row',
+              gap:             10,
+            }}
+            >
+              <TouchableOpacity
+                onPress={cancelCameraPick}
+                style={{
+                  flex: 1,
+                  paddingVertical: 14,
+                  borderRadius:    14,
+                  backgroundColor: isDark ? '#2a2a2a' : '#e8e8e8',
+                  borderWidth:     1,
+                  borderColor:     theme.border,
+                  alignItems:      'center',
+                }}
+              >
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => void confirmCameraPick()}
+                style={{
+                  flex: 1,
+                  paddingVertical: 14,
+                  borderRadius:    14,
+                  backgroundColor: '#e33835',
+                  alignItems:      'center',
+                }}
+              >
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>DODAJ</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (
@@ -3647,6 +3762,16 @@ export default function MapScreen() {
           visible={addCameraVisible}
           onClose={() => setAddCameraVisible(false)}
           onConfirm={handleAddCamera}
+          onPickOnMap={(params) => {
+            setPendingAddCameraParams(params);
+            setCameraPickMode(true);
+            if (userLocation) {
+              pickCenterRef.current = {
+                lat: userLocation.latitude,
+                lng: userLocation.longitude,
+              };
+            }
+          }}
         />
 
         <SpeedCameraDetailModal

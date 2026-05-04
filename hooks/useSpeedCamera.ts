@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import AsyncStorage                       from '@react-native-async-storage/async-storage';
 import { API_URL }                        from '../constants/mapConfig';
+import { bearingBetween }                 from '../scripts/navigationUtils';
 
 export interface SpeedCamera {
   id:           number;
@@ -16,6 +17,15 @@ export interface SpeedCamera {
   addedBy:      { id: number; username: string; avatarUrl: string | null };
 }
 
+export const SPEED_CAMERA_SHOW_RADIUS_KM     = 3;
+export const SPEED_CAMERA_AHEAD_CONE_DEG     = 78;
+export const SPEED_CAMERA_ALERT_MIN_SPEED_KMH = 4;
+
+export type SpeedCameraContext = {
+  headingDeg?: number | null;
+  speedKmh?:   number | null;
+};
+
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R    = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -28,6 +38,13 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Najmniejszy kąt między dwoma azymutami 0..360 (stopnie). */
+function smallestAngleDiffDeg(a: number, b: number): number {
+  let d = Math.abs(a - b) % 360;
+  if (d > 180) d = 360 - d;
+  return d;
+}
+
 let cacheRef: {
   cameras:   SpeedCamera[];
   lat:       number;
@@ -36,13 +53,11 @@ let cacheRef: {
 } | null = null;
 
 const CACHE_TTL_MS   = 5 * 60 * 1000;
-const REFETCH_DIST_M = 500;
-const SHOW_RADIUS_KM = 10;
+const REFETCH_DIST_M = 400;
 
 async function getToken(): Promise<string> {
   try {
-    const raw = await AsyncStorage.getItem('token');
-    return raw ?? '';
+    return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
   } catch { return ''; }
 }
 
@@ -54,21 +69,49 @@ export function useSpeedCameras() {
   const fetchingRef = useRef(false);
   const alertedRef  = useRef<Set<number>>(new Set());
 
-  const recalc = useCallback((userLat: number, userLng: number) => {
+  const recalc = useCallback((
+    userLat: number,
+    userLng: number,
+    ctx?: SpeedCameraContext,
+  ) => {
     const raw = cacheRef?.cameras ?? [];
-    const result = raw
+    const rMaxM = SPEED_CAMERA_SHOW_RADIUS_KM * 1000;
+
+    const inRadius = raw
       .map(c => ({
         ...c,
         distanceM: haversineM(userLat, userLng, c.lat, c.lng),
       }))
-      .filter(c => c.distanceM <= SHOW_RADIUS_KM * 1000)
+      .filter(c => c.distanceM <= rMaxM)
       .sort((a, b) => a.distanceM - b.distanceM);
-    setCameras(result);
-    setNearestCamera(result[0] ?? null);
+
+    setCameras(inRadius);
+
+    const speed = ctx?.speedKmh ?? 0;
+    const hdg   = ctx?.headingDeg;
+    const useAhead =
+      speed >= SPEED_CAMERA_ALERT_MIN_SPEED_KMH
+      && hdg != null
+      && Number.isFinite(hdg);
+
+    const ahead = useAhead
+      ? inRadius.filter((c) => {
+          const bear = bearingBetween(userLat, userLng, c.lat, c.lng);
+          return smallestAngleDiffDeg(hdg as number, bear) <= SPEED_CAMERA_AHEAD_CONE_DEG;
+        })
+      : [];
+
+    // Głos / „najbliższy” tylko w stożku przed pojazdem przy wystarczającej prędkości — nie z radaru z tyłu.
+    const nearest = useAhead && ahead.length ? ahead[0] : null;
+    setNearestCamera(nearest);
   }, []);
 
-  const updateCameras = useCallback(async (userLat: number, userLng: number) => {
-    recalc(userLat, userLng);
+  const updateCameras = useCallback(async (
+    userLat: number,
+    userLng: number,
+    ctx?: SpeedCameraContext,
+  ) => {
+    recalc(userLat, userLng, ctx);
 
     if (lastPosRef.current) {
       const moved = haversineM(
@@ -82,7 +125,7 @@ export function useSpeedCameras() {
     if (
       cacheRef &&
       Date.now() - cacheRef.fetchedAt < CACHE_TTL_MS &&
-      haversineM(userLat, userLng, cacheRef.lat, cacheRef.lng) < SHOW_RADIUS_KM * 500
+      haversineM(userLat, userLng, cacheRef.lat, cacheRef.lng) < SPEED_CAMERA_SHOW_RADIUS_KM * 500
     ) return;
 
     if (fetchingRef.current) return;
@@ -91,7 +134,7 @@ export function useSpeedCameras() {
     try {
       const token = await getToken();
       const res   = await fetch(
-        `${API_URL}/api/speed-cameras?lat=${userLat}&lng=${userLng}&radius=${SHOW_RADIUS_KM}`,
+        `${API_URL}/api/speed-cameras?lat=${userLat}&lng=${userLng}&radius=${SPEED_CAMERA_SHOW_RADIUS_KM}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -105,7 +148,7 @@ export function useSpeedCameras() {
       }));
 
       cacheRef = { cameras: mapped, lat: userLat, lng: userLng, fetchedAt: Date.now() };
-      recalc(userLat, userLng);
+      recalc(userLat, userLng, ctx);
     } catch (e) {
       console.warn('📷 Speed camera fetch error:', e);
     } finally {
@@ -178,23 +221,22 @@ export function useSpeedCameras() {
   }, []);
   const deleteCamera = useCallback(async (cameraId: number): Promise<boolean> => {
     try {
-        const token = await getToken();
-        const res   = await fetch(`${API_URL}/api/speed-cameras/${cameraId}`, {
+      const token = await getToken();
+      const res   = await fetch(`${API_URL}/api/speed-cameras/${cameraId}`, {
         method:  'DELETE',
         headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        // Usuń z cache
-        if (cacheRef) {
+      if (cacheRef) {
         cacheRef.cameras = cacheRef.cameras.filter(c => c.id !== cameraId);
-        }
-        return true;
+      }
+      return true;
     } catch (e) {
-        console.warn('📷 deleteCamera error:', e);
-        return false;
+      console.warn('📷 deleteCamera error:', e);
+      return false;
     }
-    }, []);
+  }, []);
   const checkAlert = useCallback((
     camera: SpeedCamera,
     alertDistM: number,

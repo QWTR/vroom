@@ -16,6 +16,12 @@ interface Props {
     type:        CameraType;
     description: string | null;
   }) => void;
+  /** Zamknij modal i przejdź do trybu celownika na mapie (współrzędne wybiera użytkownik). */
+  onPickOnMap?: (params: {
+    maxspeed:    number | null;
+    type:        CameraType;
+    description: string | null;
+  }) => void;
 }
 
 const SPEEDS = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140];
@@ -29,7 +35,7 @@ const CAM_TYPES: {
   { value: 'bump',    label: 'PRÓG',      icon: 'speedometer-slow',  desc: 'Próg zwalniający',      color: '#4de926' },
 ];
 
-export function AddSpeedCameraModal({ visible, onClose, onConfirm }: Props) {
+export function AddSpeedCameraModal({ visible, onClose, onConfirm, onPickOnMap }: Props) {
   const { theme, isDark } = useTheme();
   const [selectedSpeed, setSelectedSpeed] = useState<number | null>(null);
   const [selectedType,  setSelectedType]  = useState<CameraType>('fixed');
@@ -83,7 +89,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm }: Props) {
                   ZGŁOŚ PRZESZKODĘ
                 </Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
-                  Twoja lokalizacja GPS zostanie użyta
+                  GPS lub punkt na mapie (celownik)
                 </Text>
               </View>
               <TouchableOpacity onPress={onClose}>
@@ -211,7 +217,43 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm }: Props) {
               </>
             )}
 
-            {/* Przycisk */}
+            {onPickOnMap && (
+              <TouchableOpacity
+                onPress={() => {
+                  onPickOnMap({
+                    maxspeed:    isBump ? null : selectedSpeed,
+                    type:        selectedType,
+                    description: null,
+                  });
+                  setSelectedSpeed(null);
+                  setSelectedType('fixed');
+                  onClose();
+                }}
+                style={{
+                  backgroundColor: theme.surface2,
+                  borderRadius:    14,
+                  paddingVertical: 14,
+                  alignItems:      'center',
+                  flexDirection:   'row',
+                  justifyContent:  'center',
+                  gap:             8,
+                  marginBottom:   10,
+                  borderWidth:     1,
+                  borderColor:     theme.border,
+                }}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons name="crosshairs-gps" size={20} color={theme.text} />
+                <Text style={{
+                  fontFamily: 'Orbitron', fontSize: 11,
+                  color: theme.text, fontWeight: '700', letterSpacing: 0.5,
+                }}>
+                  WSKAŻ NA MAPIE
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Przycisk — aktualna pozycja GPS */}
             <TouchableOpacity
               onPress={handleConfirm}
               style={{
@@ -226,7 +268,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm }: Props) {
               activeOpacity={0.85}
             >
               <MaterialCommunityIcons
-                name={isBump ? 'speedometer-slow' : 'camera-plus-outline'}
+                name={isBump ? 'speedometer-slow' : 'map-marker-radius'}
                 size={18}
                 color="#fff"
               />
@@ -234,7 +276,7 @@ export function AddSpeedCameraModal({ visible, onClose, onConfirm }: Props) {
                 fontFamily: 'Orbitron', fontSize: 12,
                 color: '#fff', fontWeight: '700', letterSpacing: 1,
               }}>
-                {isBump ? 'DODAJ PRÓG' : 'DODAJ FOTORADAR'}
+                {isBump ? 'DODAJ PRÓG (TU JESTEM)' : 'DODAJ TU (GPS)'}
               </Text>
             </TouchableOpacity>
           </ScrollView>
