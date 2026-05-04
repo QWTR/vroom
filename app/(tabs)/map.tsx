@@ -57,6 +57,7 @@ import {
   feedSpeedSample,
   recordDrivingTracePoint,
   resetSpeedStats,
+  setDrivingFlag,
   setNavigatingFlag,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
@@ -648,6 +649,9 @@ export default function MapScreen() {
   // ── Sync isDrivingRef ─────────────────────────────────────
   useEffect(() => {
     isDrivingRef.current = isDriving;
+  }, [isDriving]);
+  useEffect(() => {
+    setDrivingFlag(isDriving).catch(() => {});
   }, [isDriving]);
 
   // ── Dead-reckoning ────────────────────────────────────────
@@ -1265,12 +1269,12 @@ export default function MapScreen() {
       }
 
       // ══ 3. Prędkość ══════════════════════════════════════════
-      const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : 0;
-      const kmh        = rawSpeedMs * 3.6;
+      const rawSpeedMs = loc.speed != null && loc.speed >= 0 ? loc.speed : null;
+      const kmh        = (rawSpeedMs ?? 0) * 3.6;
 
       // ══ 4. Feed stats ════════════════════════════════════════
       feedSpeedSample(rawSpeedMs);
-      feedSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
+      feedSpeed(rawSpeedMs != null && rawSpeedMs > 0 ? rawSpeedMs : null);
 
       // ══ 5/6 moved below ═══════════════════════════════════════
       // For navigation we update distance + DR after snapping to route.
@@ -1321,7 +1325,7 @@ export default function MapScreen() {
           return;
         }
         if (isDrivingRef.current) {
-          const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs);
+          const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs ?? undefined);
           if (segKm > 0) {
             recordDrivingTracePoint(snapped.latitude, snapped.longitude, { addDistanceKm: segKm, speedKmh: kmh }).catch(() => {});
           }
@@ -1470,7 +1474,7 @@ export default function MapScreen() {
                   drLngRef.current = forcedSnap.longitude;
                   lastSetLocRef.current = { lat: forcedSnap.latitude, lng: forcedSnap.longitude };
                   setUserLocation({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude });
-                  feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs, drivingHeading);
+                  feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs ?? 0, drivingHeading);
                 }
               } catch (e) {
                 console.warn('[DrivingMode] forceMapMatch apply error:', e);
@@ -1480,7 +1484,7 @@ export default function MapScreen() {
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
               { latitude: snapped.latitude, longitude: snapped.longitude },
-              rawSpeedMs,
+              rawSpeedMs ?? 0,
               drivingHeading,
             );
             setIsDriving(true);
@@ -1496,7 +1500,7 @@ export default function MapScreen() {
 
           feedDR(
             { latitude: snapped.latitude, longitude: snapped.longitude },
-            rawSpeedMs,
+            rawSpeedMs ?? 0,
             drivingHeading,
           );
           // Camera is now driven by DR onFrame at ~60fps (same as navigation mode)
@@ -1557,21 +1561,21 @@ export default function MapScreen() {
           const navSnapped = snapToRoute(lat, lng, navPts, 35);
           // Distance/statistics for navigation should use snapped route position,
           // not raw filtered GPS (reduces jitter overcount and missing km spikes).
-          feedPosition(navSnapped.latitude, navSnapped.longitude, rawSpeedMs);
+          feedPosition(navSnapped.latitude, navSnapped.longitude, rawSpeedMs ?? undefined);
           lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
           feedDR(
             { latitude: navSnapped.latitude, longitude: navSnapped.longitude },
-            rawSpeedMs,
+            rawSpeedMs ?? 0,
             loc.heading ?? lastHeadingRef.current,
           );
           setUserLocation({ latitude: navSnapped.latitude, longitude: navSnapped.longitude });
         } else {
-          feedPosition(lat, lng, rawSpeedMs);
+          feedPosition(lat, lng, rawSpeedMs ?? undefined);
           setUserLocation({ latitude: lat, longitude: lng });
         }
       }
 
-      setSpeed(rawSpeedMs > 0 ? rawSpeedMs : null);
+      setSpeed(rawSpeedMs != null && rawSpeedMs > 0 ? rawSpeedMs : null);
     // clearStats / startTrip / routeInfo are read via stable refs (clearStats+startTrip from useTripStats are stable;
     // routeInfo via routeInfoRef) — do NOT list them here or every route preview tick tears down GPS watch.
     }, [drivingSnap, feedSpeed, feedPosition, feedDR, animateCameraLive, enterDrivingCamera, exitDrivingCamera, addMatchPosition, getMatchedPoints, setRoadMatchPoints, resetMapMatch, resetSnap, getAdaptiveZoom, forceMapMatch]),

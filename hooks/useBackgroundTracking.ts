@@ -5,6 +5,7 @@ import AsyncStorage       from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 import { evaluateDistanceSegment } from '../scripts/distanceEngine';
+import { haversineKm } from '../scripts/navigationUtils';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -71,15 +72,28 @@ const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 const BG_IS_SHARING_KEY         = 'bg_is_sharing';
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
-// Threshold (km) at which background stats are auto-saved as a passive trip
-const BG_AUTO_FLUSH_KM          = 5;
+// Flag: 'true' when driving mode is active — keep one continuous trip session
+const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 90;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
 const BG_ROUTE_MAX_POINTS       = 500;
+const BG_MIN_SPEED_KMH          = 2;
+const BG_TRACE_MIN_WRITE_MS     = 1500;
+const BG_TRACE_MIN_MOVE_M       = 12;
+const BG_TRACE_MIN_FLUSH_KM     = 0.03;
+
+let _tracePendingKm = 0;
+let _traceLastWriteAt = 0;
+let _traceLastPoint: { latitude: number; longitude: number } | null = null;
+let _traceWriteInFlight = false;
 
 // ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
+}
+
+export async function setDrivingFlag(active: boolean): Promise<void> {
+  await AsyncStorage.setItem(BG_IS_DRIVING_KEY, active ? 'true' : 'false');
 }
 
 export async function recordDrivingTracePoint(
@@ -88,6 +102,21 @@ export async function recordDrivingTracePoint(
   opts?: { addDistanceKm?: number; speedKmh?: number },
 ): Promise<void> {
   try {
+    if (opts?.addDistanceKm && opts.addDistanceKm > 0) {
+      _tracePendingKm += opts.addDistanceKm;
+    }
+    const now = Date.now();
+    const movedM = _traceLastPoint
+      ? haversineKm(_traceLastPoint.latitude, _traceLastPoint.longitude, latitude, longitude) * 1000
+      : Infinity;
+    const canWriteByTime = now - _traceLastWriteAt >= BG_TRACE_MIN_WRITE_MS;
+    const canWriteByMove = movedM >= BG_TRACE_MIN_MOVE_M;
+    const canWriteByKm = _tracePendingKm >= BG_TRACE_MIN_FLUSH_KM;
+    if ((!canWriteByTime && !canWriteByMove && !canWriteByKm) || _traceWriteInFlight) {
+      return;
+    }
+    _traceWriteInFlight = true;
+
     const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
     const routePts = routeRaw ? JSON.parse(routeRaw) : [];
     const seeded = routePts.length === 0
@@ -99,9 +128,9 @@ export async function recordDrivingTracePoint(
       AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
     ];
 
-    if (opts?.addDistanceKm && opts.addDistanceKm > 0) {
+    if (_tracePendingKm > 0) {
       const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
-      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + opts.addDistanceKm)));
+      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + _tracePendingKm)));
     }
 
     if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 260) {
@@ -111,14 +140,21 @@ export async function recordDrivingTracePoint(
       const curMax = parseFloat(maxRaw ?? '0');
       const nextMax = Math.max(curMax, opts.speedKmh);
       samples.push(opts.speedKmh);
+      const trimmedSamples = samples.slice(-400);
       writes.push(
-        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(samples)),
+        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(trimmedSamples)),
         AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(nextMax)),
       );
     }
 
     await Promise.all(writes);
-  } catch {}
+    _tracePendingKm = 0;
+    _traceLastWriteAt = now;
+    _traceLastPoint = { latitude, longitude };
+  } catch {
+  } finally {
+    _traceWriteInFlight = false;
+  }
 }
 
 // ── BG task ───────────────────────────────────────────────────────────────────
@@ -152,8 +188,9 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       const maxRaw     = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
       const curMax     = parseFloat(maxRaw ?? '0');
       samples.push(kmh);
+      const trimmed = samples.slice(-400);
       await Promise.all([
-        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(samples)),
+        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(trimmed)),
         AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(kmh > curMax ? kmh : curMax)),
       ]);
     }
@@ -199,13 +236,14 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
           },
         )
         : { accepted: false, distanceKm: 0 };
-      // When speed is unavailable in background updates, accumulated distance can
-      // drift heavily on some devices. Require a valid speed fix to count km.
+      const estimatedSpeedKmh = hasLastFix && dtSec > 0
+        ? (segment.distanceKm / dtSec) * 3600
+        : 0;
+      const effectiveSpeedKmh = speedKmh ?? estimatedSpeedKmh;
       if (
         hasLastFix &&
         dtSec > 0 &&
-        speedKmh !== null &&
-        speedKmh >= 2 &&
+        effectiveSpeedKmh >= BG_MIN_SPEED_KMH &&
         isAccurateFix &&
         segment.accepted
       ) {
@@ -226,39 +264,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
           AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
         ]);
 
-        // ── Auto-flush as passive trip when threshold is reached ──────────
-        // Skip auto-flush while foreground navigation is active — the nav
-        // pipeline will flush the correct distance via flushPendingKm(true).
-        const navFlag = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
-        if (newPending >= BG_AUTO_FLUSH_KM && navFlag !== 'true') {
-          const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
-          const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
-          const maxRaw     = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
-          const maxSpeed   = parseFloat(maxRaw ?? '0');
-          const avgSpeed   = samples.length > 0
-            ? samples.reduce((a, b) => a + b, 0) / samples.length
-            : 0;
-
-          await fetch(`${API_URL}/api/activity/save`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              distance: Math.round(newPending * 1000) / 1000,
-              maxSpeed: Math.round(maxSpeed * 10) / 10,
-              avgSpeed: Math.round(avgSpeed * 10) / 10,
-              duration: null,
-              routePoints: nextRoute,
-            }),
-          }).catch(() => {});
-
-          // Reset accumulators after save
-          await Promise.all([
-            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
-            AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
-            AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
-            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
-          ]);
-        }
+        // No auto-flush in background task: saving every 5 km split one real ride
+        // into many short activities. We persist counters and flush on lifecycle hooks.
       }
     }
     await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({
@@ -480,8 +487,13 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         // Skip passive flush while foreground navigation is active — the nav end
         // handler calls flushPendingKm(true) which consolidates bg+fg distances
         // without double-saving the same km to the API.
-        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY)
-          .then(flag => { if (flag !== 'true') flushPendingKm(false); })
+        Promise.all([
+          AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+          AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+        ])
+          .then(([navFlag, drivingFlag]) => {
+            if (navFlag !== 'true' && drivingFlag !== 'true') flushPendingKm(false);
+          })
           .catch(() => { flushPendingKm(false); });
       }
     });

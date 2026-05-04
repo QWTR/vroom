@@ -12,6 +12,22 @@ export interface TripStats {
 
 const TRIP_MAX_PLAUSIBLE_KMH = 220;
 const TRIP_MAX_FIX_GAP_SEC   = 60;
+const TRIP_MAX_SPEED_SAMPLES = 3000;
+const TRIP_MAX_TRACKED_POINTS = 2500;
+
+function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
+  if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
+  const compacted: { latitude: number; longitude: number }[] = [];
+  for (let i = 0; i < points.length; i += 2) {
+    compacted.push(points[i]);
+  }
+  const last = points[points.length - 1];
+  const tail = compacted[compacted.length - 1];
+  if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
+    compacted.push(last);
+  }
+  return compacted;
+}
 
 export function useTripStats() {
   const speedSamples = useRef<number[]>([]);
@@ -39,7 +55,12 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (kmh > 1 && kmh <= 260) speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
+    if (kmh > 1 && kmh <= 260) {
+      speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
+      if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
+        speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
+      }
+    }
   }, []);
 
   const feedPosition = useCallback((lat: number, lng: number, speedMs?: number): number => {
@@ -84,6 +105,9 @@ export function useTripStats() {
     }
 
     pts.push({ latitude: lat, longitude: lng });
+    if (pts.length > TRIP_MAX_TRACKED_POINTS) {
+      trackedPts.current = compactTrackPoints(pts);
+    }
     lastPointRef.current = { latitude: lat, longitude: lng, time: now };
     distanceRef.current += segment.distanceKm;
     setLiveDistanceKm(parseFloat(distanceRef.current.toFixed(2)));
