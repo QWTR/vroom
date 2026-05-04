@@ -14,6 +14,8 @@ interface Options {
     speed:     number | null;
     heading:   number | null;
     accuracy:  number | null;
+    /** ms od epoki — do odrzucania cache'owanych fixów po wybudzeniu telefonu */
+    timestamp?: number;
   }) => void;
 }
 
@@ -107,6 +109,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
                 speed:     0,
                 heading:   loc.coords.heading,
                 accuracy:  acc,
+                timestamp: now,
               });
             }
             return;
@@ -156,6 +159,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
             speed:     speedMs,
             heading:   loc.coords.heading,
             accuracy:  acc,
+            timestamp: loc.timestamp,
           });
 
           // ══ 6. Auto-upgrade idle → active ════════════════════
@@ -207,6 +211,9 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
     // Intentionally keep lastGoodRef: clearing it made the first post-restart
     // watch callback skip teleport checks. Stale fused fixes then slipped through
     // before map.tsx had a chance to anchor against the previous position.
+    // Zeruj prędkość — inaczej „zapamiętana” prędkość z autostrady poszerza
+    // limit dystansu przy pierwszym fixie po wznowieniu (fałszywy teleport).
+    speedRef.current = 0;
   }, []);
 
   useEffect(() => {

@@ -222,9 +222,26 @@ const GPS_RESTART_COOLDOWN_MS    = 2000;
 const GPS_INIT_MAX_ACCURACY_M = 120;
 /** Jednorazowy fix po wznowieniu — powyżej tego promienia zwykle jest to last-known z komórki, nie GPS. */
 const GPS_ONESHOT_MAX_ACCURACY_M = 100;
+/** Fix starszy niż tyle ms względem zegara urządzenia = typowy cache OS po uśpieniu — odrzuć. */
+const GPS_MAX_FIX_AGE_MS = 30_000;
+/** Przy długiej przerwie nie ufaj `coords.speed` z providera przy walidacji one-shot (bywa zatrzymany z jazdy). */
+const GPS_WALLDT_IGNORE_SPEED_MS = 45_000;
+/** Na mapie bez nawigacji/jazdy: po przerwie i niskiej prędkości jeden skok > tego (m) = zwykle sieć/Wi‑Fi, nie GPS. */
+const GPS_IDLE_MAX_JUMP_AFTER_GAP_M = 1_800;
+const GPS_IDLE_GAP_FOR_JUMP_GUARD_MS = 45_000;
+const GPS_IDLE_SPEED_GUARD_KMH = 25;
 
 function isNullIsland(lat: number, lng: number): boolean {
   return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;
+}
+
+/** Zwraca true, gdy timestamp fixu wskazuje na przestarzały odczyt z cache OS. */
+function isStaleGpsTimestamp(nowMs: number, timestamp?: number | null): boolean {
+  if (timestamp == null || !Number.isFinite(timestamp)) return false;
+  let ts = timestamp;
+  if (ts > 0 && ts < 1e12) ts *= 1000;
+  const age = nowMs - ts;
+  return age > GPS_MAX_FIX_AGE_MS || age < -15_000;
 }
 
 /** Te same progi co w `onLocation`, ale z rzeczywistym Δt (nie psuje go `GPS_RESUME_GRACE_PERIOD_MS`). */
@@ -239,7 +256,11 @@ function isRawGpsPlausibleVsAnchor(
   const safeDt = Math.max(wallDtMs, 100);
   if (!isSaneLocation(rawLat, rawLng, anchor.lat, anchor.lng, 250, safeDt, isDriving)) return false;
   const distM2 = haversineKm(anchor.lat, anchor.lng, rawLat, rawLng) * 1000;
-  const reportedKmh = reportedSpeedMs != null && reportedSpeedMs >= 0 ? reportedSpeedMs * 3.6 : 0;
+  const reportMs =
+    wallDtMs > GPS_WALLDT_IGNORE_SPEED_MS
+      ? 0
+      : (reportedSpeedMs != null && reportedSpeedMs >= 0 ? reportedSpeedMs : 0);
+  const reportedKmh = reportMs * 3.6;
   const expectedM2 = (reportedKmh / 3.6) * (safeDt / 1000);
   const distFloor = isDriving ? 300 : 100;
   const maxDistM2 = Math.max(distFloor, expectedM2 * 3 + 100);
@@ -317,6 +338,8 @@ export default function MapScreen() {
   const lastRerouteLocRef   = useRef<{ lat: number; lng: number } | null>(null);
   // currentLocRef: latest userLocation readable inside stable interval callbacks
   const currentLocRef       = useRef<{ latitude: number; longitude: number } | null>(null);
+  /** Ostatnie znane centrum mapy — żeby Camera nie wracała na domyślne 19/52 przy migawce stanu. */
+  const lastMapCenterRef    = useRef<[number, number]>([19.0, 52.0]);
 
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
@@ -577,6 +600,15 @@ export default function MapScreen() {
 
   // ── Sync currentLocRef so stable interval callbacks read latest position ──
   useEffect(() => { currentLocRef.current = userLocation; }, [userLocation]);
+  useEffect(() => {
+    if (
+      userLocation
+      && Number.isFinite(userLocation.latitude)
+      && Number.isFinite(userLocation.longitude)
+    ) {
+      lastMapCenterRef.current = [userLocation.longitude, userLocation.latitude];
+    }
+  }, [userLocation]);
 
   useEffect(() => {
     if (!userLocation) return;
@@ -912,6 +944,10 @@ export default function MapScreen() {
             accuracy: Location.Accuracy.BestForNavigation,
             mayShowUserSettingsDialog: true,
           });
+          if (isStaleGpsTimestamp(Date.now(), pos.timestamp)) {
+            Toast.show({ type: 'error', text1: 'GPS', text2: 'Stary odczyt lokalizacji — spróbuj ponownie.' });
+            return;
+          }
           const rLat = pos.coords.latitude;
           const rLng = pos.coords.longitude;
           const rAcc = pos.coords.accuracy ?? 999;
@@ -965,6 +1001,14 @@ export default function MapScreen() {
           accuracy: Location.Accuracy.BestForNavigation,
           mayShowUserSettingsDialog: true,
         });
+        if (isStaleGpsTimestamp(Date.now(), loc.timestamp)) {
+          Toast.show({
+            type: 'info',
+            text1: 'GPS',
+            text2: 'Odczyt z pamięci telefonu — czekam na świeży fix, spróbuj za chwilę.',
+          });
+          return;
+        }
         const rawLat = loc.coords.latitude;
         const rawLng = loc.coords.longitude;
         const acc = loc.coords.accuracy ?? 999;
@@ -1113,6 +1157,36 @@ export default function MapScreen() {
       const acc    = loc.accuracy ?? 10;
       const now    = Date.now();
       if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || !Number.isFinite(acc)) return;
+
+      if (isStaleGpsTimestamp(now, loc.timestamp)) {
+        console.warn('[GPS map] Odrzucono przestarzały fix (timestamp OS)');
+        return;
+      }
+
+      const reportedKmhIdle = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
+      const wallSinceAcceptIdle = now - lastAcceptedFixWallClockRef.current;
+      if (
+        lastGoodLocRef.current
+        && wallSinceAcceptIdle > GPS_IDLE_GAP_FOR_JUMP_GUARD_MS
+        && reportedKmhIdle < GPS_IDLE_SPEED_GUARD_KMH
+        && !isDrivingRef.current
+        && !isNavigatingRef.current
+      ) {
+        const jumpIdleM = haversineKm(
+          lastGoodLocRef.current.lat, lastGoodLocRef.current.lng,
+          rawLat, rawLng,
+        ) * 1000;
+        if (jumpIdleM > GPS_IDLE_MAX_JUMP_AFTER_GAP_M) {
+          console.warn('[GPS map] Duży skok po przerwie (idle) — odrzucono');
+          latFilter.reset();
+          lngFilter.reset();
+          navLatFilter.reset();
+          navLngFilter.reset();
+          drivLatFilter.reset();
+          drivLngFilter.reset();
+          return;
+        }
+      }
 
       // ══ 1. SANITY CHECK ══════════════════════════════════════
       if (lastGoodLocRef.current) {
@@ -1569,6 +1643,10 @@ export default function MapScreen() {
         const acc = loc.coords.accuracy ?? 999;
         if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) {
           console.warn('[GPS] One-shot: niepoprawne współrzędne');
+          return;
+        }
+        if (isStaleGpsTimestamp(Date.now(), loc.timestamp)) {
+          console.warn('[GPS] One-shot odrzucony: przestarzały timestamp (cache OS)');
           return;
         }
         if (acc > GPS_ONESHOT_MAX_ACCURACY_M) {
@@ -2717,7 +2795,9 @@ export default function MapScreen() {
           <Mapbox.Camera
             ref={cameraRef}
             defaultSettings={{
-              centerCoordinate: [userLocation?.longitude ?? 19.0, userLocation?.latitude ?? 52.0],
+              centerCoordinate: userLocation
+                ? [userLocation.longitude, userLocation.latitude]
+                : lastMapCenterRef.current,
               zoomLevel: 14,
               pitch: 0,
             }}
