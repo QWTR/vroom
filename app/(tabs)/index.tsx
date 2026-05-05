@@ -79,6 +79,8 @@ type ActiveGridVote = {
 	categorySlug: string;
 	categoryIcon: string;
 	currentRound: number;
+	status: "open" | "active";
+	entriesCount: number;
 };
 
 async function fetchFreshUser(): Promise<User | null> {
@@ -253,19 +255,26 @@ export default function HomeScreen() {
 					id: number;
 					status: string;
 					currentRound?: number;
+					_count?: { entries?: number };
 				}[];
 			}[];
 			const votes: ActiveGridVote[] = [];
 			for (const cat of categories ?? []) {
 				const evs = Array.isArray(cat.events) ? cat.events : [];
 				for (const ev of evs) {
-					if (ev.status === "active") {
+					const entriesCount =
+						typeof ev?._count?.entries === "number" ? ev._count.entries : 0;
+					const shouldShow =
+						ev.status === "active" || (ev.status === "open" && entriesCount > 0);
+					if (shouldShow) {
 						votes.push({
 							eventId: ev.id,
 							categoryName: cat.name,
 							categorySlug: cat.slug,
 							categoryIcon: cat.icon ?? "🏁",
 							currentRound: ev.currentRound ?? 1,
+							status: ev.status === "active" ? "active" : "open",
+							entriesCount,
 						});
 					}
 				}
@@ -941,9 +950,13 @@ export default function HomeScreen() {
 							<TouchableOpacity
 								activeOpacity={0.85}
 								onPress={() =>
-									router.push(
-										`/Community/grid/vote?eventId=${activeGridVotes[0].eventId}` as any,
-									)
+									activeGridVotes[0].status === "active"
+										? router.push(
+												`/Community/grid/vote?eventId=${activeGridVotes[0].eventId}` as any,
+										  )
+										: router.push(
+												`/Community/grid/category?slug=${activeGridVotes[0].categorySlug}` as any,
+										  )
 								}>
 								<LinearGradient
 									colors={
@@ -998,7 +1011,9 @@ export default function HomeScreen() {
 												letterSpacing: 2,
 												marginBottom: 4,
 											}}>
-											RUNDA {activeGridVotes[0].currentRound}
+											{activeGridVotes[0].status === "active"
+												? `RUNDA ${activeGridVotes[0].currentRound}`
+												: `ZGŁOSZENIA · ${activeGridVotes[0].entriesCount}`}
 										</Text>
 										<Text
 											style={{
@@ -1016,7 +1031,9 @@ export default function HomeScreen() {
 												fontSize: 8,
 												color: t.textDim,
 											}}>
-											1v1 Arena · oddaj głos teraz
+											{activeGridVotes[0].status === "active"
+												? "1v1 Arena · oddaj głos teraz"
+												: "Są aktywne zgłoszenia · sprawdź kategorię"}
 										</Text>
 									</View>
 									<View
@@ -1028,7 +1045,11 @@ export default function HomeScreen() {
 											borderColor: `${t.gold}40`,
 										}}>
 										<MaterialIcons
-											name='how-to-vote'
+											name={
+												activeGridVotes[0].status === "active"
+													? "how-to-vote"
+													: "playlist-add-check"
+											}
 											size={18}
 											color={t.gold}
 										/>
@@ -1068,9 +1089,13 @@ export default function HomeScreen() {
 											activeOpacity={0.85}
 											style={{ width: gridVoteBannerW }}
 											onPress={() =>
-												router.push(
-													`/Community/grid/vote?eventId=${item.eventId}` as any,
-												)
+												item.status === "active"
+													? router.push(
+															`/Community/grid/vote?eventId=${item.eventId}` as any,
+													  )
+													: router.push(
+															`/Community/grid/category?slug=${item.categorySlug}` as any,
+													  )
 											}>
 											<LinearGradient
 												colors={
@@ -1125,7 +1150,9 @@ export default function HomeScreen() {
 															letterSpacing: 2,
 															marginBottom: 4,
 														}}>
-														RUNDA {item.currentRound}
+														{item.status === "active"
+															? `RUNDA ${item.currentRound}`
+															: `ZGŁOSZENIA · ${item.entriesCount}`}
 													</Text>
 													<Text
 														style={{
@@ -1143,7 +1170,9 @@ export default function HomeScreen() {
 															fontSize: 8,
 															color: t.textDim,
 														}}>
-														Przesuń palcem · zagłosuj
+														{item.status === "active"
+															? "Przesuń palcem · zagłosuj"
+															: "Przesuń palcem · zobacz zgłoszenia"}
 													</Text>
 												</View>
 												<View
@@ -1155,7 +1184,11 @@ export default function HomeScreen() {
 														borderColor: `${t.gold}40`,
 													}}>
 													<MaterialIcons
-														name='how-to-vote'
+														name={
+															item.status === "active"
+																? "how-to-vote"
+																: "playlist-add-check"
+														}
 														size={18}
 														color={t.gold}
 													/>
