@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image,
@@ -19,8 +19,17 @@ import { useSettings }  from '../../hooks/useSettings';
 import { useTheme }     from '../../contexts/ThemeContext';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
+import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
+import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import type {
+  ProfilePremiumExtras,
+  ProfileSectionAccentMode,
+  ProfileAvatarRingAnim,
+  ProfileVisitEntranceAnim,
+  ProfileHeroMotion,
+} from '../../constants/profilePremiumExtras';
 
 const RED = '#e33835';
 
@@ -46,7 +55,7 @@ const MARKER_STYLES = [
   { key: 'profile' as const, label: 'PROFILOWE', icon: 'account-circle' },
 ];
 const NICK_COLORS = ['#FFFFFF', '#FFD700', '#4DE926', '#38A5E3', '#A855F7', '#FF6B35'];
-const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon'] as const;
+const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon', 'royal', 'cyber', 'gold', 'forest', 'custom'] as const;
 const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 
 export default function SettingsScreen() {
@@ -86,6 +95,37 @@ export default function SettingsScreen() {
   const [bugCategory,        setBugCategory]        = useState('');
   const [bugDescription,     setBugDescription]     = useState('');
   const [bugPhotos,          setBugPhotos]          = useState<string[]>([]);
+  const [colorPick, setColorPick] = useState<{
+    title: string;
+    color: string;
+    onPick: (hex: string) => void;
+  } | null>(null);
+
+  const premiumExtras = useMemo(
+    () => mergeProfilePremiumExtras(settings.profilePremiumExtras),
+    [settings.profilePremiumExtras],
+  );
+
+  const [heroC1, setHeroC1] = useState('#E33835');
+  const [heroC2, setHeroC2] = useState('#268BFF');
+  const [accG1, setAccG1] = useState('#E33835');
+  const [accG2, setAccG2] = useState('#268BFF');
+  const [accSolid, setAccSolid] = useState('#E33835');
+  const [ringC1, setRingC1] = useState('#E33835');
+  const [ringC2, setRingC2] = useState('#268BFF');
+  const [ringC3, setRingC3] = useState('#4DE926');
+
+  useEffect(() => {
+    const e = mergeProfilePremiumExtras(settings.profilePremiumExtras);
+    setHeroC1(e.customHeroGradient?.colors?.[0] ?? '#E33835');
+    setHeroC2(e.customHeroGradient?.colors?.[1] ?? '#268BFF');
+    setAccG1(e.sectionAccentGradient?.colors?.[0] ?? '#E33835');
+    setAccG2(e.sectionAccentGradient?.colors?.[1] ?? '#268BFF');
+    setAccSolid(e.sectionAccentSolid ?? '#E33835');
+    setRingC1(e.avatarRingGradient?.colors?.[0] ?? '#E33835');
+    setRingC2(e.avatarRingGradient?.colors?.[1] ?? '#268BFF');
+    setRingC3(e.avatarRingGradient?.colors?.[2] ?? '#4DE926');
+  }, [settings.profilePremiumExtras]);
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
@@ -569,7 +609,7 @@ export default function SettingsScreen() {
 								icon='workspace-premium'
 								iconBg='#FFD700'
 								label='Dostępne w Premium'
-								sublabel='Nick color, motyw profilu, ramka avatara i sync motywu konta.'
+								sublabel='Motywy, własne gradienty, kolory sekcji, ramka treści, animacje wejścia i tła — tylko Premium.'
 								last
 							/>
 						) : (
@@ -712,6 +752,411 @@ export default function SettingsScreen() {
 															settings.avatarFramePreset === p ? RED : textDim,
 													}}>
 													{p.toUpperCase()}
+												</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Konkurs profilu — własny motyw (gradient tła)
+									</Text>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+										Ustaw motyw profilu na CUSTOM powyżej. Dwa kolory + Zapisz — gradient banera + kolory kart/tła z Twoich barw (bez banera).
+									</Text>
+									<View style={{ gap: 8 }}>
+										<ColorPickTriggerRow
+											label="Kolor 1 — gradient tła"
+											value={heroC1}
+											onOpen={() =>
+												setColorPick({
+													title: 'Kolor 1 — gradient tła profilu',
+													color: heroC1,
+													onPick: setHeroC1,
+												})
+											}
+											swatchBorder={inputBorder}
+											rowBg={inputBg}
+											textMain={textMain}
+											textDim={textDim}
+										/>
+										<ColorPickTriggerRow
+											label="Kolor 2 — gradient tła"
+											value={heroC2}
+											onOpen={() =>
+												setColorPick({
+													title: 'Kolor 2 — gradient tła profilu',
+													color: heroC2,
+													onPick: setHeroC2,
+												})
+											}
+											swatchBorder={inputBorder}
+											rowBg={inputBg}
+											textMain={textMain}
+											textDim={textDim}
+										/>
+										<TouchableOpacity
+											onPress={() =>
+												updateSetting('profilePremiumExtras', {
+													...premiumExtras,
+													customHeroGradient: {
+														colors: [heroC1.trim().toUpperCase(), heroC2.trim().toUpperCase()],
+														start: { x: 0, y: 0 },
+														end: { x: 1, y: 1 },
+													},
+												} as ProfilePremiumExtras)
+											}
+											style={{
+												backgroundColor: RED,
+												borderRadius: 10,
+												paddingHorizontal: 12,
+												paddingVertical: 12,
+												alignItems: 'center',
+											}}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+												ZAPISZ GRADIENT TŁA
+											</Text>
+										</TouchableOpacity>
+									</View>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Nagłówki sekcji / „zakładki” (kolor)
+									</Text>
+									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+										{(['theme', 'gradient', 'solid'] as ProfileSectionAccentMode[]).map(m => (
+											<TouchableOpacity
+												key={m}
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														sectionAccentMode: m,
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													paddingHorizontal: 10,
+													paddingVertical: 7,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor: premiumExtras.sectionAccentMode === m ? RED : inputBorder,
+													backgroundColor:
+														premiumExtras.sectionAccentMode === m ? RED + '22' : rowAlt,
+												}}>
+												<Text
+													style={{
+														fontFamily: 'Orbitron',
+														fontSize: 8,
+														color: premiumExtras.sectionAccentMode === m ? RED : textDim,
+													}}>
+													{m.toUpperCase()}
+												</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+									{premiumExtras.sectionAccentMode === 'gradient' && (
+										<View style={{ gap: 8 }}>
+											<ColorPickTriggerRow
+												label="Kolor 1 — nagłówki sekcji"
+												value={accG1}
+												onOpen={() =>
+													setColorPick({
+														title: 'Kolor 1 — gradient nagłówków',
+														color: accG1,
+														onPick: setAccG1,
+													})
+												}
+												swatchBorder={inputBorder}
+												rowBg={inputBg}
+												textMain={textMain}
+												textDim={textDim}
+											/>
+											<ColorPickTriggerRow
+												label="Kolor 2 — nagłówki sekcji"
+												value={accG2}
+												onOpen={() =>
+													setColorPick({
+														title: 'Kolor 2 — gradient nagłówków',
+														color: accG2,
+														onPick: setAccG2,
+													})
+												}
+												swatchBorder={inputBorder}
+												rowBg={inputBg}
+												textMain={textMain}
+												textDim={textDim}
+											/>
+											<TouchableOpacity
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														sectionAccentGradient: {
+															colors: [accG1.trim().toUpperCase(), accG2.trim().toUpperCase()],
+															start: { x: 0, y: 0 },
+															end: { x: 0, y: 1 },
+														},
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													backgroundColor: RED,
+													borderRadius: 10,
+													paddingHorizontal: 10,
+													paddingVertical: 12,
+													alignItems: 'center',
+												}}>
+												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ GRADIENT</Text>
+											</TouchableOpacity>
+										</View>
+									)}
+									{premiumExtras.sectionAccentMode === 'solid' && (
+										<View style={{ gap: 8 }}>
+											<ColorPickTriggerRow
+												label="Jeden kolor — nagłówki i zakładki"
+												value={accSolid}
+												onOpen={() =>
+													setColorPick({
+														title: 'Kolor nagłówków sekcji',
+														color: accSolid,
+														onPick: setAccSolid,
+													})
+												}
+												swatchBorder={inputBorder}
+												rowBg={inputBg}
+												textMain={textMain}
+												textDim={textDim}
+											/>
+											<TouchableOpacity
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														sectionAccentSolid: accSolid.trim().toUpperCase(),
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													backgroundColor: RED,
+													borderRadius: 10,
+													paddingHorizontal: 10,
+													paddingVertical: 12,
+													alignItems: 'center',
+												}}>
+												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ KOLOR</Text>
+											</TouchableOpacity>
+										</View>
+									)}
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Obramowanie avatara (gradient)
+									</Text>
+									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+										{(['none', 'rotate', 'pulse', 'breathe'] as ProfileAvatarRingAnim[]).map(a => (
+											<TouchableOpacity
+												key={a}
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														avatarRingAnim: a,
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													paddingHorizontal: 10,
+													paddingVertical: 7,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor: premiumExtras.avatarRingAnim === a ? RED : inputBorder,
+													backgroundColor:
+														premiumExtras.avatarRingAnim === a ? RED + '22' : rowAlt,
+												}}>
+												<Text
+													style={{
+														fontFamily: 'Orbitron',
+														fontSize: 8,
+														color: premiumExtras.avatarRingAnim === a ? RED : textDim,
+													}}>
+													{a.toUpperCase()}
+												</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+									<View style={{ gap: 8 }}>
+										<ColorPickTriggerRow
+											label="Kolor 1 — pierścień avatara"
+											value={ringC1}
+											onOpen={() =>
+												setColorPick({
+													title: 'Kolor 1 — pierścień avatara',
+													color: ringC1,
+													onPick: setRingC1,
+												})
+											}
+											swatchBorder={inputBorder}
+											rowBg={inputBg}
+											textMain={textMain}
+											textDim={textDim}
+										/>
+										<ColorPickTriggerRow
+											label="Kolor 2 — pierścień avatara"
+											value={ringC2}
+											onOpen={() =>
+												setColorPick({
+													title: 'Kolor 2 — pierścień avatara',
+													color: ringC2,
+													onPick: setRingC2,
+												})
+											}
+											swatchBorder={inputBorder}
+											rowBg={inputBg}
+											textMain={textMain}
+											textDim={textDim}
+										/>
+										<ColorPickTriggerRow
+											label="Kolor 3 — pierścień (opcjonalnie)"
+											value={ringC3}
+											onOpen={() =>
+												setColorPick({
+													title: 'Kolor 3 — pierścień avatara',
+													color: ringC3,
+													onPick: setRingC3,
+												})
+											}
+											swatchBorder={inputBorder}
+											rowBg={inputBg}
+											textMain={textMain}
+											textDim={textDim}
+										/>
+										<TouchableOpacity
+											onPress={() =>
+												updateSetting('profilePremiumExtras', {
+													...premiumExtras,
+													avatarRingGradient: {
+														colors: [
+															ringC1.trim().toUpperCase(),
+															ringC2.trim().toUpperCase(),
+															ringC3.trim().toUpperCase(),
+														],
+														start: { x: 0, y: 0 },
+														end: { x: 1, y: 1 },
+													},
+												} as ProfilePremiumExtras)
+											}
+											style={{
+												backgroundColor: RED,
+												borderRadius: 10,
+												paddingHorizontal: 10,
+												paddingVertical: 12,
+												alignItems: 'center',
+											}}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZAPISZ PIERŚCIEŃ</Text>
+										</TouchableOpacity>
+									</View>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim }}>
+										Bez zapisu używany jest gradient ramki „Motyw avatara”. Minimum dwa kolory po zapisie.
+									</Text>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Animacja gdy ktoś wchodzi na profil
+									</Text>
+									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+										{(['none', 'sparkle', 'hero-flash', 'rings', 'glow', 'sweep'] as ProfileVisitEntranceAnim[]).map(a => (
+											<TouchableOpacity
+												key={a}
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														visitEntranceAnim: a,
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													paddingHorizontal: 8,
+													paddingVertical: 7,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor: premiumExtras.visitEntranceAnim === a ? RED : inputBorder,
+													backgroundColor:
+														premiumExtras.visitEntranceAnim === a ? RED + '22' : rowAlt,
+												}}>
+												<Text
+													style={{
+														fontFamily: 'Orbitron',
+														fontSize: 7,
+														color: premiumExtras.visitEntranceAnim === a ? RED : textDim,
+													}}>
+													{a.toUpperCase()}
+												</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 8 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Animacja tła profilu (ty)
+									</Text>
+									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+										{(['none', 'shimmer', 'float', 'pulse'] as ProfileHeroMotion[]).map(a => (
+											<TouchableOpacity
+												key={a}
+												onPress={() =>
+													updateSetting('profilePremiumExtras', {
+														...premiumExtras,
+														heroMotion: a,
+													} as ProfilePremiumExtras)
+												}
+												style={{
+													paddingHorizontal: 10,
+													paddingVertical: 7,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor: premiumExtras.heroMotion === a ? RED : inputBorder,
+													backgroundColor:
+														premiumExtras.heroMotion === a ? RED + '22' : rowAlt,
+												}}>
+												<Text
+													style={{
+														fontFamily: 'Orbitron',
+														fontSize: 8,
+														color: premiumExtras.heroMotion === a ? RED : textDim,
+													}}>
+													{a.toUpperCase()}
 												</Text>
 											</TouchableOpacity>
 										))}
@@ -1627,6 +2072,16 @@ export default function SettingsScreen() {
 			<CustomThemeEditor
 				visible={themeEditorVisible}
 				onClose={() => setThemeEditorVisible(false)}
+			/>
+
+			<ColorWheelPickerSheet
+				visible={!!colorPick}
+				title={colorPick?.title ?? ''}
+				color={colorPick?.color ?? '#E33835'}
+				onClose={() => setColorPick(null)}
+				onConfirm={(hex) => {
+					colorPick?.onPick(hex);
+				}}
 			/>
 		</>
 	);

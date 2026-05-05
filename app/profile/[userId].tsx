@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, ScrollView, TouchableOpacity,
   Image, ActivityIndicator, Text, Animated,
@@ -18,10 +18,27 @@ import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
 import type { SpotPreview } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
 import { useChat }         from '../../hooks/useChats';
-import { getProfileThemePalette } from '../../constants/profileThemes';
+import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
+import { linearGradientFromSpec } from '../../components/profile/profileGradientUtils';
+import { useTheme } from '../../contexts/ThemeContext';
+import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
+
+/** Hero bez banera — te same klucze co wcześniej w komponencie (hooks muszą być przed early return). */
+const HERO_PRESET_GRADIENTS: Record<string, string[]> = {
+  default: ['#1a0404', '#0e0202', '#090909'],
+  midnight: ['#060d1a', '#08080d', '#090909'],
+  sunset: ['#2a0a02', '#1b0705', '#090909'],
+  neon: ['#031a12', '#071211', '#090909'],
+  royal: ['#1a0630', '#0f0818', '#090909'],
+  cyber: ['#031a3a', '#061525', '#090909'],
+  gold: ['#2a1f06', '#151005', '#090909'],
+  forest: ['#052e12', '#071a0c', '#090909'],
+  custom: ['#12121c', '#08080c', '#090909'],
+};
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -42,6 +59,7 @@ interface PublicProfile {
   nickColor?: string | null;
   profileThemePreset?: string;
   avatarFramePreset?: string;
+  profilePremiumExtras?: unknown;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -80,6 +98,7 @@ function toSpot(s: PublicSpot): Spot {
 export default function PublicProfileScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { isDark } = useTheme();
 
   const [profile,       setProfile]       = useState<PublicProfile | null>(null);
   const [cars,          setCars]          = useState<PublicCar[]>([]);
@@ -98,6 +117,7 @@ export default function PublicProfileScreen() {
   const [followingCount, setFollowingCount] = useState(0);
   const [statsModalVisible,    setStatsModalVisible]    = useState(false);
   const [topSpeedModalVisible, setTopSpeedModalVisible] = useState(false);
+  const [visitFx, setVisitFx] = useState(false);
 
   const { startConversation } = useChat();
 
@@ -207,6 +227,16 @@ export default function PublicProfileScreen() {
     if (myUserId && profile && myUserId === profile.id) router.replace('/(tabs)/account');
   }, [myUserId, profile]);
 
+  useEffect(() => {
+    if (!profile?.isPremium) {
+      setVisitFx(false);
+      return;
+    }
+    const ex = mergeProfilePremiumExtras(profile.profilePremiumExtras);
+    if (ex.visitEntranceAnim && ex.visitEntranceAnim !== 'none') setVisitFx(true);
+    else setVisitFx(false);
+  }, [profile?.id, profile?.isPremium, profile?.profilePremiumExtras]);
+
   // ── Like toggle (aktualizuje lokalnie bez przeładowania) ─
   const handleLikeToggle = useCallback((spotId: string, liked: boolean, count: number) => {
     setLocalSpots(prev => prev.map(s =>
@@ -314,6 +344,38 @@ export default function PublicProfileScreen() {
     finally { setFollowLoading(false); }
   }, [userId, isFollowing]);
 
+  const resolvedPreset = profile?.profileThemePreset ?? 'default';
+  const resolvedPremiumUi = profile?.isPremium ? mergeProfilePremiumExtras(profile?.profilePremiumExtras) : null;
+
+  const palette = useMemo(
+    () =>
+      resolveProfilePalette(resolvedPreset, {
+        isDark,
+        customHeroGradient: resolvedPremiumUi?.customHeroGradient ?? null,
+        applySavedCustomTint:
+          resolvedPreset === 'custom' &&
+          !!profile?.isPremium &&
+          hasValidCustomHeroColors(resolvedPremiumUi?.customHeroGradient),
+      }),
+    [resolvedPreset, isDark, profile?.isPremium, resolvedPremiumUi?.customHeroGradient],
+  );
+
+  const heroLinResolved = useMemo(() => {
+    const fallback = HERO_PRESET_GRADIENTS[resolvedPreset] || HERO_PRESET_GRADIENTS.default;
+    if (!profile) {
+      const lin = linearGradientFromSpec(null, fallback);
+      return lin ?? { colors: ['#080808', '#1A0404'], start: { x: 0.2, y: 0 }, end: { x: 1, y: 1 } };
+    }
+    const noBanner = !profile.bannerUrl;
+    if (noBanner && resolvedPremiumUi?.customHeroGradient) {
+      const custom = linearGradientFromSpec(resolvedPremiumUi.customHeroGradient, []);
+      if (custom) return custom;
+    }
+    const lin = linearGradientFromSpec(null, fallback);
+    if (lin) return lin;
+    return linearGradientFromSpec(null, ['#080808', '#1A0404', '#0D0808'])!;
+  }, [profile, resolvedPreset, resolvedPremiumUi?.customHeroGradient]);
+
   // ── LOADING ──────────────────────────────────────────────
   if (loading) {
     return (
@@ -343,19 +405,16 @@ export default function PublicProfileScreen() {
   const initials    = profile.username.slice(0, 2).toUpperCase();
   const joinedLabel = new Date(profile.createdAt).toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
   const isFriend    = friendStatus === 'accepted';
-  const profileThemePreset = profile.profileThemePreset ?? 'default';
-  const palette = getProfileThemePalette(profileThemePreset);
-  const heroPresetGradients: Record<string, string[]> = {
-    default: ['#1a0404', '#0e0202', '#090909'],
-    midnight: ['#060d1a', '#08080d', '#090909'],
-    sunset: ['#2a0a02', '#1b0705', '#090909'],
-    neon: ['#031a12', '#071211', '#090909'],
-  };
   const heroBannerOverlays: Record<string, string[]> = {
     default: ['#00000066', '#00000022'],
     midnight: ['#06132599', '#0a0f2055'],
     sunset: ['#2a0a0288', '#2b120855'],
     neon: ['#03201688', '#0a201855'],
+    royal: ['#1a063099', '#0c061855'],
+    cyber: ['#031a3a99', '#06152555'],
+    gold: ['#2a1f0688', '#15100555'],
+    forest: ['#052e1288', '#071a0c55'],
+    custom: ['#12121c99', '#08080c55'],
   };
   const frameGradients: Record<string, string[]> = {
     vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
@@ -405,6 +464,7 @@ export default function PublicProfileScreen() {
 
   return (
     <>
+      <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1, backgroundColor: palette.bg }}
         contentContainerStyle={{ paddingBottom: 80 }}
@@ -420,14 +480,15 @@ export default function PublicProfileScreen() {
             />
           ) : (
             <LinearGradient
-              colors={(heroPresetGradients[profileThemePreset] || heroPresetGradients.default) as any}
-              start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
+              colors={heroLinResolved.colors as [string, string, ...string[]]}
+              start={heroLinResolved.start}
+              end={heroLinResolved.end}
               style={StyleSheet.absoluteFill}
             />
           )}
           {!!profile.bannerUrl && (
             <LinearGradient
-              colors={(heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) as any}
+              colors={(heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) as any}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
@@ -762,6 +823,10 @@ export default function PublicProfileScreen() {
 
         </Animated.View>
       </ScrollView>
+      {visitFx && resolvedPremiumUi?.visitEntranceAnim && resolvedPremiumUi.visitEntranceAnim !== 'none' && (
+        <VisitEntranceFx kind={resolvedPremiumUi.visitEntranceAnim} onDone={() => setVisitFx(false)} />
+      )}
+      </View>
 
       {/* ══ MODAL SZCZEGÓŁÓW SPOTU ══ */}
       <SpotDetailModal

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator,
+  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -31,7 +31,11 @@ import { FriendsModal }             from '../modals/FriendsModal';
 import { FriendRequestsModal }      from '../modals/FriendRequestsModal';
 import { useFollowCounts }          from '../../hooks/useFollowCounts';
 import { useSettings } from '../../hooks/useSettings';
-import { getProfileThemePalette } from '../../constants/profileThemes';
+import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
+import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import type { ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import VisitEntranceFx from './VisitEntranceFx';
+import { linearGradientFromSpec } from './profileGradientUtils';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
 const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -115,7 +119,24 @@ export default function ProfileView({
   const profileThemePreset = (isOwner ? settings.profileThemePreset : profile?.profileThemePreset) ?? 'default';
   const avatarFramePreset = (isOwner ? settings.avatarFramePreset : profile?.avatarFramePreset) ?? 'vroom';
   const profileNickColor = (isOwner ? settings.nickColor : profile?.nickColor) ?? null;
-  const profilePalette = getProfileThemePalette(profileThemePreset);
+  const hasPremiumProfileUi = !!isPremium;
+  const premiumUi: ProfilePremiumExtras | null = hasPremiumProfileUi
+    ? mergeProfilePremiumExtras(isOwner ? settings.profilePremiumExtras : profile?.profilePremiumExtras)
+    : null;
+
+  const profilePalette = React.useMemo(
+    () =>
+      resolveProfilePalette(profileThemePreset, {
+        isDark,
+        customHeroGradient: premiumUi?.customHeroGradient ?? null,
+        applySavedCustomTint:
+          profileThemePreset === 'custom' &&
+          hasPremiumProfileUi &&
+          hasValidCustomHeroColors(premiumUi?.customHeroGradient),
+      }),
+    [profileThemePreset, isDark, hasPremiumProfileUi, premiumUi?.customHeroGradient],
+  );
+
   const theme = React.useMemo(() => ({
     ...appTheme,
     bg: profilePalette.bg,
@@ -129,17 +150,70 @@ export default function ProfileView({
     primaryBorder: profilePalette.borderStrong,
     primary: '#e33835',
   }), [appTheme, profilePalette]);
-  const heroPresetGradients: Record<string, string[]> = {
+
+  const pillAccentColors = React.useMemo(() => {
+    if (!premiumUi) return ['#e33835', '#268bff', '#4de926', '#e33835'];
+    if (premiumUi.sectionAccentMode === 'solid' && premiumUi.sectionAccentSolid) {
+      const c = premiumUi.sectionAccentSolid;
+      return [c, c, c, c];
+    }
+    if (premiumUi.sectionAccentMode === 'gradient' && premiumUi.sectionAccentGradient?.colors?.length) {
+      const cols = premiumUi.sectionAccentGradient.colors;
+      return [
+        cols[0],
+        cols[1 % cols.length],
+        cols[2 % cols.length],
+        cols[Math.min(3, cols.length - 1)],
+      ];
+    }
+    return ['#e33835', '#268bff', '#4de926', '#e33835'];
+  }, [premiumUi]);
+
+  const sectionAccentStrip = React.useMemo(() => {
+    if (!premiumUi) return undefined;
+    if (premiumUi.sectionAccentMode === 'gradient' && premiumUi.sectionAccentGradient?.colors?.length >= 2) {
+      return { kind: 'gradient' as const, spec: premiumUi.sectionAccentGradient };
+    }
+    if (premiumUi.sectionAccentMode === 'solid' && premiumUi.sectionAccentSolid) {
+      return { kind: 'solid' as const, color: premiumUi.sectionAccentSolid };
+    }
+    return undefined;
+  }, [premiumUi]);
+
+  const heroPresetGradients = React.useMemo((): Record<string, string[]> => ({
     default: isDark ? ['#1a0404', '#0d0808', '#080808'] : ['#fce8e8', '#f5f0f0', theme.bg],
     midnight: isDark ? ['#060d1a', '#08080d', '#080808'] : ['#eaf0ff', '#eef2ff', theme.bg],
     sunset: isDark ? ['#2a0a02', '#1b0705', '#080808'] : ['#ffe9dc', '#fff0e8', theme.bg],
     neon: isDark ? ['#031a12', '#071211', '#080808'] : ['#ddfff3', '#e8fff7', theme.bg],
-  };
+    royal: isDark ? ['#1a0630', '#0f0818', '#080808'] : ['#f3e8ff', '#ede9fe', theme.bg],
+    cyber: isDark ? ['#031a3a', '#061525', '#080808'] : ['#e0f2fe', '#dbeafe', theme.bg],
+    gold: isDark ? ['#2a1f06', '#151005', '#080808'] : ['#fffbeb', '#fef3c7', theme.bg],
+    forest: isDark ? ['#052e12', '#071a0c', '#080808'] : ['#ecfccb', '#dcfce7', theme.bg],
+    custom: isDark ? ['#12121c', '#08080c', '#080808'] : ['#e8e8f0', '#f0f0f8', theme.bg],
+  }), [isDark, theme.bg]);
+
+  const heroLinResolved = React.useMemo(() => {
+    const fallback = heroPresetGradients[profileThemePreset] || heroPresetGradients.default;
+    const noBanner = !(profile as any)?.bannerUrl;
+    if (noBanner && premiumUi?.customHeroGradient) {
+      const custom = linearGradientFromSpec(premiumUi.customHeroGradient, []);
+      if (custom) return custom;
+    }
+    const lin = linearGradientFromSpec(null, fallback);
+    if (lin) return lin;
+    const emergency = linearGradientFromSpec(null, ['#080808', '#1A0404', '#0D0808']);
+    return emergency ?? { colors: ['#080808', '#1A0404'], start: { x: 0.2, y: 0 }, end: { x: 1, y: 1 } };
+  }, [profile, premiumUi?.customHeroGradient, profileThemePreset, heroPresetGradients]);
   const heroBannerOverlays: Record<string, string[]> = {
     default: ['#00000066', '#00000022'],
     midnight: ['#06132599', '#0a0f2055'],
     sunset: ['#2a0a0288', '#2b120855'],
     neon: ['#03201688', '#0a201855'],
+    royal: ['#1a063099', '#0c061855'],
+    cyber: ['#031a3a99', '#06152555'],
+    gold: ['#2a1f0688', '#15100555'],
+    forest: ['#052e1288', '#071a0c55'],
+    custom: ['#12121c99', '#08080c55'],
   };
   const frameGradients: Record<string, string[]> = {
     vroom: ['#e33835', '#268bff', '#4de926', '#e33835'],
@@ -163,23 +237,94 @@ export default function ProfileView({
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
   const statsSlide = useRef(new Animated.Value(0)).current;
-  const premiumRingAnim = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
   const SPOTS_PREVIEW  = 4;
 
+  const avatarRingLin = React.useMemo(() => {
+    const fb = frameGradients[avatarFramePreset] || frameGradients.vroom;
+    return linearGradientFromSpec(premiumUi?.avatarRingGradient ?? null, fb);
+  }, [premiumUi?.avatarRingGradient, avatarFramePreset]);
+
+  const avatarSpin = useRef(new Animated.Value(0)).current;
+  const avatarPulse = useRef(new Animated.Value(1)).current;
+  const avatarBreathe = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
-    if (!isPremium) return;
+    if (!isPremium || !premiumUi) return;
+    const mode = premiumUi.avatarRingAnim ?? 'none';
+    avatarSpin.setValue(0);
+    avatarPulse.setValue(1);
+    avatarBreathe.setValue(1);
+    let loop: Animated.CompositeAnimation | undefined;
+    if (mode === 'rotate') {
+      loop = Animated.loop(
+        Animated.timing(avatarSpin, { toValue: 1, duration: 6400, useNativeDriver: true, easing: Easing.linear }),
+      );
+    } else if (mode === 'pulse') {
+      loop = Animated.loop(Animated.sequence([
+        Animated.timing(avatarPulse, { toValue: 0.48, duration: 650, useNativeDriver: true }),
+        Animated.timing(avatarPulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+      ]));
+    } else if (mode === 'breathe') {
+      loop = Animated.loop(Animated.sequence([
+        Animated.timing(avatarBreathe, { toValue: 1.07, duration: 1100, useNativeDriver: true }),
+        Animated.timing(avatarBreathe, { toValue: 1, duration: 1100, useNativeDriver: true }),
+      ]));
+    }
+    loop?.start();
+    return () => {
+      loop?.stop();
+      avatarSpin.setValue(0);
+      avatarPulse.setValue(1);
+      avatarBreathe.setValue(1);
+    };
+  }, [isPremium, premiumUi?.avatarRingAnim, avatarSpin, avatarPulse, avatarBreathe]);
+
+  const heroShim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!premiumUi || premiumUi.heroMotion !== 'shimmer') return;
     const loop = Animated.loop(
-      Animated.timing(premiumRingAnim, {
-        toValue: 1,
-        duration: 3200,
-        useNativeDriver: true,
-      })
+      Animated.sequence([
+        Animated.timing(heroShim, { toValue: 1, duration: 2800, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+        Animated.timing(heroShim, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
     );
-    premiumRingAnim.setValue(0);
     loop.start();
     return () => loop.stop();
-  }, [isPremium, premiumRingAnim]);
+  }, [premiumUi?.heroMotion, heroShim]);
+
+  const heroFloat = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!premiumUi || premiumUi.heroMotion !== 'float') return;
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(heroFloat, { toValue: 1, duration: 2400, useNativeDriver: true, easing: Easing.inOut(Easing.sin) }),
+      Animated.timing(heroFloat, { toValue: 0, duration: 2400, useNativeDriver: true, easing: Easing.inOut(Easing.sin) }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [premiumUi?.heroMotion, heroFloat]);
+
+  const heroPulseAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!premiumUi || premiumUi.heroMotion !== 'pulse') return;
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(heroPulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+      Animated.timing(heroPulseAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [premiumUi?.heroMotion, heroPulseAnim]);
+
+  const heroFloatY = heroFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
+
+  const [visitFx, setVisitFx] = useState(false);
+  useEffect(() => {
+    if (isOwner || !premiumUi?.visitEntranceAnim || premiumUi.visitEntranceAnim === 'none') {
+      setVisitFx(false);
+      return;
+    }
+    setVisitFx(true);
+  }, [isOwner, profile?.id, premiumUi?.visitEntranceAnim]);
 
   const openStats = () => {
     setStatsModalVisible(true);
@@ -232,6 +377,7 @@ export default function ProfileView({
   return (
     <>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+      <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1, backgroundColor: theme.bg }}
         contentContainerStyle={{ paddingBottom: 100 }}
@@ -242,7 +388,14 @@ export default function ProfileView({
         {/* ══════════════════════════════════════════════ */}
         {/* HERO HEADER                                    */}
         {/* ══════════════════════════════════════════════ */}
-        <View style={{ height: 240, position: 'relative', overflow: 'hidden' }}>
+        <Animated.View
+          style={{
+            height:                  240,
+            position:              'relative',
+            overflow:              'hidden',
+            transform:             premiumUi?.heroMotion === 'float' ? [{ translateY: heroFloatY }] : [],
+          }}
+        >
           {(profile as any)?.bannerUrl ? (
             <Image
               source={{ uri: (profile as any).bannerUrl }}
@@ -251,8 +404,9 @@ export default function ProfileView({
             />
           ) : (
             <LinearGradient
-              colors={(heroPresetGradients[profileThemePreset] || heroPresetGradients.default) as any}
-              start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 1 }}
+              colors={heroLinResolved.colors as [string, string, ...string[]]}
+              start={heroLinResolved.start}
+              end={heroLinResolved.end}
               style={{ ...StyleSheet.absoluteFillObject }}
             />
           )}
@@ -271,6 +425,41 @@ export default function ProfileView({
           {Array.from({ length: 8 }).map((_, i) => (
             <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * 30, height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000003' }} />
           ))}
+          {premiumUi?.heroMotion === 'shimmer' && (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                width: 100,
+                opacity: 0.28,
+                transform: [{
+                  translateX: heroShim.interpolate({
+                    inputRange:  [0, 1],
+                    outputRange: [-160, Dimensions.get('window').width + 120],
+                  }),
+                }],
+              }}
+            >
+              <LinearGradient
+                colors={['transparent', 'rgba(255,255,255,0.75)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ flex: 1 }}
+              />
+            </Animated.View>
+          )}
+          {premiumUi?.heroMotion === 'pulse' && (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                ...StyleSheet.absoluteFillObject,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                opacity: heroPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.85] }),
+              }}
+            />
+          )}
 
           {/* Top bar */}
           <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -333,7 +522,7 @@ export default function ProfileView({
           <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
             {/* Avatar */}
             <View style={{ position: 'relative', width: 80, height: 80 }}>
-              {isPremium ? (
+              {isPremium && avatarRingLin ? (
                 <Animated.View
                   pointerEvents="none"
                   style={{
@@ -341,18 +530,26 @@ export default function ProfileView({
                     width: 80,
                     height: 80,
                     borderRadius: 40,
-                    transform: [{
-                      rotate: premiumRingAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '360deg'],
-                      }),
-                    }],
+                    opacity: premiumUi?.avatarRingAnim === 'pulse' ? avatarPulse : 1,
+                    transform: [
+                      ...(premiumUi?.avatarRingAnim === 'rotate'
+                        ? [{
+                          rotate: avatarSpin.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '360deg'],
+                          }),
+                        }] as const
+                        : []),
+                      ...(premiumUi?.avatarRingAnim === 'breathe'
+                        ? [{ scale: avatarBreathe }] as const
+                        : []),
+                    ],
                   }}
                 >
                   <LinearGradient
-                    colors={(frameGradients[avatarFramePreset] || frameGradients.vroom) as any}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
+                    colors={avatarRingLin.colors as [string, string, ...string[]]}
+                    start={avatarRingLin.start}
+                    end={avatarRingLin.end}
                     style={{ width: 80, height: 80, borderRadius: 40 }}
                   />
                 </Animated.View>
@@ -409,7 +606,7 @@ export default function ProfileView({
 
           {/* Bottom fade */}
           <LinearGradient colors={['transparent', theme.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 }} />
-        </View>
+        </Animated.View>
 
         <View style={{ paddingHorizontal: 20 }}>
 
@@ -432,28 +629,28 @@ export default function ProfileView({
             {/* Pts pill */}
             <TouchableOpacity
               onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#e3383540', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[0]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
             >
               <Text style={{ fontSize: 14 }}>🏆</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#e33835', fontWeight: '900' }}>{unlocked.length}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[0], fontWeight: '900' }}>{unlocked.length}</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>OSIĄGN.</Text>
             </TouchableOpacity>
             {/* km pill */}
             <TouchableOpacity
               onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#268bff40', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[1]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
             >
               <Text style={{ fontSize: 14 }}>🛣️</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#268bff', fontWeight: '900' }}>{Math.round(profile?.totalDistance ?? 0)}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[1], fontWeight: '900' }}>{Math.round(profile?.totalDistance ?? 0)}</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>KM</Text>
             </TouchableOpacity>
             {/* ranking pill */}
             <TouchableOpacity
               onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: '#4de92640', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
+              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[2]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
             >
               <Text style={{ fontSize: 14 }}>📍</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#4de926', fontWeight: '900' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[2], fontWeight: '900' }}>
                 {profile?.position ? `#${profile.position}` : '—'}
               </Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>RANKING</Text>
@@ -461,10 +658,10 @@ export default function ProfileView({
             {/* Stats button */}
             <TouchableOpacity
               onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1.2, backgroundColor: '#e3383515', borderRadius: 14, borderWidth: 1, borderColor: '#e3383540', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 3 }}
+              style={{ flex: 1.2, backgroundColor: `${pillAccentColors[3]}15`, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[3]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 3 }}
             >
-              <MaterialIcons name="bar-chart" size={18} color="#e33835" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: '#e33835', letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
+              <MaterialIcons name="bar-chart" size={18} color={pillAccentColors[3]} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: pillAccentColors[3], letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
             </TouchableOpacity>
           </View>
 
@@ -636,6 +833,8 @@ export default function ProfileView({
 
           {/* ══ AUTA ══ */}
           <Section
+            surfaceTheme={theme}
+            accentStrip={sectionAccentStrip}
             title={isOwner ? 'MOJE AUTA' : 'AUTA'}
             count={cars.length}
             right={isOwner ? (
@@ -645,25 +844,25 @@ export default function ProfileView({
             ) : null}
           >
             {cars.length === 0
-              ? <EmptyState text="Brak dodanych aut" />
+              ? <EmptyState surfaceTheme={theme} text="Brak dodanych aut" />
               : cars.map(car => <CarCard key={car.id} brand={car.brand} specs={car.specs} isMain={car.isMain} firstPhoto={car.photos?.[0]} onPress={() => onCarPress(car.id)} />)
             }
           </Section>
           {isOwner && carLimitBanner}
 
           {/* ══ OSIĄGNIĘCIA ══ */}
-          <Section title="OSIĄGNIĘCIA" count={`${unlocked.length}/${achievements.length}`}>
+          <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title="OSIĄGNIĘCIA" count={`${unlocked.length}/${achievements.length}`}>
             {achievements.length === 0
-              ? <EmptyState text="Ładowanie osiągnięć..." />
+              ? <EmptyState surfaceTheme={theme} text="Ładowanie osiągnięć..." />
               : (
                 <>
                   {unlocked.length === 0
-                    ? <EmptyState text="Brak odblokowanych osiągnięć" />
+                    ? <EmptyState surfaceTheme={theme} text="Brak odblokowanych osiągnięć" />
                     : unlockedGroups.map(({ rarity, items }) => {
                         const meta = RARITY_META[rarity] ?? RARITY_META.common;
                         return (
                           <View key={rarity} style={{ marginBottom: 16 }}>
-                            <RarityDivider meta={meta} count={items.length} />
+                            <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                               {items.map(a => <AchievementBox key={a.key} icon={a.icon} label={a.label} active rarity={a.rarity} progress={100} points={a.points} description={a.description} category={a.category} currentValue={a.currentValue} conditionValue={a.conditionValue} conditionField={a.conditionField} unlockedAt={a.unlockedAt} />)}
                             </View>
@@ -685,7 +884,7 @@ export default function ProfileView({
                         const meta = RARITY_META[rarity] ?? RARITY_META.common;
                         return (
                           <View key={rarity} style={{ marginBottom: 16 }}>
-                            <RarityDivider meta={meta} count={items.length} />
+                            <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                               {items.map(a => <AchievementBox key={a.key} icon={a.icon} label={a.label} active={false} rarity={a.rarity} progress={a.progress} points={a.points} description={a.description} category={a.category} currentValue={a.currentValue} conditionValue={a.conditionValue} conditionField={a.conditionField} unlockedAt={a.unlockedAt} />)}
                             </View>
@@ -700,17 +899,17 @@ export default function ProfileView({
           </Section>
 
           {/* ══ PRZEJECHANE TRASY ══ */}
-          <Section title="PRZEJECHANE TRASY" count={participatedRoutes.length}>
+          <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title="PRZEJECHANE TRASY" count={participatedRoutes.length}>
             {participatedRoutesLoading
-              ? <EmptyState text="Ładowanie..." />
+              ? <EmptyState surfaceTheme={theme} text="Ładowanie..." />
               : participatedRoutes.length === 0
-              ? <EmptyState text="Brak przejechanych tras" />
+              ? <EmptyState surfaceTheme={theme} text="Brak przejechanych tras" />
               : <ParticipatedRoutesSection routes={participatedRoutes} myId={null} onNavigate={onNavigateParticipated} onLeaderboard={handleLeaderboard} />
             }
           </Section>
 
           {/* ══ MOJE TRASY ══ */}
-          <Section title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
+          <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
             {isOwner && !isPremium && hiddenRoutesCount > 0 && (
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD70010', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 10 }}
@@ -728,7 +927,7 @@ export default function ProfileView({
               </TouchableOpacity>
             )}
             {displayRoutes.length === 0
-              ? <EmptyState text={routesLoading ? 'Ładowanie...' : 'Brak zapisanych tras'} />
+              ? <EmptyState surfaceTheme={theme} text={routesLoading ? 'Ładowanie...' : 'Brak zapisanych tras'} />
               : (
                 <>
                   {displayRoutes.slice(0, ROUTES_PREVIEW).map(route => (
@@ -749,9 +948,9 @@ export default function ProfileView({
           </Section>
 
           {/* ══ HISTORIA PRZEJAZDÓW (ŚLAD) ══ */}
-          <Section title="HISTORIA PRZEJAZDÓW" count={activityHistory.length}>
+          <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title="HISTORIA PRZEJAZDÓW" count={activityHistory.length}>
             {activityHistory.length === 0 ? (
-              <EmptyState text="Brak zapisanych przejazdów z trasą." />
+              <EmptyState surfaceTheme={theme} text="Brak zapisanych przejazdów z trasą." />
             ) : (
               <TouchableOpacity
                 style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}
@@ -775,9 +974,9 @@ export default function ProfileView({
           </Section>
 
           {/* ══ SPOTY ══ */}
-          <Section title={isOwner ? 'MOJE SPOTY' : 'SPOTY'} count={localSpots.length}>
+          <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE SPOTY' : 'SPOTY'} count={localSpots.length}>
             {localSpots.length === 0
-              ? <EmptyState text="Brak spotów" />
+              ? <EmptyState surfaceTheme={theme} text="Brak spotów" />
               : (
                 <>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
@@ -805,6 +1004,12 @@ export default function ProfileView({
         <SpotDetailModal visible={selectedSpot !== null} spot={selectedSpot} onClose={() => setSelectedSpot(null)} getDistance={() => 0} onLikeToggle={handleLikeToggle} />
         <RoutesListModal visible={routesModalVisible} routes={displayRoutes} onClose={() => setRoutesModalVisible(false)} onNavigate={onNavigateRoute} onShare={onShareRoute} onDelete={onDeleteRoute} onLeaderboard={route => { setRoutesModalVisible(false); setTimeout(() => handleLeaderboard(route), 350); }} isOwner={isOwner} isPremium={isPremium} />
       </ScrollView>
+      {visitFx && !isOwner && premiumUi?.visitEntranceAnim && premiumUi.visitEntranceAnim !== 'none' && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 500, elevation: 50 }]} pointerEvents="box-none">
+          <VisitEntranceFx kind={premiumUi.visitEntranceAnim} onDone={() => setVisitFx(false)} />
+        </View>
+      )}
+      </View>
 
       <RouteLeaderboardModal visible={lbVisible} routeId={lbRouteId} routeName={lbRouteName} data={lbData} runsData={lbRunsData} loading={lbLoading} onClose={() => { setLbVisible(false); setLbRouteId(null); setLbRouteName(''); }} />
       <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend(f.id); fetchFriends(); }} />
@@ -993,19 +1198,43 @@ export default function ProfileView({
 }
 
 // ── Helpers ───────────────────────────────────────────────
-import { StyleSheet } from 'react-native';
 
-function Section({ title, count, right, children }: {
-  title: string; count?: number | string; right?: React.ReactNode; children: React.ReactNode;
+type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string };
+
+function Section({
+  title,
+  count,
+  right,
+  children,
+  surfaceTheme,
+  accentStrip,
+}: {
+  title: string;
+  count?: number | string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+  surfaceTheme?: ProfileSurface;
+  accentStrip?: { kind: 'gradient'; spec: ProfileGradientSpec } | { kind: 'solid'; color: string };
 }) {
   const { theme } = useTheme();
+  const t = surfaceTheme ?? theme;
   return (
     <View style={{ marginBottom: 24 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 }}>
-        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: 1, flex: 1 }}>{title}</Text>
+        {accentStrip?.kind === 'gradient' ? (
+          <LinearGradient
+            colors={accentStrip.spec.colors as [string, string, ...string[]]}
+            start={accentStrip.spec.start ?? { x: 0, y: 0 }}
+            end={accentStrip.spec.end ?? { x: 0, y: 1 }}
+            style={{ width: 4, height: 22, borderRadius: 2 }}
+          />
+        ) : accentStrip?.kind === 'solid' ? (
+          <View style={{ width: 4, height: 22, borderRadius: 2, backgroundColor: accentStrip.color }} />
+        ) : null}
+        <Text style={{ fontFamily: 'Orbitron', color: t.text, fontSize: 13, fontWeight: '700', letterSpacing: 1, flex: 1 }}>{title}</Text>
         {count !== undefined && (
-          <View style={{ backgroundColor: theme.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: theme.border }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>{count}</Text>
+          <View style={{ backgroundColor: t.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: t.border }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>{count}</Text>
           </View>
         )}
         {right}
@@ -1015,21 +1244,23 @@ function Section({ title, count, right, children }: {
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({ text, surfaceTheme }: { text: string; surfaceTheme?: ProfileSurface }) {
   const { theme } = useTheme();
+  const t = surfaceTheme ?? theme;
   return (
-    <View style={{ paddingVertical: 20, alignItems: 'center', backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border }}>
-      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>{text}</Text>
+    <View style={{ paddingVertical: 20, alignItems: 'center', backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border }}>
+      <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 10 }}>{text}</Text>
     </View>
   );
 }
 
-function RarityDivider({ meta, count }: { meta: { label: string; color: string; border: string }; count: number }) {
+function RarityDivider({ meta, count, surfaceTheme }: { meta: { label: string; color: string; border: string }; count: number; surfaceTheme?: ProfileSurface }) {
   const { theme } = useTheme();
+  const t = surfaceTheme ?? theme;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
       <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />
-      <View style={{ paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, borderWidth: 1, borderColor: meta.border, backgroundColor: theme.bg }}>
+      <View style={{ paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, borderWidth: 1, borderColor: meta.border, backgroundColor: (t as { bg?: string }).bg ?? '#090909' }}>
         <Text style={{ fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2, color: meta.color }}>{meta.label}</Text>
       </View>
       <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />

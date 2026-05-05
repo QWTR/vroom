@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/mapConfig';
+import type { ProfilePremiumExtras } from '../constants/profilePremiumExtras';
+import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 
 export interface AppSettings {
   privateProfile:      boolean;
@@ -22,6 +24,7 @@ export interface AppSettings {
   accountTheme?: any;
   isPremium?: boolean;
   premiumExpiresAt?: string | null;
+  profilePremiumExtras?: ProfilePremiumExtras | null;
 }
 
 const DEFAULTS: AppSettings = {
@@ -44,6 +47,7 @@ const DEFAULTS: AppSettings = {
   accountTheme: null,
   isPremium: false,
   premiumExpiresAt: null,
+  profilePremiumExtras: null,
 };
 
 interface SettingsContextType {
@@ -78,8 +82,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
       if (res.ok) {
         const data = await res.json();
-        setSettings({ ...DEFAULTS, ...data });
-        await AsyncStorage.setItem('app_settings', JSON.stringify(data));
+        const merged = {
+          ...DEFAULTS,
+          ...data,
+          profilePremiumExtras: data.profilePremiumExtras != null
+            ? mergeProfilePremiumExtras(data.profilePremiumExtras)
+            : null,
+        };
+        setSettings(merged);
+        await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
       }
 
       if (token) {
@@ -88,10 +99,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         });
         if (premiumRes.ok) {
           const premiumData = await premiumRes.json();
-          setSettings(prev => ({ ...prev, ...premiumData }));
+          setSettings(prev => ({
+            ...prev,
+            ...premiumData,
+            profilePremiumExtras: premiumData.profilePremiumExtras != null
+              ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
+              : prev.profilePremiumExtras,
+          }));
           const cached = await AsyncStorage.getItem('app_settings');
           const current = cached ? JSON.parse(cached) : {};
-          await AsyncStorage.setItem('app_settings', JSON.stringify({ ...current, ...premiumData }));
+          const next = {
+            ...current,
+            ...premiumData,
+            profilePremiumExtras: premiumData.profilePremiumExtras != null
+              ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
+              : current.profilePremiumExtras,
+          };
+          await AsyncStorage.setItem('app_settings', JSON.stringify(next));
         }
       }
     } catch {
@@ -109,13 +133,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     value: AppSettings[K],
   ) => {
     // Optimistic update — shared across all screens immediately
-    setSettings(prev => ({ ...prev, [key]: value }));
+    const nextVal = key === 'profilePremiumExtras' && value != null
+      ? mergeProfilePremiumExtras(value as ProfilePremiumExtras)
+      : value;
+    setSettings(prev => ({ ...prev, [key]: nextVal }));
 
     // Persist to AsyncStorage first so it survives remounts even if API fails
     try {
       const cached  = await AsyncStorage.getItem('app_settings');
       const current = cached ? JSON.parse(cached) : {};
-      await AsyncStorage.setItem('app_settings', JSON.stringify({ ...current, [key]: value }));
+      await AsyncStorage.setItem('app_settings', JSON.stringify({ ...current, [key]: nextVal }));
     } catch {}
 
     // Best-effort sync to API
@@ -128,11 +155,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           'Content-Type': 'application/json',
           Authorization:  `Bearer ${token}`,
         },
-        body: JSON.stringify({ [key]: value }),
+        body: JSON.stringify({ [key]: nextVal }),
       });
       if (!res.ok) {
         // rollback optimistic change if backend rejected (e.g. premium write by free user)
-        setSettings(prev => ({ ...prev, [key]: (DEFAULTS as any)[key] }));
+        const def = (DEFAULTS as any)[key];
+        setSettings(prev => ({ ...prev, [key]: def !== undefined ? def : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]) }));
       }
     } catch (e) {
       console.log('updateSetting error:', e);

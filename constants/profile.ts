@@ -1,3 +1,5 @@
+import type { ProfilePremiumExtras } from './profilePremiumExtras';
+
 export interface UserProfile {
   id: number;
   username: string;
@@ -26,6 +28,7 @@ export interface UserProfile {
   profileThemePreset?: string;
   avatarFramePreset?: string;
   accountTheme?: any;
+  profilePremiumExtras?: ProfilePremiumExtras | null;
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;

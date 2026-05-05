@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { API_URL } from '../constants/config';
 import type { UserProfile } from '../constants/profile';
+import { mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 
 const getToken = async (): Promise<string | null> => {
   return (
@@ -39,6 +41,7 @@ function mapToProfile(u: any): UserProfile {
     profileThemePreset: u.profileThemePreset ?? 'default',
     avatarFramePreset: u.avatarFramePreset ?? 'vroom',
     accountTheme: u.accountTheme ?? null,
+    profilePremiumExtras: u.isPremium ? mergeProfilePremiumExtras(u.profilePremiumExtras) : null,
     club:          u.club          ?? null,
     followersCount: u.followersCount ?? 0,  
     followingCount: u.followingCount ?? 0,  
@@ -155,17 +158,34 @@ export function useProfile() {
   }, []);
 
   // ── Upload avatara ────────────────────────────────────
-  const uploadAvatar = useCallback(async (imageUri: string): Promise<boolean> => {
+  const uploadAvatar = useCallback(async (imageUri: string): Promise<{ ok: true } | { ok: false; error: string }> => {
     setAvatarLoading(true);
     setError(null);
     try {
-      const token    = await getToken();
-      const filename = imageUri.split('/').pop() ?? 'avatar.jpg';
-      const match    = /\.(\w+)$/.exec(filename);
-      const mimeType = match ? `image/${match[1]}` : 'image/jpeg';
+      const token = await getToken();
+      if (!token) {
+        const msg = 'Brak sesji — zaloguj się ponownie.';
+        setError(msg);
+        return { ok: false, error: msg };
+      }
+
+      let uploadUri = imageUri;
+      try {
+        const out = await ImageManipulator.manipulateAsync(
+          imageUri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        uploadUri = out.uri;
+      } catch {
+        const msg =
+          'Nie udało się przetworzyć zdjęcia (np. HEIC lub uszkodzony plik). Wybierz inne zdjęcie lub zrób nowe zdjęcie JPEG.';
+        setError(msg);
+        return { ok: false, error: msg };
+      }
 
       const form = new FormData();
-      form.append('avatar', { uri: imageUri, name: filename, type: mimeType } as any);
+      form.append('avatar', { uri: uploadUri, name: 'avatar.jpg', type: 'image/jpeg' } as any);
 
       const res = await fetch(`${API_URL}/api/profile/avatar`, {
         method:  'POST',
@@ -173,8 +193,28 @@ export function useProfile() {
         body:    form,
       });
 
-      if (!res.ok) throw new Error('Błąd uploadu avatara');
-      const { avatarUrl } = await res.json();
+      if (!res.ok) {
+        let msg = `Błąd serwera (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error && typeof j.error === 'string') msg = j.error;
+        } catch {
+          try {
+            const t = await res.text();
+            if (t?.length && t.length < 200) msg = t;
+          } catch { /* ignore */ }
+        }
+        setError(msg);
+        return { ok: false, error: msg };
+      }
+
+      const data = await res.json();
+      const avatarUrl = data?.avatarUrl as string | undefined;
+      if (!avatarUrl) {
+        const msg = 'Serwer nie zwrócił adresu avatara.';
+        setError(msg);
+        return { ok: false, error: msg };
+      }
 
       setProfile(prev => prev ? { ...prev, avatarUrl } : prev);
 
@@ -186,10 +226,11 @@ export function useProfile() {
         avatar: avatarUrl,
       }));
 
-      return true;
-    } catch (e: any) {
-      setError(e.message);
-      return false;
+      return { ok: true };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Błąd połączenia przy wysyłaniu avatara.';
+      setError(msg);
+      return { ok: false, error: msg };
     } finally {
       setAvatarLoading(false);
     }

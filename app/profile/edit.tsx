@@ -47,8 +47,15 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     if (!username.trim()) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nazwa użytkownika nie może być pusta.' }); return; }
     if (localAvatar) {
-      const ok = await uploadAvatar(localAvatar);
-      if (!ok) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się zapisać zdjęcia profilowego.' }); return; }
+      const up = await uploadAvatar(localAvatar);
+      if (!up.ok) {
+        Toast.show({
+          type: 'error',
+          text1: 'BŁĄD ZDJĘCIA',
+          text2: up.error ?? 'Nie udało się zapisać zdjęcia profilowego.',
+        });
+        return;
+      }
     }
     const ok = await updateProfile({ username: username.trim(), location: location.trim(), bio: bio.trim() });
     if (ok) { Toast.show({ type: 'success', text1: '✅ ZAPISANO', text2: 'Profil zaktualizowany!' }); router.back(); }
