@@ -3,6 +3,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/mapConfig';
 import type { ProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
+import type { SpotifyProfileTrack } from '../constants/profile';
+
+const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
+
+function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = SETTINGS_FETCH_TIMEOUT_MS, signal: outer, ...rest } = init;
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  const onOuterAbort = () => ac.abort();
+  if (outer) {
+    if (outer.aborted) ac.abort();
+    else outer.addEventListener('abort', onOuterAbort, { once: true });
+  }
+  return fetch(url, { ...rest, signal: ac.signal }).finally(() => {
+    clearTimeout(t);
+    if (outer) outer.removeEventListener('abort', onOuterAbort);
+  });
+}
 
 export interface AppSettings {
   privateProfile:      boolean;
@@ -25,6 +46,9 @@ export interface AppSettings {
   isPremium?: boolean;
   premiumExpiresAt?: string | null;
   profilePremiumExtras?: ProfilePremiumExtras | null;
+  spotifyProfileTrack?: SpotifyProfileTrack | null;
+  /** True when server has Spotify Web API credentials (in-app search). */
+  spotifySearchAvailable?: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -48,6 +72,8 @@ const DEFAULTS: AppSettings = {
   isPremium: false,
   premiumExpiresAt: null,
   profilePremiumExtras: null,
+  spotifyProfileTrack: null,
+  spotifySearchAvailable: false,
 };
 
 interface SettingsContextType {
@@ -68,17 +94,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULTS);
   const [loading,  setLoading]  = useState(true);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchSettingsCore = useCallback(async (signal?: AbortSignal) => {
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) {
-        // Fallback na cache lokalny
         const cached = await AsyncStorage.getItem('app_settings');
-        if (cached) setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
+        if (cached) {
+          try {
+            setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
+          } catch { /* ignore bad cache */ }
+        }
         return;
       }
-      const res = await fetch(`${API_URL}/api/settings`, {
+
+      const res = await fetchWithTimeout(`${API_URL}/api/settings`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -90,22 +121,25 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             : null,
         };
         setSettings(merged);
-        await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+        try {
+          await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+        } catch { /* ignore */ }
       }
 
-      if (token) {
-        const premiumRes = await fetch(`${API_URL}/api/settings/premium-ui`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (premiumRes.ok) {
-          const premiumData = await premiumRes.json();
-          setSettings(prev => ({
-            ...prev,
-            ...premiumData,
-            profilePremiumExtras: premiumData.profilePremiumExtras != null
-              ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
-              : prev.profilePremiumExtras,
-          }));
+      const premiumRes = await fetchWithTimeout(`${API_URL}/api/settings/premium-ui`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (premiumRes.ok) {
+        const premiumData = await premiumRes.json();
+        setSettings(prev => ({
+          ...prev,
+          ...premiumData,
+          profilePremiumExtras: premiumData.profilePremiumExtras != null
+            ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
+            : prev.profilePremiumExtras,
+        }));
+        try {
           const cached = await AsyncStorage.getItem('app_settings');
           const current = cached ? JSON.parse(cached) : {};
           const next = {
@@ -116,36 +150,57 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
               : current.profilePremiumExtras,
           };
           await AsyncStorage.setItem('app_settings', JSON.stringify(next));
-        }
+        } catch { /* ignore */ }
       }
-    } catch {
+    } catch (e: unknown) {
+      const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : '';
+      if (name === 'AbortError') return;
       const cached = await AsyncStorage.getItem('app_settings');
-      if (cached) setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
-    } finally {
-      setLoading(false);
+      if (cached) {
+        try {
+          setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
+        } catch { /* ignore */ }
+      }
     }
   }, []);
 
-  useEffect(() => { fetchSettings(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        await fetchSettingsCore(ac.signal);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [fetchSettingsCore]);
+
+  const fetchSettings = useCallback(async () => {
+    await fetchSettingsCore();
+  }, [fetchSettingsCore]);
 
   const updateSetting = useCallback(async <K extends keyof AppSettings>(
     key:   K,
     value: AppSettings[K],
   ) => {
-    // Optimistic update — shared across all screens immediately
     const nextVal = key === 'profilePremiumExtras' && value != null
       ? mergeProfilePremiumExtras(value as ProfilePremiumExtras)
       : value;
     setSettings(prev => ({ ...prev, [key]: nextVal }));
 
-    // Persist to AsyncStorage first so it survives remounts even if API fails
     try {
       const cached  = await AsyncStorage.getItem('app_settings');
       const current = cached ? JSON.parse(cached) : {};
       await AsyncStorage.setItem('app_settings', JSON.stringify({ ...current, [key]: nextVal }));
     } catch {}
 
-    // Best-effort sync to API
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) return;
@@ -158,7 +213,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ [key]: nextVal }),
       });
       if (!res.ok) {
-        // rollback optimistic change if backend rejected (e.g. premium write by free user)
         const def = (DEFAULTS as any)[key];
         setSettings(prev => ({ ...prev, [key]: def !== undefined ? def : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]) }));
       }

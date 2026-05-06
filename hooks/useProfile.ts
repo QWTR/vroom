@@ -42,6 +42,7 @@ function mapToProfile(u: any): UserProfile {
     avatarFramePreset: u.avatarFramePreset ?? 'vroom',
     accountTheme: u.accountTheme ?? null,
     profilePremiumExtras: u.isPremium ? mergeProfilePremiumExtras(u.profilePremiumExtras) : null,
+    spotifyProfileTrack: u.spotifyProfileTrack ?? null,
     club:          u.club          ?? null,
     followersCount: u.followersCount ?? 0,  
     followingCount: u.followingCount ?? 0,  

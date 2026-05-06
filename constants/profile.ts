@@ -1,5 +1,19 @@
 import type { ProfilePremiumExtras } from './profilePremiumExtras';
 
+export interface SpotifyProfileTrack {
+  trackId: string;
+  url: string;
+  trackName: string;
+  artistName?: string | null;
+  thumbnailUrl?: string | null;
+  /** ~30s MP3 preview URL from Spotify Web API (may be null for some tracks). */
+  previewUrl?: string | null;
+  /** When true, visitors hear preview automatically on public profile (stored in profile JSON). */
+  previewAutoplay?: boolean;
+  embedHtml?: string | null;
+  providerName?: string | null;
+}
+
 export interface UserProfile {
   id: number;
   username: string;
@@ -29,6 +43,7 @@ export interface UserProfile {
   avatarFramePreset?: string;
   accountTheme?: any;
   profilePremiumExtras?: ProfilePremiumExtras | null;
+  spotifyProfileTrack?: SpotifyProfileTrack | null;
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;

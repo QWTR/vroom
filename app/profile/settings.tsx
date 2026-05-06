@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image,
@@ -20,6 +20,7 @@ import { useTheme }     from '../../contexts/ThemeContext';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
+import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
@@ -30,7 +31,6 @@ import type {
   ProfileVisitEntranceAnim,
   ProfileHeroMotion,
 } from '../../constants/profilePremiumExtras';
-
 const RED = '#e33835';
 
 const getToken = async () =>
@@ -61,7 +61,7 @@ const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 export default function SettingsScreen() {
   const router = useRouter();
   const { theme, isDark, mode, setMode } = useTheme();
-  const { settings, loading: settingsLoading, updateSetting } = useSettings();
+  const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
 
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = isDark ? '#090909'   : '#f0f2f5';
@@ -114,6 +114,8 @@ export default function SettingsScreen() {
   const [ringC1, setRingC1] = useState('#E33835');
   const [ringC2, setRingC2] = useState('#268BFF');
   const [ringC3, setRingC3] = useState('#4DE926');
+  const [spotifyTrackUrl, setSpotifyTrackUrl] = useState('');
+  const [spotifySaving, setSpotifySaving] = useState(false);
 
   useEffect(() => {
     const e = mergeProfilePremiumExtras(settings.profilePremiumExtras);
@@ -125,7 +127,8 @@ export default function SettingsScreen() {
     setRingC1(e.avatarRingGradient?.colors?.[0] ?? '#E33835');
     setRingC2(e.avatarRingGradient?.colors?.[1] ?? '#268BFF');
     setRingC3(e.avatarRingGradient?.colors?.[2] ?? '#4DE926');
-  }, [settings.profilePremiumExtras]);
+    setSpotifyTrackUrl(settings.spotifyProfileTrack?.url ?? '');
+  }, [settings.profilePremiumExtras, settings.spotifyProfileTrack?.url]);
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
@@ -197,6 +200,115 @@ export default function SettingsScreen() {
     finally { setBugLoading(false); }
   };
 
+  const persistSpotifyTrack = useCallback(async (body: { url?: string; trackId?: string }) => {
+    const token = await getToken();
+    if (!token) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
+      return false;
+    }
+    setSpotifySaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się ustawić utworu' });
+        return false;
+      }
+      await fetchSettings();
+      if (json?.spotifyProfileTrack?.url) {
+        setSpotifyTrackUrl(json.spotifyProfileTrack.url);
+      }
+      Toast.show({ type: 'success', text1: 'Spotify', text2: 'Utwór ustawiony w profilu' });
+      return true;
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+      return false;
+    } finally {
+      setSpotifySaving(false);
+    }
+  }, [fetchSettings]);
+
+  const handleSaveSpotifyTrack = async () => {
+    const url = spotifyTrackUrl.trim();
+    if (!url) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wklej link do utworu Spotify' });
+      return;
+    }
+    await persistSpotifyTrack({ url });
+  };
+
+  const pickSpotifyTrackFromSearch = useCallback(
+    (trackId: string) => persistSpotifyTrack({ trackId }),
+    [persistSpotifyTrack],
+  );
+
+  const handleClearSpotifyTrack = async () => {
+    const token = await getToken();
+    if (!token) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
+      return;
+    }
+    setSpotifySaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się usunąć utworu' });
+        return;
+      }
+      await fetchSettings();
+      setSpotifyTrackUrl('');
+      Toast.show({ type: 'success', text1: 'Spotify', text2: 'Utwór usunięty z profilu' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+    } finally {
+      setSpotifySaving(false);
+    }
+  };
+
+  const handleSpotifyPreviewAutoplay = async (val: boolean) => {
+    const token = await getToken();
+    if (!token) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
+      return;
+    }
+    setSpotifySaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ previewAutoplay: val }),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać' });
+        return;
+      }
+      await fetchSettings();
+      Toast.show({
+        type: 'success',
+        text1: 'Spotify',
+        text2: val ? 'Goście usłyszą podgląd po wejściu na profil' : 'Autoodtwarzanie dla gości wyłączone',
+      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+    } finally {
+      setSpotifySaving(false);
+    }
+  };
+
   // ── Sub-components (wewnątrz — mają dostęp do kolorów) ─
   const SectionLabel = ({ title }: { title: string }) => (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, marginBottom: 12, marginHorizontal: 4 }}>
@@ -257,7 +369,9 @@ export default function SettingsScreen() {
 			<ScrollView
 				style={{ flex: 1, backgroundColor: bg }}
 				contentContainerStyle={{ paddingBottom: 100 }}
-				showsVerticalScrollIndicator={false}>
+				showsVerticalScrollIndicator={false}
+				keyboardShouldPersistTaps="always"
+				keyboardDismissMode="none">
 				{/* ══ HERO ══ */}
 				<View
 					style={{
@@ -1165,6 +1279,128 @@ export default function SettingsScreen() {
 							</>
 						)}
 					</Card>
+
+					<View style={{ marginTop: 10 }}>
+						<Card>
+							<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+								<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+									Muzyka w profilu (Spotify)
+								</Text>
+								{settings.spotifySearchAvailable ? (
+									<SpotifyTrackSearchField
+										apiUrl={API_URL}
+										onPickTrack={pickSpotifyTrackFromSearch}
+										saving={spotifySaving}
+										textMain={textMain}
+										textDim={textDim}
+										inputBg={inputBg}
+										inputBorder={inputBorder}
+										rowAlt={rowAlt}
+									/>
+								) : (
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+										Wyszukiwanie w aplikacji wymaga kluczy Spotify Web API na serwerze (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET). Nadal możesz wkleić link do utworu poniżej.
+									</Text>
+								)}
+								<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 4 }}>
+									Alternatywnie: w aplikacji Spotify — Udostępnij → Kopiuj link utworu.
+								</Text>
+								<TextInput
+									value={spotifyTrackUrl}
+									onChangeText={setSpotifyTrackUrl}
+									placeholder='https://open.spotify.com/track/...'
+									placeholderTextColor={textDim}
+									autoCapitalize='none'
+									autoCorrect={false}
+									style={{
+										backgroundColor: inputBg,
+										borderRadius: 10,
+										borderWidth: 1,
+										borderColor: inputBorder,
+										color: textMain,
+										paddingHorizontal: 12,
+										paddingVertical: 11,
+										fontFamily: 'Orbitron',
+										fontSize: 9,
+									}}
+								/>
+								{!!settings.spotifyProfileTrack && (
+									<View style={{ backgroundColor: rowAlt, borderRadius: 10, borderWidth: 1, borderColor: inputBorder, padding: 10 }}>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 1 }}>
+											AKTUALNY UTWÓR
+										</Text>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, marginTop: 5 }}>
+											{settings.spotifyProfileTrack.trackName}
+										</Text>
+										{!!settings.spotifyProfileTrack.artistName && (
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 3 }}>
+												{settings.spotifyProfileTrack.artistName}
+											</Text>
+										)}
+									</View>
+								)}
+								{!!settings.spotifyProfileTrack && (
+									<View
+										style={{
+											flexDirection: 'row',
+											alignItems: 'center',
+											justifyContent: 'space-between',
+											gap: 12,
+											paddingVertical: 6,
+										}}>
+										<View style={{ flex: 1 }}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, fontWeight: '600' }}>
+												Autoodtwarzanie dla gości
+											</Text>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim, marginTop: 4, lineHeight: 12 }}>
+												Na publicznym profilu podgląd zacznie grać sam po wejściu gościa. Odtwarzanie wymaga{' '}
+												<Text style={{ color: '#1DB954' }}>podglądu audio</Text> u tego utworu — bez niego przełącznik zapisze się, ale nic nie zagra.
+											</Text>
+										</View>
+										<Switch
+											value={!!settings.spotifyProfileTrack.previewAutoplay}
+											onValueChange={handleSpotifyPreviewAutoplay}
+											disabled={spotifySaving}
+											{...swProps}
+										/>
+									</View>
+								)}
+								<View style={{ flexDirection: 'row', gap: 8 }}>
+									<TouchableOpacity
+										onPress={handleSaveSpotifyTrack}
+										disabled={spotifySaving}
+										style={{
+											flex: 1,
+											backgroundColor: '#1DB954',
+											borderRadius: 10,
+											paddingVertical: 12,
+											alignItems: 'center',
+											opacity: spotifySaving ? 0.75 : 1,
+										}}>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+											{spotifySaving ? 'ZAPIS...' : 'USTAW Z LINKU'}
+										</Text>
+									</TouchableOpacity>
+									<TouchableOpacity
+										onPress={handleClearSpotifyTrack}
+										disabled={spotifySaving}
+										style={{
+											paddingHorizontal: 12,
+											borderRadius: 10,
+											borderWidth: 1,
+											borderColor: '#ff3b3040',
+											backgroundColor: '#ff3b3018',
+											alignItems: 'center',
+											justifyContent: 'center',
+										}}>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ff3b30', fontWeight: '700' }}>
+											WYCZYŚĆ
+										</Text>
+									</TouchableOpacity>
+								</View>
+							</View>
+						</Card>
+					</View>
 
 					{/* IKONA LOKALIZACJI */}
 					<View style={{ marginTop: 10 }}>

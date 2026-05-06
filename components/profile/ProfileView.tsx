@@ -36,6 +36,7 @@ import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras'
 import type { ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from './VisitEntranceFx';
 import { linearGradientFromSpec } from './profileGradientUtils';
+import { SpotifyProfileTrackRow } from './SpotifyProfileTrackRow';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
 const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -616,6 +617,13 @@ export default function ProfileView({
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 3, marginBottom: 8 }}>O MNIE</Text>
               <Text style={{ color: theme.text, fontSize: 13, lineHeight: 20 }}>{profile.bio}</Text>
             </View>
+          )}
+
+          {!!profile?.spotifyProfileTrack && (
+            <SpotifyProfileTrackRow
+              track={profile.spotifyProfileTrack}
+              theme={{ text: theme.text, textDim: theme.textDim, surface: theme.surface }}
+            />
           )}
 
           {/* Dołączył */}

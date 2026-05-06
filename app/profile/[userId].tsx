@@ -15,7 +15,7 @@ import AchievementBox     from '../../components/profile/AchievementBox';
 import type { Achievement } from '../../hooks/useAchievements';
 import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
-import type { SpotPreview } from '../../constants/profile';
+import type { SpotPreview, SpotifyProfileTrack } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
 import { useChat }         from '../../hooks/useChats';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
@@ -23,6 +23,7 @@ import { linearGradientFromSpec } from '../../components/profile/profileGradient
 import { useTheme } from '../../contexts/ThemeContext';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
+import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -60,6 +61,7 @@ interface PublicProfile {
   profileThemePreset?: string;
   avatarFramePreset?: string;
   profilePremiumExtras?: unknown;
+  spotifyProfileTrack?: SpotifyProfileTrack | null;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -597,6 +599,16 @@ export default function PublicProfileScreen() {
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 3, marginBottom: 8 }}>BIO</Text>
               <Text style={{ fontFamily: 'Orbitron', color: palette.textDim, fontSize: 11, lineHeight: 20 }}>{profile.bio}</Text>
             </View>
+          )}
+
+          {!!profile.spotifyProfileTrack && (
+            <SpotifyProfileTrackRow
+              track={profile.spotifyProfileTrack}
+              theme={{ text: palette.text, textDim: palette.textDim, surface: palette.surface }}
+              autoplayOnVisit={
+                !!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl
+              }
+            />
           )}
 
           {/* Joined */}
