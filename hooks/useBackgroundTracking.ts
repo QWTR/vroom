@@ -76,6 +76,7 @@ const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 90;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
+const BG_MIN_SEGMENT_KM         = 0.003;
 const BG_ROUTE_MAX_POINTS       = 500;
 const BG_MIN_SPEED_KMH          = 2;
 const BG_TRACE_MIN_WRITE_MS     = 1500;
@@ -227,7 +228,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
             accuracyM: accuracy ?? null,
           },
           {
-            minSegmentKm: 0.010,
+            minSegmentKm: BG_MIN_SEGMENT_KM,
             maxSegmentKm: 2.0,
             maxFixGapSec: BG_LAST_FIX_MAX_GAP_SEC,
             maxPlausibleKmh: BG_MAX_PLAUSIBLE_KMH,

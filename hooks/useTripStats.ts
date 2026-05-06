@@ -14,6 +14,7 @@ const TRIP_MAX_PLAUSIBLE_KMH = 220;
 const TRIP_MAX_FIX_GAP_SEC   = 60;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
+const TRIP_MIN_SEGMENT_KM = 0.003;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
@@ -70,19 +71,18 @@ export function useTripStats() {
     if (speedMs !== undefined && speedMs * 3.6 < 2) return 0;
 
     const pts = trackedPts.current;
-    if (!pts.length) {
+    const lastMeta = lastPointRef.current;
+    if (!lastMeta) {
       pts.push({ latitude: lat, longitude: lng });
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return 0;
     }
-    const last = pts[pts.length - 1];
-    const lastMeta = lastPointRef.current;
 
     const segment = evaluateDistanceSegment(
       {
-        latitude: last.latitude,
-        longitude: last.longitude,
-        timestampMs: lastMeta?.time ?? now,
+        latitude: lastMeta.latitude,
+        longitude: lastMeta.longitude,
+        timestampMs: lastMeta.time,
         speedKmh: speedMs != null ? speedMs * 3.6 : null,
       },
       {
@@ -92,7 +92,7 @@ export function useTripStats() {
         speedKmh: speedMs != null ? speedMs * 3.6 : null,
       },
       {
-        minSegmentKm: 0.010,
+        minSegmentKm: TRIP_MIN_SEGMENT_KM,
         maxSegmentKm: 2.0,
         maxFixGapSec: TRIP_MAX_FIX_GAP_SEC,
         maxPlausibleKmh: TRIP_MAX_PLAUSIBLE_KMH,

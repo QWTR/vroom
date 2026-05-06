@@ -1,5 +1,7 @@
 import { Step } from '../hooks/useGoogleDirections';
 
+const polylineCache = new Map<string, { latitude: number; longitude: number }[]>();
+
 /** Oblicza azymut (bearing) z punktu 1 do punktu 2 w stopniach 0..360 */
 export function bearingBetween(
   lat1: number, lng1: number,
@@ -93,6 +95,67 @@ export function distanceToSegmentMeters(
   return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
 }
 
+function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  const cached = polylineCache.get(encoded);
+  if (cached) return cached;
+  const poly: { latitude: number; longitude: number }[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    poly.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  polylineCache.set(encoded, poly);
+  return poly;
+}
+
+function distanceToStepMeters(userLat: number, userLon: number, step: Step): number {
+  const encoded = step.polyline?.points;
+  if (encoded) {
+    const decoded = decodePolyline(encoded);
+    if (decoded.length >= 2) {
+      let best = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < decoded.length - 1; i++) {
+        const d = distanceToSegmentMeters(
+          userLat,
+          userLon,
+          decoded[i].latitude,
+          decoded[i].longitude,
+          decoded[i + 1].latitude,
+          decoded[i + 1].longitude,
+        );
+        if (d < best) best = d;
+      }
+      if (Number.isFinite(best)) return best;
+    }
+  }
+  return distanceToSegmentMeters(
+    userLat,
+    userLon,
+    step.start_location.lat,
+    step.start_location.lng,
+    step.end_location.lat,
+    step.end_location.lng,
+  );
+}
+
 /**
  * Snap-to-road: przyciąga pozycję użytkownika do najbliższego odcinka trasy.
  * Eliminuje "jazdę po polu" bez potrzeby Roads API.
@@ -184,21 +247,14 @@ export function detectCurrentStep(
 
   // 2) Lookahead: wybierz najbliższy segment kroku w krótkim oknie do przodu.
   // Dzięki temu manewr nie "wisi" na poprzednim kroku po szybkich skrzyżowaniach.
-  const LOOKAHEAD_STEPS = 4;
+  const LOOKAHEAD_STEPS = 10;
   let bestStep = resolved;
   let bestDist = Number.POSITIVE_INFINITY;
 
   const lastCandidate = Math.min(steps.length - 1, resolved + LOOKAHEAD_STEPS);
   for (let i = resolved; i <= lastCandidate; i++) {
     const step = steps[i];
-    const distM = distanceToSegmentMeters(
-      userLat,
-      userLon,
-      step.start_location.lat,
-      step.start_location.lng,
-      step.end_location.lat,
-      step.end_location.lng,
-    );
+    const distM = distanceToStepMeters(userLat, userLon, step);
     if (distM < bestDist) {
       bestDist = distM;
       bestStep = i;

@@ -993,7 +993,45 @@ export default function MapScreen() {
   }, [pins]);
 
   // ── Init GPS ──────────────────────────────────────────────
+  // Po powrocie z tła / ponownym wejściu na Mapę pierwszy odczyt bywa z cache OS
+  // (stary timestamp) albo zgrubny — wtedy wcześniejszy kod nigdy nie ustawiał
+  // `region` i ekran zostawał na „ŁADOWANIE GPS...”. Retry + krótki watch
+  // czekają na świeży fix; w ostateczności odblokowujemy UI przybliżoną pozycją.
   useEffect(() => {
+    let cancelled = false;
+    let watchSub: { remove: () => void } | null = null;
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+    const acceptFreshFix = (loc: Location.LocationObject): boolean => {
+      const rawLat = loc.coords.latitude;
+      const rawLng = loc.coords.longitude;
+      const acc = loc.coords.accuracy ?? 999;
+      if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) return false;
+      if (acc > GPS_INIT_MAX_ACCURACY_M) return false;
+      if (isStaleGpsTimestamp(Date.now(), loc.timestamp)) return false;
+      return true;
+    };
+
+    const applyInitialFix = (loc: Location.LocationObject, approximate = false) => {
+      const rawLat = loc.coords.latitude;
+      const rawLng = loc.coords.longitude;
+      const acc = loc.coords.accuracy ?? 999;
+      const lat = latFilter.filter(rawLat, acc);
+      const lng = lngFilter.filter(rawLng, acc);
+      setUserLocation({ latitude: lat, longitude: lng });
+      setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.015, longitudeDelta: 0.015 });
+      lastGoodLocRef.current = { lat, lng };
+      lastAcceptedFixWallClockRef.current = Date.now();
+      setLocationReady(true);
+      if (approximate) {
+        Toast.show({
+          type: 'info',
+          text1: 'GPS',
+          text2: 'Przybliżona pozycja — dokładam po świeżym sygnale.',
+        });
+      }
+    };
+
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -1001,43 +1039,86 @@ export default function MapScreen() {
           Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Włącz lokalizację w ustawieniach' });
           return;
         }
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.BestForNavigation,
-          mayShowUserSettingsDialog: true,
+
+        for (let i = 0; i < 6 && !cancelled; i++) {
+          try {
+            const loc = await Location.getCurrentPositionAsync({
+              accuracy: i < 2 ? Location.Accuracy.Balanced : Location.Accuracy.High,
+              mayShowUserSettingsDialog: i === 0,
+            });
+            if (acceptFreshFix(loc)) {
+              applyInitialFix(loc);
+              return;
+            }
+          } catch {
+            /* kolejna próba */
+          }
+          await sleep(1500);
+        }
+
+        if (cancelled) return;
+
+        const watched = await new Promise<Location.LocationObject | null>((resolve) => {
+          const timeout = setTimeout(() => {
+            watchSub?.remove();
+            watchSub = null;
+            resolve(null);
+          }, 20_000);
+          Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              timeInterval: 1000,
+              distanceInterval: 1,
+            },
+            (loc) => {
+              if (cancelled || !acceptFreshFix(loc)) return;
+              clearTimeout(timeout);
+              watchSub?.remove();
+              watchSub = null;
+              resolve(loc);
+            },
+          )
+            .then((sub) => {
+              watchSub = sub;
+            })
+            .catch(() => {
+              clearTimeout(timeout);
+              resolve(null);
+            });
         });
-        if (isStaleGpsTimestamp(Date.now(), loc.timestamp)) {
-          Toast.show({
-            type: 'info',
-            text1: 'GPS',
-            text2: 'Odczyt z pamięci telefonu — czekam na świeży fix, spróbuj za chwilę.',
-          });
+
+        if (cancelled) return;
+        if (watched && acceptFreshFix(watched)) {
+          applyInitialFix(watched);
           return;
         }
-        const rawLat = loc.coords.latitude;
-        const rawLng = loc.coords.longitude;
-        const acc = loc.coords.accuracy ?? 999;
-        if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) {
-          throw new Error('invalid coords');
-        }
-        if (acc > GPS_INIT_MAX_ACCURACY_M) {
-          Toast.show({
-            type: 'info',
-            text1: 'GPS',
-            text2: 'Czekam na dokładniejszy fix — spróbuj na zewnątrz lub uruchom ponownie.',
+
+        try {
+          const fallback = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Lowest,
+            mayShowUserSettingsDialog: false,
           });
-          return;
+          if (cancelled) return;
+          const rawLat = fallback.coords.latitude;
+          const rawLng = fallback.coords.longitude;
+          if (Number.isFinite(rawLat) && Number.isFinite(rawLng) && !isNullIsland(rawLat, rawLng)) {
+            applyInitialFix(fallback, true);
+            return;
+          }
+        } catch {
+          /* poniżej ogólny błąd */
         }
-        const lat = latFilter.filter(rawLat, acc);
-        const lng = lngFilter.filter(rawLng, acc);
-        setUserLocation({ latitude: lat, longitude: lng });
-        setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.015, longitudeDelta: 0.015 });
-        lastGoodLocRef.current = { lat, lng };
-        lastAcceptedFixWallClockRef.current = Date.now();
-        setLocationReady(true);
+
+        Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Nie można pobrać lokalizacji' });
       } catch {
         Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Nie można pobrać lokalizacji' });
       }
     })();
+
+    return () => {
+      cancelled = true;
+      watchSub?.remove();
+    };
   }, []);
 
   // ─────────────────────────────────────────────────────────
@@ -2775,6 +2856,9 @@ export default function MapScreen() {
           logoEnabled={false}
           attributionEnabled={false}
           compassEnabled={false}
+          // TextureView zamiast GLSurfaceView — typowa poprawka na Androidzie gdy mapa
+          // „staje” po przejściu do innej apki i powrocie (kompozycja widoku / lifecycle).
+          surfaceView={Platform.OS === 'android' ? false : undefined}
           pitchEnabled
           rotateEnabled
           onPress={(e: any) => {
