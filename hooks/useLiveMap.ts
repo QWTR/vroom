@@ -73,6 +73,7 @@ export function useLiveMap(
 
   const socketRef          = useRef<Socket | null>(null);
   const tokenRef           = useRef<string | null>(null);
+  const toggleInFlightRef  = useRef(false);
   const alertedWarningsRef = useRef<Set<number>>(new Set());
   const isSpeechRef        = useRef(isSpeechEnabled);
   const isSharingRef       = useRef(isSharing);
@@ -93,7 +94,11 @@ export function useLiveMap(
   };
   const interpRef = useRef<Map<number, InterpEntry>>(new Map());
   const INTERP_TICK_MS     = 50;   // ticker interval (20 fps)
-  const MIN_INTERP_DUR_MS  = 50;   // minimum lerp duration guard
+  const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
+  const MAX_INTERP_DUR_MS  = 6000;
+  const USERS_REFRESH_MS   = 25000;
+
+  const easeInOut = (t: number) => t * t * (3 - 2 * t);
 
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
@@ -134,7 +139,21 @@ export function useLiveMap(
       }
       if (usersRes.ok && isSharingRef.current) {
         const data = await usersRes.json();
-        setLiveUsers(Array.isArray(data) ? data : []);
+        const users: LiveUser[] = Array.isArray(data) ? data : [];
+        setLiveUsers(users);
+        const activeIds = new Set<number>();
+        users.forEach((u) => {
+          if (Number.isFinite(u?.id) && Number.isFinite(u?.lat) && Number.isFinite(u?.lng)) {
+            activeIds.add(u.id);
+            smoothedPosRef.current.set(u.id, { lat: u.lat, lng: u.lng });
+          }
+        });
+        Array.from(smoothedPosRef.current.keys()).forEach((id) => {
+          if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
+        });
+        Array.from(interpRef.current.keys()).forEach((id) => {
+          if (!activeIds.has(id)) interpRef.current.delete(id);
+        });
       }
     } catch (e) {
       console.log('fetchInitialData error:', e);
@@ -161,13 +180,6 @@ export function useLiveMap(
       socket.on('connect', async () => {
         setConnected(true);
         fetchInitialData(token);
-        try {
-          await fetchWithTimeout(`${API_URL}/api/live/location/reset`, {
-            method:  'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-        } catch {}
-        socket.emit('user:stop_sharing');
       });
 
       socket.on('disconnect', (reason) => {
@@ -177,53 +189,83 @@ export function useLiveMap(
 
       socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
 
-      socket.on('user:location', (data) => {
+      socket.on('user:location', (data: any) => {
         if (!isSharingRef.current) return;
+        const id = Number(data?.id);
+        const rawLat = Number(data?.lat);
+        const rawLng = Number(data?.lng);
+        if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
 
-        // EWMA smoothing — prevents teleportation from GPS jitter
-        const prev = smoothedPosRef.current.get(data.id);
-        let sLat = data.lat as number;
-        let sLng = data.lng as number;
-        if (prev) {
-          const distM = distanceKm(prev.lat, prev.lng, sLat, sLng) * 1000;
-          if (distM < MIN_MOVE_M) {
-            // Ignore sub-4m jitter — keep last smoothed position
-            sLat = prev.lat;
-            sLng = prev.lng;
-          } else {
-            sLat = prev.lat + SMOOTH_ALPHA * (sLat - prev.lat);
-            sLng = prev.lng + SMOOTH_ALPHA * (sLng - prev.lng);
+        setLiveUsers((prev) => {
+          const now = Date.now();
+          const existingUser = prev.find((u) => u.id === id);
+          const prevSmoothed = smoothedPosRef.current.get(id)
+            ?? (existingUser ? { lat: existingUser.lat, lng: existingUser.lng } : null);
+
+          // EWMA smoothing on incoming targets (filters GPS spikes)
+          let targetLat = rawLat;
+          let targetLng = rawLng;
+          if (prevSmoothed) {
+            const distM = distanceKm(prevSmoothed.lat, prevSmoothed.lng, targetLat, targetLng) * 1000;
+            if (distM < MIN_MOVE_M) {
+              targetLat = prevSmoothed.lat;
+              targetLng = prevSmoothed.lng;
+            } else {
+              targetLat = prevSmoothed.lat + SMOOTH_ALPHA * (targetLat - prevSmoothed.lat);
+              targetLng = prevSmoothed.lng + SMOOTH_ALPHA * (targetLng - prevSmoothed.lng);
+            }
           }
-        }
-        smoothedPosRef.current.set(data.id, { lat: sLat, lng: sLng });
+          smoothedPosRef.current.set(id, { lat: targetLat, lng: targetLng });
 
-        // Time-based interpolation: record from→to segment + timing so the
-        // interval ticker can smoothly move the marker between GPS updates.
-        const now = Date.now();
-        const existing = interpRef.current.get(data.id);
-        const fromLat = existing ? existing.toLat : sLat;
-        const fromLng = existing ? existing.toLng : sLng;
-        const lastMs  = existing?.lastUpdateMs ?? now;
-        const durMs   = Math.min(Math.max(now - lastMs, 1000), 10000);
-        interpRef.current.set(data.id, {
-          fromLat, fromLng,
-          toLat:   sLat, toLng: sLng,
-          startMs: now, durationMs: durMs,
-          lastUpdateMs: now,
-        });
+          // Build interpolation from *currently displayed* position to new target.
+          const interp = interpRef.current.get(id);
+          let fromLat = existingUser?.lat ?? targetLat;
+          let fromLng = existingUser?.lng ?? targetLng;
+          if (interp) {
+            const t = Math.min((now - interp.startMs) / Math.max(interp.durationMs, MIN_INTERP_DUR_MS), 1);
+            const te = easeInOut(t);
+            fromLat = interp.fromLat + (interp.toLat - interp.fromLat) * te;
+            fromLng = interp.fromLng + (interp.toLng - interp.fromLng) * te;
+          }
+          const lastMs = interp?.lastUpdateMs ?? now;
+          const durationMs = Math.min(Math.max(now - lastMs, 500), MAX_INTERP_DUR_MS);
+          interpRef.current.set(id, {
+            fromLat,
+            fromLng,
+            toLat: targetLat,
+            toLng: targetLng,
+            startMs: now,
+            durationMs,
+            lastUpdateMs: now,
+          });
 
-        setLiveUsers(prev => {
-          const exists = prev.find(u => u.id === data.id);
-          const smoothedData = { ...data, lat: sLat, lng: sLng };
-          if (exists) return prev.map(u => u.id === data.id ? { ...u, ...smoothedData } : u);
-          return [...prev, smoothedData];
+          const merged: LiveUser = {
+            id,
+            username: typeof data?.username === 'string'
+              ? data.username
+              : (existingUser?.username ?? ''),
+            avatarUrl: data?.avatarUrl !== undefined
+              ? data.avatarUrl
+              : (existingUser?.avatarUrl ?? null),
+            lat: fromLat,
+            lng: fromLng,
+            online: data?.online ?? existingUser?.online ?? true,
+            isFriend: data?.isFriend ?? existingUser?.isFriend,
+            isPremium: data?.isPremium ?? existingUser?.isPremium,
+          };
+
+          if (existingUser) {
+            return prev.map((u) => (u.id === id ? { ...u, ...merged } : u));
+          }
+          return [...prev, merged];
         });
       });
 
       socket.on('user:offline', (data) => {
-        smoothedPosRef.current.delete(data.id);
-        interpRef.current.delete(data.id);
-        setLiveUsers(prev => prev.filter(u => u.id !== data.id));
+        const id = Number(data?.id);
+        smoothedPosRef.current.delete(id);
+        interpRef.current.delete(id);
+        setLiveUsers(prev => prev.filter(u => u.id !== id));
       });
 
       socket.on('warning:new', (warning: LiveWarning) => {
@@ -261,27 +303,70 @@ export function useLiveMap(
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
-      const updates: { id: number; lat: number; lng: number }[] = [];
+      const updates = new Map<number, { lat: number; lng: number }>();
       interpRef.current.forEach((entry, userId) => {
         const { fromLat, fromLng, toLat, toLng, startMs, durationMs } = entry;
         const t = Math.min((now - startMs) / Math.max(durationMs, MIN_INTERP_DUR_MS), 1);
-        if (t >= 1) return; // already at target — no update needed
-        updates.push({
-          id:  userId,
-          lat: fromLat + (toLat - fromLat) * t,
-          lng: fromLng + (toLng - fromLng) * t,
+        const te = easeInOut(t);
+        updates.set(userId, {
+          lat: fromLat + (toLat - fromLat) * te,
+          lng: fromLng + (toLng - fromLng) * te,
         });
+        if (t >= 1) {
+          interpRef.current.delete(userId);
+        }
       });
-      if (updates.length === 0) return;
+      if (updates.size === 0) return;
       setLiveUsers(prev =>
         prev.map(u => {
-          const update = updates.find(up => up.id === u.id);
+          const update = updates.get(u.id);
           return update ? { ...u, lat: update.lat, lng: update.lng } : u;
         }),
       );
     }, INTERP_TICK_MS);
     return () => clearInterval(interval);
   }, []);
+
+  // Periodic refresh heals missed socket events on unstable networks.
+  useEffect(() => {
+    if (!isSharing) return;
+    const interval = setInterval(async () => {
+      const token = tokenRef.current;
+      if (!token) return;
+      try {
+        const res = await fetchWithTimeout(
+          `${API_URL}/api/live/users`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok || !isSharingRef.current) return;
+        const data = await res.json();
+        const users: LiveUser[] = Array.isArray(data) ? data : [];
+        const activeIds = new Set<number>(users.map((u) => Number(u.id)).filter(Number.isFinite));
+        setLiveUsers((prev) => {
+          const prevById = new Map<number, LiveUser>(prev.map((u) => [u.id, u]));
+          return users.map((u) => {
+            const prevU = prevById.get(u.id);
+            // Keep currently displayed position to avoid jumps; sockets/interp
+            // continue to animate toward incoming targets.
+            return prevU ? { ...u, lat: prevU.lat, lng: prevU.lng } : u;
+          });
+        });
+        users.forEach((u) => {
+          if (!smoothedPosRef.current.has(u.id) && Number.isFinite(u.lat) && Number.isFinite(u.lng)) {
+            smoothedPosRef.current.set(u.id, { lat: u.lat, lng: u.lng });
+          }
+        });
+        Array.from(smoothedPosRef.current.keys()).forEach((id) => {
+          if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
+        });
+        Array.from(interpRef.current.keys()).forEach((id) => {
+          if (!activeIds.has(id)) interpRef.current.delete(id);
+        });
+      } catch {
+      }
+    }, USERS_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [isSharing]);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {
@@ -350,34 +435,58 @@ export function useLiveMap(
     if (!socket?.connected) return;
 
     if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
-
-    const points = routePoints ?? routePointsRef.current;
-    if (points.length > 1) {
-      const snapped = snapToRoute(lat, lng, points, 30);
-      socket.emit('location:update', { lat: snapped.latitude, lng: snapped.longitude });
-    } else {
-      socket.emit('location:update', { lat, lng });
-    }
+    // Live sharing must reflect raw current position. Snapping to stale route
+    // points can broadcast an old road point and look like teleportation.
+    socket.emit('location:update', { lat, lng });
   }, [isSharing]);
 
   // ── Toggle sharing ────────────────────────────────────
   const toggleSharing = useCallback(async (): Promise<boolean> => {
     if (!tokenRef.current) return false;
+    if (toggleInFlightRef.current) return isSharingRef.current;
+    toggleInFlightRef.current = true;
     try {
       const res  = await fetchWithTimeout(`${API_URL}/api/live/location/toggle`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${tokenRef.current}` },
       });
       const data = await res.json();
-      if (data.shareLocation) {
+      const nextShare = !!data.shareLocation;
+      isSharingRef.current = nextShare;
+
+      if (nextShare) {
+        // Push current GPS immediately on enable so the server doesn't expose
+        // stale DB coordinates until the next periodic sender tick.
+        const loc = userLocationRef.current;
+        if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+          await fetchWithTimeout(`${API_URL}/api/live/location`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${tokenRef.current}`,
+            },
+            body: JSON.stringify({
+              lat: loc.latitude,
+              lng: loc.longitude,
+              shareLocation: true,
+            }),
+          }).catch(() => {});
+          socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+        }
+        await fetchInitialData(tokenRef.current);
         Toast.show({ type: 'success', text1: '📍 Lokalizacja widoczna', text2: 'Inni widzą Cię na mapie' });
       } else {
         Toast.show({ type: 'info', text1: '👁️ Lokalizacja ukryta', text2: 'Jesteś niewidoczny na mapie' });
         socketRef.current?.emit('user:stop_sharing');
+        setLiveUsers([]);
       }
-      return data.shareLocation;
-    } catch { return false; }
-  }, []);
+      return nextShare;
+    } catch {
+      return isSharingRef.current;
+    } finally {
+      toggleInFlightRef.current = false;
+    }
+  }, [fetchInitialData]);
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (

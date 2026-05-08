@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -11,10 +11,29 @@ interface MarkerRendererProps {
 }
 
 export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProps) => {
+  const shotRef = useRef<ViewShot>(null);
+  const capturedOnceRef = useRef(false);
   const color       = user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isFriend ? '#4de92622' : '#00bfff22';
   const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92650' : '#00bfff50');
   const isUrl       = user.avatar?.startsWith('http');
+
+  const captureMarker = useCallback((delayMs = 0) => {
+    setTimeout(() => {
+      shotRef.current?.capture?.()
+        .then((uri) => {
+          capturedOnceRef.current = true;
+          onCapture(uri);
+        })
+        .catch(() => {});
+    }, delayMs);
+  }, [onCapture]);
+
+  useEffect(() => {
+    capturedOnceRef.current = false;
+    // Give RN time to mount text/layout before first snapshot.
+    captureMarker(80);
+  }, [captureMarker, user.id, user.name, user.avatar, user.isFriend, user.isPremium]);
 
   return (
     <View style={{
@@ -22,8 +41,7 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
       opacity: 0, zIndex: -999, pointerEvents: 'none',
     }}>
       <ViewShot
-        onCapture={onCapture}
-        captureMode="mount"
+        ref={shotRef}
         options={{ format: 'png', quality: 1.0 }}
       >
         <View style={{
@@ -69,6 +87,8 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
                   source={{ uri: user.avatar }}
                   style={{ width: 40, height: 40, borderRadius: 20 }}
                   resizeMode="cover"
+                  // Ensure the snapshot captures the loaded avatar (not blank placeholder).
+                  onLoadEnd={() => captureMarker(capturedOnceRef.current ? 0 : 60)}
                 />
               ) : (
                 <Text style={{ color, fontSize: 14, fontWeight: '700' }}>

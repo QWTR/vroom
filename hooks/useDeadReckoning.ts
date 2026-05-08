@@ -98,11 +98,15 @@ export function useDeadReckoning({
 
     if (hasFirstFeed.current && lastFeedMs.current > 0) {
       const dt = now - lastFeedMs.current;
-      if (dt > 0 && dt < 3000) {
-        const blended = lerpDurMs.current * 0.55 + dt * 0.45;
-        // Keep interpolation in a stable window so marker "flows"
-        // but does not lag too much behind current GPS/snap point.
-        lerpDurMs.current = Math.max(120, Math.min(420, blended));
+      if (dt > 0 && dt < 10_000) {
+        // Match interpolation duration to the real interval between fixes.
+        // A slight +5% keeps motion continuous even when next fix arrives late,
+        // so the marker "flows" instead of finishing early and waiting still.
+        const targetDur = dt * 1.05;
+        const blended = lerpDurMs.current * 0.35 + targetDur * 0.65;
+        // Wide but bounded window: smooth on sparse GPS (2-5s) without
+        // introducing excessive lag when updates are frequent.
+        lerpDurMs.current = Math.max(150, Math.min(2600, blended));
       }
     }
 

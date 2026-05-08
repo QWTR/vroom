@@ -231,6 +231,11 @@ const GPS_WALLDT_IGNORE_SPEED_MS = 45_000;
 const GPS_IDLE_MAX_JUMP_AFTER_GAP_M = 1_800;
 const GPS_IDLE_GAP_FOR_JUMP_GUARD_MS = 45_000;
 const GPS_IDLE_SPEED_GUARD_KMH = 25;
+// While idle (no nav/driving), a single outlier fix can jump hundreds of meters.
+// Require a second nearby fix before accepting large low-speed jumps.
+const GPS_IDLE_RANDOM_JUMP_M = 120;
+const GPS_IDLE_CONFIRM_RADIUS_M = 140;
+const GPS_IDLE_CONFIRM_WINDOW_MS = 12_000;
 
 function isNullIsland(lat: number, lng: number): boolean {
   return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;
@@ -344,6 +349,7 @@ export default function MapScreen() {
 
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
+  const idleJumpCandidateRef  = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDrivingRef          = useRef(false);
   const drivingManuallyDisabledRef = useRef(false);
@@ -411,6 +417,7 @@ export default function MapScreen() {
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
   const [markerImages,        setMarkerImages]        = useState<Record<string, string>>({});
+  const [markerImageSignatures, setMarkerImageSignatures] = useState<Record<string, string>>({});
   const [pinImages,           setPinImages]           = useState<Record<string, string>>({});
   const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
 
@@ -1319,6 +1326,33 @@ export default function MapScreen() {
       if (lastGoodLocRef.current) {
         const dtMs   = now - lastGoodTimeRef.current;
         const safeDt = Math.max(dtMs, 100);
+        const idleMode = !isDrivingRef.current && !isNavigatingRef.current;
+        const jumpM = haversineKm(
+          lastGoodLocRef.current.lat,
+          lastGoodLocRef.current.lng,
+          rawLat,
+          rawLng,
+        ) * 1000;
+        // Idle anti-teleport: do not trust one-off large jumps while not navigating/driving.
+        // Ignore GPS-reported speed here — some devices report stale/high speed on stationary fixes.
+        if (idleMode && jumpM > GPS_IDLE_RANDOM_JUMP_M) {
+          const cand = idleJumpCandidateRef.current;
+          if (
+            cand &&
+            now - cand.time <= GPS_IDLE_CONFIRM_WINDOW_MS &&
+            haversineKm(cand.lat, cand.lng, rawLat, rawLng) * 1000 <= GPS_IDLE_CONFIRM_RADIUS_M
+          ) {
+            // Confirmed by consecutive nearby fix — accept and clear candidate.
+            idleJumpCandidateRef.current = null;
+          } else {
+            idleJumpCandidateRef.current = { lat: rawLat, lng: rawLng, time: now };
+            console.warn('[GPS map] Idle random jump candidate held for confirmation');
+            return;
+          }
+        } else if (jumpM <= GPS_IDLE_RANDOM_JUMP_M) {
+          idleJumpCandidateRef.current = null;
+        }
+
         const sane   = isSaneLocation(
           rawLat, rawLng,
           lastGoodLocRef.current.lat,
@@ -1346,7 +1380,10 @@ export default function MapScreen() {
         // In driving mode, use a higher floor (300 m) to accommodate GPS drift at
         // highway speeds when loc.speed may report 0 on Android.
         const distM2    = haversineKm(lastGoodLocRef.current.lat, lastGoodLocRef.current.lng, rawLat, rawLng) * 1000;
-        const reportedKmh = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
+        const reportedKmhRaw = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
+        const reportedKmh = (!isDrivingRef.current && !isNavigatingRef.current)
+          ? Math.min(reportedKmhRaw, 10)
+          : reportedKmhRaw;
         const expectedM2  = (reportedKmh / 3.6) * (safeDt / 1000);
         const distFloor   = isDrivingRef.current ? 300 : 100;
         const maxDistM2   = Math.max(distFloor, expectedM2 * 3 + 100);
@@ -2340,6 +2377,28 @@ export default function MapScreen() {
     );
   }, [userLocation, nearbyUsers]);
 
+  const getUserMarkerSignature = useCallback((u: User): string => (
+    `${u.avatar ?? ''}|${u.name}|${u.isFriend ? '1' : '0'}|${u.isPremium ? '1' : '0'}`
+  ), []);
+
+  useEffect(() => {
+    const activeIds = new Set(visibleUsers.map((u) => u.id));
+    setMarkerImages((prev) => {
+      const next: Record<string, string> = {};
+      Object.keys(prev).forEach((id) => {
+        if (activeIds.has(id)) next[id] = prev[id];
+      });
+      return next;
+    });
+    setMarkerImageSignatures((prev) => {
+      const next: Record<string, string> = {};
+      Object.keys(prev).forEach((id) => {
+        if (activeIds.has(id)) next[id] = prev[id];
+      });
+      return next;
+    });
+  }, [visibleUsers]);
+
   // ─────────────────────────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────────────────────────
@@ -2800,15 +2859,22 @@ export default function MapScreen() {
 
         {/* ── Off-screen renderers ─────────────────────────── */}
         {userLocation && visibleUsers.map(user =>
-          !markerImages[user.id] ? (
+          (() => {
+            const signature = getUserMarkerSignature(user);
+            return !markerImages[user.id] || markerImageSignatures[user.id] !== signature;
+          })() ? (
             <MarkerRenderer
-              key={`renderer_${user.id}`}
+              key={`renderer_${user.id}_${getUserMarkerSignature(user)}`}
               user={user}
               distance={calculateDistance(
                 userLocation.latitude, userLocation.longitude,
                 user.latitude, user.longitude,
               )}
-              onCapture={uri => setMarkerImages(prev => ({ ...prev, [user.id]: uri }))}
+              onCapture={uri => {
+                const signature = getUserMarkerSignature(user);
+                setMarkerImages(prev => ({ ...prev, [user.id]: uri }));
+                setMarkerImageSignatures(prev => ({ ...prev, [user.id]: signature }));
+              }}
             />
           ) : null,
         )}

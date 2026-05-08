@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { View, Text, Image, TouchableOpacity } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -89,7 +89,13 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
 export const UserCarMarker = memo(({
   user, distance, onPress, imageUri,
 }: UserCarMarkerProps) => {
-  if (!imageUri) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageUri]);
+
+  if (!imageUri || imageFailed) {
     return (
       <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
         <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
@@ -102,7 +108,12 @@ export const UserCarMarker = memo(({
   return (
     <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
       <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
-        <Image source={{ uri: imageUri }} style={{ width: 80, height: 80 }} resizeMode="contain" />
+        <Image
+          source={{ uri: imageUri }}
+          style={{ width: 80, height: 80 }}
+          resizeMode="contain"
+          onError={() => setImageFailed(true)}
+        />
       </TouchableOpacity>
     </Mapbox.MarkerView>
   );
