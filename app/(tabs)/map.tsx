@@ -700,7 +700,9 @@ export default function MapScreen() {
         });
       }
     }, [animateCameraLive, getAdaptiveZoom]),
-    stallTimeout: 2500,
+    // Keep DR alive longer between GPS fixes to avoid visible marker jumps
+    // on devices that emit location updates every 3-5 seconds.
+    stallTimeout: 7000,
   });
 
   const { flushPendingKm, startBackgroundTracking } = useBackgroundTracking(isSharing, settings.backgroundTracking);
@@ -1445,7 +1447,8 @@ export default function MapScreen() {
           console.warn('[GPS map] drivingSnap produced non-finite coord');
           return;
         }
-        if (isDrivingRef.current) {
+        const movingForDriving = kmh >= DRIVING_SPEED_KMH || movedForSnap >= 12;
+        if (isDrivingRef.current || movingForDriving) {
           const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs ?? undefined);
           if (segKm > 0) {
             recordDrivingTracePoint(snapped.latitude, snapped.longitude, { addDistanceKm: segKm, speedKmh: kmh }).catch(() => {});
@@ -1554,7 +1557,7 @@ export default function MapScreen() {
 
         setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
 
-        if (kmh >= DRIVING_SPEED_KMH) {
+        if (movingForDriving) {
           // ── Wymaga N kolejnych odczytów przed wejściem w driving
           drivingConsecutiveRef.current += 1;
 

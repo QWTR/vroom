@@ -88,6 +88,26 @@ let _traceLastWriteAt = 0;
 let _traceLastPoint: { latitude: number; longitude: number } | null = null;
 let _traceWriteInFlight = false;
 
+function compactBgRoutePoints(
+  points: { latitude: number; longitude: number }[],
+): { latitude: number; longitude: number }[] {
+  if (points.length <= BG_ROUTE_MAX_POINTS) return points;
+  let compacted = points;
+  while (compacted.length > BG_ROUTE_MAX_POINTS) {
+    const next: { latitude: number; longitude: number }[] = [];
+    for (let i = 0; i < compacted.length; i += 2) {
+      next.push(compacted[i]);
+    }
+    const last = compacted[compacted.length - 1];
+    const tail = next[next.length - 1];
+    if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
+      next.push(last);
+    }
+    compacted = next;
+  }
+  return compacted;
+}
+
 // ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
@@ -123,7 +143,7 @@ export async function recordDrivingTracePoint(
     const seeded = routePts.length === 0
       ? [{ latitude, longitude }]
       : routePts;
-    const nextRoute = [...seeded, { latitude, longitude }].slice(-BG_ROUTE_MAX_POINTS);
+    const nextRoute = compactBgRoutePoints([...seeded, { latitude, longitude }]);
 
     const writes: Promise<any>[] = [
       AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(nextRoute)),
@@ -255,10 +275,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         const seedPts = routePts.length === 0
           ? [{ latitude: lastLat, longitude: lastLng }]
           : routePts;
-        const nextRoute = [
+        const nextRoute = compactBgRoutePoints([
           ...seedPts,
           { latitude, longitude },
-        ].slice(-BG_ROUTE_MAX_POINTS);
+        ]);
 
         await Promise.all([
           AsyncStorage.setItem(BG_PENDING_KM_KEY, String(newPending)),

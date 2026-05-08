@@ -17,6 +17,7 @@ import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useSettings }  from '../../hooks/useSettings';
 import { useTheme }     from '../../contexts/ThemeContext';
+import { usePremium }   from '../../contexts/PremiumContext';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
@@ -61,7 +62,9 @@ const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 export default function SettingsScreen() {
   const router = useRouter();
   const { theme, isDark, mode, setMode } = useTheme();
+  const { isPremium: premiumFromContext } = usePremium();
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
+  const effectivePremium = !!(premiumFromContext || settings.isPremium);
 
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = isDark ? '#090909'   : '#f0f2f5';
@@ -718,7 +721,7 @@ export default function SettingsScreen() {
 
 					<SectionLabel title='PREMIUM PERSONALIZACJA' />
 					<Card>
-						{!settings.isPremium ? (
+						{!effectivePremium ? (
 							<Row
 								icon='workspace-premium'
 								iconBg='#FFD700'

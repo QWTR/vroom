@@ -113,17 +113,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
       if (res.ok) {
         const data = await res.json();
-        const merged = {
-          ...DEFAULTS,
-          ...data,
-          profilePremiumExtras: data.profilePremiumExtras != null
-            ? mergeProfilePremiumExtras(data.profilePremiumExtras)
-            : null,
-        };
-        setSettings(merged);
-        try {
-          await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-        } catch { /* ignore */ }
+        setSettings(prev => {
+          const merged = {
+            ...DEFAULTS,
+            ...prev,
+            ...data,
+            // Keep last known premium config locally when premium is expired.
+            profilePremiumExtras: data.profilePremiumExtras != null
+              ? mergeProfilePremiumExtras(data.profilePremiumExtras)
+              : prev.profilePremiumExtras,
+          };
+          try {
+            AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+          } catch { /* ignore */ }
+          return merged;
+        });
       }
 
       const premiumRes = await fetchWithTimeout(`${API_URL}/api/settings/premium-ui`, {
@@ -213,8 +217,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ [key]: nextVal }),
       });
       if (!res.ok) {
-        const def = (DEFAULTS as any)[key];
-        setSettings(prev => ({ ...prev, [key]: def !== undefined ? def : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]) }));
+        let errorCode: string | null = null;
+        try {
+          const errJson = await res.json();
+          errorCode = typeof errJson?.code === 'string' ? errJson.code : null;
+        } catch { /* ignore */ }
+
+        // When premium expired, preserve local premium options so they can be
+        // restored immediately after user renews premium.
+        if (errorCode !== 'PREMIUM_REQUIRED') {
+          const def = (DEFAULTS as any)[key];
+          setSettings(prev => ({ ...prev, [key]: def !== undefined ? def : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]) }));
+        }
       }
     } catch (e) {
       console.log('updateSetting error:', e);

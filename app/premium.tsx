@@ -9,6 +9,7 @@ import { useRouter }      from 'expo-router';
 import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
 import Toast              from 'react-native-toast-message';
 import { usePremium }     from '../contexts/PremiumContext';
+import { useSettings }    from '../hooks/useSettings';
 
 const { width } = Dimensions.get('window');
 const R   = '#e33835';
@@ -46,6 +47,7 @@ const BENEFITS = [
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
   const router = useRouter();
+  const { fetchSettings } = useSettings();
   const {
     getOfferings,
     getRevenueCatDebugSnapshot,
@@ -81,15 +83,22 @@ export default function PremiumScreen() {
   // Zamknij po zakupie
   useEffect(() => {
     if (isPremium) {
-      Toast.show({
-        type: 'success',
-        text1: 'VROOM PREMIUM aktywny!',
-        text2: 'Ciesz się pełnymi możliwościami 🏆',
-        visibilityTime: 3500,
-      });
-      router.back();
+      (async () => {
+        try {
+          await fetchSettings();
+        } catch {
+          /* ignore */
+        }
+        Toast.show({
+          type: 'success',
+          text1: 'VROOM PREMIUM aktywny!',
+          text2: 'Ciesz się pełnymi możliwościami 🏆',
+          visibilityTime: 3500,
+        });
+        router.back();
+      })();
     }
-  }, [isPremium, router]);
+  }, [isPremium, router, fetchSettings]);
 
   const handlePurchase = async (pkg: any) => {
     setBuying(pkg.identifier);

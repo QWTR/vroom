@@ -117,12 +117,32 @@ export default function ProfileView({
 }: Props) {
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
-  const profileThemePreset = (isOwner ? settings.profileThemePreset : profile?.profileThemePreset) ?? 'default';
-  const avatarFramePreset = (isOwner ? settings.avatarFramePreset : profile?.avatarFramePreset) ?? 'vroom';
-  const profileNickColor = (isOwner ? settings.nickColor : profile?.nickColor) ?? null;
+  const useProfileSnapshotForOwner = isOwner && !settings.isPremium && !!profile?.isPremium;
+  const rawProfileThemePreset = (
+    isOwner
+      ? (useProfileSnapshotForOwner ? profile?.profileThemePreset : settings.profileThemePreset)
+      : profile?.profileThemePreset
+  ) ?? 'default';
+  const rawAvatarFramePreset = (
+    isOwner
+      ? (useProfileSnapshotForOwner ? profile?.avatarFramePreset : settings.avatarFramePreset)
+      : profile?.avatarFramePreset
+  ) ?? 'vroom';
+  const rawProfileNickColor = (
+    isOwner
+      ? (useProfileSnapshotForOwner ? profile?.nickColor : settings.nickColor)
+      : profile?.nickColor
+  ) ?? null;
   const hasPremiumProfileUi = !!isPremium;
+  const profileThemePreset = hasPremiumProfileUi ? rawProfileThemePreset : 'default';
+  const avatarFramePreset = hasPremiumProfileUi ? rawAvatarFramePreset : 'vroom';
+  const profileNickColor = hasPremiumProfileUi ? rawProfileNickColor : null;
   const premiumUi: ProfilePremiumExtras | null = hasPremiumProfileUi
-    ? mergeProfilePremiumExtras(isOwner ? settings.profilePremiumExtras : profile?.profilePremiumExtras)
+    ? mergeProfilePremiumExtras(
+        isOwner
+          ? (useProfileSnapshotForOwner ? profile?.profilePremiumExtras : settings.profilePremiumExtras)
+          : profile?.profilePremiumExtras,
+      )
     : null;
 
   const profilePalette = React.useMemo(
