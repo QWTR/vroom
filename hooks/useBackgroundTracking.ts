@@ -472,9 +472,9 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
   // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      if (s === 'active' || s === 'background') {
-        if (bgEnabled || isSharing) startBackgroundTracking();
-      }
+      // Start/recover only on foreground. Triggering permission/start flow while
+      // app is backgrounded can bring Android app back to front unexpectedly.
+      if (s === 'active' && (bgEnabled || isSharing)) startBackgroundTracking();
     });
     return () => sub.remove();
   }, [isSharing, bgEnabled, startBackgroundTracking]);

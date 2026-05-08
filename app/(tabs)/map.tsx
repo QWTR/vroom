@@ -1000,6 +1000,7 @@ export default function MapScreen() {
   useEffect(() => {
     let cancelled = false;
     let watchSub: { remove: () => void } | null = null;
+    let initUnlockTimer: ReturnType<typeof setTimeout> | null = null;
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
     const acceptFreshFix = (loc: Location.LocationObject): boolean => {
@@ -1032,12 +1033,43 @@ export default function MapScreen() {
       }
     };
 
+    const unlockMapWithFallback = () => {
+      if (cancelled) return;
+      if (locationReadyRef.current) return;
+      const [lng, lat] = lastMapCenterRef.current;
+      setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+      setLocationReady(true);
+      Toast.show({
+        type: 'info',
+        text1: 'GPS',
+        text2: 'Mapa odblokowana bez fixa. Czekam na sygnał GPS...',
+      });
+    };
+
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Włącz lokalizację w ustawieniach' });
+          unlockMapWithFallback();
           return;
+        }
+
+        // Fast-path: if OS has a recent last-known fix, unlock UI immediately.
+        try {
+          const lastKnown = await Location.getLastKnownPositionAsync({
+            maxAge: 60_000,
+            requiredAccuracy: 250,
+          });
+          if (lastKnown && !cancelled) {
+            const rawLat = lastKnown.coords.latitude;
+            const rawLng = lastKnown.coords.longitude;
+            if (Number.isFinite(rawLat) && Number.isFinite(rawLng) && !isNullIsland(rawLat, rawLng)) {
+              applyInitialFix(lastKnown, true);
+            }
+          }
+        } catch {
+          /* continue with standard init flow */
         }
 
         for (let i = 0; i < 6 && !cancelled; i++) {
@@ -1110,13 +1142,21 @@ export default function MapScreen() {
         }
 
         Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Nie można pobrać lokalizacji' });
+        unlockMapWithFallback();
       } catch {
         Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Nie można pobrać lokalizacji' });
+        unlockMapWithFallback();
       }
     })();
 
+    // Hard failsafe: never keep the map on infinite GPS loader.
+    initUnlockTimer = setTimeout(() => {
+      unlockMapWithFallback();
+    }, 30_000);
+
     return () => {
       cancelled = true;
+      if (initUnlockTimer) clearTimeout(initUnlockTimer);
       watchSub?.remove();
     };
   }, []);
