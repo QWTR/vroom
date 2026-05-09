@@ -135,9 +135,11 @@ const NAV_PITCH           = 62;
 const DEBUG_NETWORK = false;
 
 // Live location sharing — interval + distance/time gate
-const SEND_INTERVAL_MS    = 5_000;  // poll period (ms)
-const SEND_MIN_DIST_M     = 15;     // min movement before sending (saves bandwidth while stationary)
-const SEND_MAX_ELAPSED_MS = 20_000; // heartbeat: force-send after this long even without movement
+const SEND_INTERVAL_MS    = 10_000; // poll period (ms)
+const SEND_MIN_DIST_M     = 40;     // min movement before sending (saves bandwidth while stationary)
+const SEND_MAX_ELAPSED_MS = 60_000; // heartbeat: force-send after this long even without movement
+const FORCE_MAP_MATCH_COOLDOWN_MS = 120_000;
+const FORCE_MAP_MATCH_MIN_MOVE_M = 120;
 const NAV_SESSION_KEY     = 'nav_session_v1';
 const NAV_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 
@@ -342,6 +344,8 @@ export default function MapScreen() {
   // reroute cooldown: limit reroute trigger frequency
   const lastRerouteTimeRef  = useRef<number>(0);
   const lastRerouteLocRef   = useRef<{ lat: number; lng: number } | null>(null);
+  // forceMapMatch: avoid repeated paid entry snaps in the same area
+  const lastForceMapMatchRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   // currentLocRef: latest userLocation readable inside stable interval callbacks
   const currentLocRef       = useRef<{ latitude: number; longitude: number } | null>(null);
   /** Ostatnie znane centrum mapy — żeby Camera nie wracała na domyślne 19/52 przy migawce stanu. */
@@ -1249,24 +1253,35 @@ export default function MapScreen() {
         // forceMatch: await the API result so we can snap immediately —
         // this is essential when stationary (speed = 0) because the GPS
         // pipeline's dead-zone guard would otherwise skip the snap update.
-        addMatchPosition(startLat, startLng);
-        const matchedPts = await forceMapMatch(startLat, startLng);
+        const lastForce = lastForceMapMatchRef.current;
+        const movedFromLastForceM = lastForce
+          ? haversineKm(lastForce.lat, lastForce.lng, startLat, startLng) * 1000
+          : Infinity;
+        const canForceMatch =
+          !lastForce
+          || Date.now() - lastForce.at >= FORCE_MAP_MATCH_COOLDOWN_MS
+          || movedFromLastForceM >= FORCE_MAP_MATCH_MIN_MOVE_M;
 
-        if (matchedPts && matchedPts.length >= 2 && isDrivingRef.current) {
-          // Push the road geometry into the snap hook so drivingSnap can use it.
-          setRoadMatchPoints(matchedPts);
-          const snapped = drivingSnap(startLat, startLng, 0, false);
-          if (snapped.snapped && Number.isFinite(snapped.latitude) && Number.isFinite(snapped.longitude)) {
-            // Apply the snapped road position directly — bypasses the GPS pipeline
-            // dead-zone which would otherwise block updates while speed is 0.
-            drLatRef.current = snapped.latitude;
-            drLngRef.current = snapped.longitude;
-            lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
-            setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
-            // Re-anchor dead-reckoning at the snapped position so the camera
-            // follows the correct road-snapped location.
-            feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, entryHeading);
-            console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
+        if (canForceMatch) {
+          lastForceMapMatchRef.current = { at: Date.now(), lat: startLat, lng: startLng };
+          const matchedPts = await forceMapMatch(startLat, startLng);
+
+          if (matchedPts && matchedPts.length >= 2 && isDrivingRef.current) {
+            // Push the road geometry into the snap hook so drivingSnap can use it.
+            setRoadMatchPoints(matchedPts);
+            const snapped = drivingSnap(startLat, startLng, 0, false);
+            if (snapped.snapped && Number.isFinite(snapped.latitude) && Number.isFinite(snapped.longitude)) {
+              // Apply the snapped road position directly — bypasses the GPS pipeline
+              // dead-zone which would otherwise block updates while speed is 0.
+              drLatRef.current = snapped.latitude;
+              drLngRef.current = snapped.longitude;
+              lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+              setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+              // Re-anchor dead-reckoning at the snapped position so the camera
+              // follows the correct road-snapped location.
+              feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, entryHeading);
+              console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
+            }
           }
         }
       } catch (e) {
@@ -1274,7 +1289,7 @@ export default function MapScreen() {
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, addMatchPosition, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints, startTrip]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints, startTrip]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -1469,13 +1484,15 @@ export default function MapScreen() {
           setRoadMatchPoints(matchedPts);
         }
 
-        // Feed new GPS positions to the API buffer only when there's real movement.
-        // Use real movement (meters) as trigger — loc.speed is unreliable on
-        // Android and can read 0 km/h even while the vehicle is moving.
+        // Feed map matching only in confirmed driving mode.
+        // Before driving starts, route snapping falls back to route geometry/raw GPS.
+        // This removes the biggest source of Map Matching overuse when users simply
+        // browse the map or move slowly on foot.
         const movedForSnap = lastSetLocRef.current
           ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, lat, lng) * 1000
           : Infinity;
-        if (movedForSnap >= 3 || kmh >= 5) {
+        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 25;
+        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 20 && kmh >= 10) {
           addMatchPosition(lat, lng);
         }
 
@@ -1623,24 +1640,35 @@ export default function MapScreen() {
             // snapped position on the next event-loop tick after the fetch resolves.
             const entryLat = snapped.latitude;
             const entryLng = snapped.longitude;
-            forceMapMatch(entryLat, entryLng).then((matchedPts) => {
-              try {
-                if (!matchedPts || matchedPts.length < 2 || !isDrivingRef.current) return;
-                if (!Number.isFinite(entryLat) || !Number.isFinite(entryLng)) return;
-                setRoadMatchPoints(matchedPts);
-                const forcedSnap = drivingSnap(entryLat, entryLng, 0, false);
-                if (forcedSnap.snapped) {
-                  if (!Number.isFinite(forcedSnap.latitude) || !Number.isFinite(forcedSnap.longitude)) return;
-                  drLatRef.current = forcedSnap.latitude;
-                  drLngRef.current = forcedSnap.longitude;
-                  lastSetLocRef.current = { lat: forcedSnap.latitude, lng: forcedSnap.longitude };
-                  setUserLocation({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude });
-                  feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs ?? 0, drivingHeading);
+            const lastForce = lastForceMapMatchRef.current;
+            const movedFromLastForceM = lastForce
+              ? haversineKm(lastForce.lat, lastForce.lng, entryLat, entryLng) * 1000
+              : Infinity;
+            const canForceMatch =
+              !lastForce
+              || Date.now() - lastForce.at >= FORCE_MAP_MATCH_COOLDOWN_MS
+              || movedFromLastForceM >= FORCE_MAP_MATCH_MIN_MOVE_M;
+            if (canForceMatch) {
+              lastForceMapMatchRef.current = { at: Date.now(), lat: entryLat, lng: entryLng };
+              forceMapMatch(entryLat, entryLng).then((matchedPts) => {
+                try {
+                  if (!matchedPts || matchedPts.length < 2 || !isDrivingRef.current) return;
+                  if (!Number.isFinite(entryLat) || !Number.isFinite(entryLng)) return;
+                  setRoadMatchPoints(matchedPts);
+                  const forcedSnap = drivingSnap(entryLat, entryLng, 0, false);
+                  if (forcedSnap.snapped) {
+                    if (!Number.isFinite(forcedSnap.latitude) || !Number.isFinite(forcedSnap.longitude)) return;
+                    drLatRef.current = forcedSnap.latitude;
+                    drLngRef.current = forcedSnap.longitude;
+                    lastSetLocRef.current = { lat: forcedSnap.latitude, lng: forcedSnap.longitude };
+                    setUserLocation({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude });
+                    feedDR({ latitude: forcedSnap.latitude, longitude: forcedSnap.longitude }, rawSpeedMs ?? 0, drivingHeading);
+                  }
+                } catch (e) {
+                  console.warn('[DrivingMode] forceMapMatch apply error:', e);
                 }
-              } catch (e) {
-                console.warn('[DrivingMode] forceMapMatch apply error:', e);
-              }
-            }).catch((e) => console.warn('[DrivingMode] forceMapMatch:', e));
+              }).catch((e) => console.warn('[DrivingMode] forceMapMatch:', e));
+            }
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(

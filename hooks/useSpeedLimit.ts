@@ -6,11 +6,11 @@ const OVERPASS_ENDPOINTS = [
 ];
 // Minimum distance (degrees, ~90 m) the user must move before re-fetching the
 // speed limit. Smaller value is needed for dense urban roads.
-const REFETCH_DIST_DEG = 0.0008;  // ~90 m
+const REFETCH_DIST_DEG = 0.0018;  // ~200 m
 // Minimum time between Overpass requests regardless of movement.
 // Raise to cap query frequency on stop-and-go or oscillating GPS.
-const MIN_INTERVAL_MS  = 8_000;   // 8 s
-const SEARCH_RADIUS_M  = 180;
+const MIN_INTERVAL_MS  = 20_000;  // 20 s
+const SEARCH_RADIUS_M  = 140;
 
 type OverpassElement = {
   tags?: { maxspeed?: string; highway?: string };

@@ -57,8 +57,8 @@ function round4(n: number) { return Math.round(n * 10000) / 10000; }
 //   - SINGLE_ROUTE_TTL_MS  (30 s): keeps navigation + reroute results fresh enough for a drive
 //   - ALT_ROUTES_TTL_MS    (60 s): alternatives panel rarely needs sub-minute freshness
 // Increase both values to reduce API calls further if stale routes are acceptable.
-const SINGLE_ROUTE_TTL_MS = 30_000;
-const ALT_ROUTES_TTL_MS   = 60_000;
+const SINGLE_ROUTE_TTL_MS = 90_000;
+const ALT_ROUTES_TTL_MS   = 180_000;
 
 interface CacheEntry {
   result:    DirectionsResult | DirectionsResult[];

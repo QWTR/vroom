@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
@@ -36,12 +37,14 @@ type ResetStep = 'email' | 'code' | 'password';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string }>();
 
   const [screen,       setScreen]       = useState<Screen>('login');
   const [email,        setEmail]        = useState('');
   const [password,     setPassword]     = useState('');
   const [username,     setUsername]     = useState('');
   const [confirmPass,  setConfirmPass]  = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [showPass,     setShowPass]     = useState(false);
   const [showConfirm,  setShowConfirm]  = useState(false);
   const [resetStep,    setResetStep]    = useState<ResetStep>('email');
@@ -51,6 +54,11 @@ export default function LoginScreen() {
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [gLoading,     setGLoading]     = useState(false);
+
+  useEffect(() => {
+    const ref = typeof params.ref === 'string' ? params.ref.trim() : '';
+    if (ref) setReferralCode(ref.toUpperCase());
+  }, [params.ref]);
 
   // Animacje wejścia
   const fadeAnim  = useRef(new Animated.Value(0)).current;
@@ -129,7 +137,16 @@ export default function LoginScreen() {
     if (password !== confirmPass)         return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, username: username.trim() }) });
+      const res  = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          username: username.trim(),
+          referralCode: referralCode.trim() || undefined,
+        }),
+      });
       const data = await res.json();
       if (res.ok) { Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone. Zaloguj się.' }); switchScreen('login'); }
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nie można utworzyć konta.' });
@@ -391,6 +408,7 @@ export default function LoginScreen() {
           {/* Formularz */}
           {screen === 'register' && renderField('NAZWA UŻYTKOWNIKA', 'person-outline', username, setUsername, { placeholder: 'np. NightRider_PL' })}
           {renderField('ADRES E-MAIL', 'email', email, setEmail, { placeholder: 'twoj@email.com', keyboardType: 'email-address' })}
+          {screen === 'register' && renderField('KOD / LINK POLECAJĄCY (opcjonalnie)', 'group-add', referralCode, (t) => setReferralCode(t.toUpperCase()), { placeholder: 'np. NIGHT1234 lub pełny link' })}
           {renderField('HASŁO', 'lock-outline', password, setPassword, {
             placeholder: '••••••••',
             secure: !showPass,

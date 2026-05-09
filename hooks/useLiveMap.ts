@@ -96,7 +96,7 @@ export function useLiveMap(
   const INTERP_TICK_MS     = 50;   // ticker interval (20 fps)
   const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
   const MAX_INTERP_DUR_MS  = 6000;
-  const USERS_REFRESH_MS   = 25000;
+  const USERS_REFRESH_MS   = 60000;
 
   const easeInOut = (t: number) => t * t * (3 - 2 * t);
 

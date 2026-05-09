@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator, Switch, Modal, Image,
+  TextInput, ActivityIndicator, Switch, Modal, Image, Share,
   Dimensions,
 } from 'react-native';
 import { Text }         from 'react-native';
@@ -119,6 +119,12 @@ export default function SettingsScreen() {
   const [ringC3, setRingC3] = useState('#4DE926');
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState('');
   const [spotifySaving, setSpotifySaving] = useState(false);
+  const [refCodeInput, setRefCodeInput] = useState('');
+  const [refCodeCurrent, setRefCodeCurrent] = useState('');
+  const [refLink, setRefLink] = useState('');
+  const [refUsedCount, setRefUsedCount] = useState(0);
+  const [refLoading, setRefLoading] = useState(false);
+  const [refSaving, setRefSaving] = useState(false);
 
   useEffect(() => {
     const e = mergeProfilePremiumExtras(settings.profilePremiumExtras);
@@ -132,6 +138,30 @@ export default function SettingsScreen() {
     setRingC3(e.avatarRingGradient?.colors?.[2] ?? '#4DE926');
     setSpotifyTrackUrl(settings.spotifyProfileTrack?.url ?? '');
   }, [settings.profilePremiumExtras, settings.spotifyProfileTrack?.url]);
+
+  const loadReferralData = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    setRefLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/referral/my-code`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) return;
+      const code = String(json?.code ?? '').toUpperCase();
+      setRefCodeCurrent(code);
+      setRefCodeInput(code);
+      setRefLink(String(json?.link ?? ''));
+      setRefUsedCount(Number(json?.usedCount ?? 0));
+    } finally {
+      setRefLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReferralData().catch(() => {});
+  }, [loadReferralData]);
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
@@ -310,6 +340,50 @@ export default function SettingsScreen() {
     } finally {
       setSpotifySaving(false);
     }
+  };
+
+  const saveReferralCode = async () => {
+    const code = refCodeInput.trim().toUpperCase();
+    if (code.length < 4 || code.length > 24 || !/^[A-Z0-9]+$/.test(code)) {
+      Toast.show({ type: 'error', text1: 'Kod musi mieć 4-24 znaki A-Z/0-9' });
+      return;
+    }
+    const token = await getToken();
+    if (!token) return;
+    setRefSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/referral/my-code`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać kodu' });
+        return;
+      }
+      const nextCode = String(json?.code ?? code).toUpperCase();
+      setRefCodeCurrent(nextCode);
+      setRefCodeInput(nextCode);
+      setRefLink(String(json?.link ?? ''));
+      setRefUsedCount(Number(json?.usedCount ?? 0));
+      Toast.show({ type: 'success', text1: 'Kod polecający zapisany' });
+    } finally {
+      setRefSaving(false);
+    }
+  };
+
+  const shareReferralLink = async () => {
+    if (!refLink) return;
+    try {
+      await Share.share({
+        title: 'Mój link polecający VROOM',
+        message: `Dołącz do VROOM z mojego linku: ${refLink}`,
+      });
+    } catch {}
   };
 
   // ── Sub-components (wewnątrz — mają dostęp do kolorów) ─
@@ -1531,6 +1605,84 @@ export default function SettingsScreen() {
 							onPress={() => router.push("/profile/change-email")}
 							last
 						/>
+					</Card>
+
+					<SectionLabel title='POLECENIA / REF LINK' />
+					<Card>
+						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+								Twój kod polecający
+							</Text>
+							{refLoading ? (
+								<ActivityIndicator color={RED} />
+							) : (
+								<>
+									<TextInput
+										value={refCodeInput}
+										onChangeText={(t) => setRefCodeInput(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+										placeholder='NP. NIGHTRIDER99'
+										placeholderTextColor={textDim}
+										autoCapitalize='characters'
+										autoCorrect={false}
+										maxLength={24}
+										style={{
+											backgroundColor: inputBg,
+											borderRadius: 10,
+											borderWidth: 1,
+											borderColor: inputBorder,
+											color: textMain,
+											paddingHorizontal: 12,
+											paddingVertical: 11,
+											fontFamily: 'Orbitron',
+											fontSize: 10,
+											letterSpacing: 1,
+										}}
+									/>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+										Użyć kodu: {refUsedCount} razy
+									</Text>
+									{!!refLink && (
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+											Link: {refLink}
+										</Text>
+									)}
+									<View style={{ flexDirection: 'row', gap: 8 }}>
+										<TouchableOpacity
+											onPress={saveReferralCode}
+											disabled={refSaving || !refCodeInput || refCodeInput === refCodeCurrent}
+											style={{
+												flex: 1,
+												backgroundColor: RED,
+												borderRadius: 10,
+												paddingVertical: 12,
+												alignItems: 'center',
+												opacity: refSaving || !refCodeInput || refCodeInput === refCodeCurrent ? 0.6 : 1,
+											}}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+												{refSaving ? 'ZAPIS...' : 'ZAPISZ KOD'}
+											</Text>
+										</TouchableOpacity>
+										<TouchableOpacity
+											onPress={shareReferralLink}
+											disabled={!refLink}
+											style={{
+												paddingHorizontal: 12,
+												borderRadius: 10,
+												borderWidth: 1,
+												borderColor: '#4de92640',
+												backgroundColor: '#4de92618',
+												alignItems: 'center',
+												justifyContent: 'center',
+												opacity: refLink ? 1 : 0.5,
+											}}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '700' }}>
+												UDOSTĘPNIJ
+											</Text>
+										</TouchableOpacity>
+									</View>
+								</>
+							)}
+						</View>
 					</Card>
 
 					{/* PRYWATNOŚĆ */}

@@ -9,13 +9,18 @@ import { haversineKm }         from '../scripts/navigationUtils';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
-const MIN_INTERVAL_MS = 2200;   // call API at most every ~2.2 s
+const MIN_INTERVAL_MS = 15_000; // call API at most every ~15 s
 const BUFFER_SIZE     = 8;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
 // forceMatch uses a wider radius so a stationary user with GPS inaccuracy still snaps
 const FORCE_MATCH_RADIUS_M = 100;
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
-const MIN_POINT_DIST_KM = 0.0025; // ~2.5 m — more responsive on curves
+const MIN_POINT_DIST_KM = 0.015; // ~15 m — drop GPS jitter before buffering
+const MIN_BUFFER_POINTS = 4;     // avoid map matching calls from tiny segments
+const MIN_FETCH_MOVE_M  = 35;    // call API only after meaningful movement
+const FORCE_MATCH_MIN_INTERVAL_MS = 90_000; // avoid repeated paid entry snaps
+const REQUEST_WINDOW_MS = 60 * 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 45;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -46,6 +51,8 @@ interface MapMatchResponse {
 export function useDrivingMapMatch() {
   const bufferRef      = useRef<GpsPoint[]>([]);
   const lastCallRef    = useRef<number>(0);
+  const lastFetchRef   = useRef<{ lat: number; lng: number } | null>(null);
+  const requestTimesRef = useRef<number[]>([]);
   const isFetchingRef  = useRef<boolean>(false);
   const matchedPtsRef  = useRef<{ latitude: number; longitude: number }[] | null>(null);
   const matchedTimeRef = useRef<number>(0);
@@ -65,9 +72,22 @@ export function useDrivingMapMatch() {
 
     if (now - lastCallRef.current < MIN_INTERVAL_MS) return;
     if (isFetchingRef.current)                       return;
-    if (bufferRef.current.length < 2)                return;
+    if (bufferRef.current.length < MIN_BUFFER_POINTS) return;
+    if (lastFetchRef.current) {
+      const movedSinceLastFetchM = haversineKm(
+        lastFetchRef.current.lat,
+        lastFetchRef.current.lng,
+        lat,
+        lng,
+      ) * 1000;
+      if (movedSinceLastFetchM < MIN_FETCH_MOVE_M) return;
+    }
+    requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+    if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return;
+    requestTimesRef.current.push(now);
 
     lastCallRef.current   = now;
+    lastFetchRef.current  = { lat, lng };
     isFetchingRef.current = true;
 
     try {
@@ -105,7 +125,7 @@ export function useDrivingMapMatch() {
    * Immediately snaps a single position to the nearest road, bypassing the
    * normal cooldown and buffer-size requirements.  Used on driving mode entry
    * so the marker is road-snapped from the very first GPS tick rather than
-   * waiting for the user to move 10+ m and a full 4-second interval to elapse.
+   * waiting for the user to move enough and the regular interval to elapse.
    *
    * Internally sends two nearly-identical coordinates (5 m apart) because the
    * Mapbox Map Matching API requires at least 2 points.
@@ -118,12 +138,21 @@ export function useDrivingMapMatch() {
     async (lat: number, lng: number): Promise<{ latitude: number; longitude: number }[] | null> => {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
       if (isFetchingRef.current) return null;
+      if (
+        matchedPtsRef.current &&
+        Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
+      ) {
+        return matchedPtsRef.current;
+      }
+      const now = Date.now();
+      requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+      if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return matchedPtsRef.current;
+      requestTimesRef.current.push(now);
       isFetchingRef.current = true;
-      // NOTE: intentionally do NOT update lastCallRef here.
-      // forceMatch is a one-shot entry snap that bypasses the normal cooldown.
-      // Leaving lastCallRef untouched means the regular addPosition pipeline can
-      // fire its next fetch immediately after forceMatch completes, so fresh
-      // multi-point road geometry arrives without the usual 4-second wait.
+      lastCallRef.current   = now;
+      lastFetchRef.current  = { lat, lng };
+      // Put the regular pipeline on cooldown after forceMatch so we do not
+      // immediately issue a second paid request for nearly the same position.
 
       try {
         // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum
@@ -185,6 +214,8 @@ export function useDrivingMapMatch() {
     bufferRef.current     = [];
     matchedPtsRef.current = null;
     lastCallRef.current   = 0;
+    lastFetchRef.current  = null;
+    requestTimesRef.current = [];
     isFetchingRef.current = false;
     console.log('[DrivingMapMatch] reset');
   }, []);

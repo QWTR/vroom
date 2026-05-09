@@ -37,8 +37,8 @@ interface LocationState {
   longitude: number;
 }
 
-const THROTTLE_MS    = 30_000; // don't re-fetch within 30 s
-const THROTTLE_M     = 500;    // don't re-fetch unless moved 500 m
+const THROTTLE_MS    = 120_000; // don't re-fetch within 120 s
+const THROTTLE_M     = 1500;    // don't re-fetch unless moved 1.5 km
 const MATCH_RADIUS_M = 100;    // max distance to consider a Mapbox station == a DB station
 
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
