@@ -1608,7 +1608,7 @@ export default function SettingsScreen() {
 					</Card>
 
 					<SectionLabel title='POLECENIA / REF LINK' />
-					<Card>
+					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
 								Twój kod polecający
@@ -1683,7 +1683,7 @@ export default function SettingsScreen() {
 								</>
 							)}
 						</View>
-					</Card>
+					</View>
 
 					{/* PRYWATNOŚĆ */}
 					<SectionLabel title='PRYWATNOŚĆ' />
