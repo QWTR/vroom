@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
-import { MAPBOX_TOKEN } from '../constants/mapConfig';
+import { fetchSearchCategoryViaProxy } from '../scripts/mapboxProxyClient';
 
 export interface FuelPrice {
   pb95:      number | null;
@@ -94,11 +94,6 @@ export function useFuelStations(userLocation: LocationState | null) {
       const token = await getToken();
       const bbox  = bboxFromLocation(loc);
 
-      // 1. Mapbox Search Box — all gas stations near the user
-      const mapboxUrl =
-        `https://api.mapbox.com/search/searchbox/v1/category/gas_station` +
-        `?proximity=${loc.longitude},${loc.latitude}&limit=25&language=pl&access_token=${MAPBOX_TOKEN}`;
-
       // 2. Backend DB — stations that already have user-submitted prices
       const params = new URLSearchParams({
         minLat: String(bbox.minLat),
@@ -108,17 +103,21 @@ export function useFuelStations(userLocation: LocationState | null) {
       });
       const dbUrl = `${API_URL}/api/fuel-stations?${params}`;
 
-      const [mapboxRes, dbRes] = await Promise.all([
-        fetch(mapboxUrl),
+      const [mapboxData, dbRes] = await Promise.all([
+        fetchSearchCategoryViaProxy<any>({
+          category: 'gas_station',
+          proximityLng: loc.longitude,
+          proximityLat: loc.latitude,
+          limit: 25,
+          language: 'pl',
+        }),
         fetch(dbUrl, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       // Parse Mapbox results
       let mapboxStations: FuelStation[] = [];
-      if (mapboxRes.ok) {
-        const data = await mapboxRes.json();
-        if (data.features) {
-          mapboxStations = (data.features as any[]).map(f => ({
+      if (mapboxData?.features) {
+          mapboxStations = (mapboxData.features as any[]).map(f => ({
             id:      String(f.properties.mapbox_id ?? f.id),
             name:    f.properties.name ?? 'Stacja paliw',
             brand:   f.properties.name ?? null,
@@ -127,7 +126,6 @@ export function useFuelStations(userLocation: LocationState | null) {
             address: (f.properties.full_address ?? f.properties.address ?? '') as string,
             prices:  [] as FuelPrice[],
           }));
-        }
       }
 
       // Parse DB results

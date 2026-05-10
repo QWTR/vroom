@@ -10,7 +10,7 @@ import debounce from 'lodash.debounce';
 import Toast from 'react-native-toast-message';
 import { User, LocationState } from '../../constants/types';
 import { calculateDistance } from '../../scripts/distance';
-import { MAPBOX_TOKEN, MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
+import { MAX_NEARBY_USERS_DISTANCE } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   usePlacesNearby,
@@ -19,6 +19,7 @@ import {
   NearbyPlace,
   detectBrand,
 } from '../../hooks/usePlacesNearby';
+import { fetchGeocodingViaProxy } from '../../scripts/mapboxProxyClient';
 
 interface GeocodingResult {
   mapboxId:      string;
@@ -159,14 +160,13 @@ export const SearchModal = memo(({
     setFilteredUsers([]);
     clearPlaces();
     try {
-      const proximity = userLocation
-        ? `&proximity=${userLocation.longitude},${userLocation.latitude}`
-        : '';
-      const res = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-        `?access_token=${MAPBOX_TOKEN}&language=pl&limit=5${proximity}`,
-      );
-      const data = await res.json();
+      const data = await fetchGeocodingViaProxy<any>({
+        query,
+        language: 'pl',
+        limit: 5,
+        proximityLng: userLocation?.longitude,
+        proximityLat: userLocation?.latitude,
+      });
       const features = data.features ?? [];
       setFilteredPlaces(features.map((f: any) => {
         const mainText = f.text ?? f.place_name ?? '';

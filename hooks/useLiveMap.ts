@@ -70,6 +70,7 @@ export function useLiveMap(
   const [warnings,        setWarnings]        = useState<LiveWarning[]>([]);
   const [visibleWarnings, setVisibleWarnings] = useState<LiveWarning[]>([]);
   const [connected,       setConnected]       = useState(false);
+  const [sharingStatus,   setSharingStatus]   = useState<'off' | 'connecting' | 'on'>('off');
 
   const socketRef          = useRef<Socket | null>(null);
   const tokenRef           = useRef<string | null>(null);
@@ -79,6 +80,7 @@ export function useLiveMap(
   const isSharingRef       = useRef(isSharing);
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
+  const toggleRetryRef     = useRef(0);
 
   // ── Position smoothing for live users (prevents teleportation) ───
   const smoothedPosRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
@@ -106,8 +108,13 @@ export function useLiveMap(
   useEffect(() => { isSpeechRef.current     = isSpeechEnabled; }, [isSpeechEnabled]);
   useEffect(() => {
     isSharingRef.current = isSharing;
-    if (!isSharing) setLiveUsers([]);
-  }, [isSharing]);
+    if (!isSharing) {
+      setLiveUsers([]);
+      setSharingStatus('off');
+    } else if (connected) {
+      setSharingStatus('on');
+    }
+  }, [isSharing, connected]);
 
   // ── Filtruj warnings do 25 km gdy zmienia się pozycja lub lista ──
   useEffect(() => {
@@ -445,16 +452,31 @@ export function useLiveMap(
     if (!tokenRef.current) return false;
     if (toggleInFlightRef.current) return isSharingRef.current;
     toggleInFlightRef.current = true;
+    setSharingStatus(isSharingRef.current ? 'connecting' : 'off');
     try {
-      const res  = await fetchWithTimeout(`${API_URL}/api/live/location/toggle`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
-      const data = await res.json();
+      let data: any = null;
+      let ok = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const res = await fetchWithTimeout(`${API_URL}/api/live/location/toggle`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tokenRef.current}` },
+        });
+        ok = res.ok;
+        data = await res.json().catch(() => null);
+        if (ok) break;
+      }
+      if (!ok || !data) {
+        setSharingStatus(isSharingRef.current ? 'on' : 'off');
+        return isSharingRef.current;
+      }
       const nextShare = !!data.shareLocation;
       isSharingRef.current = nextShare;
+      setSharingStatus(nextShare ? 'connecting' : 'off');
 
       if (nextShare) {
+        if (!socketRef.current?.connected) {
+          socketRef.current?.connect();
+        }
         // Push current GPS immediately on enable so the server doesn't expose
         // stale DB coordinates until the next periodic sender tick.
         const loc = userLocationRef.current;
@@ -474,14 +496,19 @@ export function useLiveMap(
           socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
         }
         await fetchInitialData(tokenRef.current);
+        toggleRetryRef.current = 0;
+        setSharingStatus('on');
         Toast.show({ type: 'success', text1: '📍 Lokalizacja widoczna', text2: 'Inni widzą Cię na mapie' });
       } else {
+        setSharingStatus('off');
         Toast.show({ type: 'info', text1: '👁️ Lokalizacja ukryta', text2: 'Jesteś niewidoczny na mapie' });
         socketRef.current?.emit('user:stop_sharing');
         setLiveUsers([]);
       }
       return nextShare;
     } catch {
+      toggleRetryRef.current += 1;
+      setSharingStatus(isSharingRef.current ? 'on' : 'off');
       return isSharingRef.current;
     } finally {
       toggleInFlightRef.current = false;
@@ -617,6 +644,7 @@ export function useLiveMap(
     liveUsers,
     warnings: visibleWarnings,  // ← zawsze przefiltrowane do 25km
     connected,
+    sharingStatus,
     sendLocation,
     toggleSharing,
     addWarning,

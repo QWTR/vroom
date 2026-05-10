@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { MAPBOX_TOKEN } from '../constants/mapConfig';
+import { useState, useCallback, useRef } from 'react';
+import { fetchSearchCategoryViaProxy } from '../scripts/mapboxProxyClient';
 
 export interface NearbyPlace {
   placeId:   string;
@@ -121,10 +121,24 @@ const MAPBOX_CATEGORY: Record<PlaceCategory, string> = {
   store:       'convenience_store',
 };
 
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export function usePlacesNearby() {
   const [places,         setPlaces]         = useState<NearbyPlace[]>([]);
   const [loading,        setLoading]        = useState(false);
   const [activeCategory, setActiveCategory] = useState<PlaceCategory | null>(null);
+  const cacheRef = useRef<Map<string, { at: number; items: NearbyPlace[] }>>(new Map());
+  const lastReqRef = useRef<{ lat: number; lng: number; at: number; category: PlaceCategory } | null>(null);
 
   const fetchPlaces = useCallback(async (
     lat:      number,
@@ -134,16 +148,32 @@ export function usePlacesNearby() {
     // ale zachowany dla zachowania kompatybilności z dotychczasowym API hooka.
     radiusM = 5000, // eslint-disable-line @typescript-eslint/no-unused-vars
   ) => {
+    const now = Date.now();
+    const last = lastReqRef.current;
+    if (last && last.category === category) {
+      const movedM = haversineM(last.lat, last.lng, lat, lng);
+      if (now - last.at < 12_000 && movedM < 250) return;
+    }
+    const key = `${category}:${Math.round(lat * 500) / 500}:${Math.round(lng * 500) / 500}`;
+    const cached = cacheRef.current.get(key);
+    if (cached && now - cached.at < 120_000) {
+      setActiveCategory(category);
+      setPlaces(cached.items);
+      return;
+    }
+
     setLoading(true);
     setActiveCategory(category);
     setPlaces([]);
     try {
       const mapboxCategory = MAPBOX_CATEGORY[category];
-      const url =
-        `https://api.mapbox.com/search/searchbox/v1/category/${mapboxCategory}` +
-        `?proximity=${lng},${lat}&limit=20&language=pl&access_token=${MAPBOX_TOKEN}`;
-      const res  = await fetch(url);
-      const data = await res.json();
+      const data = await fetchSearchCategoryViaProxy<any>({
+        category: mapboxCategory,
+        proximityLng: lng,
+        proximityLat: lat,
+        limit: 20,
+        language: 'pl',
+      });
       if (data.features) {
         const mapped: NearbyPlace[] = data.features
           .slice(0, 20)
@@ -161,6 +191,8 @@ export function usePlacesNearby() {
           }))
           .sort((a: NearbyPlace, b: NearbyPlace) => (a.distance ?? 0) - (b.distance ?? 0));
         setPlaces(mapped);
+        cacheRef.current.set(key, { at: now, items: mapped });
+        lastReqRef.current = { lat, lng, at: now, category };
       }
     } catch (e) {
       console.warn('usePlacesNearby error:', e);

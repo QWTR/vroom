@@ -221,6 +221,9 @@ const MIN_GPS_TICK_SEC           = 0.5;
 // fixes (accommodates inaccurate first fix after a cold GPS restart).
 const GPS_RESUME_GRACE_PERIOD_MS = 5000;
 const GPS_RESTART_COOLDOWN_MS    = 2000;
+const GPS_RESUME_DEDUPE_MS       = 3000;
+const GPS_ONESHOT_COOLDOWN_MS    = 6000;
+const GPS_ONESHOT_AFTER_RESUME_MS = 1500;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
 const GPS_INIT_MAX_ACCURACY_M = 120;
 /** Jednorazowy fix po wznowieniu — powyżej tego promienia zwykle jest to last-known z komórki, nie GPS. */
@@ -233,12 +236,16 @@ const GPS_WALLDT_IGNORE_SPEED_MS = 45_000;
 const GPS_IDLE_MAX_JUMP_AFTER_GAP_M = 1_800;
 const GPS_IDLE_GAP_FOR_JUMP_GUARD_MS = 45_000;
 const GPS_IDLE_SPEED_GUARD_KMH = 25;
-// While idle (no nav/driving), a single outlier fix can jump hundreds of meters.
-// Require a second nearby fix before accepting large low-speed jumps.
 const GPS_IDLE_RANDOM_JUMP_M = 120;
-const GPS_IDLE_CONFIRM_RADIUS_M = 140;
-const GPS_IDLE_CONFIRM_WINDOW_MS = 12_000;
-
+const GPS_IDLE_CONFIRM_RADIUS_M = 120;
+const GPS_IDLE_CONFIRM_WINDOW_MS = 15_000;
+const GPS_IDLE_CONFIRM_HITS = 3;
+const GPS_IDLE_HARD_REJECT_M = 900;
+const GPS_IDLE_UI_SOFT_JUMP_M = 20;
+const GPS_IDLE_UI_HARD_JUMP_M = 120;
+const GPS_IDLE_UI_CONFIRM_RADIUS_M = 35;
+const GPS_IDLE_UI_CONFIRM_WINDOW_MS = 10_000;
+const GPS_DEBUG_BUFFER_SIZE = 30;
 function isNullIsland(lat: number, lng: number): boolean {
   return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;
 }
@@ -314,6 +321,7 @@ export default function MapScreen() {
   const DRIVING_CONSECUTIVE_REQ = 4;             // wymagane kolejne odczyty zanim wejdziemy w driving
   const lastSetLocRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVE_M = 8;                          // ignoruj ruch < 8m gdy wolno
+  const DR_UI_TICK_MS = 700;                     // ogranicz re-render UI z DR
 
 
   // ── Refs – dead-reckoning ─────────────────────────────────
@@ -321,6 +329,7 @@ export default function MapScreen() {
   const drLngRef    = useRef(0);
   const drHdgRef    = useRef(0);
   const drTickRef   = useRef(0);
+  const drTickLastEmitAtRef = useRef(0);
 
   // ── Ref – isNavigating synchronicznie ────────────────────
   const isNavigatingRef = useRef(false);
@@ -353,7 +362,24 @@ export default function MapScreen() {
 
   // ── NOWE Refs — GPS sanity + driving mode ─────────────────
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
-  const idleJumpCandidateRef  = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const idleJumpCandidateRef  = useRef<{ lat: number; lng: number; time: number; hits: number } | null>(null);
+  const idleUiJumpCandidateRef = useRef<{ lat: number; lng: number; time: number; hits: number } | null>(null);
+  const gpsFixDebugRef = useRef<Array<{
+    at: number;
+    lat: number;
+    lng: number;
+    acc: number;
+    speedKmh: number;
+    accepted: boolean;
+    reason: string;
+  }>>([]);
+  const gpsTelemetryRef = useRef({
+    watcherRestarts: 0,
+    oneShotAttempts: 0,
+    oneShotApplied: 0,
+    oneShotRejected: 0,
+    rejectedFixes: 0,
+  });
   const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDrivingRef          = useRef(false);
   const drivingManuallyDisabledRef = useRef(false);
@@ -363,11 +389,31 @@ export default function MapScreen() {
   /** Rzeczywisty czas ostatniego zaakceptowanego fixu — bez cofania przy resume (walidacja one-shot). */
   const lastAcceptedFixWallClockRef = useRef<number>(Date.now());
   const lastGpsRestartAtRef   = useRef<number>(0);
+  const lastResumeHandledAtRef = useRef<number>(0);
+  const lastOneShotAtRef       = useRef<number>(0);
+  const resumeAwaitFixUntilRef = useRef<number>(0);
+  const appStateRef            = useRef(AppState.currentState);
+  const resumeOneShotTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didRestoreNavSessionRef = useRef(false);
   // Tracks the timestamp of the previous GPS tick for per-tick distance capping.
   const prevGoodTimeRef       = useRef<number>(Date.now());
   const smoothedZoomRef       = useRef<number>(NAV_ZOOM);
   const navStatsFlushedRef    = useRef(false);
+
+  const pushGpsDebugFix = useCallback((entry: {
+    lat: number;
+    lng: number;
+    acc: number;
+    speedKmh: number;
+    accepted: boolean;
+    reason: string;
+  }) => {
+    const next = [
+      ...gpsFixDebugRef.current,
+      { at: Date.now(), ...entry },
+    ].slice(-GPS_DEBUG_BUFFER_SIZE);
+    gpsFixDebugRef.current = next;
+  }, []);
 
   // Adaptive zoom — low-pass filtered zoom based on current speed
   // Defined early so it can be referenced in useDeadReckoning / onLocation / simulator callbacks below
@@ -688,7 +734,9 @@ export default function MapScreen() {
       drLngRef.current = snappedPos.longitude;
 
       drTickRef.current += 1;
-      if (drTickRef.current % 2 === 0) {
+      const uiNow = Date.now();
+      if (uiNow - drTickLastEmitAtRef.current >= DR_UI_TICK_MS) {
+        drTickLastEmitAtRef.current = uiNow;
         setDrTick(t => t + 1);
       }
 
@@ -876,6 +924,7 @@ export default function MapScreen() {
     drLngRef.current  = 0;
     drHdgRef.current  = 0;
     drTickRef.current = 0;
+    drTickLastEmitAtRef.current = 0;
   }, []);
 
   // ─────────────────────────────────────────────────��───────
@@ -1305,10 +1354,19 @@ export default function MapScreen() {
       const rawLng = loc.longitude;
       const acc    = loc.accuracy ?? 10;
       const now    = Date.now();
+      const speedKmhRaw = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
       if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || !Number.isFinite(acc)) return;
 
       if (isStaleGpsTimestamp(now, loc.timestamp)) {
         console.warn('[GPS map] Odrzucono przestarzały fix (timestamp OS)');
+        pushGpsDebugFix({
+          lat: rawLat,
+          lng: rawLng,
+          acc,
+          speedKmh: speedKmhRaw,
+          accepted: false,
+          reason: 'stale_timestamp',
+        });
         return;
       }
 
@@ -1333,6 +1391,14 @@ export default function MapScreen() {
           navLngFilter.reset();
           drivLatFilter.reset();
           drivLngFilter.reset();
+          pushGpsDebugFix({
+            lat: rawLat,
+            lng: rawLng,
+            acc,
+            speedKmh: speedKmhRaw,
+            accepted: false,
+            reason: 'idle_gap_jump',
+          });
           return;
         }
       }
@@ -1352,18 +1418,50 @@ export default function MapScreen() {
         // Ignore GPS-reported speed here — some devices report stale/high speed on stationary fixes.
         if (idleMode && jumpM > GPS_IDLE_RANDOM_JUMP_M) {
           const cand = idleJumpCandidateRef.current;
-          if (
-            cand &&
+          const sameCluster =
+            !!cand &&
             now - cand.time <= GPS_IDLE_CONFIRM_WINDOW_MS &&
-            haversineKm(cand.lat, cand.lng, rawLat, rawLng) * 1000 <= GPS_IDLE_CONFIRM_RADIUS_M
-          ) {
-            // Confirmed by consecutive nearby fix — accept and clear candidate.
-            idleJumpCandidateRef.current = null;
-          } else {
-            idleJumpCandidateRef.current = { lat: rawLat, lng: rawLng, time: now };
-            console.warn('[GPS map] Idle random jump candidate held for confirmation');
+            haversineKm(cand.lat, cand.lng, rawLat, rawLng) * 1000 <= GPS_IDLE_CONFIRM_RADIUS_M;
+          if (!sameCluster) {
+            idleJumpCandidateRef.current = { lat: rawLat, lng: rawLng, time: now, hits: 1 };
+            console.warn('[GPS map] Idle random jump candidate held (1/3)');
+            pushGpsDebugFix({
+              lat: rawLat,
+              lng: rawLng,
+              acc,
+              speedKmh: speedKmhRaw,
+              accepted: false,
+              reason: 'idle_candidate_1',
+            });
             return;
           }
+          const hits = (cand?.hits ?? 1) + 1;
+          idleJumpCandidateRef.current = { lat: rawLat, lng: rawLng, time: now, hits };
+          if (hits < GPS_IDLE_CONFIRM_HITS) {
+            console.warn(`[GPS map] Idle random jump candidate held (${hits}/3)`);
+            pushGpsDebugFix({
+              lat: rawLat,
+              lng: rawLng,
+              acc,
+              speedKmh: speedKmhRaw,
+              accepted: false,
+              reason: `idle_candidate_${hits}`,
+            });
+            return;
+          }
+          if (jumpM > GPS_IDLE_HARD_REJECT_M) {
+            console.warn('[GPS map] Idle jump hard-rejected');
+            pushGpsDebugFix({
+              lat: rawLat,
+              lng: rawLng,
+              acc,
+              speedKmh: speedKmhRaw,
+              accepted: false,
+              reason: 'idle_hard_reject',
+            });
+            return;
+          }
+          idleJumpCandidateRef.current = null;
         } else if (jumpM <= GPS_IDLE_RANDOM_JUMP_M) {
           idleJumpCandidateRef.current = null;
         }
@@ -1384,6 +1482,14 @@ export default function MapScreen() {
           navLngFilter.reset();
           drivLatFilter.reset();
           drivLngFilter.reset();
+          pushGpsDebugFix({
+            lat: rawLat,
+            lng: rawLng,
+            acc,
+            speedKmh: speedKmhRaw,
+            accepted: false,
+            reason: 'sanity_speed',
+          });
           return;
         }
 
@@ -1410,6 +1516,14 @@ export default function MapScreen() {
           navLngFilter.reset();
           drivLatFilter.reset();
           drivLngFilter.reset();
+          pushGpsDebugFix({
+            lat: rawLat,
+            lng: rawLng,
+            acc,
+            speedKmh: speedKmhRaw,
+            accepted: false,
+            reason: 'sanity_distance',
+          });
           return;
         }
       }
@@ -1417,6 +1531,17 @@ export default function MapScreen() {
       lastGoodTimeRef.current = now;
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
       lastAcceptedFixWallClockRef.current = now;
+      if (resumeAwaitFixUntilRef.current > 0) {
+        resumeAwaitFixUntilRef.current = 0;
+      }
+      pushGpsDebugFix({
+        lat: rawLat,
+        lng: rawLng,
+        acc,
+        speedKmh: speedKmhRaw,
+        accepted: true,
+        reason: 'accepted_raw',
+      });
 
       // ══ 2. Kalman ════════════════════════════════════════════
       // Driving mode uses dedicated filters with higher process noise for faster
@@ -1491,8 +1616,8 @@ export default function MapScreen() {
         const movedForSnap = lastSetLocRef.current
           ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, lat, lng) * 1000
           : Infinity;
-        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 25;
-        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 20 && kmh >= 10) {
+        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 20;
+        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 35 && kmh >= 15) {
           addMatchPosition(lat, lng);
         }
 
@@ -1606,6 +1731,63 @@ export default function MapScreen() {
             setSpeed(null);
             return;
           }
+        }
+        if (!isDrivingRef.current && !isNavigatingRef.current && lastSetLocRef.current) {
+          const movedUiM = haversineKm(
+            lastSetLocRef.current.lat,
+            lastSetLocRef.current.lng,
+            snapped.latitude,
+            snapped.longitude,
+          ) * 1000;
+          if (movedUiM > GPS_IDLE_UI_HARD_JUMP_M && kmh < 15) {
+            pushGpsDebugFix({
+              lat: snapped.latitude,
+              lng: snapped.longitude,
+              acc,
+              speedKmh: kmh,
+              accepted: false,
+              reason: 'idle_ui_hard_jump',
+            });
+            return;
+          }
+          if (movedUiM > GPS_IDLE_UI_SOFT_JUMP_M && kmh < 10) {
+            const nowUi = Date.now();
+            const cand = idleUiJumpCandidateRef.current;
+            const sameCluster =
+              !!cand &&
+              nowUi - cand.time <= GPS_IDLE_UI_CONFIRM_WINDOW_MS &&
+              haversineKm(cand.lat, cand.lng, snapped.latitude, snapped.longitude) * 1000 <= GPS_IDLE_UI_CONFIRM_RADIUS_M;
+            if (!sameCluster) {
+              idleUiJumpCandidateRef.current = { lat: snapped.latitude, lng: snapped.longitude, time: nowUi, hits: 1 };
+              pushGpsDebugFix({
+                lat: snapped.latitude,
+                lng: snapped.longitude,
+                acc,
+                speedKmh: kmh,
+                accepted: false,
+                reason: 'idle_ui_candidate_1',
+              });
+              return;
+            }
+            const hits = (cand?.hits ?? 1) + 1;
+            if (hits < 2) {
+              idleUiJumpCandidateRef.current = { lat: snapped.latitude, lng: snapped.longitude, time: nowUi, hits };
+              pushGpsDebugFix({
+                lat: snapped.latitude,
+                lng: snapped.longitude,
+                acc,
+                speedKmh: kmh,
+                accepted: false,
+                reason: `idle_ui_candidate_${hits}`,
+              });
+              return;
+            }
+            idleUiJumpCandidateRef.current = null;
+          } else {
+            idleUiJumpCandidateRef.current = null;
+          }
+        } else {
+          idleUiJumpCandidateRef.current = null;
         }
         lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
 
@@ -1803,10 +1985,11 @@ export default function MapScreen() {
   // Keep locationReadyRef in sync for use inside AppState/focus callbacks
   useEffect(() => { locationReadyRef.current = locationReady; }, [locationReady]);
 
-  const restartGPSWatcher = useCallback((reason: 'foreground' | 'focus') => {
+  const restartGPSWatcher = useCallback((reason: 'foreground' | 'focus' | 'resume') => {
     const now = Date.now();
     if (now - lastGpsRestartAtRef.current < GPS_RESTART_COOLDOWN_MS) return;
     lastGpsRestartAtRef.current = now;
+    gpsTelemetryRef.current.watcherRestarts += 1;
     console.log(`[GPS] Restart watcher (${reason})`);
     // Allow a slightly larger first jump after watcher re-subscribe.
     lastGoodTimeRef.current = now - GPS_RESUME_GRACE_PERIOD_MS;
@@ -1825,7 +2008,13 @@ export default function MapScreen() {
 
   // One-shot location refresh: immediately snaps the marker to the current
   // position before the watch subscription has had a chance to emit updates.
-  const refreshLocationOneShot = useCallback(() => {
+  const refreshLocationOneShot = useCallback((opts?: { force?: boolean }) => {
+    const now = Date.now();
+    if (!opts?.force && now - lastOneShotAtRef.current < GPS_ONESHOT_COOLDOWN_MS) {
+      return;
+    }
+    lastOneShotAtRef.current = now;
+    gpsTelemetryRef.current.oneShotAttempts += 1;
     Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.BestForNavigation,
       mayShowUserSettingsDialog: true,
@@ -1836,14 +2025,17 @@ export default function MapScreen() {
         const acc = loc.coords.accuracy ?? 999;
         if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || isNullIsland(rawLat, rawLng)) {
           console.warn('[GPS] One-shot: niepoprawne współrzędne');
+          gpsTelemetryRef.current.oneShotRejected += 1;
           return;
         }
         if (isStaleGpsTimestamp(Date.now(), loc.timestamp)) {
           console.warn('[GPS] One-shot odrzucony: przestarzały timestamp (cache OS)');
+          gpsTelemetryRef.current.oneShotRejected += 1;
           return;
         }
         if (acc > GPS_ONESHOT_MAX_ACCURACY_M) {
           console.warn(`[GPS] One-shot odrzucony: accuracy ${Math.round(acc)} m`);
+          gpsTelemetryRef.current.oneShotRejected += 1;
           return;
         }
         const anchor =
@@ -1866,6 +2058,7 @@ export default function MapScreen() {
           )
         ) {
           console.warn('[GPS] One-shot odrzucony: nierealistyczny skok względem ostatniej pozycji');
+          gpsTelemetryRef.current.oneShotRejected += 1;
           return;
         }
 
@@ -1888,6 +2081,7 @@ export default function MapScreen() {
             lastHeadingRef.current,
           );
           lastAcceptedFixWallClockRef.current = Date.now();
+          gpsTelemetryRef.current.oneShotApplied += 1;
           return;
         }
 
@@ -1908,36 +2102,89 @@ export default function MapScreen() {
             lastHeadingRef.current,
           );
           lastAcceptedFixWallClockRef.current = Date.now();
+          gpsTelemetryRef.current.oneShotApplied += 1;
           return;
         }
 
         lastGoodLocRef.current = { lat, lng };
         lastAcceptedFixWallClockRef.current = Date.now();
         console.log('[GPS] One-shot fix applied');
+        gpsTelemetryRef.current.oneShotApplied += 1;
         setUserLocation({ latitude: lat, longitude: lng });
       })
       .catch((e) => console.warn('[GPS] One-shot fix failed:', e));
   }, [drivingSnap, feedDR, feedPosition, getMatchedPoints, setRoadMatchPoints]);
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      const t = gpsTelemetryRef.current;
+      const recent = gpsFixDebugRef.current;
+      const rejected = recent.filter((r) => !r.accepted).length;
+      gpsTelemetryRef.current.rejectedFixes += rejected;
+      if (__DEV__) {
+        console.log('[GPS][telemetry]', {
+          watcherRestarts: t.watcherRestarts,
+          oneShotAttempts: t.oneShotAttempts,
+          oneShotApplied: t.oneShotApplied,
+          oneShotRejected: t.oneShotRejected,
+          recentRejectedFixes: rejected,
+        });
+      }
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleGpsResume = useCallback((source: 'foreground' | 'focus') => {
+    if (!locationReadyRef.current) return;
+    const now = Date.now();
+    if (now - lastResumeHandledAtRef.current < GPS_RESUME_DEDUPE_MS) return;
+    lastResumeHandledAtRef.current = now;
+    console.log(`[GPS] Resume flow (${source})`);
+    restartGPSWatcher('resume');
+    resumeAwaitFixUntilRef.current = now + GPS_ONESHOT_AFTER_RESUME_MS;
+    if (resumeOneShotTimerRef.current) clearTimeout(resumeOneShotTimerRef.current);
+    resumeOneShotTimerRef.current = setTimeout(() => {
+      // If watcher delivered a valid fix already, skip one-shot fallback.
+      if (lastAcceptedFixWallClockRef.current >= lastResumeHandledAtRef.current) {
+        resumeAwaitFixUntilRef.current = 0;
+        return;
+      }
+      refreshLocationOneShot();
+    }, GPS_ONESHOT_AFTER_RESUME_MS);
+  }, [restartGPSWatcher, refreshLocationOneShot]);
+
   // ── Restart GPS when app returns to foreground ──────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && locationReadyRef.current) {
-        console.log('[GPS] App foregrounded');
-        restartGPSWatcher('foreground');
-        refreshLocationOneShot();
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+      const resumed =
+        (prevState === 'background' || prevState === 'inactive') &&
+        nextState === 'active';
+      if (resumed) {
+        handleGpsResume('foreground');
       }
     });
     return () => sub.remove();
-  }, [restartGPSWatcher, refreshLocationOneShot]);
+  }, [handleGpsResume]);
 
   // ── Restart GPS when Map screen regains focus ────────────────────────────
   useFocusEffect(useCallback(() => {
-    if (!locationReadyRef.current) return;
-    console.log('[GPS] Screen focused');
-    restartGPSWatcher('focus');
-    refreshLocationOneShot();
-  }, [restartGPSWatcher, refreshLocationOneShot]));
+    handleGpsResume('focus');
+    return () => {
+      if (resumeOneShotTimerRef.current) {
+        clearTimeout(resumeOneShotTimerRef.current);
+        resumeOneShotTimerRef.current = null;
+      }
+    };
+  }, [handleGpsResume]));
+
+  useEffect(() => () => {
+    if (resumeOneShotTimerRef.current) {
+      clearTimeout(resumeOneShotTimerRef.current);
+      resumeOneShotTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setSnapPoints(activeRoute?.points ?? []);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { LocationState } from '../constants/types';
 import { MAPBOX_TOKEN } from '../constants/mapConfig';
+import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
 
 // ── Debug flag — set to true to log cache hits, misses, and in-flight dedup ──
 // Flip to false (or guard with __DEV__) in production.
@@ -182,8 +183,21 @@ export function useGoogleDirections(
           bearingParam +
           `&access_token=${MAPBOX_TOKEN}`;
 
-        const res  = await fetch(url, { signal: controller.signal });
-        const data = await res.json();
+        const data = await fetchDirectionsViaProxy<any>(
+          {
+            coordinates: [
+              [originLng, originLat],
+              [destLng, destLat],
+            ],
+            profile: 'driving',
+            alternatives: false,
+            geometries: 'polyline',
+            steps: true,
+            language: 'pl',
+            bearings: roundedHeading != null ? [`${roundedHeading},45`, ''] : undefined,
+          },
+          url,
+        );
 
         if (!data.routes?.length) {
           setError('NO_ROUTE');
@@ -267,8 +281,20 @@ export function useGoogleDirectionsAlternatives(
           `?alternatives=true&geometries=polyline&steps=true&language=pl` +
           `&access_token=${MAPBOX_TOKEN}`;
 
-        const res  = await fetch(url, { signal: controller.signal });
-        const data = await res.json();
+        const data = await fetchDirectionsViaProxy<any>(
+          {
+            coordinates: [
+              [originLng, originLat],
+              [destLng, destLat],
+            ],
+            profile: 'driving',
+            alternatives: true,
+            geometries: 'polyline',
+            steps: true,
+            language: 'pl',
+          },
+          url,
+        );
 
         if (!data.routes?.length) {
           setError('NO_ROUTE');

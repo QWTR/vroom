@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
 import { haversineKm } from '../scripts/navigationUtils';
+import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
 
 export type RoutePin = {
   id:        string;
@@ -17,6 +18,7 @@ export function useRouteBuilder() {
   const [snapping,     setSnapping]     = useState(false);
   const [snappedRoute, setSnappedRoute] = useState<{ latitude: number; longitude: number }[]>([]);
   const counterRef = useRef(0);
+  const segmentCacheRef = useRef<Map<string, { at: number; points: { latitude: number; longitude: number }[] }>>(new Map());
 
   const startBuilding = useCallback(() => {
     setPins([]);
@@ -72,9 +74,30 @@ export function useRouteBuilder() {
           `${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}` +
           `?geometries=polyline&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
 
+        const segKey =
+          `${Math.round(origin.latitude * 10000) / 10000},${Math.round(origin.longitude * 10000) / 10000}` +
+          `->${Math.round(destination.latitude * 10000) / 10000},${Math.round(destination.longitude * 10000) / 10000}`;
+        const cached = segmentCacheRef.current.get(segKey);
+        if (cached && Date.now() - cached.at < 10 * 60_000) {
+          segmentPromises.push(Promise.resolve(cached.points));
+          continue;
+        }
         segmentPromises.push(
-          fetch(url)
-            .then(r => r.json())
+          fetchDirectionsViaProxy<any>(
+            {
+              coordinates: [
+                [origin.longitude, origin.latitude],
+                [destination.longitude, destination.latitude],
+              ],
+              profile: 'driving',
+              alternatives: false,
+              geometries: 'polyline',
+              steps: false,
+              overview: 'full',
+              language: 'pl',
+            },
+            url,
+          )
             .then(json => {
               if (!json.routes?.[0]) {
                 return [
@@ -82,7 +105,9 @@ export function useRouteBuilder() {
                   { latitude: destination.latitude, longitude: destination.longitude },
                 ];
               }
-              return decodePolyline(json.routes[0].geometry);
+              const points = decodePolyline(json.routes[0].geometry);
+              segmentCacheRef.current.set(segKey, { at: Date.now(), points });
+              return points;
             })
             .catch(() => [
               { latitude: origin.latitude,      longitude: origin.longitude },

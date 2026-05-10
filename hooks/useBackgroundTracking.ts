@@ -66,6 +66,7 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
 const BG_SPEED_SAMPLES_KEY      = 'nav_speed_samples';
 const BG_SPEED_MAX_KEY          = 'nav_speed_max';
 export const BG_PENDING_KM_KEY  = 'bg_pending_km';
+const BG_PENDING_ACTIVITY_SAVE_KEY = 'bg_pending_activity_save';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 // Flag: 'true' when live-sharing is active — read by the background task
@@ -308,6 +309,11 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
   const flushInFlightRef = useRef(false);
   const startInFlightRef = useRef(false);
   const stopInFlightRef = useRef(false);
+  const telemetryRef = useRef({
+    flushSuccess: 0,
+    flushFail: 0,
+    pendingRetrySaved: 0,
+  });
 
   // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
   useEffect(() => {
@@ -315,6 +321,30 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
   }, [isSharing]);
 
   // ── Flush helpers ─────────────────────────────────────────────────────────
+  const flushPendingActivitySave = useCallback(async (token: string): Promise<boolean> => {
+    try {
+      const raw = await AsyncStorage.getItem(BG_PENDING_ACTIVITY_SAVE_KEY);
+      if (!raw) return true;
+      const payload = JSON.parse(raw);
+      const res = await fetch(`${API_URL}/api/activity/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        console.log('flushPendingActivitySave failed:', res.status);
+        telemetryRef.current.flushFail += 1;
+        return false;
+      }
+      await AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY);
+      telemetryRef.current.flushSuccess += 1;
+      return true;
+    } catch (e) {
+      console.log('flushPendingActivitySave error:', e);
+      return false;
+    }
+  }, []);
+
   const flushPendingKm = useCallback(async (
     fromNavigation = false,
     navPayload?: {
@@ -330,6 +360,8 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     try {
       const token = await getAuthToken();
       if (!token) return;
+      const pendingSaved = await flushPendingActivitySave(token);
+      if (!pendingSaved) return;
 
       if (fromNavigation) {
         // Collect foreground stats (fg) + background distance (bg) together
@@ -348,32 +380,39 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
           ? navPayload.routePoints
           : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
 
-        // Clear bg accumulators early to prevent duplicate saves when multiple
-        // flush triggers fire close together (foreground, focus, app-state).
+        if (distanceToSave < 0.05) return;
+
+        const payload = {
+          distance: distanceToSave,
+          maxSpeed: maxSpeedToSave,
+          avgSpeed: avgSpeedToSave,
+          duration: navPayload?.durationSec ?? null,
+          routePoints: routePointsToSave,
+        };
+        const saveRes = await fetch(`${API_URL}/api/activity/save`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+        if (!saveRes.ok) {
+          console.log('flushPendingKm(nav) save failed:', saveRes.status);
+          telemetryRef.current.flushFail += 1;
+          await Promise.all([
+            AsyncStorage.setItem(BG_PENDING_ACTIVITY_SAVE_KEY, JSON.stringify(payload)),
+            AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
+          ]);
+          telemetryRef.current.pendingRetrySaved += 1;
+          return;
+        }
+        telemetryRef.current.flushSuccess += 1;
         await Promise.all([
           AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
           AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+          AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
-
-        if (distanceToSave < 0.05) return;
-
-        const saveRes = await fetch(`${API_URL}/api/activity/save`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            distance: distanceToSave,
-            maxSpeed: maxSpeedToSave,
-            avgSpeed: avgSpeedToSave,
-            duration: navPayload?.durationSec ?? null,
-            routePoints: routePointsToSave,
-          }),
-        });
-        if (!saveRes.ok) {
-          console.log('flushPendingKm(nav) save failed:', saveRes.status);
-        }
 
       } else {
         // Passive flush: no navigation was active, save whatever background accumulated
@@ -382,12 +421,6 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         if (bgPending < 0.1) return;
-
-        // Claim and zero before network I/O to avoid duplicate passive saves.
-        await Promise.all([
-          AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
-          AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
-        ]);
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
         const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
@@ -410,9 +443,14 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
         });
         if (!saveRes.ok) {
           console.log('flushPendingKm(passive) save failed:', saveRes.status);
+          telemetryRef.current.flushFail += 1;
+          return;
         }
+        telemetryRef.current.flushSuccess += 1;
 
         await Promise.all([
+          AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+          AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
         ]);
@@ -422,6 +460,14 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     } finally {
       flushInFlightRef.current = false;
     }
+  }, [flushPendingActivitySave]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!__DEV__) return;
+      console.log('[BG][telemetry]', telemetryRef.current);
+    }, 60_000);
+    return () => clearInterval(id);
   }, []);
 
   // ── Task management ───────────────────────────────────────────────────────

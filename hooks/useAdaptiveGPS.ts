@@ -21,7 +21,8 @@ interface Options {
 
 const DRIVE_SPEED_KMH  = 5;
 const MAX_ACCURACY_M   = 40;
-const MAX_SPEED_KMH    = 250;
+const MAX_SPEED_IDLE_KMH = 110;
+const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 12000;
 const IDLE_FIX_TIMEOUT_MS   = 25000;
 
@@ -123,7 +124,10 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               lastGoodRef.current.lat, lastGoodRef.current.lng,
               rawLat, rawLng, dtMs,
             );
-            if (jumpKmh > MAX_SPEED_KMH) {
+            const maxJumpKmh = (navRef.current || drivingRef.current)
+              ? MAX_SPEED_ACTIVE_KMH
+              : MAX_SPEED_IDLE_KMH;
+            if (jumpKmh > maxJumpKmh) {
               console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
               return;
             }
@@ -135,10 +139,12 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
             const distM    = haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng) * 1000;
             // In idle mode don't trust stale/high speed carry-over for distance cap.
             const baselineKmh = (navRef.current || drivingRef.current)
-              ? speedRef.current
-              : Math.min(speedRef.current, 10);
+              ? Math.min(speedRef.current, 180)
+              : Math.min(speedRef.current, 6);
             const expectedM = (baselineKmh / 3.6) * (dtMs / 1000);
-            const maxDistM  = Math.max(100, expectedM * 3 + 100);
+            const maxDistM  = (navRef.current || drivingRef.current)
+              ? Math.max(100, expectedM * 3 + 100)
+              : Math.max(70, expectedM * 2 + 70);
             if (distM > maxDistM) {
               console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
               return;
