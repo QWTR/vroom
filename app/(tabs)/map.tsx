@@ -17,7 +17,6 @@ import {
   Alert,
   AppState,
   Modal,
-  NativeModules,
   Platform,
   Pressable,
   StatusBar,
@@ -35,8 +34,6 @@ import { usePremium } from '../../contexts/PremiumContext';
 import { useChat } from '../../hooks/useChats';
 import { makeMapStyles } from '../../styles/mapstyle';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
-
-const { UsersModule } = NativeModules;
 
 import {
   MAPBOX_STYLE_DARK,
@@ -86,6 +83,7 @@ import { useSnapCameras } from '../../hooks/useSnapCameras';
 import { useSpeedCameras } from '../../hooks/useSpeedCamera';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
+import { useAutoNavigationBridge } from '../../hooks/useAutoNavigationBridge';
 import { calculateDistance } from '../../scripts/distance';
 import {
   bearingBetween,
@@ -2583,55 +2581,6 @@ export default function MapScreen() {
     );
   }, [liveUsers, currentUserId, userLocation, isSharing]);
 
-  useEffect(() => {
-    UsersModule?.setNavigatingForAuto?.(isNavigating);
-  }, [isNavigating]);
-
-  useEffect(() => {
-    if (!UsersModule || !userLocation) return;
-    UsersModule.saveMyLocationForAuto?.(userLocation.latitude, userLocation.longitude);
-    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading);
-  }, [userLocation, speed, heading]);
-
-  useEffect(() => {
-    if (!UsersModule || !isNavigating) return;
-    const step = navRoute?.steps?.[currentStep];
-    if (!step) return;
-    UsersModule.saveNavStepForAuto?.(
-      cleanInstruction(step.html_instructions),
-      step.distance?.text ?? '',
-      routeInfo ? formatDuration(routeInfo.duration) : '',
-    );
-  }, [isNavigating, currentStep, navRoute]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    const route = isNavigating ? navRoute : previewRoute;
-    if (route?.points) {
-      UsersModule.saveRouteForAuto?.(JSON.stringify(
-        route.points.map((p: any) => ({ lat: p.latitude, lng: p.longitude })),
-      ));
-    }
-  }, [isNavigating, navRoute, previewRoute]);
-
-  useEffect(() => {
-    if (!UsersModule || !endLocation) return;
-    UsersModule.saveDestinationForAuto?.(
-      endLocation.latitude, endLocation.longitude, endLocation.name ?? 'Cel',
-    );
-  }, [endLocation]);
-
-  useEffect(() => {
-    if (!UsersModule || !isNavigating) return;
-    const interval = setInterval(async () => {
-      try {
-        const stop = await UsersModule.checkNavStopRequested?.();
-        if (stop) stopNavigation();
-      } catch {}
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [isNavigating, stopNavigation]);
-
   useDemoUsers(
     locationReady && !isNavigating && !isSharing,
     useCallback((users) => setDemoUsers(users), []),
@@ -3005,6 +2954,22 @@ export default function MapScreen() {
     timerRunning, stopTimer, resetTimer, formatElapsed, elapsedSec,
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns, resetDRRefs,
   ]);
+
+  useAutoNavigationBridge({
+    isNavigating,
+    currentStep,
+    navStep: navRoute?.steps?.[currentStep] ?? null,
+    routeInfo: routeInfo as (RouteInfo & { durationText?: string | null }) | null,
+    remainingDistKm,
+    distToTurnM,
+    endLocation,
+    userLocation,
+    speed,
+    heading,
+    navRoutePoints: navRoute?.points,
+    previewRoutePoints: previewRoute?.points,
+    onStopRequested: () => { stopNavigation(); },
+  });
 
   const handleReset = useCallback(() => {
     if (isNavigating) stopNavigation();

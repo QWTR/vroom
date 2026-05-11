@@ -100,6 +100,11 @@ function ensureRevenueCatConfigured(): void {
   const { ios, android } = getRevenueCatApiKeys();
   const apiKey = Platform.OS === 'ios' ? ios : android;
   if (!apiKey) return;
+  // RevenueCat throws hard in release when test store keys are used.
+  // Fail closed (disable RC features) instead of crashing the whole app.
+  if (!__DEV__ && apiKey.startsWith('test_')) {
+    return;
+  }
   try {
     Purchases.configure({ apiKey });
     markRevenueCatSdkReady();

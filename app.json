@@ -108,6 +108,7 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
+      "./plugins/withAutomotive",
       "@react-native-google-signin/google-signin",
       "expo-apple-authentication"
     ],

@@ -21,18 +21,49 @@ async function getAuthToken(): Promise<string | null> {
   return cachedAuthToken;
 }
 
+async function refreshAuthToken(currentToken: string | null): Promise<string | null> {
+  if (!currentToken) return null;
+  try {
+    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`,
+      },
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { token?: string };
+    if (!json?.token) return null;
+    cachedAuthToken = json.token;
+    tokenFetchedAt = Date.now();
+    await AsyncStorage.setItem('token', json.token);
+    return json.token;
+  } catch {
+    return null;
+  }
+}
+
 async function callProxy<T>(path: string, init: RequestInit): Promise<T | null> {
   try {
-    const token = await getAuthToken();
+    let token = await getAuthToken();
     if (!token) return null;
-    const res = await fetch(`${API_URL}${path}`, {
+
+    const makeRequest = (authToken: string) => fetch(`${API_URL}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${authToken}`,
         ...(init.headers ?? {}),
       },
     });
+
+    let res = await makeRequest(token);
+    if (res.status === 401) {
+      const refreshed = await refreshAuthToken(token);
+      if (!refreshed) return null;
+      token = refreshed;
+      res = await makeRequest(token);
+    }
     if (!res.ok) return null;
     return await res.json() as T;
   } catch {
