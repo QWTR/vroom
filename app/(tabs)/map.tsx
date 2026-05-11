@@ -1616,8 +1616,8 @@ export default function MapScreen() {
         const movedForSnap = lastSetLocRef.current
           ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, lat, lng) * 1000
           : Infinity;
-        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 20;
-        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 35 && kmh >= 15) {
+        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 22;
+        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 20 && kmh >= 10) {
           addMatchPosition(lat, lng);
         }
 

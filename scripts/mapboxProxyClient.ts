@@ -4,6 +4,11 @@ import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
 let cachedAuthToken: string | null = null;
 let tokenFetchedAt = 0;
 const TOKEN_TTL_MS = 60_000;
+let matchingFallbackTimes: number[] = [];
+let lastMatchingFallbackAt = 0;
+const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
+const MATCHING_FALLBACK_MAX_PER_WINDOW = 3;
+const MATCHING_FALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
 
 async function getAuthToken(): Promise<string | null> {
   const now = Date.now();
@@ -56,6 +61,12 @@ export async function fetchMatchingViaProxy<T>(
   });
   if (viaProxy != null) return viaProxy;
   if (opts?.allowFallback === false) return null;
+  const now = Date.now();
+  matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
+  if (matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
+  if (now - lastMatchingFallbackAt < MATCHING_FALLBACK_COOLDOWN_MS) return null;
+  lastMatchingFallbackAt = now;
+  matchingFallbackTimes.push(now);
   const res = await fetch(fallbackUrl);
   return await res.json() as T;
 }
