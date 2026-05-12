@@ -7,6 +7,7 @@ import {
   View, StyleSheet, Animated, Easing,
   Dimensions, Text,
   Image,
+  NativeModules,
 } from 'react-native';
 import * as SplashScreen    from 'expo-splash-screen';
 import { LinearGradient }   from 'expo-linear-gradient';
@@ -31,6 +32,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const { width, height } = Dimensions.get('window');
 const R = '#e33835';
+const { UsersModule } = NativeModules;
 
 // ─── NOTIFICATIONS ────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -196,6 +198,20 @@ function RootLayoutInner() {
 
   const notifListener    = useRef<any>();
   const responseListener = useRef<any>();
+
+  useEffect(() => {
+    if (!UsersModule?.saveAuthTokenForAuto) return;
+    (async () => {
+      try {
+        const token =
+          (await AsyncStorage.getItem('userToken')) ??
+          (await AsyncStorage.getItem('token'));
+        if (!token) return;
+        UsersModule.saveAuthTokenForAuto(token);
+      } catch {
+      }
+    })();
+  }, [pathname]);
 
   // Notifications
   useEffect(() => {

@@ -2,6 +2,8 @@ package com.lexuuw.vroom.app.auto
 
 import android.app.Presentation
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -13,6 +15,7 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -30,8 +33,14 @@ import kotlin.math.sin
 private const val MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
 private const val MAPBOX_STYLE = "mapbox://styles/mapbox/dark-v11"
 private const val NAV_LOOKAHEAD_METERS = 80.0
+private const val DEFAULT_CENTER_LAT = 52.2297
+private const val DEFAULT_CENTER_LNG = 21.0122
 
 class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
+  companion object {
+    private const val TAG = "VroomMapSurfaceRenderer"
+  }
+
   private val handler = Handler(Looper.getMainLooper())
   private var virtualDisplay: VirtualDisplay? = null
   private var presentation: Presentation? = null
@@ -39,10 +48,12 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
   private var overlayView: VroomMapOverlayView? = null
   private var visibleArea: Rect? = null
   private var currentStyleUri: String? = null
+  private var lastCameraCenter: AutoNavPoint? = null
 
   private val redraw = object : Runnable {
     override fun run() {
       runCatching { updateMap() }
+        .onFailure { Log.e(TAG, "Map redraw failed", it) }
       handler.postDelayed(this, 1000L)
     }
   }
@@ -50,7 +61,10 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
   override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
     releaseSurface()
     runCatching { createMapPresentation(surfaceContainer) }
-      .onFailure { runCatching { createFallbackPresentation(surfaceContainer) } }
+      .onFailure {
+        Log.e(TAG, "createMapPresentation failed", it)
+        runCatching { createFallbackPresentation(surfaceContainer) }
+      }
     handler.removeCallbacks(redraw)
     handler.post(redraw)
   }
@@ -145,16 +159,20 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
   }
 
   private fun updateMap() {
+    AutoNavStore.refreshFromBackendIfNeeded(context)
     val snapshot = AutoNavStore.snapshot(context)
     val map = mapView?.getMapboxMap()
     val center = snapshot.cameraCenter()
+      ?: lastCameraCenter
+      ?: AutoNavPoint(DEFAULT_CENTER_LAT, DEFAULT_CENTER_LNG)
     val styleUri = snapshot.mapStyle.ifBlank { MAPBOX_STYLE }
 
-    if (map != null && center != null) {
+    if (map != null) {
       if (currentStyleUri != styleUri) {
         currentStyleUri = styleUri
         map.loadStyleUri(styleUri) { overlayView?.invalidate() }
       }
+      lastCameraCenter = center
       map.setCamera(
         CameraOptions.Builder()
           .center(Point.fromLngLat(center.lng, center.lat))
@@ -207,6 +225,9 @@ private class VroomMapOverlayView(context: Context) : View(context) {
   var snapshot: AutoNavSnapshot? = null
   var mapView: MapView? = null
   var visibleArea: Rect? = null
+  private var avatarBitmap: Bitmap? = null
+  private var avatarUrlLoaded: String = ""
+  private var avatarLoading = false
 
   private val routeShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     color = Color.argb(145, 0, 0, 0)
@@ -269,6 +290,7 @@ private class VroomMapOverlayView(context: Context) : View(context) {
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
     val currentSnapshot = snapshot ?: return
+    ensureAvatarLoaded(currentSnapshot.currentUserAvatarUrl)
     if (currentSnapshot.isBuilding) {
       if (currentSnapshot.builderRoute.size > 1) {
         drawRoute(canvas, currentSnapshot.builderRoute, Color.rgb(227, 56, 53), 6f, true)
@@ -470,6 +492,8 @@ private class VroomMapOverlayView(context: Context) : View(context) {
     canvas.drawCircle(screen.first, screen.second, 34f, halo)
     canvas.drawPath(path, carPaint)
     canvas.drawPath(path, strokePaint)
+    drawLabel(canvas, screen.first, screen.second - 48f, snapshot.currentUserName.take(10), Color.rgb(69, 168, 255))
+    drawDriverAvatar(canvas, screen.first, screen.second)
   }
 
   private fun drawSpeedHud(canvas: Canvas, snapshot: AutoNavSnapshot) {
@@ -507,6 +531,40 @@ private class VroomMapOverlayView(context: Context) : View(context) {
     canvas.drawRoundRect(rect, 7f, 7f, strokePaint)
     strokePaint.color = Color.WHITE
     canvas.drawText(text, x, y + 1f, smallTextPaint)
+  }
+
+  private fun drawDriverAvatar(canvas: Canvas, cx: Float, cy: Float) {
+    val avatar = avatarBitmap ?: return
+    val radius = 12f
+    val dst = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+    val clip = Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) }
+    val count = canvas.save()
+    canvas.clipPath(clip)
+    canvas.drawBitmap(avatar, null, dst, null)
+    canvas.restoreToCount(count)
+    canvas.drawCircle(cx, cy, radius, strokePaint)
+  }
+
+  private fun ensureAvatarLoaded(url: String) {
+    val trimmed = url.trim()
+    if (trimmed.isBlank()) return
+    if (trimmed == avatarUrlLoaded && avatarBitmap != null) return
+    if (avatarLoading) return
+    avatarLoading = true
+    Thread {
+      val bmp = runCatching {
+        val conn = java.net.URL(trimmed).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 2500
+        conn.readTimeout = 2500
+        conn.inputStream.use { BitmapFactory.decodeStream(it) }
+      }.getOrNull()
+      if (bmp != null) {
+        avatarBitmap = bmp
+        avatarUrlLoaded = trimmed
+        postInvalidate()
+      }
+      avatarLoading = false
+    }.start()
   }
 
   private fun warningColor(type: String): Int =

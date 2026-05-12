@@ -290,6 +290,20 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   }, [dto]);
 
   useEffect(() => {
+    if (!UsersModule) return;
+    (async () => {
+      try {
+        const token =
+          (await AsyncStorage.getItem('token')) ??
+          (await AsyncStorage.getItem('userToken'));
+        if (!token) return;
+        UsersModule.saveAuthTokenForAuto?.(token);
+      } catch {
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     if (!isNavigating) return;
     const now = Date.now();
     if (now - lastSnapshotAtRef.current < 15_000) return;

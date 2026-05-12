@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
+import { NativeModules } from 'react-native';
+
+const { UsersModule } = NativeModules;
 
 let cachedAuthToken: string | null = null;
 let tokenFetchedAt = 0;
@@ -16,6 +19,9 @@ async function getAuthToken(): Promise<string | null> {
   const token =
     (await AsyncStorage.getItem('token')) ??
     (await AsyncStorage.getItem('userToken'));
+  if (token) {
+    UsersModule?.saveAuthTokenForAuto?.(token);
+  }
   cachedAuthToken = token ?? null;
   tokenFetchedAt = now;
   return cachedAuthToken;
@@ -37,6 +43,7 @@ async function refreshAuthToken(currentToken: string | null): Promise<string | n
     cachedAuthToken = json.token;
     tokenFetchedAt = Date.now();
     await AsyncStorage.setItem('token', json.token);
+    UsersModule?.saveAuthTokenForAuto?.(json.token);
     return json.token;
   } catch {
     return null;

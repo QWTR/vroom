@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, View, Text, TextInput, TouchableOpacity,
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Image, Dimensions, Animated, Easing,
+  Image, Dimensions, Animated, Easing, NativeModules,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -16,6 +16,7 @@ import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
+const { UsersModule } = NativeModules;
 
 const API_URL  = 'https://v-room.app/api/auth';
 const SAPI_URL = 'https://v-room.app/sapi';
@@ -114,6 +115,7 @@ export default function LoginScreen() {
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
+    UsersModule?.saveAuthTokenForAuto?.(token);
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();
     router.replace('/(tabs)');

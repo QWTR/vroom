@@ -18,6 +18,7 @@ class UsersModule(private val ctx: ReactApplicationContext) : ReactContextBaseJa
   @ReactMethod fun saveVisibleUsersForAuto(usersJson: String) { AutoNavStore.saveUsers(ctx, usersJson) }
   @ReactMethod fun saveWarningsForAuto(warningsJson: String) { AutoNavStore.saveWarnings(ctx, warningsJson) }
   @ReactMethod fun saveMapStateForAuto(mapStateJson: String) { AutoNavStore.saveMapState(ctx, mapStateJson) }
+  @ReactMethod fun saveAuthTokenForAuto(token: String) { AutoNavStore.saveAuthToken(ctx, token) }
   @ReactMethod fun requestNavStopFromAuto() { AutoNavStore.requestStop(ctx) }
   @ReactMethod fun requestReportFromAuto() { AutoNavStore.requestReport(ctx) }
   @ReactMethod fun requestReportTypeFromAuto(type: String) { AutoNavStore.requestReport(ctx, type) }

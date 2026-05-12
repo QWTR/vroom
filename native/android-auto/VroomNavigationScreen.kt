@@ -1,5 +1,6 @@
 package __PACKAGE__.auto
 
+import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.ScreenManager
@@ -17,32 +18,49 @@ import androidx.car.app.navigation.model.TravelEstimate
 import java.util.TimeZone
 
 class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
+  companion object {
+    private const val TAG = "VroomNavigationScreen"
+  }
+
   override fun onGetTemplate(): Template =
-    runCatching { buildNavigationTemplate() }
-      .getOrElse { safeMessageTemplate() }
+    runCatching {
+      AutoNavStore.refreshFromBackendIfNeeded(carContext)
+      buildNavigationTemplate()
+    }
+      .getOrElse {
+        Log.e(TAG, "Failed to build navigation template", it)
+        hardFallbackTemplate()
+      }
 
   private fun buildNavigationTemplate(): Template {
     val snapshot = AutoNavStore.snapshot(carContext)
-    val builder = NavigationTemplate.Builder()
-      .setActionStrip(navActionStrip())
-
     if (!snapshot.isNavigating) {
-      return safeMessageTemplate()
+      return NavigationTemplate.Builder()
+        .setActionStrip(mapActionStrip())
+        .build()
     }
 
-    val instruction = snapshot.instruction.ifBlank { "Kontynuuj trase" }
-    val turnDistanceMeters = (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
+    val builder = NavigationTemplate.Builder()
+      .setActionStrip(mapActionStrip())
+
+    val idleMapMode = !snapshot.isNavigating
+    val instruction = if (idleMapMode) {
+      "Tryb mapy aktywny"
+    } else {
+      snapshot.instruction.ifBlank { "Kontynuuj trase" }
+    }
+    val turnDistanceMeters = if (idleMapMode) 1 else (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
       .coerceAtLeast(1)
-    val remainingDistanceMeters = (snapshot.remainingDistanceMeters ?: turnDistanceMeters)
+    val remainingDistanceMeters = if (idleMapMode) 1 else (snapshot.remainingDistanceMeters ?: turnDistanceMeters)
       .coerceAtLeast(1)
-    val remainingDurationSec = (snapshot.remainingDurationSec ?: 60).coerceAtLeast(0)
+    val remainingDurationSec = if (idleMapMode) 0 else (snapshot.remainingDurationSec ?: 60).coerceAtLeast(0)
     val arrivalTime = DateTimeWithZone.create(
       System.currentTimeMillis() + remainingDurationSec * 1000L,
       TimeZone.getDefault(),
     )
     val currentStep = Step.Builder(instruction)
-      .setManeuver(Maneuver.Builder(toManeuverType(snapshot.maneuver)).build())
-      .setRoad(snapshot.destinationName)
+      .setManeuver(Maneuver.Builder(if (idleMapMode) Maneuver.TYPE_STRAIGHT else toManeuverType(snapshot.maneuver)).build())
+      .setRoad(if (idleMapMode) "VROOM live map" else snapshot.destinationName.ifBlank { "Cel" })
       .build()
     val routingInfo = RoutingInfo.Builder()
       .setCurrentStep(currentStep, Distance.create(turnDistanceMeters.toDouble(), Distance.UNIT_METERS))
@@ -60,9 +78,9 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
       .build()
   }
 
-  private fun safeMessageTemplate(): Template =
-    MessageTemplate.Builder("Uruchom nawigacje w aplikacji VROOM na telefonie.")
-      .setTitle("VROOM")
+  private fun hardFallbackTemplate(): Template =
+    MessageTemplate.Builder("Nie mozna uruchomic mapy. Sprobuj ponownie.")
+      .setTitle("VROOM Android Auto")
       .build()
 
   private fun toManeuverType(raw: String): Int {
@@ -77,8 +95,20 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     }
   }
 
-  private fun navActionStrip(): ActionStrip =
+  private fun mapActionStrip(): ActionStrip =
     ActionStrip.Builder()
+      .addAction(
+        Action.Builder()
+          .setTitle("Szukaj")
+          .setOnClickListener {
+            runCatching {
+              carContext
+                .getCarService(ScreenManager::class.java)
+                .push(VroomSearchTextScreen(carContext))
+            }
+          }
+          .build(),
+      )
       .addAction(
         Action.Builder()
           .setTitle("Menu")
@@ -91,17 +121,6 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
           }
           .build(),
       )
-      .addAction(
-        Action.Builder()
-          .setTitle("Zglos")
-          .setOnClickListener {
-            runCatching {
-              carContext
-                .getCarService(ScreenManager::class.java)
-                .push(VroomReportScreen(carContext))
-            }
-          }
-          .build(),
-      )
       .build()
+
 }
