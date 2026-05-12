@@ -43,24 +43,19 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     val builder = NavigationTemplate.Builder()
       .setActionStrip(mapActionStrip())
 
-    val idleMapMode = !snapshot.isNavigating
-    val instruction = if (idleMapMode) {
-      "Tryb mapy aktywny"
-    } else {
-      snapshot.instruction.ifBlank { "Kontynuuj trase" }
-    }
-    val turnDistanceMeters = if (idleMapMode) 1 else (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
+    val instruction = snapshot.instruction.ifBlank { "Kontynuuj trase" }
+    val turnDistanceMeters = (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
       .coerceAtLeast(1)
-    val remainingDistanceMeters = if (idleMapMode) 1 else (snapshot.remainingDistanceMeters ?: turnDistanceMeters)
+    val remainingDistanceMeters = (snapshot.remainingDistanceMeters ?: turnDistanceMeters)
       .coerceAtLeast(1)
-    val remainingDurationSec = if (idleMapMode) 0 else (snapshot.remainingDurationSec ?: 60).coerceAtLeast(0)
+    val remainingDurationSec = (snapshot.remainingDurationSec ?: 60).coerceAtLeast(0)
     val arrivalTime = DateTimeWithZone.create(
       System.currentTimeMillis() + remainingDurationSec * 1000L,
       TimeZone.getDefault(),
     )
     val currentStep = Step.Builder(instruction)
-      .setManeuver(Maneuver.Builder(if (idleMapMode) Maneuver.TYPE_STRAIGHT else toManeuverType(snapshot.maneuver)).build())
-      .setRoad(if (idleMapMode) "VROOM live map" else snapshot.destinationName.ifBlank { "Cel" })
+      .setManeuver(Maneuver.Builder(toManeuverType(snapshot.maneuver)).build())
+      .setRoad(snapshot.destinationName.ifBlank { "Cel" })
       .build()
     val routingInfo = RoutingInfo.Builder()
       .setCurrentStep(currentStep, Distance.create(turnDistanceMeters.toDouble(), Distance.UNIT_METERS))

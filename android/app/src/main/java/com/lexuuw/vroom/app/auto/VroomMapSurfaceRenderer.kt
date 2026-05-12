@@ -54,17 +54,23 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
     override fun run() {
       runCatching { updateMap() }
         .onFailure { Log.e(TAG, "Map redraw failed", it) }
-      handler.postDelayed(this, 1000L)
+      handler.postDelayed(this, 2500L)
     }
   }
 
   override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-    releaseSurface()
-    runCatching { createMapPresentation(surfaceContainer) }
-      .onFailure {
-        Log.e(TAG, "createMapPresentation failed", it)
-        runCatching { createFallbackPresentation(surfaceContainer) }
-      }
+    val canReuseSurface = mapView != null && presentation != null && virtualDisplay != null
+    if (!canReuseSurface) {
+      releaseSurface()
+      runCatching { createMapPresentation(surfaceContainer) }
+        .onFailure {
+          Log.e(TAG, "createMapPresentation failed", it)
+          runCatching { createFallbackPresentation(surfaceContainer) }
+        }
+    } else {
+      runCatching { updateMap() }
+        .onFailure { Log.e(TAG, "updateMap on reused surface failed", it) }
+    }
     handler.removeCallbacks(redraw)
     handler.post(redraw)
   }
@@ -74,13 +80,11 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
   }
 
   override fun onVisibleAreaChanged(visibleArea: Rect) {
-    this.visibleArea = Rect(visibleArea)
-    overlayView?.visibleArea = this.visibleArea
-    overlayView?.invalidate()
+    // Keep callback constant-time to avoid host ANR timeouts.
   }
 
   override fun onStableAreaChanged(stableArea: Rect) {
-    overlayView?.invalidate()
+    // Keep callback constant-time to avoid host ANR timeouts.
   }
 
   private fun createMapPresentation(surfaceContainer: SurfaceContainer) {
@@ -106,17 +110,9 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
       nextPresentation.context,
       MapInitOptions(context = nextPresentation.context, textureView = true),
     )
-    val nextOverlay = VroomMapOverlayView(nextPresentation.context)
 
     root.addView(
       nextMapView,
-      FrameLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.MATCH_PARENT,
-      ),
-    )
-    root.addView(
-      nextOverlay,
       FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -127,7 +123,7 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
     nextPresentation.show()
 
     mapView = nextMapView
-    overlayView = nextOverlay
+    overlayView = null
     presentation = nextPresentation
     runCatching { updateMap() }
   }
@@ -184,10 +180,6 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
       )
     }
 
-    overlayView?.snapshot = snapshot
-    overlayView?.mapView = mapView
-    overlayView?.visibleArea = visibleArea
-    overlayView?.invalidate()
   }
 
   private fun AutoNavSnapshot.currentPointOrRouteStart(): AutoNavPoint? =
