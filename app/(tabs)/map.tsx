@@ -320,6 +320,7 @@ export default function MapScreen() {
   const lastSetLocRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVE_M = 8;                          // ignoruj ruch < 8m gdy wolno
   const DR_UI_TICK_MS = 700;                     // ogranicz re-render UI z DR
+  const DR_STALE_MS = 4_000;
 
 
   // ── Refs – dead-reckoning ─────────────────────────────────
@@ -328,6 +329,7 @@ export default function MapScreen() {
   const drHdgRef    = useRef(0);
   const drTickRef   = useRef(0);
   const drTickLastEmitAtRef = useRef(0);
+  const drLastFrameAtRef = useRef(0);
 
   // ── Ref – isNavigating synchronicznie ────────────────────
   const isNavigatingRef = useRef(false);
@@ -713,6 +715,7 @@ export default function MapScreen() {
   const { feed: feedDR, reset: resetDR, stop: stopDR } = useDeadReckoning({
     onFrame: useCallback((pos: any, hdg: number) => {
       if (!isNavigatingRef.current && !isDrivingRef.current) return;
+      drLastFrameAtRef.current = Date.now();
 
       let snappedPos = pos;
 
@@ -1943,7 +1946,15 @@ export default function MapScreen() {
           );
           setUserLocation({ latitude: navSnapped.latitude, longitude: navSnapped.longitude });
         } else {
+          // Fallback when route points are not available yet: keep DR in sync
+          // with filtered GPS to avoid frozen marker position during navigation.
+          feedDR(
+            { latitude: lat, longitude: lng },
+            rawSpeedMs ?? 0,
+            loc.heading ?? lastHeadingRef.current,
+          );
           feedPosition(lat, lng, rawSpeedMs ?? undefined);
+          lastNavLocRef.current = { latitude: lat, longitude: lng };
           setUserLocation({ latitude: lat, longitude: lng });
         }
       }
@@ -3040,7 +3051,8 @@ export default function MapScreen() {
     Number.isFinite(drLatRef.current) &&
     Number.isFinite(drLngRef.current) &&
     drLatRef.current !== 0 &&
-    drLngRef.current !== 0;
+    drLngRef.current !== 0 &&
+    Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
   const markerLat = ((isNavigating || isDriving) && hasFiniteDrPos)
     ? drLatRef.current
     : userLocation?.latitude ?? 0;
