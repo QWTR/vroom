@@ -762,7 +762,11 @@ export default function MapScreen() {
     stallTimeout: 7000,
   });
 
-  const { flushPendingKm, startBackgroundTracking } = useBackgroundTracking(isSharing, settings.backgroundTracking);
+  const { flushPendingKm, startBackgroundTracking } = useBackgroundTracking(
+    isSharing,
+    settings.backgroundTracking,
+    isNavigating || isDriving,
+  );
 
   useEffect(() => {
     if (isDriving || isNavigating || settings.backgroundTracking || isSharing) {

@@ -66,9 +66,11 @@ export function useTripStats() {
 
   const feedPosition = useCallback((lat: number, lng: number, speedMs?: number): number => {
     const now = Date.now();
-    // Skip if GPS reports speed below 2 km/h — prevents jitter accumulation while stopped.
-    // Matches the same threshold used in feedNavDistance for consistency.
-    if (speedMs !== undefined && speedMs * 3.6 < 2) return 0;
+    // Some Android devices often report 0 m/s while actually moving.
+    // Treat non-positive speed as "unknown" instead of "stationary" to avoid
+    // dropping valid distance segments during active navigation.
+    const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
+    if (speedKmh != null && speedKmh < 2) return 0;
 
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
@@ -83,13 +85,13 @@ export function useTripStats() {
         latitude: lastMeta.latitude,
         longitude: lastMeta.longitude,
         timestampMs: lastMeta.time,
-        speedKmh: speedMs != null ? speedMs * 3.6 : null,
+        speedKmh,
       },
       {
         latitude: lat,
         longitude: lng,
         timestampMs: now,
-        speedKmh: speedMs != null ? speedMs * 3.6 : null,
+        speedKmh,
       },
       {
         minSegmentKm: TRIP_MIN_SEGMENT_KM,

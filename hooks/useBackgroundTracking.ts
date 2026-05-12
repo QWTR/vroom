@@ -231,7 +231,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       const dtSec = hasLastFix ? Math.max(0, (nowMs - lastTs) / 1000) : 0;
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
-      const speedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
+      const speedKmh = (speed != null && speed > 0) ? speed * 3.6 : null;
       const isAccurateFix = (accuracy == null || accuracy <= 40) && (!Number.isFinite(lastAcc) || lastAcc <= 40);
       const segment = hasLastFix
         ? evaluateDistanceSegment(
@@ -305,7 +305,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 // ── Hook ──────────────────────────────────────────────────────────────────────
 // bgEnabled: comes from settings.backgroundTracking — starts the task independently
 //            of live sharing so that stats are collected whenever the user drives.
-export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = true) {
+export function useBackgroundTracking(
+  isSharing: boolean,
+  bgEnabled: boolean = true,
+  forceEnabled: boolean = false,
+) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const flushInFlightRef = useRef(false);
   const startInFlightRef = useRef(false);
@@ -486,7 +490,8 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
     try {
-      if (!bgEnabled && !isSharing) return;
+      const shouldTrack = bgEnabled || isSharing || forceEnabled;
+      if (!shouldTrack) return;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
 
@@ -519,7 +524,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     } finally {
       startInFlightRef.current = false;
     }
-  }, [bgEnabled, isSharing]);
+  }, [bgEnabled, isSharing, forceEnabled]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -536,24 +541,25 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
 
   // ── Auto-start when bgEnabled is on (independent of isSharing) ───────────
   useEffect(() => {
-    if (bgEnabled || isSharing) {
+    const shouldTrack = bgEnabled || isSharing || forceEnabled;
+    if (shouldTrack) {
       const timer = setTimeout(() => startBackgroundTracking(), 300);
       return () => clearTimeout(timer);
     } else {
       // Stop task and flush passive stats only when BOTH are off
       stopBackgroundTracking().then(() => flushPendingKm(false));
     }
-  }, [isSharing, bgEnabled, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
+  }, [isSharing, bgEnabled, forceEnabled, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
 
   // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
       // Start/recover only on foreground. Triggering permission/start flow while
       // app is backgrounded can bring Android app back to front unexpectedly.
-      if (s === 'active' && (bgEnabled || isSharing)) startBackgroundTracking();
+      if (s === 'active' && (bgEnabled || isSharing || forceEnabled)) startBackgroundTracking();
     });
     return () => sub.remove();
-  }, [isSharing, bgEnabled, startBackgroundTracking]);
+  }, [isSharing, bgEnabled, forceEnabled, startBackgroundTracking]);
 
   // ── Flush passive stats when app returns to foreground ───────────────────
   useEffect(() => {
