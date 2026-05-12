@@ -165,6 +165,7 @@ dependencies {
     implementation("com.facebook.react:react-android")
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.car.app:app-projected:1.4.0")
+    implementation("com.mapbox.maps:android-ndk27:11.18.2")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

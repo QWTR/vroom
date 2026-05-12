@@ -30,10 +30,23 @@ function ensureAndroidManifestEntries(config) {
     }
     const features = manifest['uses-feature'];
     if (!features.some((f) => f.$['android:name'] === 'android.software.car.templates_host')) {
-      features.push({ $: { 'android:name': 'android.software.car.templates_host' } });
+      features.push({
+        $: {
+          'android:name': 'android.software.car.templates_host',
+          'android:required': 'false',
+        },
+      });
     }
 
     app['meta-data'] = app['meta-data'] || [];
+    if (!app['meta-data'].some((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel')) {
+      app['meta-data'].push({
+        $: {
+          'android:name': 'androidx.car.app.minCarApiLevel',
+          'android:value': '1',
+        },
+      });
+    }
     if (!app['meta-data'].some((m) => m.$['android:name'] === 'com.google.android.gms.car.application')) {
       app['meta-data'].push({
         $: {
@@ -66,6 +79,16 @@ function ensureAndroidManifestEntries(config) {
         filter.category.push({ $: { 'android:name': 'androidx.car.app.category.NAVIGATION' } });
       }
       existingService['intent-filter'][0] = filter;
+
+      existingService['meta-data'] = existingService['meta-data'] || [];
+      if (!existingService['meta-data'].some((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel')) {
+        existingService['meta-data'].push({
+          $: {
+            'android:name': 'androidx.car.app.minCarApiLevel',
+            'android:value': '1',
+          },
+        });
+      }
     }
 
     return mod;
@@ -77,6 +100,7 @@ function ensureAndroidDependencies(config) {
     const targets = [
       'implementation("androidx.car.app:app:1.4.0")',
       'implementation("androidx.car.app:app-projected:1.4.0")',
+      'implementation("com.mapbox.maps:android-ndk27:11.18.2")',
     ];
     const missingTargets = targets.filter((target) => !mod.modResults.contents.includes(target));
     if (missingTargets.length > 0) {
@@ -91,18 +115,28 @@ function ensureAndroidDependencies(config) {
 
 function ensureMainApplicationPackage(config) {
   return withMainApplication(config, (mod) => {
-    const src = mod.modResults.contents;
-    if (!src.includes('AutoBridgePackage')) {
-      mod.modResults.contents = src
-        .replace(
-          'import com.facebook.react.defaults.DefaultReactNativeHost',
-          'import com.facebook.react.defaults.DefaultReactNativeHost\nimport com.lexuuw.vroom.app.auto.AutoBridgePackage',
-        )
-        .replace(
+    const packageName = config.android?.package || 'com.lexuuw.vroom.app';
+    const importLine = `import ${packageName}.auto.AutoBridgePackage`;
+    let contents = mod.modResults.contents;
+    if (!contents.includes(importLine)) {
+      contents = contents.replace(
+        'import com.facebook.react.defaults.DefaultReactNativeHost',
+        `import com.facebook.react.defaults.DefaultReactNativeHost\n${importLine}`,
+      );
+    }
+    if (!contents.includes('add(AutoBridgePackage())')) {
+      const withPackageList = contents.replace(
+        /(PackageList\(this\)\.packages\.apply\s*\{)/,
+        '$1\n              add(AutoBridgePackage())',
+      );
+      contents = withPackageList === contents
+        ? contents.replace(
           '// add(MyReactNativePackage())',
           '// add(MyReactNativePackage())\n              add(AutoBridgePackage())',
-        );
+        )
+        : withPackageList;
     }
+    mod.modResults.contents = contents;
     return mod;
   });
 }
