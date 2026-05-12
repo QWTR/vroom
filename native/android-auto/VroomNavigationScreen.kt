@@ -7,9 +7,9 @@ import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.DateTimeWithZone
 import androidx.car.app.model.Distance
+import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.Maneuver
-import androidx.car.app.navigation.model.MessageInfo
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
@@ -19,7 +19,7 @@ import java.util.TimeZone
 class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
   override fun onGetTemplate(): Template =
     runCatching { buildNavigationTemplate() }
-      .getOrElse { fallbackTemplate() }
+      .getOrElse { safeMessageTemplate() }
 
   private fun buildNavigationTemplate(): Template {
     val snapshot = AutoNavStore.snapshot(carContext)
@@ -27,7 +27,7 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
       .setActionStrip(navActionStrip())
 
     if (!snapshot.isNavigating) {
-      return fallbackTemplate()
+      return safeMessageTemplate()
     }
 
     val instruction = snapshot.instruction.ifBlank { "Kontynuuj trase" }
@@ -60,14 +60,9 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
       .build()
   }
 
-  private fun fallbackTemplate(): Template =
-    NavigationTemplate.Builder()
-      .setActionStrip(navActionStrip())
-      .setNavigationInfo(
-        MessageInfo.Builder("VROOM")
-          .setText("Uruchom nawigacje w aplikacji VROOM na telefonie.")
-          .build(),
-      )
+  private fun safeMessageTemplate(): Template =
+    MessageTemplate.Builder("Uruchom nawigacje w aplikacji VROOM na telefonie.")
+      .setTitle("VROOM")
       .build()
 
   private fun toManeuverType(raw: String): Int {
@@ -88,9 +83,11 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
         Action.Builder()
           .setTitle("Menu")
           .setOnClickListener {
-            carContext
-              .getCarService(ScreenManager::class.java)
-              .push(VroomMenuScreen(carContext))
+            runCatching {
+              carContext
+                .getCarService(ScreenManager::class.java)
+                .push(VroomMenuScreen(carContext))
+            }
           }
           .build(),
       )
@@ -98,9 +95,11 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
         Action.Builder()
           .setTitle("Zglos")
           .setOnClickListener {
-            carContext
-              .getCarService(ScreenManager::class.java)
-              .push(VroomReportScreen(carContext))
+            runCatching {
+              carContext
+                .getCarService(ScreenManager::class.java)
+                .push(VroomReportScreen(carContext))
+            }
           }
           .build(),
       )

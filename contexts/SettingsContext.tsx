@@ -4,6 +4,7 @@ import { API_URL } from '../constants/mapConfig';
 import type { ProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import type { SpotifyProfileTrack } from '../constants/profile';
+import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 
 const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
 
@@ -54,7 +55,7 @@ export interface AppSettings {
 const DEFAULTS: AppSettings = {
   privateProfile:      false,
   hideLocation:        false,
-  backgroundTracking:  true,
+  backgroundTracking:  false,
   notifMeets:          true,
   notifLikes:          true,
   notifComments:       true,
@@ -96,12 +97,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSettingsCore = useCallback(async (signal?: AbortSignal) => {
     try {
+      const backgroundLocationAccepted = await hasAcceptedBackgroundLocationDisclosure();
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) {
         const cached = await AsyncStorage.getItem('app_settings');
         if (cached) {
           try {
-            setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
+            const parsed = JSON.parse(cached);
+            setSettings({
+              ...DEFAULTS,
+              ...parsed,
+              backgroundTracking: backgroundLocationAccepted ? !!(parsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+            });
           } catch { /* ignore bad cache */ }
         }
         return;
@@ -118,6 +125,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...DEFAULTS,
             ...prev,
             ...data,
+            backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
             // Keep last known premium config locally when premium is expired.
             profilePremiumExtras: data.profilePremiumExtras != null
               ? mergeProfilePremiumExtras(data.profilePremiumExtras)
@@ -139,6 +147,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setSettings(prev => ({
           ...prev,
           ...premiumData,
+          backgroundTracking: backgroundLocationAccepted ? prev.backgroundTracking : false,
           profilePremiumExtras: premiumData.profilePremiumExtras != null
             ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
             : prev.profilePremiumExtras,
@@ -162,7 +171,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       const cached = await AsyncStorage.getItem('app_settings');
       if (cached) {
         try {
-          setSettings({ ...DEFAULTS, ...JSON.parse(cached) });
+          const backgroundLocationAccepted = await hasAcceptedBackgroundLocationDisclosure();
+          const parsed = JSON.parse(cached);
+          setSettings({
+            ...DEFAULTS,
+            ...parsed,
+            backgroundTracking: backgroundLocationAccepted ? !!(parsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+          });
         } catch { /* ignore */ }
       }
     }

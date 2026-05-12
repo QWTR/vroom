@@ -6,6 +6,7 @@ import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 import { haversineKm } from '../scripts/navigationUtils';
+import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -320,6 +321,16 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing ? 'true' : 'false').catch(() => {});
   }, [isSharing]);
 
+  useEffect(() => {
+    hasAcceptedBackgroundLocationDisclosure()
+      .then(async accepted => {
+        if (accepted) return;
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      })
+      .catch(() => {});
+  }, []);
+
   // ── Flush helpers ─────────────────────────────────────────────────────────
   const flushPendingActivitySave = useCallback(async (token: string): Promise<boolean> => {
     try {
@@ -474,11 +485,10 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
   const startBackgroundTracking = useCallback(async () => {
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
-    // Read setting from app_settings JSON (the SettingsContext storage key)
     try {
-      const cached   = await AsyncStorage.getItem('app_settings');
-      const parsed   = cached ? JSON.parse(cached) : {};
-      if (parsed.backgroundTracking === false) return;
+      if (!bgEnabled && !isSharing) return;
+      const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
+      if (!disclosureAccepted) return;
 
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg !== 'granted') return;
@@ -509,7 +519,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
     } finally {
       startInFlightRef.current = false;
     }
-  }, []);
+  }, [bgEnabled, isSharing]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -533,7 +543,7 @@ export function useBackgroundTracking(isSharing: boolean, bgEnabled: boolean = t
       // Stop task and flush passive stats only when BOTH are off
       stopBackgroundTracking().then(() => flushPendingKm(false));
     }
-  }, [isSharing, bgEnabled]);
+  }, [isSharing, bgEnabled, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
 
   // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
   useEffect(() => {

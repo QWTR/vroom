@@ -22,11 +22,9 @@
       "backgroundColor": "#0a0a0a",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
+        "NSLocationWhenInUseUsageDescription": "VROOM używa lokalizacji do mapy, nawigacji i ostrzeżeń drogowych.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM używa lokalizacji także w tle do liczenia kilometrów, aktywnej nawigacji i udostępniania pozycji live po włączeniu tej funkcji.",
         "UIBackgroundModes": [
-          "location",
-          "fetch",
           "location",
           "fetch"
         ],
@@ -101,9 +99,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "VROOM potrzebuje lokalizacji do nawigacji i pokazywania innych kierowców na mapie.",
-          "locationAlwaysPermission": "VROOM potrzebuje lokalizacji w tle do aktywnej nawigacji.",
-          "locationWhenInUsePermission": "VROOM potrzebuje lokalizacji do nawigacji.",
+          "locationAlwaysAndWhenInUsePermission": "VROOM używa lokalizacji także w tle do liczenia kilometrów, aktywnej nawigacji i udostępniania pozycji live po włączeniu tej funkcji.",
+          "locationAlwaysPermission": "VROOM używa lokalizacji w tle, gdy aplikacja jest zamknięta lub nieużywana, aby liczyć kilometry i utrzymać aktywną nawigację.",
+          "locationWhenInUsePermission": "VROOM używa lokalizacji do mapy, nawigacji i ostrzeżeń drogowych.",
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }

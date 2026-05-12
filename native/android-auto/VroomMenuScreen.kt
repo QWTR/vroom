@@ -4,37 +4,43 @@ import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.ScreenManager
 import androidx.car.app.model.Action
-import androidx.car.app.model.Pane
-import androidx.car.app.model.PaneTemplate
+import androidx.car.app.model.ItemList
+import androidx.car.app.model.ListTemplate
+import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 
 class VroomMenuScreen(carContext: CarContext) : Screen(carContext) {
-  override fun onGetTemplate(): Template {
+  override fun onGetTemplate(): Template =
+    runCatching { buildTemplate() }
+      .getOrElse { fallbackTemplate() }
+
+  private fun buildTemplate(): Template {
     val snapshot = AutoNavStore.snapshot(carContext)
     val manager = carContext.getCarService(ScreenManager::class.java)
-    val pane = Pane.Builder()
-      .addRow(menuRow("Zgloszenie", "Korek, wypadek, kontrola, pogoda, awaria") {
-        manager.push(VroomReportScreen(carContext))
+    val list = ItemList.Builder()
+      .addItem(menuRow("Zgloszenie", "Korek, wypadek, kontrola, pogoda, awaria") {
+        runCatching { manager.push(VroomReportScreen(carContext)) }
       })
-      .addRow(menuRow("Ostrzezenia", "${snapshot.warnings.size} aktywnych na mapie") {
-        manager.push(VroomItemsScreen(carContext, VroomItemsKind.WARNINGS))
+      .addItem(menuRow("Ostrzezenia", "${snapshot.warnings.size} aktywnych na mapie") {
+        runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.WARNINGS)) }
       })
-      .addRow(menuRow("Uzytkownicy live", "${snapshot.users.size} widocznych uzytkownikow") {
-        manager.push(VroomItemsScreen(carContext, VroomItemsKind.USERS))
+      .addItem(menuRow("Uzytkownicy live", "${snapshot.users.size} widocznych uzytkownikow") {
+        runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.USERS)) }
       })
-      .addRow(menuRow("Fotoradary", "${snapshot.speedCameras.size} w okolicy") {
-        manager.push(VroomItemsScreen(carContext, VroomItemsKind.CAMERAS))
+      .addItem(menuRow("Fotoradary", "${snapshot.speedCameras.size} w okolicy") {
+        runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.CAMERAS)) }
       })
-      .addRow(menuRow("Paliwo", "${snapshot.fuelStations.size} stacji na mapie") {
-        manager.push(VroomItemsScreen(carContext, VroomItemsKind.FUEL))
+      .addItem(menuRow("Paliwo", "${snapshot.fuelStations.size} stacji na mapie") {
+        runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.FUEL)) }
       })
-      .addRow(menuRow("Status mapy", statusText(snapshot)) {
-        manager.push(VroomItemsScreen(carContext, VroomItemsKind.STATUS))
+      .addItem(menuRow("Status mapy", statusText(snapshot)) {
+        runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.STATUS)) }
       })
       .build()
 
-    return PaneTemplate.Builder(pane)
+    return ListTemplate.Builder()
+      .setSingleList(list)
       .setTitle("VROOM Menu")
       .setHeaderAction(Action.BACK)
       .build()
@@ -44,7 +50,14 @@ class VroomMenuScreen(carContext: CarContext) : Screen(carContext) {
     Row.Builder()
       .setTitle(title)
       .addText(text)
+      .setBrowsable(true)
       .setOnClickListener(onClick)
+      .build()
+
+  private fun fallbackTemplate(): Template =
+    MessageTemplate.Builder("Menu jest chwilowo niedostepne. Otworz aplikacje VROOM na telefonie.")
+      .setTitle("VROOM")
+      .setHeaderAction(Action.BACK)
       .build()
 
   private fun statusText(snapshot: AutoNavSnapshot): String {
@@ -59,17 +72,22 @@ class VroomMenuScreen(carContext: CarContext) : Screen(carContext) {
 }
 
 class VroomReportScreen(carContext: CarContext) : Screen(carContext) {
-  override fun onGetTemplate(): Template {
-    val pane = Pane.Builder()
-      .addRow(reportRow("Korek", "traffic"))
-      .addRow(reportRow("Wypadek", "accident"))
-      .addRow(reportRow("Kontrola predkosci", "speed_control"))
-      .addRow(reportRow("Zla pogoda", "weather"))
-      .addRow(reportRow("Awaria auta", "car_breakdown"))
-      .addRow(reportRow("Zwierze na drodze", "Animal"))
+  override fun onGetTemplate(): Template =
+    runCatching { buildTemplate() }
+      .getOrElse { fallbackTemplate() }
+
+  private fun buildTemplate(): Template {
+    val list = ItemList.Builder()
+      .addItem(reportRow("Korek", "traffic"))
+      .addItem(reportRow("Wypadek", "accident"))
+      .addItem(reportRow("Kontrola predkosci", "speed_control"))
+      .addItem(reportRow("Zla pogoda", "weather"))
+      .addItem(reportRow("Awaria auta", "car_breakdown"))
+      .addItem(reportRow("Zwierze na drodze", "Animal"))
       .build()
 
-    return PaneTemplate.Builder(pane)
+    return ListTemplate.Builder()
+      .setSingleList(list)
       .setTitle("Zglos")
       .setHeaderAction(Action.BACK)
       .build()
@@ -81,8 +99,14 @@ class VroomReportScreen(carContext: CarContext) : Screen(carContext) {
       .addText("Dodaj zgloszenie z aktualnej pozycji")
       .setOnClickListener {
         AutoNavStore.requestReport(carContext, type)
-        carContext.getCarService(ScreenManager::class.java).pop()
+        runCatching { carContext.getCarService(ScreenManager::class.java).pop() }
       }
+      .build()
+
+  private fun fallbackTemplate(): Template =
+    MessageTemplate.Builder("Zgloszenia sa chwilowo niedostepne.")
+      .setTitle("VROOM")
+      .setHeaderAction(Action.BACK)
       .build()
 }
 
@@ -98,9 +122,13 @@ class VroomItemsScreen(
   carContext: CarContext,
   private val kind: VroomItemsKind,
 ) : Screen(carContext) {
-  override fun onGetTemplate(): Template {
+  override fun onGetTemplate(): Template =
+    runCatching { buildTemplate() }
+      .getOrElse { fallbackTemplate() }
+
+  private fun buildTemplate(): Template {
     val snapshot = AutoNavStore.snapshot(carContext)
-    val paneBuilder = Pane.Builder()
+    val listBuilder = ItemList.Builder()
     val rows = when (kind) {
       VroomItemsKind.WARNINGS -> snapshot.warnings.map {
         itemRow(warningTitle(it), it.label.ifBlank { "Ostrzezenie" })
@@ -124,17 +152,18 @@ class VroomItemsScreen(
     }
 
     if (rows.isEmpty()) {
-      paneBuilder.addRow(
+      listBuilder.addItem(
         Row.Builder()
           .setTitle("Brak danych")
           .addText("Otworz / odswiez mape w aplikacji VROOM.")
           .build(),
       )
     } else {
-      rows.take(8).forEach { paneBuilder.addRow(it) }
+      rows.take(12).forEach { listBuilder.addItem(it) }
     }
 
-    return PaneTemplate.Builder(paneBuilder.build())
+    return ListTemplate.Builder()
+      .setSingleList(listBuilder.build())
       .setTitle(title())
       .setHeaderAction(Action.BACK)
       .build()
@@ -144,6 +173,12 @@ class VroomItemsScreen(
     Row.Builder()
       .setTitle(title)
       .addText(text)
+      .build()
+
+  private fun fallbackTemplate(): Template =
+    MessageTemplate.Builder("Dane sa chwilowo niedostepne. Otworz aplikacje VROOM na telefonie.")
+      .setTitle("VROOM")
+      .setHeaderAction(Action.BACK)
       .build()
 
   private fun title(): String =

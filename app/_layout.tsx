@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme as NavLightTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { useFonts }   from 'expo-font';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -17,10 +17,15 @@ import { SafeAreaProvider }      from 'react-native-safe-area-context';
 import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
-import { SettingsProvider } from '../contexts/SettingsContext';
+import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider, usePremium } from '../contexts/PremiumContext';
 import { API_URL } from '../constants/config';
 import MobileAds from 'react-native-google-mobile-ads';
+import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
+import {
+  hasAcceptedBackgroundLocationDisclosure,
+  requestBackgroundLocationPermissionAfterDisclosure,
+} from '../lib/backgroundLocationConsent';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -157,8 +162,12 @@ function StatusLine() {
 function RootLayoutInner() {
   const { isDark }     = useTheme();
   const { isPremium }  = usePremium();
+  const { updateSetting } = useSettings();
   const router         = useRouter();
+  const pathname       = usePathname();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
+  const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
+  const bgDisclosureDismissedRef = useRef(false);
   const adsInitialized = useRef(false);
 
   const [loaded, error] = useFonts({
@@ -294,6 +303,44 @@ function RootLayoutInner() {
     return () => clearTimeout(t);
   }, [loaded, error]);
 
+  useEffect(() => {
+    if (!loaded && !error) return;
+    if (pathname === '/login') return;
+    if (bgDisclosureDismissedRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+      if (!token) return;
+      const accepted = await hasAcceptedBackgroundLocationDisclosure();
+      if (!accepted && !cancelled) setBgDisclosureVisible(true);
+    })().catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, error, pathname]);
+
+  const closeBgDisclosure = async () => {
+    bgDisclosureDismissedRef.current = true;
+    setBgDisclosureVisible(false);
+    await updateSetting('backgroundTracking', false);
+  };
+
+  const acceptBgDisclosure = async () => {
+    bgDisclosureDismissedRef.current = true;
+    setBgDisclosureVisible(false);
+    const granted = await requestBackgroundLocationPermissionAfterDisclosure();
+    await updateSetting('backgroundTracking', granted);
+    if (!granted) {
+      (Toast as any).show({
+        type: 'error',
+        text1: 'Brak zgody systemu',
+        text2: 'Włącz lokalizację w tle w ustawieniach telefonu',
+      });
+    }
+  };
+
   const spinDeg  = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const barWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
@@ -310,6 +357,11 @@ function RootLayoutInner() {
       </Stack>
       <StatusBar style="light" translucent={false} backgroundColor="#0a0a0a" />
       <Toast config={toastConfig} />
+      <BackgroundLocationDisclosureModal
+        visible={bgDisclosureVisible}
+        onCancel={closeBgDisclosure}
+        onAccept={acceptBgDisclosure}
+      />
 
       {phase !== 'done' && (
         <Animated.View

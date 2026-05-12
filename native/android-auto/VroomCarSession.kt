@@ -6,9 +6,11 @@ import androidx.car.app.Session
 
 class VroomCarSession : Session() {
   override fun onCreateScreen(intent: android.content.Intent): Screen {
-    carContext
-      .getCarService(AppManager::class.java)
-      .setSurfaceCallback(VroomMapSurfaceRenderer(carContext))
+    runCatching {
+      carContext
+        .getCarService(AppManager::class.java)
+        .setSurfaceCallback(VroomMapSurfaceRenderer(carContext))
+    }
 
     return VroomNavigationScreen(carContext)
   }

@@ -42,7 +42,7 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
 
   private val redraw = object : Runnable {
     override fun run() {
-      updateMap()
+      runCatching { updateMap() }
       handler.postDelayed(this, 1000L)
     }
   }
@@ -50,7 +50,7 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
   override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
     releaseSurface()
     runCatching { createMapPresentation(surfaceContainer) }
-      .onFailure { createFallbackPresentation(surfaceContainer) }
+      .onFailure { runCatching { createFallbackPresentation(surfaceContainer) } }
     handler.removeCallbacks(redraw)
     handler.post(redraw)
   }
@@ -115,7 +115,7 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
     mapView = nextMapView
     overlayView = nextOverlay
     presentation = nextPresentation
-    updateMap()
+    runCatching { updateMap() }
   }
 
   private fun createFallbackPresentation(surfaceContainer: SurfaceContainer) {

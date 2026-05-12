@@ -22,7 +22,12 @@ import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
 import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
+import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
+import {
+  hasAcceptedBackgroundLocationDisclosure,
+  requestBackgroundLocationPermissionAfterDisclosure,
+} from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import type {
@@ -91,6 +96,7 @@ export default function SettingsScreen() {
   const [deleteModal,        setDeleteModal]        = useState(false);
   const [logoutModal,        setLogoutModal]        = useState(false);
   const [bugModal,           setBugModal]           = useState(false);
+  const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
   const [deleteConfirm,      setDeleteConfirm]      = useState('');
   const [deleteLoading,      setDeleteLoading]      = useState(false);
@@ -165,14 +171,41 @@ export default function SettingsScreen() {
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
-    await updateSetting('backgroundTracking', val);
     if (!val) {
+      await updateSetting('backgroundTracking', false);
       const isRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRunning) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       Toast.show({ type: 'info', text1: '📍 Śledzenie w tle wyłączone' });
-    } else {
-      Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
+      return;
     }
+
+    const accepted = await hasAcceptedBackgroundLocationDisclosure();
+    if (!accepted) {
+      setBgDisclosureVisible(true);
+      return;
+    }
+
+    const granted = await requestBackgroundLocationPermissionAfterDisclosure();
+    if (!granted) {
+      await updateSetting('backgroundTracking', false);
+      Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację w tle w ustawieniach telefonu' });
+      return;
+    }
+
+    await updateSetting('backgroundTracking', true);
+    Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
+  };
+
+  const acceptBgDisclosure = async () => {
+    setBgDisclosureVisible(false);
+    const granted = await requestBackgroundLocationPermissionAfterDisclosure();
+    if (!granted) {
+      await updateSetting('backgroundTracking', false);
+      Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację w tle w ustawieniach telefonu' });
+      return;
+    }
+    await updateSetting('backgroundTracking', true);
+    Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
   const handleLogout = async () => {
@@ -1818,7 +1851,7 @@ export default function SettingsScreen() {
 							icon='directions-run'
 							iconBg='#4CAF50'
 							label='Praca w tle'
-							sublabel='Liczenie km gdy aplikacja zamknięta'
+							sublabel='Lokalizacja w tle do km, nawigacji i Android Auto'
 							right={
 								<Switch
 									value={settings.backgroundTracking}
@@ -2473,6 +2506,12 @@ export default function SettingsScreen() {
 				onConfirm={(hex) => {
 					colorPick?.onPick(hex);
 				}}
+			/>
+
+			<BackgroundLocationDisclosureModal
+				visible={bgDisclosureVisible}
+				onCancel={() => setBgDisclosureVisible(false)}
+				onAccept={acceptBgDisclosure}
 			/>
 		</>
 	);

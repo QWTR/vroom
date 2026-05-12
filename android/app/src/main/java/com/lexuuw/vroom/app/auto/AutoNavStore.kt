@@ -57,7 +57,7 @@ object AutoNavStore {
     val mapRaw = p.getString(KEY_MAP_STATE, null)
     val mapState = mapRaw?.let { runCatching { JSONObject(it) }.getOrNull() }
     val route = parsePoints(mapState?.optJSONArray("route")).ifEmpty {
-      parsePoints(JSONArray(p.getString(KEY_ROUTE, "[]")))
+      parsePoints(p.getString(KEY_ROUTE, "[]"))
     }
     val builderRoute = parsePoints(mapState?.optJSONArray("builderRoute"))
     val builderPins = parseMarkers(mapState?.optJSONArray("builderPins"), "pin")
@@ -110,6 +110,10 @@ object AutoNavStore {
 
   private fun parseMarkers(raw: String?, fallbackType: String): List<AutoMapMarker> = runCatching {
     parseMarkers(JSONArray(raw ?: "[]"), fallbackType)
+  }.getOrElse { emptyList() }
+
+  private fun parsePoints(raw: String?): List<AutoNavPoint> = runCatching {
+    parsePoints(JSONArray(raw ?: "[]"))
   }.getOrElse { emptyList() }
 
   private fun parseMarkers(arr: JSONArray?, fallbackType: String): List<AutoMapMarker> = runCatching {
