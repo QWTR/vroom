@@ -1,113 +1,94 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
 
-const BANNER_ID = 'ca-app-pub-1660420496578702/5609918502';
+/** BanerVroom — domyślna jednostka (strona główna). */
+export const BANNER_ID_VROOM = 'ca-app-pub-1660420496578702/5609918502';
 
-function BannerPlaceholder({ variant }: { variant: 'loading' | 'failed' }) {
+function BannerPlaceholder() {
   const { theme } = useTheme();
   return (
     <View
       style={{
         marginHorizontal: 20,
-        marginVertical: 8,
-        minHeight: 72,
-        paddingVertical: 14,
-        paddingHorizontal: 16,
-        borderRadius: 16,
+        marginVertical: 6,
+        minHeight: 40,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#e3383530',
         borderStyle: 'dashed',
         backgroundColor: theme.surface,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
       }}
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          backgroundColor: '#e3383510',
-          borderRadius: 10,
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-        }}
-      >
-        <MaterialIcons name="campaign" size={14} color="#e33835" />
-        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 2 }}>
-          REKLAMA
-        </Text>
-      </View>
-      <Text
-        style={{
-          fontFamily: 'Orbitron',
-          color: theme.textDim,
-          fontSize: 10,
-          textAlign: 'center',
-          letterSpacing: 1,
-        }}
-      >
-        TU POWINNA BYĆ REKLAMA
-      </Text>
       <Text
         style={{
           fontFamily: 'Orbitron',
           color: theme.textDim,
           fontSize: 8,
           textAlign: 'center',
-          opacity: 0.55,
+          letterSpacing: 1,
         }}
       >
-        {variant === 'loading'
-          ? 'Ładowanie…'
-          : 'Nie udało się załadować albo brak reklam w tym regionie / na emulatorze'}
+        TU POWINNA BYĆ REKLAMA
       </Text>
     </View>
   );
 }
 
-export function AdBanner({ BANNERID = BANNER_ID }) {
+export function AdBanner({ BANNERID = BANNER_ID_VROOM }) {
   const { theme } = useTheme();
-  const { isPremium } = usePremium();
+  const { isPremium, isLoading: premiumLoading } = usePremium();
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
-  if (isPremium) return null;
+  const forceTestAds = process.env.EXPO_PUBLIC_FORCE_TEST_ADS === '1';
+  const unitId = (__DEV__ || forceTestAds) ? TestIds.ADAPTIVE_BANNER : BANNERID;
 
-  const unitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : BANNERID;
+  useEffect(() => {
+    if (!failed || isPremium || premiumLoading) return;
+    const t = setTimeout(() => {
+      setFailed(false);
+      setLoaded(false);
+      setRetryTick((v: number) => v + 1);
+    }, 15000);
+    return () => clearTimeout(t);
+  }, [failed, isPremium, premiumLoading]);
 
-  if (failed) {
-    return <BannerPlaceholder variant="failed" />;
-  }
+  if (premiumLoading || isPremium) return null;
+  if (failed) return <BannerPlaceholder />;
 
   return (
     <View
       style={{
         marginHorizontal: 20,
-        marginVertical: 8,
-        borderRadius: 16,
+        marginVertical: 6,
+        borderRadius: 12,
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: theme.border,
         backgroundColor: theme.surface,
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: loaded ? undefined : 72,
+        minHeight: loaded ? undefined : 44,
       }}
     >
       <BannerAd
+        key={`banner-${retryTick}-${unitId}`}
         unitId={unitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ requestNonPersonalizedAdsOnly: false }}
         onAdLoaded={() => setLoaded(true)}
-        onAdFailedToLoad={() => {
+        onAdFailedToLoad={(err: any) => {
           setLoaded(false);
           setFailed(true);
+          console.warn('[AdBanner] failed', { unitId, error: err });
         }}
       />
       {!loaded && (
@@ -122,24 +103,19 @@ export function AdBanner({ BANNERID = BANNER_ID }) {
             justifyContent: 'center',
             alignItems: 'center',
             backgroundColor: theme.surface,
-            gap: 6,
-            paddingHorizontal: 12,
+            paddingHorizontal: 8,
           }}
         >
-          <MaterialIcons name="campaign" size={18} color="#e33835" />
           <Text
             style={{
               fontFamily: 'Orbitron',
               color: theme.textDim,
-              fontSize: 9,
+              fontSize: 8,
               textAlign: 'center',
               letterSpacing: 1,
             }}
           >
             TU POWINNA BYĆ REKLAMA
-          </Text>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 7, opacity: 0.6 }}>
-            Ładowanie…
           </Text>
         </View>
       )}

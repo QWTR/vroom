@@ -95,6 +95,7 @@ import {
   getManeuverIcon,
   haversineKm,
   isOnRoute,
+  maxIdleBrowsingJumpM,
   snapToRoute,
 } from '../../scripts/navigationUtils';
 
@@ -265,6 +266,7 @@ function isRawGpsPlausibleVsAnchor(
   wallDtMs: number,
   reportedSpeedMs: number | null | undefined,
   isDriving: boolean,
+  accuracyM?: number | null,
 ): boolean {
   const safeDt = Math.max(wallDtMs, 100);
   if (!isSaneLocation(rawLat, rawLng, anchor.lat, anchor.lng, 250, safeDt, isDriving)) return false;
@@ -275,8 +277,12 @@ function isRawGpsPlausibleVsAnchor(
       : (reportedSpeedMs != null && reportedSpeedMs >= 0 ? reportedSpeedMs : 0);
   const reportedKmh = reportMs * 3.6;
   const expectedM2 = (reportedKmh / 3.6) * (safeDt / 1000);
-  const distFloor = isDriving ? 300 : 100;
-  const maxDistM2 = Math.max(distFloor, expectedM2 * 3 + 100);
+  if (isDriving) {
+    const maxDistM2 = Math.max(300, expectedM2 * 3 + 100);
+    return distM2 <= maxDistM2;
+  }
+  let maxDistM2 = Math.max(100, expectedM2 * 3 + 100);
+  maxDistM2 = Math.min(maxDistM2, maxIdleBrowsingJumpM(safeDt, reportedKmh, accuracyM ?? 40));
   return distM2 <= maxDistM2;
 }
 
@@ -355,6 +361,8 @@ export default function MapScreen() {
   const lastRerouteLocRef   = useRef<{ lat: number; lng: number } | null>(null);
   // forceMapMatch: avoid repeated paid entry snaps in the same area
   const lastForceMapMatchRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  /** Zapobiega równoległemu wejściu w driving (podwójny tap podczas await forceMatch). */
+  const drivingManualEntryBusyRef = useRef(false);
   // currentLocRef: latest userLocation readable inside stable interval callbacks
   const currentLocRef       = useRef<{ latitude: number; longitude: number } | null>(null);
   /** Ostatnie znane centrum mapy — żeby Camera nie wracała na domyślne 19/52 przy migawce stanu. */
@@ -1286,87 +1294,84 @@ export default function MapScreen() {
         Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na fix lokalizacji zanim włączysz jazdę.' });
         return;
       }
-      drivingManuallyDisabledRef.current = false;
-      isDrivingRef.current        = true;
-      drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
-      startTrip(Number(routeInfoRef.current?.duration) || 0);
-      drivingLastLocRef.current   = null;
-      lastDrivingPosRef.current   = null;
-      navLatFilter.reset();
-      navLngFilter.reset();
-      drivLatFilter.reset();
-      drivLngFilter.reset();
-      // Reset map-matcher so it starts fresh and immediately seeds the
-      // buffer with the current position — enables snap-to-road from the
-      // very first GPS tick rather than waiting for speed to reach 5 km/h.
-      resetMapMatch();
-      resetSnap();
-      setIsDriving(true);
       const startLat = userLocation.latitude;
       const startLng = userLocation.longitude;
       const entryHeading = Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0;
-      let manualSnapApplied = false;
 
+      drivingManuallyDisabledRef.current = false;
+
+      if (drivingManualEntryBusyRef.current) return;
+      drivingManualEntryBusyRef.current = true;
       try {
-        // Anchor dead-reckoning at current position immediately.
-        feedDR({ latitude: startLat, longitude: startLng }, 0, entryHeading);
-        enterDrivingCamera(userLocation, entryHeading);
+        // Świeży DAP + snap — dopiero potem włączamy driving (wymuszamy pełny snap do drogi).
+        resetMapMatch();
+        resetSnap();
 
-        // Najpierw spróbuj snapnąć po aktualnej geometrii (jeśli już jest w cache).
-        const cachedSnap = drivingSnap(startLat, startLng, 0, false);
-        if (cachedSnap.snapped && Number.isFinite(cachedSnap.latitude) && Number.isFinite(cachedSnap.longitude)) {
-          drLatRef.current = cachedSnap.latitude;
-          drLngRef.current = cachedSnap.longitude;
-          lastSetLocRef.current = { lat: cachedSnap.latitude, lng: cachedSnap.longitude };
-          setUserLocation({ latitude: cachedSnap.latitude, longitude: cachedSnap.longitude });
-          feedDR({ latitude: cachedSnap.latitude, longitude: cachedSnap.longitude }, 0, entryHeading);
-          manualSnapApplied = true;
-        }
+        let entryLat = startLat;
+        let entryLng = startLng;
+        let snappedOk = false;
 
-        // forceMatch: await the API result so we can snap immediately —
-        // this is essential when stationary (speed = 0) because the GPS
-        // pipeline's dead-zone guard would otherwise skip the snap update.
-        const lastForce = lastForceMapMatchRef.current;
-        const movedFromLastForceM = lastForce
-          ? haversineKm(lastForce.lat, lastForce.lng, startLat, startLng) * 1000
-          : Infinity;
-        const canForceMatch =
-          !lastForce
-          || Date.now() - lastForce.at >= FORCE_MAP_MATCH_COOLDOWN_MS
-          || movedFromLastForceM >= FORCE_MAP_MATCH_MIN_MOVE_M;
-
-        if (canForceMatch) {
-          lastForceMapMatchRef.current = { at: Date.now(), lat: startLat, lng: startLng };
-          const matchedPts = await forceMapMatch(startLat, startLng);
-
-          if (matchedPts && matchedPts.length >= 2 && isDrivingRef.current) {
-            // Push the road geometry into the snap hook so drivingSnap can use it.
+        try {
+          const matchedPts = await forceMapMatch(startLat, startLng, { manual: true });
+          if (matchedPts && matchedPts.length >= 2) {
             setRoadMatchPoints(matchedPts);
             const snapped = drivingSnap(startLat, startLng, 0, false);
             if (snapped.snapped && Number.isFinite(snapped.latitude) && Number.isFinite(snapped.longitude)) {
-              // Apply the snapped road position directly — bypasses the GPS pipeline
-              // dead-zone which would otherwise block updates while speed is 0.
-              drLatRef.current = snapped.latitude;
-              drLngRef.current = snapped.longitude;
-              lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
-              setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
-              // Re-anchor dead-reckoning at the snapped position so the camera
-              // follows the correct road-snapped location.
-              feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, entryHeading);
-              console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
-              manualSnapApplied = true;
+              entryLat = snapped.latitude;
+              entryLng = snapped.longitude;
+              snappedOk = true;
             }
           }
+          if (!snappedOk) {
+            setRoadMatchPoints([]);
+            const routeSnap = drivingSnap(startLat, startLng, 0, false);
+            if (routeSnap.snapped && Number.isFinite(routeSnap.latitude) && Number.isFinite(routeSnap.longitude)) {
+              entryLat = routeSnap.latitude;
+              entryLng = routeSnap.longitude;
+              snappedOk = true;
+            }
+          }
+        } catch (e) {
+          console.warn('[DrivingMode] Manual entry error:', e);
         }
-      } catch (e) {
-        console.warn('[DrivingMode] Manual entry error:', e);
+
+        if (!snappedOk) {
+          setRoadMatchPoints([]);
+          entryLat = startLat;
+          entryLng = startLng;
+        }
+
+        lastForceMapMatchRef.current = { at: Date.now(), lat: startLat, lng: startLng };
+
+        isDrivingRef.current = true;
+        drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+        startTrip(Number(routeInfoRef.current?.duration) || 0);
+        drivingLastLocRef.current = null;
+        lastDrivingPosRef.current = null;
+        navLatFilter.reset();
+        navLngFilter.reset();
+        drivLatFilter.reset();
+        drivLngFilter.reset();
+
+        setIsDriving(true);
+
+        drLatRef.current = entryLat;
+        drLngRef.current = entryLng;
+        lastSetLocRef.current = { lat: entryLat, lng: entryLng };
+        setUserLocation({ latitude: entryLat, longitude: entryLng });
+        feedDR({ latitude: entryLat, longitude: entryLng }, 0, entryHeading);
+        enterDrivingCamera({ latitude: entryLat, longitude: entryLng }, entryHeading);
+        recordDrivingTracePoint(entryLat, entryLng, { speedKmh: 0 }).catch(() => {});
+        console.log(
+          snappedOk
+            ? '[DrivingMode] Manually entered with road snap'
+            : '[DrivingMode] Manually entered on GPS — road snap during drive',
+        );
+      } finally {
+        drivingManualEntryBusyRef.current = false;
       }
-      if (!manualSnapApplied) {
-        Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Start bez pełnego snapa — dociągam do drogi podczas jazdy.' });
-      }
-      console.log('[DrivingMode] Manually entered driving mode');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints, startTrip]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, exitDrivingCamera, enterDrivingCamera, resetMapMatch, resetSnap, forceMapMatch, feedDR, drivingSnap, setRoadMatchPoints, startTrip, recordDrivingTracePoint]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -1535,7 +1540,10 @@ export default function MapScreen() {
           : reportedKmhRaw;
         const expectedM2  = (reportedKmh / 3.6) * (safeDt / 1000);
         const distFloor   = isDrivingRef.current ? 300 : 100;
-        const maxDistM2   = Math.max(distFloor, expectedM2 * 3 + 100);
+        let maxDistM2   = Math.max(distFloor, expectedM2 * 3 + 100);
+        if (idleMode && reportedKmhRaw < 22) {
+          maxDistM2 = Math.min(maxDistM2, maxIdleBrowsingJumpM(safeDt, reportedKmhRaw, acc));
+        }
         if (distM2 > maxDistM2) {
           console.warn(`[GPS map] Skok dystansowy odrzucony: ${Math.round(distM2)}m > ${Math.round(maxDistM2)}m`);
           latFilter.reset();
@@ -2092,6 +2100,7 @@ export default function MapScreen() {
             wallDt,
             loc.coords.speed,
             isDrivingRef.current,
+            acc,
           )
         ) {
           console.warn('[GPS] One-shot odrzucony: nierealistyczny skok względem ostatniej pozycji');
@@ -3123,7 +3132,7 @@ export default function MapScreen() {
       <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
         {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
         <View style={{ paddingTop: insets.top, backgroundColor: '#0a0a0a' }}>
-          <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
+          <AdBanner BANNERID="ca-app-pub-1660420496578702/3363343740" />
         </View>
 
         <View style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -4392,8 +4401,14 @@ export default function MapScreen() {
           station={selectedFuelStation}
           onClose={() => setFuelStationModalVisible(false)}
           onNavigate={(lat, lng, name) => {
-            setEndLocation({ latitude: lat, longitude: lng, name });
+            if (!userLocation || !Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude)) {
+              Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na lokalizację, potem ponów Nawiguj.' });
+              return;
+            }
+            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            setEndLocation({ latitude: lat, longitude: lng, name: name || 'Stacja paliw' });
             setFuelStationModalVisible(false);
+            Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: name || 'Stacja paliw' });
           }}
           onPricesUpdated={refetchFuelStations}
           updatePrices={updateFuelPrices}

@@ -33,6 +33,24 @@ export function haversineKm(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * Twardy sufit (m) na skok markera między fixami GPS, gdy użytkownik nie jedzie
+ * w trybie nawigacji ani driving mode — ogranicza „teleporty” z cache OS
+ * (sieć/Wi‑Fi) po staniu w miejscu lub powrocie z tła.
+ */
+export function maxIdleBrowsingJumpM(deltaMs: number, reportedSpeedKmh: number, accuracyM: number): number {
+  if (reportedSpeedKmh >= 22) return 1e7;
+  const dtS = Math.min(Math.max(deltaMs / 1000, 0.15), 180);
+  const acc = Math.min(Math.max(accuracyM || 32, 8), 100);
+  const v = Math.min(Math.max(reportedSpeedKmh, 0), 14);
+  const expected = (v / 3.6) * dtS;
+  const sedentary = reportedSpeedKmh < 6.5;
+  if (sedentary) {
+    return Math.max(16, Math.min(54, expected * 1.75 + acc * 1.4 + 12 + dtS * 5.5));
+  }
+  return Math.max(20, Math.min(92, expected * 2 + acc * 1.5 + 16 + dtS * 9));
+}
+
 /** Czyści HTML z instrukcji Google */
 export function cleanInstruction(html: string): string {
   if (!html) return '';

@@ -353,6 +353,11 @@ private class VroomMapOverlayView(
   private val quickActions = linkedMapOf<String, RectF>()
   private var activeQuickAction: String? = null
 
+  // ── Canvas overlay panel system ──────────────────────────────────────────
+  private enum class OverlayPanel { NONE, MENU, WARNINGS, REPORT, SETTINGS }
+  private var currentPanel = OverlayPanel.NONE
+  private val panelHitRects = linkedMapOf<String, RectF>()
+
   private val routeShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     color = Color.argb(145, 0, 0, 0)
     style = Paint.Style.STROKE
@@ -457,6 +462,7 @@ private class VroomMapOverlayView(
     drawQuickReportButtons(canvas, currentSnapshot)
     drawSpeedHud(canvas, currentSnapshot)
     drawDrivingModeHud(canvas, currentSnapshot)
+    if (currentPanel != OverlayPanel.NONE) drawPanelOverlay(canvas, currentSnapshot, currentPanel)
   }
 
   /**
@@ -473,6 +479,11 @@ private class VroomMapOverlayView(
   }
 
   fun handleCarHostSurfaceTap(x: Float, y: Float) {
+    if (currentPanel != OverlayPanel.NONE) {
+      panelHitRects.entries.firstOrNull { it.value.contains(x, y) }?.key?.let { handlePanelAction(it) }
+      postInvalidateOnAnimation()
+      return
+    }
     val snap = snapshot ?: return
     if (width <= 0 || height <= 0) return
     if (quickActions.isEmpty()) rebuildQuickActionHitRects(snap)
@@ -503,6 +514,14 @@ private class VroomMapOverlayView(
   }
 
   fun forwardTouch(event: MotionEvent): Boolean {
+    if (currentPanel != OverlayPanel.NONE) {
+      if (event.actionMasked == MotionEvent.ACTION_UP) {
+        panelHitRects.entries.firstOrNull { it.value.contains(event.x, event.y) }
+          ?.key?.let { handlePanelAction(it) }
+      }
+      return true
+    }
+
     val x = event.x
     val y = event.y
     when (event.actionMasked) {
@@ -670,12 +689,19 @@ private class VroomMapOverlayView(
   private fun handleOverlayAction(action: String) {
     when (action) {
       "open_search" -> openScreen { VroomSearchTextScreen(it) }
-      "open_menu" -> openScreen { VroomMenuScreen(it) }
-      "open_report" -> openScreen { VroomReportScreen(it) }
-      "open_settings" -> openScreen { VroomMapSettingsScreen(it) }
+      "open_menu" -> openCanvasPanel(OverlayPanel.MENU)
+      "open_report" -> openCanvasPanel(OverlayPanel.REPORT)
+      "open_settings" -> openCanvasPanel(OverlayPanel.SETTINGS)
       "recenter" -> recenterMap()
       else -> AutoNavStore.requestReport(carContext ?: context, action)
     }
+  }
+
+  private fun openCanvasPanel(panel: OverlayPanel) {
+    currentPanel = panel
+    panelHitRects.clear()
+    quickActions.clear()
+    postInvalidateOnAnimation()
   }
 
   private fun openScreen(factory: (CarContext) -> androidx.car.app.Screen) {
@@ -683,6 +709,223 @@ private class VroomMapOverlayView(
     runCatching {
       car.getCarService(ScreenManager::class.java).push(factory(car))
     }
+  }
+
+  private fun handlePanelAction(action: String) {
+    val car = carContext
+    when {
+      action == "close_panel" -> closeCanvasPanel()
+      currentPanel == OverlayPanel.MENU -> when (action) {
+        "menu_search" -> { closeCanvasPanel(); if (car != null) runCatching { car.getCarService(ScreenManager::class.java).push(VroomSearchTextScreen(car)) } }
+        "menu_warnings" -> openCanvasPanel(OverlayPanel.WARNINGS)
+        "menu_report" -> openCanvasPanel(OverlayPanel.REPORT)
+        "menu_settings" -> openCanvasPanel(OverlayPanel.SETTINGS)
+        "menu_cameras", "menu_fuel" -> closeCanvasPanel()
+      }
+      currentPanel == OverlayPanel.WARNINGS && action.startsWith("confirm_warning_") -> {
+        val id = action.removePrefix("confirm_warning_")
+        if (car != null) Thread { runCatching { AutoNavStore.confirmWarning(car, id) } }.start()
+        postInvalidateOnAnimation()
+      }
+      currentPanel == OverlayPanel.REPORT -> {
+        val type = when (action) {
+          "report_accident" -> "accident"
+          "report_traffic" -> "traffic"
+          "report_speed" -> "speed_control"
+          "report_weather" -> "weather"
+          "report_breakdown" -> "car_breakdown"
+          "report_animal" -> "Animal"
+          else -> null
+        }
+        if (type != null && car != null) { closeCanvasPanel(); Thread { runCatching { AutoNavStore.submitReportFromCurrentLocation(car, type) } }.start() }
+      }
+      currentPanel == OverlayPanel.SETTINGS -> {
+        val key = when (action) {
+          "toggle_users" -> "show_users"; "toggle_warnings" -> "show_warnings"
+          "toggle_cameras" -> "show_cameras"; "toggle_fuel" -> "show_fuel"
+          "toggle_voice" -> "voice_alerts"; "toggle_speed" -> "speed_alerts"
+          else -> null
+        }
+        if (key != null && car != null) { val cur = AutoNavStore.getMapOption(car, key, true); AutoNavStore.setMapOption(car, key, !cur); postInvalidateOnAnimation() }
+      }
+    }
+  }
+
+  private fun closeCanvasPanel() { currentPanel = OverlayPanel.NONE; panelHitRects.clear(); postInvalidateOnAnimation() }
+
+  private fun drawPanelOverlay(canvas: Canvas, snap: AutoNavSnapshot, panel: OverlayPanel) {
+    val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(175, 0, 0, 0); style = Paint.Style.FILL }
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
+    panelHitRects.clear()
+    when (panel) {
+      OverlayPanel.MENU -> drawMenuPanel(canvas, snap)
+      OverlayPanel.WARNINGS -> drawWarningsPanel(canvas, snap)
+      OverlayPanel.REPORT -> drawReportPanel(canvas, snap)
+      OverlayPanel.SETTINGS -> drawSettingsPanel(canvas, snap)
+      OverlayPanel.NONE -> {}
+    }
+  }
+
+  private fun panelSep(canvas: Canvas, x1: Float, y: Float, x2: Float) {
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 0, 191, 255); strokeWidth = 1f; style = Paint.Style.STROKE }
+    canvas.drawLine(x1, y, x2, y, p)
+  }
+
+  private fun panelCloseButton(canvas: Canvas, right: Float, top: Float): RectF {
+    val rect = RectF(right - 52f, top + 10f, right - 10f, top + 50f)
+    panelHitRects["close_panel"] = rect
+    chipFillPaint.color = Color.argb(90, 220, 50, 50)
+    canvas.drawRoundRect(rect, 9f, 9f, chipFillPaint)
+    textPaint.textSize = 20f; textPaint.color = Color.WHITE
+    canvas.drawText("✕", rect.centerX(), rect.centerY() + 7f, textPaint)
+    textPaint.textSize = 24f
+    return rect
+  }
+
+  private fun drawMenuPanel(canvas: Canvas, snap: AutoNavSnapshot) {
+    val CYAN = Color.rgb(0, 191, 255)
+    val panelW = width.toFloat().coerceAtMost(370f)
+    val ph = height.toFloat()
+    labelBgPaint.color = Color.argb(253, 7, 8, 12)
+    canvas.drawRect(0f, 0f, panelW, ph, labelBgPaint)
+    val borderP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 0, 191, 255); strokeWidth = 3f; style = Paint.Style.STROKE }
+    canvas.drawLine(panelW, 0f, panelW, ph, borderP)
+    labelBgPaint.color = Color.argb(255, 10, 12, 18)
+    canvas.drawRect(0f, 0f, panelW, 62f, labelBgPaint)
+    panelSep(canvas, 0f, 62f, panelW)
+    panelCloseButton(canvas, panelW, 0f)
+    smallTextPaint.textSize = 22f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = CYAN; smallTextPaint.clearShadowLayer()
+    canvas.drawText("VROOM", 20f, 40f, smallTextPaint)
+    smallTextPaint.textSize = 13f; smallTextPaint.color = Color.argb(130, 200, 200, 200)
+    canvas.drawText("Menu", 20f, 56f, smallTextPaint); smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+    data class MenuItem(val id: String, val title: String, val sub: String, val accent: Int)
+    val items = listOf(
+      MenuItem("menu_search", "Szukaj celu", "Adres, firma, punkt", CYAN),
+      MenuItem("menu_warnings", "Ostrzeżenia  (${snap.warnings.size})", "Aktywne na mapie", Color.rgb(232, 154, 54)),
+      MenuItem("menu_report", "Dodaj zgłoszenie", "Korek, wypadek, policja...", Color.rgb(227, 56, 53)),
+      MenuItem("menu_cameras", "Fotoradary  (${snap.speedCameras.size})", "W okolicy", Color.rgb(200, 200, 200)),
+      MenuItem("menu_fuel", "Stacje paliw  (${snap.fuelStations.size})", "Dostępne stacje", Color.rgb(34, 197, 94)),
+      MenuItem("menu_settings", "Ustawienia", "Mapa i alerty", CYAN),
+    )
+    val rowH = ((ph - 62f) / items.size).coerceAtMost(82f)
+    items.forEachIndexed { i, item ->
+      val rowTop = 62f + i * rowH
+      panelHitRects[item.id] = RectF(0f, rowTop, panelW, rowTop + rowH)
+      val sp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = item.accent; style = Paint.Style.FILL }
+      canvas.drawRoundRect(RectF(0f, rowTop + 12f, 4f, rowTop + rowH - 12f), 2f, 2f, sp)
+      smallTextPaint.textSize = 19f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = Color.WHITE; smallTextPaint.clearShadowLayer()
+      canvas.drawText(item.title, 18f, rowTop + rowH * 0.42f + 7f, smallTextPaint)
+      smallTextPaint.textSize = 13f; smallTextPaint.color = Color.argb(145, 190, 190, 190)
+      canvas.drawText(item.sub, 18f, rowTop + rowH * 0.72f + 5f, smallTextPaint); smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+      smallTextPaint.textSize = 22f; smallTextPaint.textAlign = Paint.Align.RIGHT; smallTextPaint.color = Color.argb(100, 0, 191, 255)
+      canvas.drawText("›", panelW - 16f, rowTop + rowH / 2f + 8f, smallTextPaint)
+      panelSep(canvas, 12f, rowTop + rowH, panelW - 12f)
+    }
+    smallTextPaint.textSize = 18f; smallTextPaint.textAlign = Paint.Align.CENTER; smallTextPaint.color = Color.WHITE
+  }
+
+  private fun drawWarningsPanel(canvas: Canvas, snap: AutoNavSnapshot) {
+    val CYAN = Color.rgb(0, 191, 255); val ORANGE = Color.rgb(232, 154, 54)
+    val rowH = 68f; val headerH = 62f
+    val count = snap.warnings.size.coerceAtMost(6)
+    val panelH = (headerH + count * rowH + 12f).coerceAtLeast(140f).coerceAtMost(height - 32f)
+    val panelTop = height - panelH - 12f; val panelL = 12f; val panelR = width - 12f
+    labelBgPaint.color = Color.argb(253, 7, 8, 12)
+    canvas.drawRoundRect(RectF(panelL, panelTop, panelR, height - 12f), 20f, 20f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(160, 232, 154, 54); chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(RectF(panelL, panelTop, panelR, height - 12f), 20f, 20f, chipStrokePaint)
+    panelCloseButton(canvas, panelR, panelTop)
+    panelSep(canvas, panelL + 18f, panelTop + headerH, panelR - 18f)
+    textPaint.textSize = 22f; textPaint.color = ORANGE
+    canvas.drawText("Ostrzeżenia (${snap.warnings.size})", (panelL + panelR) / 2f, panelTop + 38f, textPaint)
+    if (snap.warnings.isEmpty()) {
+      smallTextPaint.textSize = 17f; smallTextPaint.color = Color.argb(160, 200, 200, 200)
+      canvas.drawText("Brak aktywnych ostrzeżeń", (panelL + panelR) / 2f, panelTop + headerH + 40f, smallTextPaint)
+    } else {
+      snap.warnings.take(6).forEachIndexed { i, w ->
+        val rowTop = panelTop + headerH + i * rowH
+        val rowRect = RectF(panelL + 6f, rowTop, panelR - 6f, rowTop + rowH)
+        val title = when (w.type) { "traffic" -> "Korek"; "weather" -> "Zła pogoda"; "accident" -> "Wypadek"; "car_breakdown" -> "Awaria"; "speed_control" -> "Kontrola"; "Animal" -> "Zwierzę"; else -> "Ostrzeżenie" }
+        smallTextPaint.textSize = 17f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = ORANGE; smallTextPaint.clearShadowLayer()
+        canvas.drawText(title, rowRect.left + 14f, rowTop + 26f, smallTextPaint)
+        smallTextPaint.textSize = 13f; smallTextPaint.color = Color.argb(150, 200, 200, 200)
+        canvas.drawText(w.label.ifBlank { w.value }.take(35), rowRect.left + 14f, rowTop + 46f, smallTextPaint); smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+        val confId = "confirm_warning_${w.id}"
+        val confRect = RectF(rowRect.right - 108f, rowTop + 12f, rowRect.right - 8f, rowTop + rowH - 12f)
+        panelHitRects[confId] = confRect
+        chipFillPaint.color = Color.argb(55, 0, 191, 255); canvas.drawRoundRect(confRect, 10f, 10f, chipFillPaint)
+        chipStrokePaint.color = Color.argb(150, 0, 191, 255); canvas.drawRoundRect(confRect, 10f, 10f, chipStrokePaint)
+        smallTextPaint.textSize = 14f; smallTextPaint.textAlign = Paint.Align.CENTER; smallTextPaint.color = CYAN
+        canvas.drawText("Potwierdź", confRect.centerX(), confRect.centerY() + 6f, smallTextPaint)
+        panelSep(canvas, rowRect.left + 14f, rowTop + rowH, rowRect.right - 14f)
+      }
+    }
+    textPaint.textSize = 24f; smallTextPaint.textSize = 18f; smallTextPaint.textAlign = Paint.Align.CENTER; smallTextPaint.color = Color.WHITE
+  }
+
+  private fun drawReportPanel(canvas: Canvas, @Suppress("UNUSED_PARAMETER") snap: AutoNavSnapshot) {
+    val rowH = 62f; val headerH = 58f
+    val panelW = (width * 0.62f).coerceAtLeast(280f)
+    val panelH = headerH + 6 * rowH + 12f
+    val pl = (width - panelW) / 2f; val pt = (height - panelH) / 2f; val pr = pl + panelW
+    labelBgPaint.color = Color.argb(253, 7, 8, 12)
+    canvas.drawRoundRect(RectF(pl, pt, pr, pt + panelH), 20f, 20f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(160, 227, 56, 53); chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(RectF(pl, pt, pr, pt + panelH), 20f, 20f, chipStrokePaint)
+    panelCloseButton(canvas, pr, pt); panelSep(canvas, pl + 18f, pt + headerH, pr - 18f)
+    textPaint.textSize = 21f; textPaint.color = Color.rgb(227, 56, 53)
+    canvas.drawText("Dodaj zgłoszenie", (pl + pr) / 2f, pt + 36f, textPaint)
+    data class RT(val id: String, val label: String, val color: Int)
+    val types = listOf(RT("report_accident","Wypadek",Color.rgb(227,56,53)), RT("report_traffic","Korek / utrudnienia",Color.rgb(232,154,54)), RT("report_speed","Policja / kontrola",Color.rgb(0,191,255)), RT("report_weather","Zła pogoda",Color.rgb(100,160,255)), RT("report_breakdown","Awaria auta",Color.rgb(190,190,190)), RT("report_animal","Zwierzę na drodze",Color.rgb(34,197,94)))
+    types.forEachIndexed { i, rt ->
+      val rowTop = pt + headerH + i * rowH
+      val rr = RectF(pl + 10f, rowTop + 4f, pr - 10f, rowTop + rowH - 4f)
+      panelHitRects[rt.id] = rr
+      chipFillPaint.color = Color.argb(35, Color.red(rt.color), Color.green(rt.color), Color.blue(rt.color))
+      canvas.drawRoundRect(rr, 12f, 12f, chipFillPaint)
+      val sp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = rt.color; style = Paint.Style.FILL }
+      canvas.drawRoundRect(RectF(rr.left, rr.top + 10f, rr.left + 5f, rr.bottom - 10f), 3f, 3f, sp)
+      smallTextPaint.textSize = 19f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = Color.WHITE; smallTextPaint.clearShadowLayer()
+      canvas.drawText(rt.label, rr.left + 18f, rr.centerY() + 7f, smallTextPaint); smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+      panelSep(canvas, rr.left + 8f, rowTop + rowH, rr.right - 8f)
+    }
+    textPaint.textSize = 24f; smallTextPaint.textSize = 18f; smallTextPaint.textAlign = Paint.Align.CENTER; smallTextPaint.color = Color.WHITE
+  }
+
+  private fun drawSettingsPanel(canvas: Canvas, snap: AutoNavSnapshot) {
+    val CYAN = Color.rgb(0, 191, 255)
+    val rowH = 57f; val headerH = 62f
+    val panelH = headerH + 6 * rowH + 10f
+    val panelTop = (height - panelH - 12f).coerceAtLeast(8f); val pl = 12f; val pr = width - 12f
+    labelBgPaint.color = Color.argb(253, 7, 8, 12)
+    canvas.drawRoundRect(RectF(pl, panelTop, pr, height - 12f), 20f, 20f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(160, 0, 191, 255); chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(RectF(pl, panelTop, pr, height - 12f), 20f, 20f, chipStrokePaint)
+    panelCloseButton(canvas, pr, panelTop); panelSep(canvas, pl + 18f, panelTop + headerH, pr - 18f)
+    textPaint.textSize = 22f; textPaint.color = CYAN
+    canvas.drawText("Ustawienia mapy", (pl + pr) / 2f, panelTop + 38f, textPaint)
+    val car = carContext
+    fun opt(key: String, def: Boolean) = car?.let { AutoNavStore.getMapOption(it, key, def) } ?: def
+    val settings = listOf(Triple("toggle_users","Użytkownicy live",opt("show_users",snap.showUsers)), Triple("toggle_warnings","Ostrzeżenia",opt("show_warnings",snap.showWarnings)), Triple("toggle_cameras","Fotoradary",opt("show_cameras",snap.showSpeedCameras)), Triple("toggle_fuel","Stacje paliw",opt("show_fuel",snap.showFuelStations)), Triple("toggle_voice","Alerty głosowe",opt("voice_alerts",snap.voiceAlerts)), Triple("toggle_speed","Limit prędkości",opt("speed_alerts",snap.speedAlerts)))
+    settings.forEachIndexed { i, (id, label, enabled) ->
+      val rowTop = panelTop + headerH + i * rowH
+      panelHitRects[id] = RectF(pl + 6f, rowTop, pr - 6f, rowTop + rowH)
+      smallTextPaint.textSize = 18f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = Color.WHITE; smallTextPaint.clearShadowLayer()
+      canvas.drawText(label, pl + 22f, rowTop + rowH / 2f + 7f, smallTextPaint); smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+      val toggleR = pr - 20f; val toggleL = toggleR - 68f; val cy = rowTop + rowH / 2f
+      val tRect = RectF(toggleL, cy - 13f, toggleR, cy + 13f)
+      if (enabled) {
+        val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CYAN; style = Paint.Style.FILL }; canvas.drawRoundRect(tRect, 13f, 13f, on)
+        val th = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }; canvas.drawCircle(toggleR - 15f, cy, 10f, th)
+        smallTextPaint.textSize = 11f; smallTextPaint.textAlign = Paint.Align.LEFT; smallTextPaint.color = Color.argb(200, 7, 8, 12); canvas.drawText("ON", toggleL + 9f, cy + 4f, smallTextPaint)
+      } else {
+        val off = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(110, 90, 90, 90); style = Paint.Style.FILL }; canvas.drawRoundRect(tRect, 13f, 13f, off)
+        val th = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 190, 190, 190); style = Paint.Style.FILL }; canvas.drawCircle(toggleL + 15f, cy, 10f, th)
+        smallTextPaint.textSize = 11f; smallTextPaint.textAlign = Paint.Align.RIGHT; smallTextPaint.color = Color.argb(180, 200, 200, 200); canvas.drawText("OFF", toggleR - 9f, cy + 4f, smallTextPaint)
+      }
+      panelSep(canvas, pl + 20f, rowTop + rowH, pr - 20f)
+    }
+    textPaint.textSize = 24f; smallTextPaint.textSize = 18f; smallTextPaint.textAlign = Paint.Align.CENTER; smallTextPaint.color = Color.WHITE
   }
 
   private fun recenterMap() {
@@ -906,54 +1149,285 @@ private class VroomMapOverlayView(
 
   private fun drawSpeedHud(canvas: Canvas, snapshot: AutoNavSnapshot) {
     if (!snapshot.isDriving && !snapshot.isNavigating) return
-    val rect = RectF(width - 130f, height - 132f, width - 18f, height - 24f)
-    labelBgPaint.color = Color.argb(238, 16, 18, 22)
-    canvas.drawRoundRect(rect, 24f, 24f, labelBgPaint)
+    val speedStr = snapshot.speedKmh.toInt().toString()
+    val boxW = 96f
+    val boxH = 96f
+    val right = width - 16f
+    val bottom = height - 16f
+    val rect = RectF(right - boxW, bottom - boxH, right, bottom)
+
+    labelBgPaint.color = Color.argb(230, 11, 12, 16)
+    canvas.drawRoundRect(rect, 20f, 20f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(100, 0, 191, 255)
+    chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(rect, 20f, 20f, chipStrokePaint)
+
+    textPaint.textSize = 36f
     textPaint.color = Color.WHITE
-    textPaint.textSize = 34f
-    canvas.drawText(snapshot.speedKmh.toInt().toString(), rect.centerX(), rect.top + 43f, textPaint)
-    smallTextPaint.color = Color.argb(160, 255, 255, 255)
-    canvas.drawText("KM/H", rect.centerX(), rect.top + 68f, smallTextPaint)
-    snapshot.speedLimitKmh?.let {
-      val limitRect = RectF(rect.centerX() - 34f, rect.bottom - 32f, rect.centerX() + 34f, rect.bottom - 8f)
-      chipFillPaint.color = Color.argb(238, 255, 255, 255)
-      canvas.drawRoundRect(limitRect, 12f, 12f, chipFillPaint)
-      smallTextPaint.color = Color.rgb(209, 31, 45)
+    canvas.drawText(speedStr, rect.centerX(), rect.top + 48f, textPaint)
+
+    smallTextPaint.textSize = 14f
+    smallTextPaint.color = Color.argb(160, 0, 191, 255)
+    smallTextPaint.textAlign = Paint.Align.CENTER
+    canvas.drawText("KM/H", rect.centerX(), rect.top + 66f, smallTextPaint)
+
+    snapshot.speedLimitKmh?.let { limit ->
+      val lr = RectF(rect.left + 6f, rect.bottom - 28f, rect.right - 6f, rect.bottom - 6f)
+      chipFillPaint.color = Color.argb(235, 255, 255, 255)
+      canvas.drawRoundRect(lr, 10f, 10f, chipFillPaint)
+      smallTextPaint.textSize = 14f
+      smallTextPaint.color = Color.rgb(200, 30, 40)
       smallTextPaint.clearShadowLayer()
-      canvas.drawText(it.toString(), limitRect.centerX(), limitRect.centerY() + 7f, smallTextPaint)
+      canvas.drawText(limit.toString(), lr.centerX(), lr.centerY() + 6f, smallTextPaint)
       smallTextPaint.setShadowLayer(4f, 0f, 1f, Color.BLACK)
     }
+
     textPaint.textSize = 24f
+    smallTextPaint.textSize = 18f
     smallTextPaint.color = Color.WHITE
   }
 
   private fun drawDrivingModeHud(canvas: Canvas, snapshot: AutoNavSnapshot) {
     if (!snapshot.isDriving && !snapshot.isNavigating) return
-    val left = 16f
-    val bottom = height - 24f
-    val rect = RectF(left, bottom - 112f, left + 300f, bottom)
-    labelBgPaint.color = Color.argb(224, 15, 17, 21)
-    canvas.drawRoundRect(rect, 24f, 24f, labelBgPaint)
+
+    val margin = 16f
+    val panelBottom = height - margin
+    val panelRight = width - 128f
+    val panelLeft = margin
+
+    if (snapshot.isNavigating) {
+      drawNavPanel(canvas, snapshot, panelLeft, panelBottom, panelRight)
+    } else {
+      drawDrivingPanel(canvas, snapshot, panelLeft, panelBottom, panelRight)
+    }
+  }
+
+  private fun drawNavPanel(
+    canvas: Canvas,
+    snapshot: AutoNavSnapshot,
+    left: Float,
+    bottom: Float,
+    right: Float,
+  ) {
+    val CYAN = Color.rgb(0, 191, 255)
+    val RED  = Color.rgb(227, 56, 53)
+    val panelH = 138f
+    val rect = RectF(left, bottom - panelH, right, bottom)
+
+    labelBgPaint.color = Color.argb(234, 9, 10, 14)
+    canvas.drawRoundRect(rect, 22f, 22f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(140, 0, 191, 255)
+    chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(rect, 22f, 22f, chipStrokePaint)
+
+    val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = CYAN
+      style = Paint.Style.FILL
+    }
+    canvas.drawRoundRect(RectF(rect.left + 22f, rect.top, rect.left + 22f + 60f, rect.top + 3f), 2f, 2f, accentPaint)
+
+    val iconBoxSize = 70f
+    val iconBoxLeft = rect.left + 14f
+    val iconBoxTop  = rect.top + 14f
+    val iconRect = RectF(iconBoxLeft, iconBoxTop, iconBoxLeft + iconBoxSize, iconBoxTop + iconBoxSize)
+    chipFillPaint.color = Color.argb(70, 0, 191, 255)
+    canvas.drawRoundRect(iconRect, 14f, 14f, chipFillPaint)
+    drawManeuverIcon(canvas, iconRect.centerX(), iconRect.centerY(), 22f, snapshot.maneuver, CYAN)
+
+    val textLeft = iconBoxLeft + iconBoxSize + 14f
+    val textTop  = rect.top + 30f
+    smallTextPaint.textSize = 22f
+    smallTextPaint.textAlign = Paint.Align.LEFT
+    smallTextPaint.color = Color.WHITE
+    smallTextPaint.clearShadowLayer()
+    val instrLine = snapshot.instruction.ifBlank { if (snapshot.arrived) "Dotarłeś!" else "Nawigacja" }
+    canvas.drawText(instrLine, textLeft, textTop, smallTextPaint)
+    smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+
+    if (snapshot.destinationName.isNotBlank()) {
+      smallTextPaint.textSize = 15f
+      smallTextPaint.color = Color.argb(170, 0, 191, 255)
+      smallTextPaint.clearShadowLayer()
+      canvas.drawText(snapshot.destinationName, textLeft, textTop + 22f, smallTextPaint)
+      smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+    }
+
+    val rowY = rect.bottom - 18f
+    val turnDist = snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters
+    val remDist  = snapshot.remainingDistanceMeters
+    val remSec   = snapshot.remainingDurationSec
 
     smallTextPaint.textAlign = Paint.Align.LEFT
-    smallTextPaint.color = Color.argb(230, 255, 255, 255)
-    canvas.drawText(if (snapshot.isNavigating) "Nawigacja" else "Tryb jazdy", rect.left + 18f, rect.top + 31f, smallTextPaint)
-    drawHudChip(canvas, rect.left + 18f, rect.top + 49f, "Ostrz. ${snapshot.warnings.size}", Color.rgb(232, 154, 54))
-    drawHudChip(canvas, rect.left + 116f, rect.top + 49f, "Kam. ${snapshot.speedCameras.size}", Color.rgb(234, 234, 234))
-    drawHudChip(canvas, rect.left + 205f, rect.top + 49f, "Fuel ${snapshot.fuelStations.size}", Color.rgb(0, 191, 255))
+    smallTextPaint.textSize = 17f
+
+    var col = textLeft
+    if (turnDist != null) {
+      val label = formatDistance(turnDist)
+      smallTextPaint.color = CYAN
+      canvas.drawText("↗ $label", col, rowY, smallTextPaint)
+      col += smallTextPaint.measureText("↗ $label") + 18f
+    }
+    if (remDist != null) {
+      val label = formatDistance(remDist)
+      smallTextPaint.color = Color.argb(200, 200, 200, 200)
+      canvas.drawText("⬟ $label", col, rowY, smallTextPaint)
+      col += smallTextPaint.measureText("⬟ $label") + 18f
+    }
+    if (remSec != null) {
+      val eta = calcEta(remSec)
+      smallTextPaint.color = Color.argb(200, 200, 200, 200)
+      canvas.drawText("⏱ $eta", col, rowY, smallTextPaint)
+    }
+
+    if (snapshot.offRoute) {
+      smallTextPaint.textSize = 13f
+      smallTextPaint.textAlign = Paint.Align.RIGHT
+      smallTextPaint.color = RED
+      smallTextPaint.clearShadowLayer()
+      canvas.drawText("ZMIANA TRASY", rect.right - 14f, rect.top + 22f, smallTextPaint)
+      smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+    }
+
+    smallTextPaint.textSize = 18f
     smallTextPaint.textAlign = Paint.Align.CENTER
     smallTextPaint.color = Color.WHITE
   }
 
+  private fun drawDrivingPanel(
+    canvas: Canvas,
+    snapshot: AutoNavSnapshot,
+    left: Float,
+    bottom: Float,
+    right: Float,
+  ) {
+    val CYAN = Color.rgb(0, 191, 255)
+    val panelH = 84f
+    val rect = RectF(left, bottom - panelH, right.coerceAtMost(left + 320f), bottom)
+
+    labelBgPaint.color = Color.argb(220, 9, 10, 14)
+    canvas.drawRoundRect(rect, 20f, 20f, labelBgPaint)
+    chipStrokePaint.color = Color.argb(90, 0, 191, 255)
+    chipStrokePaint.strokeWidth = 2f
+    canvas.drawRoundRect(rect, 20f, 20f, chipStrokePaint)
+
+    smallTextPaint.textAlign = Paint.Align.LEFT
+    smallTextPaint.textSize = 18f
+    smallTextPaint.color = CYAN
+    smallTextPaint.clearShadowLayer()
+    canvas.drawText("TRYB JAZDY", rect.left + 18f, rect.top + 30f, smallTextPaint)
+    smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+
+    var col = rect.left + 18f
+    val rowY = rect.bottom - 16f
+    listOf(
+      "Ostrz. ${snapshot.warnings.size}" to Color.rgb(232, 154, 54),
+      "Kam. ${snapshot.speedCameras.size}" to Color.rgb(200, 200, 200),
+      "Stacje ${snapshot.fuelStations.size}" to CYAN,
+    ).forEach { (text, color) ->
+      drawHudChip(canvas, col, rowY - 26f, text, color)
+      col += smallTextPaint.measureText(text) + 44f
+    }
+
+    smallTextPaint.textAlign = Paint.Align.CENTER
+    smallTextPaint.textSize = 18f
+    smallTextPaint.color = Color.WHITE
+  }
+
+  private fun drawManeuverIcon(canvas: Canvas, cx: Float, cy: Float, size: Float, maneuver: String, color: Int) {
+    iconPaint.color = color
+    iconPaint.style = Paint.Style.STROKE
+    iconPaint.strokeWidth = 3.5f
+    iconPaint.strokeCap = Paint.Cap.ROUND
+    iconPaint.strokeJoin = Paint.Join.ROUND
+
+    val m = maneuver.lowercase()
+    val path = Path()
+    when {
+      "left" in m || "lewo" in m -> {
+        path.moveTo(cx + size * 0.3f, cy + size * 0.5f)
+        path.lineTo(cx + size * 0.3f, cy - size * 0.1f)
+        path.lineTo(cx - size * 0.3f, cy - size * 0.1f)
+        canvas.drawPath(path, iconPaint)
+        drawArrowHead(canvas, cx - size * 0.3f, cy - size * 0.1f, -90f, size * 0.35f, color)
+      }
+      "right" in m || "prawo" in m -> {
+        path.moveTo(cx - size * 0.3f, cy + size * 0.5f)
+        path.lineTo(cx - size * 0.3f, cy - size * 0.1f)
+        path.lineTo(cx + size * 0.3f, cy - size * 0.1f)
+        canvas.drawPath(path, iconPaint)
+        drawArrowHead(canvas, cx + size * 0.3f, cy - size * 0.1f, 90f, size * 0.35f, color)
+      }
+      "arrive" in m || "cel" in m || "destination" in m -> {
+        iconPaint.style = Paint.Style.FILL
+        iconPaint.color = color
+        canvas.drawCircle(cx, cy - size * 0.15f, size * 0.35f, iconPaint)
+        iconPaint.color = Color.argb(220, 9, 10, 14)
+        canvas.drawCircle(cx, cy - size * 0.15f, size * 0.18f, iconPaint)
+        iconPaint.style = Paint.Style.STROKE
+        iconPaint.color = color
+        canvas.drawLine(cx, cy - size * 0.5f, cx, cy + size * 0.5f, iconPaint)
+      }
+      "roundabout" in m || "rondo" in m -> {
+        val oval = RectF(cx - size * 0.3f, cy - size * 0.3f, cx + size * 0.3f, cy + size * 0.3f)
+        canvas.drawOval(oval, iconPaint)
+        drawArrowHead(canvas, cx + size * 0.3f, cy, 90f, size * 0.28f, color)
+      }
+      else -> {
+        canvas.drawLine(cx, cy + size * 0.5f, cx, cy - size * 0.3f, iconPaint)
+        drawArrowHead(canvas, cx, cy - size * 0.3f, 0f, size * 0.35f, color)
+      }
+    }
+    iconPaint.style = Paint.Style.FILL
+  }
+
+  private fun drawArrowHead(canvas: Canvas, tipX: Float, tipY: Float, angleDeg: Float, size: Float, color: Int) {
+    val rad = Math.toRadians(angleDeg.toDouble())
+    val path = Path()
+    path.moveTo(tipX, tipY)
+    val lx = (tipX - size * 0.4f * cos(rad) + size * 0.25f * sin(rad)).toFloat()
+    val ly = (tipY - size * 0.4f * sin(rad) - size * 0.25f * cos(rad)).toFloat()
+    val rx = (tipX - size * 0.4f * cos(rad) - size * 0.25f * sin(rad)).toFloat()
+    val ry = (tipY - size * 0.4f * sin(rad) + size * 0.25f * cos(rad)).toFloat()
+    path.lineTo(lx, ly)
+    path.lineTo(rx, ry)
+    path.close()
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      this.color = color
+      style = Paint.Style.FILL
+    }
+    canvas.drawPath(path, fill)
+  }
+
   private fun drawHudChip(canvas: Canvas, left: Float, top: Float, label: String, color: Int) {
-    val chipWidth = (smallTextPaint.measureText(label) + 24f).coerceAtLeast(74f)
-    val rect = RectF(left, top, left + chipWidth, top + 32f)
-    chipFillPaint.color = Color.argb(42, Color.red(color), Color.green(color), Color.blue(color))
-    canvas.drawRoundRect(rect, 16f, 16f, chipFillPaint)
+    smallTextPaint.textAlign = Paint.Align.LEFT
+    val chipWidth = (smallTextPaint.measureText(label) + 24f).coerceAtLeast(64f)
+    val rect = RectF(left, top, left + chipWidth, top + 30f)
+    chipFillPaint.color = Color.argb(55, Color.red(color), Color.green(color), Color.blue(color))
+    canvas.drawRoundRect(rect, 15f, 15f, chipFillPaint)
+    smallTextPaint.textSize = 15f
     smallTextPaint.color = color
     smallTextPaint.clearShadowLayer()
-    canvas.drawText(label, rect.left + 12f, rect.centerY() + 7f, smallTextPaint)
-    smallTextPaint.setShadowLayer(4f, 0f, 1f, Color.BLACK)
+    canvas.drawText(label, rect.left + 10f, rect.centerY() + 6f, smallTextPaint)
+    smallTextPaint.setShadowLayer(3f, 0f, 1f, Color.BLACK)
+    smallTextPaint.textAlign = Paint.Align.CENTER
+    smallTextPaint.textSize = 18f
+  }
+
+  private fun formatDistance(meters: Int): String = when {
+    meters >= 10_000 -> "${meters / 1000} km"
+    meters >= 1_000  -> "${"%.1f".format(meters / 1000f)} km"
+    else             -> "$meters m"
+  }
+
+  private fun calcEta(remainingSec: Int): String {
+    val totalMin = (remainingSec / 60).coerceAtLeast(0)
+    val h = totalMin / 60
+    val m = totalMin % 60
+    val now = java.util.Calendar.getInstance()
+    now.add(java.util.Calendar.SECOND, remainingSec)
+    val hh = "%02d".format(now.get(java.util.Calendar.HOUR_OF_DAY))
+    val mm = "%02d".format(now.get(java.util.Calendar.MINUTE))
+    return if (h > 0) "$h godz $m min  •  $hh:$mm" else "$m min  •  $hh:$mm"
   }
 
   private fun project(point: AutoNavPoint): Pair<Float, Float>? {

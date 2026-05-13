@@ -15,44 +15,29 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
 
-const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187'
+/** Dyskusje — native advanced */
+const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187';
 
-// ─────────────────────────────────────────────────────────
-// PLACEHOLDER — pokazywany gdy reklama się nie załaduje
-// ─────────────────────────────────────────────────────────
-function AdPlaceholder({ variant = 'loading' }: { variant?: 'loading' | 'failed' }) {
+function AdPlaceholder() {
   const { theme } = useTheme();
   return (
     <View style={{
       marginHorizontal: 12,
-      marginBottom: 12,
+      marginBottom: 10,
       backgroundColor: theme.surface,
-      borderRadius: 20,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: '#e3383530',
       borderStyle: 'dashed',
       overflow: 'hidden',
-      padding: 20,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
       alignItems: 'center',
-      gap: 10,
+      justifyContent: 'center',
+      minHeight: 40,
     }}>
-      <View style={{
-        flexDirection: 'row', alignItems: 'center', gap: 8,
-        backgroundColor: '#e3383510', borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: 6,
-      }}>
-        <MaterialIcons name="campaign" size={14} color="#e33835" />
-        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 2 }}>
-          REKLAMA
-        </Text>
-      </View>
-      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', letterSpacing: 1 }}>
+      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', letterSpacing: 1 }}>
         TU POWINNA BYĆ REKLAMA
-      </Text>
-      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', opacity: 0.5 }}>
-        {variant === 'failed'
-          ? 'Nie udało się załadować — sprawdź sieć, region lub konfigurację AdMob'
-          : 'Reklama się ładuje… (na buildzie dev używane są testowe ID Google)'}
       </Text>
     </View>
   );
@@ -60,48 +45,53 @@ function AdPlaceholder({ variant = 'loading' }: { variant?: 'loading' | 'failed'
 
 export function AdNativePost() {
   const { theme } = useTheme();
-  const { isPremium } = usePremium();
+  const { isPremium, isLoading: premiumLoading } = usePremium();
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
   const [failed,   setFailed]   = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
-    if (isPremium) {
+    if (premiumLoading || isPremium) {
       setNativeAd(null);
       setFailed(false);
       return;
     }
 
     let ad: NativeAd | null = null;
-    let unsubscribe: (() => void) | undefined;
-    let unsubscribeError: (() => void) | undefined;
-
-    const unitId = __DEV__ ? TestIds.NATIVE : NATIVE_ID;
+    const forceTestAds = process.env.EXPO_PUBLIC_FORCE_TEST_ADS === '1';
+    const unitId = (__DEV__ || forceTestAds) ? TestIds.NATIVE : NATIVE_ID;
 
     NativeAd.createForAdRequest(unitId, {
       requestNonPersonalizedAdsOnly: false,
     }).then(createdAd => {
       ad = createdAd;
-      unsubscribe = createdAd.addAdEventListener('loaded', () => {
-        setNativeAd(createdAd);
-      });
-      unsubscribeError = createdAd.addAdEventListener('error', () => {
-        setFailed(true);
-      });
-      createdAd.load();
-    }).catch(() => {
+      setNativeAd(createdAd);
+      setFailed(false);
+    }).catch((e: any) => {
       setFailed(true);
+      console.warn('[AdNativePost] failed', { unitId, error: e });
     });
 
     return () => {
-      unsubscribe?.();
-      unsubscribeError?.();
       ad?.destroy();
     };
-  }, [isPremium]);
+  }, [isPremium, premiumLoading, retryTick]);
 
-  if (isPremium) return null;
+  useEffect(() => {
+    if (!failed || isPremium || premiumLoading) return;
+    const t = setTimeout(() => {
+      setFailed(false);
+      setNativeAd(null);
+      setRetryTick((v: number) => v + 1);
+    }, 20000);
+    return () => clearTimeout(t);
+  }, [failed, isPremium, premiumLoading]);
 
-  if (!nativeAd) return <AdPlaceholder variant={failed ? 'failed' : 'loading'} />;
+  if (premiumLoading || isPremium) return null;
+
+  if (!nativeAd) {
+    return <AdPlaceholder />;
+  }
 
   return (
     <NativeAdView

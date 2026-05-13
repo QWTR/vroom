@@ -10,8 +10,8 @@ const {
   createRunOncePlugin,
 } = require('@expo/config-plugins');
 
-const MIN_CAR_API_LEVEL = '5';
-const CAR_APP_LIB_VERSION = '1.6.0';
+const MIN_CAR_API_LEVEL = '6';
+const CAR_APP_LIB_VERSION = '1.7.0';
 
 function ensureAndroidManifestEntries(config) {
   return withAndroidManifest(config, (mod) => {

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal, Pressable, StatusBar, ScrollView,
+  Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -88,6 +88,8 @@ export default function CommunityScreen() {
   const [commentPhotoUris,   setCommentPhotoUris]   = useState<string[]>([]);
   const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** W przezroczystym Modalu KeyboardAvoidingView bywa zawodny — przesuwamy arkusz po wysokości klawiatury. */
+  const [commentKeyboardInset, setCommentKeyboardInset] = useState(0);
 
   const onCommentTextChange = (v: string) => {
     setCommentText(v);
@@ -311,6 +313,25 @@ export default function CommunityScreen() {
     })();
   }, [posts, openComments]));
 
+  useEffect(() => {
+    if (!commentPost) {
+      setCommentKeyboardInset(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e: { endCoordinates?: { height?: number } }) => {
+      setCommentKeyboardInset(e.endCoordinates?.height ?? 0);
+    };
+    const onHide = () => setCommentKeyboardInset(0);
+    const subShow = Keyboard.addListener(showEvent, onShow);
+    const subHide = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [commentPost]);
+
   // ── Filtered lists ───────────────────────────────────────
   const filteredPosts  = search.trim() ? posts.filter(p  => p.content.toLowerCase().includes(search.toLowerCase())  || p.author.username.toLowerCase().includes(search.toLowerCase())) : posts;
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
@@ -442,12 +463,12 @@ export default function CommunityScreen() {
         visible={!!commentPost}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={() => setCommentPost(null)}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
           <Pressable style={{ flex: 1 }} onPress={() => setCommentPost(null)} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          <View
             style={{
               backgroundColor: theme.surface,
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -455,7 +476,7 @@ export default function CommunityScreen() {
               maxHeight: '88%',
             }}
           >
-            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: modalBottomPadding }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: modalBottomPadding + commentKeyboardInset }}>
               {/* Handle */}
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
 
@@ -661,7 +682,7 @@ export default function CommunityScreen() {
                 </View>
               </View>
             </View>
-          </KeyboardAvoidingView>
+          </View>
         </View>
       </Modal>
 

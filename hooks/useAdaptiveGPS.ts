@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
-import { haversineKm } from '../scripts/navigationUtils';
+import { haversineKm, maxIdleBrowsingJumpM } from '../scripts/navigationUtils';
 
 export type GPSMode = 'idle' | 'driving' | 'navigating';
 
@@ -142,9 +142,13 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               ? Math.min(speedRef.current, 180)
               : Math.min(speedRef.current, 6);
             const expectedM = (baselineKmh / 3.6) * (dtMs / 1000);
-            const maxDistM  = (navRef.current || drivingRef.current)
+            let maxDistM  = (navRef.current || drivingRef.current)
               ? Math.max(100, expectedM * 3 + 100)
               : Math.max(70, expectedM * 2 + 70);
+            if (!navRef.current && !drivingRef.current) {
+              const reportedKmh = speedMs * 3.6;
+              maxDistM = Math.min(maxDistM, maxIdleBrowsingJumpM(dtMs, reportedKmh, acc));
+            }
             if (distM > maxDistM) {
               console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
               return;

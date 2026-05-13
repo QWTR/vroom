@@ -13,8 +13,8 @@ const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 const MIN_INTERVAL_MS = 8_000; // częstsze odświeżanie geometrii dla płynnego driving mode
 const BUFFER_SIZE     = 8;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
-// forceMatch uses a wider radius so a stationary user with GPS inaccuracy still snaps
-const FORCE_MATCH_RADIUS_M = 100;
+// forceMatch — szerszy promień przy ręcznym wejściu w driving (GPS bywa 80–120 m od osi drogi)
+const FORCE_MATCH_RADIUS_M = 145;
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
 const MIN_POINT_DIST_KM = 0.015; // ~15 m — drop GPS jitter before buffering
 const MIN_BUFFER_POINTS = 4;     // avoid map matching calls from tiny segments
@@ -25,6 +25,13 @@ const MAX_REQUESTS_PER_WINDOW = 24;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export type ForceMatchOptions = {
+  /** Ręczne wejście w driving: zawsze sieć, czeka na inny fetch, omija limit zapytań. */
+  manual?: boolean;
+};
 
 interface GpsPoint {
   lat:  number;
@@ -57,6 +64,8 @@ export function useDrivingMapMatch() {
   const isFetchingRef  = useRef<boolean>(false);
   const matchedPtsRef  = useRef<{ latitude: number; longitude: number }[] | null>(null);
   const matchedTimeRef = useRef<number>(0);
+  /** Inkrementowany przy reset() — odrzuca zapisy z fetchy anulowanych po wyjściu z driving. */
+  const matchGenRef    = useRef(0);
 
   const addPosition = useCallback(async (lat: number, lng: number): Promise<void> => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -90,6 +99,7 @@ export function useDrivingMapMatch() {
     lastCallRef.current   = now;
     lastFetchRef.current  = { lat, lng };
     isFetchingRef.current = true;
+    const genWhenStarted = matchGenRef.current;
 
     try {
       const pts     = bufferRef.current;
@@ -106,6 +116,7 @@ export function useDrivingMapMatch() {
         url,
         { allowFallback: false },
       );
+      if (genWhenStarted !== matchGenRef.current) return;
       if (!json) return;
 
       if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
@@ -139,28 +150,49 @@ export function useDrivingMapMatch() {
    *          so subsequent calls to `getMatchedPoints()` return it as usual.
    */
   const forceMatch = useCallback(
-    async (lat: number, lng: number): Promise<{ latitude: number; longitude: number }[] | null> => {
+    async (
+      lat: number,
+      lng: number,
+      opts?: ForceMatchOptions,
+    ): Promise<{ latitude: number; longitude: number }[] | null> => {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      if (isFetchingRef.current) return null;
+
+      const manual = !!opts?.manual;
+
+      if (manual) {
+        for (let i = 0; i < 50 && isFetchingRef.current; i++) {
+          await sleep(60);
+        }
+      } else if (isFetchingRef.current) {
+        return null;
+      }
+
       if (
+        !manual &&
         matchedPtsRef.current &&
         Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
       ) {
         return matchedPtsRef.current;
       }
+
       const now = Date.now();
-      requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-      if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return matchedPtsRef.current;
-      requestTimesRef.current.push(now);
+      if (!manual) {
+        requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+        if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return matchedPtsRef.current;
+        requestTimesRef.current.push(now);
+      } else {
+        requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+        if (requestTimesRef.current.length < MAX_REQUESTS_PER_WINDOW) {
+          requestTimesRef.current.push(now);
+        }
+      }
+
+      const genWhenStarted = matchGenRef.current;
       isFetchingRef.current = true;
       lastCallRef.current   = now;
       lastFetchRef.current  = { lat, lng };
-      // Put the regular pipeline on cooldown after forceMatch so we do not
-      // immediately issue a second paid request for nearly the same position.
 
       try {
-        // Two nearly-identical points (~5 m apart) satisfy the 2-coordinate minimum
-        // while returning the same road segment as a single-point request would.
         const coords = [
           `${lng - FORCE_MATCH_OFFSET_DEG},${lat}`,
           `${lng},${lat}`,
@@ -180,12 +212,14 @@ export function useDrivingMapMatch() {
           url,
           { allowFallback: true },
         );
+        if (genWhenStarted !== matchGenRef.current) return null;
         if (!json) return matchedPtsRef.current;
 
         if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
           const matched = json.matchings[0].geometry.coordinates.map(
-            ([lng, lat]) => ({ latitude: lat, longitude: lng }),
+            ([lng2, lat2]) => ({ latitude: lat2, longitude: lng2 }),
           );
+          if (genWhenStarted !== matchGenRef.current) return null;
           matchedPtsRef.current  = matched;
           matchedTimeRef.current = Date.now();
           console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
@@ -221,12 +255,14 @@ export function useDrivingMapMatch() {
   );
 
   const reset = useCallback((): void => {
+    matchGenRef.current += 1;
     bufferRef.current     = [];
     matchedPtsRef.current = null;
     lastCallRef.current   = 0;
     lastFetchRef.current  = null;
     requestTimesRef.current = [];
     isFetchingRef.current = false;
+    matchedTimeRef.current = 0;
     console.log('[DrivingMapMatch] reset');
   }, []);
 
