@@ -3,13 +3,14 @@ import { bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
-const SNAP_RADIUS_M_BASE    = 45;  // ciaśniej: ogranicza przyklejanie do sąsiednich ulic
-const SNAP_RADIUS_M_FAST    = 70;  // szybciej = większy margines, ale bez „teleportu” na równoległą drogę
+const SNAP_RADIUS_M_BASE    = 55;
+const SNAP_RADIUS_M_FAST    = 85;
 // Map Matching API returns verified road geometry — use a wider radius so GPS
 // errors in parking lots / courtyards (often 80-150 m) still snap to the road.
-const SNAP_RADIUS_M_MATCHED = 90;
+const SNAP_RADIUS_M_MATCHED = 120;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
+const RAW_FALLBACK_MAX_STEP_M = 30;    // max krok fallbacku gdy chwilowo brak snapa
 
 /**
  * Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360°.
@@ -166,12 +167,29 @@ export function useDrivingSnap() {
       ? SNAP_RADIUS_M_MATCHED
       : speedKmh > 70 ? SNAP_RADIUS_M_FAST : SNAP_RADIUS_M_BASE;
 
-    const result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);
+    let result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);
+    // Jeśli stale-matched-geometry chwilowo nie pasuje, spróbuj fallbacku
+    // do routePts (często ratuje płynność po ostrych zakrętach / zmianie pasa).
+    if (!result && usingMatchedRoad && routePtsRef.current.length >= 2) {
+      result = snapToRouteWithInfo(lat, lng, routePtsRef.current, SNAP_RADIUS_M_FAST);
+    }
 
     // Brak drogi w promieniu — w driving mode trzymamy ostatni pewny snap,
     // żeby marker nie zrzucał się z drogi przy chwilowych brakach geometrii.
     if (!result) {
       if (lastSnappedRef.current) {
+        if (last) {
+          const rawMoveM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
+          const scale = rawMoveM > RAW_FALLBACK_MAX_STEP_M && rawMoveM > 0
+            ? RAW_FALLBACK_MAX_STEP_M / rawMoveM
+            : 1;
+          const extrapolated = {
+            latitude: lastSnappedRef.current.latitude + (lat - last.lat) * scale,
+            longitude: lastSnappedRef.current.longitude + (lng - last.lng) * scale,
+          };
+          lastSnappedRef.current = extrapolated;
+          return { ...extrapolated, snapped: true, targetHeading: lastTargetHeadingRef.current };
+        }
         return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
       }
       return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };

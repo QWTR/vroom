@@ -317,7 +317,6 @@ export default function MapScreen() {
 
   const drivingConsecutiveRef = useRef(0);       // ile z rzędu odczytów ponad próg
   const DRIVING_CONSECUTIVE_REQ = 4;             // wymagane kolejne odczyty zanim wejdziemy w driving
-  const offRoadNoSnapRef = useRef(0);            // ile kolejnych tików bez pewnego snapa do drogi
   const lastSetLocRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVE_M = 8;                          // ignoruj ruch < 8m gdy wolno
   const DR_UI_TICK_MS = 700;                     // ogranicz re-render UI z DR
@@ -1248,7 +1247,6 @@ export default function MapScreen() {
       setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
     }
     isDrivingRef.current        = false;
-    offRoadNoSnapRef.current    = 0;
     drivingLastLocRef.current   = null;
     lastDrivingPosRef.current   = null;
     if (drivingStopTimerRef.current) {
@@ -1291,7 +1289,6 @@ export default function MapScreen() {
       drivingManuallyDisabledRef.current = false;
       isDrivingRef.current        = true;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
-      offRoadNoSnapRef.current = 0;
       startTrip(Number(routeInfoRef.current?.duration) || 0);
       drivingLastLocRef.current   = null;
       lastDrivingPosRef.current   = null;
@@ -1365,10 +1362,7 @@ export default function MapScreen() {
         console.warn('[DrivingMode] Manual entry error:', e);
       }
       if (!manualSnapApplied) {
-        Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Brak pewnego snapa do drogi — tryb jazdy nie został włączony.' });
-        exitDrivingMode();
-        if (userLocation) exitDrivingCamera(userLocation);
-        return;
+        Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Start bez pełnego snapa — dociągam do drogi podczas jazdy.' });
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
@@ -1650,8 +1644,8 @@ export default function MapScreen() {
         const movedForSnap = lastSetLocRef.current
           ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, lat, lng) * 1000
           : Infinity;
-        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 22;
-        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 20 && kmh >= 10) {
+        const hasGoodGpsAccuracy = (loc.accuracy ?? 999) <= 35;
+        if (isDrivingRef.current && hasGoodGpsAccuracy && movedForSnap >= 10 && kmh >= 5) {
           addMatchPosition(lat, lng);
         }
 
@@ -1661,28 +1655,7 @@ export default function MapScreen() {
           return;
         }
 
-        if (!snapped.snapped) {
-          // Brak locka do drogi -> fallback do surowego GPS i licznik off-road.
-          snapped.latitude = lat;
-          snapped.longitude = lng;
-          if (isDrivingRef.current && kmh >= 8) {
-            offRoadNoSnapRef.current += 1;
-            if (offRoadNoSnapRef.current >= 4) {
-              Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Utracono drogę (snap) — wyłączam tryb jazdy.' });
-              isDrivingRef.current = false;
-              setIsDriving(false);
-              resetSnap();
-              resetMapMatch();
-              setRoadMatchPoints([]);
-              offRoadNoSnapRef.current = 0;
-              return;
-            }
-          }
-        } else {
-          offRoadNoSnapRef.current = 0;
-        }
-
-        const movingForDriving = snapped.snapped && (kmh >= DRIVING_SPEED_KMH || movedForSnap >= 12);
+        const movingForDriving = kmh >= DRIVING_SPEED_KMH || movedForSnap >= 12;
         if (isDrivingRef.current || movingForDriving) {
           const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs ?? undefined);
           if (segKm > 0) {
@@ -1864,7 +1837,6 @@ export default function MapScreen() {
               return; // czekaj na potwierdzenie
             }
             isDrivingRef.current      = true;
-            offRoadNoSnapRef.current = 0;
             startTrip(Number(routeInfoRef.current?.duration) || 0);
             drivingLastLocRef.current = null;
             lastDrivingPosRef.current = null;

@@ -10,7 +10,7 @@ import { fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
-const MIN_INTERVAL_MS = 20_000; // call API at most every ~20 s
+const MIN_INTERVAL_MS = 8_000; // częstsze odświeżanie geometrii dla płynnego driving mode
 const BUFFER_SIZE     = 8;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
 // forceMatch uses a wider radius so a stationary user with GPS inaccuracy still snaps
@@ -18,7 +18,7 @@ const FORCE_MATCH_RADIUS_M = 100;
 const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
 const MIN_POINT_DIST_KM = 0.015; // ~15 m — drop GPS jitter before buffering
 const MIN_BUFFER_POINTS = 4;     // avoid map matching calls from tiny segments
-const MIN_FETCH_MOVE_M  = 50;    // call API only after meaningful movement
+const MIN_FETCH_MOVE_M  = 20;    // szybsze odświeżanie po krótszym ruchu
 const FORCE_MATCH_MIN_INTERVAL_MS = 120_000; // avoid repeated paid entry snaps
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 24;

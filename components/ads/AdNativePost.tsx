@@ -13,6 +13,7 @@ import {
 } from 'react-native-google-mobile-ads';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePremium } from '../../contexts/PremiumContext';
 
 const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187'
 
@@ -59,10 +60,17 @@ function AdPlaceholder({ variant = 'loading' }: { variant?: 'loading' | 'failed'
 
 export function AdNativePost() {
   const { theme } = useTheme();
+  const { isPremium } = usePremium();
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
   const [failed,   setFailed]   = useState(false);
 
   useEffect(() => {
+    if (isPremium) {
+      setNativeAd(null);
+      setFailed(false);
+      return;
+    }
+
     let ad: NativeAd | null = null;
     let unsubscribe: (() => void) | undefined;
     let unsubscribeError: (() => void) | undefined;
@@ -89,7 +97,9 @@ export function AdNativePost() {
       unsubscribeError?.();
       ad?.destroy();
     };
-  }, []);
+  }, [isPremium]);
+
+  if (isPremium) return null;
 
   if (!nativeAd) return <AdPlaceholder variant={failed ? 'failed' : 'loading'} />;
 

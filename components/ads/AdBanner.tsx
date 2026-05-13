@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { usePremium } from '../../contexts/PremiumContext';
 
 const BANNER_ID = 'ca-app-pub-1660420496578702/5609918502';
 
@@ -72,8 +73,11 @@ function BannerPlaceholder({ variant }: { variant: 'loading' | 'failed' }) {
 
 export function AdBanner({ BANNERID = BANNER_ID }) {
   const { theme } = useTheme();
+  const { isPremium } = usePremium();
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  if (isPremium) return null;
 
   const unitId = __DEV__ ? TestIds.ADAPTIVE_BANNER : BANNERID;
 

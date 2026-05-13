@@ -19,7 +19,7 @@ import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
-import { PremiumProvider, usePremium } from '../contexts/PremiumContext';
+import { PremiumProvider } from '../contexts/PremiumContext';
 import { API_URL } from '../constants/config';
 import MobileAds from 'react-native-google-mobile-ads';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
@@ -163,7 +163,6 @@ function StatusLine() {
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
   const { isDark }     = useTheme();
-  const { isPremium }  = usePremium();
   const { updateSetting } = useSettings();
   const router         = useRouter();
   const pathname       = usePathname();
@@ -177,13 +176,14 @@ function RootLayoutInner() {
     OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
   });
 
-  // Inicjalizacja MobileAds tylko dla użytkowników bez premium (tylko raz)
+  // Inicjalizacja MobileAds globalnie (tylko raz).
+  // Samo wyświetlanie reklam i tak kontrolują konkretne ekrany/komponenty.
   useEffect(() => {
-    if (!isPremium && !adsInitialized.current) {
+    if (!adsInitialized.current) {
       MobileAds().initialize().catch(() => {});
       adsInitialized.current = true;
     }
-  }, [isPremium]);
+  }, []);
 
   // Anim values
   const masterFade    = useRef(new Animated.Value(0)).current;
