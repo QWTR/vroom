@@ -10,6 +10,9 @@ const {
   createRunOncePlugin,
 } = require('@expo/config-plugins');
 
+const MIN_CAR_API_LEVEL = '5';
+const CAR_APP_LIB_VERSION = '1.6.0';
+
 function ensureAndroidManifestEntries(config) {
   return withAndroidManifest(config, (mod) => {
     const manifest = mod.modResults.manifest;
@@ -39,13 +42,16 @@ function ensureAndroidManifestEntries(config) {
     }
 
     app['meta-data'] = app['meta-data'] || [];
-    if (!app['meta-data'].some((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel')) {
+    const appCarMeta = app['meta-data'].find((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel');
+    if (!appCarMeta) {
       app['meta-data'].push({
         $: {
           'android:name': 'androidx.car.app.minCarApiLevel',
-          'android:value': '1',
+          'android:value': MIN_CAR_API_LEVEL,
         },
       });
+    } else {
+      appCarMeta.$['android:value'] = MIN_CAR_API_LEVEL;
     }
     if (!app['meta-data'].some((m) => m.$['android:name'] === 'com.google.android.gms.car.application')) {
       app['meta-data'].push({
@@ -65,7 +71,7 @@ function ensureAndroidManifestEntries(config) {
           action: [{ $: { 'android:name': 'androidx.car.app.CarAppService' } }],
           category: [{ $: { 'android:name': 'androidx.car.app.category.NAVIGATION' } }],
         }],
-        'meta-data': [{ $: { 'android:name': 'androidx.car.app.minCarApiLevel', 'android:value': '1' } }],
+        'meta-data': [{ $: { 'android:name': 'androidx.car.app.minCarApiLevel', 'android:value': MIN_CAR_API_LEVEL } }],
       });
     } else {
       existingService['intent-filter'] = existingService['intent-filter'] || [];
@@ -81,13 +87,16 @@ function ensureAndroidManifestEntries(config) {
       existingService['intent-filter'][0] = filter;
 
       existingService['meta-data'] = existingService['meta-data'] || [];
-      if (!existingService['meta-data'].some((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel')) {
+      const svcCarMeta = existingService['meta-data'].find((m) => m.$['android:name'] === 'androidx.car.app.minCarApiLevel');
+      if (!svcCarMeta) {
         existingService['meta-data'].push({
           $: {
             'android:name': 'androidx.car.app.minCarApiLevel',
-            'android:value': '1',
+            'android:value': MIN_CAR_API_LEVEL,
           },
         });
+      } else {
+        svcCarMeta.$['android:value'] = MIN_CAR_API_LEVEL;
       }
     }
 
@@ -97,18 +106,28 @@ function ensureAndroidManifestEntries(config) {
 
 function ensureAndroidDependencies(config) {
   return withAppBuildGradle(config, (mod) => {
+    let { contents } = mod.modResults;
+    contents = contents.replace(
+      /implementation\("androidx\.car\.app:app:[^"]+"\)/g,
+      `implementation("androidx.car.app:app:${CAR_APP_LIB_VERSION}")`,
+    );
+    contents = contents.replace(
+      /implementation\("androidx\.car\.app:app-projected:[^"]+"\)/g,
+      `implementation("androidx.car.app:app-projected:${CAR_APP_LIB_VERSION}")`,
+    );
     const targets = [
-      'implementation("androidx.car.app:app:1.4.0")',
-      'implementation("androidx.car.app:app-projected:1.4.0")',
+      `implementation("androidx.car.app:app:${CAR_APP_LIB_VERSION}")`,
+      `implementation("androidx.car.app:app-projected:${CAR_APP_LIB_VERSION}")`,
       'implementation("com.mapbox.maps:android-ndk27:11.18.2")',
     ];
-    const missingTargets = targets.filter((target) => !mod.modResults.contents.includes(target));
+    const missingTargets = targets.filter((target) => !contents.includes(target));
     if (missingTargets.length > 0) {
-      mod.modResults.contents = mod.modResults.contents.replace(
+      contents = contents.replace(
         'implementation("com.facebook.react:react-android")',
         `implementation("com.facebook.react:react-android")\n    ${missingTargets.map((target) => target).join('\n    ')}`,
       );
     }
+    mod.modResults.contents = contents;
     return mod;
   });
 }

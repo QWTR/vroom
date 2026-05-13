@@ -35,12 +35,14 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     val snapshot = AutoNavStore.snapshot(carContext)
     if (!snapshot.isNavigating) {
       return NavigationTemplate.Builder()
-        .setActionStrip(mapActionStrip())
+        .setActionStrip(topActionStrip())
+        .setMapActionStrip(mapPanStrip())
         .build()
     }
 
     val builder = NavigationTemplate.Builder()
-      .setActionStrip(mapActionStrip())
+      .setActionStrip(topActionStrip())
+      .setMapActionStrip(mapPanStrip())
 
     val instruction = snapshot.instruction.ifBlank { "Kontynuuj trase" }
     val turnDistanceMeters = (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
@@ -89,9 +91,15 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     }
   }
 
-  private fun mapActionStrip(): ActionStrip =
+  /** PAN must live on the map strip so the host forwards taps/scrolls to [SurfaceCallback]. */
+  private fun mapPanStrip(): ActionStrip =
     ActionStrip.Builder()
       .addAction(Action.PAN)
+      .build()
+
+  private fun topActionStrip(): ActionStrip =
+    ActionStrip.Builder()
+      .addAction(Action.BACK)
       .build()
 
 }

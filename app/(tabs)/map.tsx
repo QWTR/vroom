@@ -317,6 +317,7 @@ export default function MapScreen() {
 
   const drivingConsecutiveRef = useRef(0);       // ile z rzędu odczytów ponad próg
   const DRIVING_CONSECUTIVE_REQ = 4;             // wymagane kolejne odczyty zanim wejdziemy w driving
+  const offRoadNoSnapRef = useRef(0);            // ile kolejnych tików bez pewnego snapa do drogi
   const lastSetLocRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVE_M = 8;                          // ignoruj ruch < 8m gdy wolno
   const DR_UI_TICK_MS = 700;                     // ogranicz re-render UI z DR
@@ -1247,6 +1248,7 @@ export default function MapScreen() {
       setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
     }
     isDrivingRef.current        = false;
+    offRoadNoSnapRef.current    = 0;
     drivingLastLocRef.current   = null;
     lastDrivingPosRef.current   = null;
     if (drivingStopTimerRef.current) {
@@ -1289,6 +1291,7 @@ export default function MapScreen() {
       drivingManuallyDisabledRef.current = false;
       isDrivingRef.current        = true;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+      offRoadNoSnapRef.current = 0;
       startTrip(Number(routeInfoRef.current?.duration) || 0);
       drivingLastLocRef.current   = null;
       lastDrivingPosRef.current   = null;
@@ -1305,11 +1308,23 @@ export default function MapScreen() {
       const startLat = userLocation.latitude;
       const startLng = userLocation.longitude;
       const entryHeading = Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0;
+      let manualSnapApplied = false;
 
       try {
         // Anchor dead-reckoning at current position immediately.
         feedDR({ latitude: startLat, longitude: startLng }, 0, entryHeading);
         enterDrivingCamera(userLocation, entryHeading);
+
+        // Najpierw spróbuj snapnąć po aktualnej geometrii (jeśli już jest w cache).
+        const cachedSnap = drivingSnap(startLat, startLng, 0, false);
+        if (cachedSnap.snapped && Number.isFinite(cachedSnap.latitude) && Number.isFinite(cachedSnap.longitude)) {
+          drLatRef.current = cachedSnap.latitude;
+          drLngRef.current = cachedSnap.longitude;
+          lastSetLocRef.current = { lat: cachedSnap.latitude, lng: cachedSnap.longitude };
+          setUserLocation({ latitude: cachedSnap.latitude, longitude: cachedSnap.longitude });
+          feedDR({ latitude: cachedSnap.latitude, longitude: cachedSnap.longitude }, 0, entryHeading);
+          manualSnapApplied = true;
+        }
 
         // forceMatch: await the API result so we can snap immediately —
         // this is essential when stationary (speed = 0) because the GPS
@@ -1342,11 +1357,18 @@ export default function MapScreen() {
               // follows the correct road-snapped location.
               feedDR({ latitude: snapped.latitude, longitude: snapped.longitude }, 0, entryHeading);
               console.log('[DrivingMode] Immediate entry snap applied:', snapped.latitude.toFixed(6), snapped.longitude.toFixed(6));
+              manualSnapApplied = true;
             }
           }
         }
       } catch (e) {
         console.warn('[DrivingMode] Manual entry error:', e);
+      }
+      if (!manualSnapApplied) {
+        Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Brak pewnego snapa do drogi — tryb jazdy nie został włączony.' });
+        exitDrivingMode();
+        if (userLocation) exitDrivingCamera(userLocation);
+        return;
       }
       console.log('[DrivingMode] Manually entered driving mode');
     }
@@ -1638,7 +1660,29 @@ export default function MapScreen() {
           console.warn('[GPS map] drivingSnap produced non-finite coord');
           return;
         }
-        const movingForDriving = kmh >= DRIVING_SPEED_KMH || movedForSnap >= 12;
+
+        if (!snapped.snapped) {
+          // Brak locka do drogi -> fallback do surowego GPS i licznik off-road.
+          snapped.latitude = lat;
+          snapped.longitude = lng;
+          if (isDrivingRef.current && kmh >= 8) {
+            offRoadNoSnapRef.current += 1;
+            if (offRoadNoSnapRef.current >= 4) {
+              Toast.show({ type: 'info', text1: 'Driving mode', text2: 'Utracono drogę (snap) — wyłączam tryb jazdy.' });
+              isDrivingRef.current = false;
+              setIsDriving(false);
+              resetSnap();
+              resetMapMatch();
+              setRoadMatchPoints([]);
+              offRoadNoSnapRef.current = 0;
+              return;
+            }
+          }
+        } else {
+          offRoadNoSnapRef.current = 0;
+        }
+
+        const movingForDriving = snapped.snapped && (kmh >= DRIVING_SPEED_KMH || movedForSnap >= 12);
         if (isDrivingRef.current || movingForDriving) {
           const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs ?? undefined);
           if (segKm > 0) {
@@ -1820,6 +1864,7 @@ export default function MapScreen() {
               return; // czekaj na potwierdzenie
             }
             isDrivingRef.current      = true;
+            offRoadNoSnapRef.current = 0;
             startTrip(Number(routeInfoRef.current?.duration) || 0);
             drivingLastLocRef.current = null;
             lastDrivingPosRef.current = null;

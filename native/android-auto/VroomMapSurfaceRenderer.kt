@@ -33,6 +33,7 @@ import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.MapInitOptions
 import com.mapbox.maps.MapView
+import com.mapbox.maps.ScreenCoordinate
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -90,10 +91,59 @@ class VroomMapSurfaceRenderer(private val context: Context) : SurfaceCallback {
 
   override fun onVisibleAreaChanged(visibleArea: Rect) {
     this.visibleArea = Rect(visibleArea)
+    overlayView?.visibleArea = this.visibleArea
+    overlayView?.invalidate()
   }
 
   override fun onStableAreaChanged(stableArea: Rect) {
     this.visibleArea = Rect(stableArea)
+    overlayView?.visibleArea = this.visibleArea
+    overlayView?.invalidate()
+  }
+
+  /**
+   * Android Auto does not route touch into the [Presentation] window. The host calls these
+   * [SurfaceCallback] methods (typically after the user taps [Action.PAN] on the map action strip).
+   */
+  override fun onClick(x: Float, y: Float) {
+    handler.post {
+      runCatching { overlayView?.handleCarHostSurfaceTap(x, y) }
+        .onFailure { Log.e(TAG, "onClick", it) }
+    }
+  }
+
+  override fun onScroll(distanceX: Float, distanceY: Float) {
+    handler.post {
+      runCatching { panMapByPixelDelta(distanceX, distanceY) }
+        .onFailure { Log.e(TAG, "onScroll", it) }
+    }
+  }
+
+  override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
+    handler.post {
+      runCatching { zoomMapByScaleFactor(scaleFactor) }
+        .onFailure { Log.e(TAG, "onScale", it) }
+    }
+  }
+
+  private fun panMapByPixelDelta(distanceX: Float, distanceY: Float) {
+    val mv = mapView ?: return
+    val map = mv.getMapboxMap()
+    val center = map.cameraState.center
+    val screen = map.pixelForCoordinate(center)
+    val target = map.coordinateForPixel(
+      ScreenCoordinate(screen.x - distanceX.toDouble(), screen.y - distanceY.toDouble()),
+    )
+    map.setCamera(CameraOptions.Builder().center(target).build())
+  }
+
+  private fun zoomMapByScaleFactor(scaleFactor: Float) {
+    val mv = mapView ?: return
+    val map = mv.getMapboxMap()
+    val z = map.cameraState.zoom
+    val delta = kotlin.math.log(scaleFactor.toDouble(), 2.0).toFloat()
+    val newZoom = (z + delta).toDouble().coerceIn(4.0, 20.0)
+    map.setCamera(CameraOptions.Builder().zoom(newZoom).build())
   }
 
   private fun createMapPresentation(surfaceContainer: SurfaceContainer) {
@@ -422,6 +472,36 @@ private class VroomMapOverlayView(
     }
   }
 
+  fun handleCarHostSurfaceTap(x: Float, y: Float) {
+    val snap = snapshot ?: return
+    if (width <= 0 || height <= 0) return
+    if (quickActions.isEmpty()) rebuildQuickActionHitRects(snap)
+    val hit = quickActions.entries.firstOrNull { it.value.contains(x, y) }?.key ?: return
+    handleOverlayAction(hit)
+    postInvalidateOnAnimation()
+  }
+
+  /**
+   * Hit-rects for AA surface taps; mirrors [drawQuickReportButtons] geometry (keep in sync).
+   */
+  private fun rebuildQuickActionHitRects(snapshot: AutoNavSnapshot) {
+    quickActions.clear()
+    if (snapshot.isBuilding) return
+    val top = (visibleArea?.top ?: 0) + 14f
+    val leftCol = 14f
+    val buttonSize = 52f
+    val gap = 58f
+    quickActions["open_search"] = RectF(96f, top, width - 16f, top + 56f)
+    var row = top
+    quickActions["open_menu"] = RectF(leftCol, row, leftCol + buttonSize, row + buttonSize)
+    row += gap
+    quickActions["open_settings"] = RectF(leftCol, row, leftCol + buttonSize, row + buttonSize)
+    row += gap
+    quickActions["recenter"] = RectF(leftCol, row, leftCol + buttonSize, row + buttonSize)
+    row += gap
+    quickActions["open_report"] = RectF(leftCol, row, leftCol + buttonSize, row + buttonSize)
+  }
+
   fun forwardTouch(event: MotionEvent): Boolean {
     val x = event.x
     val y = event.y
@@ -456,13 +536,12 @@ private class VroomMapOverlayView(
   }
 
   private fun drawQuickReportButtons(canvas: Canvas, snapshot: AutoNavSnapshot) {
-    quickActions.clear()
+    rebuildQuickActionHitRects(snapshot)
     if (snapshot.isBuilding) return
     val top = (visibleArea?.top ?: 0) + 14f
     val leftCol = 14f
     val searchRect = RectF(96f, top, width - 16f, top + 56f)
     drawSearchBar(canvas, searchRect)
-    quickActions["open_search"] = searchRect
 
     val buttonSize = 52f
     val gap = 58f
@@ -508,7 +587,6 @@ private class VroomMapOverlayView(
       "open_report" -> drawReportIcon(canvas, rect.centerX(), rect.centerY(), color)
       "recenter" -> drawCompassIcon(canvas, rect.centerX(), rect.centerY(), color)
     }
-    quickActions[action] = rect
   }
 
   private fun drawMapPinIcon(canvas: Canvas, cx: Float, cy: Float, radius: Float) {

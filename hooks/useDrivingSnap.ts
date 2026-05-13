@@ -3,11 +3,11 @@ import { bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
-const SNAP_RADIUS_M_BASE    = 65;  // 65 m: covers urban GPS multipath (typically 20-60 m)
-const SNAP_RADIUS_M_FAST    = 100; // 100 m: GPS multipath w mieście może odchylić o 30-60 m
+const SNAP_RADIUS_M_BASE    = 45;  // ciaśniej: ogranicza przyklejanie do sąsiednich ulic
+const SNAP_RADIUS_M_FAST    = 70;  // szybciej = większy margines, ale bez „teleportu” na równoległą drogę
 // Map Matching API returns verified road geometry — use a wider radius so GPS
 // errors in parking lots / courtyards (often 80-150 m) still snap to the road.
-const SNAP_RADIUS_M_MATCHED = 200;
+const SNAP_RADIUS_M_MATCHED = 90;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
 
@@ -168,8 +168,8 @@ export function useDrivingSnap() {
 
     const result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);
 
-    // Brak drogi w promieniu — użyj ostatniej pozycji na drodze jeśli jest dostępna,
-    // żeby uniknąć skoku markera do surowego GPS między odświeżeniami geometrii drogi.
+    // Brak drogi w promieniu — w driving mode trzymamy ostatni pewny snap,
+    // żeby marker nie zrzucał się z drogi przy chwilowych brakach geometrii.
     if (!result) {
       if (lastSnappedRef.current) {
         return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
