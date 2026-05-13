@@ -14,12 +14,12 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const NATIVE_ID = 'ca-app-pub-1660420496578702/3363343740'
+const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187'
 
 // ─────────────────────────────────────────────────────────
 // PLACEHOLDER — pokazywany gdy reklama się nie załaduje
 // ─────────────────────────────────────────────────────────
-function AdPlaceholder() {
+function AdPlaceholder({ variant = 'loading' }: { variant?: 'loading' | 'failed' }) {
   const { theme } = useTheme();
   return (
     <View style={{
@@ -49,7 +49,9 @@ function AdPlaceholder() {
         TU POWINNA BYĆ REKLAMA
       </Text>
       <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', opacity: 0.5 }}>
-        Reklama się ładuje lub jest niedostępna w tym regionie
+        {variant === 'failed'
+          ? 'Nie udało się załadować — sprawdź sieć, region lub konfigurację AdMob'
+          : 'Reklama się ładuje… (na buildzie dev używane są testowe ID Google)'}
       </Text>
     </View>
   );
@@ -65,7 +67,9 @@ export function AdNativePost() {
     let unsubscribe: (() => void) | undefined;
     let unsubscribeError: (() => void) | undefined;
 
-    NativeAd.createForAdRequest(NATIVE_ID, {
+    const unitId = __DEV__ ? TestIds.NATIVE : NATIVE_ID;
+
+    NativeAd.createForAdRequest(unitId, {
       requestNonPersonalizedAdsOnly: false,
     }).then(createdAd => {
       ad = createdAd;
@@ -87,7 +91,7 @@ export function AdNativePost() {
     };
   }, []);
 
-  if (!nativeAd) return <AdPlaceholder />;
+  if (!nativeAd) return <AdPlaceholder variant={failed ? 'failed' : 'loading'} />;
 
   return (
     <NativeAdView

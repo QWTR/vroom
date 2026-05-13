@@ -456,6 +456,9 @@ export default function MapScreen() {
   // ── NOWY State — tryb driving ─────────────────────────────
   const [isDriving,    setIsDriving]    = useState(false);
   const [mapFabModalVisible, setMapFabModalVisible] = useState(false);
+  /** Inkrement przy ponownym focusie zakładki — wymusza remount MapView (czarny ekran po tabach). */
+  const [mapSurfaceEpoch, setMapSurfaceEpoch] = useState(0);
+  const mapTabBlurredOnceRef = useRef(false);
 
   // ── State — live distances (nawigacja) ────────────────────
   const [distToTurnM,     setDistToTurnM]     = useState<number | null>(null);
@@ -534,7 +537,7 @@ export default function MapScreen() {
   const { isPremium } = usePremium();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
-  const styles = makeMapStyles(theme, isDark, insets.top);
+  const styles = makeMapStyles(theme, isDark, insets.top, { mapControlsTop: 12 });
   const mapStyle =
     mapType === 'satellite' ? MAPBOX_STYLE_SATELLITE :
     mapType === 'hybrid'    ? MAPBOX_STYLE_HYBRID :
@@ -1084,6 +1087,10 @@ export default function MapScreen() {
       const rawLat = loc.coords.latitude;
       const rawLng = loc.coords.longitude;
       const acc = loc.coords.accuracy ?? 999;
+      if (acc <= 80) {
+        latFilter.reset();
+        lngFilter.reset();
+      }
       const lat = latFilter.filter(rawLat, acc);
       const lng = lngFilter.filter(rawLng, acc);
       setUserLocation({ latitude: lat, longitude: lng });
@@ -1125,8 +1132,8 @@ export default function MapScreen() {
         // Fast-path: if OS has a recent last-known fix, unlock UI immediately.
         try {
           const lastKnown = await Location.getLastKnownPositionAsync({
-            maxAge: 60_000,
-            requiredAccuracy: 250,
+            maxAge: 45_000,
+            requiredAccuracy: 65,
           });
           if (lastKnown && !cancelled) {
             const rawLat = lastKnown.coords.latitude;
@@ -1142,7 +1149,7 @@ export default function MapScreen() {
         for (let i = 0; i < 6 && !cancelled; i++) {
           try {
             const loc = await Location.getCurrentPositionAsync({
-              accuracy: i < 2 ? Location.Accuracy.Balanced : Location.Accuracy.High,
+              accuracy: Location.Accuracy.BestForNavigation,
               mayShowUserSettingsDialog: i === 0,
             });
             if (acceptFreshFix(loc)) {
@@ -1165,7 +1172,7 @@ export default function MapScreen() {
           }, 20_000);
           Location.watchPositionAsync(
             {
-              accuracy: Location.Accuracy.High,
+              accuracy: Location.Accuracy.BestForNavigation,
               timeInterval: 1000,
               distanceInterval: 1,
             },
@@ -2192,6 +2199,17 @@ export default function MapScreen() {
     };
   }, [handleGpsResume]));
 
+  useFocusEffect(
+    useCallback(() => {
+      if (mapTabBlurredOnceRef.current) {
+        setMapSurfaceEpoch(n => n + 1);
+      }
+      return () => {
+        mapTabBlurredOnceRef.current = true;
+      };
+    }, []),
+  );
+
   useEffect(() => () => {
     if (resumeOneShotTimerRef.current) {
       clearTimeout(resumeOneShotTimerRef.current);
@@ -3086,6 +3104,12 @@ export default function MapScreen() {
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+        {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
+        <View style={{ paddingTop: insets.top, backgroundColor: '#0a0a0a' }}>
+          <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
+        </View>
+
+        <View style={{ flex: 1, minHeight: 0, position: 'relative' }}>
 
         {/* ── Timer trasy ─────────────────────────────────── */}
         {isNavigating && timerRunning && (
@@ -3189,7 +3213,7 @@ export default function MapScreen() {
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
             backgroundColor: '#e33835',
-            paddingTop:    insets.top + 12,
+            paddingTop:    12,
             paddingBottom: 14, paddingHorizontal: 16,
             flexDirection: 'row', alignItems: 'center', gap: 10,
             shadowColor: '#e33835', shadowOffset: { width: 0, height: 6 },
@@ -3226,15 +3250,11 @@ export default function MapScreen() {
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
-        {/* ── Ad Banner (tylko gdy nie trwa nawigacja) ──────── */}
-        {!isNavigating && !isDriving && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999999999 }}>
-            <AdBanner BANNERID='ca-app-pub-1660420496578702/5609918502' />
-          </View>
-        )}
+        <View style={{ flex: 1 }} collapsable={false}>
         <Mapbox.MapView
+          key={`vroom-map-${mapSurfaceEpoch}`}
           ref={mapRef}
-          style={StyleSheet.absoluteFillObject}
+          style={{ flex: 1 }}
           styleURL={mapStyle}
           logoEnabled={false}
           attributionEnabled={false}
@@ -3466,6 +3486,7 @@ export default function MapScreen() {
             />
           )}
         </Mapbox.MapView>
+        </View>
 
         {cameraPickMode && (
           <View
@@ -3475,7 +3496,7 @@ export default function MapScreen() {
             <View
               pointerEvents="none"
               style={{
-                marginTop:     insets.top + 48,
+                marginTop:     48,
                 alignSelf:     'center',
                 backgroundColor: isDark ? '#141414e8' : '#111111dc',
                 paddingHorizontal: 14,
@@ -3652,7 +3673,7 @@ export default function MapScreen() {
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
           <View style={{
-            position: 'absolute', top: insets.top + 122,
+            position: 'absolute', top: 110,
             left: 12, right: 12,
             backgroundColor: '#ff922b18', borderRadius: 12,
             borderWidth: 1, borderColor: '#ff922b45',
@@ -3702,7 +3723,7 @@ export default function MapScreen() {
           <View
             style={{
               position: 'absolute',
-              top: insets.top + 6,
+              top: 8,
               left: 6,
               right: 6,
               zIndex: 96,
@@ -3902,7 +3923,7 @@ export default function MapScreen() {
           {connected && isSharing && (
             <View style={{
               position: 'absolute',
-              top: insets.top + (isDriving && !isNavigating ? 108 : 8),
+              top: 12 + (isDriving && !isNavigating ? 108 : 0),
               right: 12,
               flexDirection: 'row', alignItems: 'center', gap: 5,
               backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
@@ -4052,7 +4073,7 @@ export default function MapScreen() {
           <TouchableOpacity
             style={[
               styles.topSearchButton,
-              isDriving && !isNavigating && { top: insets.top + 148 },
+              isDriving && !isNavigating && { top: 148 },
             ]}
             onPress={() => setSearchModalVisible(true)}
             activeOpacity={0.8}
@@ -4214,6 +4235,8 @@ export default function MapScreen() {
             </View>
           </View>
         )}
+
+        </View>
 
         {/* ── Modale ───────────────────────────────────────── */}
         <SearchModal

@@ -3,12 +3,17 @@ import { AppTheme } from '../constants/theme';
 
 const { height } = Dimensions.get('window');
 
-export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
+export function makeMapStyles(
+  t: AppTheme,
+  isDark = true,
+  screenTopInset = 0,
+  opts?: { mapControlsTop?: number },
+) {
   const SURF  = t.surface;
   const SURF2 = t.surface2;
   const SURF3 = t.surface3;
-  // Minimum clearance from top of screen (status bar + small margin)
-  const TOP = topInset + 12;
+  /** Odległość od góry *obszaru mapy* (wyszukiwarka, panel nawigacji). Gdy brak opts — jak dawniej: safe area + 12. */
+  const MAP_CONTROLS_TOP = opts?.mapControlsTop ?? screenTopInset + 12;
 
   return StyleSheet.create({
 
@@ -126,7 +131,7 @@ export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
     // ═══════════════════════════════════════════
     topSearchButton: {
       position: 'absolute',
-      top: TOP,
+      top: MAP_CONTROLS_TOP,
       left: 12,
       right: 12,
       flexDirection: 'row',
@@ -154,7 +159,7 @@ export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
     // ═══════════════════════════════════════════
     navigationPanelTop: {
       position: 'absolute',
-      top: TOP,
+      top: MAP_CONTROLS_TOP,
       left: 12,
       right: 12,
       backgroundColor: isDark ? SURF : '#fffffff0',
@@ -278,7 +283,7 @@ export function makeMapStyles(t: AppTheme, isDark = true, topInset = 0) {
       borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
       borderBottomWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
       borderColor: t.border2,
-      paddingTop: TOP + 8,
+      paddingTop: screenTopInset + 20,
       elevation: 20, shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12,
       zIndex: 12,
