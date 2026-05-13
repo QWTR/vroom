@@ -8,6 +8,8 @@ import java.net.URL
 
 object AutoNavStore {
   private const val API_URL = "https://v-room.app"
+  private const val MAPBOX_PUBLIC_TOKEN = "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
+  private const val MAPBOX_BASE = "https://api.mapbox.com"
   private const val REMOTE_REFRESH_INTERVAL_MS = 7_000L
   private const val PREFS = "vroom_auto_nav"
   private const val KEY_IS_NAVIGATING = "is_navigating"
@@ -33,6 +35,13 @@ object AutoNavStore {
   private const val KEY_LAST_PROFILE_REFRESH = "last_profile_refresh"
   private const val KEY_PROFILE_NAME = "profile_name"
   private const val KEY_PROFILE_AVATAR = "profile_avatar"
+  private const val KEY_SEARCH_HISTORY = "search_history"
+  private const val KEY_SHOW_USERS = "show_users"
+  private const val KEY_SHOW_WARNINGS = "show_warnings"
+  private const val KEY_SHOW_CAMERAS = "show_cameras"
+  private const val KEY_SHOW_FUEL = "show_fuel"
+  private const val KEY_VOICE_ALERTS = "voice_alerts"
+  private const val KEY_SPEED_ALERTS = "speed_alerts"
   private const val KEY_LAST_TRACK_LAT = "last_track_lat"
   private const val KEY_LAST_TRACK_LNG = "last_track_lng"
   private const val KEY_PENDING_DRIVE_KM = "pending_drive_km"
@@ -58,6 +67,30 @@ object AutoNavStore {
   fun saveAuthToken(context: Context, token: String) { prefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply() }
   fun requestStop(context: Context) { prefs(context).edit().putBoolean(KEY_STOP_REQUESTED, true).apply() }
   fun requestReport(context: Context, type: String = "menu") { prefs(context).edit().putString(KEY_REPORT_REQUESTED, type).apply() }
+  fun setMapOption(context: Context, key: String, enabled: Boolean) { prefs(context).edit().putBoolean(key, enabled).apply() }
+  fun getMapOption(context: Context, key: String, default: Boolean): Boolean = prefs(context).getBoolean(key, default)
+  fun recentSearches(context: Context, limit: Int = 4): List<AutoSearchPlace> {
+    val raw = prefs(context).getString(KEY_SEARCH_HISTORY, "[]") ?: "[]"
+    val arr = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
+    return buildList {
+      for (i in 0 until arr.length()) {
+        val item = arr.optJSONObject(i) ?: continue
+        val lat = item.optDouble("lat", Double.NaN)
+        val lng = item.optDouble("lng", Double.NaN)
+        if (!lat.isFinite() || !lng.isFinite()) continue
+        add(
+          AutoSearchPlace(
+            id = item.optString("id", "recent-$i"),
+            name = item.optString("name", "Cel"),
+            address = item.optString("address", ""),
+            lat = lat,
+            lng = lng,
+          ),
+        )
+        if (size >= limit) break
+      }
+    }
+  }
   fun consumeStopRequest(context: Context): Boolean {
     val p = prefs(context); val requested = p.getBoolean(KEY_STOP_REQUESTED, false)
     if (requested) p.edit().putBoolean(KEY_STOP_REQUESTED, false).apply()
@@ -92,14 +125,21 @@ object AutoNavStore {
     val fallbackEta = p.getString(KEY_STEP_ETA, "") ?: ""
     val fallbackDestName = p.getString(KEY_DEST_NAME, "Cel") ?: "Cel"
 
+    val rawNavigating = dto?.optBoolean("isNavigating", p.getBoolean(KEY_IS_NAVIGATING, false))
+      ?: p.getBoolean(KEY_IS_NAVIGATING, false)
+    val hasNavSignal =
+      route.size > 1 ||
+        (p.getFloat(KEY_DEST_LAT, 0f).toDouble() != 0.0 || p.getFloat(KEY_DEST_LNG, 0f).toDouble() != 0.0) ||
+        ((dto?.optInt("remainingDistanceMeters", 0) ?: 0) > 1)
+    val effectiveNavigating = rawNavigating && hasNavSignal
+
     return AutoNavSnapshot(
-      isNavigating = dto?.optBoolean("isNavigating", p.getBoolean(KEY_IS_NAVIGATING, false))
-        ?: p.getBoolean(KEY_IS_NAVIGATING, false),
+      isNavigating = effectiveNavigating,
       instruction = dto?.optString("nextInstruction", fallbackInstruction) ?: fallbackInstruction,
       maneuver = dto?.optString("maneuver", "navigation") ?: "navigation",
-      remainingDistanceMeters = if (dto?.has("remainingDistanceMeters") == true) dto.optInt("remainingDistanceMeters") else null,
-      remainingDurationSec = if (dto?.has("remainingDurationSec") == true) dto.optInt("remainingDurationSec") else null,
-      turnDistanceMeters = if (dto?.has("turnDistanceMeters") == true) dto.optInt("turnDistanceMeters") else null,
+      remainingDistanceMeters = if (effectiveNavigating && dto?.has("remainingDistanceMeters") == true) dto.optInt("remainingDistanceMeters") else null,
+      remainingDurationSec = if (effectiveNavigating && dto?.has("remainingDurationSec") == true) dto.optInt("remainingDurationSec") else null,
+      turnDistanceMeters = if (effectiveNavigating && dto?.has("turnDistanceMeters") == true) dto.optInt("turnDistanceMeters") else null,
       destinationName = dto?.optString("destinationName", fallbackDestName) ?: fallbackDestName,
       mapStyle = mapState?.optString("mapStyle", "") ?: "",
       isDriving = mapState?.optBoolean("isDriving", false) ?: (p.getFloat(KEY_SPEED, 0f).toDouble() * 3.6 >= DRIVE_SPEED_THRESHOLD_KMH),
@@ -107,6 +147,13 @@ object AutoNavStore {
       arrived = mapState?.optBoolean("arrived", false) ?: false,
       offRoute = mapState?.optBoolean("offRoute", false) ?: false,
       speedLimitKmh = mapState?.nullableInt("speedLimitKmh"),
+      useArrowMarker = (mapState?.optString("locationMarkerStyle", "profile") ?: "profile") == "arrow",
+      showUsers = getMapOption(context, KEY_SHOW_USERS, true),
+      showWarnings = getMapOption(context, KEY_SHOW_WARNINGS, true),
+      showSpeedCameras = getMapOption(context, KEY_SHOW_CAMERAS, true),
+      showFuelStations = getMapOption(context, KEY_SHOW_FUEL, true),
+      voiceAlerts = getMapOption(context, KEY_VOICE_ALERTS, true),
+      speedAlerts = getMapOption(context, KEY_SPEED_ALERTS, true),
       currentLat = p.getFloat(KEY_LAT, 0f).toDouble(),
       currentLng = p.getFloat(KEY_LNG, 0f).toDouble(),
       startLat = start?.optDouble("lat", 0.0) ?: 0.0,
@@ -198,7 +245,7 @@ object AutoNavStore {
           val json = JSONObject(body)
           mergeRemoteSession(context, json)
         } else if (code == 404) {
-          setNavigating(context, false)
+          clearNavigationState(context)
         }
         syncLiveLayers(context, token)
       } catch (_: Throwable) {
@@ -288,7 +335,9 @@ object AutoNavStore {
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
     val lat = p.getFloat(KEY_LAT, 0f).toDouble()
     val lng = p.getFloat(KEY_LNG, 0f).toDouble()
-    if (token.isBlank()) return emptyList()
+    if (token.isBlank()) {
+      return searchPlacesPublic(cleaned, lat, lng, limit)
+    }
     val payload = JSONObject().apply {
       put("query", cleaned)
       put("limit", limit)
@@ -299,7 +348,9 @@ object AutoNavStore {
       }
     }
     val (code, body) = requestJson("POST", "/api/mapbox/geocode", token, payload.toString())
-    if (code !in 200..299 || body.isBlank()) return emptyList()
+    if (code !in 200..299 || body.isBlank()) {
+      return searchPlacesPublic(cleaned, lat, lng, limit)
+    }
     val json = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
     val features = json.optJSONArray("features") ?: return emptyList()
     return buildList {
@@ -346,7 +397,11 @@ object AutoNavStore {
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
     val lat = p.getFloat(KEY_LAT, 0f).toDouble()
     val lng = p.getFloat(KEY_LNG, 0f).toDouble()
-    if (token.isBlank() || !lat.isFinite() || !lng.isFinite() || (lat == 0.0 && lng == 0.0)) return false
+    if (!lat.isFinite() || !lng.isFinite() || (lat == 0.0 && lng == 0.0)) return false
+
+    if (token.isBlank()) {
+      return startNavigationToPlacePublic(context, place, lat, lng)
+    }
 
     val payload = JSONObject().apply {
       put("coordinates", JSONArray().apply {
@@ -367,7 +422,9 @@ object AutoNavStore {
       payload.toString(),
       mapOf("x-vroom-client" to "automotive"),
     )
-    if (code !in 200..299 || body.isBlank()) return false
+    if (code !in 200..299 || body.isBlank()) {
+      return startNavigationToPlacePublic(context, place, lat, lng)
+    }
     val json = runCatching { JSONObject(body) }.getOrNull() ?: return false
     val route = json.optJSONArray("routes")?.optJSONObject(0) ?: return false
     val geometry = route.optJSONObject("geometry")?.optJSONArray("coordinates") ?: JSONArray()
@@ -414,6 +471,7 @@ object AutoNavStore {
       .putFloat(KEY_DEST_LNG, place.lng.toFloat())
       .putString(KEY_MAP_STATE, mapState.toString())
       .apply()
+    saveRecentSearch(context, place)
     return true
   }
 
@@ -447,6 +505,20 @@ object AutoNavStore {
     editor.apply()
   }
 
+  private fun clearNavigationState(context: Context) {
+    prefs(context).edit()
+      .putBoolean(KEY_IS_NAVIGATING, false)
+      .remove(KEY_CAR_SAFE_DTO)
+      .remove(KEY_ROUTE)
+      .remove(KEY_STEP_TEXT)
+      .remove(KEY_STEP_DISTANCE)
+      .remove(KEY_STEP_ETA)
+      .remove(KEY_DEST_NAME)
+      .putFloat(KEY_DEST_LAT, 0f)
+      .putFloat(KEY_DEST_LNG, 0f)
+      .apply()
+  }
+
   private fun syncLiveLayers(context: Context, token: String) {
     val p = prefs(context)
     val lat = p.getFloat(KEY_LAT, 0f).toDouble()
@@ -459,6 +531,7 @@ object AutoNavStore {
         val mapped = JSONArray()
         for (i in 0 until users.length()) {
           val u = users.optJSONObject(i) ?: continue
+          if (!isUserLocationVisible(u)) continue
           mapped.put(
             JSONObject().apply {
               put("id", u.opt("id")?.toString() ?: "u-$i")
@@ -507,12 +580,14 @@ object AutoNavStore {
         .put("category", "gas_station")
         .put("proximityLat", lat)
         .put("proximityLng", lng)
-        .put("limit", 25)
+        .put("limit", 120)
         .put("language", "pl")
-      val (_, gasStationsBody) = requestJson("POST", "/api/mapbox/search/category", token, gasPayload.toString())
+      val (_, gasStationsBodyRaw) = requestJson("POST", "/api/mapbox/search/category", token, gasPayload.toString())
+      val mapboxFuelBody = toFuelGeoJson(searchPlacesPublic("stacja paliw", lat, lng, 120))
+      val gasStationsBody = mergeFuelGeoJson(gasStationsBodyRaw, mapboxFuelBody)
       val (_, fuelBody) = requestJson(
         "GET",
-        "/api/fuel-stations?minLat=${lat - 0.05}&maxLat=${lat + 0.05}&minLng=${lng - 0.05}&maxLng=${lng + 0.05}",
+        "/api/fuel-stations?minLat=${lat - 0.15}&maxLat=${lat + 0.15}&minLng=${lng - 0.15}&maxLng=${lng + 0.15}",
         token,
       )
       mergeMapStateOverlays(context, camerasBody, fuelBody, gasStationsBody)
@@ -638,6 +713,28 @@ object AutoNavStore {
       }
     }
 
+    // Keep richer fuel datasets already pushed by RN bridge if they contain
+    // additional stations not present in native refresh.
+    val existingFuel = runCatching { currentMapState.optJSONArray("fuelStations") }.getOrNull()
+    if (existingFuel != null && existingFuel.length() > 0) {
+      for (i in 0 until existingFuel.length()) {
+        val item = existingFuel.optJSONObject(i) ?: continue
+        val lat = item.optDouble("lat", item.optDouble("latitude", Double.NaN))
+        val lng = item.optDouble("lng", item.optDouble("longitude", Double.NaN))
+        if (!lat.isFinite() || !lng.isFinite()) continue
+        var duplicate = false
+        for (j in 0 until fuelArr.length()) {
+          val existing = fuelArr.optJSONObject(j) ?: continue
+          val dist = haversineKm(lat, lng, existing.optDouble("lat", Double.NaN), existing.optDouble("lng", Double.NaN))
+          if (dist <= 0.05) {
+            duplicate = true
+            break
+          }
+        }
+        if (!duplicate) fuelArr.put(item)
+      }
+    }
+
     currentMapState.put("speedCameras", camerasArr)
     currentMapState.put("fuelStations", fuelArr)
     p.edit().putString(KEY_MAP_STATE, currentMapState.toString()).apply()
@@ -673,6 +770,228 @@ object AutoNavStore {
     }.getOrDefault(0 to "")
   }
 
+  private fun searchPlacesPublic(
+    query: String,
+    lat: Double,
+    lng: Double,
+    limit: Int,
+  ): List<AutoSearchPlace> {
+    val safeLimit = limit.coerceIn(1, 120)
+    val hasProximity = (lat != 0.0 || lng != 0.0) && lat.isFinite() && lng.isFinite()
+    val proximity = if (hasProximity) "&proximity=$lng,$lat" else ""
+    val url =
+      "$MAPBOX_BASE/geocoding/v5/mapbox.places/${java.net.URLEncoder.encode(query, "UTF-8")}.json" +
+        "?access_token=$MAPBOX_PUBLIC_TOKEN&language=pl&limit=$safeLimit$proximity"
+
+    val (code, body) = requestAbsoluteJson("GET", url)
+    if (code !in 200..299 || body.isBlank()) return emptyList()
+    val json = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
+    val features = json.optJSONArray("features") ?: return emptyList()
+    return parseSearchFeatures(features)
+  }
+
+  private fun startNavigationToPlacePublic(
+    context: Context,
+    place: AutoSearchPlace,
+    fromLat: Double,
+    fromLng: Double,
+  ): Boolean {
+    val url =
+      "$MAPBOX_BASE/directions/v5/mapbox/driving/$fromLng,$fromLat;${place.lng},${place.lat}" +
+        "?alternatives=false&geometries=geojson&steps=true&language=pl&overview=full&access_token=$MAPBOX_PUBLIC_TOKEN"
+    val (code, body) = requestAbsoluteJson("GET", url)
+    if (code !in 200..299 || body.isBlank()) return false
+    val json = runCatching { JSONObject(body) }.getOrNull() ?: return false
+    return persistRouteFromDirections(context, place, json)
+  }
+
+  private fun parseSearchFeatures(features: JSONArray): List<AutoSearchPlace> =
+    buildList {
+      for (i in 0 until features.length()) {
+        val f = features.optJSONObject(i) ?: continue
+        val geometry = f.optJSONObject("geometry")
+        val geometryCoords = geometry?.optJSONArray("coordinates")
+        val centerCoords = f.optJSONArray("center")
+        val coords = when {
+          geometryCoords != null -> geometryCoords
+          centerCoords != null -> centerCoords
+          else -> null
+        } ?: continue
+        val placeLng = coords.optDouble(0, Double.NaN)
+        val placeLat = coords.optDouble(1, Double.NaN)
+        if (!placeLat.isFinite() || !placeLng.isFinite()) continue
+        val props = f.optJSONObject("properties")
+        add(
+          AutoSearchPlace(
+            id = props?.optString("mapbox_id")
+              ?: f.optString("id")
+              ?: "place-$i",
+            name = props?.optString("name")
+              ?: f.optString("text")
+              ?: f.optString("place_name")
+              ?: "Cel",
+            address = props?.optString("full_address")
+              ?: props?.optString("address")
+              ?: f.optString("place_name")
+              ?: "",
+            lat = placeLat,
+            lng = placeLng,
+          ),
+        )
+      }
+    }
+
+  private fun toFuelGeoJson(places: List<AutoSearchPlace>): String {
+    val features = JSONArray()
+    places.forEachIndexed { i, place ->
+      features.put(
+        JSONObject().apply {
+          put("id", place.id.ifBlank { "fuel-$i" })
+          put(
+            "geometry",
+            JSONObject().apply {
+              put("type", "Point")
+              put("coordinates", JSONArray().apply {
+                put(place.lng)
+                put(place.lat)
+              })
+            },
+          )
+          put(
+            "properties",
+            JSONObject().apply {
+              put("mapbox_id", place.id.ifBlank { "fuel-$i" })
+              put("name", place.name.ifBlank { "Stacja paliw" })
+              put("full_address", place.address)
+            },
+          )
+        },
+      )
+    }
+    return JSONObject().put("features", features).toString()
+  }
+
+  private fun mergeFuelGeoJson(primary: String, secondary: String): String {
+    val merged = JSONArray()
+    val seen = mutableListOf<Pair<Double, Double>>()
+    fun absorb(raw: String) {
+      val features = runCatching { JSONObject(raw).optJSONArray("features") }.getOrNull() ?: JSONArray()
+      for (i in 0 until features.length()) {
+        val f = features.optJSONObject(i) ?: continue
+        val coords = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
+        val lng = coords.optDouble(0, Double.NaN)
+        val lat = coords.optDouble(1, Double.NaN)
+        if (!lat.isFinite() || !lng.isFinite()) continue
+        if (seen.any { haversineKm(lat, lng, it.first, it.second) <= 0.06 }) continue
+        seen.add(lat to lng)
+        merged.put(f)
+      }
+    }
+    absorb(primary)
+    absorb(secondary)
+    return JSONObject().put("features", merged).toString()
+  }
+
+  private fun persistRouteFromDirections(context: Context, place: AutoSearchPlace, json: JSONObject): Boolean {
+    val p = prefs(context)
+    val route = json.optJSONArray("routes")?.optJSONObject(0) ?: return false
+    val geometry = route.optJSONObject("geometry")?.optJSONArray("coordinates") ?: JSONArray()
+    val points = JSONArray()
+    for (i in 0 until geometry.length()) {
+      val coord = geometry.optJSONArray(i) ?: continue
+      val pointLng = coord.optDouble(0, Double.NaN)
+      val pointLat = coord.optDouble(1, Double.NaN)
+      if (!pointLat.isFinite() || !pointLng.isFinite()) continue
+      points.put(JSONObject().apply {
+        put("lat", pointLat)
+        put("lng", pointLng)
+      })
+    }
+    val leg = route.optJSONArray("legs")?.optJSONObject(0)
+    val step = leg?.optJSONArray("steps")?.optJSONObject(0)
+    val maneuver = step?.optJSONObject("maneuver")
+    val instruction = maneuver?.optString("instruction", "Jedz do celu") ?: "Jedz do celu"
+    val distanceM = route.optDouble("distance", 0.0).toInt().coerceAtLeast(1)
+    val durationS = route.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
+    val maneuverType = maneuver?.optString("type", "straight") ?: "straight"
+
+    val dto = JSONObject().apply {
+      put("isNavigating", true)
+      put("currentStepIndex", 0)
+      put("nextInstruction", instruction)
+      put("maneuver", maneuverType)
+      put("remainingDistanceMeters", distanceM)
+      put("remainingDurationSec", durationS)
+      put("turnDistanceMeters", distanceM)
+      put("destinationName", place.name)
+    }
+    val mapState = runCatching { JSONObject(p.getString(KEY_MAP_STATE, "{}") ?: "{}") }.getOrDefault(JSONObject())
+    mapState.put("route", points)
+    mapState.put("isDriving", true)
+
+    p.edit()
+      .putBoolean(KEY_IS_NAVIGATING, true)
+      .putString(KEY_CAR_SAFE_DTO, dto.toString())
+      .putString(KEY_ROUTE, points.toString())
+      .putString(KEY_STEP_TEXT, instruction)
+      .putString(KEY_DEST_NAME, place.name)
+      .putFloat(KEY_DEST_LAT, place.lat.toFloat())
+      .putFloat(KEY_DEST_LNG, place.lng.toFloat())
+      .putString(KEY_MAP_STATE, mapState.toString())
+      .apply()
+    saveRecentSearch(context, place)
+    return true
+  }
+
+  private fun saveRecentSearch(context: Context, place: AutoSearchPlace) {
+    val p = prefs(context)
+    val existing = runCatching { JSONArray(p.getString(KEY_SEARCH_HISTORY, "[]") ?: "[]") }.getOrDefault(JSONArray())
+    val out = JSONArray()
+    out.put(
+      JSONObject().apply {
+        put("id", place.id)
+        put("name", place.name)
+        put("address", place.address)
+        put("lat", place.lat)
+        put("lng", place.lng)
+      },
+    )
+    for (i in 0 until existing.length()) {
+      val item = existing.optJSONObject(i) ?: continue
+      val id = item.optString("id", "")
+      if (id.isNotBlank() && id == place.id) continue
+      out.put(item)
+      if (out.length() >= 6) break
+    }
+    p.edit().putString(KEY_SEARCH_HISTORY, out.toString()).apply()
+  }
+
+  private fun requestAbsoluteJson(
+    method: String,
+    url: String,
+    body: String? = null,
+  ): Pair<Int, String> {
+    return runCatching {
+      val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = method
+        connectTimeout = 4000
+        readTimeout = 4000
+        setRequestProperty("Accept", "application/json")
+        if (body != null) {
+          doOutput = true
+          setRequestProperty("Content-Type", "application/json")
+          outputStream.bufferedWriter().use { it.write(body) }
+        }
+      }
+      val code = conn.responseCode
+      val payload = runCatching {
+        val src = if (code in 200..299) conn.inputStream else conn.errorStream
+        src?.bufferedReader()?.use { it.readText() } ?: ""
+      }.getOrDefault("")
+      code to payload
+    }.getOrDefault(0 to "")
+  }
+
   private fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
     val r = 6371.0
     val dLat = Math.toRadians(lat2 - lat1)
@@ -682,6 +1001,17 @@ object AutoNavStore {
       kotlin.math.cos(Math.toRadians(lat2)) *
       kotlin.math.sin(dLng / 2) * kotlin.math.sin(dLng / 2)
     return r * 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+  }
+
+  private fun isUserLocationVisible(user: JSONObject): Boolean {
+    val hideFlags = listOf(
+      "hideLocation",
+      "locationHidden",
+      "isLocationHidden",
+      "isHidden",
+      "privateProfile",
+    )
+    return hideFlags.none { user.optBoolean(it, false) }
   }
 
   private fun parseMarkers(raw: String?, fallbackType: String): List<AutoMapMarker> = runCatching {
@@ -697,6 +1027,7 @@ object AutoNavStore {
     buildList {
       for (i in 0 until arr.length()) {
         val item = arr.optJSONObject(i) ?: continue
+        if (fallbackType == "user" && !isUserLocationVisible(item)) continue
         val lat = item.optDouble("lat", item.optDouble("latitude", Double.NaN))
         val lng = item.optDouble("lng", item.optDouble("longitude", Double.NaN))
         if (!lat.isFinite() || !lng.isFinite()) continue
@@ -767,6 +1098,13 @@ data class AutoNavSnapshot(
   val arrived: Boolean,
   val offRoute: Boolean,
   val speedLimitKmh: Int?,
+  val useArrowMarker: Boolean,
+  val showUsers: Boolean,
+  val showWarnings: Boolean,
+  val showSpeedCameras: Boolean,
+  val showFuelStations: Boolean,
+  val voiceAlerts: Boolean,
+  val speedAlerts: Boolean,
   val currentLat: Double,
   val currentLng: Double,
   val startLat: Double,

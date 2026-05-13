@@ -3,6 +3,7 @@ package __PACKAGE__.auto
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.ScreenManager
+import androidx.car.app.constraints.ConstraintManager
 import androidx.car.app.model.Action
 import androidx.car.app.model.ItemList
 import androidx.car.app.model.ListTemplate
@@ -42,6 +43,9 @@ class VroomMenuScreen(carContext: CarContext) : Screen(carContext) {
       })
       .addItem(menuRow("Szukaj celu", "Adres, firma, miejsce, punkt na mapie") {
         runCatching { manager.push(VroomSearchTextScreen(carContext)) }
+      })
+      .addItem(menuRow("Ustawienia mapy", "Widocznosc live, alerty, warstwy") {
+        runCatching { manager.push(VroomMapSettingsScreen(carContext)) }
       })
       .addItem(menuRow("Status mapy", statusText(snapshot)) {
         runCatching { manager.push(VroomItemsScreen(carContext, VroomItemsKind.STATUS)) }
@@ -90,25 +94,25 @@ class VroomReportScreen(carContext: CarContext) : Screen(carContext) {
 
   private fun buildTemplate(): Template {
     val list = ItemList.Builder()
-      .addItem(reportRow("Korek", "traffic"))
-      .addItem(reportRow("Wypadek", "accident"))
-      .addItem(reportRow("Kontrola predkosci", "speed_control"))
-      .addItem(reportRow("Zla pogoda", "weather"))
-      .addItem(reportRow("Awaria auta", "car_breakdown"))
-      .addItem(reportRow("Zwierze na drodze", "Animal"))
+      .addItem(reportRow("Wypadek", "accident", "Zdarzenie lub auto na jezdni"))
+      .addItem(reportRow("Korek", "traffic", "Duzy ruch albo zator"))
+      .addItem(reportRow("Policja", "speed_control", "Kontrola predkosci lub patrol"))
+      .addItem(reportRow("Zla pogoda", "weather", "Mgla, ulewa, sliska droga"))
+      .addItem(reportRow("Awaria auta", "car_breakdown", "Pojazd unieruchomiony"))
+      .addItem(reportRow("Zwierze na drodze", "Animal", "Zagrozenie na trasie"))
       .build()
 
     return ListTemplate.Builder()
       .setSingleList(list)
-      .setTitle("Zglos")
+      .setTitle("Dodaj zgloszenie")
       .setHeaderAction(Action.BACK)
       .build()
   }
 
-  private fun reportRow(title: String, type: String): Row =
+  private fun reportRow(title: String, type: String, subtitle: String): Row =
     Row.Builder()
       .setTitle(title)
-      .addText("Dodaj zgloszenie z aktualnej pozycji")
+      .addText(subtitle)
       .setOnClickListener {
         Thread {
           runCatching { AutoNavStore.submitReportFromCurrentLocation(carContext, type) }
@@ -150,7 +154,7 @@ class VroomItemsScreen(
       VroomItemsKind.WARNINGS -> snapshot.warnings.map {
         actionableRow(
           warningTitle(it),
-          "${it.label.ifBlank { "Ostrzezenie" }} • dotknij aby potwierdzic",
+          "${it.label.ifBlank { "Ostrzezenie" }} - dotknij aby potwierdzic",
         ) {
           Thread { runCatching { AutoNavStore.confirmWarning(carContext, it.id) } }.start()
         }
@@ -161,7 +165,7 @@ class VroomItemsScreen(
       VroomItemsKind.CAMERAS -> snapshot.speedCameras.map {
         actionableRow(
           cameraTitle(it),
-          "${cameraSubtitle(it)} • dotknij aby potwierdzic",
+          "${cameraSubtitle(it)} - dotknij aby potwierdzic",
         ) {
           Thread { runCatching { AutoNavStore.confirmSpeedCamera(carContext, it.id) } }.start()
         }
@@ -300,13 +304,30 @@ class VroomSearchCategoryScreen(carContext: CarContext) : Screen(carContext) {
 
 class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
   private val mainHandler = Handler(Looper.getMainLooper())
+  private val resultLimit = runCatching {
+    carContext
+      .getCarService(ConstraintManager::class.java)
+      .getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_PLACE_LIST)
+  }.getOrDefault(6).coerceIn(4, 6)
   private var searchText = ""
   private var lastSubmitted = ""
+  private var searchSeq = 0
   private var loading = false
   private var routing = false
   private var places: List<AutoSearchPlace> = emptyList()
+  private var pendingSearch: Runnable? = null
 
-  override fun onGetTemplate(): Template {
+  override fun onGetTemplate(): Template =
+    runCatching {
+      buildTemplate()
+    }.getOrElse {
+      MessageTemplate.Builder("Wyszukiwanie chwilowo niedostepne.")
+        .setTitle("VROOM")
+        .setHeaderAction(Action.BACK)
+        .build()
+    }
+
+  private fun buildTemplate(): Template {
     val listBuilder = ItemList.Builder()
     val manager = carContext.getCarService(ScreenManager::class.java)
 
@@ -325,14 +346,63 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
           .build(),
       )
     } else if (places.isEmpty()) {
-      listBuilder.addItem(
-        Row.Builder()
-          .setTitle("Wpisz adres i zatwierdz")
-          .addText("Np. Wolowska 8, Krakow")
-          .build(),
-      )
+      val query = searchText.trim()
+      if (query.length < 2) {
+        var added = 0
+        val recents = AutoNavStore.recentSearches(carContext, limit = 3)
+        if (recents.isNotEmpty() && added < resultLimit) {
+          listBuilder.addItem(
+            Row.Builder()
+              .setTitle("Ostatnie")
+              .addText("Ostatnio wybierane cele")
+              .build(),
+          )
+          added += 1
+          recents.forEach { place ->
+            if (added >= resultLimit) return@forEach
+            listBuilder.addItem(
+              Row.Builder()
+                .setTitle(place.name)
+                .addText(place.address.ifBlank { "Cel na mapie" })
+                .setOnClickListener {
+                  if (routing) return@setOnClickListener
+                  routing = true
+                  invalidate()
+                  Thread {
+                    val ok = runCatching { AutoNavStore.startNavigationToPlace(carContext, place) }.getOrDefault(false)
+                    mainHandler.post {
+                      routing = false
+                      if (ok) runCatching { manager.popToRoot() } else invalidate()
+                    }
+                  }.start()
+                }
+                .build(),
+            )
+            added += 1
+          }
+        }
+        val categories = listOf(
+          "Wszystko" to "all",
+          "Stacje paliw" to "gas_station",
+          "Parking" to "parking",
+          "Restauracje" to "restaurant",
+          "Kawiarnie" to "coffee",
+        )
+        categories.forEach { (title, category) ->
+          if (added >= resultLimit) return@forEach
+          listBuilder.addItem(categoryRow(title, category, manager))
+          added += 1
+        }
+      } else {
+        listBuilder.addItem(
+          Row.Builder()
+            .setTitle("Brak wynikow")
+            .addText("Sprobuj inna fraze lub kategorie")
+            .build(),
+        )
+      }
     } else {
-      places.take(12).forEach { place ->
+      places.take(resultLimit).forEach { place ->
         listBuilder.addItem(
           Row.Builder()
             .setTitle(place.name)
@@ -354,10 +424,22 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
       }
     }
 
+    val safeList = runCatching { listBuilder.build() }.getOrElse {
+      ItemList.Builder()
+        .addItem(
+          Row.Builder()
+            .setTitle("Wpisz adres i zatwierdz")
+            .addText("Np. Wolowska 8, Krakow")
+            .build(),
+        )
+        .build()
+    }
+
     return SearchTemplate.Builder(
       object : SearchTemplate.SearchCallback {
         override fun onSearchTextChanged(searchText: String) {
           this@VroomSearchTextScreen.searchText = searchText
+          scheduleSearch(searchText)
         }
 
         override fun onSearchSubmitted(searchText: String) {
@@ -382,9 +464,47 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
       .setInitialSearchText(searchText)
       .setSearchHint("Szukaj adresu lub miejsca")
       .setHeaderAction(Action.BACK)
-      .setItemList(listBuilder.build())
+      .setItemList(safeList)
       .setShowKeyboardByDefault(true)
       .build()
+  }
+
+  private fun categoryRow(title: String, category: String, manager: ScreenManager): Row =
+    Row.Builder()
+      .setTitle(title)
+      .addText("Wyszukaj w poblizu")
+      .setBrowsable(true)
+      .setOnClickListener {
+        runCatching { manager.push(VroomSearchResultsScreen(carContext, title, category)) }
+      }
+      .build()
+
+  private fun scheduleSearch(raw: String) {
+    val query = raw.trim()
+    pendingSearch?.let { mainHandler.removeCallbacks(it) }
+    if (query.length < 2) {
+      loading = false
+      places = emptyList()
+      invalidate()
+      return
+    }
+    val currentSeq = ++searchSeq
+    val task = Runnable {
+      loading = true
+      places = emptyList()
+      invalidate()
+      Thread {
+        val result = runCatching { AutoNavStore.searchPlaces(carContext, query) }.getOrDefault(emptyList())
+        mainHandler.post {
+          if (currentSeq != searchSeq) return@post
+          places = result
+          loading = false
+          invalidate()
+        }
+      }.start()
+    }
+    pendingSearch = task
+    mainHandler.postDelayed(task, 220L)
   }
 }
 
@@ -394,6 +514,11 @@ class VroomSearchResultsScreen(
   private val category: String,
 ) : Screen(carContext) {
   private val mainHandler = Handler(Looper.getMainLooper())
+  private val resultLimit = runCatching {
+    carContext
+      .getCarService(ConstraintManager::class.java)
+      .getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_PLACE_LIST)
+  }.getOrDefault(6).coerceIn(4, 6)
   private var loading = true
   private var routing = false
   private var fetchStarted = false
@@ -415,7 +540,10 @@ class VroomSearchResultsScreen(
     if (fetchStarted) return
     fetchStarted = true
     Thread {
-      val result = runCatching { AutoNavStore.searchCategory(carContext, category) }.getOrDefault(emptyList())
+      val result = runCatching { AutoNavStore.searchCategory(carContext, category) }
+        .getOrElse {
+          if (category == "all") AutoNavStore.searchPlaces(carContext, "stacja paliw") else emptyList()
+        }
       places = result
       loading = false
       mainHandler.post { invalidate() }
@@ -446,7 +574,7 @@ class VroomSearchResultsScreen(
           .build(),
       )
     } else {
-      places.take(12).forEach { place ->
+      places.take(resultLimit).forEach { place ->
         list.addItem(
           Row.Builder()
             .setTitle(place.name)
@@ -477,5 +605,45 @@ class VroomSearchResultsScreen(
       .setTitle(title)
       .setHeaderAction(Action.BACK)
       .build()
+  }
+}
+
+class VroomMapSettingsScreen(carContext: CarContext) : Screen(carContext) {
+  override fun onGetTemplate(): Template {
+    val list = ItemList.Builder()
+      .addItem(toggleRow("Widocznosc live", KEY_SHOW_USERS, true, "Uzytkownicy i znajomi na mapie"))
+      .addItem(toggleRow("Ostrzezenia", KEY_SHOW_WARNINGS, true, "Wypadki, korki, policja i zagrozenia"))
+      .addItem(toggleRow("Fotoradary", KEY_SHOW_CAMERAS, true, "Kamery, progi i kontrole predkosci"))
+      .addItem(toggleRow("Stacje paliw", KEY_SHOW_FUEL, true, "Wszystkie dostepne stacje w okolicy"))
+      .addItem(toggleRow("Alerty glosowe", KEY_VOICE_ALERTS, true, "Komunikaty ostrzezen podczas jazdy"))
+      .addItem(toggleRow("Limit predkosci", KEY_SPEED_ALERTS, true, "Powiadomienia o przekroczeniu limitu"))
+      .build()
+
+    return ListTemplate.Builder()
+      .setSingleList(list)
+      .setTitle("Ustawienia mapy")
+      .setHeaderAction(Action.BACK)
+      .build()
+  }
+
+  private fun toggleRow(title: String, key: String, defaultValue: Boolean, subtitle: String): Row {
+    val enabled = AutoNavStore.getMapOption(carContext, key, defaultValue)
+    return Row.Builder()
+      .setTitle(title)
+      .addText("${if (enabled) "WLACZONE" else "WYLACZONE"} - $subtitle")
+      .setOnClickListener {
+        AutoNavStore.setMapOption(carContext, key, !enabled)
+        invalidate()
+      }
+      .build()
+  }
+
+  companion object {
+    private const val KEY_SHOW_USERS = "show_users"
+    private const val KEY_SHOW_WARNINGS = "show_warnings"
+    private const val KEY_SHOW_CAMERAS = "show_cameras"
+    private const val KEY_SHOW_FUEL = "show_fuel"
+    private const val KEY_VOICE_ALERTS = "voice_alerts"
+    private const val KEY_SPEED_ALERTS = "speed_alerts"
   }
 }

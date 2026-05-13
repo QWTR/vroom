@@ -23,6 +23,8 @@ interface UseAutoNavigationBridgeParams {
   remainingDistKm: number | null;
   distToTurnM: number | null;
   mapStyle?: string;
+  locationMarkerStyle?: 'arrow' | 'profile';
+  hideLocation?: boolean;
   startLocation?: LocationState | null;
   endLocation: LocationState | null;
   userLocation: LocationState | null;
@@ -91,6 +93,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     remainingDistKm,
     distToTurnM,
     mapStyle,
+    locationMarkerStyle,
+    hideLocation,
     startLocation,
     endLocation,
     userLocation,
@@ -208,7 +212,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         Number.isFinite(station.lat) &&
         Number.isFinite(station.lng)
       ))
-      .slice(0, 50)
+      .slice(0, 250)
       .map((station) => ({
         id: String(station.id),
         label: station.brand ?? station.name ?? 'Paliwo',
@@ -240,6 +244,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
 
   const autoMapState = useMemo(() => ({
     mapStyle: mapStyle ?? null,
+    locationMarkerStyle: locationMarkerStyle ?? 'profile',
+    hideLocation: !!hideLocation,
     isDriving: !!isDriving,
     isBuilding: !!isBuilding,
     arrived: !!arrived,
@@ -260,6 +266,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     fuelStations: autoFuelStations,
   }), [
     mapStyle,
+    locationMarkerStyle,
+    hideLocation,
     isDriving,
     isBuilding,
     arrived,

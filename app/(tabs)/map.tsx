@@ -2982,6 +2982,8 @@ export default function MapScreen() {
     remainingDistKm,
     distToTurnM,
     mapStyle,
+    locationMarkerStyle: settings.locationMarkerStyle,
+    hideLocation: settings.hideLocation,
     startLocation,
     endLocation,
     userLocation,

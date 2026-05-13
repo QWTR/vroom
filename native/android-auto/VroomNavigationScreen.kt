@@ -3,7 +3,6 @@ package __PACKAGE__.auto
 import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
-import androidx.car.app.ScreenManager
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.DateTimeWithZone
@@ -92,30 +91,7 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
 
   private fun mapActionStrip(): ActionStrip =
     ActionStrip.Builder()
-      .addAction(
-        Action.Builder()
-          .setTitle("Szukaj")
-          .setOnClickListener {
-            runCatching {
-              carContext
-                .getCarService(ScreenManager::class.java)
-                .push(VroomSearchTextScreen(carContext))
-            }
-          }
-          .build(),
-      )
-      .addAction(
-        Action.Builder()
-          .setTitle("Menu")
-          .setOnClickListener {
-            runCatching {
-              carContext
-                .getCarService(ScreenManager::class.java)
-                .push(VroomMenuScreen(carContext))
-            }
-          }
-          .build(),
-      )
+      .addAction(Action.PAN)
       .build()
 
 }
