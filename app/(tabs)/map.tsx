@@ -51,6 +51,7 @@ import { isSaneLocation } from '../../scripts/kalmanFilter';
 import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
 import {
   BG_PENDING_KM_KEY,
+  BG_IS_SHARING_KEY,
   feedSpeedSample,
   recordDrivingTracePoint,
   resetSpeedStats,
@@ -240,12 +241,23 @@ const GPS_IDLE_CONFIRM_RADIUS_M = 120;
 const GPS_IDLE_CONFIRM_WINDOW_MS = 15_000;
 const GPS_IDLE_CONFIRM_HITS = 3;
 const GPS_IDLE_HARD_REJECT_M = 900;
+/** Gdy anchor został "zatruty" teleportem, pozwól wrócić po kilku spójnych fixach. */
+const GPS_IDLE_HARD_REJECT_ESCAPE_HITS = 8;
+const GPS_IDLE_HARD_REJECT_ESCAPE_MAX_SPEED_KMH = 7;
+const GPS_IDLE_HARD_REJECT_ESCAPE_MAX_ACC_M = 55;
 const GPS_IDLE_UI_SOFT_JUMP_M = 20;
 const GPS_IDLE_UI_HARD_JUMP_M = 120;
 const GPS_IDLE_UI_CONFIRM_RADIUS_M = 35;
 const GPS_IDLE_UI_CONFIRM_WINDOW_MS = 10_000;
 /** Przy takiej prędkości traktujemy mapę jako stojącą/wolną i blokujemy skoki względem aktualnego UI. */
 const GPS_IDLE_UI_LOCK_SPEED_KMH = 8;
+/** Dodatkowy anti-teleport tylko dla prawie-stojącego auta i słabego sygnału. */
+const GPS_STILL_LOCK_SPEED_KMH = 3.5;
+const GPS_STILL_LOCK_SOFT_JUMP_M = 90;
+const GPS_STILL_LOCK_CONFIRM_RADIUS_M = 60;
+const GPS_STILL_LOCK_CONFIRM_WINDOW_MS = 10_000;
+const GPS_STILL_LOCK_CONFIRM_HITS = 2;
+const GPS_STILL_LOCK_HARD_REJECT_M = 260;
 const GPS_DEBUG_BUFFER_SIZE = 30;
 function isNullIsland(lat: number, lng: number): boolean {
   return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;
@@ -385,6 +397,7 @@ export default function MapScreen() {
   const lastGoodLocRef        = useRef<{ lat: number; lng: number } | null>(null);
   const idleJumpCandidateRef  = useRef<{ lat: number; lng: number; time: number; hits: number } | null>(null);
   const idleUiJumpCandidateRef = useRef<{ lat: number; lng: number; time: number; hits: number } | null>(null);
+  const stillLockCandidateRef = useRef<{ lat: number; lng: number; time: number; hits: number } | null>(null);
   const gpsFixDebugRef = useRef<Array<{
     at: number;
     lat: number;
@@ -662,6 +675,12 @@ export default function MapScreen() {
     let cancelled = false;
     (async () => {
       try {
+        // Bootstrap from persisted flag so background live sharing survives app restarts.
+        const persistedSharing = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
+        if (!cancelled && persistedSharing === 'true') {
+          setIsSharing(true);
+        }
+
         const token = await AsyncStorage.getItem('token');
         if (!token) return;
         const res = await fetch(`${API_URL}/api/profile/me`, {
@@ -670,7 +689,10 @@ export default function MapScreen() {
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         if (cancelled || !data) return;
-        if (data.shareLocation === true) setIsSharing(true);
+        if (typeof data.shareLocation === 'boolean') {
+          setIsSharing(data.shareLocation);
+          await AsyncStorage.setItem(BG_IS_SHARING_KEY, data.shareLocation ? 'true' : 'false');
+        }
       } catch {
         /* ignore */
       } finally {
@@ -1595,6 +1617,69 @@ export default function MapScreen() {
             }
           }
         }
+        if (idleMode) {
+          const uiAnchor =
+            lastSetLocRef.current
+            ?? (currentLocRef.current
+              && Number.isFinite(currentLocRef.current.latitude)
+              && Number.isFinite(currentLocRef.current.longitude)
+              ? { lat: currentLocRef.current.latitude, lng: currentLocRef.current.longitude }
+              : null);
+          if (uiAnchor) {
+            const uiJumpM = haversineKm(uiAnchor.lat, uiAnchor.lng, rawLat, rawLng) * 1000;
+            const stillLockApplies =
+              uiJumpM > GPS_STILL_LOCK_SOFT_JUMP_M
+              && safeDt < 12_000
+              && speedKmhRaw < GPS_STILL_LOCK_SPEED_KMH
+              && acc > 32;
+            if (stillLockApplies) {
+              const cand = stillLockCandidateRef.current;
+              const sameCluster =
+                !!cand &&
+                now - cand.time <= GPS_STILL_LOCK_CONFIRM_WINDOW_MS &&
+                haversineKm(cand.lat, cand.lng, rawLat, rawLng) * 1000 <= GPS_STILL_LOCK_CONFIRM_RADIUS_M;
+              if (!sameCluster) {
+                stillLockCandidateRef.current = { lat: rawLat, lng: rawLng, time: now, hits: 1 };
+                pushGpsDebugFix({
+                  lat: rawLat,
+                  lng: rawLng,
+                  acc,
+                  speedKmh: speedKmhRaw,
+                  accepted: false,
+                  reason: 'still_lock_candidate_1',
+                });
+                return;
+              }
+              const hits = (cand?.hits ?? 1) + 1;
+              stillLockCandidateRef.current = { lat: rawLat, lng: rawLng, time: now, hits };
+              if (hits < GPS_STILL_LOCK_CONFIRM_HITS) {
+                pushGpsDebugFix({
+                  lat: rawLat,
+                  lng: rawLng,
+                  acc,
+                  speedKmh: speedKmhRaw,
+                  accepted: false,
+                  reason: `still_lock_candidate_${hits}`,
+                });
+                return;
+              }
+              if (uiJumpM > GPS_STILL_LOCK_HARD_REJECT_M) {
+                pushGpsDebugFix({
+                  lat: rawLat,
+                  lng: rawLng,
+                  acc,
+                  speedKmh: speedKmhRaw,
+                  accepted: false,
+                  reason: 'still_lock_hard_reject',
+                });
+                return;
+              }
+              stillLockCandidateRef.current = null;
+            } else if (uiJumpM <= GPS_IDLE_UI_SOFT_JUMP_M) {
+              stillLockCandidateRef.current = null;
+            }
+          }
+        }
         // Idle anti-teleport: do not trust one-off large jumps while not navigating/driving.
         // Ignore GPS-reported speed here — some devices report stale/high speed on stationary fixes.
         if (idleMode && jumpM > GPS_IDLE_RANDOM_JUMP_M) {
@@ -1631,6 +1716,36 @@ export default function MapScreen() {
             return;
           }
           if (jumpM > GPS_IDLE_HARD_REJECT_M) {
+            if (
+              hits >= GPS_IDLE_HARD_REJECT_ESCAPE_HITS
+              && speedKmhRaw <= GPS_IDLE_HARD_REJECT_ESCAPE_MAX_SPEED_KMH
+              && acc <= GPS_IDLE_HARD_REJECT_ESCAPE_MAX_ACC_M
+            ) {
+              // Recovery path: if we keep getting a stable cluster of fixes far away
+              // from the current anchor while stationary, the anchor was likely poisoned
+              // by a stale/cached fix after resume. Rebase to current cluster.
+              console.warn('[GPS map] Idle hard-reject escape: rebase anchor to stable cluster');
+              latFilter.reset();
+              lngFilter.reset();
+              navLatFilter.reset();
+              navLngFilter.reset();
+              drivLatFilter.reset();
+              drivLngFilter.reset();
+              lastGoodLocRef.current = { lat: rawLat, lng: rawLng };
+              lastGoodTimeRef.current = now;
+              lastAcceptedFixWallClockRef.current = now;
+              idleJumpCandidateRef.current = null;
+              stillLockCandidateRef.current = null;
+              pushGpsDebugFix({
+                lat: rawLat,
+                lng: rawLng,
+                acc,
+                speedKmh: speedKmhRaw,
+                accepted: true,
+                reason: 'idle_hard_reject_escape_rebase',
+              });
+              // Continue processing this fix normally so UI recovers immediately.
+            } else {
             console.warn('[GPS map] Idle jump hard-rejected');
             pushGpsDebugFix({
               lat: rawLat,
@@ -1641,6 +1756,7 @@ export default function MapScreen() {
               reason: 'idle_hard_reject',
             });
             return;
+            }
           }
           idleJumpCandidateRef.current = null;
         } else if (jumpM <= GPS_IDLE_RANDOM_JUMP_M) {
@@ -1715,6 +1831,7 @@ export default function MapScreen() {
       lastGoodTimeRef.current = now;
       lastGoodLocRef.current  = { lat: rawLat, lng: rawLng };
       lastAcceptedFixWallClockRef.current = now;
+      stillLockCandidateRef.current = null;
       if (resumeAwaitFixUntilRef.current > 0) {
         resumeAwaitFixUntilRef.current = 0;
       }
@@ -1813,7 +1930,11 @@ export default function MapScreen() {
             ? kmh >= 1 || movedForSnap >= 8
             : kmh >= 3 || movedForSnap >= 22;
         if (isDrivingRef.current && accForMatch && feedMoveOk && feedSpeedOk) {
-          void addMatchPosition(lat, lng);
+          void addMatchPosition(lat, lng, {
+            speedKmh: kmh,
+            accuracyM: loc.accuracy ?? null,
+            noRoad,
+          });
         }
 
         // Driving: odświeżenie osi drogi (force) + recovery gdy segment wygasł / API milczy.
@@ -2309,6 +2430,9 @@ export default function MapScreen() {
     // Avoid counting a stale pre-background anchor as the first segment after resume.
     lastNavLocRef.current = null;
     drivingLastLocRef.current = null;
+    idleJumpCandidateRef.current = null;
+    idleUiJumpCandidateRef.current = null;
+    stillLockCandidateRef.current = null;
     stopGPS();
     startGPS();
     if (!lastGoodLocRef.current && currentLocRef.current) {
@@ -2358,6 +2482,12 @@ export default function MapScreen() {
             && Number.isFinite(currentLocRef.current.longitude)
             ? { lat: currentLocRef.current.latitude, lng: currentLocRef.current.longitude }
             : null);
+        if (!anchor && !isDrivingRef.current && !isNavigatingRef.current) {
+          // Without a reliable anchor in idle mode, a one-shot can be a cached
+          // network fix and visually teleport the marker after app resume.
+          gpsTelemetryRef.current.oneShotRejected += 1;
+          return;
+        }
         const wallDt = Math.max(1, Date.now() - lastAcceptedFixWallClockRef.current);
         if (
           anchor
@@ -3057,7 +3187,9 @@ export default function MapScreen() {
   }, [selectedUser, startConversation, router]);
 
   const handleToggleSharing = useCallback(async () => {
-    setIsSharing(await toggleSharing());
+    const next = await toggleSharing();
+    setIsSharing(next);
+    AsyncStorage.setItem(BG_IS_SHARING_KEY, next ? 'true' : 'false').catch(() => {});
   }, [toggleSharing]);
 
   const handleReport = useCallback(async (type: any) => {

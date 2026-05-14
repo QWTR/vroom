@@ -44,12 +44,19 @@ object AutoNavStore {
   private const val KEY_SPEED_ALERTS = "speed_alerts"
   private const val KEY_LAST_TRACK_LAT = "last_track_lat"
   private const val KEY_LAST_TRACK_LNG = "last_track_lng"
+  private const val KEY_LAST_TRACK_TS = "last_track_ts"
   private const val KEY_PENDING_DRIVE_KM = "pending_drive_km"
   private const val KEY_LAST_LIVE_PUSH = "last_live_push"
   private const val CAMERAS_RADIUS_KM = 3
   private const val PROFILE_REFRESH_INTERVAL_MS = 60_000L
   private const val DRIVE_SPEED_THRESHOLD_KMH = 8.0
   private const val DRIVE_UPLOAD_STEP_KM = 0.2
+  private const val DRIVE_SEGMENT_MAX_KM = 0.35
+  private const val DRIVE_SEGMENT_MAX_KMH = 220.0
+  private const val DRIVE_SEGMENT_MAX_DT_MS = 20_000L
+  private const val DRIVE_SEGMENT_MIN_DT_MS = 500L
+  private const val DRIVE_PENDING_HARD_CAP_KM = 10.0
+  private const val DRIVE_UPLOAD_MAX_CHUNK_KM = 1.5
   private const val LIVE_PUSH_INTERVAL_MS = 4_000L
   @Volatile private var isRemoteRefreshInFlight = false
 
@@ -190,11 +197,29 @@ object AutoNavStore {
     val p = prefs(context)
     val prevLat = p.getFloat(KEY_LAST_TRACK_LAT, 0f).toDouble()
     val prevLng = p.getFloat(KEY_LAST_TRACK_LNG, 0f).toDouble()
+    val prevTs = p.getLong(KEY_LAST_TRACK_TS, 0L)
     var pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
+      .coerceAtMost(DRIVE_PENDING_HARD_CAP_KM)
+    val nowTs = System.currentTimeMillis()
 
-    if ((prevLat != 0.0 || prevLng != 0.0) && prevLat.isFinite() && prevLng.isFinite()) {
+    if (
+      (prevLat != 0.0 || prevLng != 0.0)
+      && prevLat.isFinite()
+      && prevLng.isFinite()
+      && prevTs > 0L
+    ) {
       val segmentKm = haversineKm(prevLat, prevLng, lat, lng)
-      if (segmentKm.isFinite() && segmentKm in 0.0..2.0) pendingKm += segmentKm
+      val dtMs = nowTs - prevTs
+      val segKmh = if (dtMs > 0) segmentKm * 3600_000.0 / dtMs.toDouble() else Double.POSITIVE_INFINITY
+      if (
+        segmentKm.isFinite()
+        && segmentKm in 0.0..DRIVE_SEGMENT_MAX_KM
+        && dtMs in DRIVE_SEGMENT_MIN_DT_MS..DRIVE_SEGMENT_MAX_DT_MS
+        && segKmh.isFinite()
+        && segKmh <= DRIVE_SEGMENT_MAX_KMH
+      ) {
+        pendingKm += segmentKm
+      }
     }
 
     val speedKmh = speedMs.coerceAtLeast(0.0) * 3.6
@@ -202,6 +227,7 @@ object AutoNavStore {
     p.edit()
       .putFloat(KEY_LAST_TRACK_LAT, lat.toFloat())
       .putFloat(KEY_LAST_TRACK_LNG, lng.toFloat())
+      .putLong(KEY_LAST_TRACK_TS, nowTs)
       .putFloat(KEY_PENDING_DRIVE_KM, pendingKm.toFloat())
       .apply()
 
@@ -220,10 +246,12 @@ object AutoNavStore {
     }
 
     if (token.isNotBlank() && pendingKm >= DRIVE_UPLOAD_STEP_KM) {
-      val payload = JSONObject().put("km", pendingKm)
+      val uploadKm = pendingKm.coerceAtMost(DRIVE_UPLOAD_MAX_CHUNK_KM)
+      val payload = JSONObject().put("km", uploadKm)
       val (code, _) = requestJson("POST", "/api/live/distance", token, payload.toString())
       if (code in 200..299) {
-        p.edit().putFloat(KEY_PENDING_DRIVE_KM, 0f).apply()
+        val remainingKm = (pendingKm - uploadKm).coerceAtLeast(0.0)
+        p.edit().putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat()).apply()
       }
     }
   }

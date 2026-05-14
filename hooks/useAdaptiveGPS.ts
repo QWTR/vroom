@@ -22,11 +22,17 @@ interface Options {
 const DRIVE_SPEED_KMH  = 5;
 const MAX_ACCURACY_M   = 40;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
-const MAX_ACCURACY_ACTIVE_M = 72;
+const MAX_ACCURACY_ACTIVE_M = 120;
+/** Powyżej tego fix jest zwykle bezużyteczny nawet dla active mode. */
+const MAX_ACCURACY_ACTIVE_HARD_M = 220;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 12000;
 const IDLE_FIX_TIMEOUT_MS   = 25000;
+/** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
+const IDLE_FALLBACK_MAX_AGE_MS = 12000;
+/** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
+const LAST_GOOD_STALE_RESET_MS = 45000;
 
 const GPS_CONFIG = {
   idle: {
@@ -83,6 +89,9 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
     const opId = ++opSeqRef.current;
     subRef.current?.remove();
     subRef.current = null;
+    if (lastGoodRef.current && Date.now() - lastGoodRef.current.time > LAST_GOOD_STALE_RESET_MS) {
+      lastGoodRef.current = null;
+    }
 
     const cfg = active ? GPS_CONFIG.active : GPS_CONFIG.idle;
     try {
@@ -103,15 +112,44 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               return;
             }
 
-          // ══ 1. ODRZUĆ słaby sygnał GPS ═══════════════════════
-          const maxAcc = (navRef.current || drivingRef.current) ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_M;
+          const activeMode = navRef.current || drivingRef.current;
+          const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
+            ? loc.coords.speed
+            : 0;
+
+          // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
+          if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
+            consecutiveBadRef.current += 1;
+            return;
+          }
+
+          const maxAcc = activeMode ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_M;
           if (acc > maxAcc) {
             consecutiveBadRef.current += 1;
-            if (consecutiveBadRef.current >= 5 && lastGoodRef.current) {
+            if (!activeMode && consecutiveBadRef.current >= 5 && lastGoodRef.current) {
+              const fallbackAgeMs = now - lastGoodRef.current.time;
+              if (fallbackAgeMs > IDLE_FALLBACK_MAX_AGE_MS) {
+                return;
+              }
               onLocRef.current({
                 latitude:  lastGoodRef.current.lat,
                 longitude: lastGoodRef.current.lng,
                 speed:     0,
+                heading:   loc.coords.heading,
+                accuracy:  acc,
+                timestamp: now,
+              });
+            }
+            if (activeMode) {
+              // During driving/navigation never freeze on stale lastGood fallback.
+              // Forward weaker fixes; downstream map.tsx pipeline applies its own
+              // anti-teleport guards and snapping.
+              lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
+              speedRef.current    = speedMs * 3.6;
+              onLocRef.current({
+                latitude:  rawLat,
+                longitude: rawLng,
+                speed:     speedMs,
                 heading:   loc.coords.heading,
                 accuracy:  acc,
                 timestamp: now,
@@ -136,26 +174,20 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               return;
             }
 
-            // GPS speed must be read before distance gates below. Using it later
-            // before declaration made the callback throw after the first accepted fix.
-            const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
-              ? loc.coords.speed
-              : 0;
-
             // Additional absolute-distance cap: when the phone is slow or stationary
             // a medium-sized GPS drift (e.g. 200 m over 30 s = only 24 km/h) passes
             // the speed check but is still a bad fix. Cap allowed distance to
             // 3× the expected travel distance + 100 m headroom (floor: 100 m).
             const distM    = haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng) * 1000;
             // In idle mode don't trust stale/high speed carry-over for distance cap.
-            const baselineKmh = (navRef.current || drivingRef.current)
-              ? Math.min(speedRef.current, 180)
+            const baselineKmh = activeMode
+              ? Math.min(Math.max(speedRef.current, speedMs * 3.6), 220)
               : Math.min(speedRef.current, 6);
             const expectedM = (baselineKmh / 3.6) * (dtMs / 1000);
-            let maxDistM  = (navRef.current || drivingRef.current)
-              ? Math.max(100, expectedM * 3 + 100)
+            let maxDistM  = activeMode
+              ? Math.max(220, expectedM * 4 + 180)
               : Math.max(70, expectedM * 2 + 70);
-            if (!navRef.current && !drivingRef.current) {
+            if (!activeMode) {
               const reportedKmh = speedMs * 3.6;
               maxDistM = Math.min(maxDistM, maxIdleBrowsingJumpM(dtMs, reportedKmh, acc));
             }
@@ -168,10 +200,6 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
           // ══ 3. Prędkość — TYLKO z GPS coords, bez obliczania ═
           // Podczas nawigacji nigdy nie obliczamy prędkości ze skoków
           // bo to właśnie powoduje teleportowanie markera
-          const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
-            ? loc.coords.speed
-            : 0;
-
           // ══ 4. Aktualizuj lastGoodRef ════════════════════════
           lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
           speedRef.current    = speedMs * 3.6;
@@ -183,7 +211,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
             speed:     speedMs,
             heading:   loc.coords.heading,
             accuracy:  acc,
-            timestamp: loc.timestamp,
+            timestamp: activeMode ? now : loc.timestamp,
           });
 
           // ══ 6. Auto-upgrade idle → active ════════════════════

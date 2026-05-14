@@ -25,10 +25,18 @@ const MIN_FETCH_MOVE_M  = 8;     // częstsze odświeżanie geometrii przy jeźd
 const FORCE_MATCH_MIN_INTERVAL_MS = 72_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 36;
+const MAX_REQUESTS_PER_WINDOW = 24;
+// Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
+const MAX_MANUAL_BURST_PER_WINDOW = 6;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
+const REFRESH_FORCE_MIN_INTERVAL_MS = 12_000;
+const REFRESH_FORCE_MIN_MOVE_M = 35;
+const DIRECTIONS_STUB_MIN_INTERVAL_MS = 48_000;
+const DIRECTIONS_STUB_MIN_MOVE_M = 140;
+const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 12_000;
+const DIRECTIONS_STUB_AGGR_MOVE_M = 45;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -94,6 +102,12 @@ export type ForceMatchOptions = {
   refresh?: boolean;
 };
 
+export type AddMatchContext = {
+  speedKmh?: number | null;
+  accuracyM?: number | null;
+  noRoad?: boolean;
+};
+
 interface GpsPoint {
   lat:  number;
   lng:  number;
@@ -122,13 +136,51 @@ export function useDrivingMapMatch() {
   const lastCallRef    = useRef<number>(0);
   const lastFetchRef   = useRef<{ lat: number; lng: number } | null>(null);
   const requestTimesRef = useRef<number[]>([]);
+  const lastRefreshForceRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  const lastDirectionsStubRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const isFetchingRef  = useRef<boolean>(false);
   const matchedPtsRef  = useRef<{ latitude: number; longitude: number }[] | null>(null);
   const matchedTimeRef = useRef<number>(0);
   /** Inkrementowany przy reset() — odrzuca zapisy z fetchy anulowanych po wyjściu z driving. */
   const matchGenRef    = useRef(0);
 
-  const addPosition = useCallback(async (lat: number, lng: number): Promise<void> => {
+  const consumeRequestSlot = useCallback((now: number, manual = false): boolean => {
+    requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+    const count = requestTimesRef.current.length;
+    if (manual) {
+      if (count >= MAX_REQUESTS_PER_WINDOW + MAX_MANUAL_BURST_PER_WINDOW) return false;
+      if (count < MAX_REQUESTS_PER_WINDOW) requestTimesRef.current.push(now);
+      return true;
+    }
+    if (count >= MAX_REQUESTS_PER_WINDOW) return false;
+    requestTimesRef.current.push(now);
+    return true;
+  }, []);
+
+  const shouldAttemptDirectionsStub = useCallback((
+    lat: number,
+    lng: number,
+    aggressive: boolean,
+  ): boolean => {
+    const now = Date.now();
+    const last = lastDirectionsStubRef.current;
+    if (!last) {
+      lastDirectionsStubRef.current = { at: now, lat, lng };
+      return true;
+    }
+    const minGap = aggressive ? DIRECTIONS_STUB_AGGR_INTERVAL_MS : DIRECTIONS_STUB_MIN_INTERVAL_MS;
+    const minMove = aggressive ? DIRECTIONS_STUB_AGGR_MOVE_M : DIRECTIONS_STUB_MIN_MOVE_M;
+    const movedM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
+    if (now - last.at < minGap && movedM < minMove) return false;
+    lastDirectionsStubRef.current = { at: now, lat, lng };
+    return true;
+  }, []);
+
+  const addPosition = useCallback(async (
+    lat: number,
+    lng: number,
+    ctx?: AddMatchContext,
+  ): Promise<void> => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const now  = Date.now();
 
@@ -141,7 +193,36 @@ export function useDrivingMapMatch() {
       bufferRef.current = bufferRef.current.slice(-BUFFER_SIZE);
     }
 
-    if (now - lastCallRef.current < MIN_INTERVAL_MS) return;
+    const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
+    const noRoad = !!ctx?.noRoad;
+    const acc = ctx?.accuracyM;
+    const poorAcc = acc != null && Number.isFinite(acc) && acc > 35;
+
+    let dynamicMinIntervalMs = MIN_INTERVAL_MS;
+    let dynamicMinMoveM = MIN_FETCH_MOVE_M;
+    if (noRoad) {
+      dynamicMinIntervalMs = 3_800;
+      dynamicMinMoveM = 3;
+    } else if (speedKmh >= 55) {
+      dynamicMinIntervalMs = 9_000;
+      dynamicMinMoveM = 22;
+    } else if (speedKmh >= 25) {
+      dynamicMinIntervalMs = 7_600;
+      dynamicMinMoveM = 14;
+    } else {
+      dynamicMinIntervalMs = 6_200;
+      dynamicMinMoveM = 8;
+    }
+    if (poorAcc && !noRoad) {
+      dynamicMinIntervalMs += 2_400;
+      dynamicMinMoveM += 8;
+    }
+    if (matchedPtsRef.current && !noRoad && speedKmh < 16 && !poorAcc) {
+      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 11_000);
+      dynamicMinMoveM = Math.max(dynamicMinMoveM, 20);
+    }
+
+    if (now - lastCallRef.current < dynamicMinIntervalMs) return;
     if (isFetchingRef.current)                       return;
     if (bufferRef.current.length < MIN_BUFFER_POINTS) return;
     if (lastFetchRef.current) {
@@ -151,11 +232,9 @@ export function useDrivingMapMatch() {
         lat,
         lng,
       ) * 1000;
-      if (movedSinceLastFetchM < MIN_FETCH_MOVE_M) return;
+      if (movedSinceLastFetchM < dynamicMinMoveM) return;
     }
-    requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-    if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return;
-    requestTimesRef.current.push(now);
+    if (!consumeRequestSlot(now)) return;
 
     lastCallRef.current   = now;
     lastFetchRef.current  = { lat, lng };
@@ -180,7 +259,9 @@ export function useDrivingMapMatch() {
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) {
-        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        const stub = shouldAttemptDirectionsStub(lat, lng, false)
+          ? await roadGeometryFromDirectionsStub(lat, lng)
+          : null;
         if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
           matchedPtsRef.current = stub;
           matchedTimeRef.current = Date.now();
@@ -198,7 +279,9 @@ export function useDrivingMapMatch() {
         console.log('[DrivingMapMatch] Matched', matched.length, 'points to road');
       } else {
         console.log('[DrivingMapMatch] No match found (code:', json.code, ')');
-        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        const stub = shouldAttemptDirectionsStub(lat, lng, false)
+          ? await roadGeometryFromDirectionsStub(lat, lng)
+          : null;
         if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
           matchedPtsRef.current = stub;
           matchedTimeRef.current = Date.now();
@@ -210,7 +293,7 @@ export function useDrivingMapMatch() {
     } finally {
       isFetchingRef.current = false;
     }
-  }, []);
+  }, [consumeRequestSlot, shouldAttemptDirectionsStub]);
 
   /**
    * Immediately snaps a single position to the nearest road, bypassing the
@@ -246,6 +329,13 @@ export function useDrivingMapMatch() {
           await sleep(50);
         }
         if (isFetchingRef.current) return matchedPtsRef.current;
+        const lr = lastRefreshForceRef.current;
+        if (lr) {
+          const movedM = haversineKm(lr.lat, lr.lng, lat, lng) * 1000;
+          if (Date.now() - lr.at < REFRESH_FORCE_MIN_INTERVAL_MS && movedM < REFRESH_FORCE_MIN_MOVE_M) {
+            return matchedPtsRef.current;
+          }
+        }
       } else if (isFetchingRef.current) {
         return null;
       }
@@ -260,23 +350,15 @@ export function useDrivingMapMatch() {
       }
 
       const now = Date.now();
-      if (!manual) {
-        requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-        if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) {
-          return matchedPtsRef.current;
-        }
-        requestTimesRef.current.push(now);
-      } else {
-        requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-        if (requestTimesRef.current.length < MAX_REQUESTS_PER_WINDOW) {
-          requestTimesRef.current.push(now);
-        }
-      }
+      if (!consumeRequestSlot(now, manual)) return matchedPtsRef.current;
 
       const genWhenStarted = matchGenRef.current;
       isFetchingRef.current = true;
       lastCallRef.current   = now;
       lastFetchRef.current  = { lat, lng };
+      if (refresh) {
+        lastRefreshForceRef.current = { at: now, lat, lng };
+      }
 
       try {
         const coords = [
@@ -287,7 +369,9 @@ export function useDrivingMapMatch() {
         const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
         const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
-          const stub = await roadGeometryFromDirectionsStub(lat, lng);
+          const stub = shouldAttemptDirectionsStub(lat, lng, manual)
+            ? await roadGeometryFromDirectionsStub(lat, lng)
+            : null;
           if (genWhenStarted !== matchGenRef.current) return null;
           if (stub && stub.length >= 2) {
             matchedPtsRef.current  = stub;
@@ -331,7 +415,9 @@ export function useDrivingMapMatch() {
       } catch (e) {
         console.warn('[DrivingMapMatch] forceMatch error:', e);
         if (genWhenStarted !== matchGenRef.current) return null;
-        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        const stub = shouldAttemptDirectionsStub(lat, lng, manual)
+          ? await roadGeometryFromDirectionsStub(lat, lng)
+          : null;
         if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
           matchedPtsRef.current  = stub;
           matchedTimeRef.current = Date.now();
@@ -343,7 +429,7 @@ export function useDrivingMapMatch() {
         isFetchingRef.current = false;
       }
     },
-    [],
+    [consumeRequestSlot, shouldAttemptDirectionsStub],
   );
 
   /**
@@ -375,6 +461,8 @@ export function useDrivingMapMatch() {
     matchedPtsRef.current = null;
     lastCallRef.current   = 0;
     lastFetchRef.current  = null;
+    lastRefreshForceRef.current = null;
+    lastDirectionsStubRef.current = null;
     requestTimesRef.current = [];
     isFetchingRef.current = false;
     matchedTimeRef.current = 0;

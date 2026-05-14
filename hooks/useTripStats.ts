@@ -10,11 +10,13 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
-const TRIP_MAX_PLAUSIBLE_KMH = 220;
-const TRIP_MAX_FIX_GAP_SEC   = 60;
+const TRIP_MAX_PLAUSIBLE_KMH = 190;
+const TRIP_MAX_FIX_GAP_SEC   = 25;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
 const TRIP_MIN_SEGMENT_KM = 0.003;
+const TRIP_MAX_SEGMENT_KM = 0.8;
+const TRIP_MAX_DISTANCE_KM = 1200;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
@@ -95,7 +97,7 @@ export function useTripStats() {
       },
       {
         minSegmentKm: TRIP_MIN_SEGMENT_KM,
-        maxSegmentKm: 2.0,
+        maxSegmentKm: TRIP_MAX_SEGMENT_KM,
         maxFixGapSec: TRIP_MAX_FIX_GAP_SEC,
         maxPlausibleKmh: TRIP_MAX_PLAUSIBLE_KMH,
         minSpeedKmh: 2,
@@ -111,7 +113,11 @@ export function useTripStats() {
       trackedPts.current = compactTrackPoints(pts);
     }
     lastPointRef.current = { latitude: lat, longitude: lng, time: now };
-    distanceRef.current += segment.distanceKm;
+    const nextDistance = distanceRef.current + segment.distanceKm;
+    if (!Number.isFinite(nextDistance) || nextDistance > TRIP_MAX_DISTANCE_KM) {
+      return 0;
+    }
+    distanceRef.current = nextDistance;
     setLiveDistanceKm(parseFloat(distanceRef.current.toFixed(2)));
     return segment.distanceKm;
   }, []);

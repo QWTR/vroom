@@ -57,7 +57,10 @@ const PostCard = React.memo(({
 
   const routeData = parseRouteMessage(post.content);
   const clubInviteData = parseClubInviteMessage(post.content);
-  const plainText = clubInviteData?.message ? String(clubInviteData.message) : post.content;
+  const clubInviteMessage = clubInviteData
+    ? (typeof clubInviteData.message === 'string' ? clubInviteData.message.trim() : '')
+    : '';
+  const plainText = clubInviteData ? clubInviteMessage : post.content;
   const linkUrl   = (!routeData && !clubInviteData) ? extractUrl(post.content) : null;
 
   const handleJoinClub = async () => {

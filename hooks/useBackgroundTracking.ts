@@ -71,24 +71,34 @@ const BG_PENDING_ACTIVITY_SAVE_KEY = 'bg_pending_activity_save';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 // Flag: 'true' when live-sharing is active — read by the background task
-const BG_IS_SHARING_KEY         = 'bg_is_sharing';
+export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
-const BG_LAST_FIX_MAX_GAP_SEC   = 90;
+const BG_LAST_FIX_MAX_GAP_SEC   = 30;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
 const BG_MIN_SEGMENT_KM         = 0.003;
+const BG_MAX_SEGMENT_KM         = 0.8;
 const BG_ROUTE_MAX_POINTS       = 500;
 const BG_MIN_SPEED_KMH          = 2;
+const BG_MIN_REPORTED_SPEED_KMH = 5;
+const BG_MAX_ACCURACY_M         = 28;
+const BG_MIN_MOVE_ABS_M         = 18;
 const BG_TRACE_MIN_WRITE_MS     = 1500;
 const BG_TRACE_MIN_MOVE_M       = 12;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
+const BG_PENDING_KM_HARD_CAP    = 1200;
 
 let _tracePendingKm = 0;
 let _traceLastWriteAt = 0;
 let _traceLastPoint: { latitude: number; longitude: number } | null = null;
 let _traceWriteInFlight = false;
+
+function safePendingKm(raw: string | null): number {
+  const n = parseFloat(raw ?? '0');
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 function compactBgRoutePoints(
   points: { latitude: number; longitude: number }[],
@@ -152,8 +162,13 @@ export async function recordDrivingTracePoint(
     ];
 
     if (_tracePendingKm > 0) {
-      const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
-      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + _tracePendingKm)));
+      const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
+      const nextPending = pending + _tracePendingKm;
+      if (nextPending > BG_PENDING_KM_HARD_CAP) {
+        writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'));
+      } else {
+        writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(nextPending)));
+      }
     }
 
     if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 260) {
@@ -232,7 +247,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
       const speedKmh = (speed != null && speed > 0) ? speed * 3.6 : null;
-      const isAccurateFix = (accuracy == null || accuracy <= 40) && (!Number.isFinite(lastAcc) || lastAcc <= 40);
+      const hasReliableSpeed = Number.isFinite(speedKmh) && speedKmh >= BG_MIN_REPORTED_SPEED_KMH;
+      const isAccurateFix =
+        (accuracy == null || accuracy <= BG_MAX_ACCURACY_M)
+        && (!Number.isFinite(lastAcc) || lastAcc <= BG_MAX_ACCURACY_M);
       const segment = hasLastFix
         ? evaluateDistanceSegment(
           {
@@ -251,27 +269,44 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
           },
           {
             minSegmentKm: BG_MIN_SEGMENT_KM,
-            maxSegmentKm: 2.0,
+            maxSegmentKm: BG_MAX_SEGMENT_KM,
             maxFixGapSec: BG_LAST_FIX_MAX_GAP_SEC,
             maxPlausibleKmh: BG_MAX_PLAUSIBLE_KMH,
-            minSpeedKmh: 2,
-            maxAccuracyM: 40,
+            minSpeedKmh: BG_MIN_REPORTED_SPEED_KMH,
+            maxAccuracyM: BG_MAX_ACCURACY_M,
           },
         )
         : { accepted: false, distanceKm: 0 };
-      const estimatedSpeedKmh = hasLastFix && dtSec > 0
-        ? (segment.distanceKm / dtSec) * 3600
-        : 0;
-      const effectiveSpeedKmh = speedKmh ?? estimatedSpeedKmh;
+      const segmentMeters = segment.distanceKm * 1000;
+      const accGateM = Math.max(
+        BG_MIN_MOVE_ABS_M,
+        (Number.isFinite(accuracy) ? Number(accuracy) : 0) * 0.9
+          + (Number.isFinite(lastAcc) ? Number(lastAcc) : 0) * 0.9,
+      );
       if (
         hasLastFix &&
         dtSec > 0 &&
-        effectiveSpeedKmh >= BG_MIN_SPEED_KMH &&
+        hasReliableSpeed &&
+        speedKmh >= BG_MIN_SPEED_KMH &&
         isAccurateFix &&
-        segment.accepted
+        segment.accepted &&
+        segmentMeters >= accGateM
       ) {
-        const pending = parseFloat(await AsyncStorage.getItem(BG_PENDING_KM_KEY) ?? '0');
+        const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const newPending = pending + segment.distanceKm;
+        if (!Number.isFinite(newPending) || newPending > BG_PENDING_KM_HARD_CAP) {
+          await Promise.all([
+            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+          ]);
+          await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({
+            latitude,
+            longitude,
+            time: nowMs,
+            accuracy: accuracy ?? null,
+          }));
+          return;
+        }
         const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const routePts = routeRaw ? JSON.parse(routeRaw) : [];
         const seedPts = routePts.length === 0
@@ -385,13 +420,15 @@ export function useBackgroundTracking(
         // Collect foreground stats (fg) + background distance (bg) together
         const { avgSpeed, maxSpeed } = flushSpeedStatsSync();
 
-        const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
-        const bgPending    = parseFloat(bgPendingStr ?? '0');
+        const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
         // Route-matched navigation distance from map.tsx/useTripStats is source of truth.
         // Fallback to BG pending only if a nav payload was not provided.
-        const distanceToSave = navPayload?.distanceKm != null ? navPayload.distanceKm : bgPending;
+        const distanceToSaveRaw = navPayload?.distanceKm != null ? navPayload.distanceKm : bgPending;
+        const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
+          ? distanceToSaveRaw
+          : 0;
         const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
         const routePointsToSave = navPayload?.routePoints && navPayload.routePoints.length > 1
@@ -434,10 +471,18 @@ export function useBackgroundTracking(
 
       } else {
         // Passive flush: no navigation was active, save whatever background accumulated
-        const bgPendingStr = await AsyncStorage.getItem(BG_PENDING_KM_KEY);
-        const bgPending    = parseFloat(bgPendingStr ?? '0');
+        const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
+        if (bgPending > BG_PENDING_KM_HARD_CAP) {
+          await Promise.all([
+            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+            AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+            AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+          ]);
+          return;
+        }
         if (bgPending < 0.1) return;
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
@@ -545,6 +590,17 @@ export function useBackgroundTracking(
 
   // ── Auto-start when bgEnabled is on (independent of isSharing) ───────────
   useEffect(() => {
+    // During app cold start we may not yet know the real shareLocation value from API.
+    // Avoid stopping an already running background task before sharing hydrates.
+    if (!sharingHydrated) {
+      const shouldTrackEarly = bgEnabled || isSharing || forceEnabled;
+      if (shouldTrackEarly) {
+        const timer = setTimeout(() => startBackgroundTracking(), 300);
+        return () => clearTimeout(timer);
+      }
+      return;
+    }
+
     const shouldTrack = bgEnabled || isSharing || forceEnabled;
     if (shouldTrack) {
       const timer = setTimeout(() => startBackgroundTracking(), 300);
@@ -553,7 +609,7 @@ export function useBackgroundTracking(
       // Stop task and flush passive stats only when BOTH are off
       stopBackgroundTracking().then(() => flushPendingKm(false));
     }
-  }, [isSharing, bgEnabled, forceEnabled, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
+  }, [isSharing, bgEnabled, forceEnabled, sharingHydrated, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
 
   // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
   useEffect(() => {

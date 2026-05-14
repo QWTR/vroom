@@ -172,15 +172,28 @@ function ensureIosPlist(config) {
 
 function ensureIosEntitlements(config) {
   return withEntitlementsPlist(config, (mod) => {
-    mod.modResults['com.apple.developer.carplay-navigation'] = true;
+    // Most Apple provisioning profiles do not include CarPlay Navigation entitlement
+    // by default. Enabling it unconditionally breaks iOS archive/signing (exit 65).
+    // Opt-in only when explicitly requested in CI/local env.
+    const shouldEnableCarPlayEntitlement =
+      String(process.env.ENABLE_IOS_CARPLAY_NAV_ENTITLEMENT || '').trim() === '1';
+    if (shouldEnableCarPlayEntitlement) {
+      mod.modResults['com.apple.developer.carplay-navigation'] = true;
+    } else {
+      delete mod.modResults['com.apple.developer.carplay-navigation'];
+    }
     return mod;
   });
 }
 
 function copyIosTemplates(config) {
   return withDangerousMod(config, ['ios', async (mod) => {
-    const srcDir = path.join(config.modRequest.projectRoot, 'native', 'ios-carplay');
-    const iosDir = mod.modRequest.platformProjectRoot;
+    const projectRoot =
+      mod.modRequest?.projectRoot
+      || config._internal?.projectRoot
+      || process.cwd();
+    const srcDir = path.join(projectRoot, 'native', 'ios-carplay');
+    const iosDir = mod.modRequest?.platformProjectRoot || path.join(projectRoot, 'ios');
     if (!fs.existsSync(srcDir) || !fs.existsSync(iosDir)) return mod;
 
     const targetDir = path.join(iosDir, 'VroomCarPlay');
@@ -195,12 +208,16 @@ function copyIosTemplates(config) {
 
 function copyAndroidTemplates(config) {
   return withDangerousMod(config, ['android', async (mod) => {
-    const androidDir = mod.modRequest.platformProjectRoot;
+    const projectRoot =
+      mod.modRequest?.projectRoot
+      || config._internal?.projectRoot
+      || process.cwd();
+    const androidDir = mod.modRequest?.platformProjectRoot || path.join(projectRoot, 'android');
     if (!fs.existsSync(androidDir)) return mod;
 
     const packageName = config.android?.package || 'com.lexuuw.vroom.app';
     const packagePath = packageName.split('.').join(path.sep);
-    const srcDir = path.join(mod.modRequest.projectRoot, 'native', 'android-auto');
+    const srcDir = path.join(projectRoot, 'native', 'android-auto');
     const targetJavaDir = path.join(
       androidDir,
       'app',

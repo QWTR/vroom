@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  Image, ActivityIndicator, KeyboardAvoidingView,
+  Image, ActivityIndicator, KeyboardAvoidingView, Keyboard,
   Platform, Modal, Pressable, ScrollView, Dimensions, Alert, Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -207,6 +207,22 @@ export default function ClubChatScreen() {
   const [pushMuteBusy, setPushMuteBusy] = useState(false);
   const tabSlide = useRef(new Animated.Value(Dimensions.get('window').width / 3)).current;
   const tabHapticSkip = useRef(true);
+
+  /** iOS: KeyboardAvoidingView + zagnieżdżony ScrollView potrafi kumulować padding — używamy jawnej wysokości klawiatury. */
+  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const onShow = Keyboard.addListener('keyboardWillShow', (e) => {
+      setIosKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener('keyboardWillHide', () => {
+      setIosKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   const listRef   = useRef<FlatList>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -660,12 +676,13 @@ export default function ClubChatScreen() {
     setSharing(true);
     try {
       const token = await getToken() ?? '';
+      const trimmedMessage = shareText.trim();
       const payload = {
         type: 'clubInvite',
         clubId: clubData.id,
         clubName: clubData.name,
         memberCount: clubData.memberCount ?? 0,
-        message: shareText.trim(),
+        ...(trimmedMessage ? { message: trimmedMessage } : {}),
       };
       const form = new FormData();
       form.append('content', JSON.stringify(payload));
@@ -690,6 +707,7 @@ export default function ClubChatScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+        enabled={Platform.OS === 'android'}
       >
         {/* HEADER */}
         <LinearGradient
@@ -1049,7 +1067,10 @@ export default function ClubChatScreen() {
         <View style={{
           backgroundColor: theme.surface,
           borderTopWidth: 1, borderTopColor: theme.border,
-          paddingBottom: insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16),
+          paddingBottom:
+            Platform.OS === 'ios' && iosKeyboardHeight > 0
+              ? iosKeyboardHeight
+              : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
           {replyTo && (
             <View style={{
