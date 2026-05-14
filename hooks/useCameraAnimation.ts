@@ -56,7 +56,8 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const lastDRPosRef    = useRef<CameraParams | null>(null);
 
   const lastLiveCallRef = useRef(0);
-  const LIVE_INTERVAL_MS = 55;
+  /** Krótszy odstęp = kamera podąża za DR przy wolnej jeździe (wcześniej próg ~0,8 m blokował klatki). */
+  const LIVE_INTERVAL_MS = 36;
 
   function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
     if (
@@ -191,15 +192,16 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
       haversineSimple(
         params.center.latitude,  params.center.longitude,
         lastCenterRef.current.latitude, lastCenterRef.current.longitude,
-      ) > 0.0008;
+      ) > 0.00028;
 
-    if (!posChanged && hdgDiff < 0.3) return;
+    if (!posChanged && hdgDiff < 0.25) return;
 
     const lookahead = offsetCenter(
       params.center.latitude, params.center.longitude,
       params.heading, NAV_LOOKAHEAD_METERS,
     );
-    doAnimate({ ...params, center: lookahead }, 90, 'linear');
+    // Nieco dłuższa animacja — nakładanie się kolejnych setCamera daje płynniejszy „ślizg”.
+    doAnimate({ ...params, center: lookahead }, 115, 'linear');
   }, [cameraRef]);
 
   const animateCameraSmooth = useCallback((params: CameraParams) => {

@@ -6,22 +6,26 @@ import { fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
 // Snaps driving position to the nearest road using Mapbox's matching API.
-// Called at most every MIN_INTERVAL_MS to avoid rate-limiting.
+// Trace requests are throttled by MIN_INTERVAL_MS and MAX_REQUESTS_PER_WINDOW / h.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
-const MIN_INTERVAL_MS = 8_000; // częstsze odświeżanie geometrii dla płynnego driving mode
-const BUFFER_SIZE     = 8;      // number of GPS points sent to API
-const MATCH_RADIUS_M  = 50;     // snap radius (m) — how far GPS may deviate from road
+/** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
+const MIN_INTERVAL_MS = 4_200;
+const BUFFER_SIZE     = 9;      // number of GPS points sent to API
+const MATCH_RADIUS_M  = 50;     // max 50 m wg Mapbox — stabilne dopasowanie
 // forceMatch — szerszy promień przy ręcznym wejściu w driving (GPS bywa 80–120 m od osi drogi)
-const FORCE_MATCH_RADIUS_M = 145;
-const EXPIRE_MS       = 30_000; // discard cached segment after 30 s
-const MIN_POINT_DIST_KM = 0.015; // ~15 m — drop GPS jitter before buffering
-const MIN_BUFFER_POINTS = 4;     // avoid map matching calls from tiny segments
-const MIN_FETCH_MOVE_M  = 20;    // szybsze odświeżanie po krótszym ruchu
-const FORCE_MATCH_MIN_INTERVAL_MS = 120_000; // avoid repeated paid entry snaps
+const FORCE_MATCH_RADIUS_M = 195;
+/** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
+const EXPIRE_MS       = 90_000;
+const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
+const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
+const MIN_FETCH_MOVE_M  = 8;     // częstsze odświeżanie geometrii przy jeździe miejskiej
+/** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
+const FORCE_MATCH_MIN_INTERVAL_MS = 72_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
-const MAX_REQUESTS_PER_WINDOW = 24;
+/** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
+const MAX_REQUESTS_PER_WINDOW = 36;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -31,6 +35,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export type ForceMatchOptions = {
   /** Ręczne wejście w driving: zawsze sieć, czeka na inny fetch, omija limit zapytań. */
   manual?: boolean;
+  /** Okresowe odświeżenie osi drogi w driving — omija cache 72s, wlicza się w budżet zapytań. */
+  refresh?: boolean;
 };
 
 interface GpsPoint {
@@ -114,7 +120,8 @@ export function useDrivingMapMatch() {
           radiuses: pts.map(() => MATCH_RADIUS_M),
         },
         url,
-        { allowFallback: false },
+        // Proxy może zwrócić null (429, auth); driving bez geometrii = surowy GPS „po polu”.
+        { allowFallback: true },
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) return;
@@ -159,16 +166,24 @@ export function useDrivingMapMatch() {
 
       const manual = !!opts?.manual;
 
+      const refresh = !!opts?.refresh;
+
       if (manual) {
         for (let i = 0; i < 50 && isFetchingRef.current; i++) {
           await sleep(60);
         }
+      } else if (refresh) {
+        for (let i = 0; i < 15 && isFetchingRef.current; i++) {
+          await sleep(50);
+        }
+        if (isFetchingRef.current) return matchedPtsRef.current;
       } else if (isFetchingRef.current) {
         return null;
       }
 
       if (
         !manual &&
+        !refresh &&
         matchedPtsRef.current &&
         Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
       ) {
@@ -178,7 +193,9 @@ export function useDrivingMapMatch() {
       const now = Date.now();
       if (!manual) {
         requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-        if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) return matchedPtsRef.current;
+        if (requestTimesRef.current.length >= MAX_REQUESTS_PER_WINDOW) {
+          return matchedPtsRef.current;
+        }
         requestTimesRef.current.push(now);
       } else {
         requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
@@ -254,6 +271,13 @@ export function useDrivingMapMatch() {
     [],
   );
 
+  /** Przy aktywnym driving map.tsx woła to po każdym poprawnym odczycie geometrii — segment nie „wygasa” w trakcie jazdy. */
+  const bumpMatchedFreshness = useCallback((): void => {
+    if (matchedPtsRef.current && matchedPtsRef.current.length >= 2) {
+      matchedTimeRef.current = Date.now();
+    }
+  }, []);
+
   const reset = useCallback((): void => {
     matchGenRef.current += 1;
     bufferRef.current     = [];
@@ -266,5 +290,5 @@ export function useDrivingMapMatch() {
     console.log('[DrivingMapMatch] reset');
   }, []);
 
-  return { addPosition, getMatchedPoints, reset, forceMatch };
+  return { addPosition, getMatchedPoints, reset, forceMatch, bumpMatchedFreshness };
 }

@@ -46,9 +46,9 @@ export function maxIdleBrowsingJumpM(deltaMs: number, reportedSpeedKmh: number, 
   const expected = (v / 3.6) * dtS;
   const sedentary = reportedSpeedKmh < 6.5;
   if (sedentary) {
-    return Math.max(16, Math.min(54, expected * 1.75 + acc * 1.4 + 12 + dtS * 5.5));
+    return Math.max(10, Math.min(25, expected * 1.2 + acc * 0.35 + 6 + dtS * 1.5));
   }
-  return Math.max(20, Math.min(92, expected * 2 + acc * 1.5 + 16 + dtS * 9));
+  return Math.max(18, Math.min(60, expected * 1.7 + acc * 0.7 + 12 + dtS * 3));
 }
 
 /** Czyści HTML z instrukcji Google */

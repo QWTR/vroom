@@ -167,6 +167,14 @@ export function useLiveMap(
     }
   }, []);
 
+  // Gdy udostępnianie włączone — odśwież listę po połączeniu socketu (np. hydracja z API).
+  useEffect(() => {
+    if (!isSharing || !connected) return;
+    const tok = tokenRef.current;
+    if (!tok) return;
+    void fetchInitialData(tok);
+  }, [isSharing, connected, fetchInitialData]);
+
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
     (async () => {

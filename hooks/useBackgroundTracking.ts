@@ -309,6 +309,8 @@ export function useBackgroundTracking(
   isSharing: boolean,
   bgEnabled: boolean = true,
   forceEnabled: boolean = false,
+  /** Gdy false — nie nadpisuj BG_IS_SHARING do czasu hydracji z API (unikaj false przy starcie). */
+  sharingHydrated: boolean = true,
 ) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const flushInFlightRef = useRef(false);
@@ -322,8 +324,9 @@ export function useBackgroundTracking(
 
   // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
   useEffect(() => {
+    if (!sharingHydrated) return;
     AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing ? 'true' : 'false').catch(() => {});
-  }, [isSharing]);
+  }, [isSharing, sharingHydrated]);
 
   useEffect(() => {
     hasAcceptedBackgroundLocationDisclosure()
@@ -514,7 +517,8 @@ export function useBackgroundTracking(
         },
         ...(Platform.OS === 'ios'
           ? {
-              pausesUpdatesAutomatically: true,
+              // Udostępnianie w tle wymaga ciągłych fixów; same statystyki mogą używać pauzy OS.
+              pausesUpdatesAutomatically: !isSharing,
               activityType: Location.ActivityType.AutomotiveNavigation,
             }
           : {}),

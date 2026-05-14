@@ -36,10 +36,15 @@ export function useDeadReckoning({
   const stoppedRef     = useRef(false);
   // Ref do onFrame żeby nie restartować pętli rAF przy zmianie callbacka
   const onFrameRef     = useRef(onFrame);
+  const stallTimeoutRef = useRef(stallTimeout);
 
   useEffect(() => {
     onFrameRef.current = onFrame;
   }, [onFrame]);
+
+  useEffect(() => {
+    stallTimeoutRef.current = stallTimeout;
+  }, [stallTimeout]);
 
   const lerpAngle = (a: number, b: number, t: number) => {
     const diff = ((b - a + 540) % 360) - 180;
@@ -55,7 +60,7 @@ export function useDeadReckoning({
 
     const now = performance.now();
 
-    if (now - lastFeedMs.current > stallTimeout) {
+    if (now - lastFeedMs.current > stallTimeoutRef.current) {
       stoppedRef.current = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
@@ -102,11 +107,11 @@ export function useDeadReckoning({
         // Match interpolation duration to the real interval between fixes.
         // A slight +5% keeps motion continuous even when next fix arrives late,
         // so the marker "flows" instead of finishing early and waiting still.
-        const targetDur = dt * 1.05;
-        const blended = lerpDurMs.current * 0.35 + targetDur * 0.65;
+        const targetDur = dt * 1.06;
+        const blended = lerpDurMs.current * 0.28 + targetDur * 0.72;
         // Wide but bounded window: smooth on sparse GPS (2-5s) without
         // introducing excessive lag when updates are frequent.
-        lerpDurMs.current = Math.max(150, Math.min(2600, blended));
+        lerpDurMs.current = Math.max(120, Math.min(2700, blended));
       }
     }
 

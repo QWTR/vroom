@@ -21,6 +21,8 @@ interface Options {
 
 const DRIVE_SPEED_KMH  = 5;
 const MAX_ACCURACY_M   = 40;
+/** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
+const MAX_ACCURACY_ACTIVE_M = 72;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 12000;
@@ -28,9 +30,10 @@ const IDLE_FIX_TIMEOUT_MS   = 25000;
 
 const GPS_CONFIG = {
   idle: {
-    accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     3500,
-    distanceInterval: 8,
+    // Balanced często zwraca fix z sieci/Wi-Fi i powoduje losowe skoki w miejscu.
+    accuracy:         Location.Accuracy.High,
+    timeInterval:     2500,
+    distanceInterval: 2,
   },
   active: {
     // BestForNavigation + watch churn caused native crashes on some Android builds.
@@ -101,7 +104,8 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
             }
 
           // ══ 1. ODRZUĆ słaby sygnał GPS ═══════════════════════
-          if (acc > MAX_ACCURACY_M) {
+          const maxAcc = (navRef.current || drivingRef.current) ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_M;
+          if (acc > maxAcc) {
             consecutiveBadRef.current += 1;
             if (consecutiveBadRef.current >= 5 && lastGoodRef.current) {
               onLocRef.current({
@@ -131,6 +135,12 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
               return;
             }
+
+            // GPS speed must be read before distance gates below. Using it later
+            // before declaration made the callback throw after the first accepted fix.
+            const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
+              ? loc.coords.speed
+              : 0;
 
             // Additional absolute-distance cap: when the phone is slow or stationary
             // a medium-sized GPS drift (e.g. 200 m over 30 s = only 24 km/h) passes
