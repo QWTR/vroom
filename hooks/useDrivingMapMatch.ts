@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import { MAPBOX_TOKEN }        from '../constants/mapConfig';
 import { haversineKm }         from '../scripts/navigationUtils';
-import { fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
+import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -13,9 +13,9 @@ const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
 const MIN_INTERVAL_MS = 4_200;
 const BUFFER_SIZE     = 9;      // number of GPS points sent to API
-const MATCH_RADIUS_M  = 50;     // max 50 m wg Mapbox — stabilne dopasowanie
-// forceMatch — szerszy promień przy ręcznym wejściu w driving (GPS bywa 80–120 m od osi drogi)
-const FORCE_MATCH_RADIUS_M = 195;
+const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
+/** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
+const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
 const EXPIRE_MS       = 90_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
@@ -31,6 +31,61 @@ const MAX_REQUESTS_PER_WINDOW = 36;
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Gdy matching zwróci NoSegment (GPS dalej od drogi niż 50 m), fallback przez krótkie legi Directions. */
+const DIRECTIONS_STUB_OFFSET_DEG = 0.00032; // ~25–35 m zależnie od szerokości geogr.
+
+async function roadGeometryFromDirectionsStub(
+  lat: number,
+  lng: number,
+): Promise<{ latitude: number; longitude: number }[] | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const deltas: Array<[number, number]> = [
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+    [0, -1],
+    [0.72, 0.72],
+    [-0.72, 0.72],
+  ];
+
+  for (const [dy, dx] of deltas) {
+    const lat2 = lat + DIRECTIONS_STUB_OFFSET_DEG * dy;
+    const lng2 = lng + DIRECTIONS_STUB_OFFSET_DEG * dx;
+    const directionsUrl =
+      `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+      `${lng},${lat};${lng2},${lat2}` +
+      `?alternatives=false&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
+
+    try {
+      const data = await fetchDirectionsViaProxy<{
+        routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
+      }>(
+        {
+          coordinates: [
+            [lng, lat],
+            [lng2, lat2],
+          ],
+          profile: 'driving',
+          alternatives: false,
+          geometries: 'geojson',
+          steps: false,
+          overview: 'full',
+          language: 'pl',
+        },
+        directionsUrl,
+      );
+      const coords = data?.routes?.[0]?.geometry?.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        return coords.map(([lng3, lat3]) => ({ latitude: lat3, longitude: lng3 }));
+      }
+    } catch {
+      // try next direction
+    }
+  }
+
+  return null;
+}
 
 export type ForceMatchOptions = {
   /** Ręczne wejście w driving: zawsze sieć, czeka na inny fetch, omija limit zapytań. */
@@ -111,7 +166,7 @@ export function useDrivingMapMatch() {
       const pts     = bufferRef.current;
       const coords  = pts.map(p => `${p.lng},${p.lat}`).join(';');
       const radii   = pts.map(() => String(MATCH_RADIUS_M)).join(';');
-      const url     = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+      const url     = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
       const json = await fetchMatchingViaProxy<MapMatchResponse>(
         {
@@ -124,7 +179,15 @@ export function useDrivingMapMatch() {
         { allowFallback: true },
       );
       if (genWhenStarted !== matchGenRef.current) return;
-      if (!json) return;
+      if (!json) {
+        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
+          matchedPtsRef.current = stub;
+          matchedTimeRef.current = Date.now();
+          console.log('[DrivingMapMatch] Trace fallback directions stub', stub.length, 'pts');
+        }
+        return;
+      }
 
       if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
         const matched = json.matchings[0].geometry.coordinates.map(
@@ -135,6 +198,12 @@ export function useDrivingMapMatch() {
         console.log('[DrivingMapMatch] Matched', matched.length, 'points to road');
       } else {
         console.log('[DrivingMapMatch] No match found (code:', json.code, ')');
+        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
+          matchedPtsRef.current = stub;
+          matchedTimeRef.current = Date.now();
+          console.log('[DrivingMapMatch] Trace fallback directions stub', stub.length, 'pts');
+        }
       }
     } catch (e) {
       console.warn('[DrivingMapMatch] API error:', e);
@@ -215,7 +284,19 @@ export function useDrivingMapMatch() {
           `${lng},${lat}`,
         ].join(';');
         const radii = `${FORCE_MATCH_RADIUS_M};${FORCE_MATCH_RADIUS_M}`;
-        const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+        const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+
+        const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
+          const stub = await roadGeometryFromDirectionsStub(lat, lng);
+          if (genWhenStarted !== matchGenRef.current) return null;
+          if (stub && stub.length >= 2) {
+            matchedPtsRef.current  = stub;
+            matchedTimeRef.current = Date.now();
+            console.log('[DrivingMapMatch] forceMatch directions stub', stub.length, 'pts');
+            return stub;
+          }
+          return null;
+        };
 
         const json = await fetchMatchingViaProxy<MapMatchResponse>(
           {
@@ -230,7 +311,10 @@ export function useDrivingMapMatch() {
           { allowFallback: true },
         );
         if (genWhenStarted !== matchGenRef.current) return null;
-        if (!json) return matchedPtsRef.current;
+
+        if (!json) {
+          return (await tryDirectionsStub()) ?? matchedPtsRef.current;
+        }
 
         if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
           const matched = json.matchings[0].geometry.coordinates.map(
@@ -241,12 +325,19 @@ export function useDrivingMapMatch() {
           matchedTimeRef.current = Date.now();
           console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
           return matched;
-        } else {
-          console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
-          return null;
         }
+        console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
+        return (await tryDirectionsStub()) ?? null;
       } catch (e) {
         console.warn('[DrivingMapMatch] forceMatch error:', e);
+        if (genWhenStarted !== matchGenRef.current) return null;
+        const stub = await roadGeometryFromDirectionsStub(lat, lng);
+        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
+          matchedPtsRef.current  = stub;
+          matchedTimeRef.current = Date.now();
+          console.log('[DrivingMapMatch] forceMatch error recovery stub', stub.length, 'pts');
+          return stub;
+        }
         return null;
       } finally {
         isFetchingRef.current = false;

@@ -1418,13 +1418,22 @@ export default function MapScreen() {
           }
         }
         if (!hasRoadSnap) {
-          entryLat = startLat;
-          entryLng = startLng;
+          const holdAnchor =
+            (Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
+              && drLatRef.current !== 0 && drLngRef.current !== 0
+              ? { latitude: drLatRef.current, longitude: drLngRef.current }
+              : (lastSetLocRef.current
+                ? { latitude: lastSetLocRef.current.lat, longitude: lastSetLocRef.current.lng }
+                : null));
+          entryLat = holdAnchor?.latitude ?? startLat;
+          entryLng = holdAnchor?.longitude ?? startLng;
           setRoadMatchPoints([]);
           Toast.show({
             type: 'info',
             text1: 'Tryb jazdy',
-            text2: 'Start na GPS — droga zostanie dopasowana przy pierwszym ruchu.',
+            text2: holdAnchor
+              ? 'Brak świeżej geometrii drogi — trzymam ostatni snap, odświeżam dopasowanie.'
+              : 'Start na GPS — droga zostanie dopasowana przy pierwszym ruchu.',
           });
         }
 
@@ -1867,10 +1876,34 @@ export default function MapScreen() {
           console.warn('[GPS map] drivingSnap produced non-finite coord');
           return;
         }
+        const fallbackAnchor =
+          hardRoadSnap && !snapped.snapped
+            ? (
+              (Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
+                && drLatRef.current !== 0 && drLngRef.current !== 0
+                ? { latitude: drLatRef.current, longitude: drLngRef.current }
+                : (lastSetLocRef.current
+                  ? { latitude: lastSetLocRef.current.lat, longitude: lastSetLocRef.current.lng }
+                  : null))
+            )
+            : null;
+        const appliedSnap = fallbackAnchor
+          ? { ...snapped, latitude: fallbackAnchor.latitude, longitude: fallbackAnchor.longitude, snapped: true }
+          : snapped;
+        if (hardRoadSnap && !snapped.snapped) {
+          console.warn('[GPS map] drivingSnap returned raw — holding previous snapped anchor');
+          if (accForMatch) {
+            void forceMapMatch(lat, lng, { refresh: true })
+              .then((p) => {
+                if (p && p.length >= 2 && isDrivingRef.current) setRoadMatchPoints(p);
+              })
+              .catch(() => {});
+          }
+        }
         if (isDrivingRef.current || movingForDriving) {
-          const segKm = feedPosition(snapped.latitude, snapped.longitude, rawSpeedMs ?? undefined);
+          const segKm = feedPosition(appliedSnap.latitude, appliedSnap.longitude, rawSpeedMs ?? undefined);
           if (segKm > 0) {
-            recordDrivingTracePoint(snapped.latitude, snapped.longitude, { addDistanceKm: segKm, speedKmh: kmh }).catch(() => {});
+            recordDrivingTracePoint(appliedSnap.latitude, appliedSnap.longitude, { addDistanceKm: segKm, speedKmh: kmh }).catch(() => {});
           }
         }
 
@@ -1905,12 +1938,12 @@ export default function MapScreen() {
               // GPS flipped 180° — fall back to movement vector immediately
               const distM = haversineKm(
                 lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-                snapped.latitude, snapped.longitude,
+                appliedSnap.latitude, appliedSnap.longitude,
               ) * 1000;
               if (distM >= 5) {
                 const brg = bearingBetween(
                   lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-                  snapped.latitude, snapped.longitude,
+                  appliedSnap.latitude, appliedSnap.longitude,
                 );
                 drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 60);
                 lastHeadingRef.current = drivingHeading;
@@ -1922,24 +1955,24 @@ export default function MapScreen() {
             // positions — good for curves and low-speed GPS heading unreliability.
             const distM = haversineKm(
               lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-              snapped.latitude, snapped.longitude,
+              appliedSnap.latitude, appliedSnap.longitude,
             ) * 1000;
             if (distM >= 5) {
               const brg = bearingBetween(
                 lastDrivingPosRef.current.lat, lastDrivingPosRef.current.lng,
-                snapped.latitude, snapped.longitude,
+                appliedSnap.latitude, appliedSnap.longitude,
               );
               drivingHeading = smoothHeading(lastHeadingRef.current, brg, 0.4, 60);
               lastHeadingRef.current = drivingHeading;
               setHeading(drivingHeading);
             }
-          } else if (snapped.snapped) {
+          } else if (appliedSnap.snapped) {
             // Tertiary: polyline segment bearing from snap.
             // Anti-parallel guard: reject if it differs from current heading by >90°
             // (snap landed on a segment going the opposite direction).
-            const snapDiff = Math.abs(((snapped.targetHeading - lastHeadingRef.current + 540) % 360) - 180);
+            const snapDiff = Math.abs(((appliedSnap.targetHeading - lastHeadingRef.current + 540) % 360) - 180);
             if (snapDiff <= 90) {
-              drivingHeading = smoothHeading(lastHeadingRef.current, snapped.targetHeading, 0.3, 45);
+              drivingHeading = smoothHeading(lastHeadingRef.current, appliedSnap.targetHeading, 0.3, 45);
               lastHeadingRef.current = drivingHeading;
               setHeading(drivingHeading);
             }
@@ -1954,7 +1987,7 @@ export default function MapScreen() {
           }
         }
         // Always track last snapped position for next bearing calculation
-        lastDrivingPosRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+        lastDrivingPosRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude };
 
         // Keep only heading in sync with driving pipeline — lat/lng are driven
         // by DR onFrame at 60fps to prevent marker teleportation on each GPS tick.
@@ -1964,7 +1997,7 @@ export default function MapScreen() {
         if (!isDrivingRef.current && !isNavigatingRef.current && lastSetLocRef.current && kmh < 5) {
           const movedM = haversineKm(
             lastSetLocRef.current.lat, lastSetLocRef.current.lng,
-            snapped.latitude, snapped.longitude,
+            appliedSnap.latitude, appliedSnap.longitude,
           ) * 1000;
           if (movedM < MIN_MOVE_M) {
             drivingConsecutiveRef.current = 0;
@@ -1976,16 +2009,16 @@ export default function MapScreen() {
           const movedUiM = haversineKm(
             lastSetLocRef.current.lat,
             lastSetLocRef.current.lng,
-            snapped.latitude,
-            snapped.longitude,
+            appliedSnap.latitude,
+            appliedSnap.longitude,
           ) * 1000;
           if (kmh < GPS_IDLE_UI_LOCK_SPEED_KMH) {
             const maxFilteredUiM = maxIdleBrowsingJumpM(safeDtForSnappedUi, kmh, acc);
             if (movedUiM > maxFilteredUiM) {
               rollbackRejectedRawAnchor();
               pushGpsDebugFix({
-                lat: snapped.latitude,
-                lng: snapped.longitude,
+                lat: appliedSnap.latitude,
+                lng: appliedSnap.longitude,
                 acc,
                 speedKmh: kmh,
                 accepted: false,
@@ -1997,8 +2030,8 @@ export default function MapScreen() {
           if (movedUiM > GPS_IDLE_UI_HARD_JUMP_M && kmh < 15) {
             rollbackRejectedRawAnchor();
             pushGpsDebugFix({
-              lat: snapped.latitude,
-              lng: snapped.longitude,
+              lat: appliedSnap.latitude,
+              lng: appliedSnap.longitude,
               acc,
               speedKmh: kmh,
               accepted: false,
@@ -2012,13 +2045,13 @@ export default function MapScreen() {
             const sameCluster =
               !!cand &&
               nowUi - cand.time <= GPS_IDLE_UI_CONFIRM_WINDOW_MS &&
-              haversineKm(cand.lat, cand.lng, snapped.latitude, snapped.longitude) * 1000 <= GPS_IDLE_UI_CONFIRM_RADIUS_M;
+              haversineKm(cand.lat, cand.lng, appliedSnap.latitude, appliedSnap.longitude) * 1000 <= GPS_IDLE_UI_CONFIRM_RADIUS_M;
             if (!sameCluster) {
-              idleUiJumpCandidateRef.current = { lat: snapped.latitude, lng: snapped.longitude, time: nowUi, hits: 1 };
+              idleUiJumpCandidateRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude, time: nowUi, hits: 1 };
               rollbackRejectedRawAnchor();
               pushGpsDebugFix({
-                lat: snapped.latitude,
-                lng: snapped.longitude,
+                lat: appliedSnap.latitude,
+                lng: appliedSnap.longitude,
                 acc,
                 speedKmh: kmh,
                 accepted: false,
@@ -2028,11 +2061,11 @@ export default function MapScreen() {
             }
             const hits = (cand?.hits ?? 1) + 1;
             if (hits < 2) {
-              idleUiJumpCandidateRef.current = { lat: snapped.latitude, lng: snapped.longitude, time: nowUi, hits };
+              idleUiJumpCandidateRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude, time: nowUi, hits };
               rollbackRejectedRawAnchor();
               pushGpsDebugFix({
-                lat: snapped.latitude,
-                lng: snapped.longitude,
+                lat: appliedSnap.latitude,
+                lng: appliedSnap.longitude,
                 acc,
                 speedKmh: kmh,
                 accepted: false,
@@ -2047,9 +2080,9 @@ export default function MapScreen() {
         } else {
           idleUiJumpCandidateRef.current = null;
         }
-        lastSetLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+        lastSetLocRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude };
 
-        setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
+        setUserLocation({ latitude: appliedSnap.latitude, longitude: appliedSnap.longitude });
 
         if (movingForDriving) {
           // ── Wymaga N kolejnych odczytów przed wejściem w driving
@@ -2086,8 +2119,8 @@ export default function MapScreen() {
             // Immediate warmup snap — apply result as soon as API responds.
             // The GPS callback is synchronous so we use .then() to apply the
             // snapped position on the next event-loop tick after the fetch resolves.
-            const entryLat = snapped.latitude;
-            const entryLng = snapped.longitude;
+            const entryLat = appliedSnap.latitude;
+            const entryLng = appliedSnap.longitude;
             const lastForce = lastForceMapMatchRef.current;
             const movedFromLastForceM = lastForce
               ? haversineKm(lastForce.lat, lastForce.lng, entryLat, entryLng) * 1000
@@ -2121,14 +2154,14 @@ export default function MapScreen() {
             // feedDR before setIsDriving so drLatRef/drLngRef are populated
             // before the re-render, preventing a one-frame marker teleport.
             feedDR(
-              { latitude: snapped.latitude, longitude: snapped.longitude },
+              { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
               rawSpeedMs ?? 0,
               drivingHeading,
             );
             setIsDriving(true);
-            recordDrivingTracePoint(snapped.latitude, snapped.longitude, { speedKmh: kmh }).catch(() => {});
+            recordDrivingTracePoint(appliedSnap.latitude, appliedSnap.longitude, { speedKmh: kmh }).catch(() => {});
             enterDrivingCamera(
-              { latitude: snapped.latitude, longitude: snapped.longitude },
+              { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
               drivingHeading,
             );
             feedSpeedSample(rawSpeedMs);
@@ -2137,10 +2170,10 @@ export default function MapScreen() {
             return;
           }
 
-          drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
+          drivingLastLocRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude };
 
           feedDR(
-            { latitude: snapped.latitude, longitude: snapped.longitude },
+            { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
             rawSpeedMs ?? 0,
             drivingHeading,
           );
@@ -2156,7 +2189,7 @@ export default function MapScreen() {
           // overwritten at 60fps with stale coordinates and undoing the snap.
           if (isDrivingRef.current) {
             feedDR(
-              { latitude: snapped.latitude, longitude: snapped.longitude },
+              { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
               0,
               drivingHeading,
             );
@@ -2384,15 +2417,36 @@ export default function MapScreen() {
           const matchedPts = getMatchedPoints();
           if (matchedPts && matchedPts.length > 1) setRoadMatchPoints(matchedPts);
           const snapped = drivingSnap(lat, lng, speedKmh, false, true, acc);
-          lastGoodLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
-          drivingLastLocRef.current = { lat: snapped.latitude, lng: snapped.longitude };
-          setUserLocation({ latitude: snapped.latitude, longitude: snapped.longitude });
-          const segKm = feedPosition(snapped.latitude, snapped.longitude, speedMs);
+          const fallbackAnchor =
+            !snapped.snapped
+              ? (
+                (Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
+                  && drLatRef.current !== 0 && drLngRef.current !== 0
+                  ? { latitude: drLatRef.current, longitude: drLngRef.current }
+                  : (lastSetLocRef.current
+                    ? { latitude: lastSetLocRef.current.lat, longitude: lastSetLocRef.current.lng }
+                    : null))
+              )
+              : null;
+          const appliedSnap = fallbackAnchor
+            ? { ...snapped, latitude: fallbackAnchor.latitude, longitude: fallbackAnchor.longitude, snapped: true }
+            : snapped;
+          if (!snapped.snapped) {
+            void forceMapMatch(lat, lng, { refresh: true })
+              .then((p) => {
+                if (p && p.length >= 2 && isDrivingRef.current) setRoadMatchPoints(p);
+              })
+              .catch(() => {});
+          }
+          lastGoodLocRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude };
+          drivingLastLocRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude };
+          setUserLocation({ latitude: appliedSnap.latitude, longitude: appliedSnap.longitude });
+          const segKm = feedPosition(appliedSnap.latitude, appliedSnap.longitude, speedMs);
           if (segKm > 0) {
-            recordDrivingTracePoint(snapped.latitude, snapped.longitude, { addDistanceKm: segKm, speedKmh: speedKmh }).catch(() => {});
+            recordDrivingTracePoint(appliedSnap.latitude, appliedSnap.longitude, { addDistanceKm: segKm, speedKmh: speedKmh }).catch(() => {});
           }
           feedDR(
-            { latitude: snapped.latitude, longitude: snapped.longitude },
+            { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
             speedMs,
             lastHeadingRef.current,
           );
@@ -2408,7 +2462,7 @@ export default function MapScreen() {
         setUserLocation({ latitude: lat, longitude: lng });
       })
       .catch((e) => console.warn('[GPS] One-shot fix failed:', e));
-  }, [drivingSnap, feedDR, feedPosition, getMatchedPoints, setRoadMatchPoints]);
+  }, [drivingSnap, feedDR, feedPosition, forceMapMatch, getMatchedPoints, setRoadMatchPoints]);
 
   useEffect(() => {
     const id = setInterval(() => {
