@@ -208,6 +208,30 @@ export default function CommunityScreen() {
     await fetch(`${API_URL}/api/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
   }, []);
 
+  const handleReportPost = useCallback(async (post: Post, reason: string) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        Toast.show({ type: 'error', text1: 'Zaloguj się', text2: 'Wymagane konto do zgłoszenia.' });
+        return;
+      }
+      const res = await fetch(`${API_URL}/api/moderation/report`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetType: 'post',
+          targetId: String(post.id),
+          reason,
+          details: `authorId=${post.author.id}`,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      Toast.show({ type: 'success', text1: 'Zgłoszenie wysłane', text2: 'Dziękujemy — rozpatrzymy sprawę.' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się wysłać zgłoszenia.' });
+    }
+  }, []);
+
   const handleLikeRoute = useCallback(async (id: number) => {
     setRoutes(prev => prev.map(r => r.id !== id ? r : { ...r, isLiked: !r.isLiked, likesCount: r.isLiked ? r.likesCount - 1 : r.likesCount + 1 }));
     const token = await getToken();
@@ -424,7 +448,7 @@ export default function CommunityScreen() {
           posts={filteredPosts} myId={myId} loadingMoreP={loadingMoreP}
           refreshingP={refreshingP} hasMoreP={hasMoreP}
           onLike={handleLikePost} onRepost={handleRepost} onComment={openComments}
-          onDelete={handleDeletePost} onPost={handlePost}
+          onDelete={handleDeletePost} onPost={handlePost} onReport={handleReportPost}
           onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
           onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
           onLoadMore={loadMorePosts} bottomInset={insets.bottom}

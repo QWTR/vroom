@@ -224,9 +224,28 @@ export default function StatsScreen() {
     const podiumOrder = [topThree[1], topThree[0], topThree[2]].filter(Boolean) as RankUser[];
     return (
       <View style={{ paddingHorizontal: '5%', paddingTop: 8 }}>
-        <View style={{ marginTop: 52, marginBottom: 24, alignItems: 'center' }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: theme.text, letterSpacing: 2 }}>RANKING</Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, marginTop: 4 }}>NAJLEPSI KIEROWCY</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 52, marginBottom: 20, gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              backgroundColor: theme.surface,
+              borderWidth: 1,
+              borderColor: theme.border2,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialIcons name="arrow-back" size={22} color={theme.text} />
+          </TouchableOpacity>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: theme.text, letterSpacing: 2 }}>RANKING</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, marginTop: 4 }}>NAJLEPSI KIEROWCY</Text>
+          </View>
+          <View style={{ width: 40 }} />
         </View>
 
         <View style={{ flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 12, padding: 4, marginBottom: 16, gap: 4 }}>

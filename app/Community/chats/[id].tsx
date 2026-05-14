@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, FlatList, TextInput, TouchableOpacity,
-  Image, StatusBar, KeyboardAvoidingView,
+  Image, StatusBar, KeyboardAvoidingView, Keyboard,
   Platform, ActivityIndicator, Animated, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
@@ -126,6 +126,20 @@ export default function ChatScreen() {
   const socketRef        = useRef<Socket | null>(null);
   const tokenRef         = useRef<string>('');
   const typingTimer      = useRef<any>(null);
+
+  /** iOS: KAV + FlatList bywa zawodny — jedna ścieżka przez wysokość klawiatury. */
+  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const onShow = Keyboard.addListener('keyboardWillShow', e => {
+      setIosKeyboardHeight(e.endCoordinates?.height ?? 0);
+    });
+    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardHeight(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     Animated.parallel([
@@ -569,6 +583,7 @@ export default function ChatScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+        enabled={Platform.OS === 'android'}
       >
         {/* WIADOMOŚCI */}
         {loading
@@ -631,7 +646,10 @@ export default function ChatScreen() {
           backgroundColor: theme.surface,
           borderTopWidth: 1,
           borderTopColor: theme.border,
-          paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 16) : Math.max(insets.bottom, 10),
+          paddingBottom:
+            Platform.OS === 'ios' && iosKeyboardHeight > 0
+              ? iosKeyboardHeight
+              : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
 
           {/* Reply preview */}

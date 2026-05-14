@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, ScrollView,
-  StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Pressable, Dimensions,
+  StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Pressable, Dimensions, Keyboard,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,6 +62,19 @@ export default function MarketChatScreen() {
 
   const listRef    = useRef<FlatList>(null);
   const tokenRef   = useRef('');
+
+  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const onShow = Keyboard.addListener('keyboardWillShow', e => {
+      setIosKeyboardHeight(e.endCoordinates?.height ?? 0);
+    });
+    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardHeight(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -272,6 +285,7 @@ export default function MarketChatScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+        enabled={Platform.OS === 'android'}
       >
         {loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -314,7 +328,10 @@ export default function MarketChatScreen() {
         <View style={{
           backgroundColor: theme.surface,
           borderTopWidth: 1, borderTopColor: theme.border,
-          paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 16) : Math.max(insets.bottom, 10),
+          paddingBottom:
+            Platform.OS === 'ios' && iosKeyboardHeight > 0
+              ? iosKeyboardHeight
+              : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
           {photos.length > 0 && (
             <View style={{ flexDirection: 'row', paddingHorizontal: 14, paddingTop: 10, gap: 8 }}>

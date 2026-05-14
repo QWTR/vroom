@@ -228,10 +228,19 @@ export default function ChatsIndex() {
 
       {/* HEADER */}
       <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 12, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={{ color: theme.primary, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 4, marginBottom: 2 }}>VROOM</Text>
-            <Text style={{ color: theme.text, fontSize: 24, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>WIADOMOŚCI</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border2, alignItems: 'center', justifyContent: 'center' }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="arrow-left" size={20} color={theme.text} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: theme.primary, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 4, marginBottom: 2 }}>VROOM</Text>
+              <Text style={{ color: theme.text, fontSize: 24, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>WIADOMOŚCI</Text>
+            </View>
           </View>
           <TouchableOpacity
             style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}

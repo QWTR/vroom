@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, View, Text, TextInput, TouchableOpacity,
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Image, Dimensions, Animated, Easing, NativeModules,
+  Image, Dimensions, Animated, Easing, NativeModules, Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -20,6 +20,8 @@ const { UsersModule } = NativeModules;
 
 const API_URL  = 'https://v-room.app/api/auth';
 const SAPI_URL = 'https://v-room.app/sapi';
+const TERMS_URL   = 'https://v-room.app/terms';
+const PRIVACY_URL = 'https://v-room.app/privacy';
 
 let GoogleSignin: any = null;
 let statusCodes: any  = {};
@@ -55,6 +57,7 @@ export default function LoginScreen() {
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [gLoading,     setGLoading]     = useState(false);
+  const [acceptedUgcTerms, setAcceptedUgcTerms] = useState(false);
 
   useEffect(() => {
     const ref = typeof params.ref === 'string' ? params.ref.trim() : '';
@@ -107,10 +110,6 @@ export default function LoginScreen() {
     switchScreen('login');
   };
 
-  const strengthColor = (l: number) => l >= 10 ? '#4de926' : l >= 6 ? '#ff922b' : RED;
-  const strengthLabel = (l: number) => l < 6 ? 'Za krótkie' : l < 10 ? 'Słabe' : 'Silne';
-  const strengthPct   = (l: number) => Math.min((l / 12) * 100, 100);
-
   const saveAndNavigate = async (token: string, user: any) => {
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('token', token);
@@ -121,7 +120,20 @@ export default function LoginScreen() {
     router.replace('/(tabs)');
   };
 
+  const requireUgcTerms = () => {
+    if (!acceptedUgcTerms) {
+      Toast.show({
+        type: 'error',
+        text1: 'REGULAMIN',
+        text2: 'Zaznacz zgodę na Regulamin i Politykę prywatności (wymagane przed logowaniem lub rejestracją).',
+      });
+      return false;
+    }
+    return true;
+  };
+
   const handleLogin = async () => {
+    if (!requireUgcTerms()) return;
     if (!email || !password) return Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
     setLoading(true);
     try {
@@ -134,6 +146,7 @@ export default function LoginScreen() {
   };
 
   const handleRegister = async () => {
+    if (!requireUgcTerms()) return;
     if (!email || !password || !username) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wypełnij wszystkie pola.' });
     if (password.length < 6)              return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasło min. 6 znaków.' });
     if (password !== confirmPass)         return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Hasła nie są identyczne.' });
@@ -157,6 +170,8 @@ export default function LoginScreen() {
   };
 
   const handleGoogle = async () => {
+    if (Platform.OS === 'ios') return;
+    if (!requireUgcTerms()) return;
     if (!GoogleSignin) return Toast.show({ type: 'info', text1: 'NIEDOSTĘPNE', text2: 'Wymaga pełnego buildu.' });
     setGLoading(true);
     try {
@@ -179,7 +194,6 @@ export default function LoginScreen() {
       if (e.code === statusCodes?.SIGN_IN_CANCELLED) return;
     } finally { setGLoading(false); }
   };
-
 
   const handleForgot = async () => {
     if (!forgotEmail) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj e-mail.' });
@@ -444,36 +458,64 @@ export default function LoginScreen() {
             </TouchableOpacity>
           )}
 
+          <TouchableOpacity
+            style={s.termsCheckRow}
+            onPress={() => setAcceptedUgcTerms((v) => !v)}
+            activeOpacity={0.85}
+          >
+            <View style={[s.termsCheckBox, acceptedUgcTerms && s.termsCheckBoxOn]}>
+              {acceptedUgcTerms ? <MaterialIcons name="check" size={14} color="#fff" /> : null}
+            </View>
+            <Text style={s.termsLegal}>
+              Potwierdzam zapoznanie się z treścią{' '}
+              <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulaminu</Text>
+              {' '}oraz{' '}
+              <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityki prywatności</Text>
+              . W społeczności VROOM obowiązuje{' '}
+              <Text style={{ fontWeight: '700', color: '#ffffffaa' }}>zerowa tolerancja</Text>
+              {' '}dla treści obraźliwych, wulgarnych, nękających i agresji wobec innych użytkowników. Korzystając z dyskusji, czatów i klubów, zgłaszam naruszenia oraz mogę zablokować innych użytkowników w aplikacji.
+            </Text>
+          </TouchableOpacity>
+
           <ActionButton
             label={screen === 'login' ? 'ZALOGUJ SIĘ' : 'UTWÓRZ KONTO'}
             icon={screen === 'login' ? 'login' : 'person-add'}
             onPress={screen === 'login' ? handleLogin : handleRegister}
             loading={loading}
+            disabled={
+              !acceptedUgcTerms ||
+              (screen === 'login'
+                ? !email.trim() || !password
+                : !email.trim() || !password || !username.trim() || password.length < 6 || password !== confirmPass)
+            }
           />
 
-          {/* Divider */}
-          <View style={s.divider}>
-            <View style={s.divLine} />
-            <Text style={s.divText}>LUB</Text>
-            <View style={s.divLine} />
-          </View>
-
-          {/* Google */}
-          <TouchableOpacity style={s.googleBtn} onPress={handleGoogle} disabled={gLoading} activeOpacity={0.85}>
-            {gLoading ? <ActivityIndicator color="#fff" /> : (
-              <>
-                <View style={s.googleIcon}><MaterialCommunityIcons name="google" size={18} color="#fff" /></View>
-                <Text style={s.googleTxt}>Kontynuuj z Google</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {screen === 'register' && (
-            <Text style={s.terms}>
-              Rejestrując się akceptujesz{' '}
-              <Text style={{ color: RED }}>Regulamin</Text>{' '}oraz{' '}
-              <Text style={{ color: RED }}>Politykę Prywatności</Text> VROOM.
+          {Platform.OS === 'ios' ? (
+            <Text style={s.iosLoginHint}>
+              Na iOS logowanie jest wyłącznie w aplikacji: użyj adresu e-mail i hasła (konto VROOM). Logowanie Google i Apple jest na tej platformie wyłączone.
             </Text>
+          ) : (
+            <>
+              <View style={s.divider}>
+                <View style={s.divLine} />
+                <Text style={s.divText}>LUB</Text>
+                <View style={s.divLine} />
+              </View>
+
+              <TouchableOpacity
+                style={[s.googleBtn, (!acceptedUgcTerms || gLoading) && { opacity: 0.45 }]}
+                onPress={handleGoogle}
+                disabled={!acceptedUgcTerms || gLoading}
+                activeOpacity={0.85}
+              >
+                {gLoading ? <ActivityIndicator color="#fff" /> : (
+                  <>
+                    <View style={s.googleIcon}><MaterialCommunityIcons name="google" size={18} color="#fff" /></View>
+                    <Text style={s.googleTxt}>Kontynuuj z Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
           )}
 
         </Animated.View>
@@ -597,12 +639,67 @@ const s = StyleSheet.create({
   googleBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
     height: 54, borderRadius: 16, borderWidth: 1, borderColor: '#ffffff10',
-    backgroundColor: '#1a1a1a', marginBottom: 24,
+    backgroundColor: '#1a1a1a', marginBottom: 12,
   },
   googleIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#EA4335', alignItems: 'center', justifyContent: 'center' },
   googleTxt:  { fontFamily: 'Orbitron', color: '#ffffffcc', fontSize: 12 },
 
-  // Terms
+  appleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+    height: 54, borderRadius: 16, borderWidth: 1, borderColor: '#000',
+    backgroundColor: '#fff', marginBottom: 12,
+  },
+  appleTxt: { fontFamily: 'Orbitron', color: '#000', fontSize: 12, fontWeight: '700' },
+
+  iosLoginHint: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    lineHeight: 14,
+    color: '#ffffff45',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+
+  termsCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 18,
+    paddingVertical: 4,
+  },
+  termsCheckBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#ffffff35',
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1a1a1a',
+  },
+  termsCheckBoxOn: {
+    borderColor: RED,
+    backgroundColor: RED + '35',
+  },
+  termsLegal: {
+    flex: 1,
+    fontFamily: 'Orbitron',
+    color: '#ffffff55',
+    fontSize: 8,
+    lineHeight: 14,
+    letterSpacing: 0.2,
+  },
+  termsLink: {
+    color: RED,
+    textDecorationLine: 'underline',
+    fontWeight: '700',
+  },
+
+  // Terms (legacy small line — unused)
   terms: { fontFamily: 'Orbitron', color: '#ffffff25', fontSize: 9, textAlign: 'center', lineHeight: 16 },
 
   // HUD corners

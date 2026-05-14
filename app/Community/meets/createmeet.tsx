@@ -5,6 +5,7 @@ import {
   Modal, Image,
 } from 'react-native';
 import { useRouter }          from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker         from '@react-native-community/datetimepicker';
 import Mapbox from '@rnmapbox/maps';
 import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_TOKEN } from '../../../constants/mapConfig';
@@ -32,6 +33,7 @@ function parseNominatimAddress(data: any): string {
 
 export default function CreateMeet() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
 
   const [title,        setTitle]        = useState('');
@@ -141,7 +143,11 @@ export default function CreateMeet() {
   const maxClamped = Math.min(parseInt(maxP) || USER_MAX, USER_MAX);
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: theme.bg }}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 52 : 0}
+      style={{ flex: 1, backgroundColor: theme.bg }}
+    >
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
 
         {/* HEADER */}

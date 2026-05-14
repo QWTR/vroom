@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, Linking, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Modal, ScrollView, Dimensions,
-  Animated, Platform,
+  Animated, Platform, Keyboard,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -471,6 +471,19 @@ export const ComposeBox = ({
   const [photoIdx,    setPhotoIdx]    = useState(0);
   const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** iOS: rodzic z KeyboardAvoidingView + dolny inset tabów kumuluje się z KAV — tylko jawna wysokość klawiatury. */
+  const [iosKeyboardPad, setIosKeyboardPad] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const onShow = Keyboard.addListener('keyboardWillShow', e => {
+      setIosKeyboardPad(e.endCoordinates?.height ?? 0);
+    });
+    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardPad(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   const pickPhoto = async () => {
     if (photos.length >= 4 || video) return;
@@ -536,7 +549,7 @@ export const ComposeBox = ({
       backgroundColor: theme.surface,
       paddingHorizontal: 12,
       paddingTop: 10,
-      paddingBottom: Math.max(bottomInset, 10),
+      paddingBottom: Math.max(bottomInset, 10) + (Platform.OS === 'ios' ? iosKeyboardPad : 0),
     }}>
       {/* Podgląd mediów */}
       {(photos.length > 0 || video) && (

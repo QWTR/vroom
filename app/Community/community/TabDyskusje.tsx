@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  KeyboardAvoidingView, Platform, RefreshControl,
+  KeyboardAvoidingView, Platform, RefreshControl, Alert,
 } from 'react-native';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
@@ -23,7 +23,7 @@ import {
 // POST CARD
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
-  post, myId, onLike, onRepost, onComment, onDelete, onProfile,
+  post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport,
 }: {
   post: Post; myId: number | null;
   onLike: (id: number) => void;
@@ -31,6 +31,7 @@ const PostCard = React.memo(({
   onComment: (post: Post) => void;
   onDelete: (id: number) => void;
   onProfile: (id: number) => void;
+  onReport: (post: Post, reason: string) => void;
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
@@ -85,6 +86,20 @@ const PostCard = React.memo(({
     }
   };
 
+  const handleReportPress = () => {
+    Alert.alert(
+      'Zgłoś treść',
+      'Wybierz kategorię. Zgłoszenie zostanie przekazane do zespołu VROOM.',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        { text: 'Spam / treść wulgarna', onPress: () => onReport(post, 'spam_vulgar') },
+        { text: 'Nękanie / groźby', onPress: () => onReport(post, 'harassment') },
+        { text: 'Treść niezgodna z prawem', onPress: () => onReport(post, 'illegal') },
+        { text: 'Inne', onPress: () => onReport(post, 'other') },
+      ],
+    );
+  };
+
   return (
     <>
       <View style={{
@@ -118,7 +133,7 @@ const PostCard = React.memo(({
             </TouchableOpacity>
             <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2, letterSpacing: 1 }}>{time}</Text>
           </View>
-          {isOwn && (
+          {isOwn ? (
             <TouchableOpacity
               onPress={() => setShowDelete(true)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -126,7 +141,15 @@ const PostCard = React.memo(({
             >
               <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
             </TouchableOpacity>
-          )}
+          ) : myId != null ? (
+            <TouchableOpacity
+              onPress={handleReportPress}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <MaterialIcons name="flag" size={16} color={theme.textDim} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* Treść */}
@@ -218,7 +241,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, bottomInset }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, bottomInset }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -232,6 +255,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onRefresh: () => void;
   onLoadMore: () => void;
   onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
+  onReport: (post: Post, reason: string) => void;
   bottomInset: number;
 }) {
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -244,7 +268,11 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   [posts]);
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      enabled={Platform.OS === 'android'}
+    >
       <FlatList
         data={feedItems}
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
@@ -252,7 +280,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           <AdNativePost />
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={onComment} onDelete={onDelete} onProfile={onProfile} />
+            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}

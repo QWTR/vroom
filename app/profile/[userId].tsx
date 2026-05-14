@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import {
   View, ScrollView, TouchableOpacity,
   Image, ActivityIndicator, Text, Animated,
-  Dimensions, StyleSheet, Modal,
+  Dimensions, StyleSheet, Modal, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -345,6 +345,36 @@ export default function PublicProfileScreen() {
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' }); }
     finally { setFollowLoading(false); }
   }, [userId, isFollowing]);
+
+  const handleBlockUser = useCallback(() => {
+    if (!profile?.id || !myUserId || profile.id === myUserId) return;
+    Alert.alert(
+      'Zablokuj użytkownika',
+      `Treści użytkownika @${profile.username} znikną z Twojego feedu dyskusji i listy czatów (1:1). Zgłoszenie trafi do zespołu VROOM.`,
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        {
+          text: 'Zablokuj',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await getToken();
+              const res = await fetch(`${API_URL}/api/moderation/block/${profile.id}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'abusive_or_objectionable' }),
+              });
+              if (!res.ok) throw new Error();
+              Toast.show({ type: 'success', text1: 'Zablokowano', text2: 'Profil został ukryty w Twojej aplikacji.' });
+              router.back();
+            } catch {
+              Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się zablokować użytkownika.' });
+            }
+          },
+        },
+      ],
+    );
+  }, [profile, myUserId, router]);
 
   const resolvedPreset = profile?.profileThemePreset ?? 'default';
   const resolvedPremiumUi = profile?.isPremium ? mergeProfilePremiumExtras(profile?.profilePremiumExtras) : null;
@@ -762,6 +792,29 @@ export default function PublicProfileScreen() {
               }
             </TouchableOpacity>
           </View>
+
+          {myUserId != null && profile.id !== myUserId && (
+            <TouchableOpacity
+              onPress={handleBlockUser}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 16,
+                paddingVertical: 12,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#ff6b3550',
+                backgroundColor: '#ff6b3510',
+              }}
+            >
+              <MaterialIcons name="block" size={18} color="#ff6b35" />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#ff6b35', fontWeight: '700', letterSpacing: 1 }}>
+                ZABLOKUJ UŻYTKOWNIKA
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* ══ AUTA ══ */}
           <SectionHeader title="AUTA" count={cars.length} icon="directions-car" />

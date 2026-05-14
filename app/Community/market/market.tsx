@@ -344,10 +344,19 @@ export default function MarketScreen() {
 
       {/* HEADER */}
       <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 4 }}>VROOM</Text>
-            <Text style={{ color: theme.text, fontSize: 22, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>GIEŁDA</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialIcons name="arrow-back" size={22} color={theme.text} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 4 }}>VROOM</Text>
+              <Text style={{ color: theme.text, fontSize: 22, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>GIEŁDA</Text>
+            </View>
           </View>
           {myListingsCount !== null && (
             <TouchableOpacity
