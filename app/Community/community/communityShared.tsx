@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, Linking, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Modal, ScrollView, Dimensions,
-  Animated, Platform, Keyboard,
+  Animated, Platform, Keyboard, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -13,13 +13,19 @@ import AsyncStorage           from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets }  from 'react-native-safe-area-context';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
+import { useKeyboardInset }   from '../../../hooks/useKeyboardInset';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // ─── Types ────────────────────────────────────────────────
 export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; nickColor?: string | null; }
 export interface Comment      { id: number; content: string; photos: string[]; createdAt: string; author: Author; replyTo?: { id: number; username: string } | null; }
-export interface Post         { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; }
+export interface PostPollData {
+  id: number; question: string; options: string[];
+  voteCounts: number[]; totalVotes: number; myVote: number | null;
+}
+export interface PostPollInput { question: string; options: string[]; }
+export interface Post         { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; poll?: PostPollData | null; }
 export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
 export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: { id: number; username: string; avatarUrl: string | null }; likesCount: number; commentsCount: number; isLiked: boolean; }
 export type Tab = 'dyskusje' | 'trasy' | 'auta';
@@ -450,6 +456,122 @@ export const ListFooter = ({ loading }: { loading: boolean }) => {
 };
 
 // ─────────────────────────────────────────────────────────
+// DISCUSSION POLL (post card)
+// ─────────────────────────────────────────────────────────
+const POLL_ACCENT = '#a855f7';
+
+export const DiscussionPollCard = ({
+  postId, poll, onVote,
+}: {
+  postId: number;
+  poll: PostPollData;
+  onVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
+}) => {
+  const { theme, isDark } = useTheme();
+  const [local, setLocal] = useState(poll);
+  const [selected, setSelected] = useState<number | null>(poll.myVote);
+  const [voting, setVoting] = useState(false);
+
+  useEffect(() => { setLocal(poll); setSelected(poll.myVote); }, [poll]);
+
+  const total = local.voteCounts.reduce((a, b) => a + b, 0) || 1;
+  const showResults = local.myVote !== null;
+
+  const handleVote = async () => {
+    if (selected === null || local.myVote !== null || voting) return;
+    setVoting(true);
+    const updated = await onVote(postId, selected);
+    if (updated) setLocal(updated);
+    setVoting(false);
+  };
+
+  return (
+    <View style={{
+      marginHorizontal: 14, marginBottom: 12,
+      borderRadius: 14, overflow: 'hidden',
+      borderWidth: 1, borderColor: `${POLL_ACCENT}35`,
+      backgroundColor: isDark ? '#ffffff06' : '#00000004',
+    }}>
+      <View style={{ height: 2, backgroundColor: POLL_ACCENT }} />
+      <View style={{ paddingHorizontal: 12, paddingVertical: 11 }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, lineHeight: 20, marginBottom: 10 }} numberOfLines={3}>
+          {local.question}
+        </Text>
+        {local.options.map((option, i) => {
+          const pct    = Math.round((local.voteCounts[i] / total) * 100);
+          const active = local.myVote === i || (!showResults && selected === i);
+          const letter = String.fromCharCode(65 + i);
+          return (
+            <TouchableOpacity
+              key={i}
+              disabled={showResults}
+              onPress={() => !showResults && setSelected(i)}
+              activeOpacity={0.88}
+              style={{
+                marginBottom: i < local.options.length - 1 ? 5 : 0,
+                borderRadius: 10, overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: active ? `${POLL_ACCENT}70` : (isDark ? '#ffffff10' : '#0000000c'),
+                backgroundColor: active ? `${POLL_ACCENT}12` : (isDark ? '#ffffff04' : '#00000003'),
+              }}
+            >
+              {showResults && (
+                <View style={{
+                  position: 'absolute', top: 0, left: 0, bottom: 0,
+                  width: `${Math.max(pct, local.myVote === i ? 8 : 4)}%`,
+                  backgroundColor: local.myVote === i ? `${POLL_ACCENT}22` : (isDark ? '#ffffff08' : '#00000006'),
+                }} />
+              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, paddingHorizontal: 9, gap: 8 }}>
+                <View style={{
+                  width: 20, height: 20, borderRadius: 6,
+                  backgroundColor: active ? POLL_ACCENT : (isDark ? '#ffffff12' : '#0000000a'),
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: active ? '#fff' : theme.textDim }}>{letter}</Text>
+                </View>
+                <Text
+                  numberOfLines={2}
+                  style={{ flex: 1, fontSize: 12.5, lineHeight: 17, color: active ? theme.text : theme.textMuted, fontWeight: active ? '600' : '400' }}
+                >
+                  {option}
+                </Text>
+                {showResults && (
+                  <View style={{ alignItems: 'flex-end', minWidth: 32 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: local.myVote === i ? POLL_ACCENT : theme.textDim }}>{pct}%</Text>
+                    <Text style={{ fontSize: 9, color: theme.textDim, marginTop: 1 }}>{local.voteCounts[i]}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        {showResults ? (
+          <Text style={{ fontSize: 10, color: theme.textDim, textAlign: 'center', marginTop: 9 }}>
+            {local.totalVotes} {local.totalVotes === 1 ? 'głos' : local.totalVotes < 5 ? 'głosy' : 'głosów'}
+          </Text>
+        ) : (
+          <TouchableOpacity
+            onPress={handleVote}
+            disabled={selected === null || voting}
+            style={{
+              marginTop: 10, borderRadius: 10, backgroundColor: POLL_ACCENT,
+              paddingVertical: 9, alignItems: 'center',
+              opacity: selected === null || voting ? 0.4 : 1,
+            }}
+          >
+            {voting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>Zagłosuj</Text>
+            }
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
 // COMPOSE BOX
 // ─────────────────────────────────────────────────────────
 export const ComposeBox = ({
@@ -458,7 +580,7 @@ export const ComposeBox = ({
   mentionsEnabled = false,
   onHeightChange,
 }: {
-  onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
+  onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
   bottomInset: number;
   /** Podpowiedzi @username przy pisaniu posta */
   mentionsEnabled?: boolean;
@@ -475,21 +597,13 @@ export const ComposeBox = ({
   const [photoViewer, setPhotoViewer] = useState(false);
   const [photoIdx,    setPhotoIdx]    = useState(0);
   const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const [pollModal, setPollModal] = useState(false);
+  const [pollDraft, setPollDraft] = useState<PostPollInput | null>(null);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [keyboardPad, setKeyboardPad] = useState(0);
-  useEffect(() => {
-    const onShow = (e: { endCoordinates?: { height?: number } }) => {
-      setKeyboardPad(e.endCoordinates?.height ?? 0);
-    };
-    const onHide = () => setKeyboardPad(0);
-    const subs = [
-      Keyboard.addListener('keyboardDidShow', onShow),
-      Keyboard.addListener('keyboardDidHide', onHide),
-      Keyboard.addListener('keyboardWillShow', onShow),
-      Keyboard.addListener('keyboardWillHide', onHide),
-    ];
-    return () => subs.forEach(s => s.remove());
-  }, []);
+  const keyboardInset = useKeyboardInset();
+  const pollKeyboardInset = useKeyboardInset(pollModal);
 
   const pickPhoto = async () => {
     if (photos.length >= 4 || video) return;
@@ -517,20 +631,47 @@ export const ComposeBox = ({
     }
   };
 
-  const canSend = text.trim().length > 0 || photos.length > 0 || !!video;
+  const canSend = text.trim().length > 0 || photos.length > 0 || !!video || !!pollDraft;
+
+  const openPollEditor = () => {
+    if (pollDraft) {
+      setPollQuestion(pollDraft.question);
+      setPollOptions([...pollDraft.options]);
+    } else {
+      setPollQuestion('');
+      setPollOptions(['', '']);
+    }
+    setPollModal(true);
+  };
+
+  const savePollDraft = () => {
+    const question = pollQuestion.trim();
+    const options = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!question || options.length < 2) {
+      Toast.show({ type: 'error', text1: 'Ankieta', text2: 'Pytanie i min. 2 opcje' });
+      return;
+    }
+    if (options.length > 6) {
+      Toast.show({ type: 'error', text1: 'Maks. 6 opcji' });
+      return;
+    }
+    setPollDraft({ question, options });
+    setPollModal(false);
+  };
 
   const handleSend = async () => {
     if (!canSend) return;
     setPosting(true);
-    await onPost(text.trim(), photos, video);
-    setText(''); setPhotos([]); setVideo(null);
+    await onPost(text.trim(), photos, video, pollDraft);
+    setText(''); setPhotos([]); setVideo(null); setPollDraft(null);
     setPosting(false); setFocused(false);
     setMentionUsers([]);
     Keyboard.dismiss();
   };
 
-  const restingBottom = Math.max(bottomInset, insets.bottom, 10);
-  const bottomOffset = keyboardPad > 0 ? keyboardPad : restingBottom;
+  const restingBottom = Math.max(bottomInset, insets.bottom, 8);
+  /** marginBottom podnosi cały pasek nad klawiaturę (paddingBottom tego nie robi). */
+  const keyboardLift = keyboardInset > 0 ? keyboardInset + 12 : 0;
 
   const onChangeText = (v: string) => {
     setText(v);
@@ -557,20 +698,55 @@ export const ComposeBox = ({
     <View
       onLayout={e => onHeightChange?.(e.nativeEvent.layout.height)}
       style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: bottomOffset,
-        zIndex: 30,
-        elevation: 30,
         borderTopWidth: 1,
         borderTopColor: theme.border,
         backgroundColor: theme.surface,
         paddingHorizontal: 12,
         paddingTop: 10,
-        paddingBottom: 10,
+        paddingBottom: restingBottom,
+        marginBottom: keyboardLift,
       }}
     >
+      {pollDraft && (
+        <View style={{
+          marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: `${POLL_ACCENT}30`,
+          backgroundColor: theme.surface2, padding: 10,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <View style={{
+              width: 26, height: 26, borderRadius: 8, backgroundColor: `${POLL_ACCENT}18`,
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <MaterialCommunityIcons name="poll" size={15} color={POLL_ACCENT} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{pollDraft.question}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }} contentContainerStyle={{ gap: 5 }}>
+                {pollDraft.options.map((opt, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      maxWidth: 120, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+                      backgroundColor: `${POLL_ACCENT}10`, borderWidth: 1, borderColor: `${POLL_ACCENT}25`,
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, color: theme.textMuted }} numberOfLines={1}>{opt}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 4 }}>
+              <TouchableOpacity onPress={openPollEditor} hitSlop={10} style={{ padding: 4 }}>
+                <MaterialIcons name="edit" size={17} color={theme.textDim} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setPollDraft(null)} hitSlop={10} style={{ padding: 4 }}>
+                <MaterialIcons name="close" size={17} color="#e33835" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Podgląd mediów */}
       {(photos.length > 0 || video) && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8 }}>
@@ -625,31 +801,12 @@ export const ComposeBox = ({
       )}
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-        {/* Przyciski mediów */}
-        <View style={{ flexDirection: 'column', gap: 8, paddingBottom: 2 }}>
-          <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video}>
-            <MaterialIcons
-              name="add-photo-alternate"
-              size={22}
-              color={photos.length >= 4 || !!video ? theme.textDim : '#e33835'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={pickVideo} disabled={photos.length > 0 || !!video}>
-            <MaterialIcons
-              name="videocam"
-              size={22}
-              color={photos.length > 0 || !!video ? theme.textDim : theme.textMuted}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* Input */}
         <TextInput
           style={{
             flex: 1,
             backgroundColor: theme.surface2,
-            borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
-            color: theme.text, fontSize: 14, maxHeight: 120,
+            borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10,
+            color: theme.text, fontSize: 14, maxHeight: 100, minHeight: 42,
             borderWidth: 1, borderColor: focused ? '#e3383540' : theme.border,
           }}
           value={text}
@@ -660,8 +817,6 @@ export const ComposeBox = ({
           placeholderTextColor={theme.textDim}
           multiline maxLength={500}
         />
-
-        {/* Wyślij */}
         <TouchableOpacity
           style={[{
             width: 40, height: 40, borderRadius: 20,
@@ -678,12 +833,119 @@ export const ComposeBox = ({
         </TouchableOpacity>
       </View>
 
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 8, paddingLeft: 2, paddingBottom: 2 }}>
+        <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <MaterialIcons name="add-photo-alternate" size={20} color={photos.length >= 4 || !!video ? theme.textDim : '#e33835'} />
+          <Text style={{ fontSize: 11, color: photos.length >= 4 || !!video ? theme.textDim : theme.textMuted }}>Zdjęcie</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={pickVideo} disabled={photos.length > 0 || !!video || !!pollDraft} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <MaterialIcons name="videocam" size={20} color={photos.length > 0 || !!video || pollDraft ? theme.textDim : theme.textMuted} />
+          <Text style={{ fontSize: 11, color: photos.length > 0 || !!video || pollDraft ? theme.textDim : theme.textMuted }}>Film</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={openPollEditor} disabled={!!video || photos.length > 0} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <MaterialCommunityIcons name="poll" size={20} color={video || photos.length > 0 ? theme.textDim : (pollDraft ? POLL_ACCENT : theme.textMuted)} />
+          <Text style={{ fontSize: 11, color: video || photos.length > 0 ? theme.textDim : (pollDraft ? POLL_ACCENT : theme.textMuted) }}>Ankieta</Text>
+        </TouchableOpacity>
+      </View>
+
       <PhotoViewer
         photos={photos}
         initialIndex={photoIdx}
         visible={photoViewer}
         onClose={() => setPhotoViewer(false)}
       />
+
+      <Modal visible={pollModal} transparent animationType="slide" onRequestClose={() => setPollModal(false)}>
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={{ flex: 1, backgroundColor: '#000000aa' }} onPress={() => setPollModal(false)} />
+          <View style={{
+            backgroundColor: theme.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+            borderWidth: 1, borderColor: theme.border,
+            maxHeight: SCREEN_H * 0.72,
+            paddingBottom: pollKeyboardInset > 0
+              ? pollKeyboardInset + 8
+              : Math.max(insets.bottom, 14),
+          }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 10, marginBottom: 12 }} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>Ankieta</Text>
+              <TouchableOpacity onPress={() => setPollModal(false)} hitSlop={12}>
+                <MaterialIcons name="close" size={22} color={theme.textDim} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}
+            >
+              <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 6 }}>Pytanie</Text>
+              <TextInput
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                placeholder="O co chcesz zapytać?"
+                placeholderTextColor={theme.textDim}
+                maxLength={200}
+                style={{
+                  backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+                  color: theme.text, fontSize: 14, marginBottom: 14,
+                  borderWidth: 1, borderColor: theme.border,
+                }}
+              />
+              <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 8 }}>Opcje ({pollOptions.length}/6)</Text>
+              {pollOptions.map((opt, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <View style={{
+                    width: 22, height: 22, borderRadius: 6, backgroundColor: `${POLL_ACCENT}18`,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: POLL_ACCENT }}>{String.fromCharCode(65 + i)}</Text>
+                  </View>
+                  <TextInput
+                    value={opt}
+                    onChangeText={v => setPollOptions(prev => prev.map((o, j) => j === i ? v : o))}
+                    placeholder={`Opcja ${String.fromCharCode(65 + i)}`}
+                    placeholderTextColor={theme.textDim}
+                    maxLength={80}
+                    style={{
+                      flex: 1, backgroundColor: theme.surface2, borderRadius: 10,
+                      paddingHorizontal: 10, paddingVertical: 8,
+                      color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border,
+                    }}
+                  />
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity onPress={() => setPollOptions(prev => prev.filter((_, j) => j !== i))} hitSlop={8}>
+                      <MaterialIcons name="close" size={18} color={theme.textDim} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {pollOptions.length < 6 && (
+                <TouchableOpacity
+                  onPress={() => setPollOptions(prev => [...prev, ''])}
+                  style={{
+                    alignSelf: 'flex-start', marginTop: 4, marginBottom: 4,
+                    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                    borderWidth: 1, borderColor: `${POLL_ACCENT}40`, borderStyle: 'dashed',
+                  }}
+                >
+                  <Text style={{ fontSize: 12, color: POLL_ACCENT, fontWeight: '600' }}>+ Opcja</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
+              <TouchableOpacity
+                onPress={savePollDraft}
+                style={{ backgroundColor: POLL_ACCENT, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, color: '#fff', fontWeight: '700' }}>Dodaj do posta</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };

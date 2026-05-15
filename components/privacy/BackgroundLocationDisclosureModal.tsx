@@ -22,6 +22,8 @@ const RED = '#e33835';
 export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept }: Props) {
   const [checked, setChecked] = useState(false);
 
+  if (!visible) return null;
+
   const handleCancel = () => {
     setChecked(false);
     onCancel();
@@ -34,7 +36,7 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
+    <Modal visible transparent animationType="fade" onRequestClose={handleCancel}>
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.safe}>
           <View style={styles.card}>

@@ -72,19 +72,21 @@ const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 // Flag: 'true' when live-sharing is active — read by the background task
 export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
+/** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
+export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
-const BG_LAST_FIX_MAX_GAP_SEC   = 30;
+const BG_LAST_FIX_MAX_GAP_SEC   = 60;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
 const BG_MIN_SEGMENT_KM         = 0.003;
-const BG_MAX_SEGMENT_KM         = 0.8;
+const BG_MAX_SEGMENT_KM         = 1.2;
 const BG_ROUTE_MAX_POINTS       = 500;
 const BG_MIN_SPEED_KMH          = 2;
-const BG_MIN_REPORTED_SPEED_KMH = 5;
-const BG_MAX_ACCURACY_M         = 28;
-const BG_MIN_MOVE_ABS_M         = 18;
+const BG_MIN_REPORTED_SPEED_KMH = 3;
+const BG_MAX_ACCURACY_M         = 35;
+const BG_MIN_MOVE_ABS_M         = 10;
 const BG_TRACE_MIN_WRITE_MS     = 1500;
 const BG_TRACE_MIN_MOVE_M       = 12;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
@@ -198,6 +200,10 @@ export async function recordDrivingTracePoint(
 // ── BG task ───────────────────────────────────────────────────────────────────
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
   if (error || !data) return;
+
+  const bgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
+  if (bgSetting !== 'true') return;
+
   const locations = Array.isArray(data.locations) ? data.locations : [];
   const location = locations[locations.length - 1];
   if (!location) return;
@@ -272,7 +278,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
             maxSegmentKm: BG_MAX_SEGMENT_KM,
             maxFixGapSec: BG_LAST_FIX_MAX_GAP_SEC,
             maxPlausibleKmh: BG_MAX_PLAUSIBLE_KMH,
-            minSpeedKmh: BG_MIN_REPORTED_SPEED_KMH,
+            minSpeedKmh: hasReliableSpeed ? BG_MIN_REPORTED_SPEED_KMH : undefined,
             maxAccuracyM: BG_MAX_ACCURACY_M,
           },
         )
@@ -283,11 +289,14 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         (Number.isFinite(accuracy) ? Number(accuracy) : 0) * 0.9
           + (Number.isFinite(lastAcc) ? Number(lastAcc) : 0) * 0.9,
       );
+      const speedGateOk =
+        hasReliableSpeed
+          ? speedKmh! >= BG_MIN_SPEED_KMH
+          : segment.accepted && segmentMeters >= accGateM * 1.15;
       if (
         hasLastFix &&
         dtSec > 0 &&
-        hasReliableSpeed &&
-        speedKmh >= BG_MIN_SPEED_KMH &&
+        speedGateOk &&
         isAccurateFix &&
         segment.accepted &&
         segmentMeters >= accGateM
@@ -357,11 +366,15 @@ export function useBackgroundTracking(
     pendingRetrySaved: 0,
   });
 
-  // Keep bg_is_sharing flag in sync so the task knows whether to POST live location
+  // Mirror user setting + sharing flag for the BG task handler
+  useEffect(() => {
+    AsyncStorage.setItem(BG_TRACKING_SETTING_KEY, bgEnabled ? 'true' : 'false').catch(() => {});
+  }, [bgEnabled]);
+
   useEffect(() => {
     if (!sharingHydrated) return;
-    AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing ? 'true' : 'false').catch(() => {});
-  }, [isSharing, sharingHydrated]);
+    AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing && bgEnabled ? 'true' : 'false').catch(() => {});
+  }, [isSharing, sharingHydrated, bgEnabled]);
 
   useEffect(() => {
     hasAcceptedBackgroundLocationDisclosure()
@@ -538,8 +551,11 @@ export function useBackgroundTracking(
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
     try {
-      const shouldTrack = bgEnabled || isSharing || forceEnabled;
+      const appIsActive = AppState.currentState === 'active';
+      const shouldTrack = bgEnabled && sharingHydrated && (isSharing || !appIsActive);
       if (!shouldTrack) return;
+      void forceEnabled;
+      void isSharing;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
 
@@ -551,9 +567,9 @@ export function useBackgroundTracking(
       if (isRegistered) return;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         // BestForNavigation + tight intervals caused native instability on some devices.
-        accuracy:         Location.Accuracy.High,
-        distanceInterval: 15,
-        timeInterval:     5000,
+        accuracy:         isSharing ? Location.Accuracy.High : Location.Accuracy.Balanced,
+        distanceInterval: isSharing ? 15 : 30,
+        timeInterval:     isSharing ? 5000 : 12000,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: '🚗 VROOM aktywne',
@@ -573,7 +589,7 @@ export function useBackgroundTracking(
     } finally {
       startInFlightRef.current = false;
     }
-  }, [bgEnabled, isSharing, forceEnabled]);
+  }, [bgEnabled, sharingHydrated, isSharing]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -592,34 +608,36 @@ export function useBackgroundTracking(
   useEffect(() => {
     // During app cold start we may not yet know the real shareLocation value from API.
     // Avoid stopping an already running background task before sharing hydrates.
-    if (!sharingHydrated) {
-      const shouldTrackEarly = bgEnabled || isSharing || forceEnabled;
-      if (shouldTrackEarly) {
-        const timer = setTimeout(() => startBackgroundTracking(), 300);
-        return () => clearTimeout(timer);
-      }
-      return;
-    }
+    if (!sharingHydrated) return;
 
-    const shouldTrack = bgEnabled || isSharing || forceEnabled;
-    if (shouldTrack) {
+    if (bgEnabled) {
       const timer = setTimeout(() => startBackgroundTracking(), 300);
       return () => clearTimeout(timer);
-    } else {
-      // Stop task and flush passive stats only when BOTH are off
-      stopBackgroundTracking().then(() => flushPendingKm(false));
     }
-  }, [isSharing, bgEnabled, forceEnabled, sharingHydrated, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
+    stopBackgroundTracking().then(() => flushPendingKm(false));
+  }, [bgEnabled, sharingHydrated, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
 
-  // ── Utrzymuj task w tle także po zminimalizowaniu (iOS czasem zrzuca rejestrację) ──
+  // Recover BG task on foreground only when user enabled background work
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      // Start/recover only on foreground. Triggering permission/start flow while
-      // app is backgrounded can bring Android app back to front unexpectedly.
-      if (s === 'active' && (bgEnabled || isSharing || forceEnabled)) startBackgroundTracking();
+      if (s === 'background' || s === 'inactive') {
+        if (bgEnabled && sharingHydrated) {
+          startBackgroundTracking();
+        } else {
+          stopBackgroundTracking();
+        }
+        return;
+      }
+      if (s === 'active') {
+        if (isSharing && bgEnabled && sharingHydrated) {
+          startBackgroundTracking();
+        } else {
+          stopBackgroundTracking();
+        }
+      }
     });
     return () => sub.remove();
-  }, [isSharing, bgEnabled, forceEnabled, startBackgroundTracking]);
+  }, [bgEnabled, sharingHydrated, isSharing, startBackgroundTracking, stopBackgroundTracking]);
 
   // ── Flush passive stats when app returns to foreground ───────────────────
   useEffect(() => {

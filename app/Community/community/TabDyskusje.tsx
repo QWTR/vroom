@@ -17,14 +17,15 @@ import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   type Post,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
-  extractUrl, renderDiscussionBody, resolveMentionUserId,
+  DiscussionPollCard, extractUrl, renderDiscussionBody, resolveMentionUserId,
+  type PostPollData, type PostPollInput,
 } from './communityShared';
 
 // ─────────────────────────────────────────────────────────
 // POST CARD
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
-  post, myId,   onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock,
+  post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock, onPollVote,
 }: {
   post: Post; myId: number | null;
   onLike: (id: number) => void;
@@ -34,6 +35,7 @@ const PostCard = React.memo(({
   onProfile: (id: number) => void;
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
+  onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
@@ -63,8 +65,10 @@ const PostCard = React.memo(({
   const clubInviteMessage = clubInviteData
     ? (typeof clubInviteData.message === 'string' ? clubInviteData.message.trim() : '')
     : '';
-  const plainText = clubInviteData ? clubInviteMessage : post.content;
-  const linkUrl   = (!routeData && !clubInviteData) ? extractUrl(post.content) : null;
+  const hasPoll   = !!post.poll;
+  const plainText = clubInviteData ? clubInviteMessage : (hasPoll ? '' : post.content);
+  const caption   = hasPoll ? post.content?.trim() : '';
+  const linkUrl   = (!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null;
 
   const handleJoinClub = async () => {
     if (!clubInviteData?.clubId || joiningClub) return;
@@ -162,6 +166,16 @@ const PostCard = React.memo(({
 
         {/* Treść */}
         <TouchableOpacity activeOpacity={0.95} onPress={() => onComment(post)}>
+          {!!caption?.length && (
+            <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 8 }}>
+              {renderDiscussionBody(caption, theme, {
+                onMentionPress: async (username) => {
+                  const uid = await resolveMentionUserId(username);
+                  if (uid) onProfile(uid);
+                },
+              })}
+            </Text>
+          )}
           {!!plainText?.length && !routeData && (
             <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 12 }}>
               {renderDiscussionBody(plainText, theme, {
@@ -216,6 +230,9 @@ const PostCard = React.memo(({
             </View>
           )}
         </TouchableOpacity>
+        {hasPoll && post.poll && (
+          <DiscussionPollCard postId={post.id} poll={post.poll} onVote={onPollVote} />
+        )}
 
         {/* Repost badge */}
         {post.isReposted && (
@@ -249,7 +266,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, bottomInset }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, bottomInset }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -262,9 +279,10 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onProfile: (id: number) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
-  onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
+  onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
+  onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
   bottomInset: number;
 }) {
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -276,13 +294,16 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
     ),
   [posts]);
 
-  const [composeBarHeight, setComposeBarHeight] = useState(96);
-
   return (
     <View style={{ flex: 1 }}>
       <FlatList
         style={{ flex: 1 }}
+        keyboardDismissMode="interactive"
         data={feedItems}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        removeClippedSubviews
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
         renderItem={({ item }) => '_adType' in item ? (
           <AdPostBoundary>
@@ -290,20 +311,19 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} />
+            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={<ListFooter loading={loadingMoreP} />}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: composeBarHeight + 16 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 12 }}
         keyboardShouldPersistTaps="handled"
       />
       <ComposeBox
         onPost={onPost}
         bottomInset={bottomInset}
         mentionsEnabled
-        onHeightChange={setComposeBarHeight}
       />
     </View>
   );

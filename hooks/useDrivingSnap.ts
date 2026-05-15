@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts/navigationUtils';
+import { alignBearingToReference, bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts/navigationUtils';
 
 // Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
@@ -341,11 +341,24 @@ export function useDrivingSnap() {
 
     lastSnappedRef.current = snappedCoord;
 
-    // Wygładzony heading oparty na kierunku segmentu polyline (stabilny, nie szumi)
+    // Heading wzdłuż drogi — segment dopasowany do kierunku jazdy (nie „pod skosem”).
+    let segmentBearing = result.segmentBearing;
+    const lastRaw = lastRawRef.current;
+    if (lastRaw) {
+      const travelBearing = bearingBetween(lastRaw.lat, lastRaw.lng, lat, lng);
+      if (haversineKm(lastRaw.lat, lastRaw.lng, lat, lng) * 1000 >= 1.5) {
+        segmentBearing = alignBearingToReference(segmentBearing, travelBearing);
+      } else {
+        segmentBearing = alignBearingToReference(segmentBearing, lastTargetHeadingRef.current);
+      }
+    } else {
+      segmentBearing = alignBearingToReference(segmentBearing, lastTargetHeadingRef.current);
+    }
+
     const smoothedBearing = lerpAngle(
       lastTargetHeadingRef.current,
-      result.segmentBearing,
-      hardRoadLock ? 0.42 : 0.35,
+      segmentBearing,
+      hardRoadLock ? 0.58 : 0.4,
     );
     lastTargetHeadingRef.current = smoothedBearing;
 

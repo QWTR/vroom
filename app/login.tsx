@@ -138,7 +138,7 @@ export default function LoginScreen() {
     if (!email || !password) return Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, acceptUgcTerms: true }) });
+      const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, acceptUgcTerms: acceptedUgcTerms }) });
       const data = await res.json();
       if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
@@ -161,12 +161,33 @@ export default function LoginScreen() {
           password,
           username: username.trim(),
           referralCode: referralCode.trim() || undefined,
-          acceptUgcTerms: true,
+          acceptUgcTerms: acceptedUgcTerms,
         }),
       });
       const data = await res.json();
-      if (res.ok) { Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone. Zaloguj się.' }); switchScreen('login'); }
-      else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nie można utworzyć konta.' });
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nie można utworzyć konta.' });
+        return;
+      }
+
+      const loginRes = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          acceptUgcTerms: true,
+        }),
+      });
+      const loginData = await loginRes.json();
+      if (loginRes.ok) {
+        Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone.' });
+        await saveAndNavigate(loginData.token, loginData.user, { needsUgcTerms: false });
+        return;
+      }
+
+      Toast.show({ type: 'success', text1: '🚗 KONTO UTWORZONE', text2: 'Zaloguj się e-mailem i hasłem.' });
+      switchScreen('login');
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
     finally { setLoading(false); }
   };
@@ -460,24 +481,30 @@ export default function LoginScreen() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
-            style={s.termsCheckRow}
-            onPress={() => setAcceptedUgcTerms((v) => !v)}
-            activeOpacity={0.85}
-          >
-            <View style={[s.termsCheckBox, acceptedUgcTerms && s.termsCheckBoxOn]}>
+          <View style={s.termsCheckRow}>
+            <TouchableOpacity
+              style={[s.termsCheckBox, acceptedUgcTerms && s.termsCheckBoxOn]}
+              onPress={() => setAcceptedUgcTerms((v) => !v)}
+              activeOpacity={0.85}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: acceptedUgcTerms }}
+            >
               {acceptedUgcTerms ? <MaterialIcons name="check" size={14} color="#fff" /> : null}
-            </View>
+            </TouchableOpacity>
             <Text style={s.termsLegal}>
-              Potwierdzam zapoznanie się z treścią{' '}
-              <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulaminu</Text>
+              Zaznacz pole po lewej — samo otwarcie linków nie wystarczy. Potwierdzam zapoznanie się z{' '}
+              <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulaminem</Text>
               {' '}oraz{' '}
-              <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityki prywatności</Text>
+              <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityką prywatności</Text>
               . W społeczności VROOM obowiązuje{' '}
               <Text style={{ fontWeight: '700', color: '#ffffffaa' }}>zerowa tolerancja</Text>
-              {' '}dla treści obraźliwych, wulgarnych, nękających i agresji wobec innych użytkowników. Korzystając z dyskusji, czatów i klubów, zgłaszam naruszenia oraz mogę zablokować innych użytkowników w aplikacji.
+              {' '}dla treści obraźliwych, wulgarnych, nękających i agresji wobec innych użytkowników.
             </Text>
-          </TouchableOpacity>
+          </View>
+          {!acceptedUgcTerms && screen === 'register' && (
+            <Text style={s.termsHint}>Wymagane zaznaczenie pola z regulaminem przed rejestracją.</Text>
+          )}
 
           <ActionButton
             label={screen === 'login' ? 'ZALOGUJ SIĘ' : 'UTWÓRZ KONTO'}
@@ -699,6 +726,14 @@ const s = StyleSheet.create({
     color: RED,
     textDecorationLine: 'underline',
     fontWeight: '700',
+  },
+  termsHint: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: RED,
+    marginTop: -10,
+    marginBottom: 14,
+    lineHeight: 13,
   },
 
   // Terms (legacy small line — unused)

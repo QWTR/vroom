@@ -16,8 +16,10 @@ interface Props {
 export function UpdateModal({ visible, loading, onUpdate, onDismiss }: Props) {
   const { theme, isDark } = useTheme();
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+    <Modal visible transparent animationType="fade" statusBarTranslucent>
       <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
         <View style={{ width: '100%', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#e3383540' }}>
           <LinearGradient

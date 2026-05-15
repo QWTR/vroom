@@ -1,11 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import { API_URL } from '../constants/config';
 
-const POLL_MS = 20000;
-/** Ping rzadszy niż poll — po ping zawsze odświeżamy licznik (inaczej pierwszy GET widział cache „0”). */
-const PING_MS = 60000;
+const REFRESH_MS_FOREGROUND = 60_000;
 
 async function getAuthToken(): Promise<string | null> {
   return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -14,12 +12,13 @@ async function getAuthToken(): Promise<string | null> {
 /** Polling licznika online + ping `lastSeen` dla zalogowanych. */
 export function useAppPresence() {
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
-  const appStateRef = useRef(AppState.currentState);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     let cancelled = false;
 
     const fetchOnline = async () => {
+      if (appStateRef.current !== 'active') return;
       try {
         const res = await fetch(`${API_URL}/api/stats/online`, {
           headers: { Accept: 'application/json' },
@@ -35,6 +34,7 @@ export function useAppPresence() {
     };
 
     const ping = async () => {
+      if (appStateRef.current !== 'active') return;
       try {
         const token = await getAuthToken();
         if (!token) return;
@@ -58,20 +58,29 @@ export function useAppPresence() {
     };
 
     void pingThenFetch();
-    const pingInterval = setInterval(() => void pingThenFetch(), PING_MS);
-    const pollInterval = setInterval(() => void fetchOnline(), POLL_MS);
+
+    let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+    const scheduleRefresh = () => {
+      if (refreshInterval) clearInterval(refreshInterval);
+      refreshInterval = null;
+      if (appStateRef.current !== 'active') return;
+      refreshInterval = setInterval(() => void pingThenFetch(), REFRESH_MS_FOREGROUND);
+    };
+
+    scheduleRefresh();
 
     const sub = AppState.addEventListener('change', (s) => {
       if (appStateRef.current.match(/inactive|background/) && s === 'active') {
         void pingThenFetch();
       }
       appStateRef.current = s;
+      scheduleRefresh();
     });
 
     return () => {
       cancelled = true;
-      clearInterval(pingInterval);
-      clearInterval(pollInterval);
+      if (refreshInterval) clearInterval(refreshInterval);
       sub.remove();
     };
   }, []);

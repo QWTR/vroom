@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Modal, View, Text, TouchableOpacity,
-  ScrollView, Image, FlatList, TextInput,
+  ScrollView, Image, TextInput,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -111,7 +111,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal visible={visible && !galleryVisible} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '88%' }}>
 
@@ -136,11 +136,18 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
               {/* Zdjęcia */}
               {spot.photos.length > 0 && (
                 <>
-                  <FlatList
-                    data={spot.photos.slice(0, 4)} keyExtractor={(item, i) => `${item}_${i}`}
-                    horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}
-                    renderItem={({ item, index }) => (
-                      <TouchableOpacity onPress={() => { setGalleryIndex(index); setGalleryVisible(true); }} activeOpacity={0.9}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ marginBottom: 4 }}
+                    nestedScrollEnabled
+                  >
+                    {spot.photos.slice(0, 4).map((item, index) => (
+                      <TouchableOpacity
+                        key={`${item}_${index}`}
+                        onPress={() => { setGalleryIndex(index); setGalleryVisible(true); }}
+                        activeOpacity={0.9}
+                      >
                         <Image source={{ uri: item }} style={{ width: 160, height: 110, borderRadius: 12, marginRight: 8 }} />
                         {spot.photos.length > 4 && index === 3 && (
                           <View style={{ position: 'absolute', top: 0, left: 0, width: 160, height: 110, borderRadius: 12, backgroundColor: '#000000bb', justifyContent: 'center', alignItems: 'center' }}>
@@ -148,8 +155,8 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
                           </View>
                         )}
                       </TouchableOpacity>
-                    )}
-                  />
+                    ))}
+                  </ScrollView>
                   <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12, marginTop: 4 }} onPress={() => { setGalleryIndex(0); setGalleryVisible(true); }} activeOpacity={0.8}>
                     <MaterialIcons name="photo-library" size={14} color={theme.textDim} />
                     <Text style={{ color: theme.textDim, fontSize: 11 }}>{spot.photos.length} {spot.photos.length === 1 ? 'zdjęcie' : 'zdjęcia'} · dotknij aby powiększyć</Text>

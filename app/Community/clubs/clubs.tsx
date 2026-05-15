@@ -23,6 +23,12 @@ import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
 
 const getToken = () => AsyncStorage.getItem('token');
 const PAGE     = 20;
+type ClubDetailResult = {
+  ok: boolean;
+  status: number;
+  club: Club | null;
+  error?: string;
+};
 
 export default function ClubsScreen() {
   const router    = useRouter();
@@ -57,8 +63,15 @@ export default function ClubsScreen() {
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
-      if (raw) setMyId(JSON.parse(raw).userId);
-    });
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        const id = Number(parsed?.userId ?? parsed?.id);
+        if (Number.isFinite(id)) setMyId(id);
+      } catch {
+        setMyId(null);
+      }
+    }).catch(() => {});
   }, []);
 
   // ── Fetch clubs ────────────────────────────────────────
@@ -113,11 +126,42 @@ export default function ClubsScreen() {
   }, []);
 
   const fetchClubDetail = useCallback(async (clubId: number) => {
-    const token = await getToken();
-    const res   = await fetch(`${API_URL}/api/clubs/${clubId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return res.json() as Promise<Club>;
+    try {
+      const token = await getToken();
+      if (!token) {
+        return {
+          ok: false,
+          status: 401,
+          club: null,
+          error: 'Zaloguj się ponownie',
+        } as ClubDetailResult;
+      }
+
+      const res = await fetch(`${API_URL}/api/clubs/${clubId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          club: null,
+          error: typeof data?.error === 'string' ? data.error : 'Nie można otworzyć klubu',
+        } as ClubDetailResult;
+      }
+      return {
+        ok: true,
+        status: res.status,
+        club: data as Club,
+      } as ClubDetailResult;
+    } catch {
+      return {
+        ok: false,
+        status: 0,
+        club: null,
+        error: 'Nie można połączyć się z serwerem',
+      } as ClubDetailResult;
+    }
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -128,14 +172,40 @@ export default function ClubsScreen() {
   }, []));
 
   const openDetail = useCallback(async (club: Club) => {
+    const isOwner = club.myRole === 'owner';
+    if (club.isPrivate && !club.isMember && !isOwner) {
+      Toast.show({
+        type: 'info',
+        text1: 'Klub prywatny',
+        text2: 'Dołączenie wymaga zaproszenia od członka klubu',
+      });
+      return;
+    }
     const detail = await fetchClubDetail(club.id);
-    setDetailClub(detail);
+    if (!detail.ok || !detail.club) {
+      Toast.show({
+        type: 'info',
+        text1: 'Brak dostępu',
+        text2: detail.error ?? 'Nie możesz otworzyć tego klubu',
+      });
+      return;
+    }
+    setDetailClub(detail.club);
   }, [fetchClubDetail]);
 
   const refreshDetail = useCallback(async () => {
     if (!detailClub) return;
     const detail = await fetchClubDetail(detailClub.id);
-    setDetailClub(detail);
+    if (!detail.ok || !detail.club) {
+      setDetailClub(null);
+      Toast.show({
+        type: 'info',
+        text1: 'Odświeżanie klubu',
+        text2: detail.error ?? 'Nie można odświeżyć szczegółów',
+      });
+      return;
+    }
+    setDetailClub(detail.club);
     await fetchMyClub();
     fetchClubs(undefined, search);
   }, [detailClub, fetchClubDetail, fetchMyClub, fetchClubs, search]);
@@ -544,7 +614,16 @@ export default function ClubsScreen() {
           ranks={ranksClub.ranks ?? []}
           onRefresh={async () => {
             const detail = await fetchClubDetail(ranksClub.id);
-            setRanksClub(detail);
+            if (!detail.ok || !detail.club) {
+              setRanksClub(null);
+              Toast.show({
+                type: 'info',
+                text1: 'Brak dostępu',
+                text2: detail.error ?? 'Nie można odświeżyć rang',
+              });
+              return;
+            }
+            setRanksClub(detail.club);
           }}
         />
       )}

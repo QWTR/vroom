@@ -168,6 +168,9 @@ export async function acceptUgcTerms(): Promise<boolean> {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.ok) {
+      await AsyncStorage.setItem('needsUgcTerms', '0');
+    }
     return res.ok;
   } catch {
     return false;

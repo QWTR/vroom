@@ -47,8 +47,8 @@ export function useGifts() {
       });
       if (!res.ok) return false;
       setGifts(prev => prev.filter(g => g.id !== giftId));
-      // Gift mógł przyznać premium -> odśwież status natychmiast po claimie.
-      await refreshPremiumStatus();
+      // Premium z giftu — odśwież w tle (sync RC + API potrafi zawiesić UI na kilka s).
+      void refreshPremiumStatus();
       return true;
     } catch (e) {
       console.log('claimGift error:', e);

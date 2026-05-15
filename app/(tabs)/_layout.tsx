@@ -145,9 +145,11 @@ export default function TabLayout() {
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBg }]} />
           ),
-        animation:           'shift',
+        animation:           Platform.OS === 'ios' ? 'fade' : 'shift',
+        lazy:                  false,
+        freezeOnBlur:          false,
         tabBarHideOnKeyboard: true,
-        sceneStyle:          { paddingBottom: tabBarHeight },
+        sceneStyle:          { paddingBottom: tabBarHeight, backgroundColor: theme.bg },
       }}
     >
       <Tabs.Screen name="index"     options={{ tabBarIcon: (p) => <TabIcon {...p} icon="home"                      label="HOME"     /> }} />

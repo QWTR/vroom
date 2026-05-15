@@ -117,7 +117,7 @@ export default function ClubCard({ club, onPress, onJoin, onLeave, joining }: Pr
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>{club.memberCount}</Text>
             </View>
             <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }} numberOfLines={1}>
-              @{club.owner.username}
+              @{club.owner?.username ?? 'nieznany'}
             </Text>
           </View>
         </View>

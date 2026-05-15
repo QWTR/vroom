@@ -4,7 +4,7 @@ import {
   Dimensions, StatusBar, Animated, Modal, FlatList, Platform, ScrollView
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,27 +13,95 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { normalizeMediaUri, normalizePhotoList } from '../../../lib/mediaUri';
 
 const { width, height } = Dimensions.get('window');
-const STATUS_H = Platform.OS === 'ios' ? 54 : 32;
 const DIVIDER_H = 60;
 const BUTTONS_H_BASE = 120;
+const PREFETCH_MAX_PER_BATTLE = 8;
+const PLACEHOLDER_IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88P/BfwAJngP9fH2Z5QAAAABJRU5ErkJggg==';
 
-function normalizePhotoUri(uri: string | null | undefined): string {
-  if (!uri) return 'https://via.placeholder.com/600x400/0a0a0a/222?text=+';
-  if (/^https?:\/\//i.test(uri)) return uri;
-  const path = uri.startsWith('/') ? uri : `/${uri}`;
-  return `${API_URL}${path}`;
+function normalizePhotoUri(uri: string | null | undefined): string | null {
+  return normalizeMediaUri(uri);
 }
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 interface Entry {
-  id: number; photos: string[]; description: string | null;
+  id: number; photos?: string[]; description: string | null;
   wins: number; userId: number;
   user: { id: number; username: string; avatarUrl: string | null };
-  car:  { brand: string; specs: string } | null;
+  car:  { brand: string; specs: string; photos?: string[] } | null;
+}
+
+function entryPhotoUris(entry: Entry): string[] {
+  const fromEntry = normalizePhotoList(entry.photos);
+  const fromCar   = normalizePhotoList(entry.car?.photos);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const uri of [...fromEntry, ...fromCar]) {
+    if (seen.has(uri)) continue;
+    seen.add(uri);
+    out.push(uri);
+  }
+  return out;
+}
+
+function prefetchBattlePhotos(battle: Battle | undefined, max = PREFETCH_MAX_PER_BATTLE) {
+  if (!battle) return;
+  const uris = [...entryPhotoUris(battle.entryA), ...entryPhotoUris(battle.entryB)];
+  uris.slice(0, max).forEach(uri => { Image.prefetch(uri).catch(() => {}); });
+}
+
+function GridBattleImage({
+  uri, cardKey, index, cardHeight, priority,
+}: {
+  uri: string; cardKey: string; index: number; cardHeight: number;
+  priority: 'high' | 'normal' | 'low';
+}) {
+  const [src, setSrc] = useState(uri);
+  const [failed, setFailed] = useState(false);
+  const retryCountRef = useRef(0);
+
+  useEffect(() => {
+    setSrc(uri);
+    setFailed(false);
+    retryCountRef.current = 0;
+    Image.prefetch(uri).catch(() => {});
+  }, [uri, cardKey]);
+
+  const handleError = useCallback(() => {
+    if (retryCountRef.current >= 2) {
+      setFailed(true);
+      return;
+    }
+    retryCountRef.current += 1;
+    const base = uri.split('?')[0];
+    setSrc(`${base}?retry=${Date.now()}`);
+  }, [uri]);
+
+  if (failed) {
+    return (
+      <View style={{ width, height: cardHeight, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' }}>
+        <MaterialIcons name="broken-image" size={32} color="#444" />
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri: src }}
+      style={{ width, height: cardHeight, backgroundColor: '#111' }}
+      contentFit="cover"
+      cachePolicy="memory-disk"
+      recyclingKey={`${cardKey}-${index}`}
+      priority={priority}
+      transition={120}
+      placeholder={{ uri: PLACEHOLDER_IMG }}
+      onError={handleError}
+    />
+  );
 }
 interface Battle {
   id: number; votesA: number; votesB: number; endsAt: string;
@@ -53,18 +121,21 @@ function timeLeft(endsAt: string): string {
 function GalleryModal({ photos, startIdx, username, onClose }: {
   photos: string[]; startIdx: number; username: string; onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [current, setCurrent] = useState(startIdx);
   const flatRef  = useRef<FlatList>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.96)).current;
 
   useEffect(() => {
+    setCurrent(startIdx);
+    photos.slice(0, PREFETCH_MAX_PER_BATTLE).forEach(uri => { Image.prefetch(uri).catch(() => {}); });
     Animated.parallel([
       Animated.timing(fadeAnim,  { toValue: 1, duration: 280, useNativeDriver: true }),
       Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 100, friction: 10 }),
     ]).start();
     setTimeout(() => flatRef.current?.scrollToIndex({ index: startIdx, animated: false }), 80);
-  }, []);
+  }, [photos, startIdx]);
 
   const close = () => {
     Animated.parallel([
@@ -79,7 +150,7 @@ function GalleryModal({ photos, startIdx, username, onClose }: {
         <StatusBar hidden />
 
         {/* Top bar */}
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, paddingTop: 56, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, paddingTop: insets.top + 12, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
             <Text style={{ fontFamily: 'Orbitron', color: '#ffffff90', fontSize: 8, letterSpacing: 3 }}>GALERIA</Text>
             <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '900', marginTop: 2 }}>{username}</Text>
@@ -103,12 +174,18 @@ function GalleryModal({ photos, startIdx, username, onClose }: {
             data={photos}
             horizontal pagingEnabled
             showsHorizontalScrollIndicator={false}
-            keyExtractor={(_, i) => String(i)}
+            keyExtractor={(item, i) => `${item}-${i}`}
             getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
             onMomentumScrollEnd={e => setCurrent(Math.round(e.nativeEvent.contentOffset.x / width))}
             renderItem={({ item }) => (
               <View style={{ width, height, justifyContent: 'center', alignItems: 'center' }}>
-                <Image source={{ uri: item }} style={{ width, height: height * 0.72 }} resizeMode="contain" />
+                <Image
+                  source={{ uri: item }}
+                  style={{ width, height: height * 0.72 }}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  transition={120}
+                />
               </View>
             )}
           />
@@ -152,13 +229,16 @@ function GalleryModal({ photos, startIdx, username, onClose }: {
 
 // ── Karta zawodnika ──────────────────────────────────────────────────────────
 function EntryCard({
-  entry, photos, isVoted, isLoser, onGallery, label, goldColor, cardHeight,
+  battleId, entry, photos, isVoted, isLoser, onGallery, label, goldColor, cardHeight, topInset,
 }: {
+  battleId: number;
   entry: Entry; photos: string[];
   isVoted: boolean; isLoser: boolean;
   onGallery: () => void; label: string; goldColor: string;
   cardHeight: number;
+  topInset: number;
 }) {
+  const cardKey = `${battleId}-${entry.id}`;
   const [photoIdx, setPhotoIdx] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const dimAnim   = useRef(new Animated.Value(isLoser ? 1 : 0)).current;
@@ -185,18 +265,22 @@ function EntryCard({
   const photosKey = photos.join('|');
   useEffect(() => {
     setPhotoIdx(0);
-    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
-  }, [entry.id, photosKey]);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+    });
+    photos.slice(0, 4).forEach(u => { Image.prefetch(u).catch(() => {}); });
+  }, [cardKey, photosKey, photos]);
 
   const overlayOpacity = dimAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.72] });
 
-  const displayPhotos = photos.length > 0 ? photos : ['ph'];
+  const displayPhotos = photos.length > 0 ? photos : [];
 
   return (
-    <View style={{ height: cardHeight, overflow: 'hidden', backgroundColor: '#111' }}>
+    <View key={cardKey} style={{ height: cardHeight, overflow: 'hidden', backgroundColor: '#111' }}>
 
       {/* Zdjęcia — ScrollView pagingEnabled zamiast FlatList */}
       <ScrollView
+        key={`scroll-${cardKey}-${photosKey}`}
         ref={scrollRef}
         horizontal
         pagingEnabled
@@ -211,15 +295,18 @@ function EntryCard({
           setPhotoIdx(i);
         }}
       >
-        {displayPhotos.map((uri, i) => (
-          <Image
-            key={`${entry.id}-${uri}-${i}`}
-            recyclingKey={`${entry.id}-${uri}`}
-            source={{ uri: uri === 'ph' ? 'https://via.placeholder.com/600x400/0a0a0a/222?text=+' : uri }}
-            style={{ width, height: cardHeight }}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={90}
+        {displayPhotos.length === 0 ? (
+          <View style={{ width, height: cardHeight, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' }}>
+            <MaterialIcons name="directions-car" size={48} color="#333" />
+          </View>
+        ) : displayPhotos.map((uri, i) => (
+          <GridBattleImage
+            key={`img-${cardKey}-${i}`}
+            uri={uri}
+            cardKey={cardKey}
+            index={i}
+            cardHeight={cardHeight}
+            priority={i === 0 ? 'high' : i === 1 ? 'normal' : 'low'}
           />
         ))}
       </ScrollView>
@@ -241,7 +328,7 @@ function EntryCard({
 
       {/* Dots — tap żeby przejść do zdjęcia */}
       {photos.length > 1 && (
-        <View style={{ position: 'absolute', top: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
+        <View style={{ position: 'absolute', top: topInset + 8, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
           {photos.map((_, i) => (
             <TouchableOpacity
               key={i}
@@ -261,7 +348,7 @@ function EntryCard({
       )}
 
       {/* Top-left: Label + galeria */}
-      <View style={{ position: 'absolute', top: photos.length > 1 ? 30 : 12, left: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <View style={{ position: 'absolute', top: topInset + (photos.length > 1 ? 28 : 12), left: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
         <View style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: '#ffffff15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#ffffff25' }}>
           <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11, fontWeight: '900' }}>{label}</Text>
         </View>
@@ -279,7 +366,7 @@ function EntryCard({
 
       {/* TWÓJ GŁOS badge */}
       <Animated.View style={{
-        position: 'absolute', top: photos.length > 1 ? 28 : 10, right: 12,
+        position: 'absolute', top: topInset + (photos.length > 1 ? 28 : 10), right: 12,
         transform: [{ scale: badgeAnim }], opacity: badgeAnim,
       }}>
         <LinearGradient
@@ -296,8 +383,8 @@ function EntryCard({
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 14, paddingTop: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ width: 32, height: 32, borderRadius: 16, overflow: 'hidden', borderWidth: 1.5, borderColor: isVoted ? goldColor : '#ffffff30', backgroundColor: '#1a1a1a' }}>
-            {entry.user.avatarUrl
-              ? <Image source={{ uri: normalizePhotoUri(entry.user.avatarUrl) }} style={{ width: 32, height: 32 }} />
+            {normalizePhotoUri(entry.user.avatarUrl)
+              ? <Image source={{ uri: normalizePhotoUri(entry.user.avatarUrl)! }} style={{ width: 32, height: 32 }} contentFit="cover" cachePolicy="memory-disk" />
               : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9, textAlign: 'center', lineHeight: 32 }}>
                   {entry.user.username.slice(0, 2).toUpperCase()}
                 </Text>
@@ -349,6 +436,9 @@ export default function GridVoteScreen() {
   const scaleB    = useRef(new Animated.Value(1)).current;
   const barA      = useRef(new Animated.Value(0.5)).current;
   const barB      = useRef(new Animated.Value(0.5)).current;
+  const prefetchActiveRef = useRef(true);
+
+  const topInset = Math.max(insets.top, Platform.OS === 'ios' ? 44 : 24);
 
   const load = useCallback(async () => {
     try {
@@ -370,6 +460,22 @@ export default function GridVoteScreen() {
 
   useEffect(() => { load(); }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      prefetchActiveRef.current = true;
+      if (loading) return;
+      load();
+      return () => { prefetchActiveRef.current = false; };
+    }, [load, loading]),
+  );
+
+  useEffect(() => {
+    if (!prefetchActiveRef.current) return;
+    setGallery(null);
+    prefetchBattlePhotos(battles[idx]);
+    prefetchBattlePhotos(battles[idx + 1]);
+  }, [idx, battles]);
+
   useEffect(() => {
     if (!battles[idx]) return;
     const b     = battles[idx];
@@ -381,18 +487,21 @@ export default function GridVoteScreen() {
     ]).start();
   }, [battles, idx]);
 
-  const animateSlide = (dir: 'left' | 'right', cb: () => void) => {
-    const to = dir === 'left' ? -width : width;
-    Animated.sequence([
-      Animated.timing(slideAnim, { toValue: to,  duration: 240, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: -to, duration:   0, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0,   duration: 240, useNativeDriver: true }),
-    ]).start(cb);
+  const slideToBattle = (nextIdx: number, dir: 'left' | 'right') => {
+    setGallery(null);
+    setIdx(nextIdx);
+    slideAnim.setValue(dir === 'left' ? width * 0.35 : -width * 0.35);
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 90,
+      friction: 11,
+    }).start();
   };
 
   const goNext = useCallback(() => {
     if (idx < battles.length - 1) {
-      animateSlide('left', () => setIdx(i => i + 1));
+      slideToBattle(idx + 1, 'left');
     } else {
       Toast.show({ type: 'success', text1: '🏁 Wszystkie głosy oddane!' });
       router.back();
@@ -400,7 +509,7 @@ export default function GridVoteScreen() {
   }, [idx, battles.length]);
 
   const goPrev = () => {
-    if (idx > 0) animateSlide('right', () => setIdx(i => i - 1));
+    if (idx > 0) slideToBattle(idx - 1, 'right');
   };
 
   const pulsBtn = (anim: Animated.Value) => {
@@ -479,12 +588,12 @@ export default function GridVoteScreen() {
   const total   = battle.votesA + battle.votesB;
   const pctA    = total > 0 ? Math.round((battle.votesA / total) * 100) : 50;
   const pctB    = 100 - pctA;
-  const photosA = (battle.entryA.photos ?? []).map(normalizePhotoUri);
-  const photosB = (battle.entryB.photos ?? []).map(normalizePhotoUri);
+  const photosA = entryPhotoUris(battle.entryA);
+  const photosB = entryPhotoUris(battle.entryB);
   const buttonsHeight = BUTTONS_H_BASE + Math.max(insets.bottom, 10);
   const cardHeight = Math.max(
     180,
-    Math.floor((height - STATUS_H - DIVIDER_H - buttonsHeight) / 2),
+    Math.floor((height - topInset - DIVIDER_H - buttonsHeight) / 2),
   );
 
   const barWidthA = barA.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
@@ -503,17 +612,18 @@ export default function GridVoteScreen() {
         />
       )}
 
-      <Animated.View style={{ flex: 1, transform: [{ translateX: slideAnim }] }}>
+      <Animated.View key={`battle-${battle.id}`} style={{ flex: 1, transform: [{ translateX: slideAnim }] }}>
 
         {/* ── ENTRY A ── */}
         <EntryCard
-          key={`${battle.id}-A`}
+          battleId={battle.id}
           entry={battle.entryA} photos={photosA}
           isVoted={myVote === battle.entryA.id}
           isLoser={!!myVote && myVote !== battle.entryA.id}
           onGallery={() => setGallery({ photos: photosA, username: battle.entryA.user.username, startIdx: 0 })}
           label="A" goldColor={theme.gold}
           cardHeight={cardHeight}
+          topInset={topInset}
         />
 
         {/* ── DIVIDER ── */}
@@ -575,13 +685,14 @@ export default function GridVoteScreen() {
 
         {/* ── ENTRY B ── */}
         <EntryCard
-          key={`${battle.id}-B`}
+          battleId={battle.id}
           entry={battle.entryB} photos={photosB}
           isVoted={myVote === battle.entryB.id}
           isLoser={!!myVote && myVote !== battle.entryB.id}
           onGallery={() => setGallery({ photos: photosB, username: battle.entryB.user.username, startIdx: 0 })}
           label="B" goldColor={theme.gold}
           cardHeight={cardHeight}
+          topInset={topInset}
         />
 
         {/* ── PRZYCISKI ── */}
@@ -699,7 +810,7 @@ export default function GridVoteScreen() {
       </Animated.View>
 
       {/* ── HEADER OVERLAY ── */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: STATUS_H, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'box-none' }}>
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: topInset + 8, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'box-none' }}>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{ backgroundColor: '#00000090', borderRadius: 22, padding: 9 }}

@@ -30,8 +30,10 @@ export function UgcTermsGate({ visible, onAccepted }: Props) {
     }
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <Modal visible animationType="slide" presentationStyle="fullScreen">
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 56 }}>
           <Text style={{ fontFamily: 'OrbitronBold', color: theme.text, fontSize: 18, marginBottom: 8 }}>

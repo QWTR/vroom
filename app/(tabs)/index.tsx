@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useFocusEffect } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import {
 	ActivityIndicator,
 	Dimensions,
@@ -15,6 +16,7 @@ import {
 	RefreshControl,
 	Linking,
 	Animated,
+	InteractionManager,
 } from "react-native";
 import { Text } from "@react-navigation/elements";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,10 +30,9 @@ import { usePolls } from "../../hooks/usePolls";
 import { useGifts } from "../../hooks/useGifts";
 import { PollModal } from "../../components/modals/PollModal";
 import { GiftModal } from "../../components/modals/GiftModal";
-import { useAppUpdate } from "../../hooks/useAppUpdate";
-import { UpdateModal } from "../../components/modals/UpdateModal";
 import { AdBanner } from "../../components/ads/AdBanner";
 import { usePremium } from "../../contexts/PremiumContext";
+import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 
@@ -110,12 +111,14 @@ async function fetchFreshUser(): Promise<User | null> {
 
 export default function HomeScreen() {
 	const router = useRouter();
+	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
 	const {
 		isPremium,
 		isLoading: premiumLoading,
 		refreshPremiumStatus,
 	} = usePremium();
+	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [user, setUser] = useState<User | null>(null);
@@ -129,6 +132,8 @@ export default function HomeScreen() {
 	const [giftVisible, setGiftVisible] = useState(false);
 	const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
 	const [notifUnread, setNotifUnread] = useState(0);
+	const giftAutoShownRef = useRef(false);
+	const pollAutoShownRef = useRef(false);
 
 	const fetchNotifUnread = useCallback(async () => {
 		try {
@@ -170,24 +175,28 @@ export default function HomeScreen() {
 	const pollRef = useRef(poll);
 	const votedRef = useRef(voted);
 
-	const { updateAvailable, downloading, applyUpdate, dismiss } = useAppUpdate();
-
 	useEffect(() => {
-		Animated.loop(
+		if (!isFocused) {
+			pulseAnim.setValue(1);
+			return;
+		}
+		const loop = Animated.loop(
 			Animated.sequence([
 				Animated.timing(pulseAnim, {
 					toValue: 1.15,
-					duration: 1800,
+					duration: 3200,
 					useNativeDriver: true,
 				}),
 				Animated.timing(pulseAnim, {
 					toValue: 1,
-					duration: 1800,
+					duration: 3200,
 					useNativeDriver: true,
 				}),
 			]),
-		).start();
-	}, []);
+		);
+		loop.start();
+		return () => loop.stop();
+	}, [isFocused, pulseAnim]);
 
 	const runEntrance = () => {
 		Animated.parallel([
@@ -303,23 +312,51 @@ export default function HomeScreen() {
 		votedRef.current = voted;
 	}, [voted]);
 
-	// GIFTY — pokaż gdy załadowane
 	useEffect(() => {
+		setHomeOverlayOpen(giftVisible || pollVisible);
+	}, [giftVisible, pollVisible, setHomeOverlayOpen]);
+
+	// GIFTY — po globalnych zgodach (regulamin / lokalizacja), żeby nie nakładać modali
+	useEffect(() => {
+		if (!isFocused) return;
 		if (loading) return;
+		if (!gatesSettled) return;
+		if (layoutGateOpen) return;
 		if (gifts.length === 0) return;
-		setCurrentGiftIdx(0);
-		setGiftVisible(true);
-	}, [loading, gifts.length]);
+		if (giftAutoShownRef.current) return;
+
+		let cancelled = false;
+		let timeoutId: ReturnType<typeof setTimeout> | null = null;
+		const task = InteractionManager.runAfterInteractions(() => {
+			timeoutId = setTimeout(async () => {
+				if (cancelled || giftAutoShownRef.current) return;
+				const needsUgc = await AsyncStorage.getItem("needsUgcTerms");
+				if (needsUgc === "1") return;
+				giftAutoShownRef.current = true;
+				setCurrentGiftIdx(0);
+				setGiftVisible(true);
+			}, 600);
+		});
+
+		return () => {
+			cancelled = true;
+			task.cancel();
+			if (timeoutId) clearTimeout(timeoutId);
+		};
+	}, [isFocused, loading, gifts.length, gatesSettled, layoutGateOpen]);
 
 	// ANKIETA — pokaż gdy brak giftów lub po zamknięciu giftów
 	useEffect(() => {
+		if (!isFocused) return;
 		if (loading) return;
 		if (!poll) return;
 		if (voted) return;
 		if (giftVisible) return;
 		if (gifts.length > 0) return;
+		if (pollAutoShownRef.current) return;
+		pollAutoShownRef.current = true;
 		setPollVisible(true);
-	}, [loading, poll?.id, voted, giftVisible, gifts.length]);
+	}, [isFocused, loading, poll?.id, voted, giftVisible, gifts.length]);
 
 	const handleGiftClose = () => {
 		const nextIdx = currentGiftIdx + 1;
@@ -465,6 +502,7 @@ export default function HomeScreen() {
 
 					{/* Scan line effect */}
 					<View
+						pointerEvents='none'
 						style={{
 							position: "absolute",
 							top: 0,
@@ -803,6 +841,7 @@ export default function HomeScreen() {
 					{/* Bottom fade */}
 					<LinearGradient
 						colors={["transparent", t.bg]}
+						pointerEvents="none"
 						style={{
 							position: "absolute",
 							bottom: 0,
@@ -1494,7 +1533,7 @@ export default function HomeScreen() {
 				{/* AD BANNER                                      */}
 				{/* ══════════════════════════════════════════════ */}
 				<Animated.View style={{ opacity: fadeAnim }}>
-					<AdBanner BANNERID="ca-app-pub-1660420496578702/5609918502" />
+					<AdBanner BANNERID="ca-app-pub-1660420496578702/5609918502" enabled={isFocused} />
 				</Animated.View>
 
 				{/* ══════════════════════════════════════════════ */}
@@ -1953,9 +1992,9 @@ export default function HomeScreen() {
 				</Animated.View>
 			</ScrollView>
 
-			{poll && (
+			{poll && pollVisible && (
 				<PollModal
-					visible={pollVisible}
+					visible
 					poll={poll}
 					onVote={async optionIdx => {
 						const ok = await vote(poll.id, optionIdx);
@@ -1965,21 +2004,15 @@ export default function HomeScreen() {
 				/>
 			)}
 
-			{gifts[currentGiftIdx] && (
+			{gifts[currentGiftIdx] && giftVisible && (
 				<GiftModal
-					visible={giftVisible}
+					visible
 					gift={gifts[currentGiftIdx]}
 					onClaim={handleGiftClaim}
 					onClose={handleGiftClose}
 				/>
 			)}
 
-			<UpdateModal
-				visible={updateAvailable}
-				loading={downloading}
-				onUpdate={applyUpdate}
-				onDismiss={dismiss}
-			/>
 		</>
 	);
 }

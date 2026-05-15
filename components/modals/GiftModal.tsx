@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
@@ -18,6 +18,12 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
   const [claiming, setClaiming] = useState(false);
   const [claimed,  setClaimed]  = useState(false);
 
+  useEffect(() => {
+    if (!visible) return;
+    setClaiming(false);
+    setClaimed(false);
+  }, [visible, gift.id]);
+
   const handleClaim = async () => {
     setClaiming(true);
     const ok = await onClaim(gift.id);
@@ -25,8 +31,10 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
     setClaiming(false);
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={{
         flex: 1, backgroundColor: '#000000bb',
         justifyContent: 'center', alignItems: 'center', padding: 20,
@@ -90,25 +98,45 @@ export function GiftModal({ visible, gift, onClaim, onClose }: Props) {
 
           {/* Przyciski */}
           {!claimed ? (
-            <TouchableOpacity
-              style={[{
-                width: '100%', backgroundColor: '#f5c518',
-                borderRadius: 14, paddingVertical: 14,
-                alignItems: 'center', flexDirection: 'row',
-                justifyContent: 'center', gap: 8,
-              }, claiming && { opacity: 0.6 }]}
-              onPress={handleClaim}
-              disabled={claiming}
-              activeOpacity={0.85}
-            >
-              {claiming
-                ? <ActivityIndicator size="small" color="#111" />
-                : <Text style={{ fontSize: 18 }}>🎁</Text>
-              }
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#111', fontWeight: '900' }}>
-                ODBIERZ PREZENT
-              </Text>
-            </TouchableOpacity>
+            <View style={{ width: '100%', flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: isDark ? '#ffffff10' : '#00000008',
+                  borderRadius: 14,
+                  paddingVertical: 14,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: isDark ? '#ffffff15' : '#00000015',
+                }}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>
+                  POMIŃ
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[{
+                  flex: 1.7,
+                  backgroundColor: '#f5c518',
+                  borderRadius: 14, paddingVertical: 14,
+                  alignItems: 'center', flexDirection: 'row',
+                  justifyContent: 'center', gap: 8,
+                }, claiming && { opacity: 0.6 }]}
+                onPress={handleClaim}
+                disabled={claiming}
+                activeOpacity={0.85}
+              >
+                {claiming
+                  ? <ActivityIndicator size="small" color="#111" />
+                  : <Text style={{ fontSize: 18 }}>🎁</Text>
+                }
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#111', fontWeight: '900' }}>
+                  ODBIERZ PREZENT
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <TouchableOpacity
               style={{

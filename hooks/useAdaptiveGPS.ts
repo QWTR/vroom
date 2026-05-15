@@ -7,6 +7,8 @@ export type GPSMode = 'idle' | 'driving' | 'navigating';
 interface Options {
   isNavigating: boolean;
   isDriving?:   boolean;
+  /** Mapa w focus — bez tego używany jest tryb offMap (oszczędny). */
+  isMapFocused?: boolean;
   speedKmh:     number;
   onLocation:   (loc: {
     latitude:  number;
@@ -34,20 +36,40 @@ const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
 const LAST_GOOD_STALE_RESET_MS = 45000;
 
-const GPS_CONFIG = {
-  idle: {
-    // Balanced często zwraca fix z sieci/Wi-Fi i powoduje losowe skoki w miejscu.
-    accuracy:         Location.Accuracy.High,
-    timeInterval:     2500,
-    distanceInterval: 2,
+type GpsProfile = 'offMap' | 'browsing' | 'active';
+
+const GPS_CONFIG: Record<GpsProfile, {
+  accuracy: Location.Accuracy;
+  timeInterval: number;
+  distanceInterval: number;
+}> = {
+  offMap: {
+    accuracy:         Location.Accuracy.Balanced,
+    timeInterval:     15000,
+    distanceInterval: 40,
+  },
+  browsing: {
+    accuracy:         Location.Accuracy.Low,
+    timeInterval:     10000,
+    distanceInterval: 25,
   },
   active: {
-    // BestForNavigation + watch churn caused native crashes on some Android builds.
-    accuracy:         Location.Accuracy.High,
-    timeInterval:     900,
-    distanceInterval: 4,
+    accuracy:         Location.Accuracy.Balanced,
+    timeInterval:     2000,
+    distanceInterval: 8,
   },
 };
+
+function resolveGpsProfile(
+  isMapFocused: boolean,
+  isNavigating: boolean,
+  isDriving: boolean,
+  speedKmh: number,
+): GpsProfile {
+  if (!isMapFocused) return 'offMap';
+  if (isNavigating || isDriving || speedKmh > DRIVE_SPEED_KMH) return 'active';
+  return 'browsing';
+}
 
 function calcSpeedKmh(
   lat1: number, lon1: number,
@@ -67,13 +89,14 @@ function calcSpeedKmh(
   return (distM / (dtMs / 1000)) * 3.6;
 }
 
-export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }: Options) {
+export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, speedKmh, onLocation }: Options) {
   const subRef            = useRef<any>(null);
-  const isActiveRef       = useRef(false);
+  const profileRef        = useRef<GpsProfile>('browsing');
   const onLocRef          = useRef(onLocation);
   const speedRef          = useRef(speedKmh);
   const navRef            = useRef(isNavigating);
   const drivingRef        = useRef(isDriving ?? false);
+  const mapFocusedRef     = useRef(isMapFocused);
 
   const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
@@ -84,8 +107,9 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
   useEffect(() => { navRef.current   = isNavigating; }, [isNavigating]);
   useEffect(() => { drivingRef.current = isDriving ?? false; }, [isDriving]);
+  useEffect(() => { mapFocusedRef.current = isMapFocused; }, [isMapFocused]);
 
-  const subscribe = useCallback(async (active: boolean) => {
+  const subscribe = useCallback(async (profile: GpsProfile) => {
     const opId = ++opSeqRef.current;
     subRef.current?.remove();
     subRef.current = null;
@@ -93,7 +117,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
       lastGoodRef.current = null;
     }
 
-    const cfg = active ? GPS_CONFIG.active : GPS_CONFIG.idle;
+    const cfg = GPS_CONFIG[profile];
     try {
       const sub = await Location.watchPositionAsync(
         {
@@ -112,7 +136,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
               return;
             }
 
-          const activeMode = navRef.current || drivingRef.current;
+          const activeMode = profileRef.current === 'active';
           const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
             ? loc.coords.speed
             : 0;
@@ -214,14 +238,18 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
             timestamp: activeMode ? now : loc.timestamp,
           });
 
-          // ══ 6. Auto-upgrade idle → active ════════════════════
+          // ══ 6. Auto-upgrade browsing → active ════════════════
           // NEVER call subscribe() synchronously from this callback — removing the
           // current watch while its handler runs crashes native Expo Location on Android.
-            if (!isActiveRef.current &&
-                (navRef.current || drivingRef.current || speedMs * 3.6 > DRIVE_SPEED_KMH)) {
-              isActiveRef.current = true;
+            const nextProfile = resolveGpsProfile(
+              mapFocusedRef.current,
+              navRef.current,
+              drivingRef.current,
+              speedMs * 3.6,
+            );
+            if (nextProfile === 'active' && profileRef.current !== 'active') {
               setTimeout(() => {
-                void subscribe(true);
+                void subscribe('active');
               }, 0);
             }
           } catch (e) {
@@ -234,27 +262,32 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
         return;
       }
       subRef.current      = sub;
-      isActiveRef.current = active;
+      profileRef.current  = profile;
       lastFixAtRef.current = Date.now();
     } catch (e) {
       console.warn('useAdaptiveGPS subscribe error:', e);
     }
   }, []);
 
-  const needsActiveConfig = useCallback((): boolean => {
-    return navRef.current || drivingRef.current || speedRef.current > DRIVE_SPEED_KMH;
+  const currentProfile = useCallback((): GpsProfile => {
+    return resolveGpsProfile(
+      mapFocusedRef.current,
+      navRef.current,
+      drivingRef.current,
+      speedRef.current,
+    );
   }, []);
 
   useEffect(() => {
-    const shouldBeActive = needsActiveConfig();
-    if (shouldBeActive !== isActiveRef.current) {
-      subscribe(shouldBeActive);
+    const next = resolveGpsProfile(isMapFocused, isNavigating, isDriving ?? false, speedKmh);
+    if (next !== profileRef.current) {
+      subscribe(next);
     }
-  }, [isNavigating, isDriving, needsActiveConfig, subscribe]);
+  }, [isNavigating, isDriving, isMapFocused, speedKmh, subscribe]);
 
   const start = useCallback(async () => {
-    await subscribe(needsActiveConfig());
-  }, [needsActiveConfig, subscribe]);
+    await subscribe(currentProfile());
+  }, [currentProfile, subscribe]);
 
   const stop = useCallback(() => {
     opSeqRef.current += 1;
@@ -271,13 +304,15 @@ export function useAdaptiveGPS({ isNavigating, isDriving, speedKmh, onLocation }
   useEffect(() => {
     const id = setInterval(() => {
       if (!subRef.current) return;
-      const timeoutMs = isActiveRef.current ? ACTIVE_FIX_TIMEOUT_MS : IDLE_FIX_TIMEOUT_MS;
+      const timeoutMs = profileRef.current === 'active'
+        ? ACTIVE_FIX_TIMEOUT_MS
+        : IDLE_FIX_TIMEOUT_MS;
       if (Date.now() - lastFixAtRef.current < timeoutMs) return;
       lastFixAtRef.current = Date.now();
-      subscribe(needsActiveConfig());
-    }, 5000);
+      subscribe(currentProfile());
+    }, 10000);
     return () => clearInterval(id);
-  }, [needsActiveConfig, subscribe]);
+  }, [currentProfile, subscribe]);
 
   return { start, stop };
 }

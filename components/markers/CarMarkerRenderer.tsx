@@ -1,25 +1,61 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import { normalizeMediaUri } from '../../lib/mediaUri';
 
 interface CarMarkerRendererProps {
   avatarUrl: string | null;
   username:  string;
   onCapture: (uri: string) => void;
-  // heading usunięty
 }
 
+const CAPTURE_FALLBACK_MS = 800;
+
 export const CarMarkerRenderer = ({ avatarUrl, username, onCapture }: CarMarkerRendererProps) => {
-  const shotRef  = useRef<ViewShot>(null);
-  const isUrl    = avatarUrl?.startsWith('http');
-  const initials = username?.slice(0, 2).toUpperCase() ?? '??';
+  const shotRef       = useRef<ViewShot>(null);
+  const capturedRef   = useRef(false);
+  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mediaUri      = normalizeMediaUri(avatarUrl);
+  const initials      = username?.slice(0, 2).toUpperCase() ?? '??';
+
+  const captureMarker = useCallback((delayMs = 0) => {
+    if (capturedRef.current) return;
+    setTimeout(() => {
+      shotRef.current?.capture?.()
+        .then((uri) => {
+          if (!uri) return;
+          capturedRef.current = true;
+          onCapture(uri);
+        })
+        .catch(() => {});
+    }, delayMs);
+  }, [onCapture]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      shotRef.current?.capture?.().then(onCapture).catch(() => {});
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [avatarUrl, username]); // ← heading usunięty z deps
+    capturedRef.current = false;
+    if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+
+    if (!mediaUri) {
+      captureMarker(80);
+      return;
+    }
+
+    fallbackTimer.current = setTimeout(() => {
+      if (!capturedRef.current) captureMarker(0);
+    }, CAPTURE_FALLBACK_MS);
+
+    return () => {
+      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    };
+  }, [mediaUri, username, captureMarker]);
+
+  const onAvatarLoaded = useCallback(() => {
+    if (fallbackTimer.current) {
+      clearTimeout(fallbackTimer.current);
+      fallbackTimer.current = null;
+    }
+    captureMarker(40);
+  }, [captureMarker]);
 
   return (
     <View style={{
@@ -57,11 +93,13 @@ export const CarMarkerRenderer = ({ avatarUrl, username, onCapture }: CarMarkerR
               borderColor: '#e3383540',
               zIndex: 1,
             }} />
-            {isUrl ? (
+            {mediaUri ? (
               <Image
-                source={{ uri: avatarUrl! }}
+                source={{ uri: mediaUri }}
                 style={{ width: 50, height: 50, borderRadius: 24 }}
                 resizeMode="cover"
+                onLoadEnd={onAvatarLoaded}
+                onError={() => captureMarker(0)}
               />
             ) : (
               <Text style={{

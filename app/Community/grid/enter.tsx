@@ -69,7 +69,7 @@ export default function EnterGridScreen() {
       for (const uri of extraPhotos) {
         const formData = new FormData();
         formData.append('file', { uri, name: `grid_${Date.now()}.jpg`, type: 'image/jpeg' } as any);
-        const upRes = await fetch(`${API_URL}/api/upload`, {
+        const upRes = await fetch(`${API_URL}/api/grid/upload-photo`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
           body: formData,

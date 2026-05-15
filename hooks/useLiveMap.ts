@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -65,6 +66,8 @@ export function useLiveMap(
   isSharing:       boolean,
   userLocation:    { latitude: number; longitude: number } | null,
   isSpeechEnabled: boolean,
+  allowBackgroundWork = false,
+  enabled = true,
 ) {
   const [liveUsers,       setLiveUsers]       = useState<LiveUser[]>([]);
   const [warnings,        setWarnings]        = useState<LiveWarning[]>([]);
@@ -81,6 +84,20 @@ export function useLiveMap(
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
   const toggleRetryRef     = useRef(0);
+  const allowBgRef         = useRef(allowBackgroundWork);
+  const enabledRef         = useRef(enabled);
+  const appStateRef        = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    allowBgRef.current = allowBackgroundWork;
+  }, [allowBackgroundWork]);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  const isForegroundActive = useCallback(() => {
+    return appStateRef.current === 'active';
+  }, []);
 
   // ── Position smoothing for live users (prevents teleportation) ───
   const smoothedPosRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
@@ -95,7 +112,8 @@ export function useLiveMap(
     lastUpdateMs: number;
   };
   const interpRef = useRef<Map<number, InterpEntry>>(new Map());
-  const INTERP_TICK_MS     = 50;   // ticker interval (20 fps)
+  const INTERP_TICK_BASE_MS = 100;
+  const INTERP_TICK_BUSY_MS = 150;
   const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
   const MAX_INTERP_DUR_MS  = 6000;
   const USERS_REFRESH_MS   = 60000;
@@ -115,6 +133,15 @@ export function useLiveMap(
       setSharingStatus('on');
     }
   }, [isSharing, connected]);
+
+  useEffect(() => {
+    if (enabled) return;
+    socketRef.current?.disconnect();
+    setConnected(false);
+    setLiveUsers([]);
+    setSharingStatus('off');
+    interpRef.current.clear();
+  }, [enabled]);
 
   // ── Filtruj warnings do 25 km gdy zmienia się pozycja lub lista ──
   useEffect(() => {
@@ -177,6 +204,7 @@ export function useLiveMap(
 
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
+    if (!enabled) return;
     (async () => {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -205,6 +233,7 @@ export function useLiveMap(
       socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
 
       socket.on('user:location', (data: any) => {
+        if (!enabledRef.current) return;
         if (!isSharingRef.current) return;
         const id = Number(data?.id);
         const rawLat = Number(data?.lat);
@@ -284,6 +313,7 @@ export function useLiveMap(
       });
 
       socket.on('warning:new', (warning: LiveWarning) => {
+        if (!enabledRef.current) return;
         setWarnings(prev => [warning, ...(prev ?? [])]);
         checkSingleWarningProximityRef.current?.(warning);
       });
@@ -312,11 +342,34 @@ export function useLiveMap(
       await fetchInitialData(token);
     })();
     return () => { socketRef.current?.disconnect(); };
-  }, [fetchInitialData]);
+  }, [fetchInitialData, enabled]);
+
+  // Pause socket/interp when app is backgrounded without background permission
+  useEffect(() => {
+    if (!enabled) return;
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      appStateRef.current = next;
+      if ((next === 'background' || next === 'inactive') && !allowBgRef.current) {
+        socketRef.current?.disconnect();
+        setConnected(false);
+        interpRef.current.clear();
+      } else if (next === 'active' && isSharingRef.current && tokenRef.current) {
+        const s = socketRef.current;
+        if (s && !s.connected) s.connect();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // ── Time-based interpolation ticker — smoothly moves live-user markers ──
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (!enabled) return;
+    if (!isSharing) return;
+
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const tick = () => {
+      if (!allowBgRef.current && !isForegroundActive()) return;
       const now = Date.now();
       const updates = new Map<number, { lat: number; lng: number }>();
       interpRef.current.forEach((entry, userId) => {
@@ -338,14 +391,31 @@ export function useLiveMap(
           return update ? { ...u, lat: update.lat, lng: update.lng } : u;
         }),
       );
-    }, INTERP_TICK_MS);
-    return () => clearInterval(interval);
-  }, []);
+    };
+
+    const arm = () => {
+      if (interval) clearInterval(interval);
+      const ms = interpRef.current.size > 5
+        ? INTERP_TICK_BUSY_MS
+        : INTERP_TICK_BASE_MS;
+      interval = setInterval(tick, ms);
+    };
+
+    arm();
+    const rescheduler = setInterval(arm, 5000);
+
+    return () => {
+      if (interval) clearInterval(interval);
+      clearInterval(rescheduler);
+    };
+  }, [isSharing, isForegroundActive, enabled]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
+    if (!enabled) return;
     if (!isSharing) return;
     const interval = setInterval(async () => {
+      if (!allowBgRef.current && !isForegroundActive()) return;
       const token = tokenRef.current;
       if (!token) return;
       try {
@@ -381,7 +451,7 @@ export function useLiveMap(
       }
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [isSharing]);
+  }, [isSharing, enabled]);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {
@@ -446,6 +516,7 @@ export function useLiveMap(
     routePoints?: { latitude: number; longitude: number }[],
   ) => {
     if (!isSharing) return;
+    if (!allowBgRef.current && !isForegroundActive()) return;
     const socket = socketRef.current;
     if (!socket?.connected) return;
 

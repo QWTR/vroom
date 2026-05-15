@@ -45,6 +45,9 @@ export default function ClubDetailModal({
   const isPrivate   = club.isPrivate;
   const canInvite   = isOwner || !!(club.myRank?.canManage);
   const canModerate = isOwner || !!(club.myRank && (club.myRank.canKick || club.myRank.canMute));
+  const ownerUsername = club.owner?.username ?? 'nieznany';
+  const safeRanks = Array.isArray(club.ranks) ? club.ranks : [];
+  const members = Array.isArray(club.members) ? club.members : [];
 
   const assignRank = async (userId: number, rankId: number | null) => {
     setAssigning(userId);
@@ -209,7 +212,7 @@ export default function ClubDetailModal({
 
                 {/* Owner info */}
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textFaint }}>
-                  założony przez @{club.owner.username}
+                  założony przez @{ownerUsername}
                 </Text>
               </View>
 
@@ -372,7 +375,7 @@ export default function ClubDetailModal({
               </View>
 
               {/* ── CZŁONKOWIE ──────────────────────────────── */}
-              {club.members && club.members.length > 0 && (
+              {members.length > 0 && (
                 <>
                   <View style={{
                     flexDirection: 'row', alignItems: 'center',
@@ -380,12 +383,12 @@ export default function ClubDetailModal({
                   }}>
                     <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>
-                      CZŁONKOWIE · {club.members.length}
+                      CZŁONKOWIE · {members.length}
                     </Text>
                     <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
                   </View>
 
-                  {club.members.map(m => {
+                  {members.map(m => {
                   // ── DEFENSIVE: obsłuż obie struktury backendu ──────────
                   const username  = m.username  ?? (m as any).user?.username  ?? '?';
                   const avatarUrl = m.avatarUrl ?? (m as any).user?.avatarUrl ?? null;
@@ -446,15 +449,15 @@ export default function ClubDetailModal({
                       {/* Akcje ownera */}
                       {!isMe && !isOwnerRow && isOwner && (
                         <View style={{ flexDirection: 'row', gap: 6 }}>
-                          {club.ranks && club.ranks.length > 0 && (
+                          {safeRanks.length > 0 && (
                             <TouchableOpacity
                               style={{
                                 padding: 7, backgroundColor: '#FFD70015',
                                 borderRadius: 9, borderWidth: 1, borderColor: '#FFD70030',
                               }}
                               onPress={() => {
-                                const rankIds = [null, ...(club.ranks ?? []).map(r => r.id)];
-                                const names   = ['Brak rangi', ...(club.ranks ?? []).map(r => r.name)];
+                                const rankIds = [null, ...safeRanks.map(r => r.id)];
+                                const names   = ['Brak rangi', ...safeRanks.map(r => r.name)];
                                 Alert.alert('Nadaj rangę', username,
                                   names.map((n, i) => ({ text: n, onPress: () => assignRank(userId, rankIds[i]) })),
                                 );

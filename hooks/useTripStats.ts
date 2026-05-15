@@ -11,11 +11,11 @@ export interface TripStats {
 }
 
 const TRIP_MAX_PLAUSIBLE_KMH = 190;
-const TRIP_MAX_FIX_GAP_SEC   = 25;
+const TRIP_MAX_FIX_GAP_SEC   = 50;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
 const TRIP_MIN_SEGMENT_KM = 0.003;
-const TRIP_MAX_SEGMENT_KM = 0.8;
+const TRIP_MAX_SEGMENT_KM = 1.2;
 const TRIP_MAX_DISTANCE_KM = 1200;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {

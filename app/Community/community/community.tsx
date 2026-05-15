@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable, StatusBar, ScrollView,
-  Platform, Alert,
+  Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -23,6 +23,7 @@ import {
   Avatar, PhotoViewer, LoadingView,
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
 } from './communityShared';
+import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
 import { TabDyskusje } from './TabDyskusje';
 import {
   reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
@@ -93,8 +94,7 @@ export default function CommunityScreen() {
   const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commentListRef = useRef<FlatList<Comment>>(null);
-  /** Modal: jawna wysokość klawiatury (KAV w transparent Modal często nie działa). */
-  const [commentKeyboardInset, setCommentKeyboardInset] = useState(0);
+  const commentKeyboardInset = useKeyboardInset(!!commentPost);
 
   const onCommentTextChange = (v: string) => {
     setCommentText(v);
@@ -255,19 +255,56 @@ export default function CommunityScreen() {
     router.push('/(tabs)/map' as any);
   }, [router]);
 
-  const handlePost = async (text: string, photos: string[], video: string | null) => {
+  const handlePost = async (text: string, photos: string[], video: string | null, poll?: { question: string; options: string[] } | null) => {
     try {
       const token = await getToken();
       const form  = new FormData();
       form.append('content', text);
+      if (poll) form.append('poll', JSON.stringify(poll));
       photos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `p${i}.${ext}`, type: `image/${ext}` } as any); });
       if (video) { const ext = video.split('.').pop() ?? 'mp4'; form.append('video', { uri: video, name: `video.${ext}`, type: `video/${ext}` } as any); }
       const res  = await fetch(`${API_URL}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error ?? 'Błąd');
+      }
       const post = await res.json();
       setPosts(prev => [post, ...prev]);
-    } catch { Toast.show({ type: 'error', text1: 'Błąd wysyłania' }); }
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: e?.message ?? 'Błąd wysyłania' });
+    }
   };
+
+  const handlePollVote = useCallback(async (postId: number, optionIdx: number) => {
+    try {
+      const token = await getToken();
+      const res   = await fetch(`${API_URL}/api/posts/${postId}/poll/vote`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ optionIdx }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: data?.error ?? 'Nie udało się zagłosować' });
+        return null;
+      }
+      let updated: Post['poll'] = null;
+      setPosts(prev => prev.map(p => {
+        if (p.id !== postId || !p.poll) return p;
+        updated = {
+          ...p.poll,
+          voteCounts: data.voteCounts,
+          totalVotes: data.totalVotes,
+          myVote:     data.myVote,
+        };
+        return { ...p, poll: updated };
+      }));
+      return updated;
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      return null;
+    }
+  }, []);
 
   const openShareRoute = async (route: PublicRoute) => {
     setShareRoute(route); setShareSent([]); setShareLoading(true);
@@ -343,25 +380,6 @@ export default function CommunityScreen() {
     })();
   }, [posts, openComments]));
 
-  useEffect(() => {
-    if (!commentPost) {
-      setCommentKeyboardInset(0);
-      return;
-    }
-    const applyKb = (h: number) => setCommentKeyboardInset(Math.max(0, h));
-    const onShow = (e: { endCoordinates?: { height?: number } }) => {
-      applyKb(e.endCoordinates?.height ?? 0);
-    };
-    const onHide = () => applyKb(0);
-    const subs = [
-      Keyboard.addListener('keyboardDidShow', onShow),
-      Keyboard.addListener('keyboardDidHide', onHide),
-      Keyboard.addListener('keyboardWillShow', onShow),
-      Keyboard.addListener('keyboardWillHide', onHide),
-    ];
-    return () => subs.forEach(s => s.remove());
-  }, [commentPost]);
-
   // ── Filtered lists ───────────────────────────────────────
   const visiblePosts = posts.filter((p) => !blockedIds.includes(p.author.id));
   const filteredPosts  = search.trim()
@@ -370,9 +388,7 @@ export default function CommunityScreen() {
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
-  const modalBottomPadding = Math.max(insets.bottom, 16);
-  const commentInputBottomPad =
-    commentKeyboardInset > 0 ? commentKeyboardInset : modalBottomPadding;
+  const modalBottomPadding = Math.max(insets.bottom, 12);
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -460,7 +476,8 @@ export default function CommunityScreen() {
               posts={filteredPosts} myId={myId} loadingMoreP={loadingMoreP}
               refreshingP={refreshingP} hasMoreP={hasMoreP}
               onLike={handleLikePost} onRepost={handleRepost} onComment={openComments}
-              onDelete={handleDeletePost} onPost={handlePost} onReport={handleReportPost}
+              onDelete={handleDeletePost} onPost={handlePost} onPollVote={handlePollVote}
+              onReport={handleReportPost}
               onBlock={handleBlockPostAuthor}
               onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
               onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
@@ -513,18 +530,13 @@ export default function CommunityScreen() {
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
           <Pressable style={{ flex: 1 }} onPress={() => { Keyboard.dismiss(); setCommentPost(null); }} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            enabled={Platform.OS === 'android'}
-            style={{ width: '100%' }}
-            keyboardVerticalOffset={Platform.OS === 'android' ? insets.bottom : 0}
-          >
           <View
             style={{
               backgroundColor: theme.surface,
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
               borderWidth: 1, borderColor: theme.border2,
-              maxHeight: commentKeyboardInset > 0 ? '78%' : '88%',
+              maxHeight: commentKeyboardInset > 0 ? '82%' : '88%',
+              marginBottom: commentKeyboardInset,
             }}
           >
             <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
@@ -665,7 +677,7 @@ export default function CommunityScreen() {
             <View style={{
               paddingHorizontal: 16,
               paddingTop: 12,
-              paddingBottom: commentInputBottomPad,
+              paddingBottom: modalBottomPadding,
               borderTopWidth: 1,
               borderTopColor: theme.border,
               backgroundColor: theme.surface,
@@ -760,7 +772,6 @@ export default function CommunityScreen() {
               </View>
             </View>
           </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
 

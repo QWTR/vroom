@@ -17,6 +17,17 @@ export function bearingBetween(
   return (((Math.atan2(y, x) * 180) / Math.PI) % 360 + 360) % 360;
 }
 
+/** Segment polyline może wskazywać przód lub tył — wybierz zgodny z kierunkiem jazdy. */
+export function alignBearingToReference(
+  segmentBearing: number,
+  referenceBearing: number,
+): number {
+  const reversed = (segmentBearing + 180) % 360;
+  const fwdDiff  = Math.abs(((segmentBearing - referenceBearing + 540) % 360) - 180);
+  const revDiff  = Math.abs(((reversed - referenceBearing + 540) % 360) - 180);
+  return revDiff < fwdDiff ? reversed : segmentBearing;
+}
+
 /** Oblicza odległość między dwoma punktami (Haversine, km) */
 export function haversineKm(
   lat1: number, lon1: number,

@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme as NavLightTheme, ThemeProvider as NavThemeProv
 import { useFonts }   from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, StyleSheet, Animated, Easing,
   Dimensions, Text,
@@ -20,11 +20,12 @@ import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider } from '../contexts/PremiumContext';
+import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
 import { API_URL } from '../constants/config';
-import MobileAds from 'react-native-google-mobile-ads';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
-import { syncBlockedUserIdsFromServer } from '../lib/ugcActions';
+import { UpdateModal } from '../components/modals/UpdateModal';
+import { useAppUpdate } from '../hooks/useAppUpdate';
 import {
   hasAcceptedBackgroundLocationDisclosure,
   requestBackgroundLocationPermissionAfterDisclosure,
@@ -121,7 +122,9 @@ export default function RootLayout() {
       <ThemeProvider>
         <SettingsProvider>
           <PremiumProvider>
-            <RootLayoutInner />
+            <StartupGatesProvider>
+              <RootLayoutInner />
+            </StartupGatesProvider>
           </PremiumProvider>
         </SettingsProvider>
       </ThemeProvider>
@@ -166,27 +169,29 @@ function StatusLine() {
 function RootLayoutInner() {
   const { isDark }     = useTheme();
   const { updateSetting } = useSettings();
+  const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
+  const {
+    updateAvailable,
+    downloading: updateDownloading,
+    checkForUpdate,
+    applyUpdate,
+    dismiss: dismissUpdate,
+  } = useAppUpdate();
   const router         = useRouter();
   const pathname       = usePathname();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
+  const [updatePromptVisible, setUpdatePromptVisible] = useState(false);
+  const [ugcTermsVisible, setUgcTermsVisible] = useState(false);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
-  const [ugcGateVisible, setUgcGateVisible] = useState(false);
   const bgDisclosureDismissedRef = useRef(false);
-  const adsInitialized = useRef(false);
+  const bgDisclosureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bootstrapAfterUpdateRef = useRef<(() => Promise<void>) | null>(null);
+  const bootstrapStartedRef = useRef(false);
 
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
     OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
   });
-
-  // Inicjalizacja MobileAds globalnie (tylko raz).
-  // Samo wyświetlanie reklam i tak kontrolują konkretne ekrany/komponenty.
-  useEffect(() => {
-    if (!adsInitialized.current) {
-      MobileAds().initialize().catch(() => {});
-      adsInitialized.current = true;
-    }
-  }, []);
 
   // Anim values
   const masterFade    = useRef(new Animated.Value(0)).current;
@@ -323,43 +328,87 @@ function RootLayoutInner() {
   }, [loaded, error]);
 
   useEffect(() => {
+    setLayoutGateOpen(updatePromptVisible || ugcTermsVisible || bgDisclosureVisible);
+  }, [updatePromptVisible, ugcTermsVisible, bgDisclosureVisible, setLayoutGateOpen]);
+
+  const continueAppBootstrap = useCallback(async () => {
+    const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+    if (!token) {
+      setGatesSettled(true);
+      return;
+    }
+
+    const needsUgc = await AsyncStorage.getItem('needsUgcTerms');
+    if (needsUgc === '1') {
+      setUgcTermsVisible(true);
+      return;
+    }
+    setGatesSettled(true);
+  }, [setGatesSettled]);
+
+  useEffect(() => {
+    bootstrapAfterUpdateRef.current = continueAppBootstrap;
+  }, [continueAppBootstrap]);
+
+  /** Po splash: sprawdź OTA → modal → dopiero regulamin / reszta (bez auto-apply). */
+  useEffect(() => {
     if (!loaded && !error) return;
-    if (pathname === '/login') return;
     if (phase !== 'done') return;
+    if (bootstrapStartedRef.current) return;
+    bootstrapStartedRef.current = true;
 
     let cancelled = false;
     (async () => {
-      const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-      if (!token) return;
-
-      void syncBlockedUserIdsFromServer();
-
-      const needsFlag = await AsyncStorage.getItem('needsUgcTerms');
-      if (needsFlag === '1') {
-        if (!cancelled) setUgcGateVisible(true);
+      const available = await checkForUpdate();
+      if (cancelled) return;
+      if (available) {
+        setUpdatePromptVisible(true);
         return;
       }
+      await bootstrapAfterUpdateRef.current?.();
+    })().catch(() => {
+      if (!cancelled) void bootstrapAfterUpdateRef.current?.();
+    });
 
-      try {
-        const res = await fetch(`${API_URL}/api/moderation/terms-status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (!data.accepted && !cancelled) setUgcGateVisible(true);
-          else await AsyncStorage.setItem('needsUgcTerms', '0');
-        }
-      } catch {}
+    return () => { cancelled = true; };
+  }, [loaded, error, phase, checkForUpdate]);
 
-      if (bgDisclosureDismissedRef.current) return;
-      const accepted = await hasAcceptedBackgroundLocationDisclosure();
-      if (!accepted && !cancelled) setBgDisclosureVisible(true);
-    })().catch(() => {});
+  const handleUpdateLater = () => {
+    setUpdatePromptVisible(false);
+    dismissUpdate();
+    void bootstrapAfterUpdateRef.current?.();
+  };
+
+  const finishUgcTerms = async () => {
+    await AsyncStorage.setItem('needsUgcTerms', '0');
+    setUgcTermsVisible(false);
+    setGatesSettled(true);
+  };
+
+  /** Zgoda na lokalizację w tle — dopiero po regulaminie, z opóźnieniem (nie koliduje z gift modalem). */
+  useEffect(() => {
+    if (phase !== 'done') return;
+    if (!gatesSettled) return;
+    if (pathname === '/login') return;
+    if (ugcTermsVisible) return;
+    if (homeOverlayOpen) return;
+
+    if (bgDisclosureTimerRef.current) clearTimeout(bgDisclosureTimerRef.current);
+
+    bgDisclosureTimerRef.current = setTimeout(() => {
+      (async () => {
+        const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+        if (!token) return;
+        if (bgDisclosureDismissedRef.current) return;
+        const accepted = await hasAcceptedBackgroundLocationDisclosure();
+        if (!accepted) setBgDisclosureVisible(true);
+      })().catch(() => {});
+    }, 1200);
 
     return () => {
-      cancelled = true;
+      if (bgDisclosureTimerRef.current) clearTimeout(bgDisclosureTimerRef.current);
     };
-  }, [loaded, error, pathname, phase]);
+  }, [loaded, error, pathname, phase, ugcTermsVisible, gatesSettled, homeOverlayOpen]);
 
   const closeBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
@@ -370,15 +419,17 @@ function RootLayoutInner() {
   const acceptBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
     setBgDisclosureVisible(false);
-    const granted = await requestBackgroundLocationPermissionAfterDisclosure();
-    await updateSetting('backgroundTracking', granted);
-    if (!granted) {
-      (Toast as any).show({
-        type: 'error',
-        text1: 'Brak zgody systemu',
-        text2: 'Włącz lokalizację w tle w ustawieniach telefonu',
-      });
-    }
+    setTimeout(async () => {
+      const granted = await requestBackgroundLocationPermissionAfterDisclosure();
+      await updateSetting('backgroundTracking', granted);
+      if (!granted) {
+        (Toast as any).show({
+          type: 'error',
+          text1: 'Brak zgody systemu',
+          text2: 'Włącz lokalizację w tle w ustawieniach telefonu',
+        });
+      }
+    }, 350);
   };
 
   const spinDeg  = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
@@ -397,23 +448,27 @@ function RootLayoutInner() {
       </Stack>
       <StatusBar style="light" translucent={false} backgroundColor="#0a0a0a" />
       <Toast config={toastConfig} />
-      <UgcTermsGate
-        visible={ugcGateVisible}
-        onAccepted={async () => {
-          await AsyncStorage.setItem('needsUgcTerms', '0');
-          setUgcGateVisible(false);
-        }}
+      <UpdateModal
+        visible={updatePromptVisible && updateAvailable}
+        loading={updateDownloading}
+        onUpdate={applyUpdate}
+        onDismiss={handleUpdateLater}
       />
-      <BackgroundLocationDisclosureModal
-        visible={bgDisclosureVisible}
-        onCancel={closeBgDisclosure}
-        onAccept={acceptBgDisclosure}
-      />
+
+      <UgcTermsGate visible={ugcTermsVisible} onAccepted={finishUgcTerms} />
+
+      {bgDisclosureVisible && (
+        <BackgroundLocationDisclosureModal
+          visible
+          onCancel={closeBgDisclosure}
+          onAccept={acceptBgDisclosure}
+        />
+      )}
 
       {phase !== 'done' && (
         <Animated.View
           style={[s.splash, { opacity: splashOpacity }]}
-          pointerEvents={phase === 'fadeout' ? 'none' : 'auto'}
+          pointerEvents="none"
         >
           {/* ── Tło ── */}
           <LinearGradient
@@ -508,7 +563,7 @@ function RootLayoutInner() {
                   <MaterialCommunityIcons name="shield-check-outline" size={10} color={`${R}99`} />
                   <Text style={s.onlineTxt}>SECURE BOOT</Text>
                 </View>
-                <Text style={s.versionTxt}>v1.0</Text>
+                <Text style={s.versionTxt}>V1.1.21</Text>
               </View>
             </Animated.View>
 
