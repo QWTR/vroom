@@ -18,7 +18,6 @@ const getToken = async () =>
 type Msg = {
   id: number;
   authorKind: string;
-  staffEmail: string | null;
   body: string;
   photos: string[];
   videos: string[];
@@ -163,7 +162,7 @@ export default function BugReportThreadScreen() {
               }}
             >
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 6 }}>
-                {label}{m.staffEmail ? ` · ${m.staffEmail}` : ''} · {new Date(m.createdAt).toLocaleString('pl-PL')}
+                {label} · {new Date(m.createdAt).toLocaleString('pl-PL')}
               </Text>
               {!!m.body && (
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, lineHeight: 18 }}>{m.body}</Text>
