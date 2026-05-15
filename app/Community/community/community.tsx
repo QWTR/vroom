@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
-  Platform,
+  Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable, StatusBar, ScrollView,
+  Platform, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -24,6 +24,9 @@ import {
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
 } from './communityShared';
 import { TabDyskusje } from './TabDyskusje';
+import {
+  reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
+} from '../../../lib/ugcActions';
 import { TabTrasy }    from './TabTrasy';
 import { TabAuta }     from './TabAuta';
 
@@ -37,6 +40,7 @@ export default function CommunityScreen() {
 
   const [activeTab,    setActiveTab]    = useState<Tab>('dyskusje');
   const [myId,         setMyId]         = useState<number | null>(null);
+  const [blockedIds,   setBlockedIds]   = useState<number[]>([]);
   const [search,       setSearch]       = useState('');
   const [searchActive, setSearchActive] = useState(false);
 
@@ -88,7 +92,8 @@ export default function CommunityScreen() {
   const [commentPhotoUris,   setCommentPhotoUris]   = useState<string[]>([]);
   const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** W przezroczystym Modalu KeyboardAvoidingView bywa zawodny — przesuwamy arkusz po wysokości klawiatury. */
+  const commentListRef = useRef<FlatList<Comment>>(null);
+  /** Modal: jawna wysokość klawiatury (KAV w transparent Modal często nie działa). */
   const [commentKeyboardInset, setCommentKeyboardInset] = useState(0);
 
   const onCommentTextChange = (v: string) => {
@@ -178,6 +183,7 @@ export default function CommunityScreen() {
     setLoadingP(true);
     setHasMoreP(true); setHasMoreR(true); setHasMoreC(true);
     fetchPosts(); fetchRoutes(); fetchCars();
+    void syncBlockedUserIdsFromServer().then(setBlockedIds);
   }, []));
 
   const loadMorePosts  = useCallback(() => { if (!postCursor  || loadingMoreP || !hasMoreP) return; setLoadingMoreP(true);  fetchPosts(postCursor);   }, [postCursor,  loadingMoreP,  hasMoreP,  fetchPosts]);
@@ -209,28 +215,28 @@ export default function CommunityScreen() {
   }, []);
 
   const handleReportPost = useCallback(async (post: Post, reason: string) => {
-    try {
-      const token = await getToken();
-      if (!token) {
-        Toast.show({ type: 'error', text1: 'Zaloguj się', text2: 'Wymagane konto do zgłoszenia.' });
-        return;
-      }
-      const res = await fetch(`${API_URL}/api/moderation/report`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetType: 'post',
-          targetId: String(post.id),
-          reason,
-          details: `authorId=${post.author.id}`,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      Toast.show({ type: 'success', text1: 'Zgłoszenie wysłane', text2: 'Dziękujemy — rozpatrzymy sprawę.' });
-    } catch {
-      Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się wysłać zgłoszenia.' });
-    }
+    await reportContent({
+      targetType: 'post',
+      targetId: post.id,
+      reason,
+      offenderUserId: post.author.id,
+      details: `authorId=${post.author.id}`,
+    });
   }, []);
+
+  const applyBlockedIds = useCallback((ids: number[]) => {
+    setBlockedIds(ids);
+    setPosts((prev) => prev.filter((p) => !ids.includes(p.author.id)));
+    setComments((prev) => prev.filter((c) => !ids.includes(c.author.id)));
+  }, []);
+
+  const handleBlockPostAuthor = useCallback((post: Post) => {
+    showBlockUserAlert(post.author.id, post.author.username, applyBlockedIds);
+  }, [applyBlockedIds]);
+
+  const handleBlockCommentAuthor = useCallback((authorId: number, username: string) => {
+    showBlockUserAlert(authorId, username, applyBlockedIds);
+  }, [applyBlockedIds]);
 
   const handleLikeRoute = useCallback(async (id: number) => {
     setRoutes(prev => prev.map(r => r.id !== id ? r : { ...r, isLiked: !r.isLiked, likesCount: r.isLiked ? r.likesCount - 1 : r.likesCount + 1 }));
@@ -342,26 +348,31 @@ export default function CommunityScreen() {
       setCommentKeyboardInset(0);
       return;
     }
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const applyKb = (h: number) => setCommentKeyboardInset(Math.max(0, h));
     const onShow = (e: { endCoordinates?: { height?: number } }) => {
-      setCommentKeyboardInset(e.endCoordinates?.height ?? 0);
+      applyKb(e.endCoordinates?.height ?? 0);
     };
-    const onHide = () => setCommentKeyboardInset(0);
-    const subShow = Keyboard.addListener(showEvent, onShow);
-    const subHide = Keyboard.addListener(hideEvent, onHide);
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
+    const onHide = () => applyKb(0);
+    const subs = [
+      Keyboard.addListener('keyboardDidShow', onShow),
+      Keyboard.addListener('keyboardDidHide', onHide),
+      Keyboard.addListener('keyboardWillShow', onShow),
+      Keyboard.addListener('keyboardWillHide', onHide),
+    ];
+    return () => subs.forEach(s => s.remove());
   }, [commentPost]);
 
   // ── Filtered lists ───────────────────────────────────────
-  const filteredPosts  = search.trim() ? posts.filter(p  => p.content.toLowerCase().includes(search.toLowerCase())  || p.author.username.toLowerCase().includes(search.toLowerCase())) : posts;
+  const visiblePosts = posts.filter((p) => !blockedIds.includes(p.author.id));
+  const filteredPosts  = search.trim()
+    ? visiblePosts.filter(p => p.content.toLowerCase().includes(search.toLowerCase()) || p.author.username.toLowerCase().includes(search.toLowerCase()))
+    : visiblePosts;
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
   const modalBottomPadding = Math.max(insets.bottom, 16);
+  const commentInputBottomPad =
+    commentKeyboardInset > 0 ? commentKeyboardInset : modalBottomPadding;
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -443,21 +454,26 @@ export default function CommunityScreen() {
 
       {/* ══ DYSKUSJE ══════════════════════════════════════════ */}
       {activeTab === 'dyskusje' && (
-        loadingP ? <LoadingView /> :
-        <TabDyskusje
-          posts={filteredPosts} myId={myId} loadingMoreP={loadingMoreP}
-          refreshingP={refreshingP} hasMoreP={hasMoreP}
-          onLike={handleLikePost} onRepost={handleRepost} onComment={openComments}
-          onDelete={handleDeletePost} onPost={handlePost} onReport={handleReportPost}
-          onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
-          onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
-          onLoadMore={loadMorePosts} bottomInset={insets.bottom}
-        />
+        <View style={{ flex: 1 }}>
+          {loadingP ? <LoadingView /> : (
+            <TabDyskusje
+              posts={filteredPosts} myId={myId} loadingMoreP={loadingMoreP}
+              refreshingP={refreshingP} hasMoreP={hasMoreP}
+              onLike={handleLikePost} onRepost={handleRepost} onComment={openComments}
+              onDelete={handleDeletePost} onPost={handlePost} onReport={handleReportPost}
+              onBlock={handleBlockPostAuthor}
+              onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
+              onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
+              onLoadMore={loadMorePosts} bottomInset={insets.bottom}
+            />
+          )}
+        </View>
       )}
 
       {/* ══ TRASY ═════════════════════════════════════════════ */}
       {activeTab === 'trasy' && (
-        loadingR ? <LoadingView /> :
+        <View style={{ flex: 1 }}>
+        {loadingR ? <LoadingView /> :
         <TabTrasy
           routes={filteredRoutes} myId={myId} loadingMoreR={loadingMoreR}
           refreshingR={refreshingR} hasMoreR={hasMoreR}
@@ -467,11 +483,14 @@ export default function CommunityScreen() {
           onRefresh={() => { setRefreshingR(true); setHasMoreR(true); fetchRoutes(); }}
           onLoadMore={loadMoreRoutes} bottomInset={insets.bottom}
         />
+        }
+        </View>
       )}
 
       {/* ══ AUTA ══════════════════════════════════════════════ */}
       {activeTab === 'auta' && (
-        loadingC ? <LoadingView /> :
+        <View style={{ flex: 1 }}>
+        {loadingC ? <LoadingView /> :
         <TabAuta
           cars={filteredCars} myId={myId} loadingC={loadingC}
           loadingMoreC={loadingMoreC} refreshingC={refreshingC} hasMoreC={hasMoreC}
@@ -480,6 +499,8 @@ export default function CommunityScreen() {
           onLoadMore={loadMoreCars} onShareCar={() => fetchCars()}
           bottomInset={insets.bottom} router={router}
         />
+        }
+        </View>
       )}
 
       {/* ══ MODAL KOMENTARZY ══════════════════════════════════ */}
@@ -491,16 +512,22 @@ export default function CommunityScreen() {
         onRequestClose={() => setCommentPost(null)}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setCommentPost(null)} />
+          <Pressable style={{ flex: 1 }} onPress={() => { Keyboard.dismiss(); setCommentPost(null); }} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            enabled={Platform.OS === 'android'}
+            style={{ width: '100%' }}
+            keyboardVerticalOffset={Platform.OS === 'android' ? insets.bottom : 0}
+          >
           <View
             style={{
               backgroundColor: theme.surface,
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
               borderWidth: 1, borderColor: theme.border2,
-              maxHeight: '88%',
+              maxHeight: commentKeyboardInset > 0 ? '78%' : '88%',
             }}
           >
-            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: modalBottomPadding + commentKeyboardInset }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
               {/* Handle */}
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
 
@@ -552,9 +579,10 @@ export default function CommunityScreen() {
                 <ActivityIndicator color="#e33835" style={{ margin: 30 }} />
               ) : (
                 <FlatList
+                  ref={commentListRef}
                   data={comments}
                   keyExtractor={c => String(c.id)}
-                  style={{ maxHeight: 300 }}
+                  style={{ maxHeight: commentKeyboardInset > 0 ? 180 : 300 }}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
@@ -569,9 +597,28 @@ export default function CommunityScreen() {
                           <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}
                           </Text>
+                          {item.author.id !== myId && (
+                            <TouchableOpacity
+                              onPress={() => {
+                                Alert.alert(`@${item.author.username}`, undefined, [
+                                  { text: 'Anuluj', style: 'cancel' },
+                                  { text: 'Zgłoś', onPress: () => void reportContent({
+                                    targetType: 'post_comment',
+                                    targetId: item.id,
+                                    reason: 'other',
+                                    offenderUserId: item.author.id,
+                                    details: `authorId=${item.author.id}`,
+                                  })},
+                                  { text: 'Zablokuj', style: 'destructive', onPress: () => handleBlockCommentAuthor(item.author.id, item.author.username) },
+                                ]);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <MaterialIcons name="more-horiz" size={16} color={theme.textDim} />
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
                             onPress={() => setReplyTo({ id: item.id, username: item.author.username })}
-                            style={{ marginLeft: 'auto' }}
                           >
                             <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 }}>↩ odpowiedz</Text>
                           </TouchableOpacity>
@@ -612,14 +659,23 @@ export default function CommunityScreen() {
                   keyboardShouldPersistTaps="handled"
                 />
               )}
+            </View>
 
-              {/* Reply badge */}
+            {/* Input komentarza — sticky footer nad klawiaturą */}
+            <View style={{
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              paddingBottom: commentInputBottomPad,
+              borderTopWidth: 1,
+              borderTopColor: theme.border,
+              backgroundColor: theme.surface,
+            }}>
               {replyTo && (
                 <View style={{
                   flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                   backgroundColor: '#e3383515', borderRadius: 10,
                   paddingHorizontal: 12, paddingVertical: 7,
-                  marginTop: 8, borderWidth: 1, borderColor: '#e3383530',
+                  marginBottom: 8, borderWidth: 1, borderColor: '#e3383530',
                 }}>
                   <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>↩ @{replyTo.username}</Text>
                   <TouchableOpacity onPress={() => setReplyTo(null)}>
@@ -628,9 +684,8 @@ export default function CommunityScreen() {
                 </View>
               )}
 
-              {/* Podgląd zdjęć komentarza */}
               {commentPhotos.length > 0 && (
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                   {commentPhotos.map((uri, i) => (
                     <View key={i} style={{ position: 'relative' }}>
                       <TouchableOpacity onPress={() => { setCommentPhotoUris(commentPhotos); setCommentPhotoIdx(i); setCommentPhotoViewer(true); }}>
@@ -647,31 +702,27 @@ export default function CommunityScreen() {
                 </View>
               )}
 
-              {/* Input komentarza */}
-              <View style={{
-                paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border,
-                marginTop: 10,
-              }}>
-                {commentMentionUsers.length > 0 && (
-                  <View style={{
-                    marginBottom: 8, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
-                    backgroundColor: theme.surface2, overflow: 'hidden',
-                  }}>
-                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                      {commentMentionUsers.map(u => (
-                        <TouchableOpacity
-                          key={u.id}
-                          onPress={() => insertCommentMention(u.username)}
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
-                        >
-                          <Avatar user={u} size={28} />
-                          <Text style={{ color: theme.text, fontSize: 13 }}>{u.username}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+              {commentMentionUsers.length > 0 && (
+                <View style={{
+                  marginBottom: 8, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+                  backgroundColor: theme.surface2, overflow: 'hidden',
+                }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {commentMentionUsers.map(u => (
+                      <TouchableOpacity
+                        key={u.id}
+                        onPress={() => insertCommentMention(u.username)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
+                      >
+                        <Avatar user={u} size={28} />
+                        <Text style={{ color: theme.text, fontSize: 13 }}>{u.username}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
                 <TouchableOpacity onPress={pickCommentPhoto} disabled={commentPhotos.length >= 2}>
                   <MaterialIcons name="add-photo-alternate" size={22} color={commentPhotos.length >= 2 ? theme.textDim : '#e33835'} />
                 </TouchableOpacity>
@@ -688,6 +739,9 @@ export default function CommunityScreen() {
                   placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Napisz komentarz...'}
                   placeholderTextColor={theme.textDim}
                   multiline
+                  onFocus={() => {
+                    setTimeout(() => commentListRef.current?.scrollToEnd({ animated: true }), 120);
+                  }}
                 />
                 <TouchableOpacity
                   style={[{
@@ -703,10 +757,10 @@ export default function CommunityScreen() {
                     : <MaterialIcons name="send" size={16} color="#fff" />
                   }
                 </TouchableOpacity>
-                </View>
               </View>
             </View>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 

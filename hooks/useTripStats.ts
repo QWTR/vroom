@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import { evaluateDistanceSegment } from '../scripts/distanceEngine';
+import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
 
 export interface TripStats {
   maxSpeedKmh:   number;
@@ -39,6 +39,8 @@ export function useTripStats() {
   const estSecRef    = useRef<number>(0);
   const distanceRef  = useRef<number>(0);
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
+  const lastLiveKmEmitRef = useRef(0);
+  const lastLiveKmValueRef = useRef(0);
 
   const [stats, setStats] = useState<TripStats | null>(null);
   /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
@@ -72,10 +74,13 @@ export function useTripStats() {
     // Treat non-positive speed as "unknown" instead of "stationary" to avoid
     // dropping valid distance segments during active navigation.
     const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
-    if (speedKmh != null && speedKmh < 2) return 0;
-
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
+    // Android często zgłasza 0 m/s przy jeździe — nie odrzucaj segmentu wyłącznie z powodu prędkości.
+    if (speedKmh != null && speedKmh < 2 && lastMeta) {
+      const movedKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
+      if (movedKm < TRIP_MIN_SEGMENT_KM * 2) return 0;
+    }
     if (!lastMeta) {
       pts.push({ latitude: lat, longitude: lng });
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
@@ -118,7 +123,16 @@ export function useTripStats() {
       return 0;
     }
     distanceRef.current = nextDistance;
-    setLiveDistanceKm(parseFloat(distanceRef.current.toFixed(2)));
+    const rounded = parseFloat(distanceRef.current.toFixed(2));
+    const emitNow = Date.now();
+    if (
+      emitNow - lastLiveKmEmitRef.current >= 450
+      || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.05
+    ) {
+      lastLiveKmEmitRef.current = emitNow;
+      lastLiveKmValueRef.current = rounded;
+      setLiveDistanceKm(rounded);
+    }
     return segment.distanceKm;
   }, []);
 

@@ -110,10 +110,11 @@ export default function LoginScreen() {
     switchScreen('login');
   };
 
-  const saveAndNavigate = async (token: string, user: any) => {
+  const saveAndNavigate = async (token: string, user: any, meta?: { needsUgcTerms?: boolean }) => {
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
+    await AsyncStorage.setItem('needsUgcTerms', meta?.needsUgcTerms ? '1' : '0');
     UsersModule?.saveAuthTokenForAuto?.(token);
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();
@@ -137,9 +138,9 @@ export default function LoginScreen() {
     if (!email || !password) return Toast.show({ type: 'error', text1: 'ODMOWA DOSTĘPU', text2: 'Wypełnij wszystkie pola.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }) });
+      const res  = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password, acceptUgcTerms: true }) });
       const data = await res.json();
-      if (res.ok) await saveAndNavigate(data.token, data.user);
+      if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Nieprawidłowe dane.' });
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia z serwerem.' }); }
     finally { setLoading(false); }
@@ -160,6 +161,7 @@ export default function LoginScreen() {
           password,
           username: username.trim(),
           referralCode: referralCode.trim() || undefined,
+          acceptUgcTerms: true,
         }),
       });
       const data = await res.json();
@@ -179,9 +181,9 @@ export default function LoginScreen() {
       const ui    = await GoogleSignin.signIn();
       const token = ui.data?.idToken;
       if (!token) throw new Error('Brak tokenu');
-      const res  = await fetch(`${API_URL}/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token }) });
+      const res  = await fetch(`${API_URL}/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token, acceptUgcTerms: true }) });
       const data = await res.json();
-      if (res.ok) await saveAndNavigate(data.token, data.user);
+      if (res.ok) await saveAndNavigate(data.token, data.user, { needsUgcTerms: data.needsUgcTerms });
       else Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error ?? 'Błąd Google.' });
     } catch (e: any) {
       // ← TUTAJ LOGI

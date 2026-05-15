@@ -57,6 +57,11 @@ export function AdNativePost() {
       return;
     }
 
+    if (process.env.EXPO_PUBLIC_DISABLE_FEED_ADS === '1') {
+      setFailed(true);
+      return;
+    }
+
     let ad: NativeAd | null = null;
     const forceTestAds = process.env.EXPO_PUBLIC_FORCE_TEST_ADS === '1';
     const unitId = (__DEV__ || forceTestAds) ? TestIds.NATIVE : NATIVE_ID;

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  KeyboardAvoidingView, Platform, RefreshControl, Alert,
+  RefreshControl, Alert,
 } from 'react-native';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
@@ -10,6 +10,7 @@ import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
 import { API_URL }             from '../../../constants/config';
 import { AdNativePost }         from '../../../components/ads/AdNativePost';
+import { AdPostBoundary }       from '../../../components/ads/AdPostBoundary';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
@@ -23,7 +24,7 @@ import {
 // POST CARD
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
-  post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport,
+  post, myId,   onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock,
 }: {
   post: Post; myId: number | null;
   onLike: (id: number) => void;
@@ -32,6 +33,7 @@ const PostCard = React.memo(({
   onDelete: (id: number) => void;
   onProfile: (id: number) => void;
   onReport: (post: Post, reason: string) => void;
+  onBlock: (post: Post) => void;
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
@@ -86,16 +88,22 @@ const PostCard = React.memo(({
     }
   };
 
-  const handleReportPress = () => {
+  const handleModerationPress = () => {
     Alert.alert(
-      'Zgłoś treść',
-      'Wybierz kategorię. Zgłoszenie zostanie przekazane do zespołu VROOM.',
+      `@${post.author.username}`,
+      'Zgłoszenie rozpatrzymy w ciągu 24 h. Blokada usuwa treści użytkownika z Twojego feedu.',
       [
         { text: 'Anuluj', style: 'cancel' },
-        { text: 'Spam / treść wulgarna', onPress: () => onReport(post, 'spam_vulgar') },
-        { text: 'Nękanie / groźby', onPress: () => onReport(post, 'harassment') },
-        { text: 'Treść niezgodna z prawem', onPress: () => onReport(post, 'illegal') },
-        { text: 'Inne', onPress: () => onReport(post, 'other') },
+        { text: 'Zgłoś treść', onPress: () => {
+          Alert.alert('Zgłoś treść', 'Wybierz kategorię.', [
+            { text: 'Anuluj', style: 'cancel' },
+            { text: 'Spam / wulgarność', onPress: () => onReport(post, 'spam_vulgar') },
+            { text: 'Nękanie', onPress: () => onReport(post, 'harassment') },
+            { text: 'Nielegalne', onPress: () => onReport(post, 'illegal') },
+            { text: 'Inne', onPress: () => onReport(post, 'other') },
+          ]);
+        }},
+        { text: 'Zablokuj użytkownika', style: 'destructive', onPress: () => onBlock(post) },
       ],
     );
   };
@@ -143,7 +151,7 @@ const PostCard = React.memo(({
             </TouchableOpacity>
           ) : myId != null ? (
             <TouchableOpacity
-              onPress={handleReportPress}
+              onPress={handleModerationPress}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
             >
@@ -241,7 +249,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, bottomInset }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, bottomInset }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -256,6 +264,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onLoadMore: () => void;
   onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
   onReport: (post: Post, reason: string) => void;
+  onBlock: (post: Post) => void;
   bottomInset: number;
 }) {
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -267,29 +276,35 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
     ),
   [posts]);
 
+  const [composeBarHeight, setComposeBarHeight] = useState(96);
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      enabled={Platform.OS === 'android'}
-    >
+    <View style={{ flex: 1 }}>
       <FlatList
+        style={{ flex: 1 }}
         data={feedItems}
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
         renderItem={({ item }) => '_adType' in item ? (
-          <AdNativePost />
+          <AdPostBoundary>
+            <AdNativePost />
+          </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} />
+            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={<ListFooter loading={loadingMoreP} />}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: composeBarHeight + 16 }}
         keyboardShouldPersistTaps="handled"
       />
-      <ComposeBox onPost={onPost} bottomInset={bottomInset} mentionsEnabled />
-    </KeyboardAvoidingView>
+      <ComposeBox
+        onPost={onPost}
+        bottomInset={bottomInset}
+        mentionsEnabled
+        onHeightChange={setComposeBarHeight}
+      />
+    </View>
   );
 }

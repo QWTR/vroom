@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, ActivityIndicator, Modal, Share,
+  StyleSheet, Dimensions, ActivityIndicator, Modal, Share, Linking, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView }   from 'react-native-safe-area-context';
@@ -14,6 +14,31 @@ import { useSettings }    from '../hooks/useSettings';
 const { width } = Dimensions.get('window');
 const R   = '#e33835';
 const GOLD = '#FFD700';
+const TERMS_URL   = 'https://v-room.app/terms';
+const PRIVACY_URL = 'https://v-room.app/privacy';
+
+/** Etykieta okresu rozliczenia — wymagane przez Google Play przy ofercie subskrypcji. */
+function billingPeriodLabel(pkg: any): string {
+  const type = String(pkg?.packageType ?? '').toUpperCase();
+  if (type.includes('MONTH')) return 'miesiąc';
+  if (type.includes('ANNUAL') || type.includes('YEAR')) return 'rok';
+  if (type.includes('WEEK')) return 'tydzień';
+  const iso = String(pkg?.product?.subscriptionPeriod ?? '');
+  if (iso === 'P1M' || /month/i.test(iso)) return 'miesiąc';
+  if (iso === 'P1Y' || /year/i.test(iso)) return 'rok';
+  const priceStr = pkg?.product?.priceString ?? '';
+  if (/\/\s*mies|month|mies\./i.test(priceStr)) return 'miesiąc';
+  if (/\/\s*rok|year|rocznie/i.test(priceStr)) return 'rok';
+  return 'okres rozliczeniowy';
+}
+
+function billingFrequencyAdverb(pkg: any): string {
+  const period = billingPeriodLabel(pkg);
+  if (period === 'miesiąc') return 'co miesiąc';
+  if (period === 'rok') return 'co rok';
+  if (period === 'tydzień') return 'co tydzień';
+  return `co ${period}`;
+}
 
 /** RevenueCat: `current` jest wypełnione tylko gdy oferta jest „Current” w dashboardzie — inaczej pakiety są w `all`. */
 function packagesFromOfferings(offerings: any): any[] {
@@ -178,7 +203,15 @@ export default function PremiumScreen() {
 
           {/* ─── Tytuł ─── */}
           <Text style={s.title}>VROOM PREMIUM</Text>
-          <Text style={s.subtitle}>Odblokuj pełne możliwości</Text>
+          <Text style={s.subtitle}>Opcjonalna subskrypcja — dodatkowe funkcje</Text>
+
+          <View style={s.optionalBanner}>
+            <MaterialIcons name="info-outline" size={16} color={GOLD} />
+            <Text style={s.optionalBannerText}>
+              Aplikacja VROOM jest <Text style={s.optionalBold}>w pełni używalna bez subskrypcji</Text>.
+              Premium nie jest wymagane do korzystania z mapy, społeczności ani podstawowych funkcji.
+            </Text>
+          </View>
 
           {/* ─── Benefity ─── */}
           <View style={s.benefitsCard}>
@@ -202,10 +235,38 @@ export default function PremiumScreen() {
           {/* ─── Oferty ─── */}
           <Text style={s.sectionLabel}>WYBIERZ PLAN</Text>
 
+          <View style={s.termsCard}>
+            <Text style={s.termsCardTitle}>Warunki subskrypcji</Text>
+            <Text style={s.termsBullet}>
+              • Płatność jest pobierana z konta {Platform.OS === 'ios' ? 'Apple' : 'Google Play'} po potwierdzeniu zakupu.
+            </Text>
+            <Text style={s.termsBullet}>
+              • Subskrypcja odnawia się automatycznie, chyba że anulujesz ją co najmniej 24 godziny przed końcem bieżącego okresu.
+            </Text>
+            <Text style={s.termsBullet}>
+              • Opłata za kolejny okres zostanie pobrana w ciągu 24 godzin przed jego rozpoczęciem.
+            </Text>
+            <Text style={s.termsBullet}>
+              • Anulowanie: {Platform.OS === 'ios' ? 'Ustawienia → Apple ID → Subskrypcje' : 'Google Play → Płatności i subskrypcje → Subskrypcje'}.
+            </Text>
+            <Text style={s.termsBullet}>
+              • Po anulowaniu Premium pozostaje aktywne do końca opłaconego okresu.
+            </Text>
+            <View style={s.termsLinksRow}>
+              <Text style={s.termsLink} onPress={() => Linking.openURL(TERMS_URL)}>Regulamin</Text>
+              <Text style={s.termsLinkSep}> · </Text>
+              <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityka prywatności</Text>
+            </View>
+          </View>
+
           {loadingOff ? (
             <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
           ) : packages.length > 0 ? (
-            packages.map(pkg => (
+            packages.map(pkg => {
+              const priceStr = pkg.product?.priceString ?? '—';
+              const period = billingPeriodLabel(pkg);
+              const frequency = billingFrequencyAdverb(pkg);
+              return (
               <TouchableOpacity
                 key={pkg.identifier}
                 style={s.offerBtn}
@@ -220,15 +281,22 @@ export default function PremiumScreen() {
                 />
                 <View style={s.offerDeco} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.offerName}>{pkg.product?.title ?? pkg.packageType}</Text>
-                  <Text style={s.offerPrice}>{pkg.product?.priceString ?? '—'}</Text>
+                  <Text style={s.offerName}>{pkg.product?.title ?? 'VROOM Premium'}</Text>
+                  <Text style={s.offerPriceMain}>
+                    {priceStr}
+                    <Text style={s.offerPricePeriod}> / {period}</Text>
+                  </Text>
+                  <Text style={s.offerPriceSub}>
+                    Płatność {frequency} · automatyczne odnawianie do anulowania
+                  </Text>
                 </View>
                 {buying === pkg.identifier
                   ? <ActivityIndicator color="#fff" size="small" />
                   : <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
                 }
               </TouchableOpacity>
-            ))
+              );
+            })
           ) : (
             /* Brak pakietów z RevenueCat (np. brak current offering albo sieć) */
             <View style={s.noOffersWrap}>
@@ -255,13 +323,20 @@ export default function PremiumScreen() {
             }
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={s.restoreBtn}
-            onPress={handleRevenueCatDebug}
-            activeOpacity={0.75}
-          >
-            <Text style={s.restoreTxt}>SPRAWDŹ RC DEBUG</Text>
-          </TouchableOpacity>
+          {__DEV__ && (
+            <TouchableOpacity
+              style={s.restoreBtn}
+              onPress={handleRevenueCatDebug}
+              activeOpacity={0.75}
+            >
+              <Text style={s.restoreTxt}>SPRAWDŹ RC DEBUG</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={s.footerLegal}>
+            Subskrypcja VROOM Premium jest dobrowolna. Cena i okres rozliczenia są widoczne przy przycisku planu
+            oraz w oknie płatności {Platform.OS === 'ios' ? 'App Store' : 'Google Play'} przed zatwierdzeniem transakcji.
+          </Text>
         </ScrollView>
       </SafeAreaView>
 
@@ -350,7 +425,29 @@ const s = StyleSheet.create({
     fontFamily: 'Orbitron',
     fontSize: 11, color: '#ffffff60',
     textAlign: 'center', letterSpacing: 2,
-    marginBottom: 28,
+    marginBottom: 16,
+  },
+  optionalBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFD70012',
+    borderWidth: 1,
+    borderColor: '#FFD70035',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 22,
+  },
+  optionalBannerText: {
+    flex: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    color: '#ffffffcc',
+    lineHeight: 15,
+  },
+  optionalBold: {
+    color: GOLD,
+    fontWeight: '800',
   },
 
   benefitsCard: {
@@ -391,6 +488,46 @@ const s = StyleSheet.create({
     letterSpacing: 4, marginBottom: 14,
     textAlign: 'center',
   },
+  termsCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ffffff18',
+    backgroundColor: '#ffffff08',
+    padding: 16,
+    marginBottom: 18,
+    gap: 6,
+  },
+  termsCardTitle: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  termsBullet: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffffffb0',
+    lineHeight: 14,
+  },
+  termsLinksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  termsLink: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    color: R,
+    textDecorationLine: 'underline',
+  },
+  termsLinkSep: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    color: '#ffffff50',
+  },
 
   offerBtn: {
     borderRadius: 16,
@@ -417,9 +554,33 @@ const s = StyleSheet.create({
     fontWeight: '900', letterSpacing: 1,
     marginBottom: 3,
   },
-  offerPrice: {
+  offerPriceMain: {
     fontFamily: 'Orbitron',
-    fontSize: 9, color: '#ffffff70',
+    fontSize: 16,
+    color: GOLD,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  offerPricePeriod: {
+    fontSize: 11,
+    color: '#ffffff90',
+    fontWeight: '700',
+  },
+  offerPriceSub: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffffff65',
+    marginTop: 5,
+    lineHeight: 12,
+  },
+  footerLegal: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffffff45',
+    textAlign: 'center',
+    lineHeight: 13,
+    marginTop: 8,
+    paddingHorizontal: 8,
   },
   badge: {
     backgroundColor: GOLD + '20',

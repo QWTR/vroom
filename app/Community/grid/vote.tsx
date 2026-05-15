@@ -182,6 +182,12 @@ function EntryCard({
     }
   }, [isVoted]);
 
+  const photosKey = photos.join('|');
+  useEffect(() => {
+    setPhotoIdx(0);
+    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+  }, [entry.id, photosKey]);
+
   const overlayOpacity = dimAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.72] });
 
   const displayPhotos = photos.length > 0 ? photos : ['ph'];
@@ -207,7 +213,8 @@ function EntryCard({
       >
         {displayPhotos.map((uri, i) => (
           <Image
-            key={i}
+            key={`${entry.id}-${uri}-${i}`}
+            recyclingKey={`${entry.id}-${uri}`}
             source={{ uri: uri === 'ph' ? 'https://via.placeholder.com/600x400/0a0a0a/222?text=+' : uri }}
             style={{ width, height: cardHeight }}
             contentFit="cover"
@@ -500,6 +507,7 @@ export default function GridVoteScreen() {
 
         {/* ── ENTRY A ── */}
         <EntryCard
+          key={`${battle.id}-A`}
           entry={battle.entryA} photos={photosA}
           isVoted={myVote === battle.entryA.id}
           isLoser={!!myVote && myVote !== battle.entryA.id}
@@ -567,6 +575,7 @@ export default function GridVoteScreen() {
 
         {/* ── ENTRY B ── */}
         <EntryCard
+          key={`${battle.id}-B`}
           entry={battle.entryB} photos={photosB}
           isVoted={myVote === battle.entryB.id}
           isLoser={!!myVote && myVote !== battle.entryB.id}

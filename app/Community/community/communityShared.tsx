@@ -10,6 +10,7 @@ import * as ImagePicker       from 'expo-image-picker';
 import { Video, ResizeMode }  from 'expo-av';
 import Toast                  from 'react-native-toast-message';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets }  from 'react-native-safe-area-context';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
 
@@ -455,13 +456,17 @@ export const ComposeBox = ({
   onPost,
   bottomInset,
   mentionsEnabled = false,
+  onHeightChange,
 }: {
   onPost: (text: string, photos: string[], video: string | null) => Promise<void>;
   bottomInset: number;
   /** Podpowiedzi @username przy pisaniu posta */
   mentionsEnabled?: boolean;
+  /** Raportuje wysokość paska (FlatList paddingBottom). */
+  onHeightChange?: (height: number) => void;
 }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [text,    setText]    = useState('');
   const [photos,  setPhotos]  = useState<string[]>([]);
   const [video,   setVideo]   = useState<string | null>(null);
@@ -471,18 +476,19 @@ export const ComposeBox = ({
   const [photoIdx,    setPhotoIdx]    = useState(0);
   const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** iOS: rodzic z KeyboardAvoidingView + dolny inset tabów kumuluje się z KAV — tylko jawna wysokość klawiatury. */
-  const [iosKeyboardPad, setIosKeyboardPad] = useState(0);
+  const [keyboardPad, setKeyboardPad] = useState(0);
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const onShow = Keyboard.addListener('keyboardWillShow', e => {
-      setIosKeyboardPad(e.endCoordinates?.height ?? 0);
-    });
-    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardPad(0));
-    return () => {
-      onShow.remove();
-      onHide.remove();
+    const onShow = (e: { endCoordinates?: { height?: number } }) => {
+      setKeyboardPad(e.endCoordinates?.height ?? 0);
     };
+    const onHide = () => setKeyboardPad(0);
+    const subs = [
+      Keyboard.addListener('keyboardDidShow', onShow),
+      Keyboard.addListener('keyboardDidHide', onHide),
+      Keyboard.addListener('keyboardWillShow', onShow),
+      Keyboard.addListener('keyboardWillHide', onHide),
+    ];
+    return () => subs.forEach(s => s.remove());
   }, []);
 
   const pickPhoto = async () => {
@@ -520,7 +526,11 @@ export const ComposeBox = ({
     setText(''); setPhotos([]); setVideo(null);
     setPosting(false); setFocused(false);
     setMentionUsers([]);
+    Keyboard.dismiss();
   };
+
+  const restingBottom = Math.max(bottomInset, insets.bottom, 10);
+  const bottomOffset = keyboardPad > 0 ? keyboardPad : restingBottom;
 
   const onChangeText = (v: string) => {
     setText(v);
@@ -544,13 +554,23 @@ export const ComposeBox = ({
   };
 
   return (
-    <View style={{
-      borderTopWidth: 1, borderTopColor: theme.border,
-      backgroundColor: theme.surface,
-      paddingHorizontal: 12,
-      paddingTop: 10,
-      paddingBottom: Math.max(bottomInset, 10) + (Platform.OS === 'ios' ? iosKeyboardPad : 0),
-    }}>
+    <View
+      onLayout={e => onHeightChange?.(e.nativeEvent.layout.height)}
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: bottomOffset,
+        zIndex: 30,
+        elevation: 30,
+        borderTopWidth: 1,
+        borderTopColor: theme.border,
+        backgroundColor: theme.surface,
+        paddingHorizontal: 12,
+        paddingTop: 10,
+        paddingBottom: 10,
+      }}
+    >
       {/* Podgląd mediów */}
       {(photos.length > 0 || video) && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8 }}>

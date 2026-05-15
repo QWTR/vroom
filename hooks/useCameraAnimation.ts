@@ -57,7 +57,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
 
   const lastLiveCallRef = useRef(0);
   /** Krótszy odstęp = kamera podąża za DR przy wolnej jeździe (wcześniej próg ~0,8 m blokował klatki). */
-  const LIVE_INTERVAL_MS = 36;
+  const LIVE_INTERVAL_MS = 95;
 
   function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
     if (

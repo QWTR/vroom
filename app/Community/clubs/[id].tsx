@@ -21,6 +21,7 @@ import { UAv }                    from '../../../components/clubs/ClubCard';
 import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
 import { renderDiscussionBody }   from '../community/communityShared';
+import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 
 const WS_URL   = 'https://v-room.app';
 const getToken = () => AsyncStorage.getItem('token');
@@ -61,7 +62,7 @@ interface ClubMessage {
 // ── Context Menu ──────────────────────────────────────────
 function MessageMenu({
   visible, message, isMe, canPin, canDelete,
-  onReact, onReply, onPin, onDelete, onClose,
+  onReact, onReply, onPin, onDelete, onReport, onBlock, onClose,
 }: {
   visible:   boolean;
   message:   ClubMessage | null;
@@ -72,6 +73,8 @@ function MessageMenu({
   onReply:   () => void;
   onPin:     () => void;
   onDelete:  () => void;
+  onReport?: () => void;
+  onBlock?:  () => void;
   onClose:   () => void;
 }) {
   const { theme } = useTheme();
@@ -88,6 +91,14 @@ function MessageMenu({
     ...((isMe || canDelete) ? [{
       icon: 'delete-outline', label: 'Usuń', color: '#e33835',
       onPress: () => { onDelete(); onClose(); },
+    }] : []),
+    ...(!isMe && onReport ? [{
+      icon: 'flag', label: 'Zgłoś treść', color: '#FF9800',
+      onPress: () => { onReport(); onClose(); },
+    }] : []),
+    ...(!isMe && onBlock ? [{
+      icon: 'block', label: 'Zablokuj użytkownika', color: '#e33835',
+      onPress: () => { onBlock(); onClose(); },
     }] : []),
   ];
 
@@ -359,20 +370,53 @@ export default function ClubChatScreen() {
     const t = text.trim();
     const p = [...photos];
     const r = replyTo;
-    setText(''); setPhotos([]); setReplyTo(null);
+    const prevText = text;
+    const prevPhotos = [...photos];
+    const prevReply = replyTo;
+    setText('');
+    setPhotos([]);
+    setReplyTo(null);
     setSending(true);
     try {
-      if (!activeChannelId) return;
+      if (!activeChannelId) {
+        setText(prevText);
+        setPhotos(prevPhotos);
+        setReplyTo(prevReply);
+        return;
+      }
       const form = new FormData();
       if (t) form.append('content', t);
       if (r) form.append('replyToId', String(r.id));
       form.append('channelId', String(activeChannelId));
       p.forEach((uri, i) => form.append('photos', { uri, type: 'image/jpeg', name: `p${i}.jpg` } as any));
-      await fetch(`${API_URL}/api/clubs/${clubId}/messages`, {
+      const res = await fetch(`${API_URL}/api/clubs/${clubId}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokenRef.current}` },
         body: form,
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        Toast.show({
+          type: 'error',
+          text1: 'Nie wysłano wiadomości',
+          text2: (err as { error?: string }).error ?? 'Spróbuj ponownie.',
+        });
+        setText(prevText);
+        setPhotos(prevPhotos);
+        setReplyTo(prevReply);
+        return;
+      }
+      const msg: ClubMessage = await res.json();
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+    } catch {
+      Toast.show({ type: 'error', text1: 'Brak połączenia' });
+      setText(prevText);
+      setPhotos(prevPhotos);
+      setReplyTo(prevReply);
     } finally { setSending(false); }
   }, [text, photos, replyTo, clubId, activeChannelId]);
 
@@ -1186,6 +1230,24 @@ export default function ClubChatScreen() {
         onReply={() => { if (menuMsg) setReplyTo(menuMsg); }}
         onPin={()   => { if (menuMsg) handlePin(menuMsg.id, menuMsg.isPinned); }}
         onDelete={() => { if (menuMsg) handleDelete(menuMsg.id); }}
+        onReport={menuMsg && menuMsg.senderId !== myId ? () => {
+          const msg = menuMsg;
+          showReportContentAlert((reason) => {
+            void reportContent({
+              targetType: 'club_message',
+              targetId: msg.id,
+              reason,
+              offenderUserId: msg.senderId,
+              details: `authorId=${msg.senderId}`,
+            });
+          });
+        } : undefined}
+        onBlock={menuMsg && menuMsg.senderId !== myId ? () => {
+          const msg = menuMsg;
+          showBlockUserAlert(msg.senderId, msg.sender.username, () => {
+            setMessages((prev) => prev.filter((m) => m.senderId !== msg.senderId));
+          });
+        } : undefined}
         onClose={() => setMenuMsg(null)}
       />
 

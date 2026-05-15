@@ -23,6 +23,8 @@ import { PremiumProvider } from '../contexts/PremiumContext';
 import { API_URL } from '../constants/config';
 import MobileAds from 'react-native-google-mobile-ads';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
+import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
+import { syncBlockedUserIdsFromServer } from '../lib/ugcActions';
 import {
   hasAcceptedBackgroundLocationDisclosure,
   requestBackgroundLocationPermissionAfterDisclosure,
@@ -168,6 +170,7 @@ function RootLayoutInner() {
   const pathname       = usePathname();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
+  const [ugcGateVisible, setUgcGateVisible] = useState(false);
   const bgDisclosureDismissedRef = useRef(false);
   const adsInitialized = useRef(false);
 
@@ -322,12 +325,33 @@ function RootLayoutInner() {
   useEffect(() => {
     if (!loaded && !error) return;
     if (pathname === '/login') return;
-    if (bgDisclosureDismissedRef.current) return;
+    if (phase !== 'done') return;
 
     let cancelled = false;
     (async () => {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
       if (!token) return;
+
+      void syncBlockedUserIdsFromServer();
+
+      const needsFlag = await AsyncStorage.getItem('needsUgcTerms');
+      if (needsFlag === '1') {
+        if (!cancelled) setUgcGateVisible(true);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/api/moderation/terms-status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.accepted && !cancelled) setUgcGateVisible(true);
+          else await AsyncStorage.setItem('needsUgcTerms', '0');
+        }
+      } catch {}
+
+      if (bgDisclosureDismissedRef.current) return;
       const accepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!accepted && !cancelled) setBgDisclosureVisible(true);
     })().catch(() => {});
@@ -335,7 +359,7 @@ function RootLayoutInner() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, error, pathname]);
+  }, [loaded, error, pathname, phase]);
 
   const closeBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
@@ -373,6 +397,13 @@ function RootLayoutInner() {
       </Stack>
       <StatusBar style="light" translucent={false} backgroundColor="#0a0a0a" />
       <Toast config={toastConfig} />
+      <UgcTermsGate
+        visible={ugcGateVisible}
+        onAccepted={async () => {
+          await AsyncStorage.setItem('needsUgcTerms', '0');
+          setUgcGateVisible(false);
+        }}
+      />
       <BackgroundLocationDisclosureModal
         visible={bgDisclosureVisible}
         onCancel={closeBgDisclosure}

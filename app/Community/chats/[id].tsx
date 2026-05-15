@@ -19,6 +19,7 @@ import { ConversationInfoSheet } from '../../../components/chat/ConversationInfo
 import { RouteMessageCard } from '../../../components/chat/RouteMessageCard';
 // @ts-ignore
 import { LinkPreviewCard } from '../../../components/chat/LinkPreviewCard';
+import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 
 const API = 'https://v-room.app/api/chat';
 const WS  = 'https://v-room.app';
@@ -788,6 +789,47 @@ export default function ChatScreen() {
                   </View>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>Kopiuj</Text>
                 </TouchableOpacity>
+              )}
+
+              {menuMsg && menuMsg.senderId !== myId && (
+                <>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
+                    onPress={() => {
+                      const msg = menuMsg;
+                      setMenuMsg(null);
+                      showReportContentAlert((reason) => {
+                        void reportContent({
+                          targetType: 'chat_message',
+                          targetId: msg.id,
+                          reason,
+                          offenderUserId: msg.sender.id,
+                          details: `authorId=${msg.sender.id}`,
+                        });
+                      });
+                    }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FF980018', alignItems: 'center', justifyContent: 'center' }}>
+                      <MaterialIcons name="flag" size={18} color="#FF9800" />
+                    </View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>Zgłoś treść</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
+                    onPress={() => {
+                      const msg = menuMsg;
+                      setMenuMsg(null);
+                      showBlockUserAlert(msg.sender.id, msg.sender.username, () => {
+                        setMessages((prev) => prev.filter((m) => m.senderId !== msg.sender.id));
+                      });
+                    }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#e3383518', alignItems: 'center', justifyContent: 'center' }}>
+                      <MaterialIcons name="block" size={18} color="#e33835" />
+                    </View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#e33835' }}>Zablokuj użytkownika</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </Pressable>
