@@ -11,31 +11,31 @@ import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapbo
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-const MIN_INTERVAL_MS = 4_200;
+const MIN_INTERVAL_MS = 3_400;
 const BUFFER_SIZE     = 9;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
-const EXPIRE_MS       = 90_000;
+const EXPIRE_MS       = 180_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
 const MIN_FETCH_MOVE_M  = 8;     // częstsze odświeżanie geometrii przy jeździe miejskiej
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
-const FORCE_MATCH_MIN_INTERVAL_MS = 72_000;
+const FORCE_MATCH_MIN_INTERVAL_MS = 57_600;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 24;
+const MAX_REQUESTS_PER_WINDOW = 29;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
-const MAX_MANUAL_BURST_PER_WINDOW = 6;
+const MAX_MANUAL_BURST_PER_WINDOW = 7;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
-const REFRESH_FORCE_MIN_INTERVAL_MS = 12_000;
+const REFRESH_FORCE_MIN_INTERVAL_MS = 9_600;
 const REFRESH_FORCE_MIN_MOVE_M = 35;
-const DIRECTIONS_STUB_MIN_INTERVAL_MS = 48_000;
+const DIRECTIONS_STUB_MIN_INTERVAL_MS = 38_400;
 const DIRECTIONS_STUB_MIN_MOVE_M = 140;
-const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 12_000;
+const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 9_600;
 const DIRECTIONS_STUB_AGGR_MOVE_M = 45;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -201,24 +201,24 @@ export function useDrivingMapMatch() {
     let dynamicMinIntervalMs = MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
     if (noRoad) {
-      dynamicMinIntervalMs = 3_800;
+      dynamicMinIntervalMs = 3_000;
       dynamicMinMoveM = 3;
     } else if (speedKmh >= 55) {
-      dynamicMinIntervalMs = 9_000;
+      dynamicMinIntervalMs = 7_200;
       dynamicMinMoveM = 22;
     } else if (speedKmh >= 25) {
-      dynamicMinIntervalMs = 7_600;
+      dynamicMinIntervalMs = 6_100;
       dynamicMinMoveM = 14;
     } else {
-      dynamicMinIntervalMs = 6_200;
+      dynamicMinIntervalMs = 5_000;
       dynamicMinMoveM = 8;
     }
     if (poorAcc && !noRoad) {
-      dynamicMinIntervalMs += 2_400;
+      dynamicMinIntervalMs += 1_900;
       dynamicMinMoveM += 8;
     }
     if (matchedPtsRef.current && !noRoad && speedKmh < 16 && !poorAcc) {
-      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 11_000);
+      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 8_800);
       dynamicMinMoveM = Math.max(dynamicMinMoveM, 20);
     }
 

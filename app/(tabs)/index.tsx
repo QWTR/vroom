@@ -117,6 +117,7 @@ export default function HomeScreen() {
 		isPremium,
 		isLoading: premiumLoading,
 		refreshPremiumStatus,
+    premiumStatus,
 	} = usePremium();
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
 	const [loading, setLoading] = useState(true);
@@ -387,6 +388,10 @@ export default function HomeScreen() {
 
 	const t = theme;
 	const effectivePremium = !!(isPremium || user?.isPremium);
+  const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
+  const premiumEndLabel = premiumEndDateRaw
+    ? new Date(premiumEndDateRaw).toLocaleDateString("pl-PL")
+    : null;
 	const gridVoteBannerW = width - 40;
 
 	if (loading || !user) {
@@ -1403,6 +1408,19 @@ export default function HomeScreen() {
 										? "Dziękujemy za wsparcie projektu"
 										: "Dotknij, aby przejść do zakupu"}
 								</Text>
+                {effectivePremium && (
+                  <Text
+                    style={{
+                      fontFamily: "Orbitron",
+                      fontSize: 7,
+                      color: t.textDim,
+                      marginTop: 4,
+                    }}>
+                    {premiumEndLabel
+                      ? `Koniec okresu: ${premiumEndLabel}`
+                      : "Korzyści Premium aktywne"}
+                  </Text>
+                )}
 							</View>
 
 							<View

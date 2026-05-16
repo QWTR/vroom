@@ -19,6 +19,18 @@ interface ColorKey {
   label: string;
 }
 
+function getStatusBarStyle(bg: string): 'light-content' | 'dark-content' {
+  const hex = bg.replace('#', '');
+  const normalized = hex.length === 3
+    ? hex.split('').map((c) => c + c).join('')
+    : hex.padEnd(6, '0').slice(0, 6);
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
+  return luminance > 155 ? 'dark-content' : 'light-content';
+}
+
 const GROUPS: { title: string; keys: ColorKey[] }[] = [
   {
     title: 'TŁA',
@@ -99,7 +111,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
+      <StatusBar barStyle={getStatusBarStyle(theme.bg)} backgroundColor={theme.bg} />
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top', 'bottom']}>
 
         {/* Nagłówek */}

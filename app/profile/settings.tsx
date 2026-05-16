@@ -2,11 +2,12 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
-  Dimensions,
+  Dimensions, KeyboardAvoidingView, Keyboard, Platform,
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter }    from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage     from '@react-native-async-storage/async-storage';
@@ -65,6 +66,7 @@ const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon', 'royal', 'cybe
 const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { theme, isDark, mode, setMode } = useTheme();
   const { isPremium: premiumFromContext } = usePremium();
@@ -72,19 +74,19 @@ export default function SettingsScreen() {
   const effectivePremium = !!(premiumFromContext || settings.isPremium);
 
   // ── Kolory zależne od motywu ───────────────────────────
-  const bg        = isDark ? '#090909'   : '#f0f2f5';
-  const cardBg    = isDark ? '#141414'   : '#ffffff';
-  const cardBorder= isDark ? '#ffffff0a' : '#00000010';
-  const rowAlt    = isDark ? '#1a1a1a'   : '#f8f8f8';
-  const divider   = isDark ? '#ffffff07' : '#00000008';
-  const textMain  = isDark ? '#ffffff'   : '#0a0a0a';
-  const textDim   = isDark ? '#ffffff35' : '#00000045';
-  const textMuted = isDark ? '#ffffff50' : '#00000060';
-  const overlayBg = isDark ? '#000000cc' : '#00000088';
-  const inputBg   = isDark ? '#1a1a1a'   : '#f0f0f0';
-  const inputBorder= isDark ? '#ffffff10': '#00000015';
-  const cancelBg  = isDark ? '#1a1a1a'   : '#ececec';
-  const cancelBorder= isDark? '#ffffff10': '#00000012';
+  const bg        = theme.bgAlt;
+  const cardBg    = theme.surface;
+  const cardBorder= theme.border2;
+  const rowAlt    = theme.surface2;
+  const divider   = theme.border;
+  const textMain  = theme.text;
+  const textDim   = theme.textDim;
+  const textMuted = theme.textMuted;
+  const overlayBg = theme.overlay;
+  const inputBg   = theme.surface3;
+  const inputBorder= theme.border2;
+  const cancelBg  = theme.surface2;
+  const cancelBorder= theme.border2;
   const scanLine  = isDark ? '#ffffff03' : '#00000003';
   const hudColor  = isDark ? RED         : RED;
   const heroGrad  = isDark
@@ -241,6 +243,7 @@ export default function SettingsScreen() {
   };
 
   const handleBugSubmit = async () => {
+    Keyboard.dismiss();
     if (!bugCategory)                      { Toast.show({ type: 'error', text1: 'Wybierz kategorię' }); return; }
     if (bugDescription.trim().length < 10) { Toast.show({ type: 'error', text1: 'Opis musi mieć min. 10 znaków' }); return; }
     setBugLoading(true);
@@ -476,12 +479,49 @@ export default function SettingsScreen() {
 
   return (
 		<>
+      <View
+        style={{
+          backgroundColor: bg,
+          paddingTop: insets.top + 8,
+          paddingHorizontal: 20,
+          paddingBottom: 10,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottomWidth: 1,
+          borderBottomColor: divider,
+        }}
+      >
+        <TouchableOpacity
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            backgroundColor: isDark ? '#ffffff10' : '#00000010',
+            borderWidth: 1,
+            borderColor: isDark ? '#ffffff15' : '#00000015',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onPress={() => {
+            Keyboard.dismiss();
+            router.back();
+          }}
+        >
+          <MaterialIcons name='arrow-back' size={20} color={textMain} />
+        </TouchableOpacity>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain, letterSpacing: 2 }}>
+          USTAWIENIA
+        </Text>
+        <View style={{ width: 38 }} />
+      </View>
 			<ScrollView
 				style={{ flex: 1, backgroundColor: bg }}
 				contentContainerStyle={{ paddingBottom: 100 }}
 				showsVerticalScrollIndicator={false}
-				keyboardShouldPersistTaps="always"
-				keyboardDismissMode="none">
+				keyboardShouldPersistTaps="handled"
+				keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        onScrollBeginDrag={Keyboard.dismiss}>
 				{/* ══ HERO ══ */}
 				<View
 					style={{
@@ -582,64 +622,40 @@ export default function SettingsScreen() {
 							}}
 						/>
 					</View>
-					{/* Nav */}
-					<View
-						style={{
-							position: "absolute",
-							top: 52,
-							left: 20,
-							right: 20,
-							flexDirection: "row",
-							alignItems: "center",
-							justifyContent: "space-between",
-						}}>
-						<TouchableOpacity
-							style={{
-								width: 38,
-								height: 38,
-								borderRadius: 12,
-								backgroundColor: isDark ? "#ffffff10" : "#00000010",
-								borderWidth: 1,
-								borderColor: isDark ? "#ffffff15" : "#00000015",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-							onPress={() => router.back()}>
-							<MaterialIcons name='arrow-back' size={20} color={textMain} />
-						</TouchableOpacity>
-						<View
-							style={{
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 7,
-								backgroundColor: isDark ? "#ffffff08" : "#00000008",
-								borderWidth: 1,
-								borderColor: isDark ? "#ffffff12" : "#00000012",
-								paddingHorizontal: 12,
-								paddingVertical: 7,
-								borderRadius: 20,
-							}}>
-							<View
-								style={{ backgroundColor: RED, borderRadius: 6, padding: 4 }}>
-								<MaterialCommunityIcons
-									name='car-sports'
-									size={11}
-									color='#fff'
-								/>
-							</View>
-							<Text
-								style={{
-									fontFamily: "Orbitron",
-									fontSize: 11,
-									color: textMain,
-									fontWeight: "900",
-									letterSpacing: 3,
-								}}>
-								VROOM
-							</Text>
-						</View>
-						<View style={{ width: 38 }} />
-					</View>
+          <View
+            style={{
+              position: 'absolute',
+              top: 52,
+              right: 20,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 7,
+              backgroundColor: isDark ? '#ffffff08' : '#00000008',
+              borderWidth: 1,
+              borderColor: isDark ? '#ffffff12' : '#00000012',
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderRadius: 20,
+            }}>
+            <View
+              style={{ backgroundColor: RED, borderRadius: 6, padding: 4 }}>
+              <MaterialCommunityIcons
+                name='car-sports'
+                size={11}
+                color='#fff'
+              />
+            </View>
+            <Text
+              style={{
+                fontFamily: 'Orbitron',
+                fontSize: 11,
+                color: textMain,
+                fontWeight: '900',
+                letterSpacing: 3,
+              }}>
+              VROOM
+            </Text>
+          </View>
 					{/* Title */}
 					<View style={{ position: "absolute", bottom: 36, left: 20 }}>
 						<Text
@@ -1422,6 +1438,7 @@ export default function SettingsScreen() {
 									placeholderTextColor={textDim}
 									autoCapitalize='none'
 									autoCorrect={false}
+                  clearButtonMode='while-editing'
 									style={{
 										backgroundColor: inputBg,
 										borderRadius: 10,
@@ -1657,6 +1674,7 @@ export default function SettingsScreen() {
 										placeholderTextColor={textDim}
 										autoCapitalize='characters'
 										autoCorrect={false}
+                    clearButtonMode='while-editing'
 										maxLength={24}
 										style={{
 											backgroundColor: inputBg,
@@ -2163,6 +2181,7 @@ export default function SettingsScreen() {
 							placeholder='Wpisz USUŃ'
 							placeholderTextColor={RED + "40"}
 							autoCapitalize='characters'
+              clearButtonMode='while-editing'
 						/>
 						<View style={{ flexDirection: "row", gap: 10 }}>
 							<TouchableOpacity
@@ -2175,7 +2194,10 @@ export default function SettingsScreen() {
 									borderWidth: 1,
 									borderColor: cancelBorder,
 								}}
-								onPress={() => setDeleteModal(false)}
+								onPress={() => {
+                  Keyboard.dismiss();
+                  setDeleteModal(false);
+                }}
 								disabled={deleteLoading}>
 								<Text
 									style={{
@@ -2230,17 +2252,29 @@ export default function SettingsScreen() {
 						alignItems: "center",
 						padding: 20,
 					}}>
-					<View
+					<KeyboardAvoidingView
 						style={{
-							backgroundColor: cardBg,
-							borderRadius: 22,
-							padding: 26,
 							width: "100%",
-							maxHeight: "92%",
-							borderWidth: 1,
-							borderColor: cardBorder,
-						}}>
-						<ScrollView showsVerticalScrollIndicator={false}>
+              maxHeight: "92%",
+						}}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 76 : 24}>
+            <View
+              style={{
+                backgroundColor: cardBg,
+                borderRadius: 22,
+                padding: 26,
+                width: "100%",
+                maxHeight: "100%",
+                borderWidth: 1,
+                borderColor: cardBorder,
+              }}
+            >
+						<ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps='handled'
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            >
 							<View
 								style={{
 									width: 62,
@@ -2358,6 +2392,7 @@ export default function SettingsScreen() {
 								placeholder='Opisz dokładnie co się stało...'
 								placeholderTextColor={textDim}
 								multiline
+                clearButtonMode='while-editing'
 								numberOfLines={5}
 								textAlignVertical='top'
 							/>
@@ -2448,7 +2483,10 @@ export default function SettingsScreen() {
 										borderWidth: 1,
 										borderColor: cancelBorder,
 									}}
-									onPress={() => setBugModal(false)}
+									onPress={() => {
+                    Keyboard.dismiss();
+                    setBugModal(false);
+                  }}
 									disabled={bugLoading}>
 									<Text
 										style={{
@@ -2489,7 +2527,8 @@ export default function SettingsScreen() {
 								</TouchableOpacity>
 							</View>
 						</ScrollView>
-					</View>
+            </View>
+					</KeyboardAvoidingView>
 				</View>
 			</Modal>
 

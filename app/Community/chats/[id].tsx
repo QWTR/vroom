@@ -636,6 +636,7 @@ export default function ChatScreen() {
                 }
                 contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
               />
             </Animated.View>
@@ -715,9 +716,20 @@ export default function ChatScreen() {
               }}
               placeholder="Napisz wiadomość..."
               placeholderTextColor={theme.textDim}
+              clearButtonMode="while-editing"
               multiline maxLength={2000}
               scrollEnabled={inputHeight >= INPUT_MAX_HEIGHT}
             />
+            <TouchableOpacity
+              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => {
+                Keyboard.dismiss();
+                setText('');
+                setReplyTo(null);
+              }}
+            >
+              <Feather name="x" size={16} color={theme.textDim} />
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={{

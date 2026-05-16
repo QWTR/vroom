@@ -80,6 +80,7 @@ export default function PremiumScreen() {
     restorePurchases,
     isPremium,
     isLoading,
+    premiumStatus,
   } = usePremium();
 
   const [offerings, setOfferings]   = useState<any>(null);
@@ -89,6 +90,7 @@ export default function PremiumScreen() {
   const [rcDebugVisible, setRcDebugVisible] = useState(false);
   const [rcDebugLoading, setRcDebugLoading] = useState(false);
   const [rcDebugText, setRcDebugText] = useState('');
+  const [justActivated, setJustActivated] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -105,9 +107,10 @@ export default function PremiumScreen() {
     return () => { cancelled = true; };
   }, [getOfferings, isLoading]);
 
-  // Zamknij po zakupie
+  // Zamknij tylko po aktywacji na tym ekranie (purchase/restore),
+  // żeby użytkownik z już aktywnym premium nie był wyrzucany po kilku sekundach.
   useEffect(() => {
-    if (isPremium) {
+    if (isPremium && justActivated) {
       (async () => {
         try {
           await fetchSettings();
@@ -123,12 +126,15 @@ export default function PremiumScreen() {
         router.back();
       })();
     }
-  }, [isPremium, router, fetchSettings]);
+  }, [isPremium, justActivated, router, fetchSettings]);
 
   const handlePurchase = async (pkg: any) => {
     setBuying(pkg.identifier);
     const ok = await purchasePremium(pkg);
     setBuying(null);
+    if (ok) {
+      setJustActivated(true);
+    }
     if (!ok) {
       Toast.show({ type: 'error', text1: 'Zakup nie powiódł się', text2: 'Spróbuj ponownie.' });
     }
@@ -139,6 +145,7 @@ export default function PremiumScreen() {
     const ok = await restorePurchases();
     setRestoring(false);
     if (ok) {
+      setJustActivated(true);
       Toast.show({ type: 'success', text1: 'Zakupy przywrócone!', text2: 'Premium aktywne ✓' });
     } else {
       Toast.show({ type: 'info', text1: 'Brak zakupów do przywrócenia', visibilityTime: 3000 });
@@ -166,6 +173,10 @@ export default function PremiumScreen() {
   };
 
   const packages: any[] = packagesFromOfferings(offerings);
+  const premiumEndsAt = premiumStatus.currentPeriodEnd ?? premiumStatus.premiumExpiresAt ?? null;
+  const premiumEndLabel = premiumEndsAt
+    ? new Date(premiumEndsAt).toLocaleDateString('pl-PL')
+    : 'Brak daty końca';
 
   return (
     <View style={{ flex: 1 }}>
@@ -203,7 +214,38 @@ export default function PremiumScreen() {
 
           {/* ─── Tytuł ─── */}
           <Text style={s.title}>VROOM PREMIUM</Text>
-          <Text style={s.subtitle}>Opcjonalna subskrypcja — dodatkowe funkcje</Text>
+          <Text style={s.subtitle}>
+            {isPremium ? 'Twoja subskrypcja jest aktywna' : 'Opcjonalna subskrypcja — dodatkowe funkcje'}
+          </Text>
+
+          {isPremium && (
+            <View style={s.activeBanner}>
+              <MaterialIcons name="verified" size={18} color={GOLD} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.activeBannerTitle}>Masz aktywne VROOM Premium</Text>
+                <Text style={s.activeBannerText}>
+                  Plan: {premiumStatus.plan ?? 'premium'} · Koniec okresu: {premiumEndLabel}
+                </Text>
+                <Text style={s.activeBannerText}>
+                  Status: {premiumStatus.status ?? 'active'}
+                </Text>
+              </View>
+            </View>
+          )}
+          {!isPremium && premiumStatus.status === 'inactive' && !!premiumStatus.premiumExpiresAt && (
+            <View style={s.expiredBanner}>
+              <MaterialIcons name="schedule" size={16} color="#ff922b" />
+              <Text style={s.expiredBannerText}>
+                Premium wygasło. Odnów subskrypcję, aby wrócić do pełnych korzyści.
+              </Text>
+            </View>
+          )}
+          {!isPremium && !!premiumStatus.error && (
+            <View style={s.errorBanner}>
+              <MaterialIcons name="error-outline" size={16} color="#ff6b6b" />
+              <Text style={s.errorBannerText}>Nie udało się pobrać pełnego statusu Premium.</Text>
+            </View>
+          )}
 
           <View style={s.optionalBanner}>
             <MaterialIcons name="info-outline" size={16} color={GOLD} />
@@ -233,7 +275,7 @@ export default function PremiumScreen() {
           </View>
 
           {/* ─── Oferty ─── */}
-          <Text style={s.sectionLabel}>WYBIERZ PLAN</Text>
+          <Text style={s.sectionLabel}>{isPremium ? 'TWOJE KORZYŚCI' : 'WYBIERZ PLAN'}</Text>
 
           <View style={s.termsCard}>
             <Text style={s.termsCardTitle}>Warunki subskrypcji</Text>
@@ -259,9 +301,9 @@ export default function PremiumScreen() {
             </View>
           </View>
 
-          {loadingOff ? (
+          {!isPremium && loadingOff ? (
             <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
-          ) : packages.length > 0 ? (
+          ) : !isPremium && packages.length > 0 ? (
             packages.map(pkg => {
               const priceStr = pkg.product?.priceString ?? '—';
               const period = billingPeriodLabel(pkg);
@@ -297,7 +339,7 @@ export default function PremiumScreen() {
               </TouchableOpacity>
               );
             })
-          ) : (
+          ) : !isPremium ? (
             /* Brak pakietów z RevenueCat (np. brak current offering albo sieć) */
             <View style={s.noOffersWrap}>
               <Text style={s.noOffersTitle}>Nie udało się wczytać oferty</Text>
@@ -308,7 +350,7 @@ export default function PremiumScreen() {
                 W __DEV__ zobaczysz też ostrzeżenia [RevenueCat] w konsoli Metro / Logcat.
               </Text>
             </View>
-          )}
+          ) : null}
 
           {/* ─── Przywróć zakupy ─── */}
           <TouchableOpacity
@@ -448,6 +490,67 @@ const s = StyleSheet.create({
   optionalBold: {
     color: GOLD,
     fontWeight: '800',
+  },
+  activeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#4de92612',
+    borderWidth: 1,
+    borderColor: '#4de92645',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
+  },
+  activeBannerTitle: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    color: '#4de926',
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  activeBannerText: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffffffc0',
+    lineHeight: 13,
+  },
+  expiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ff922b18',
+    borderWidth: 1,
+    borderColor: '#ff922b40',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 14,
+  },
+  expiredBannerText: {
+    flex: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffd8a8',
+    lineHeight: 13,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ff6b6b15',
+    borderWidth: 1,
+    borderColor: '#ff6b6b35',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 14,
+  },
+  errorBannerText: {
+    flex: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: '#ffc9c9',
+    lineHeight: 13,
   },
 
   benefitsCard: {

@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme as NavLightTheme, ThemeProvider as NavThemeProv
 import { useFonts }   from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View, StyleSheet, Animated, Easing,
   Dimensions, Text,
@@ -57,13 +57,17 @@ Notifications.setNotificationChannelAsync('navigation', {
 });
 
 // ─── TOAST ────────────────────────────────────────────────
-const toastConfig = {
+const createToastConfig = (isDark: boolean) => {
+  const bg = isDark ? '#141414' : '#ffffff';
+  const textMain = isDark ? '#ffffff' : '#151515';
+  const textSecondary = isDark ? '#ffffff70' : '#4a4a4a';
+  return {
   success: (props: any) => (
     <BaseToast {...props}
-      style={{ marginTop: 10, borderBottomColor: R, borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: '#141414', height: 70, zIndex: 999990, borderRadius: 12 }}
+      style={{ marginTop: 10, borderBottomColor: R, borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
       contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{ color: '#fff', fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: '#ffffff55', fontSize: 11, fontFamily: 'Orbitron' }}
+      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
+      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
       renderLeadingIcon={() => (
         <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
           <MaterialIcons name="check-circle" size={26} color={R} />
@@ -73,10 +77,10 @@ const toastConfig = {
   ),
   info: (props: any) => (
     <BaseToast {...props}
-      style={{ marginTop: 10, borderBottomColor: '#268bff', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: '#141414', height: 70, zIndex: 999990, borderRadius: 12 }}
+      style={{ marginTop: 10, borderBottomColor: '#268bff', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
       contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{ color: '#fff', fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: '#ffffff55', fontSize: 11, fontFamily: 'Orbitron' }}
+      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
+      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
       renderLeadingIcon={() => (
         <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
           <MaterialIcons name="info-outline" size={26} color="#268bff" />
@@ -86,9 +90,9 @@ const toastConfig = {
   ),
   error: (props: any) => (
     <ErrorToast {...props}
-      style={{ marginTop: 10, borderBottomColor: '#fa0400', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: '#141414', height: 70, zIndex: 999990, borderRadius: 12 }}
-      text1Style={{ color: '#fff', fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: '#ffffff55', fontSize: 11, fontFamily: 'Orbitron' }}
+      style={{ marginTop: 10, borderBottomColor: '#fa0400', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
+      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
+      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
       renderLeadingIcon={() => (
         <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
           <MaterialIcons name="error-outline" size={28} color="#fa0400" />
@@ -96,6 +100,7 @@ const toastConfig = {
       )}
     />
   ),
+};
 };
 
 // ─── REFRESH USER ─────────────────────────────────────────
@@ -434,6 +439,7 @@ function RootLayoutInner() {
 
   const spinDeg  = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const barWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const toastConfig = useMemo(() => createToastConfig(isDark), [isDark]);
 
   if (!loaded && !error) return null;
 
@@ -446,7 +452,7 @@ function RootLayoutInner() {
         <Stack.Screen name="Community/clubs/[id]" />
         <Stack.Screen name="notifications" />
       </Stack>
-      <StatusBar style="light" translucent={false} backgroundColor="#0a0a0a" />
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={isDark ? '#0a0a0a' : '#efefef'} />
       <Toast config={toastConfig} />
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}

@@ -29,7 +29,7 @@ const MAX_ACCURACY_ACTIVE_M = 120;
 const MAX_ACCURACY_ACTIVE_HARD_M = 220;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
-const ACTIVE_FIX_TIMEOUT_MS = 12000;
+const ACTIVE_FIX_TIMEOUT_MS = 16000;
 const IDLE_FIX_TIMEOUT_MS   = 25000;
 /** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
 const IDLE_FALLBACK_MAX_AGE_MS = 12000;
@@ -54,9 +54,9 @@ const GPS_CONFIG: Record<GpsProfile, {
     distanceInterval: 25,
   },
   active: {
-    accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     2000,
-    distanceInterval: 8,
+    accuracy:         Location.Accuracy.BestForNavigation,
+    timeInterval:     1200,
+    distanceInterval: 4,
   },
 };
 

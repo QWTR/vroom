@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
@@ -11,6 +11,19 @@ Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const MAX_HISTORY_ROUTES_ON_MAP = 20;
 const MAX_POINTS_PER_ROUTE_ON_MAP = 180;
+const HISTORY_SANITIZE_MAX_JUMP_KM = 0.9;
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
   const valid: [number, number][] = (points || [])
@@ -23,10 +36,22 @@ function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
       lng >= -180 &&
       lng <= 180,
     );
-  if (valid.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return valid;
-  const step = Math.ceil(valid.length / MAX_POINTS_PER_ROUTE_ON_MAP);
-  const sampled = valid.filter((_, idx) => idx % step === 0);
-  const last = valid[valid.length - 1];
+  if (valid.length === 0) return [];
+
+  const sanitized: [number, number][] = [valid[0]];
+  for (let i = 1; i < valid.length; i += 1) {
+    const [lng, lat] = valid[i];
+    const prev = sanitized[sanitized.length - 1];
+    const jumpKm = haversineKm(prev[1], prev[0], lat, lng);
+    if (!Number.isFinite(jumpKm)) continue;
+    if (jumpKm > HISTORY_SANITIZE_MAX_JUMP_KM) continue;
+    sanitized.push([lng, lat]);
+  }
+
+  if (sanitized.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return sanitized;
+  const step = Math.ceil(sanitized.length / MAX_POINTS_PER_ROUTE_ON_MAP);
+  const sampled = sanitized.filter((_, idx) => idx % step === 0);
+  const last = sanitized[sanitized.length - 1];
   if (!sampled.length || sampled[sampled.length - 1][0] !== last[0] || sampled[sampled.length - 1][1] !== last[1]) {
     sampled.push(last);
   }
@@ -37,6 +62,7 @@ export default function HistoryRidesScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const { activityHistory, fetchActivityHistory } = useProfile();
+  const cameraRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAllHistoryOnMap, setShowAllHistoryOnMap] = useState(true);
   const [selectedHistoryRoute, setSelectedHistoryRoute] = useState<any | null>(null);
@@ -45,7 +71,7 @@ export default function HistoryRidesScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await fetchActivityHistory({ includeRoute: true });
+      await fetchActivityHistory({ includeRoute: true, allPages: true, limit: 50 });
       setLoading(false);
     })();
   }, [fetchActivityHistory]);
@@ -82,9 +108,39 @@ export default function HistoryRidesScreen() {
     } as any;
   }, [mapHistoryShapes, showAllHistoryOnMap]);
 
+  const mapBounds = useMemo(() => {
+    if (mapHistoryShapes.length === 0) return null;
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    for (const shape of mapHistoryShapes) {
+      for (const [lng, lat] of shape.coordinates) {
+        if (lng < minLng) minLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lng > maxLng) maxLng = lng;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    if (!Number.isFinite(minLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLng) || !Number.isFinite(maxLat)) {
+      return null;
+    }
+    return {
+      ne: [maxLng, maxLat] as [number, number],
+      sw: [minLng, minLat] as [number, number],
+    };
+  }, [mapHistoryShapes]);
+
   const historyInitialCenter = mapHistoryShapes.length > 0
     ? mapHistoryShapes[0].coordinates[0]
     : null;
+
+  useEffect(() => {
+    if (!historyMapEnabled || !mapBounds) return;
+    setTimeout(() => {
+      cameraRef.current?.fitBounds(mapBounds.ne, mapBounds.sw, 32, 500);
+    }, 80);
+  }, [historyMapEnabled, mapBounds, showAllHistoryOnMap, selectedHistoryRoute?.id]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -124,6 +180,7 @@ export default function HistoryRidesScreen() {
               rotateEnabled={false}
             >
               <Mapbox.Camera
+                ref={cameraRef}
                 defaultSettings={{ centerCoordinate: historyInitialCenter, zoomLevel: 12 }}
                 animationDuration={0}
               />
@@ -179,10 +236,10 @@ export default function HistoryRidesScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text }}>
-                  {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Math.round(a.distance || 0)} km
+                  {new Date(a.createdAt).toLocaleDateString('pl-PL')} · {Number(a.distance || 0).toFixed(1)} km
                 </Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
-                  Max: {Math.round(a.maxSpeed || 0)} km/h · Avg: {Math.round(a.avgSpeed || 0)} km/h
+                  Max: {Number(a.maxSpeed || 0).toFixed(1)} km/h · Avg: {Number(a.avgSpeed || 0).toFixed(1)} km/h
                 </Text>
                 {!hasRoute && (
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b', marginTop: 4 }}>

@@ -74,6 +74,8 @@ const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
 /** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
+/** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
+export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
@@ -81,7 +83,7 @@ const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 60;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
 const BG_MIN_SEGMENT_KM         = 0.003;
-const BG_MAX_SEGMENT_KM         = 1.2;
+const BG_MAX_SEGMENT_KM         = 0.65;
 const BG_ROUTE_MAX_POINTS       = 500;
 const BG_MIN_SPEED_KMH          = 2;
 const BG_MIN_REPORTED_SPEED_KMH = 3;
@@ -239,10 +241,13 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       ]);
     }
 
+    const appActiveFlag = await AsyncStorage.getItem(BG_APP_ACTIVE_KEY);
+    const shouldAccumulateDistance = appActiveFlag !== 'true';
+
     // ── Accumulate distance ───────────────────────────────────────────────
     const nowMs = Date.now();
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
-    if (lastRaw) {
+    if (lastRaw && shouldAccumulateDistance) {
       const last = JSON.parse(lastRaw);
       const lastLat = Number(last?.latitude);
       const lastLng = Number(last?.longitude);
@@ -293,12 +298,17 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         hasReliableSpeed
           ? speedKmh! >= BG_MIN_SPEED_KMH
           : segment.accepted && segmentMeters >= accGateM * 1.15;
+      const lowConfidenceShortJump =
+        !hasReliableSpeed &&
+        dtSec <= 15 &&
+        segmentMeters > Math.max(45, accGateM * 1.6);
       if (
         hasLastFix &&
         dtSec > 0 &&
         speedGateOk &&
         isAccurateFix &&
         segment.accepted &&
+        !lowConfidenceShortJump &&
         segmentMeters >= accGateM
       ) {
         const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
@@ -364,6 +374,8 @@ export function useBackgroundTracking(
     flushSuccess: 0,
     flushFail: 0,
     pendingRetrySaved: 0,
+    navMergedFlushes: 0,
+    navMergedBgKm: 0,
   });
 
   // Mirror user setting + sharing flag for the BG task handler
@@ -436,9 +448,12 @@ export function useBackgroundTracking(
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
-        // Route-matched navigation distance from map.tsx/useTripStats is source of truth.
-        // Fallback to BG pending only if a nav payload was not provided.
-        const distanceToSaveRaw = navPayload?.distanceKm != null ? navPayload.distanceKm : bgPending;
+        // Merge foreground route-matched distance with any pending passive/background distance.
+        // This prevents km loss when switching driving -> navigation.
+        const navDistance = Number.isFinite(navPayload?.distanceKm) ? Number(navPayload?.distanceKm) : 0;
+        const distanceToSaveRaw = navDistance + bgPending;
+        telemetryRef.current.navMergedFlushes += 1;
+        telemetryRef.current.navMergedBgKm += bgPending;
         const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
           ? distanceToSaveRaw
           : 0;
@@ -456,6 +471,8 @@ export function useBackgroundTracking(
           avgSpeed: avgSpeedToSave,
           duration: navPayload?.durationSec ?? null,
           routePoints: routePointsToSave,
+          source: 'navigation',
+          routePointsCount: routePointsToSave?.length ?? 0,
         };
         const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
@@ -515,6 +532,8 @@ export function useBackgroundTracking(
             avgSpeed: Math.round(avgSpeed * 10) / 10,
             duration: null,
             routePoints: bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
+            source: 'background-passive',
+            routePointsCount: bgRoutePoints.length,
           }),
         });
         if (!saveRes.ok) {
@@ -552,9 +571,9 @@ export function useBackgroundTracking(
     startInFlightRef.current = true;
     try {
       const appIsActive = AppState.currentState === 'active';
-      const shouldTrack = bgEnabled && sharingHydrated && (isSharing || !appIsActive);
+      // Prevent double accounting while app is active in foreground trip pipeline.
+      const shouldTrack = bgEnabled && sharingHydrated && (!appIsActive || forceEnabled);
       if (!shouldTrack) return;
-      void forceEnabled;
       void isSharing;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
@@ -589,7 +608,7 @@ export function useBackgroundTracking(
     } finally {
       startInFlightRef.current = false;
     }
-  }, [bgEnabled, sharingHydrated, isSharing]);
+  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -619,7 +638,9 @@ export function useBackgroundTracking(
 
   // Recover BG task on foreground only when user enabled background work
   useEffect(() => {
+    AsyncStorage.setItem(BG_APP_ACTIVE_KEY, AppState.currentState === 'active' ? 'true' : 'false').catch(() => {});
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+      AsyncStorage.setItem(BG_APP_ACTIVE_KEY, s === 'active' ? 'true' : 'false').catch(() => {});
       if (s === 'background' || s === 'inactive') {
         if (bgEnabled && sharingHydrated) {
           startBackgroundTracking();

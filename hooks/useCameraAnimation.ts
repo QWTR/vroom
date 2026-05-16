@@ -10,7 +10,8 @@ interface CameraParams {
 }
 
 const RETURN_TO_USER_MS    = 6000;
-const NAV_LOOKAHEAD_METERS = 80;
+const NAV_LOOKAHEAD_METERS = 130;
+const BROWSE_3D_PITCH      = 52;
 
 function offsetCenter(
   lat: number, lng: number,
@@ -58,7 +59,6 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
   const lastLiveCallRef = useRef(0);
   /** Krótszy odstęp = kamera podąża za DR przy wolnej jeździe (wcześniej próg ~0,8 m blokował klatki). */
   const LIVE_INTERVAL_MS = 160;
-
   function doAnimate(params: CameraParams, duration: number, mode: 'flyTo' | 'linear' | 'easeTo' = 'flyTo') {
     if (
       !Number.isFinite(params.center.latitude) ||
@@ -139,7 +139,12 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     startLockTimerRef.current = setTimeout(() => { startLockRef.current = false; }, DRIVING_ENTRY_LOCK_MS);
     lastCenterRef.current   = null;
     lastLiveCallRef.current = 0;
-    const lookahead = offsetCenter(center.latitude, center.longitude, heading, NAV_LOOKAHEAD_METERS);
+    // At driving entry we often have low/zero speed and unstable heading.
+    // Avoid side-offset camera until real movement starts.
+    // Keep the user lower on screen even when entering driving at very low speed.
+    // Without this, the first frame centers the marker and may stay there while stationary.
+    const entryLookaheadM = speedKmh >= 10 ? NAV_LOOKAHEAD_METERS : 75;
+    const lookahead = offsetCenter(center.latitude, center.longitude, heading, entryLookaheadM);
     const zoom = Math.max(16.0, 18.5 - (Math.min(speedKmh, 140) / 140) * 2.5);
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [lookahead.longitude, lookahead.latitude],
@@ -168,7 +173,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     lastHeadingRef.current  = 0;
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [center.longitude, center.latitude],
-      pitch:            0,
+      pitch:            BROWSE_3D_PITCH,
       heading:          0,
       zoomLevel:        15,
       animationDuration: 700,
@@ -240,7 +245,7 @@ export function useCameraAnimation(cameraRef: React.RefObject<Mapbox.Camera>) {
     lastLiveCallRef.current  = 0;
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [center.longitude, center.latitude],
-      pitch:            0,
+      pitch:            BROWSE_3D_PITCH,
       heading:          0,
       zoomLevel:        zoom,
       animationDuration: 800,

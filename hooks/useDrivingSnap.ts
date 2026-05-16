@@ -12,8 +12,9 @@ const SNAP_RADIUS_M_MATCHED = 145;
 const SNAP_RADIUS_M_MATCHED_TIER2 = 300;
 const SNAP_RADIUS_M_MATCHED_TIER3 = 520;
 const SNAP_RADIUS_M_ROUTE_HARD    = 280;
-/** Promień „zawsze traf na polyline” — projekcja GPS na geometrię bez limitu odległości. */
-const SNAP_RADIUS_UNBOUNDED_M     = 1e9;
+/** Awaryjny promień dla hard lock — nadal ograniczony, żeby nie łapać odległych dróg. */
+const SNAP_RADIUS_EMERGENCY_M     = 900;
+const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
 const RAW_FALLBACK_MAX_STEP_M = 30;    // max krok fallbacku gdy chwilowo brak snapa
@@ -138,6 +139,7 @@ export function useDrivingSnap() {
   const lastTargetHeadingRef = useRef<number>(0);
   const routePtsRef          = useRef<{ latitude: number; longitude: number }[]>([]);
   const roadMatchPtsRef      = useRef<{ latitude: number; longitude: number }[]>([]);
+  const lastSegmentIndexRef  = useRef<number>(-1);
 
   const setRoutePoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
     routePtsRef.current = pts;
@@ -185,7 +187,8 @@ export function useDrivingSnap() {
       return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
     }
 
-    const last = lastRawRef.current;
+    const prevRaw = lastRawRef.current;
+    const last = prevRaw;
     if (last && !hardRoadLock) {
       const dLat = Math.abs(lat - last.lat);
       const dLng = Math.abs(lng - last.lng);
@@ -223,11 +226,11 @@ export function useDrivingSnap() {
       if (rm.length >= 2) {
         result = snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER2)
           || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER3)
-          || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_UNBOUNDED_M);
+          || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_EMERGENCY_M);
       }
       if (!result && rt.length >= 2) {
         result = snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_M_ROUTE_HARD)
-          || snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_UNBOUNDED_M);
+          || snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_EMERGENCY_M);
       }
     }
 
@@ -251,7 +254,7 @@ export function useDrivingSnap() {
         return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
       }
       if (hardRoadLock && pts.length >= 2) {
-        const emergency = snapToRouteWithInfo(lat, lng, pts, SNAP_RADIUS_UNBOUNDED_M);
+        const emergency = snapToRouteWithInfo(lat, lng, pts, SNAP_RADIUS_EMERGENCY_M);
         if (emergency) {
           result = emergency;
         }
@@ -304,6 +307,9 @@ export function useDrivingSnap() {
         result.latitude,
         result.longitude,
       ) * 1000;
+      const segmentLeap = lastSegmentIndexRef.current >= 0
+        ? Math.abs(result.segmentIndex - lastSegmentIndexRef.current)
+        : 0;
       if (jumpM > maxJumpM) {
         const pull = hardRoadLock
           ? speedKmh > 75
@@ -319,6 +325,20 @@ export function useDrivingSnap() {
         snappedCoord = {
           latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * pull,
           longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * pull,
+        };
+      } else if (hardRoadLock && segmentLeap > MAX_SEGMENT_INDEX_LEAP && jumpM > 20) {
+        // Gwałtowna zmiana segmentu po refreshu geometrii często powoduje „lane-hop”.
+        const guarded = speedKmh > 60 ? 0.5 : 0.42;
+        snappedCoord = {
+          latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * guarded,
+          longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * guarded,
+        };
+      } else if (hardRoadLock && jumpM > 18) {
+        // Driving mode should stay visually smooth even when geometry changes segment.
+        const smoothHard = speedKmh > 70 ? 0.8 : speedKmh > 35 ? 0.72 : 0.64;
+        snappedCoord = {
+          latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * smoothHard,
+          longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * smoothHard,
         };
       } else if (jumpM > 8) {
         const smooth = hardRoadLock
@@ -340,10 +360,11 @@ export function useDrivingSnap() {
     }
 
     lastSnappedRef.current = snappedCoord;
+    lastSegmentIndexRef.current = result.segmentIndex;
 
     // Heading wzdłuż drogi — segment dopasowany do kierunku jazdy (nie „pod skosem”).
     let segmentBearing = result.segmentBearing;
-    const lastRaw = lastRawRef.current;
+    const lastRaw = prevRaw;
     if (lastRaw) {
       const travelBearing = bearingBetween(lastRaw.lat, lastRaw.lng, lat, lng);
       if (haversineKm(lastRaw.lat, lastRaw.lng, lat, lng) * 1000 >= 1.5) {
@@ -369,6 +390,7 @@ export function useDrivingSnap() {
     lastRawRef.current           = null;
     lastSnappedRef.current       = null;
     lastTargetHeadingRef.current = 0;
+    lastSegmentIndexRef.current  = -1;
     roadMatchPtsRef.current      = [];
   }, []);
 

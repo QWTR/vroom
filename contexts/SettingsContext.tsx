@@ -7,6 +7,7 @@ import type { SpotifyProfileTrack } from '../constants/profile';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 
 const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
+const CLIENT_ONLY_SETTING_KEYS: (keyof AppSettings)[] = ['locationMarkerStyle'];
 
 function fetchWithTimeout(
   url: string,
@@ -24,6 +25,17 @@ function fetchWithTimeout(
     clearTimeout(t);
     if (outer) outer.removeEventListener('abort', onOuterAbort);
   });
+}
+
+function readClientOnlySettings(source: Partial<AppSettings> | null | undefined): Partial<AppSettings> {
+  const picked: Partial<AppSettings> = {};
+  if (!source) return picked;
+  for (const key of CLIENT_ONLY_SETTING_KEYS) {
+    if (source[key] !== undefined) {
+      picked[key] = source[key];
+    }
+  }
+  return picked;
 }
 
 export interface AppSettings {
@@ -99,15 +111,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       const backgroundLocationAccepted = await hasAcceptedBackgroundLocationDisclosure();
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
+      const cachedRaw = await AsyncStorage.getItem('app_settings');
+      let cachedParsed: Partial<AppSettings> | null = null;
+      if (cachedRaw) {
+        try {
+          cachedParsed = JSON.parse(cachedRaw) as Partial<AppSettings>;
+        } catch {
+          cachedParsed = null;
+        }
+      }
       if (!token) {
-        const cached = await AsyncStorage.getItem('app_settings');
-        if (cached) {
+        if (cachedParsed) {
           try {
-            const parsed = JSON.parse(cached);
             setSettings({
               ...DEFAULTS,
-              ...parsed,
-              backgroundTracking: backgroundLocationAccepted ? !!(parsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+              ...cachedParsed,
+              backgroundTracking: backgroundLocationAccepted ? !!(cachedParsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
             });
           } catch { /* ignore bad cache */ }
         }
@@ -121,10 +140,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setSettings(prev => {
+          const clientOnlyFromCache = readClientOnlySettings(cachedParsed);
           const merged = {
             ...DEFAULTS,
+            ...cachedParsed,
             ...prev,
             ...data,
+            ...clientOnlyFromCache,
             backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
             // Keep last known premium config locally when premium is expired.
             profilePremiumExtras: data.profilePremiumExtras != null
@@ -147,6 +169,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setSettings(prev => ({
           ...prev,
           ...premiumData,
+          ...readClientOnlySettings(prev),
           backgroundTracking: backgroundLocationAccepted ? prev.backgroundTracking : false,
           profilePremiumExtras: premiumData.profilePremiumExtras != null
             ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
@@ -158,6 +181,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           const next = {
             ...current,
             ...premiumData,
+            ...readClientOnlySettings(current),
             profilePremiumExtras: premiumData.profilePremiumExtras != null
               ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
               : current.profilePremiumExtras,

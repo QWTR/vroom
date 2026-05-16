@@ -237,13 +237,31 @@ export function useProfile() {
     }
   }, []);
 
-  const fetchActivityHistory = useCallback(async (opts?: { page?: number; includeRoute?: boolean }) => {
+  const fetchActivityHistory = useCallback(async (opts?: { page?: number; includeRoute?: boolean; limit?: number; allPages?: boolean }) => {
     try {
       const token = await getToken();
       if (!token) return;
       const page = opts?.page ?? 1;
+      const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
       const includeRoute = opts?.includeRoute ? 'true' : 'false';
-      const res = await fetch(`${API_URL}/api/activity/history?page=${page}&limit=20&includeRoute=${includeRoute}`, {
+      if (opts?.allPages) {
+        const allItems: any[] = [];
+        let nextPage = 1;
+        let totalPages = 1;
+        do {
+          const res = await fetch(`${API_URL}/api/activity/history?page=${nextPage}&limit=${limit}&includeRoute=${includeRoute}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) break;
+          const data = await res.json();
+          allItems.push(...(data.items ?? []));
+          totalPages = Number(data.pages ?? 1);
+          nextPage += 1;
+        } while (nextPage <= totalPages);
+        setActivityHistory(allItems);
+        return;
+      }
+      const res = await fetch(`${API_URL}/api/activity/history?page=${page}&limit=${limit}&includeRoute=${includeRoute}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;

@@ -14,9 +14,6 @@
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES"/>
-  <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" tools:ignore="ProtectedPermissions"/>
-  <uses-feature android:name="android.software.car.templates_host" android:required="false"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -28,8 +25,6 @@
     <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-1660420496578702~6160582848" tools:replace="android:value"/>
     <meta-data android:name="com.google.android.gms.ads.flag.OPTIMIZE_AD_LOADING" android:value="true" tools:replace="android:value"/>
     <meta-data android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION" android:value="true" tools:replace="android:value"/>
-    <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="6"/>
-    <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="vroom_alerts"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_icon_color"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/notification_icon"/>
@@ -40,13 +35,6 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/3142aa8a-ca54-4d98-8120-657b87a714c3"/>
-    <service android:name=".auto.VroomCarAppService" android:exported="true">
-      <intent-filter>
-        <action android:name="androidx.car.app.CarAppService"/>
-        <category android:name="androidx.car.app.category.NAVIGATION"/>
-      </intent-filter>
-      <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="6"/>
-    </service>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

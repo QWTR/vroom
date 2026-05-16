@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, View, Text, TextInput, TouchableOpacity,
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Image, Dimensions, Animated, Easing, NativeModules, Linking,
+  Image, Dimensions, Animated, Easing, NativeModules, Linking, Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -329,7 +329,13 @@ export default function LoginScreen() {
           maxLength={opts.maxLength}
           value={value}
           onChangeText={onChange}
+          clearButtonMode="while-editing"
         />
+        {!!value && !opts.showToggle && (
+          <TouchableOpacity onPress={() => onChange('')} style={s.eyeBtn}>
+            <MaterialIcons name="close" size={17} color="#ffffff25" />
+          </TouchableOpacity>
+        )}
         {opts.showToggle && (
           <TouchableOpacity onPress={opts.onToggle} style={s.eyeBtn}>
             <MaterialIcons name={opts.secure ? 'visibility' : 'visibility-off'} size={17} color="#ffffff25" />
@@ -343,7 +349,7 @@ export default function LoginScreen() {
   if (screen === 'forgot') {
     return (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
           {renderHero('RESET HASŁA', 'ODZYSKIWANIE KONTA')}
 
           <Animated.View style={[s.sheet, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -414,7 +420,7 @@ export default function LoginScreen() {
   // ── LOGIN / REGISTER ────────────────────────────────────
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
 
         {renderHero(
           screen === 'login' ? 'ZALOGUJ SIĘ' : 'NOWE KONTO',

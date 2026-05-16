@@ -73,6 +73,103 @@ export function cleanInstruction(html: string): string {
     .trim();
 }
 
+function normalizeForSpeech(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/\bul\.\s*/gi, 'ulica ')
+    .replace(/\bal\.\s*/gi, 'aleja ')
+    .replace(/\bpl\.\s*/gi, 'plac ')
+    .replace(/\bdr\.\s*/gi, 'droga ')
+    .replace(/\bim\.\s*/gi, 'imienia ')
+    .replace(/\bna\s+skrzyżowaniu\s+o\s+ruchu\s+okrężnym\b/gi, 'na rondzie')
+    .replace(/\brondo im\./gi, 'rondo imienia')
+    .replace(/\s+,/g, ',')
+    .trim();
+}
+
+function extractRoundaboutExit(text: string): number | null {
+  const patterns = [
+    /(\d+)\.?\s*zjazd(?:em|u|)/i,
+    /(\d+)\.?\s*wyjazd(?:em|u|)/i,
+    /take the (\d+)(?:st|nd|rd|th) exit/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const exitNo = Number(match[1]);
+    if (Number.isFinite(exitNo) && exitNo > 0) return exitNo;
+  }
+  return null;
+}
+
+function formatDistanceForSpeech(distanceM: number): string {
+  if (distanceM < 35) return 'teraz';
+  if (distanceM < 120) return 'za chwilę';
+  if (distanceM < 1000) return `za ${Math.round(distanceM / 10) * 10} metrów`;
+  const km = Math.round((distanceM / 1000) * 10) / 10;
+  const kmTxt = Number.isInteger(km) ? String(km) : km.toFixed(1).replace('.', ',');
+  const unit = km === 1 ? 'kilometr' : (Number.isInteger(km) ? 'kilometry' : 'kilometra');
+  return `za ${kmTxt} ${unit}`;
+}
+
+function exitOrdinalWord(exitNo: number): string {
+  switch (exitNo) {
+    case 1: return 'pierwszym';
+    case 2: return 'drugim';
+    case 3: return 'trzecim';
+    case 4: return 'czwartym';
+    case 5: return 'piątym';
+    case 6: return 'szóstym';
+    case 7: return 'siódmym';
+    case 8: return 'ósmym';
+    case 9: return 'dziewiątym';
+    case 10: return 'dziesiątym';
+    default: return `${exitNo}.`;
+  }
+}
+
+function lowerFirst(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+function humanizeInstruction(text: string): string {
+  return text
+    .replace(/\bjedź prosto\b/i, 'kontynuuj prosto')
+    .replace(/\bkieruj się\b/i, 'jedź')
+    .replace(/\bna skrzyżowaniu\b/i, 'na najbliższym skrzyżowaniu')
+    .trim();
+}
+
+export function buildNavigationSpeech(step: Step, distanceM: number): string {
+  const baseInstruction = humanizeInstruction(
+    normalizeForSpeech(cleanInstruction(step.html_instructions)),
+  );
+  const distPrefix = formatDistanceForSpeech(distanceM);
+  const maneuver = (step.maneuver ?? '').toLowerCase();
+  const isRoundabout =
+    maneuver.includes('roundabout')
+    || /\brondo\b/i.test(baseInstruction)
+    || /\brondzie\b/i.test(baseInstruction);
+
+  if (isRoundabout) {
+    const exitNo = extractRoundaboutExit(baseInstruction);
+    const roundaboutInstruction = exitNo != null
+      ? `na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`
+      : 'na rondzie zjedź odpowiednim zjazdem';
+    if (distPrefix === 'teraz') return `teraz ${roundaboutInstruction}`;
+    return `${distPrefix}, ${roundaboutInstruction}`;
+  }
+
+  if (distPrefix === 'teraz') {
+    return `teraz ${lowerFirst(baseInstruction)}`;
+  }
+  if (distPrefix === 'za chwilę') {
+    return `za chwilę ${lowerFirst(baseInstruction)}`;
+  }
+  return `${distPrefix}, ${lowerFirst(baseInstruction)}`;
+}
+
 /** Formatuje minuty → "X min" lub "Xh Ymin" */
 export function formatDuration(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -360,6 +457,7 @@ export function getManeuverIcon(maneuver?: string): string {
     case 'uturn-right':      return 'u-turn-right';
     case 'roundabout-left':  return 'rotate-left';
     case 'roundabout-right': return 'rotate-right';
+    case 'roundabout':       return 'rotate-right';
     case 'ramp-left':        return 'turn-left';
     case 'ramp-right':       return 'turn-right';
     case 'merge':            return 'merge';

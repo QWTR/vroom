@@ -22,6 +22,14 @@ try {
 export type CustomerInfo = any;
 export type PurchasesPackage = any;
 export type PurchasesOfferings = any;
+export interface PremiumStatus {
+  plan: string | null;
+  status: string;
+  currentPeriodEnd: string | null;
+  premiumExpiresAt: string | null;
+  source: 'unknown' | 'backend' | 'backend+rc';
+  error?: string | null;
+}
 
 function hasPremiumEntitlement(info: any): boolean {
   const active = info?.entitlements?.active ?? {};
@@ -32,6 +40,7 @@ interface PremiumContextType {
   isPremium:           boolean;
   isLoading:           boolean;
   customerInfo:        CustomerInfo | null;
+  premiumStatus:       PremiumStatus;
   purchasePremium:     (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases:    () => Promise<boolean>;
   getOfferings:        () => Promise<PurchasesOfferings | null>;
@@ -43,6 +52,14 @@ const PremiumContext = createContext<PremiumContextType>({
   isPremium:           false,
   isLoading:           true,
   customerInfo:        null,
+  premiumStatus: {
+    plan: null,
+    status: 'inactive',
+    currentPeriodEnd: null,
+    premiumExpiresAt: null,
+    source: 'unknown',
+    error: null,
+  },
   purchasePremium:     async () => false,
   restorePurchases:    async () => false,
   getOfferings:        async () => null,
@@ -118,6 +135,14 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   const [isPremium,    setIsPremium]    = useState(false);
   const [isLoading,    setIsLoading]    = useState(true);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
+  const [premiumStatus, setPremiumStatus] = useState<PremiumStatus>({
+    plan: null,
+    status: 'inactive',
+    currentPeriodEnd: null,
+    premiumExpiresAt: null,
+    source: 'unknown',
+    error: null,
+  });
 
   // Sprawdź premium z RevenueCat ORAZ backendu
   const refreshPremiumStatus = useCallback(async () => {
@@ -145,9 +170,23 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           backendPremium = !!data?.isPremium;
+          setPremiumStatus({
+            plan: data?.plan ?? null,
+            status: data?.status ?? (backendPremium ? 'active' : 'inactive'),
+            currentPeriodEnd: data?.currentPeriodEnd ? String(data.currentPeriodEnd) : null,
+            premiumExpiresAt: data?.premiumExpiresAt ? String(data.premiumExpiresAt) : null,
+            source: rcPremium ? 'backend+rc' : 'backend',
+            error: null,
+          });
         }
       }
-    } catch {}
+    } catch (e: any) {
+      setPremiumStatus(prev => ({
+        ...prev,
+        source: rcPremium ? 'backend+rc' : prev.source,
+        error: String(e?.message ?? e ?? 'premium_status_fetch_failed'),
+      }));
+    }
 
     setIsPremium(rcPremium || backendPremium);
   }, []);
@@ -256,6 +295,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   return (
     <PremiumContext.Provider value={{
       isPremium, isLoading, customerInfo,
+      premiumStatus,
       purchasePremium, restorePurchases, getOfferings, getRevenueCatDebugSnapshot, refreshPremiumStatus,
     }}>
       {children}

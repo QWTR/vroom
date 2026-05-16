@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
-  Image, KeyboardAvoidingView, Platform,
+  Image, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -121,8 +121,8 @@ export default function BugReportThreadScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bgAlt }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={80}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 24}
     >
       <View style={{ marginTop: 56, paddingHorizontal: '5%', flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
@@ -142,6 +142,9 @@ export default function BugReportThreadScreen() {
         ref={scrollRef}
         style={{ flex: 1, paddingHorizontal: '5%' }}
         contentContainerStyle={{ paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        onScrollBeginDrag={Keyboard.dismiss}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
         {messages.map(m => {
@@ -201,6 +204,7 @@ export default function BugReportThreadScreen() {
           placeholder="Napisz do supportu…"
           placeholderTextColor={theme.textDim}
           multiline
+          clearButtonMode="while-editing"
           style={{
             minHeight: 44,
             maxHeight: 120,
@@ -216,6 +220,15 @@ export default function BugReportThreadScreen() {
           }}
         />
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <TouchableOpacity
+            onPress={() => {
+              Keyboard.dismiss();
+              setBody('');
+            }}
+            style={{ paddingHorizontal: 10, paddingVertical: 10, backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border }}
+          >
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>ANULUJ</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={pickMedia} style={{ padding: 10, backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border }}>
             <MaterialIcons name="attach-file" size={22} color={theme.text} />
           </TouchableOpacity>

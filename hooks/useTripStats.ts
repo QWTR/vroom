@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
 
 export interface TripStats {
@@ -11,11 +11,13 @@ export interface TripStats {
 }
 
 const TRIP_MAX_PLAUSIBLE_KMH = 190;
-const TRIP_MAX_FIX_GAP_SEC   = 50;
+const TRIP_MAX_FIX_GAP_SEC   = 90;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
 const TRIP_MIN_SEGMENT_KM = 0.003;
-const TRIP_MAX_SEGMENT_KM = 1.2;
+const TRIP_MAX_SEGMENT_KM = 0.9;
+const TRIP_FALLBACK_MAX_SEGMENT_KM = 0.45;
+const TRIP_FALLBACK_MIN_SPEED_KMH = 5;
 const TRIP_MAX_DISTANCE_KM = 1200;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
@@ -41,6 +43,19 @@ export function useTripStats() {
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
   const lastLiveKmEmitRef = useRef(0);
   const lastLiveKmValueRef = useRef(0);
+  const segmentDiagRef = useRef({
+    rejected: {
+      invalid_time: 0,
+      stale_gap: 0,
+      min_speed: 0,
+      accuracy: 0,
+      jitter: 0,
+      jump: 0,
+      impossible_speed: 0,
+      ok: 0,
+    } as Record<string, number>,
+    fallbackAccepted: 0,
+  });
 
   const [stats, setStats] = useState<TripStats | null>(null);
   /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
@@ -109,6 +124,37 @@ export function useTripStats() {
       },
     );
     if (!segment.accepted) {
+      segmentDiagRef.current.rejected[segment.reason] = (segmentDiagRef.current.rejected[segment.reason] ?? 0) + 1;
+      const dtSec = Math.max(0, (now - lastMeta.time) / 1000);
+      const isRecoverable = segment.reason === 'jump' || segment.reason === 'impossible_speed' || segment.reason === 'stale_gap';
+      if (isRecoverable && dtSec > 0 && dtSec <= TRIP_MAX_FIX_GAP_SEC * 2) {
+        const rawKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
+        const cappedByTimeKm = (TRIP_MAX_PLAUSIBLE_KMH / 3600) * Math.min(dtSec, TRIP_MAX_FIX_GAP_SEC);
+        const hasMotionSignal = speedKmh != null && speedKmh >= TRIP_FALLBACK_MIN_SPEED_KMH;
+        const fallbackCapKm = hasMotionSignal
+          ? TRIP_FALLBACK_MAX_SEGMENT_KM
+          : Math.min(0.2, TRIP_FALLBACK_MAX_SEGMENT_KM);
+        // With no motion signal (speed unknown/low), reject larger jumps so standing
+        // jitter cannot leak into trip distance.
+        if (!hasMotionSignal && rawKm > 0.25) {
+          lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+          return 0;
+        }
+        const fallbackKm = Math.min(rawKm, cappedByTimeKm, fallbackCapKm);
+        if (fallbackKm >= TRIP_MIN_SEGMENT_KM * 1.2) {
+          pts.push({ latitude: lat, longitude: lng });
+          if (pts.length > TRIP_MAX_TRACKED_POINTS) {
+            trackedPts.current = compactTrackPoints(pts);
+          }
+          lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+          const nextDistance = distanceRef.current + fallbackKm;
+          if (Number.isFinite(nextDistance) && nextDistance <= TRIP_MAX_DISTANCE_KM) {
+            distanceRef.current = nextDistance;
+            segmentDiagRef.current.fallbackAccepted += 1;
+            return fallbackKm;
+          }
+        }
+      }
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return 0;
     }
@@ -134,6 +180,14 @@ export function useTripStats() {
       setLiveDistanceKm(rounded);
     }
     return segment.distanceKm;
+  }, []);
+
+  useEffect(() => {
+    if (!__DEV__) return undefined;
+    const id = setInterval(() => {
+      console.log('[TripStats][diag]', segmentDiagRef.current);
+    }, 60_000);
+    return () => clearInterval(id);
   }, []);
 
   const finishTrip = useCallback(() => {
