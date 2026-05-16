@@ -29,6 +29,7 @@ const RETURN_TO_USER_MS = 4500;
 const BROWSE_PITCH = 52;
 const ACTIVE_PITCH = 68;
 const BROWSE_ZOOM = 15;
+const CAMERA_DEBUG_LOGS = false;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -131,9 +132,11 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const lastPoseRef = useRef<CameraPose | null>(null);
   const smoothZoomRef = useRef<number | null>(null);
   const smoothHeadingRef = useRef<number | null>(null);
+  /** When stopped in follow mode, still refresh camera occasionally (avoids perceived freeze). */
+  const lastStationaryApplyRef = useRef(0);
 
   const logTransition = useCallback((next: CameraFollowMode, reason: string) => {
-    if (!__DEV__) return;
+    if (!CAMERA_DEBUG_LOGS) return;
     if (modeRef.current === next) return;
     console.log('[CAMDBG] camera_mode_transition', JSON.stringify({
       from: modeRef.current,
@@ -177,7 +180,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const zoom = params.active ? zoomFromSpeed(params.speedKmh) : BROWSE_ZOOM;
     const pitch = params.active ? ACTIVE_PITCH : BROWSE_PITCH;
 
-    if (__DEV__) {
+    if (CAMERA_DEBUG_LOGS) {
       console.log('[CAMDBG] camera_frame_applied', JSON.stringify({
         mode: modeRef.current,
         reason: 'recenter',
@@ -205,7 +208,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     if (!Number.isFinite(input.center.latitude) || !Number.isFinite(input.center.longitude)) return;
     const now = input.timestamp ?? Date.now();
     if (now - lastApplyAtRef.current < CAMERA_TICK_MS) {
-      if (__DEV__) {
+      if (CAMERA_DEBUG_LOGS) {
         console.log('[CAMDBG] camera_update_skipped', JSON.stringify({ reason: 'throttle', at: now }));
       }
       return;
@@ -269,7 +272,32 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       pitch: targetPitch,
     };
 
-    if (__DEV__) {
+    // Moving follow: drop micro-delta spam (main freeze source on Android).
+    // Stopped follow: allow a slow heartbeat so the map does not look deadlocked.
+    const stationaryFollow = active && input.speedKmh < 8;
+    if (prev && !stationaryFollow) {
+      const centerDeltaM = haversineMeters(
+        prev.center.latitude,
+        prev.center.longitude,
+        pose.center.latitude,
+        pose.center.longitude,
+      );
+      const headingDeltaDeg = Math.abs(headingDelta(prev.heading, pose.heading));
+      const zoomDelta = Math.abs(prev.zoom - pose.zoom);
+      const pitchDelta = Math.abs(prev.pitch - pose.pitch);
+      const nearlySamePose =
+        centerDeltaM < 0.9 &&
+        headingDeltaDeg < 0.8 &&
+        zoomDelta < 0.015 &&
+        pitchDelta < 0.15;
+      if (nearlySamePose) return;
+    } else if (stationaryFollow) {
+      const stationaryGapMs = 420;
+      if (now - lastStationaryApplyRef.current < stationaryGapMs) return;
+      lastStationaryApplyRef.current = now;
+    }
+
+    if (CAMERA_DEBUG_LOGS) {
       console.log('[CAMDBG] camera_frame_applied', JSON.stringify({
         mode: nextMode,
         speedKmh: Number((input.speedKmh || 0).toFixed(1)),

@@ -35,6 +35,7 @@ const IDLE_FIX_TIMEOUT_MS   = 25000;
 const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
 const LAST_GOOD_STALE_RESET_MS = 45000;
+const GPS_DEBUG_LOGS = false;
 
 type GpsProfile = 'offMap' | 'browsing' | 'active';
 
@@ -194,7 +195,9 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               ? MAX_SPEED_ACTIVE_KMH
               : MAX_SPEED_IDLE_KMH;
             if (jumpKmh > maxJumpKmh) {
-              console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
+              if (GPS_DEBUG_LOGS) {
+                console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
+              }
               return;
             }
 
@@ -216,7 +219,9 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               maxDistM = Math.min(maxDistM, maxIdleBrowsingJumpM(dtMs, reportedKmh, acc));
             }
             if (distM > maxDistM) {
-              console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
+              if (GPS_DEBUG_LOGS) {
+                console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
+              }
               return;
             }
           }

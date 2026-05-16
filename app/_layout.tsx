@@ -37,6 +37,14 @@ const { width, height } = Dimensions.get('window');
 const R = '#e33835';
 const { UsersModule } = NativeModules;
 
+/** Custom VROOM boot splash — keep short; native expo splash hides as soon as fonts load. */
+const SPLASH_LOGO_MS = 320;
+const SPLASH_CARD_DELAY_MS = 140;
+const SPLASH_CARD_MS = 280;
+const SPLASH_PROGRESS_MS = 1500;
+const SPLASH_HOLD_MS = 1900;
+const SPLASH_FADE_MS = 380;
+
 // ─── NOTIFICATIONS ────────────────────────────────────────
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -256,7 +264,8 @@ function RootLayoutInner() {
           (data.type === 'like_post' ||
             data.type === 'comment_post' ||
             data.type === 'new_follow_post' ||
-            data.type === 'mention_discussion') &&
+            data.type === 'mention_discussion' ||
+            data.type === 'discussion_comment_new') &&
           data.postId
         ) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));
@@ -286,18 +295,18 @@ function RootLayoutInner() {
 
     // 1. Logo wpada
     Animated.parallel([
-      Animated.timing(masterFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.spring(logoScale,  { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
-      Animated.timing(logoFade,   { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(masterFade, { toValue: 1, duration: SPLASH_LOGO_MS, useNativeDriver: true }),
+      Animated.spring(logoScale,  { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }),
+      Animated.timing(logoFade,   { toValue: 1, duration: SPLASH_LOGO_MS + 60, useNativeDriver: true }),
     ]).start();
 
     // 2. Karta wjeżdża po chwili
     setTimeout(() => {
       Animated.parallel([
-        Animated.timing(cardFade,  { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.timing(cardSlide, { toValue: 0, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(cardFade,  { toValue: 1, duration: SPLASH_CARD_MS, useNativeDriver: true }),
+        Animated.timing(cardSlide, { toValue: 0, duration: SPLASH_CARD_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
-    }, 350);
+    }, SPLASH_CARD_DELAY_MS);
 
     // Pulse ikony
     Animated.loop(
@@ -314,7 +323,7 @@ function RootLayoutInner() {
 
     // Pasek postępu
     Animated.timing(progressAnim, {
-      toValue: 1, duration: 3400,
+      toValue: 1, duration: SPLASH_PROGRESS_MS,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: false,
     }).start();
@@ -323,11 +332,11 @@ function RootLayoutInner() {
     const t = setTimeout(() => {
       setPhase('fadeout');
       Animated.timing(splashOpacity, {
-        toValue: 0, duration: 750,
+        toValue: 0, duration: SPLASH_FADE_MS,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
       }).start(() => setPhase('done'));
-    }, 4800);
+    }, SPLASH_HOLD_MS);
 
     return () => clearTimeout(t);
   }, [loaded, error]);

@@ -19,6 +19,7 @@ const TRIP_MAX_SEGMENT_KM = 0.9;
 const TRIP_FALLBACK_MAX_SEGMENT_KM = 0.45;
 const TRIP_FALLBACK_MIN_SPEED_KMH = 5;
 const TRIP_MAX_DISTANCE_KM = 1200;
+const TRIP_STATS_DIAGNOSTICS = __DEV__;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
@@ -59,6 +60,8 @@ export function useTripStats() {
       ok: 0,
     } as Record<string, number>,
     fallbackAccepted: 0,
+    derivedSpeedUsed: 0,
+    derivedSpeedRejected: 0,
   });
 
   const [stats, setStats] = useState<TripStats | null>(null);
@@ -105,6 +108,7 @@ export function useTripStats() {
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return 0;
     }
+    const dtSecRaw = Math.max(0, (now - lastMeta.time) / 1000);
 
     const segment = evaluateDistanceSegment(
       {
@@ -146,6 +150,16 @@ export function useTripStats() {
         }
         const fallbackKm = Math.min(rawKm, cappedByTimeKm, fallbackCapKm);
         if (fallbackKm >= TRIP_MIN_SEGMENT_KM * 1.2) {
+          const derivedKmh = dtSecRaw > 0 ? (fallbackKm * 3600) / dtSecRaw : 0;
+          if ((speedKmh == null || speedKmh < 2) && Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 260) {
+            speedSamples.current.push(derivedKmh);
+            if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
+              speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
+            }
+            segmentDiagRef.current.derivedSpeedUsed += 1;
+          } else if (speedKmh == null || speedKmh < 2) {
+            segmentDiagRef.current.derivedSpeedRejected += 1;
+          }
           pts.push({ latitude: lat, longitude: lng });
           if (pts.length > TRIP_MAX_TRACKED_POINTS) {
             trackedPts.current = compactTrackPoints(pts);
@@ -161,6 +175,19 @@ export function useTripStats() {
       }
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return 0;
+    }
+
+    const derivedKmh = dtSecRaw > 0 ? (segment.distanceKm * 3600) / dtSecRaw : 0;
+    if (speedKmh == null || speedKmh < 2) {
+      if (Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 260) {
+        speedSamples.current.push(derivedKmh);
+        if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
+          speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
+        }
+        segmentDiagRef.current.derivedSpeedUsed += 1;
+      } else {
+        segmentDiagRef.current.derivedSpeedRejected += 1;
+      }
     }
 
     pts.push({ latitude: lat, longitude: lng });
@@ -187,7 +214,7 @@ export function useTripStats() {
   }, []);
 
   useEffect(() => {
-    if (!__DEV__) return undefined;
+    if (!TRIP_STATS_DIAGNOSTICS) return undefined;
     const id = setInterval(() => {
       console.log('[TripStats][diag]', segmentDiagRef.current);
     }, 60_000);
@@ -198,10 +225,10 @@ export function useTripStats() {
     const elapsed  = startTimeRef.current
       ? Math.round((Date.now() - startTimeRef.current) / 1000)
       : 0;
-    const samples  = speedSamples.current.filter(s => s > 2);
+    const samples  = speedSamples.current.filter((s: number) => s > 2);
     const maxSpeed = samples.length ? Math.max(...samples) : 0;
     const avgSpeed = samples.length
-      ? samples.reduce((a, b) => a + b, 0) / samples.length
+      ? samples.reduce((a: number, b: number) => a + b, 0) / samples.length
       : 0;
 
     const result: TripStats = {

@@ -12,6 +12,7 @@ import * as ImagePicker       from 'expo-image-picker';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
+import { useSettings }        from '../../../contexts/SettingsContext';
 import { API_URL }            from '../../../constants/config';
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
@@ -37,6 +38,7 @@ const getToken = () => AsyncStorage.getItem('token');
 export default function CommunityScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const { settings, updateSetting } = useSettings();
   const insets = useSafeAreaInsets();
 
   const [activeTab,    setActiveTab]    = useState<Tab>('dyskusje');
@@ -431,9 +433,28 @@ export default function CommunityScreen() {
                 SPOŁECZNOŚĆ
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setSearchActive(true)} style={{ padding: 4 }}>
-              <MaterialIcons name="search" size={22} color={theme.textDim} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity
+                onPress={async () => {
+                  const next = !settings.notifDiscussionPosts;
+                  await updateSetting('notifDiscussionPosts', next);
+                  Toast.show({
+                    type: next ? 'success' : 'info',
+                    text1: next ? 'Dyskusje: powiadomienia włączone' : 'Dyskusje: powiadomienia wyciszone',
+                  });
+                }}
+                style={{ padding: 4 }}
+              >
+                <MaterialIcons
+                  name={settings.notifDiscussionPosts ? 'notifications-active' : 'notifications-off'}
+                  size={22}
+                  color={settings.notifDiscussionPosts ? '#e33835' : theme.textDim}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setSearchActive(true)} style={{ padding: 4 }}>
+                <MaterialIcons name="search" size={22} color={theme.textDim} />
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>

@@ -102,7 +102,15 @@ export default function NotificationsScreen() {
     }
     if (d?.conversationId != null)
       router.push(`/Community/chats/${d.conversationId}` as any);
-    else if (d?.postId != null) {
+    else if (
+      d?.postId != null
+      && (
+        item.type === 'like_post'
+        || item.type === 'comment_post'
+        || item.type === 'mention_discussion'
+        || item.type === 'discussion_comment_new'
+      )
+    ) {
       await AsyncStorage.setItem('open_post_id', String(d.postId));
       router.push('/Community/community/community' as any);
     } else if (d?.clubId != null) {

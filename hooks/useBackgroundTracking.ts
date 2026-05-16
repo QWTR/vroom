@@ -441,6 +441,7 @@ export function useBackgroundTracking(
       durationSec?: number;
       routePoints?: { latitude: number; longitude: number }[];
     },
+    sourceTag: 'navigation' | 'driving' = 'navigation',
   ) => {
     if (flushInFlightRef.current) return;
     flushInFlightRef.current = true;
@@ -466,8 +467,10 @@ export function useBackgroundTracking(
         const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
           ? distanceToSaveRaw
           : 0;
-        const maxSpeedToSave = navPayload?.maxSpeedKmh != null ? navPayload.maxSpeedKmh : maxSpeed;
-        const avgSpeedToSave = navPayload?.avgSpeedKmh != null ? navPayload.avgSpeedKmh : avgSpeed;
+        const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, maxSpeed ?? 0);
+        const avgSpeedToSave = navPayload?.avgSpeedKmh != null && navPayload.avgSpeedKmh > 0
+          ? navPayload.avgSpeedKmh
+          : avgSpeed;
         const routePointsToSave = navPayload?.routePoints && navPayload.routePoints.length > 1
           ? navPayload.routePoints
           : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
@@ -480,9 +483,20 @@ export function useBackgroundTracking(
           avgSpeed: avgSpeedToSave,
           duration: navPayload?.durationSec ?? null,
           routePoints: routePointsToSave,
-          source: 'navigation',
+          source: sourceTag,
           routePointsCount: routePointsToSave?.length ?? 0,
         };
+        if (__DEV__) {
+          console.log('[DRIVESTATS][flush]', {
+            source: sourceTag,
+            navDistanceKm: navDistance,
+            bgPendingKm: bgPending,
+            mergedDistanceKm: distanceToSave,
+            maxSpeedKmh: maxSpeedToSave,
+            avgSpeedKmh: avgSpeedToSave,
+            routePointsCount: routePointsToSave?.length ?? 0,
+          });
+        }
         const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

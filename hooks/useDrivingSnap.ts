@@ -207,8 +207,18 @@ export function useDrivingSnap() {
     // Dla zwykłej trasy (routePtsRef) używamy mniejszego promienia, żeby nie skakać
     // na odległe drogi gdy użytkownik jedzie po polnej drodze lub poza trasą.
     const usingMatchedRoad = roadMatchPtsRef.current.length >= 2;
+    // Matched-road radius: keep baseline strict to avoid wrong parallel roads,
+    // and apply +15% only when GPS accuracy is poor or hard lock is active.
+    const matchedRadiusBoost =
+      usingMatchedRoad && (
+        (accuracyM != null && Number.isFinite(accuracyM) && accuracyM > 40)
+        || hardRoadLock
+      )
+        ? 1.15
+        : 1;
+    const matchedRoadRadius = Math.round(SNAP_RADIUS_M_MATCHED * matchedRadiusBoost);
     const dynamicRadius = usingMatchedRoad
-      ? SNAP_RADIUS_M_MATCHED
+      ? matchedRoadRadius
       : speedKmh > 70 ? SNAP_RADIUS_M_FAST : SNAP_RADIUS_M_BASE;
 
     let result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius);

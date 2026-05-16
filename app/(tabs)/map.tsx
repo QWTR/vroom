@@ -131,7 +131,13 @@ const ANNOUNCE_M          = 250;
 const NAV_PITCH           = 62;
 const BROWSE_3D_PITCH     = 52;
 const BUILDINGS_3D_MIN_ZOOM = 14;
-const MAP_RENDER_DEBUG = __DEV__;
+// Keep heavy map diagnostics opt-in. Verbose logs at GPS/DR camera rates can
+// saturate the JS bridge on physical devices and cause apparent map freezes.
+const MAP_RENDER_DEBUG = false;
+// Lightweight runtime diagnostics for field test rides (driving/navigation).
+// Emits compact snapshots every few seconds to help identify "frozen marker"
+// root causes without spamming logs on every frame.
+const DRIVE_TEST_DIAGNOSTICS = __DEV__;
 
 // ── Cost-optimization thresholds ─────────────────────────────────────────────
 // Set DEBUG_NETWORK = true to see throttle/suppression logs in the console.
@@ -486,6 +492,7 @@ export default function MapScreen() {
   const drivingManuallyDisabledRef = useRef(false);
   const drivingLastLocRef     = useRef<{ lat: number; lng: number } | null>(null);
   const lastDrivingPosRef     = useRef<{ lat: number; lng: number } | null>(null);
+  const lastRawForHeadingRef  = useRef<{ lat: number; lng: number } | null>(null);
   const lastGoodTimeRef       = useRef<number>(Date.now());
   /** Rzeczywisty czas ostatniego zaakceptowanego fixu — bez cofania przy resume (walidacja one-shot). */
   const lastAcceptedFixWallClockRef = useRef<number>(Date.now());
@@ -512,6 +519,15 @@ export default function MapScreen() {
   const lastRemainingKmUiRef  = useRef<number | null>(null);
   const reroutePendingRef     = useRef(false);
   const lastBackgroundAtRef   = useRef<number>(0);
+  const gpsTickCountRef       = useRef(0);
+  const drTickCountRef        = useRef(0);
+  const lastGpsTickAtRef      = useRef(0);
+  const diagLastSnapshotRef   = useRef<{
+    at: number;
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const diagStuckStreakRef    = useRef(0);
 
   const publishUserLocation = useCallback((loc: { latitude: number; longitude: number }, force = false) => {
     const now = Date.now();
@@ -554,7 +570,7 @@ export default function MapScreen() {
     accepted: boolean;
     reason: string;
   }) => {
-    if (!__DEV__) return;
+    if (!MAP_RENDER_DEBUG) return;
     const now = Date.now();
     const maybeLog = (kind: string, payload: Record<string, unknown>, throttleMs = 0) => {
       if (throttleMs > 0 && now - gpsDbgLastLogAtRef.current < throttleMs) return;
@@ -1121,6 +1137,7 @@ export default function MapScreen() {
     frameInterval: 33,
     onFrame: useCallback((pos: any, hdg: number) => {
       if (!isNavigatingRef.current && !isDrivingRef.current) return;
+      drTickCountRef.current += 1;
       drLastFrameAtRef.current = Date.now();
 
       let snappedPos = pos;
@@ -1153,11 +1170,9 @@ export default function MapScreen() {
       if (camNow - lastDrCameraEmitRef.current < 80) return;
       lastDrCameraEmitRef.current = camNow;
 
-      const camHeading = isNavigatingRef.current
-        ? hdg
-        : (drHdgRef.current !== 0
-          ? drHdgRef.current
-          : (lastHeadingRef.current !== 0 ? lastHeadingRef.current : hdg));
+      const camHeading = (drHdgRef.current !== 0)
+        ? drHdgRef.current
+        : (lastHeadingRef.current !== 0 ? lastHeadingRef.current : hdg);
 
       updateCameraFrame({
         center: snappedPos,
@@ -1640,7 +1655,7 @@ export default function MapScreen() {
   const exitDrivingMode = useCallback((opts?: { skipFlush?: boolean }) => {
     mapMatchApplySeqRef.current += 1;
     passiveTripStartedRef.current = false;
-    clearStats();
+    const finalStats = finishTrip();
     // Sync userLocation to last DR position before clearing isDriving so that
     // the marker source switch (drLatRef → userLocation) is seamless.
     if (drLatRef.current !== 0 && drLngRef.current !== 0) {
@@ -1649,6 +1664,7 @@ export default function MapScreen() {
     isDrivingRef.current        = false;
     drivingLastLocRef.current   = null;
     lastDrivingPosRef.current   = null;
+    lastRawForHeadingRef.current = null;
     if (drivingStopTimerRef.current) {
       clearTimeout(drivingStopTimerRef.current);
       drivingStopTimerRef.current = null;
@@ -1672,13 +1688,32 @@ export default function MapScreen() {
     applyRoadMatchPoints([]);
     setIsDriving(false);
     if (!opts?.skipFlush) {
-      // Persist passive driving sessions (without navigation) to activity history.
-      flushPendingKm(false);
+      // Persist driving sessions with full fg+bg merge (same strategy as navigation),
+      // so top speed and km don't get lost when provider reports sparse/zero speed.
+      void flushPendingKm(true, {
+        distanceKm: finalStats.distanceKm,
+        maxSpeedKmh: finalStats.maxSpeedKmh,
+        avgSpeedKmh: finalStats.avgSpeedKmh,
+        durationSec: finalStats.elapsedSec,
+        routePoints: finalStats.trackedPoints,
+      }, 'driving');
+      if (DRIVE_TEST_DIAGNOSTICS) {
+        console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({
+          at: Date.now(),
+          reason: 'manual_exit',
+          distanceKm: Number(finalStats.distanceKm.toFixed(3)),
+          maxSpeedKmh: finalStats.maxSpeedKmh,
+          avgSpeedKmh: finalStats.avgSpeedKmh,
+          elapsedSec: finalStats.elapsedSec,
+          routePoints: finalStats.trackedPoints.length,
+        }));
+      }
     }
+    clearStats();
     console.log('[DrivingMode] Exited driving mode');
     // NIE wywołuj exitDrivingCamera gdy wywołane z beginNavigation
     // — nawigacja sama przejmuje kamerę przez lockForStart
-  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip]);
 
   // Ręczny przełącznik trybu jazdy (przycisk w UI) — wejście natychmiastowe,
   // dopasowanie drogi dogrywane asynchronicznie w tle (bez "poczekaj").
@@ -1789,13 +1824,27 @@ export default function MapScreen() {
           if (reqId !== mapMatchApplySeqRef.current) return;
           if (!p || p.length < 2 || !isDrivingRef.current) return;
           applyRoadMatchPoints(p);
+          bumpMatchedFreshness();
           const s = drivingSnap(entryLat, entryLng, 0, false, true, null);
-          if (!s.snapped || !Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) return;
-          drLatRef.current = s.latitude;
-          drLngRef.current = s.longitude;
-          lastSetLocRef.current = { lat: s.latitude, lng: s.longitude };
-          setUserLocation({ latitude: s.latitude, longitude: s.longitude });
-          feedDR({ latitude: s.latitude, longitude: s.longitude }, 0, entryHeading);
+          const snapLat = s.snapped && Number.isFinite(s.latitude) ? s.latitude : entryLat;
+          const snapLng = s.snapped && Number.isFinite(s.longitude) ? s.longitude : entryLng;
+          drLatRef.current = snapLat;
+          drLngRef.current = snapLng;
+          lastSetLocRef.current = { lat: snapLat, lng: snapLng };
+          setUserLocation({ latitude: snapLat, longitude: snapLng });
+          feedDR({ latitude: snapLat, longitude: snapLng }, 0, entryHeading);
+          recenterTo({
+            center: { latitude: snapLat, longitude: snapLng },
+            heading: entryHeading,
+            speedKmh: Math.max(speedKmhRef.current, 8),
+            active: true,
+          });
+          if (__DEV__) {
+            console.log('[DrivingMode] entry_forceMatch_applied', JSON.stringify({
+              pts: p.length,
+              snapped: !!s.snapped,
+            }));
+          }
         })
         .catch(() => {});
 
@@ -1814,6 +1863,8 @@ export default function MapScreen() {
     isMapFocused,
     speedKmh: speedKmhRef.current,
     onLocation: useCallback((loc) => {
+      gpsTickCountRef.current += 1;
+      lastGpsTickAtRef.current = Date.now();
       const rawLat0 = loc.latitude;
       const rawLng0 = loc.longitude;
       let rawLat = rawLat0;
@@ -2430,7 +2481,16 @@ export default function MapScreen() {
             appliedSnap.latitude, appliedSnap.longitude,
           ) * 1000
           : 0;
-        const shouldUpdateHeading = kmh >= 5 || movedForSnap >= 4 || movedForHeadingM >= 2.5;
+        const prevRawForHeading = lastRawForHeadingRef.current;
+        const rawMovedForHeadingM = prevRawForHeading
+          ? haversineKm(prevRawForHeading.lat, prevRawForHeading.lng, lat, lng) * 1000
+          : 0;
+        lastRawForHeadingRef.current = { lat, lng };
+        const shouldUpdateHeading =
+          kmh >= 4
+          || movedForSnap >= 3
+          || movedForHeadingM >= 2.2
+          || rawMovedForHeadingM >= 3;
 
         if (shouldUpdateHeading) {
           const resolved = resolveDrivingHeading(
@@ -2660,12 +2720,25 @@ export default function MapScreen() {
               0,
               drivingHeading,
             );
+            // Standing at lights: DR/camera still need a follow refresh even when GPS speed=0.
+            const standNow = Date.now();
+            if (standNow - lastDrCameraEmitRef.current >= 220) {
+              lastDrCameraEmitRef.current = standNow;
+              updateCameraFrame({
+                center: { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
+                heading: drivingHeading,
+                speedKmh: Math.max(kmh, 0),
+                isNavigating: false,
+                isDriving: true,
+                timestamp: standNow,
+              });
+            }
           }
 
           if (isDrivingRef.current && !drivingStopTimerRef.current && !isNavigatingRef.current) {
             drivingStopTimerRef.current = setTimeout(() => {
               passiveTripStartedRef.current = false;
-              clearStats();
+              const finalStats = finishTrip();
               isDrivingRef.current        = false;
               drivingLastLocRef.current   = null;
               lastDrivingPosRef.current   = null;
@@ -2676,7 +2749,25 @@ export default function MapScreen() {
                 setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
               }
               setIsDriving(false);
-              flushPendingKm(false);
+              void flushPendingKm(true, {
+                distanceKm: finalStats.distanceKm,
+                maxSpeedKmh: finalStats.maxSpeedKmh,
+                avgSpeedKmh: finalStats.avgSpeedKmh,
+                durationSec: finalStats.elapsedSec,
+                routePoints: finalStats.trackedPoints,
+              }, 'driving');
+              if (DRIVE_TEST_DIAGNOSTICS) {
+                console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({
+                  at: Date.now(),
+                  reason: 'auto_stop_timer',
+                  distanceKm: Number(finalStats.distanceKm.toFixed(3)),
+                  maxSpeedKmh: finalStats.maxSpeedKmh,
+                  avgSpeedKmh: finalStats.avgSpeedKmh,
+                  elapsedSec: finalStats.elapsedSec,
+                  routePoints: finalStats.trackedPoints.length,
+                }));
+              }
+              clearStats();
               resetSnap();
               resetMapMatch();
               drivingNoSnapStreakRef.current = 0;
@@ -2729,7 +2820,7 @@ export default function MapScreen() {
       publishSpeed(rawSpeedMs);
     // clearStats / startTrip / routeInfo are read via stable refs (clearStats+startTrip from useTripStats are stable;
     // routeInfo via routeInfoRef) — do NOT list them here or every route preview tick tears down GPS watch.
-    }, [drivingSnap, feedPosition, feedDR, startTrip, publishUserLocation, publishHeading, publishSpeed, setFollowMode, recenterTo, resetBrowseCamera, addMatchPosition, getMatchedPoints, applyRoadMatchPoints, resetMapMatch, resetSnap, forceMapMatch, bumpMatchedFreshness, flushPendingKm]),
+    }, [drivingSnap, feedPosition, feedDR, startTrip, finishTrip, publishUserLocation, publishHeading, publishSpeed, setFollowMode, recenterTo, resetBrowseCamera, updateCameraFrame, addMatchPosition, getMatchedPoints, applyRoadMatchPoints, resetMapMatch, resetSnap, forceMapMatch, bumpMatchedFreshness, flushPendingKm]),
   });
 
   const flushNavigationStatsOnce = useCallback((finalStats: {
@@ -3023,6 +3114,97 @@ export default function MapScreen() {
     }, 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!DRIVE_TEST_DIAGNOSTICS) return;
+    if (!isMapFocused) return;
+    if (!isNavigating && !isDriving) {
+      diagLastSnapshotRef.current = null;
+      diagStuckStreakRef.current = 0;
+      return;
+    }
+
+    const id = setInterval(() => {
+      const now = Date.now();
+      const hasDr =
+        Number.isFinite(drLatRef.current)
+        && Number.isFinite(drLngRef.current)
+        && drLatRef.current !== 0
+        && drLngRef.current !== 0;
+      const hasUser =
+        !!userLocation
+        && Number.isFinite(userLocation.latitude)
+        && Number.isFinite(userLocation.longitude);
+      const activeLat = hasDr ? drLatRef.current : (hasUser ? userLocation!.latitude : NaN);
+      const activeLng = hasDr ? drLngRef.current : (hasUser ? userLocation!.longitude : NaN);
+
+      let movedM = -1;
+      if (Number.isFinite(activeLat) && Number.isFinite(activeLng)) {
+        const prev = diagLastSnapshotRef.current;
+        if (prev) {
+          movedM = haversineKm(prev.lat, prev.lng, activeLat, activeLng) * 1000;
+        }
+        diagLastSnapshotRef.current = { at: now, lat: activeLat, lng: activeLng };
+      }
+
+      const gpsAgeMs = Math.max(0, now - lastAcceptedFixWallClockRef.current);
+      const drAgeMs = Math.max(0, now - drLastFrameAtRef.current);
+      const speedNowKmh = Math.max(0, (speedKmhRef.current || 0));
+      const appearsStuck =
+        movedM >= 0
+        && movedM < 2.2
+        && speedNowKmh >= 6
+        && gpsAgeMs < 12_000;
+
+      if (appearsStuck) {
+        diagStuckStreakRef.current += 1;
+      } else {
+        diagStuckStreakRef.current = 0;
+      }
+
+      console.log('[RUNDIAG] HEARTBEAT', JSON.stringify({
+        at: now,
+        mode: isNavigatingRef.current ? 'navigation' : (isDrivingRef.current ? 'driving' : 'idle'),
+        gpsTicks: gpsTickCountRef.current,
+        drTicks: drTickCountRef.current,
+        gpsAgeMs,
+        drAgeMs,
+        gpsTickAgeMs: Math.max(0, now - lastGpsTickAtRef.current),
+        speedKmh: Number(speedNowKmh.toFixed(1)),
+        heading: Number((lastHeadingRef.current || 0).toFixed(1)),
+        movedM: movedM >= 0 ? Number(movedM.toFixed(1)) : null,
+        hasUser,
+        hasDr,
+        stuckStreak: diagStuckStreakRef.current,
+        userLat: hasUser ? Number(userLocation!.latitude.toFixed(6)) : null,
+        userLng: hasUser ? Number(userLocation!.longitude.toFixed(6)) : null,
+        drLat: hasDr ? Number(drLatRef.current.toFixed(6)) : null,
+        drLng: hasDr ? Number(drLngRef.current.toFixed(6)) : null,
+      }));
+
+      if (diagStuckStreakRef.current >= 3) {
+        const recent = gpsFixDebugRef.current.slice(-6);
+        console.log('[RUNDIAG] STUCK_WINDOW', JSON.stringify({
+          at: now,
+          mode: isNavigatingRef.current ? 'navigation' : 'driving',
+          speedKmh: Number(speedNowKmh.toFixed(1)),
+          gpsAgeMs,
+          drAgeMs,
+          lastFixes: recent.map((r) => ({
+            at: r.at,
+            accepted: r.accepted,
+            reason: r.reason,
+            acc: Math.round(r.acc),
+            speedKmh: Math.round(r.speedKmh),
+            lat: Number(r.lat.toFixed(6)),
+            lng: Number(r.lng.toFixed(6)),
+          })),
+        }));
+      }
+    }, 2500);
+
+    return () => clearInterval(id);
+  }, [isNavigating, isDriving, isMapFocused, userLocation]);
 
   const ensureRegionBootstrapped = useCallback((source: 'foreground' | 'focus') => {
     if (region) return;
@@ -4291,7 +4473,10 @@ export default function MapScreen() {
                 pickCenterRef.current = { lat, lng };
               }
             }
-            if (e.properties?.isUserInteraction || e.gestures?.isGestureActive) markUserGesture();
+            // `isUserInteraction` can be true for programmatic camera animations on
+            // some Android builds. Trust explicit gesture signal only, otherwise
+            // follow mode can be disabled during navigation/driving.
+            if (e?.gestures?.isGestureActive) markUserGesture();
           }}
         >
           <Mapbox.Camera

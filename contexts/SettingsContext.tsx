@@ -50,6 +50,7 @@ export interface AppSettings {
   notifFriends:        boolean;
   notifAchievements:   boolean;
   notifFollowedPosts:  boolean;
+  notifDiscussionPosts: boolean;
   locationMarkerStyle: 'arrow' | 'profile';
   friendsOnlyMessages: boolean;
   nickColor?: string | null;
@@ -76,6 +77,7 @@ const DEFAULTS: AppSettings = {
   notifFriends:        true,
   notifAchievements:   true,
   notifFollowedPosts:  true,
+  notifDiscussionPosts: true,
   locationMarkerStyle: 'profile',
   friendsOnlyMessages: false,
   nickColor: null,

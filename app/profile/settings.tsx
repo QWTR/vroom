@@ -1842,6 +1842,13 @@ export default function SettingsScreen() {
 									sub: "Nowy post od obserwowanego użytkownika",
 									key: "notifFollowedPosts",
 								},
+								{
+									icon: "forum",
+									iconBg: "#FF7043",
+									label: "Dyskusje (globalne)",
+									sub: "Nowy komentarz w dyskusjach od dowolnego użytkownika",
+									key: "notifDiscussionPosts",
+								},
 							] as const
 						).map((item, i, arr) => (
 							<Row
