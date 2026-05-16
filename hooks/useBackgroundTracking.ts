@@ -92,6 +92,7 @@ const BG_MIN_MOVE_ABS_M         = 10;
 const BG_TRACE_MIN_WRITE_MS     = 1500;
 const BG_TRACE_MIN_MOVE_M       = 12;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
+const BG_TRACE_MAX_JUMP_M       = 220;
 const BG_PENDING_KM_HARD_CAP    = 1200;
 
 let _tracePendingKm = 0;
@@ -149,6 +150,14 @@ export async function recordDrivingTracePoint(
     const canWriteByTime = now - _traceLastWriteAt >= BG_TRACE_MIN_WRITE_MS;
     const canWriteByMove = movedM >= BG_TRACE_MIN_MOVE_M;
     const canWriteByKm = _tracePendingKm >= BG_TRACE_MIN_FLUSH_KM;
+    if (_traceLastPoint && Number.isFinite(movedM) && movedM > BG_TRACE_MAX_JUMP_M) {
+      const speedKmh = Math.max(0, opts?.speedKmh ?? 0);
+      if (speedKmh < 40 && !canWriteByKm) {
+        _traceLastPoint = { latitude, longitude };
+        _traceLastWriteAt = now;
+        return;
+      }
+    }
     if ((!canWriteByTime && !canWriteByMove && !canWriteByKm) || _traceWriteInFlight) {
       return;
     }

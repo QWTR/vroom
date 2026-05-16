@@ -5,7 +5,7 @@ import Mapbox from '@rnmapbox/maps';
 import type { LocationState } from '../../constants/types';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
-const DR_STALE_MS = 4_000;
+const DEFAULT_DR_STALE_MS = 18_000;
 const MARKER_SIZE = 40;
 const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
@@ -23,6 +23,7 @@ export interface DrPositionMarkerProps {
   imageUri?: string | null;
   /** Bezpośredni URL avatara — preferowany dla markera profilowego. */
   avatarUrl?: string | null;
+  drStaleMs?: number;
 }
 
 export const DrPositionMarker = memo(function DrPositionMarker({
@@ -35,9 +36,11 @@ export const DrPositionMarker = memo(function DrPositionMarker({
   fallbackHeading,
   imageUri,
   avatarUrl,
+  drStaleMs = DEFAULT_DR_STALE_MS,
 }: DrPositionMarkerProps) {
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [, setFrameTick] = useState(0);
 
   const mediaAvatar = normalizeMediaUri(avatarUrl);
 
@@ -49,13 +52,30 @@ export const DrPositionMarker = memo(function DrPositionMarker({
     setAvatarFailed(false);
   }, [mediaAvatar]);
 
+  useEffect(() => {
+    if (!active) return;
+    let rafId = 0;
+    let lastEmit = 0;
+    const loop = (ts: number) => {
+      if (ts - lastEmit >= 80) {
+        lastEmit = ts;
+        setFrameTick((v) => (v + 1) % 100000);
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [active]);
+
   const drFresh =
     active &&
     Number.isFinite(drLatRef.current) &&
     Number.isFinite(drLngRef.current) &&
     drLatRef.current !== 0 &&
     drLngRef.current !== 0 &&
-    Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
+    Date.now() - drLastFrameAtRef.current <= drStaleMs;
 
   const lat = drFresh ? drLatRef.current : userLocation.latitude;
   const lng = drFresh ? drLngRef.current : userLocation.longitude;

@@ -11,7 +11,7 @@ Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const MAX_HISTORY_ROUTES_ON_MAP = 20;
 const MAX_POINTS_PER_ROUTE_ON_MAP = 180;
-const HISTORY_SANITIZE_MAX_JUMP_KM = 0.9;
+const HISTORY_SANITIZE_MAX_JUMP_KM = 0.18;
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -25,8 +25,50 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function perpendicularDistanceMeters(
+  point: [number, number],
+  lineStart: [number, number],
+  lineEnd: [number, number],
+): number {
+  const [px, py] = point;
+  const [x1, y1] = lineStart;
+  const [x2, y2] = lineEnd;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (dx === 0 && dy === 0) return haversineKm(py, px, y1, x1) * 1000;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+  const projX = x1 + t * dx;
+  const projY = y1 + t * dy;
+  return haversineKm(py, px, projY, projX) * 1000;
+}
+
+function simplifyDouglasPeucker(points: [number, number][], epsilonMeters: number): [number, number][] {
+  if (points.length <= 2) return points;
+  let maxDistance = 0;
+  let index = 0;
+  const end = points.length - 1;
+  for (let i = 1; i < end; i += 1) {
+    const d = perpendicularDistanceMeters(points[i], points[0], points[end]);
+    if (d > maxDistance) {
+      maxDistance = d;
+      index = i;
+    }
+  }
+  if (maxDistance <= epsilonMeters) {
+    return [points[0], points[end]];
+  }
+  const left = simplifyDouglasPeucker(points.slice(0, index + 1), epsilonMeters);
+  const right = simplifyDouglasPeucker(points.slice(index), epsilonMeters);
+  return [...left.slice(0, -1), ...right];
+}
+
 function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
-  const valid: [number, number][] = (points || [])
+  const sorted = (points || []).slice().sort((a: any, b: any) => {
+    const oa = Number(a?.order ?? 0);
+    const ob = Number(b?.order ?? 0);
+    return oa - ob;
+  });
+  const valid: [number, number][] = sorted
     .map((p: any) => [Number(p?.longitude), Number(p?.latitude)] as [number, number])
     .filter(([lng, lat]) =>
       Number.isFinite(lat) &&
@@ -49,13 +91,16 @@ function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
   }
 
   if (sanitized.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return sanitized;
-  const step = Math.ceil(sanitized.length / MAX_POINTS_PER_ROUTE_ON_MAP);
-  const sampled = sanitized.filter((_, idx) => idx % step === 0);
+  const epsilonMeters = 8;
+  let simplified = simplifyDouglasPeucker(sanitized, epsilonMeters);
+  if (simplified.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return simplified;
+  const step = Math.ceil(simplified.length / MAX_POINTS_PER_ROUTE_ON_MAP);
+  simplified = simplified.filter((_, idx) => idx % step === 0);
   const last = sanitized[sanitized.length - 1];
-  if (!sampled.length || sampled[sampled.length - 1][0] !== last[0] || sampled[sampled.length - 1][1] !== last[1]) {
-    sampled.push(last);
+  if (!simplified.length || simplified[simplified.length - 1][0] !== last[0] || simplified[simplified.length - 1][1] !== last[1]) {
+    simplified.push(last);
   }
-  return sampled;
+  return simplified;
 }
 
 export default function HistoryRidesScreen() {

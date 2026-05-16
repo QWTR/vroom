@@ -49,9 +49,9 @@ const GPS_CONFIG: Record<GpsProfile, {
     distanceInterval: 40,
   },
   browsing: {
-    accuracy:         Location.Accuracy.Low,
-    timeInterval:     10000,
-    distanceInterval: 25,
+    accuracy:         Location.Accuracy.Balanced,
+    timeInterval:     4000,
+    distanceInterval: 15,
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,

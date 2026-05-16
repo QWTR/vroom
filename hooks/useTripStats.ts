@@ -22,14 +22,18 @@ const TRIP_MAX_DISTANCE_KM = 1200;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
-  const compacted: { latitude: number; longitude: number }[] = [];
-  for (let i = 0; i < points.length; i += 2) {
-    compacted.push(points[i]);
-  }
-  const last = points[points.length - 1];
-  const tail = compacted[compacted.length - 1];
-  if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
-    compacted.push(last);
+  let compacted = points;
+  while (compacted.length > TRIP_MAX_TRACKED_POINTS) {
+    const next: { latitude: number; longitude: number }[] = [];
+    for (let i = 0; i < compacted.length; i += 2) {
+      next.push(compacted[i]);
+    }
+    const last = compacted[compacted.length - 1];
+    const tail = next[next.length - 1];
+    if (!tail || tail.latitude !== last.latitude || tail.longitude !== last.longitude) {
+      next.push(last);
+    }
+    compacted = next;
   }
   return compacted;
 }
