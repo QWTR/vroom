@@ -2,22 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import { getAuthToken } from '../../lib/getAuthToken';
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { useTheme } from '../../contexts/ThemeContext';
 import { API_URL } from '../../constants/config';
 import { Club } from './types';
 import RanksModal from './RanksModal';
 
-const getToken = () => AsyncStorage.getItem('token');
 const mkId = () => `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 interface Props {
@@ -67,8 +66,6 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     setStructureView('categories');
   }, [club, visible]);
 
-  if (!club) return null;
-
   const pick = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!r.canceled) setAvatar(r.assets[0].uri);
@@ -111,10 +108,15 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const categoryNameByRef = (ref: string | null) => draftCategories.find((c: any) => c.key === ref)?.name ?? 'Brak kategorii';
 
   const submit = async () => {
+    if (!club) return;
     if (!name.trim()) return Toast.show({ type: 'error', text1: 'Podaj nazwę klubu' });
     setSaving(true);
     try {
-      const token = (await getToken()) ?? '';
+      const token = (await getAuthToken()) ?? '';
+      if (!token) {
+        Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' });
+        return;
+      }
 
       const form = new FormData();
       form.append('name', name.trim());
@@ -123,7 +125,9 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       if (joinChannelId) form.append('joinNotificationChannelId', String(joinChannelId));
       if (avatar) {
         const filename = avatar.split('/').pop() ?? 'avatar.jpg';
-        form.append('avatar', { uri: avatar, name: filename, type: 'image/jpeg' } as any);
+        const ext = filename.split('.').pop()?.toLowerCase();
+        const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        form.append('avatar', { uri: avatar, name: filename, type: mime } as any);
       }
 
       const baseRes = await fetch(`${API_URL}/api/clubs/${club.id}`, {
@@ -131,77 +135,82 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
+      const baseData = await baseRes.json().catch(() => ({}));
       if (!baseRes.ok) {
-        const d = await baseRes.json().catch(() => ({}));
-        return Toast.show({ type: 'error', text1: d.error ?? 'Błąd zapisu ustawień' });
+        return Toast.show({ type: 'error', text1: baseData.error ?? 'Błąd zapisu ustawień' });
       }
 
-      const categoryIdByKey = new Map<string, number>();
-      for (const c of draftCategories) {
-        if (c.id) {
-          categoryIdByKey.set(c.key, c.id);
-          continue;
+      let updated: Club = baseData as Club;
+
+      const hasStructureDraft = draftCategories.length > 0 || draftChannels.length > 0;
+      if (hasStructureDraft) {
+        const categoryIdByKey = new Map<string, number>();
+        for (const c of draftCategories) {
+          if (c.id) {
+            categoryIdByKey.set(c.key, c.id);
+            continue;
+          }
+          const r = await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ name: c.name }),
+          });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kategorii: ${c.name}` });
+          }
+          const created = await r.json();
+          categoryIdByKey.set(c.key, created.id);
         }
-        const r = await fetch(`${API_URL}/api/clubs/${club.id}/categories`, {
-          method: 'POST',
+
+        const channelIdByKey = new Map<string, number>();
+        for (const ch of draftChannels) {
+          if (ch.id) {
+            channelIdByKey.set(ch.key, ch.id);
+            continue;
+          }
+          const categoryId = ch.categoryRef ? categoryIdByKey.get(ch.categoryRef) : null;
+          const r = await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ name: ch.name, categoryId: categoryId ?? null }),
+          });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kanału: ${ch.name}` });
+          }
+          const created = await r.json();
+          channelIdByKey.set(ch.key, created.id);
+        }
+
+        const categoriesPayload = draftCategories.map((c, idx) => ({
+          id: categoryIdByKey.get(c.key) ?? c.id,
+          position: idx,
+        })).filter((c: any) => !!c.id);
+
+        const channelsPayload = draftChannels.map((ch, idx) => ({
+          id: channelIdByKey.get(ch.key) ?? ch.id,
+          position: idx,
+          categoryId: ch.categoryRef ? (categoryIdByKey.get(ch.categoryRef) ?? null) : null,
+        })).filter((c: any) => !!c.id);
+
+        const structRes = await fetch(`${API_URL}/api/clubs/${club.id}/structure`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ name: c.name }),
+          body: JSON.stringify({
+            categories: categoriesPayload,
+            channels: channelsPayload,
+            joinNotificationChannelId: joinChannelId,
+            pruneMissing: false,
+          }),
         });
-        if (!r.ok) {
-          const d = await r.json().catch(() => ({}));
-          return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kategorii: ${c.name}` });
+        const structData = await structRes.json().catch(() => ({}));
+        if (!structRes.ok) {
+          return Toast.show({ type: 'error', text1: structData.error ?? 'Nie udało się zapisać struktury' });
         }
-        const created = await r.json();
-        categoryIdByKey.set(c.key, created.id);
+        updated = structData as Club;
       }
 
-      const channelIdByKey = new Map<string, number>();
-      for (const ch of draftChannels) {
-        if (ch.id) {
-          channelIdByKey.set(ch.key, ch.id);
-          continue;
-        }
-        const categoryId = ch.categoryRef ? categoryIdByKey.get(ch.categoryRef) : null;
-        const r = await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ name: ch.name, categoryId: categoryId ?? null }),
-        });
-        if (!r.ok) {
-          const d = await r.json().catch(() => ({}));
-          return Toast.show({ type: 'error', text1: d.error ?? `Nie udało się dodać kanału: ${ch.name}` });
-        }
-        const created = await r.json();
-        channelIdByKey.set(ch.key, created.id);
-      }
-
-      const categoriesPayload = draftCategories.map((c, idx) => ({
-        id: categoryIdByKey.get(c.key) ?? c.id,
-        position: idx,
-      })).filter((c: any) => !!c.id);
-
-      const channelsPayload = draftChannels.map((ch, idx) => ({
-        id: channelIdByKey.get(ch.key) ?? ch.id,
-        position: idx,
-        categoryId: ch.categoryRef ? (categoryIdByKey.get(ch.categoryRef) ?? null) : null,
-      })).filter((c: any) => !!c.id);
-
-      const structRes = await fetch(`${API_URL}/api/clubs/${club.id}/structure`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          categories: categoriesPayload,
-          channels: channelsPayload,
-          joinNotificationChannelId: joinChannelId,
-          pruneMissing: true,
-        }),
-      });
-      if (!structRes.ok) {
-        const d = await structRes.json().catch(() => ({}));
-        return Toast.show({ type: 'error', text1: d.error ?? 'Nie udało się zapisać struktury' });
-      }
-
-      const updated = await structRes.json();
       onUpdated(updated);
       Toast.show({ type: 'success', text1: 'Ustawienia klubu zapisane' });
       onClose();
@@ -212,19 +221,29 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     }
   };
 
+  if (!visible || !club) return null;
+
   const avatarSrc = avatar ?? club.avatarUrl;
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal
+        visible={visible}
+        animationType="slide"
+        transparent
+        onRequestClose={onClose}
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+      >
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={onClose} />
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             enabled={Platform.OS === 'ios'}
             keyboardVerticalOffset={18}
+            style={{ maxHeight: '92%' }}
           >
-            <GestureHandlerRootView style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, height: '92%' }}>
+            <GestureHandlerRootView style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, maxHeight: '100%' }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 12 }} />
 
               <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 10 }}>
@@ -429,7 +448,11 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
         clubId={club.id}
         ranks={club.ranks ?? []}
         onRefresh={async () => {
-          const token = (await getToken()) ?? '';
+          const token = (await getAuthToken()) ?? '';
+      if (!token) {
+        Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' });
+        return;
+      }
           const r = await fetch(`${API_URL}/api/clubs/${club.id}`, { headers: { Authorization: `Bearer ${token}` } });
           if (r.ok) onUpdated(await r.json());
         }}

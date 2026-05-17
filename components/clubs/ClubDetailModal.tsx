@@ -5,17 +5,12 @@ import {
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
+import { getAuthToken }       from '../../lib/getAuthToken';
 import { Club }               from './types';
 import { UAv, RankBadge }     from './ClubCard';
-import { InviteModal }        from './InviteModal';
-import EditClubModal          from './EditClubModal';
-
-const getToken = () => AsyncStorage.getItem('token');
-
 interface Props {
   club:         Club | null;
   myId:         number | null;
@@ -25,18 +20,20 @@ interface Props {
   onDelete:     (id: number) => void;
   onChatOpen:   (club: Club) => void;
   onRanksOpen:  (club: Club) => void;
+  /** iOS: drugi Modal nad szczegółami nie działa — otwierz zaproszenie z ekranu nadrzędnego */
+  onInviteRequest?: (club: Club) => void;
+  onEditRequest?:   (club: Club) => void;
   joining:      number | null;
   onRefresh:    () => void;
 }
 
 export default function ClubDetailModal({
   club, myId, onClose, onJoin, onLeave, onDelete,
-  onChatOpen, onRanksOpen, joining, onRefresh,
+  onChatOpen, onRanksOpen, onInviteRequest, onEditRequest,
+  joining, onRefresh,
 }: Props) {
   const { theme }                   = useTheme();
   const [assigning, setAssigning]   = useState<number | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [editOpen,   setEditOpen]   = useState(false);
 
   if (!club) return null;
 
@@ -52,7 +49,8 @@ export default function ClubDetailModal({
   const assignRank = async (userId: number, rankId: number | null) => {
     setAssigning(userId);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
       const res   = await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/rank`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -67,7 +65,8 @@ export default function ClubDetailModal({
     Alert.alert(`Wyrzuć ${username}`, 'Na pewno wyrzucić tego użytkownika?', [
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Wyrzuć', style: 'destructive', onPress: async () => {
-        const token = await getToken();
+        const token = await getAuthToken();
+      if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
         const res   = await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/kick`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -82,7 +81,8 @@ export default function ClubDetailModal({
   };
 
   const toggleMute = async (userId: number, username: string, isMuted: boolean) => {
-    const token = await getToken();
+    const token = await getAuthToken();
+    if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
     const path  = isMuted ? 'unmute' : 'mute';
     const body  = isMuted ? undefined : JSON.stringify({ durationMinutes: 60 });
     await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/${path}`, {
@@ -264,7 +264,7 @@ export default function ClubDetailModal({
                         backgroundColor: '#4de92615', borderRadius: 14,
                         paddingVertical: 12, borderWidth: 1, borderColor: '#4de92630',
                       }}
-                      onPress={() => setInviteOpen(true)}
+                      onPress={() => onInviteRequest?.(club)}
                       activeOpacity={0.85}
                     >
                       <MaterialIcons name="person-add" size={16} color="#4de926" />
@@ -281,7 +281,7 @@ export default function ClubDetailModal({
                       backgroundColor: `${theme.primary}15`, borderRadius: 14,
                       paddingVertical: 12, borderWidth: 1, borderColor: `${theme.primary}35`,
                     }}
-                    onPress={() => setEditOpen(true)}
+                    onPress={() => onEditRequest?.(club)}
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="edit" size={16} color={theme.primary} />
@@ -532,19 +532,6 @@ export default function ClubDetailModal({
           </View>
         </View>
       </Modal>
-
-      <InviteModal
-        visible={inviteOpen}
-        clubId={club.id}
-        onClose={() => { setInviteOpen(false); onRefresh(); }}
-      />
-
-      <EditClubModal
-        visible={editOpen}
-        club={club}
-        onClose={() => setEditOpen(false)}
-        onUpdated={() => { onRefresh(); setEditOpen(false); }}
-      />
     </>
   );
 }

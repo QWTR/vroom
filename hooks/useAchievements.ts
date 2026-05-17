@@ -31,12 +31,22 @@ export function useAchievements() {
     setLoading(true);
     try {
       const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/achievements/progress`, {
-        headers: { Authorization: `Bearer ${token}` },
+      if (!token) throw new Error('no token');
+      const authHeaders = { Authorization: `Bearer ${token}` };
+      await fetch(`${API_URL}/api/achievements/check`, {
+        method: 'POST',
+        headers: authHeaders,
+      }).catch(() => {});
+      const res = await fetch(`${API_URL}/api/achievements/progress`, {
+        headers: authHeaders,
       });
       if (!res.ok) throw new Error();
       const data: Achievement[] = await res.json();
-      setAchievements(data.map(a => ({ ...a, active: a.unlocked })));
+      setAchievements(data.map(a => ({
+        ...a,
+        active: !!(a.unlocked || a.unlockedAt),
+        unlocked: !!(a.unlocked || a.unlockedAt),
+      })));
     } catch {
       setAchievements([]);
     } finally {
@@ -56,10 +66,12 @@ export function useAchievements() {
       const data = await res.json();
       setAchievements(data.map((a: any) => ({
         ...a,
-        active:       true,
-        unlocked:     true,
-        progress:     100,
-        currentValue: a.conditionValue ?? 0,
+        active:         true,
+        unlocked:       true,
+        progress:       100,
+        currentValue:   a.conditionValue ?? 0,
+        conditionValue: a.conditionValue ?? 0,
+        conditionField: a.conditionField ?? '',
       })));
     } catch {
       setAchievements([]);

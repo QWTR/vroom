@@ -1143,8 +1143,9 @@ export default function ProfileView({
               {/* AKTYWNOŚĆ */}
               <StatsModalSection title="AKTYWNOŚĆ" color="#4de926" icon="fire">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  <StatsModalItem label="TRASY ŁĄCZNIE" value={`${routes.length}`} unit="szt." color="#4de926" isDark={isDark} />
-                  <StatsModalItem label="TRASY MIES." value={`${(profile as any)?.monthlyRoutes ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="PRZEJAZDY ŁĄCZNIE" value={`${profile?.totalRides ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="PRZEJAZDY MIES." value={`${profile?.monthlyRides ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
+                  <StatsModalItem label="TRASY ZAPISANE" value={`${routes.length}`} unit="szt." color="#4de926" isDark={isDark} />
                   <StatsModalItem label="MEETY" value={`${profile?.meetCount ?? 0}`} unit="szt." color="#ff6b35" isDark={isDark} />
                   <StatsModalItem label="STREAK" value={`${(profile as any)?.streak ?? 0}`} unit="🔥" color="#ff922b" isDark={isDark} />
                   <StatsModalItem label="MIASTA" value={`${profile?.cityCount ?? 0}`} unit="odw." color="#a855f7" isDark={isDark} />

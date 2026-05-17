@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, FlatList, RefreshControl,
-  Modal, Pressable, ActivityIndicator,
+  Modal, Pressable, ActivityIndicator, Dimensions,
 } from 'react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
@@ -13,6 +13,12 @@ import Toast                   from 'react-native-toast-message';
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import { type CommunityCar, Avatar, ListFooter } from './communityShared';
+
+const SCREEN_W = Dimensions.get('window').width;
+const GRID_GAP = 10;
+const GRID_SIDE = 12;
+const GRID_CARD_W = Math.floor((SCREEN_W - GRID_SIDE * 2 - GRID_GAP) / 2);
+const CARS_SCROLL_STATE = { offset: 0 };
 
 // ─────────────────────────────────────────────────────────
 // CAR CARD — pełna szerokość
@@ -27,27 +33,28 @@ const CarCard = React.memo(({ car, myId, onLike, onPress, onProfile }: {
   const time = formatDistanceToNow(new Date(car.createdAt), { addSuffix: true, locale: pl });
   return (
     <View style={{
-      marginHorizontal: 12, marginBottom: 12,
+      width: GRID_CARD_W,
+      marginBottom: GRID_GAP,
       backgroundColor: theme.surface,
-      borderRadius: 20, borderWidth: 1, borderColor: theme.border2,
+      borderRadius: 16, borderWidth: 1, borderColor: theme.border2,
       overflow: 'hidden',
     }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, paddingBottom: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingBottom: 8 }}>
         <TouchableOpacity onPress={() => onProfile(car.owner.id)}>
-          <Avatar user={car.owner} size={42} />
+          <Avatar user={car.owner} size={34} />
         </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 10 }}>
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <TouchableOpacity onPress={() => onProfile(car.owner.id)}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, fontWeight: '700' }}>
+            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }} numberOfLines={1}>
               {car.owner.username}
             </Text>
           </TouchableOpacity>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }}>{time}</Text>
+          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 7, marginTop: 2 }} numberOfLines={1}>{time}</Text>
         </View>
         {car.isMain && (
-          <View style={{ backgroundColor: '#FFD70020', borderRadius: 10, borderWidth: 1, borderColor: '#FFD70050', paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700' }}>GŁÓWNE</Text>
+          <View style={{ backgroundColor: '#FFD70020', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70050', paddingHorizontal: 6, paddingVertical: 3 }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>GŁÓWNE</Text>
           </View>
         )}
       </View>
@@ -70,35 +77,29 @@ const CarCard = React.memo(({ car, myId, onLike, onPress, onProfile }: {
           </View>
         ) : (
           <View style={{
-            width: '100%', height: 160, backgroundColor: '#e3383510',
+            width: '100%', height: 120, backgroundColor: '#e3383510',
             justifyContent: 'center', alignItems: 'center',
           }}>
-            <MaterialIcons name="directions-car" size={64} color="#e3383540" />
+            <MaterialIcons name="directions-car" size={44} color="#e3383540" />
           </View>
         )}
       </TouchableOpacity>
 
       {/* Info */}
-      <View style={{ padding: 14 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700', marginBottom: 3 }}>{car.brand}</Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', marginBottom: 10 }}>{car.specs}</Text>
+      <View style={{ padding: 10 }}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700', marginBottom: 3 }} numberOfLines={1}>{car.brand}</Text>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', marginBottom: 8 }} numberOfLines={1}>{car.specs}</Text>
 
         {/* Footer */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} onPress={() => onLike(car.id)}>
             <MaterialCommunityIcons name={car.isLiked ? 'heart' : 'heart-outline'} size={18}
               color={car.isLiked ? '#e33835' : theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: car.isLiked ? '#e33835' : theme.textDim }}>{car.likesCount}</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: car.isLiked ? '#e33835' : theme.textDim }}>{car.likesCount}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} onPress={() => onPress(car)}>
             <MaterialCommunityIcons name="comment-outline" size={18} color={theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim }}>{car.commentsCount}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}
-            onPress={() => onPress(car)}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim }}>SZCZEGÓŁY</Text>
-            <MaterialIcons name="arrow-forward-ios" size={11} color={theme.textDim} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>{car.commentsCount}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -314,6 +315,21 @@ export function TabAuta({ cars, myId, loadingC, refreshingC, loadingMoreC,
   router: ReturnType<typeof useRouter>;
 }) {
   const [garageVisible, setGarageVisible] = useState(false);
+  const listRef = React.useRef<FlatList<CommunityCar> | null>(null);
+  const restoredRef = React.useRef(false);
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (!cars.length) return;
+    if (CARS_SCROLL_STATE.offset <= 0) {
+      restoredRef.current = true;
+      return;
+    }
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: CARS_SCROLL_STATE.offset, animated: false });
+      restoredRef.current = true;
+    });
+  }, [cars.length]);
 
   const Header = () => (
     <TouchableOpacity
@@ -336,12 +352,17 @@ export function TabAuta({ cars, myId, loadingC, refreshingC, loadingMoreC,
   return (
     <>
       <FlatList
+        ref={listRef}
         data={cars}
         keyExtractor={c => String(c.id)}
+        numColumns={2}
+        columnWrapperStyle={{ gap: GRID_GAP, paddingHorizontal: GRID_SIDE }}
         renderItem={({ item }) => (
           <CarCard
             car={item} myId={myId} onLike={onLike}
-            onPress={c => router.push({ pathname: '/profile/car-detail', params: { id: String(c.id) } })}
+            onPress={c => {
+              router.push({ pathname: '/profile/car-detail', params: { id: String(c.id) } });
+            }}
             onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
           />
         )}
@@ -349,8 +370,12 @@ export function TabAuta({ cars, myId, loadingC, refreshingC, loadingMoreC,
         refreshControl={<RefreshControl refreshing={refreshingC} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
+        onScroll={(e) => {
+          CARS_SCROLL_STATE.offset = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         ListFooterComponent={<ListFooter loading={loadingMoreC} />}
-        contentContainerStyle={{ paddingTop: 4, paddingBottom: Math.max(bottomInset, 20) }}
+        contentContainerStyle={{ paddingTop: 4, paddingBottom: Math.max(bottomInset, 20), gap: 0 }}
       />
       <GaragePickerModal
         visible={garageVisible}

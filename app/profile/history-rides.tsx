@@ -10,8 +10,8 @@ import { useProfile } from '../../hooks/useProfile';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const MAX_HISTORY_ROUTES_ON_MAP = 20;
-const MAX_POINTS_PER_ROUTE_ON_MAP = 180;
-const HISTORY_SANITIZE_MAX_JUMP_KM = 0.18;
+const MAX_POINTS_PER_ROUTE_ON_MAP = 320;
+const HISTORY_SANITIZE_MAX_JUMP_KM = 1.2;
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;

@@ -4,13 +4,11 @@ import {
   ScrollView, ActivityIndicator, Alert,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import AsyncStorage  from '@react-native-async-storage/async-storage';
 import Toast         from 'react-native-toast-message';
 import { useTheme }  from '../../contexts/ThemeContext';
 import { API_URL }   from '../../constants/config';
+import { getAuthToken } from '../../lib/getAuthToken';
 import { ClubRank }  from './types';
-
-const getToken = () => AsyncStorage.getItem('token');
 
 const COLORS = ['#e33835', '#FFD700', '#00bfff', '#4de926', '#ff922b', '#748ffc', '#f06595'];
 
@@ -44,7 +42,8 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
     if (!newName.trim()) { Toast.show({ type: 'error', text1: 'Podaj nazwę rangi' }); return; }
     setSaving(true);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
       const res   = await fetch(`${API_URL}/api/clubs/${clubId}/ranks`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -64,7 +63,8 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
     Alert.alert('Usuń rangę', 'Wszyscy z tą rangą stracą ją.', [
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Usuń', style: 'destructive', onPress: async () => {
-        const token = await getToken();
+        const token = await getAuthToken();
+        if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
         await fetch(`${API_URL}/api/clubs/${clubId}/ranks/${rankId}`, {
           method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
         });

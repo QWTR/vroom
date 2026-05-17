@@ -5,10 +5,10 @@ import {
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
+import { getAuthToken }       from '../../lib/getAuthToken';
 import { syncProfileClubFromServer } from '../../lib/profileClubSync';
 import { UAv }                from './ClubCard';
 
@@ -34,14 +34,13 @@ export function MyInvitesModal({
   const [accepting, setAccepting] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<number | null>(null);
 
-  const getToken = () => AsyncStorage.getItem('token');
-
   useEffect(() => { if (visible) fetchInvites(); }, [visible]);
 
   const fetchInvites = async () => {
     setLoading(true);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) return;
       const res   = await fetch(`${API_URL}/api/clubs/invites/my`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -52,7 +51,8 @@ export function MyInvitesModal({
   const handleAccept = async (invite: MyInvite) => {
     setAccepting(invite.id);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) return;
       const res   = await fetch(`${API_URL}/api/clubs/invites/${invite.id}/accept`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
@@ -69,7 +69,8 @@ export function MyInvitesModal({
   const handleReject = async (invite: MyInvite) => {
     setRejecting(invite.id);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) return;
       await fetch(`${API_URL}/api/clubs/invites/${invite.id}/reject`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });

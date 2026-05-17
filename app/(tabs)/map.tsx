@@ -93,6 +93,8 @@ import {
   buildNavigationSpeech,
   cleanInstruction,
   detectCurrentStep,
+  getNavigationSpeechPhase,
+  resolveAnnouncementTarget,
   findClosestPointIndex,
   formatDuration,
   formatSpeed,
@@ -129,7 +131,6 @@ import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModa
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
-const ANNOUNCE_M          = 250;
 const NAV_PITCH           = 62;
 const BROWSE_3D_PITCH     = 52;
 const BUILDINGS_3D_MIN_ZOOM = 14;
@@ -291,12 +292,14 @@ const GPS_RESUME_DEDUPE_MS       = 3000;
 const GPS_ONESHOT_COOLDOWN_MS    = 6000;
 const GPS_ONESHOT_AFTER_RESUME_MS = 1500;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
-const GPS_INIT_MAX_ACCURACY_M = 120;
+const GPS_INIT_MAX_ACCURACY_M = 150;
+/** Po wznowieniu apki — pokaż „Szukam GPS” dopiero gdy ostatni fix jest starszy niż tyle. */
+const GPS_RESUME_SPINNER_MIN_AGE_MS = 90_000;
 /** Jednorazowy fix po wznowieniu — powyżej tego promienia zwykle jest to last-known z komórki, nie GPS. */
 const GPS_ONESHOT_MAX_ACCURACY_M = 100;
 /** Loader "Szukam GPS" nie powinien wisieć przy działających fixach o średniej dokładności. */
 const GPS_ACQUIRING_RELEASE_ACCURACY_M = 130;
-const GPS_ACQUIRING_RELEASE_AFTER_TICKS = 3;
+const GPS_ACQUIRING_RELEASE_AFTER_TICKS = 2;
 const GPS_ACQUIRING_RELEASE_FALLBACK_ACCURACY_M = 180;
 /** Fix starszy niż tyle ms względem zegara urządzenia = typowy cache OS po uśpieniu — odrzuć. */
 const GPS_MAX_FIX_AGE_MS = 30_000;
@@ -419,7 +422,7 @@ export default function MapScreen() {
   const lastSpeechAtRef      = useRef(0);
   const speechTimeoutRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rerouteTimerRef      = useRef<any>(null);
-  const announcedStepRef     = useRef(-1);
+  const announcedPhasesRef   = useRef<Set<string>>(new Set());
   const isSpeechRef          = useRef(true);
   const startIsMyLocationRef = useRef(false);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
@@ -1612,7 +1615,10 @@ export default function MapScreen() {
     setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.015, longitudeDelta: 0.015 });
     setLocationReady(true);
     locationReadyRef.current = true;
-    setGpsAcquiring(true);
+    const acc = opts?.accuracy;
+    const showSpinner = !!opts?.approximate
+      && (typeof acc !== 'number' || acc > GPS_ACQUIRING_RELEASE_ACCURACY_M);
+    setGpsAcquiring(showSpinner);
     if (__DEV__) {
       console.log('[GPSDBG] BOOTSTRAP_LOC', JSON.stringify({
         at: Date.now(),
@@ -1670,13 +1676,8 @@ export default function MapScreen() {
       setLocationReady(true);
       locationReadyRef.current = true;
       persistMapLocation(lat, lng, acc);
-      if (approximate) {
+      if (approximate && acc > GPS_ACQUIRING_RELEASE_ACCURACY_M) {
         setGpsAcquiring(true);
-        Toast.show({
-          type: 'info',
-          text1: 'GPS',
-          text2: 'Przybliżona pozycja — dokładam po świeżym sygnale.',
-        });
       } else {
         setGpsAcquiring(false);
       }
@@ -1684,15 +1685,19 @@ export default function MapScreen() {
 
     const unlockMapWithFallback = () => {
       if (cancelled) return;
-      if (locationReadyRef.current) return;
+      const wasReady = locationReadyRef.current;
       const [lng, lat] = lastMapCenterRef.current;
-      setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.02, longitudeDelta: 0.02 });
-      setLocationReady(true);
-      Toast.show({
-        type: 'info',
-        text1: 'GPS',
-        text2: 'Mapa odblokowana bez fixa. Czekam na sygnał GPS...',
-      });
+      if (!wasReady) {
+        setRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+        setLocationReady(true);
+        locationReadyRef.current = true;
+        Toast.show({
+          type: 'info',
+          text1: 'GPS',
+          text2: 'Mapa odblokowana — dokładam pozycję w tle.',
+        });
+      }
+      setGpsAcquiring(false);
     };
 
     (async () => {
@@ -1789,7 +1794,7 @@ export default function MapScreen() {
     // Hard failsafe: never keep the map on infinite GPS loader.
     initUnlockTimer = setTimeout(() => {
       unlockMapWithFallback();
-    }, 30_000);
+    }, 12_000);
 
     return () => {
       cancelled = true;
@@ -2439,7 +2444,8 @@ export default function MapScreen() {
         const likelyDriving =
           isDrivingRef.current
           || kmh >= DRIVING_SPEED_KMH
-          || (movedRawEarly >= 14 && kmh >= 5);
+          || movedRawEarly >= 18
+          || (movedRawEarly >= 12 && kmh >= 4);
 
         // Przeglądanie mapy bez jazdy: prosty GPS (bez snapu / still-lock), ale licz km przy ruchu.
         if (!likelyDriving) {
@@ -2485,7 +2491,11 @@ export default function MapScreen() {
           }
           publishUserLocation({ latitude: browseLat, longitude: browseLng });
           publishSpeed(rawSpeedMs);
-          if (kmh >= 8) {
+          const likelyMotorMotion =
+            kmh >= 6
+            || browseMovedRawM >= 24
+            || browseMovedFilteredM >= 20;
+          if (likelyMotorMotion) {
             const segKm = feedPosition(lat, lng, rawSpeedMs ?? undefined);
             if (segKm > 0) {
               recordDrivingTracePoint(lat, lng, { addDistanceKm: segKm, speedKmh: kmh }).catch(() => {});
@@ -2501,7 +2511,10 @@ export default function MapScreen() {
         // This picks up forceMatch results (called on driving mode entry) even
         // when the user is stationary and no new points have been fed.
         const movedForSnap = movedForSnapEarly;
-        const movingForDriving = kmh >= DRIVING_SPEED_KMH || (movedRawEarly >= 14 && kmh >= 5);
+        const movingForDriving =
+          kmh >= DRIVING_SPEED_KMH
+          || movedRawEarly >= 18
+          || (movedRawEarly >= 12 && kmh >= 4);
 
         const matchedPts = getMatchedPoints();
         const noRoad = !matchedPts || matchedPts.length < 2;
@@ -2672,7 +2685,7 @@ export default function MapScreen() {
           !isNavigatingRef.current
           && !isDrivingRef.current
           && !movingForDriving
-          && kmh >= PASSIVE_DISTANCE_MIN_KMH;
+          && (kmh >= PASSIVE_DISTANCE_MIN_KMH || movedForSnap >= 28);
         const trackDistance =
           isDrivingRef.current
           || movingForDriving
@@ -3503,7 +3516,7 @@ export default function MapScreen() {
     if (!locationReadyRef.current) {
       // Cold/warm reopen path: don't wait for "locationReady" gate, force
       // a watcher + one-shot so the map reacquires GPS immediately.
-      setGpsAcquiring(true);
+      setGpsAcquiring(false);
       startGPS();
       refreshLocationOneShot({ force: true });
       if (__DEV__) console.log('[GPSDBG] RESUME_FORCE_REACQUIRE', JSON.stringify({ at: Date.now(), source }));
@@ -3513,8 +3526,10 @@ export default function MapScreen() {
     if (now - lastResumeHandledAtRef.current < GPS_RESUME_DEDUPE_MS) return;
     lastResumeHandledAtRef.current = now;
     const fixAgeMs = now - lastAcceptedFixWallClockRef.current;
-    if (!lastAcceptedFixWallClockRef.current || fixAgeMs > GPS_WATCHER_STALE_MS) {
+    if (!lastAcceptedFixWallClockRef.current || fixAgeMs > GPS_RESUME_SPINNER_MIN_AGE_MS) {
       setGpsAcquiring(true);
+    } else {
+      setGpsAcquiring(false);
     }
     console.log(`[GPS] Resume flow (${source})`);
     restartGPSWatcher('resume');
@@ -3526,9 +3541,15 @@ export default function MapScreen() {
         resumeAwaitFixUntilRef.current = 0;
         return;
       }
-      refreshLocationOneShot();
+      refreshLocationOneShot({ force: isNavigatingRef.current || isDrivingRef.current });
     }, GPS_ONESHOT_AFTER_RESUME_MS);
-  }, [restartGPSWatcher, refreshLocationOneShot, startGPS, ensureRegionBootstrapped, applyBootstrapLocation]);
+
+    // Po odblokowaniu: natychmiastowy fix (bez czekania na DR „dopływający” po linii prostej).
+    if (isNavigatingRef.current || isDrivingRef.current) {
+      resetDR();
+      refreshLocationOneShot({ force: true });
+    }
+  }, [restartGPSWatcher, refreshLocationOneShot, startGPS, ensureRegionBootstrapped, applyBootstrapLocation, resetDR]);
   const handleGpsResumeRef = useRef(handleGpsResume);
   useEffect(() => {
     handleGpsResumeRef.current = handleGpsResume;
@@ -3564,7 +3585,10 @@ export default function MapScreen() {
         if (!keepForegroundWatcher) {
           stopGPSRef.current();
         }
-        stopDRRef.current();
+        const keepTripMotion = isDrivingRef.current || isNavigatingRef.current;
+        if (!keepTripMotion) {
+          stopDRRef.current();
+        }
         if (!settings.backgroundTracking && isSharingRef.current) {
           setIsSharing(false);
           AsyncStorage.setItem(BG_IS_SHARING_KEY, 'false').catch(() => {});
@@ -3614,11 +3638,11 @@ export default function MapScreen() {
     return () => {
       isMapFocusedRef.current = false;
       setIsMapFocused(false);
-      const keepWatcherOffMap = isDrivingRef.current || isNavigatingRef.current;
-      if (!keepWatcherOffMap) {
+      const keepTripOnMapBlur = isDrivingRef.current || isNavigatingRef.current;
+      if (!keepTripOnMapBlur) {
         stopGPSRef.current();
+        stopDRRef.current();
       }
-      stopDRRef.current();
       if (resumeOneShotTimerRef.current) {
         clearTimeout(resumeOneShotTimerRef.current);
         resumeOneShotTimerRef.current = null;
@@ -3702,7 +3726,7 @@ export default function MapScreen() {
     reroutePendingRef.current = false;
     setNavStartLoc({ ...userLocation, name: 'Moja pozycja' });
     setCurrentStep(0);
-    announcedStepRef.current = -1;
+    announcedPhasesRef.current = new Set();
     lastSpokenRef.current    = '';
     setOffRoute(false);
     setRerouteOrigin(null); // clear so hook doesn't keep the stale request alive
@@ -3827,7 +3851,7 @@ export default function MapScreen() {
         setCurrentStep(Math.max(0, data.currentStep ?? 0));
         setArrived(false);
         setOffRoute(false);
-        announcedStepRef.current = -1;
+        announcedPhasesRef.current = new Set();
         lastSpokenRef.current = '';
 
         isNavigatingRef.current = true;
@@ -4201,21 +4225,26 @@ export default function MapScreen() {
       if (nextStep !== prevStep) {
         currentStepRef.current = nextStep;
         setCurrentStep(nextStep);
-        announcedStepRef.current = -1;
+        announcedPhasesRef.current = new Set();
       }
 
-      if (steps[nextStep] && isSpeechRef.current) {
-        const stepEnd       = steps[nextStep].end_location;
-        const distToStepEnd = haversineKm(lat, lng, stepEnd.lat, stepEnd.lng) * 1000;
-        const threshold     = distToStepEnd < 100 ? 100 : ANNOUNCE_M;
-        if (distToStepEnd < threshold && announcedStepRef.current !== nextStep) {
-          announcedStepRef.current = nextStep;
-          speak(buildNavigationSpeech(steps[nextStep], distToStepEnd));
+      const announceTarget = resolveAnnouncementTarget(steps, nextStep, lat, lng);
+      const distToManeuver = announceTarget.distanceM;
+      const speechPhase = getNavigationSpeechPhase(distToManeuver);
+
+      if (speechPhase && isSpeechRef.current) {
+        const phaseKey = `${announceTarget.stepIndex}:${speechPhase}`;
+        if (!announcedPhasesRef.current.has(phaseKey)) {
+          announcedPhasesRef.current.add(phaseKey);
+          speak(buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase));
         }
-        const roundedTurn = Math.round(distToStepEnd / 20) * 20;
+      }
+
+      if (steps[nextStep]) {
+        const roundedTurn = Math.round(distToManeuver / 20) * 20;
         if (lastDistToTurnUiRef.current == null || Math.abs(roundedTurn - lastDistToTurnUiRef.current) >= 20) {
           lastDistToTurnUiRef.current = roundedTurn;
-          setDistToTurnM(distToStepEnd);
+          setDistToTurnM(distToManeuver);
         }
       }
 
@@ -4305,7 +4334,7 @@ export default function MapScreen() {
     navLngFilter.reset();
     startIsMyLocationRef.current = false;
     lastSpokenRef.current        = '';
-    announcedStepRef.current     = -1;
+    announcedPhasesRef.current   = new Set();
 
     const navStart = { ...userLocation, name: 'Moja pozycja' };
     setIsNavigating(true);

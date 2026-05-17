@@ -177,8 +177,15 @@ export default function PublicProfileScreen() {
       }
       if (achRes.ok) {
         const data = await achRes.json();
-        setAchievements(data.map((a: any) => ({
-          ...a, active: true, unlocked: true, progress: 100, currentValue: a.conditionValue ?? 0,
+        const list = Array.isArray(data) ? data : [];
+        setAchievements(list.map((a: any) => ({
+          ...a,
+          active:         true,
+          unlocked:       true,
+          progress:       100,
+          currentValue:   a.conditionValue ?? 0,
+          conditionValue: a.conditionValue ?? 0,
+          conditionField: a.conditionField ?? '',
         })));
       }
       if (fsRes.ok) {

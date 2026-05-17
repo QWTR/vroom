@@ -17,13 +17,16 @@ import { API_URL }            from '../../../constants/config';
 import ClubCard               from '../../../components/clubs/ClubCard';
 import CreateClubModal        from '../../../components/clubs/CreateClubModal';
 import ClubDetailModal        from '../../../components/clubs/ClubDetailModal';
+import { InviteModal }        from '../../../components/clubs/InviteModal';
+import EditClubModal          from '../../../components/clubs/EditClubModal';
 import RanksModal             from '../../../components/clubs/RanksModal';
 import { Club }               from '../../../components/clubs/types';
 import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
 import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
-
-const getToken = () => AsyncStorage.getItem('token');
+import { getAuthToken } from '../../../lib/getAuthToken';
 const PAGE     = 20;
+/** iOS nie obsługuje dwóch Modal jednocześnie — zamknij szczegóły, potem otwórz drugi. */
+const IOS_MODAL_SWAP_MS = 350;
 type ClubDetailResult = {
   ok: boolean;
   status: number;
@@ -56,6 +59,8 @@ export default function ClubsScreen() {
   const [createVisible, setCreateVisible] = useState(false);
   const [detailClub,    setDetailClub]    = useState<Club | null>(null);
   const [ranksClub,     setRanksClub]     = useState<Club | null>(null);
+  const [inviteClubId,  setInviteClubId]  = useState<number | null>(null);
+  const [editClub,      setEditClub]      = useState<Club | null>(null);
 
   const [invitesVisible, setInvitesVisible] = useState(false);
   const [inviteCount,    setInviteCount]    = useState(0);
@@ -78,7 +83,7 @@ export default function ClubsScreen() {
   // ── Fetch clubs ────────────────────────────────────────
   const fetchClubs = useCallback(async (cursor?: number, q?: string) => {
     try {
-      const token  = await getToken();
+      const token  = await getAuthToken();
       const params = new URLSearchParams({ limit: String(PAGE) });
       if (cursor) params.append('cursor', String(cursor));
       if (q)      params.append('search', q);
@@ -100,7 +105,7 @@ export default function ClubsScreen() {
 
   const fetchMyInviteCount = useCallback(async () => {
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
       const res   = await fetch(`${API_URL}/api/clubs/invites/my`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -111,7 +116,7 @@ export default function ClubsScreen() {
   // ── fetchMyClub — pobierz owned + member clubs ────────
   const fetchMyClub = useCallback(async () => {
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
       const res   = await fetch(`${API_URL}/api/clubs/my/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -128,7 +133,7 @@ export default function ClubsScreen() {
 
   const fetchClubDetail = useCallback(async (clubId: number) => {
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
       if (!token) {
         return {
           ok: false,
@@ -223,7 +228,7 @@ export default function ClubsScreen() {
   const handleJoin = useCallback(async (clubId: number) => {
     setJoining(clubId);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
       const res   = await fetch(`${API_URL}/api/clubs/${clubId}/join`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
@@ -254,7 +259,7 @@ export default function ClubsScreen() {
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Opuść', style: 'destructive', onPress: async () => {
         setJoining(clubId);
-        const token = await getToken();
+        const token = await getAuthToken();
         const res   = await fetch(`${API_URL}/api/clubs/${clubId}/leave`, {
           method: 'POST', headers: { Authorization: `Bearer ${token}` },
         });
@@ -282,7 +287,7 @@ export default function ClubsScreen() {
     Alert.alert('Usuń klub', 'Tej operacji nie można cofnąć.', [
       { text: 'Anuluj', style: 'cancel' },
       { text: 'Usuń', style: 'destructive', onPress: async () => {
-        const token = await getToken();
+        const token = await getAuthToken();
         const res   = await fetch(`${API_URL}/api/clubs/${clubId}`, {
           method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
         });
@@ -300,7 +305,7 @@ export default function ClubsScreen() {
   const handleCreate = useCallback(async ({
     name, description, isPrivate, avatarUri,
   }: { name: string; description: string; isPrivate: boolean; avatarUri: string | null }) => {
-    const token = await getToken();
+    const token = await getAuthToken();
     const form  = new FormData();
     form.append('name', name);
     form.append('description', description);
@@ -603,9 +608,40 @@ export default function ClubsScreen() {
         onLeave={handleLeave}
         onDelete={handleDelete}
         onChatOpen={c => { setDetailClub(null); router.push(`/Community/clubs/${c.id}` as any); }}
-        onRanksOpen={c => { setDetailClub(null); setTimeout(() => setRanksClub(c), 300); }}
+        onRanksOpen={c => { setDetailClub(null); setTimeout(() => setRanksClub(c), IOS_MODAL_SWAP_MS); }}
+        onInviteRequest={c => {
+          setDetailClub(null);
+          setTimeout(() => setInviteClubId(c.id), IOS_MODAL_SWAP_MS);
+        }}
+        onEditRequest={c => {
+          setDetailClub(null);
+          setTimeout(() => setEditClub(c), IOS_MODAL_SWAP_MS);
+        }}
         joining={joining}
         onRefresh={refreshDetail}
+      />
+
+      <InviteModal
+        visible={inviteClubId != null}
+        clubId={inviteClubId ?? 0}
+        onClose={() => {
+          setInviteClubId(null);
+          fetchMyClub();
+          fetchClubs(undefined, search);
+        }}
+      />
+
+      <EditClubModal
+        visible={!!editClub}
+        club={editClub}
+        channels={editClub?.channels ?? []}
+        onClose={() => setEditClub(null)}
+        onUpdated={(updated) => {
+          setEditClub(null);
+          if (detailClub?.id === updated.id) setDetailClub(updated);
+          fetchMyClub();
+          fetchClubs(undefined, search);
+        }}
       />
 
       {ranksClub && (

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { onProfileClubUpdated } from '../lib/profileClubSync';
+import { onProfileStatsUpdated } from '../lib/profileStatsSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { API_URL } from '../constants/config';
@@ -22,13 +23,13 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean }): UserProfile {
     avatarUrl:     u.avatarUrl     ?? u.avatar ?? null,
     bannerUrl:     u.bannerUrl     ?? null,
     createdAt:     u.createdAt     ?? new Date().toISOString(),
-    totalDistance:   u.totalDistance   ?? 0,
-    dailyDistance:   u.dailyDistance   ?? 0,
-    topSpeed:        u.topSpeed        ?? 0,
-    avgSpeed:        u.avgSpeed        != null ? Number(u.avgSpeed) : 0,
-    avgMaxSpeed:     u.avgMaxSpeed     != null ? Number(u.avgMaxSpeed) : 0,
+    totalDistance:   Number(u.totalDistance ?? 0) || 0,
+    dailyDistance:   Number(u.dailyDistance ?? 0) || 0,
+    topSpeed:        Number(u.topSpeed ?? 0) || 0,
+    avgSpeed:        u.avgSpeed != null ? Number(u.avgSpeed) : 0,
+    avgMaxSpeed:     u.avgMaxSpeed != null ? Number(u.avgMaxSpeed) : 0,
     monthlyDistance: u.monthlyDistance != null ? Number(u.monthlyDistance) : 0,
-    weeklyDistance:  u.weeklyDistance  != null ? Number(u.weeklyDistance) : 0,
+    weeklyDistance:  u.weeklyDistance != null ? Number(u.weeklyDistance) : 0,
     totalRides:      u.totalRides      ?? 0,
     monthlyRides:    u.monthlyRides    ?? 0,
     streak:          u.streak          ?? 0,
@@ -115,6 +116,12 @@ export function useProfile() {
       setProfile((prev) => (prev ? { ...prev, club } : prev));
     });
   }, []);
+
+  useEffect(() => {
+    return onProfileStatsUpdated(() => {
+      void fetchProfile();
+    });
+  }, [fetchProfile]);
 
   // ── Publiczny profil ──────────────────────────────────
   const fetchPublicProfile = useCallback(async (userId: number) => {

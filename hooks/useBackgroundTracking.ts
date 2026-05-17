@@ -6,6 +6,7 @@ import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 import { haversineKm } from '../scripts/navigationUtils';
+import { syncProfileStatsFromServer } from '../lib/profileStatsSync';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -80,11 +81,11 @@ export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
-const BG_LAST_FIX_MAX_GAP_SEC   = 60;
+const BG_LAST_FIX_MAX_GAP_SEC   = 120;
 const BG_MAX_PLAUSIBLE_KMH      = 220;
 const BG_MIN_SEGMENT_KM         = 0.003;
-const BG_MAX_SEGMENT_KM         = 0.65;
-const BG_ROUTE_MAX_POINTS       = 500;
+const BG_MAX_SEGMENT_KM         = 1.8;
+const BG_ROUTE_MAX_POINTS       = 1500;
 const BG_MIN_SPEED_KMH          = 2;
 const BG_MIN_REPORTED_SPEED_KMH = 3;
 const BG_MAX_ACCURACY_M         = 35;
@@ -467,8 +468,7 @@ export function useBackgroundTracking(
     try {
       const token = await getAuthToken();
       if (!token) return;
-      const pendingSaved = await flushPendingActivitySave(token);
-      if (!pendingSaved) return;
+      await flushPendingActivitySave(token);
 
       if (fromNavigation) {
         // Collect foreground stats (fg) + background distance (bg) together
@@ -543,6 +543,7 @@ export function useBackgroundTracking(
           AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
+        void syncProfileStatsFromServer();
 
       } else {
         // Passive flush: no navigation was active, save whatever background accumulated
@@ -558,7 +559,7 @@ export function useBackgroundTracking(
           ]);
           return;
         }
-        if (bgPending < 0.1) return;
+        if (bgPending < 0.05) return;
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
         const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
@@ -592,6 +593,7 @@ export function useBackgroundTracking(
           return;
         }
         telemetryRef.current.flushSuccess += 1;
+        void syncProfileStatsFromServer();
 
         await Promise.all([
           AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
@@ -622,7 +624,11 @@ export function useBackgroundTracking(
     try {
       const appIsActive = AppState.currentState === 'active';
       // Prevent double accounting while app is active in foreground trip pipeline.
-      const shouldTrack = bgEnabled && sharingHydrated && (!appIsActive || forceEnabled);
+      // Nawigacja/jazda w tle: GPS nawet gdy użytkownik wyłączył „śledzenie w tle” w ustawieniach.
+      const shouldTrack = sharingHydrated && (
+        (!appIsActive && (bgEnabled || forceEnabled))
+        || (appIsActive && forceEnabled && bgEnabled)
+      );
       if (!shouldTrack) return;
       void isSharing;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
@@ -700,7 +706,7 @@ export function useBackgroundTracking(
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
       AsyncStorage.setItem(BG_APP_ACTIVE_KEY, s === 'active' ? 'true' : 'false').catch(() => {});
       if (s === 'background' || s === 'inactive') {
-        if (bgEnabled && sharingHydrated) {
+        if (sharingHydrated && (bgEnabled || forceEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
@@ -708,7 +714,7 @@ export function useBackgroundTracking(
         return;
       }
       if (s === 'active') {
-        if ((isSharing || forceEnabled) && bgEnabled && sharingHydrated) {
+        if (sharingHydrated && ((isSharing || forceEnabled) && bgEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();

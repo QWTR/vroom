@@ -106,12 +106,101 @@ function extractRoundaboutExit(text: string): number | null {
 
 function formatDistanceForSpeech(distanceM: number): string {
   if (distanceM < 35) return 'teraz';
-  if (distanceM < 120) return 'za chwilę';
-  if (distanceM < 1000) return `za ${Math.round(distanceM / 10) * 10} metrów`;
+  if (distanceM < 1000) {
+    const rounded = distanceM >= 150
+      ? Math.round(distanceM / 50) * 50
+      : Math.round(distanceM / 10) * 10;
+    const meters = Math.max(50, Math.min(950, rounded));
+    return `za ${meters} metrów`;
+  }
   const km = Math.round((distanceM / 1000) * 10) / 10;
   const kmTxt = Number.isInteger(km) ? String(km) : km.toFixed(1).replace('.', ',');
   const unit = km === 1 ? 'kilometr' : (Number.isInteger(km) ? 'kilometry' : 'kilometra');
   return `za ${kmTxt} ${unit}`;
+}
+
+export type NavigationSpeechPhase = 'far' | 'near' | 'now';
+
+function isMinorManeuver(maneuver?: string, instruction = ''): boolean {
+  const m = (maneuver ?? '').toLowerCase();
+  if (!m || m === 'straight' || m === 'continue' || m === 'merge') return true;
+  if (m.includes('new name') || m.includes('notification')) return true;
+  const text = instruction.toLowerCase();
+  if (/\bjedź prosto\b/.test(text) || /\bkontynuuj\b/.test(text)) return true;
+  return false;
+}
+
+function extractStreetName(instruction: string): string | null {
+  const patterns = [
+    /\bna\s+(?:ul\.?\s*|ulicę\s+|ulicy\s+)([^,]+)/i,
+    /\bna\s+(?:aleję\s+|alei\s+|aleja\s+)([^,]+)/i,
+    /\bna\s+(?:droga\s+|drogę\s+)([^,]+)/i,
+    /\bonto\s+([^,]+)/i,
+    /\bw\s+([^,]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = instruction.match(pattern);
+    if (!match?.[1]) continue;
+    const street = match[1].trim().replace(/\s+/g, ' ');
+    if (street.length >= 2) return street;
+  }
+  return null;
+}
+
+function maneuverPhrase(step: Step): string | null {
+  const m = (step.maneuver ?? '').toLowerCase();
+  if (m.includes('uturn')) return 'zawróć';
+  if (m.includes('roundabout')) return 'na rondzie zjedź odpowiednim zjazdem';
+  if (m.includes('sharp-left') || m === 'turn-sharp-left') return 'ostro w lewo';
+  if (m.includes('sharp-right') || m === 'turn-sharp-right') return 'ostro w prawo';
+  if (m.includes('slight-left') || m === 'fork-left' || m === 'ramp-left') return 'łagodnie w lewo';
+  if (m.includes('slight-right') || m === 'fork-right' || m === 'ramp-right') return 'łagodnie w prawo';
+  if (m.includes('left')) return 'w lewo';
+  if (m.includes('right')) return 'w prawo';
+  return null;
+}
+
+/**
+ * Wybiera krok do zapowiedzi: jeśli bieżący to „jedź prosto”, a blisko końca —
+ * zapowiedz następny manewr (żeby nie mówić złej nazwy ulicy).
+ */
+export function resolveAnnouncementTarget(
+  steps: Step[],
+  currentStep: number,
+  userLat: number,
+  userLon: number,
+): { step: Step; stepIndex: number; distanceM: number } {
+  const idx = Math.min(Math.max(currentStep, 0), steps.length - 1);
+  const step = steps[idx];
+  const distToEndM = haversineKm(
+    userLat,
+    userLon,
+    step.end_location.lat,
+    step.end_location.lng,
+  ) * 1000;
+
+  const baseInstruction = cleanInstruction(step.html_instructions);
+  if (
+    isMinorManeuver(step.maneuver, baseInstruction)
+    && idx < steps.length - 1
+    && distToEndM < 220
+  ) {
+    const upcoming = steps[idx + 1];
+    const upcomingText = cleanInstruction(upcoming.html_instructions);
+    if (!isMinorManeuver(upcoming.maneuver, upcomingText)) {
+      return { step: upcoming, stepIndex: idx + 1, distanceM: distToEndM };
+    }
+  }
+
+  return { step, stepIndex: idx, distanceM: distToEndM };
+}
+
+/** Faza zapowiedzi wg odległości do manewru (wąskie pasma — jedna zapowiedź na fazę). */
+export function getNavigationSpeechPhase(distanceM: number): NavigationSpeechPhase | null {
+  if (distanceM <= 40) return 'now';
+  if (distanceM >= 88 && distanceM <= 112) return 'near';
+  if (distanceM >= 235 && distanceM <= 265) return 'far';
+  return null;
 }
 
 function exitOrdinalWord(exitNo: number): string {
@@ -143,11 +232,13 @@ function humanizeInstruction(text: string): string {
     .trim();
 }
 
-export function buildNavigationSpeech(step: Step, distanceM: number): string {
-  const baseInstruction = humanizeInstruction(
-    normalizeForSpeech(cleanInstruction(step.html_instructions)),
-  );
-  const distPrefix = formatDistanceForSpeech(distanceM);
+export function buildNavigationSpeech(
+  step: Step,
+  distanceM: number,
+  phase: NavigationSpeechPhase = 'near',
+): string {
+  const rawInstruction = cleanInstruction(step.html_instructions);
+  const baseInstruction = humanizeInstruction(normalizeForSpeech(rawInstruction));
   const maneuver = (step.maneuver ?? '').toLowerCase();
   const isRoundabout =
     maneuver.includes('roundabout')
@@ -159,15 +250,28 @@ export function buildNavigationSpeech(step: Step, distanceM: number): string {
     const roundaboutInstruction = exitNo != null
       ? `na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`
       : 'na rondzie zjedź odpowiednim zjazdem';
-    if (distPrefix === 'teraz') return `teraz ${roundaboutInstruction}`;
+    if (phase === 'now') return `teraz ${roundaboutInstruction}`;
+    const distPrefix = phase === 'near'
+      ? 'za 100 metrów'
+      : formatDistanceForSpeech(Math.max(distanceM, 250));
     return `${distPrefix}, ${roundaboutInstruction}`;
   }
 
-  if (distPrefix === 'teraz') {
+  const turn = maneuverPhrase(step);
+  const street = extractStreetName(rawInstruction);
+
+  if (phase === 'now') {
+    if (turn && street) return `teraz skręć ${turn} na ${street}`;
+    if (turn) return `teraz skręć ${turn}`;
     return `teraz ${lowerFirst(baseInstruction)}`;
   }
-  if (distPrefix === 'za chwilę') {
-    return `za chwilę ${lowerFirst(baseInstruction)}`;
+
+  const distPrefix = phase === 'near'
+    ? 'za 100 metrów'
+    : formatDistanceForSpeech(Math.max(distanceM, 250));
+
+  if (turn) {
+    return `${distPrefix}, skręć ${turn}`;
   }
   return `${distPrefix}, ${lowerFirst(baseInstruction)}`;
 }
@@ -389,7 +493,7 @@ export function detectCurrentStep(
     }
   }
 
-  if (bestStep > resolved && bestDist <= 80) {
+  if (bestStep > resolved && bestDist <= 45) {
     return bestStep;
   }
   return resolved;

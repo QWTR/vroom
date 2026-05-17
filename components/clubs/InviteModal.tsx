@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  FlatList, ActivityIndicator, Pressable, Platform,
+  FlatList, ActivityIndicator, Pressable, Platform, StyleSheet,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
+import { getAuthToken }       from '../../lib/getAuthToken';
 import { UAv }                from './ClubCard';
 
 interface Invite {
@@ -36,8 +36,6 @@ export function InviteModal({
   const [error,    setError]          = useState('');
   const [success,  setSuccess]        = useState('');
 
-  const getToken = () => AsyncStorage.getItem('token');
-
   useEffect(() => {
     if (visible) { setSearch(''); setError(''); setSuccess(''); fetchInvites(); }
   }, [visible]);
@@ -45,7 +43,8 @@ export function InviteModal({
   const fetchInvites = async () => {
     setLoading(true);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) { setError('Zaloguj się ponownie'); return; }
       const res   = await fetch(`${API_URL}/api/clubs/${clubId}/invites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -57,7 +56,8 @@ export function InviteModal({
     if (!search.trim()) return;
     setSending(true); setError(''); setSuccess('');
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) { setError('Zaloguj się ponownie'); return; }
       const res   = await fetch(`${API_URL}/api/clubs/${clubId}/invites`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -75,7 +75,8 @@ export function InviteModal({
   const handleCancel = async (inviteId: number) => {
     setCancelling(inviteId);
     try {
-      const token = await getToken();
+      const token = await getAuthToken();
+      if (!token) return;
       await fetch(`${API_URL}/api/clubs/${clubId}/invites/${inviteId}`, {
         method:  'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -85,13 +86,19 @@ export function InviteModal({
     } finally { setCancelling(null); }
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}
-        onPress={onClose}
-      >
-        <Pressable onPress={e => e.stopPropagation()}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+    >
+      <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
           <View style={{
             backgroundColor: theme.surface,
             borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -291,8 +298,7 @@ export function InviteModal({
               />
             )}
           </View>
-        </Pressable>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

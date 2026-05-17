@@ -137,12 +137,14 @@ export default function ProfileScreen() {
     useCallback(() => {
       if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       focusRefreshTimer.current = setTimeout(() => {
-        fetchProfile();
+        void fetchProfile();
+        void fetchActivityHistory({ includeRoute: true });
+        void fetchMonthlyStats();
       }, 300);
       return () => {
         if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       };
-    }, [fetchProfile]),
+    }, [fetchProfile, fetchActivityHistory, fetchMonthlyStats]),
   );
 
   const onRefresh = async () => {
