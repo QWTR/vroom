@@ -125,6 +125,7 @@ import { AdBanner }           from '../../components/ads/AdBanner';
 import { useFuelStations }      from '../../hooks/useFuelStations';
 import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
+import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 const REROUTE_THRESHOLD_M = 40;
@@ -293,6 +294,10 @@ const GPS_ONESHOT_AFTER_RESUME_MS = 1500;
 const GPS_INIT_MAX_ACCURACY_M = 120;
 /** Jednorazowy fix po wznowieniu — powyżej tego promienia zwykle jest to last-known z komórki, nie GPS. */
 const GPS_ONESHOT_MAX_ACCURACY_M = 100;
+/** Loader "Szukam GPS" nie powinien wisieć przy działających fixach o średniej dokładności. */
+const GPS_ACQUIRING_RELEASE_ACCURACY_M = 130;
+const GPS_ACQUIRING_RELEASE_AFTER_TICKS = 3;
+const GPS_ACQUIRING_RELEASE_FALLBACK_ACCURACY_M = 180;
 /** Fix starszy niż tyle ms względem zegara urządzenia = typowy cache OS po uśpieniu — odrzuć. */
 const GPS_MAX_FIX_AGE_MS = 30_000;
 /** Przy długiej przerwie nie ufaj `coords.speed` z providera przy walidacji one-shot (bywa zatrzymany z jazdy). */
@@ -748,7 +753,10 @@ export default function MapScreen() {
   // ── State – fuel stations ─────────────────────────────────
   const [selectedFuelStation,     setSelectedFuelStation]     = useState<any>(null);
   const [fuelStationModalVisible, setFuelStationModalVisible] = useState(false);
-  const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange } = useFuelStations(userLocation);
+  const [fuelAddMode, setFuelAddMode] = useState(false);
+  const [addFuelStationVisible, setAddFuelStationVisible] = useState(false);
+  const [addFuelStationCoords, setAddFuelStationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange, createStation: createFuelStation } = useFuelStations(userLocation);
   // ── State – live / ostrzeżenia ────────────────────────────
   const [isSharing,           setIsSharing]           = useState(false);
   const isSharingRef          = useRef(false);
@@ -1026,7 +1034,7 @@ export default function MapScreen() {
   }, []);
 
   const {
-    isBuilding, pins, saving, snapping, snappedRoute,
+    isBuilding, pins, saving, snapping, snappedRoute, displaySnappedRoute,
     startBuilding, cancelBuilding,
     addPin, removePin, finishPin, snapToRoad,
     totalDistance, saveRoute,
@@ -2359,7 +2367,11 @@ export default function MapScreen() {
         accepted: true,
         reason: 'accepted_raw',
       });
-      if (acc <= 85) {
+      if (
+        acc <= GPS_ACQUIRING_RELEASE_ACCURACY_M
+        || (gpsTickCountRef.current >= GPS_ACQUIRING_RELEASE_AFTER_TICKS
+          && acc <= GPS_ACQUIRING_RELEASE_FALLBACK_ACCURACY_M)
+      ) {
         setGpsAcquiring(false);
         persistMapLocation(rawLat, rawLng, acc);
       }
@@ -2462,7 +2474,16 @@ export default function MapScreen() {
             loc.heading != null && loc.heading >= 0 && kmh > 2
               ? loc.heading
               : lastHeadingRef.current;
-          publishUserLocation({ latitude: lat, longitude: lng });
+          let browseLat = lat;
+          let browseLng = lng;
+          if (kmh >= 12) {
+            const softSnap = drivingSnap(lat, lng, kmh, false, false, loc.accuracy ?? null);
+            if (softSnap.snapped) {
+              browseLat = softSnap.latitude;
+              browseLng = softSnap.longitude;
+            }
+          }
+          publishUserLocation({ latitude: browseLat, longitude: browseLng });
           publishSpeed(rawSpeedMs);
           if (kmh >= 8) {
             const segKm = feedPosition(lat, lng, rawSpeedMs ?? undefined);
@@ -3479,10 +3500,10 @@ export default function MapScreen() {
         lastGoodLocRef.current = { lat: cached.latitude, lng: cached.longitude };
       }
     });
-    setGpsAcquiring(true);
     if (!locationReadyRef.current) {
       // Cold/warm reopen path: don't wait for "locationReady" gate, force
       // a watcher + one-shot so the map reacquires GPS immediately.
+      setGpsAcquiring(true);
       startGPS();
       refreshLocationOneShot({ force: true });
       if (__DEV__) console.log('[GPSDBG] RESUME_FORCE_REACQUIRE', JSON.stringify({ at: Date.now(), source }));
@@ -3491,6 +3512,10 @@ export default function MapScreen() {
     const now = Date.now();
     if (now - lastResumeHandledAtRef.current < GPS_RESUME_DEDUPE_MS) return;
     lastResumeHandledAtRef.current = now;
+    const fixAgeMs = now - lastAcceptedFixWallClockRef.current;
+    if (!lastAcceptedFixWallClockRef.current || fixAgeMs > GPS_WATCHER_STALE_MS) {
+      setGpsAcquiring(true);
+    }
     console.log(`[GPS] Resume flow (${source})`);
     restartGPSWatcher('resume');
     resumeAwaitFixUntilRef.current = now + GPS_ONESHOT_AFTER_RESUME_MS;
@@ -4721,10 +4746,15 @@ export default function MapScreen() {
             addPin(latitude, longitude);
           }}
           onLongPress={(e: any) => {
-            if (!manualTargetPickMode || isBuilding) return;
             const coords = e?.geometry?.coordinates;
             if (!Array.isArray(coords) || coords.length < 2) return;
             const [longitude, latitude] = coords;
+            if (fuelAddMode && !isBuilding) {
+              setAddFuelStationCoords({ latitude, longitude });
+              setAddFuelStationVisible(true);
+              return;
+            }
+            if (!manualTargetPickMode || isBuilding) return;
             handleManualTargetPick(latitude, longitude);
           }}
           onMapIdle={(e: any) => {
@@ -4875,15 +4905,15 @@ export default function MapScreen() {
             />
           ))}
 
-          {isBuilding && snappedRoute.length > 1 && (
+          {isBuilding && displaySnappedRoute.length > 1 && (
             <>
-              <Mapbox.ShapeSource id="snappedShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+              <Mapbox.ShapeSource id="snappedShadowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: displaySnappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
                 <Mapbox.LineLayer id="snappedShadowLayer" style={{ lineColor: '#00000070', lineWidth: 10, lineCap: 'round', lineJoin: 'round' }} />
               </Mapbox.ShapeSource>
-              <Mapbox.ShapeSource id="snappedRouteSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+              <Mapbox.ShapeSource id="snappedRouteSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: displaySnappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
                 <Mapbox.LineLayer id="snappedRouteLayer" style={{ lineColor: '#e33835', lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
               </Mapbox.ShapeSource>
-              <Mapbox.ShapeSource id="snappedGlowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: snappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
+              <Mapbox.ShapeSource id="snappedGlowSource" shape={{ type: 'Feature', geometry: { type: 'LineString', coordinates: displaySnappedRoute.map((c: any) => [c.longitude, c.latitude]) }, properties: {} }}>
                 <Mapbox.LineLayer id="snappedGlowLayer" style={{ lineColor: '#ffffff20', lineWidth: 3, lineCap: 'round', lineJoin: 'round' }} />
               </Mapbox.ShapeSource>
             </>
@@ -5541,7 +5571,15 @@ export default function MapScreen() {
                     onPress: () => {
                       setMapFabModalVisible(false);
                       refetchFuelStations();
-                      Toast.show({ type: 'info', text1: 'Stacje paliw', text2: 'Odświeżono na mapie' });
+                      const next = !fuelAddMode;
+                      setFuelAddMode(next);
+                      Toast.show({
+                        type: 'info',
+                        text1: next ? 'Tryb dodawania stacji' : 'Stacje paliw',
+                        text2: next
+                          ? 'Przytrzymaj mapę w miejscu stacji, aby dodać.'
+                          : 'Odświeżono na mapie',
+                      });
                     },
                   },
                   {
@@ -5942,6 +5980,21 @@ export default function MapScreen() {
             return ok;
           }}
           currentUserId={currentUserId}
+        />
+
+        <AddFuelStationModal
+          visible={addFuelStationVisible}
+          latitude={addFuelStationCoords?.latitude ?? null}
+          longitude={addFuelStationCoords?.longitude ?? null}
+          onClose={() => {
+            setAddFuelStationVisible(false);
+            setAddFuelStationCoords(null);
+          }}
+          onSubmit={async (data) => {
+            const ok = await createFuelStation(data);
+            if (ok) refetchFuelStations();
+            return ok;
+          }}
         />
 
         <FuelStationModal

@@ -9,6 +9,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
 import { API_URL }             from '../../../constants/config';
+import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
 import { AdNativePost }         from '../../../components/ads/AdNativePost';
 import { AdPostBoundary }       from '../../../components/ads/AdPostBoundary';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
@@ -84,6 +85,7 @@ const PostCard = React.memo(({
         Toast.show({ type: 'error', text1: data?.error ?? 'Nie udało się dołączyć' });
         return;
       }
+      await syncProfileClubFromServer();
       Toast.show({ type: 'success', text1: `Dołączono do klubu ${clubInviteData.clubName}` });
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });

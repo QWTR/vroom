@@ -233,5 +233,41 @@ export function useFuelStations(userLocation: LocationState | null) {
     }
   }, []);
 
-  return { stations, loading, refetch, updatePrices, onLocationChange };
+  const createStation = useCallback(async (data: {
+    name: string;
+    brand?: string;
+    lat: number;
+    lng: number;
+    address?: string;
+  }): Promise<boolean> => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/fuel-stations`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) return false;
+      const created = await res.json();
+      setStations((prev) => [
+        ...prev,
+        {
+          id: `db_${created.id}`,
+          dbId: created.id as number,
+          name: created.name,
+          brand: created.brand ?? null,
+          lat: created.lat,
+          lng: created.lng,
+          address: created.address,
+          prices: [],
+        },
+      ]);
+      return true;
+    } catch (e) {
+      console.error('createStation:', e);
+      return false;
+    }
+  }, []);
+
+  return { stations, loading, refetch, updatePrices, onLocationChange, createStation };
 }

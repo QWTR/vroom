@@ -265,7 +265,7 @@ function RootLayoutInner() {
             data.type === 'comment_post' ||
             data.type === 'new_follow_post' ||
             data.type === 'mention_discussion' ||
-            data.type === 'discussion_comment_new') &&
+            data.type === 'discussion_post_new') &&
           data.postId
         ) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));

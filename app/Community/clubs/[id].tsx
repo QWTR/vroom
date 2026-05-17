@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  Image, ActivityIndicator, KeyboardAvoidingView, Keyboard,
+  Image, ActivityIndicator, KeyboardAvoidingView,
   Platform, Modal, Pressable, ScrollView, Dimensions, Alert, Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -22,6 +22,7 @@ import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
 import { renderDiscussionBody }   from '../community/communityShared';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
+import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 
 const WS_URL   = 'https://v-room.app';
 const getToken = () => AsyncStorage.getItem('token');
@@ -219,23 +220,8 @@ export default function ClubChatScreen() {
   const tabSlide = useRef(new Animated.Value(Dimensions.get('window').width / 3)).current;
   const tabHapticSkip = useRef(true);
 
-  /** iOS: KeyboardAvoidingView + zagnieżdżony ScrollView potrafi kumulować padding — używamy jawnej wysokości klawiatury. */
-  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const onShow = Keyboard.addListener('keyboardWillShow', (e) => {
-      setIosKeyboardHeight(e.endCoordinates.height);
-    });
-    const onHide = Keyboard.addListener('keyboardWillHide', () => {
-      setIosKeyboardHeight(0);
-    });
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, []);
-
   const listRef   = useRef<FlatList>(null);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
   const activeChannelIdRef = useRef<number | null>(null);
@@ -343,7 +329,7 @@ export default function ClubChatScreen() {
       setCursor(data.nextCursor ?? null);
       setHasMore(!!data.nextCursor);
       setPinned(data.pinned ?? []);
-      if (!cur) setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 120);
+      if (!cur) scrollChatToEndAfterLayout(listRef, false);
     } finally {
       setLoading(false); setLoadingMore(false);
     }
@@ -749,9 +735,9 @@ export default function ClubChatScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
-        enabled={Platform.OS === 'android'}
+        enabled={Platform.OS === 'ios'}
       >
         {/* HEADER */}
         <LinearGradient
@@ -979,7 +965,7 @@ export default function ClubChatScreen() {
             </ScrollView>
           </View>
 
-          <View style={{ width: SCREEN_W }}>
+          <View style={{ width: SCREEN_W, flex: 1 }}>
             {showPinned && pinned.length > 0 && (
               <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 4 }}>
@@ -1012,8 +998,9 @@ export default function ClubChatScreen() {
                 data={messages}
                 keyExtractor={m => String(m.id)}
                 renderItem={renderMessage}
-                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, flexGrow: 1 }}
+                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: chatListPad, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
                 maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
                 ListHeaderComponent={
                   hasMore ? (
@@ -1112,8 +1099,8 @@ export default function ClubChatScreen() {
           backgroundColor: theme.surface,
           borderTopWidth: 1, borderTopColor: theme.border,
           paddingBottom:
-            Platform.OS === 'ios' && iosKeyboardHeight > 0
-              ? iosKeyboardHeight
+            chatInputPad > 0
+              ? chatInputPad
               : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
           {replyTo && (

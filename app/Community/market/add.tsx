@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, FlatList,
-  ActivityIndicator, StatusBar, Platform, Alert,
+  ActivityIndicator, StatusBar, Platform, Alert, KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -43,6 +43,14 @@ export default function AddListingScreen() {
   const originalPhotosRef = React.useRef<string[]>([]);
   const [submitting,   setSubmitting]   = useState(false);
   const [loadingEdit,  setLoadingEdit]  = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldYRef = useRef<Record<string, number>>({});
+
+  const scrollFieldIntoView = (key: string) => {
+    const y = fieldYRef.current[key];
+    if (y == null) return;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+  };
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -206,7 +214,19 @@ export default function AddListingScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: 40 }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+        enabled={Platform.OS === 'ios'}
+      >
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: 120 }}
+      >
 
         {/* Photos */}
         <FormSection label="ZDJĘCIA" required>
@@ -356,6 +376,7 @@ export default function AddListingScreen() {
         </FormSection>
 
         {/* Description */}
+        <View onLayout={e => { fieldYRef.current.description = e.nativeEvent.layout.y; }}>
         <FormSection label="OPIS">
           <TextInput
             style={{
@@ -368,15 +389,19 @@ export default function AddListingScreen() {
             placeholderTextColor={theme.textDim}
             value={description}
             onChangeText={setDescription}
+            onFocus={() => scrollFieldIntoView('description')}
             multiline
             maxLength={2000}
           />
         </FormSection>
+        </View>
 
         {/* Price */}
+        <View onLayout={e => { fieldYRef.current.price = e.nativeEvent.layout.y; }}>
         <FormSection label="CENA (PLN)" required>
-          <FieldInput value={price} onChangeText={setPrice} placeholder="45000" theme={theme} keyboardType="numeric" />
+          <FieldInput value={price} onChangeText={setPrice} placeholder="45000" theme={theme} keyboardType="numeric" onFocus={() => scrollFieldIntoView('price')} />
         </FormSection>
+        </View>
 
         {/* Submit */}
         <TouchableOpacity
@@ -400,6 +425,7 @@ export default function AddListingScreen() {
           }
         </TouchableOpacity>
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -417,7 +443,7 @@ function FormSection({ label, required, children }: { label: string; required?: 
   );
 }
 
-function FieldInput({ value, onChangeText, placeholder, theme, keyboardType }: { value: string; onChangeText: (v: string) => void; placeholder: string; theme: AppTheme; keyboardType?: any }) {
+function FieldInput({ value, onChangeText, placeholder, theme, keyboardType, onFocus }: { value: string; onChangeText: (v: string) => void; placeholder: string; theme: AppTheme; keyboardType?: any; onFocus?: () => void }) {
   return (
     <TextInput
       style={{
@@ -429,6 +455,7 @@ function FieldInput({ value, onChangeText, placeholder, theme, keyboardType }: {
       placeholderTextColor={theme.textDim}
       value={value}
       onChangeText={onChangeText}
+      onFocus={onFocus}
       keyboardType={keyboardType ?? 'default'}
     />
   );

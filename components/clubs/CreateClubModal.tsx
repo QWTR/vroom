@@ -47,7 +47,7 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
         <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'}>
           <View style={{
             backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
             padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20,

@@ -41,6 +41,7 @@ export function SaveRouteModal({
       <KeyboardAvoidingView
         style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: theme.overlay }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
       >
         <View style={{
           backgroundColor: theme.surface,

@@ -36,6 +36,8 @@ const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
 const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
+const DERIVED_SPEED_MIN_DT_MS = 900;
+const DERIVED_SPEED_MIN_EMIT_KMH = 2;
 
 type GpsProfile = 'offMap' | 'browsing' | 'active';
 
@@ -138,9 +140,30 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
             }
 
           const activeMode = profileRef.current === 'active';
-          const speedMs = loc.coords.speed != null && loc.coords.speed >= 0
+          const gpsSpeedMs = loc.coords.speed != null && loc.coords.speed >= 0
             ? loc.coords.speed
-            : 0;
+            : null;
+          const speedMs = gpsSpeedMs ?? 0;
+          let derivedSpeedKmh = 0;
+          if (lastGoodRef.current) {
+            const dtMs = now - lastGoodRef.current.time;
+            if (dtMs >= DERIVED_SPEED_MIN_DT_MS) {
+              derivedSpeedKmh = calcSpeedKmh(
+                lastGoodRef.current.lat,
+                lastGoodRef.current.lng,
+                rawLat,
+                rawLng,
+                dtMs,
+              );
+            }
+          }
+          const effectiveSpeedKmh = Math.max(
+            speedMs * 3.6,
+            Math.min(Math.max(0, derivedSpeedKmh), MAX_SPEED_ACTIVE_KMH),
+          );
+          const emitSpeedMs = gpsSpeedMs != null
+            ? gpsSpeedMs
+            : (effectiveSpeedKmh >= DERIVED_SPEED_MIN_EMIT_KMH ? effectiveSpeedKmh / 3.6 : 0);
 
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
           if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
@@ -170,11 +193,11 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               // Forward weaker fixes; downstream map.tsx pipeline applies its own
               // anti-teleport guards and snapping.
               lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
-              speedRef.current    = speedMs * 3.6;
+              speedRef.current    = effectiveSpeedKmh;
               onLocRef.current({
                 latitude:  rawLat,
                 longitude: rawLng,
-                speed:     speedMs,
+                speed:     emitSpeedMs,
                 heading:   loc.coords.heading,
                 accuracy:  acc,
                 timestamp: now,
@@ -231,13 +254,13 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
           // bo to właśnie powoduje teleportowanie markera
           // ══ 4. Aktualizuj lastGoodRef ════════════════════════
           lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
-          speedRef.current    = speedMs * 3.6;
+          speedRef.current    = effectiveSpeedKmh;
 
           // ══ 5. Wyślij surowe dane — Kalman jest w map.tsx ════
           onLocRef.current({
             latitude:  rawLat,
             longitude: rawLng,
-            speed:     speedMs,
+            speed:     emitSpeedMs,
             heading:   loc.coords.heading,
             accuracy:  acc,
             timestamp: activeMode ? now : loc.timestamp,
@@ -250,7 +273,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               mapFocusedRef.current,
               navRef.current,
               drivingRef.current,
-              speedMs * 3.6,
+              effectiveSpeedKmh,
             );
             if (nextProfile === 'active' && profileRef.current !== 'active') {
               setTimeout(() => {

@@ -858,7 +858,8 @@ export const ComposeBox = ({
       <Modal visible={pollModal} transparent animationType="slide" onRequestClose={() => setPollModal(false)}>
         <KeyboardAvoidingView
           style={{ flex: 1, justifyContent: 'flex-end' }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          enabled={Platform.OS === 'ios'}
         >
           <Pressable style={{ flex: 1, backgroundColor: '#000000aa' }} onPress={() => setPollModal(false)} />
           <View style={{

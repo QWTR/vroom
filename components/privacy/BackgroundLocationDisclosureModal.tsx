@@ -51,8 +51,8 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
                 lub jest zamknięta.
               </Text>
               <Text style={styles.text}>
-                Jest to potrzebne do liczenia kilometrów i statystyk przejazdu, aktywnej nawigacji
-                oraz Android Auto. Jeśli włączysz widoczność na mapie, Twoja aktualna pozycja może
+                Jest to potrzebne do liczenia kilometrów i statystyk przejazdu oraz aktywnej
+                nawigacji. Jeśli włączysz widoczność na mapie, Twoja aktualna pozycja może
                 być pokazywana innym kierowcom VROOM.
               </Text>
               <Text style={styles.text}>

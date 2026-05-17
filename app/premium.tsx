@@ -342,12 +342,13 @@ export default function PremiumScreen() {
           ) : !isPremium ? (
             /* Brak pakietów z RevenueCat (np. brak current offering albo sieć) */
             <View style={s.noOffersWrap}>
-              <Text style={s.noOffersTitle}>Nie udało się wczytać oferty</Text>
+              <Text style={s.noOffersTitle}>Plany subskrypcji</Text>
               <Text style={s.noOffersBody}>
-                Sprawdź połączenie i RevenueCat: Offering „current”, produkty w App Store Connect / Google Play Console zsynchronizowane z RevenueCat.
-                W RevenueCat: Project → Offerings — jedna oferta musi być oznaczona jako Current (inaczej SDK zwraca puste pakiety mimo dobrego API).
-                Klucze EXPO_PUBLIC_REVENUECAT_* muszą być w tym samym środowisku EAS co profil buildu (np. development ≠ production).
-                W __DEV__ zobaczysz też ostrzeżenia [RevenueCat] w konsoli Metro / Logcat.
+                {Platform.OS === 'ios'
+                  ? 'Aby zobaczyć ceny i kupić VROOM Premium, zaloguj się kontem testowym w środowisku Apple Sandbox (Ustawienia → App Store → Konto sandbox). Plany pojawią się tutaj po poprawnej konfiguracji oferty w App Store Connect i RevenueCat.'
+                  : 'Plany subskrypcji pojawią się tutaj po połączeniu z siecią i poprawnej konfiguracji oferty w Google Play oraz RevenueCat.'}
+                {'\n\n'}
+                Korzyści Premium są opisane powyżej. Możesz używać „Przywróć zakupy”, jeśli subskrypcja była wcześniej aktywna na tym koncie {Platform.OS === 'ios' ? 'Apple' : 'Google'}.
               </Text>
             </View>
           ) : null}

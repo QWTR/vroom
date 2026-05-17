@@ -108,7 +108,7 @@ export default function NotificationsScreen() {
         item.type === 'like_post'
         || item.type === 'comment_post'
         || item.type === 'mention_discussion'
-        || item.type === 'discussion_comment_new'
+        || item.type === 'discussion_post_new'
       )
     ) {
       await AsyncStorage.setItem('open_post_id', String(d.postId));

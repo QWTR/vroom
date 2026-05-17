@@ -348,7 +348,8 @@ export default function LoginScreen() {
   // ── FORGOT ─────────────���────────────────────────────────
   if (screen === 'forgot') {
     return (
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+enabled={Platform.OS === 'ios'} style={s.root}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
           {renderHero('RESET HASŁA', 'ODZYSKIWANIE KONTA')}
 
@@ -419,7 +420,8 @@ export default function LoginScreen() {
 
   // ── LOGIN / REGISTER ────────────────────────────────────
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.root}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+enabled={Platform.OS === 'ios'} style={s.root}>
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} onScrollBeginDrag={Keyboard.dismiss}>
 
         {renderHero(

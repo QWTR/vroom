@@ -20,6 +20,7 @@ import ClubDetailModal        from '../../../components/clubs/ClubDetailModal';
 import RanksModal             from '../../../components/clubs/RanksModal';
 import { Club }               from '../../../components/clubs/types';
 import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
+import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
 
 const getToken = () => AsyncStorage.getItem('token');
 const PAGE     = 20;
@@ -238,7 +239,7 @@ export default function ClubsScreen() {
           ? { ...prev, isMember: true, myRole: 'member', memberCount: data.memberCount }
           : prev,
       );
-      await fetchMyClub();
+      await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
       Toast.show({ type: 'success', text1: '✅ DOŁĄCZONO' });
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd' });
@@ -269,7 +270,7 @@ export default function ClubsScreen() {
             ? { ...prev, isMember: false, myRole: null, memberCount: data.memberCount }
             : prev,
         );
-        await fetchMyClub();
+        await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
         setJoining(null);
         Toast.show({ type: 'info', text1: 'Opuszczono klub' });
       }},
@@ -289,7 +290,7 @@ export default function ClubsScreen() {
         setClubs(prev => prev.filter(c => c.id !== clubId));
         setDetailClub(null);
         setMyOwnedClub(null);
-        await fetchMyClub();
+        await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
         Toast.show({ type: 'success', text1: 'Klub usunięty' });
       }},
     ]);
@@ -316,6 +317,7 @@ export default function ClubsScreen() {
     setClubs(prev => [data, ...prev]);
     setMyOwnedClub(data);
     setCreateVisible(false);
+    await syncProfileClubFromServer();
     Toast.show({ type: 'success', text1: '🏁 KLUB STWORZONY!', text2: data.name });
   }, []);
 

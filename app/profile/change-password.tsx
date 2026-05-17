@@ -9,6 +9,7 @@ import AsyncStorage   from '@react-native-async-storage/async-storage';
 import Toast          from 'react-native-toast-message';
 import { API_URL }    from '../../constants/config';
 import { useTheme }   from '../../contexts/ThemeContext';
+import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -52,9 +53,10 @@ export default function ChangePasswordScreen() {
   const inputBase = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border2 };
   const inputStyle = { flex: 1, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 12, paddingHorizontal: 10, paddingVertical: 14 };
   const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 8, letterSpacing: 2, marginBottom: 4 };
+  const { scrollPaddingBottom } = useFormKeyboardPadding(80);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: scrollPaddingBottom }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>

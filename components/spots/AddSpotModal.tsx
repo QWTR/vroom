@@ -9,6 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
 import { SpotCategory, CATEGORIES, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 interface AddSpotModalProps {
   visible: boolean;
@@ -18,6 +19,7 @@ interface AddSpotModalProps {
 
 export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => {
   const { theme } = useTheme();
+  const keyboardInset = useKeyboardInset(visible);
   const [name,        setName]        = useState('');
   const [description, setDescription] = useState('');
   const [category,    setCategory]    = useState<SpotCategory>('Fotki');
@@ -72,7 +74,7 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
         <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' }}>
 
           {/* Header */}
@@ -83,7 +85,11 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: keyboardInset > 0 ? keyboardInset + 16 : 8 }}
+          >
 
             {/* Kategoria */}
             <Text style={{ color: theme.textDim, fontSize: 9, letterSpacing: 1, marginBottom: 8, marginTop: 16 }}>KATEGORIA</Text>

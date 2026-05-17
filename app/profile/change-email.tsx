@@ -9,6 +9,7 @@ import AsyncStorage     from '@react-native-async-storage/async-storage';
 import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useTheme }     from '../../contexts/ThemeContext';
+import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -56,9 +57,10 @@ export default function ChangeEmailScreen() {
   };
 
   const inputBase = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.surface3, borderRadius: 12, borderWidth: 1, borderColor: theme.border2 };
+  const { scrollPaddingBottom } = useFormKeyboardPadding(80);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: scrollPaddingBottom }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>

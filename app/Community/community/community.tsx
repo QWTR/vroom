@@ -440,7 +440,7 @@ export default function CommunityScreen() {
                   await updateSetting('notifDiscussionPosts', next);
                   Toast.show({
                     type: next ? 'success' : 'info',
-                    text1: next ? 'Dyskusje: powiadomienia włączone' : 'Dyskusje: powiadomienia wyciszone',
+                    text1: next ? 'Dyskusje: powiadomienia o nowych postach' : 'Dyskusje: powiadomienia wyciszone',
                   });
                 }}
                 style={{ padding: 4 }}
@@ -698,7 +698,9 @@ export default function CommunityScreen() {
             <View style={{
               paddingHorizontal: 16,
               paddingTop: 12,
-              paddingBottom: modalBottomPadding,
+              paddingBottom: commentKeyboardInset > 0
+                ? commentKeyboardInset + 8
+                : modalBottomPadding,
               borderTopWidth: 1,
               borderTopColor: theme.border,
               backgroundColor: theme.surface,

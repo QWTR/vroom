@@ -16,6 +16,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
+import { useFormKeyboardPadding } from '../../../hooks/useKeyboardInset';
 import { API_URL }            from '../../../constants/config';
 
 const USER_MAX    = 10;
@@ -34,6 +35,7 @@ function parseNominatimAddress(data: any): string {
 export default function CreateMeet() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { scrollPaddingBottom } = useFormKeyboardPadding(72);
   const { theme, isDark } = useTheme();
 
   const [title,        setTitle]        = useState('');
@@ -144,11 +146,12 @@ export default function CreateMeet() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 52 : 0}
+      enabled={Platform.OS === 'ios'}
       style={{ flex: 1, backgroundColor: theme.bg }}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: scrollPaddingBottom }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* HEADER */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 56, marginBottom: 28, gap: 14 }}>

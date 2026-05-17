@@ -10,6 +10,7 @@ import MaterialIcons     from '@expo/vector-icons/MaterialIcons';
 import Toast             from 'react-native-toast-message';
 import { useProfile }    from '../../hooks/useProfile';
 import { useTheme }      from '../../contexts/ThemeContext';
+import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -68,14 +69,16 @@ export default function EditProfileScreen() {
 
   const inputStyle = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
   const labelStyle = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
+  const { scrollPaddingBottom } = useFormKeyboardPadding(72);
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      enabled={Platform.OS === 'ios'}
     >
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: scrollPaddingBottom }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
       {/* NAGŁÓWEK */}
       <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>

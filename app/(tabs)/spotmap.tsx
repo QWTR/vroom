@@ -1,4 +1,5 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   View, Text, TouchableOpacity,
   ActivityIndicator, ScrollView,
@@ -7,7 +8,6 @@ import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
 import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE, MAPBOX_TOKEN } from '../../constants/mapConfig';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
-import { makeMapStyles } from '../../styles/mapstyle';
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORIES, OFFROAD_CATEGORIES } from '../../constants/spotTypes';
@@ -18,19 +18,16 @@ import { AddSpotModal }    from '../../components/spots/AddSpotModal';
 import { SpotListModal }   from '../../components/spots/SpotListModal';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
 import { DistanceModal }   from '../../components/spots/DistanceModal';
-import { SpotPinRenderer } from '../../components/markers/SpotPinRenderer';
+import { SpotMapLayers } from '../../components/spots/SpotMapLayers';
+import { SpotCategorySpriteGenerator } from '../../components/spots/SpotCategorySpriteGenerator';
 
 type PickingState = 'idle' | 'picking';
-
-// Próg zoomu — poniżej: dot, powyżej: full pin z nazwą
-const LABEL_ZOOM_THRESHOLD = 13;
 
 export default function SpotMap() {
   const mapRef = useRef<Mapbox.MapView>(null);
   // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
   const cameraRef = useRef<Mapbox.Camera>(null);
   const { theme, isDark } = useTheme();
-  const styles         = makeMapStyles(theme, isDark);
   const mapStyle       = isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
 
   const {
@@ -48,26 +45,12 @@ export default function SpotMap() {
   const [selectedSpot,    setSelectedSpot]    = useState<Spot | null>(null);
   const [picking,         setPicking]         = useState<PickingState>('idle');
   const [pickedCoord,     setPickedCoord]     = useState<{ latitude: number; longitude: number } | null>(null);
-  const [isSatellite,     setIsSatellite]     = useState(false);
-  const [currentZoom,     setCurrentZoom]     = useState(12);
+  const [isSatellite,       setIsSatellite]       = useState(false);
+  const [categorySprites,   setCategorySprites]   = useState<Record<string, string> | null>(null);
+  const isFocused = useIsFocused();
 
-  // Słownik: spotId → uri obrazka pinu
-  const [pinImages, setPinImages] = useState<Record<string, string>>({});
-  // Słownik: spotId → typ pinu jaki już wyrenderowano
-  const [renderedZoom, setRenderedZoom] = useState<Record<string, 'dot' | 'full'>>({});
-
-  const showLabels  = currentZoom >= LABEL_ZOOM_THRESHOLD;
   const panelBg     = theme.surface + 'f0';
   const panelBorder = theme.border2;
-
-  // ── Wyczyść obrazki spotów których już nie widać ─────────
-  const visibleIds = useMemo(() => new Set(visibleSpots.map(s => s.id)), [visibleSpots]);
-  // (można dodać useEffect czyszczący pinImages gdy zmienia się visibleIds)
-
-  const handleRegionChange = useCallback((e: any) => {
-    const zoom = e.properties?.zoomLevel ?? 12;
-    setCurrentZoom(zoom);
-  }, []);
 
   const toggleMapType = useCallback(() => {
     setIsSatellite(prev => !prev);
@@ -126,9 +109,6 @@ export default function SpotMap() {
     setAddVisible(true);
   }, [picking]);
 
-  // Aktualny typ pinu dla wszystkich widocznych spotów
-  const neededZoom: 'dot' | 'full' = showLabels ? 'full' : 'dot';
-
   if (!region) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -144,33 +124,22 @@ export default function SpotMap() {
   return (
     <View style={{ flex: 1 }}>
 
-      {/* ── Off-screen renderery pinów (poza MapView, tak jak w map.tsx) ── */}
-      {visibleSpots.map(spot => {
-        const alreadyRendered = renderedZoom[spot.id] === neededZoom && pinImages[spot.id];
-        if (alreadyRendered) return null;
-        return (
-          <SpotPinRenderer
-            key={`spotrender_${spot.id}_${neededZoom}`}
-            spot={spot}
-            zoom={neededZoom}
-            onCapture={uri => {
-              setPinImages(prev => ({ ...prev, [spot.id]: uri }));
-              setRenderedZoom(prev => ({ ...prev, [spot.id]: neededZoom }));
-            }}
-          />
-        );
-      })}
+      <SpotCategorySpriteGenerator onReady={setCategorySprites} />
 
       {/* MAPA */}
+      <View
+        key={`spot-map-${isFocused ? 'focused' : 'blurred'}`}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        collapsable={false}
+      >
       <Mapbox.MapView
         ref={mapRef}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        style={{ flex: 1 }}
         styleURL={isSatellite ? MAPBOX_STYLE_SATELLITE : mapStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
         onPress={handleMapPress}
-        onRegionDidChange={handleRegionChange}
       >
         <Mapbox.Camera
           ref={cameraRef}
@@ -181,45 +150,18 @@ export default function SpotMap() {
         />
         <Mapbox.UserLocation visible={true} />
 
-        {/* Piny spotów */}
-        {visibleSpots.map(spot => {
-          const imgUri = pinImages[spot.id];
-          const color  = CATEGORY_COLORS[spot.category] ?? '#e33835';
-
-          if (imgUri) {
-            return (
-              <Mapbox.MarkerView
-                key={spot.id}
-                coordinate={[spot.longitude, spot.latitude]}
-                anchor={showLabels ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
-              >
-                <TouchableOpacity onPress={() => handleSelectSpot(spot)} activeOpacity={0.8}>
-                  <View style={{ width: 48, height: 48 }}>
-                    <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: theme.surface3, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: color }}>
-                      <MaterialIcons name={CATEGORY_ICONS[spot.category] as any} size={20} color={color} />
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              </Mapbox.MarkerView>
-            );
-          }
-
-          return (
-            <Mapbox.MarkerView
-              key={spot.id}
-              coordinate={[spot.longitude, spot.latitude]}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <TouchableOpacity onPress={() => handleSelectSpot(spot)} activeOpacity={0.8}>
-                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: color, borderWidth: 2, borderColor: '#fff' }} />
-              </TouchableOpacity>
-            </Mapbox.MarkerView>
-          );
-        })}
+        <SpotMapLayers
+          spots={visibleSpots}
+          categorySprites={categorySprites}
+          onSelectSpot={handleSelectSpot}
+        />
 
         {/* Pin wybranej lokalizacji (picking) */}
         {pickedCoord && (
-          <Mapbox.MarkerView coordinate={[pickedCoord.longitude, pickedCoord.latitude]} anchor={{ x: 0.5, y: 1 }}>
+          <Mapbox.MarkerView
+            coordinate={[pickedCoord.longitude, pickedCoord.latitude]}
+            anchor={{ x: 0.5, y: 1 }}
+          >
             <View style={{ alignItems: 'center' }}>
               <View style={{
                 width: 40, height: 40, borderRadius: 20,
@@ -239,6 +181,7 @@ export default function SpotMap() {
           </Mapbox.MarkerView>
         )}
       </Mapbox.MapView>
+      </View>
 
       {/* GÓRNY PASEK */}
       {picking === 'idle' && (

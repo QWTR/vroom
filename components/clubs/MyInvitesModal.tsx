@@ -9,6 +9,7 @@ import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
+import { syncProfileClubFromServer } from '../../lib/profileClubSync';
 import { UAv }                from './ClubCard';
 
 interface MyInvite {
@@ -58,6 +59,7 @@ export function MyInvitesModal({
       const data = await res.json();
       if (!res.ok) { Toast.show({ type: 'error', text1: data.error ?? 'Błąd' }); return; }
       setInvites(prev => prev.filter(i => i.id !== invite.id));
+      await syncProfileClubFromServer();
       Toast.show({ type: 'success', text1: '✅ DOŁĄCZONO', text2: invite.club.name });
       onAccepted(invite.club.id);
       onClose();

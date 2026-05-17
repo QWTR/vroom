@@ -30,6 +30,7 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
+import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import type {
   ProfilePremiumExtras,
@@ -72,6 +73,7 @@ export default function SettingsScreen() {
   const { isPremium: premiumFromContext } = usePremium();
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
   const effectivePremium = !!(premiumFromContext || settings.isPremium);
+  const { scrollPaddingBottom } = useFormKeyboardPadding(88);
 
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = theme.bgAlt;
@@ -545,7 +547,7 @@ export default function SettingsScreen() {
       </View>
 			<ScrollView
 				style={{ flex: 1, backgroundColor: bg }}
-				contentContainerStyle={{ paddingBottom: 100 }}
+				contentContainerStyle={{ paddingBottom: scrollPaddingBottom }}
 				showsVerticalScrollIndicator={false}
 				keyboardShouldPersistTaps="handled"
 				keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -1938,7 +1940,7 @@ export default function SettingsScreen() {
 									icon: "forum",
 									iconBg: "#FF7043",
 									label: "Dyskusje (globalne)",
-									sub: "Nowy komentarz w dyskusjach od dowolnego użytkownika",
+									sub: "Nowy post w dyskusjach od dowolnego użytkownika",
 									key: "notifDiscussionPosts",
 								},
 							] as const
@@ -1968,7 +1970,7 @@ export default function SettingsScreen() {
 							icon='directions-run'
 							iconBg='#4CAF50'
 							label='Praca w tle'
-							sublabel='Lokalizacja w tle do km, nawigacji i Android Auto'
+							sublabel='Lokalizacja w tle do km, nawigacji i statystyk jazdy'
 							right={
 								<Switch
 									value={settings.backgroundTracking}
@@ -1976,6 +1978,13 @@ export default function SettingsScreen() {
 									{...swProps}
 								/>
 							}
+						/>
+						<Row
+							icon='workspace-premium'
+							iconBg='#FFD700'
+							label='VROOM Premium'
+							sublabel={effectivePremium ? 'Zarządzaj subskrypcją i korzyściami' : 'Subskrypcja i korzyści'}
+							onPress={() => router.push('/premium')}
 						/>
 						<Row
 							icon='info-outline'
@@ -2347,17 +2356,19 @@ export default function SettingsScreen() {
 					style={{
 						flex: 1,
 						backgroundColor: overlayBg,
-						justifyContent: "center",
+						justifyContent: "flex-start",
 						alignItems: "center",
 						padding: 20,
+						paddingTop: Platform.OS === 'ios' ? 56 : 28,
 					}}>
 					<KeyboardAvoidingView
 						style={{
 							width: "100%",
               maxHeight: "92%",
 						}}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 76 : 24}>
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+            enabled={Platform.OS === 'ios'}>
             <View
               style={{
                 backgroundColor: cardBg,

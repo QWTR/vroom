@@ -17,7 +17,7 @@ const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
-const EXPIRE_MS       = 180_000;
+const EXPIRE_MS       = 120_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
 const MIN_FETCH_MOVE_M  = 8;     // częstsze odświeżanie geometrii przy jeździe miejskiej

@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { onProfileClubUpdated } from '../lib/profileClubSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { API_URL } from '../constants/config';
@@ -12,7 +13,7 @@ const getToken = async (): Promise<string | null> => {
   );
 };
 
-function mapToProfile(u: any): UserProfile {
+function mapToProfile(u: any, opts?: { includeClub?: boolean }): UserProfile {
   return {
     id:            u.userId        ?? u.id,
     username:      u.username,
@@ -43,7 +44,7 @@ function mapToProfile(u: any): UserProfile {
     accountTheme: u.accountTheme ?? null,
     profilePremiumExtras: u.isPremium ? mergeProfilePremiumExtras(u.profilePremiumExtras) : null,
     spotifyProfileTrack: u.spotifyProfileTrack ?? null,
-    club:          u.club          ?? null,
+    club:          opts?.includeClub ? (u.club ?? null) : null,
     followersCount: u.followersCount ?? 0,  
     followingCount: u.followingCount ?? 0,  
   };
@@ -67,9 +68,11 @@ export function useProfile() {
       const token    = await getToken();
       const localRaw = await AsyncStorage.getItem('user');
 
-      // 1. Pokaż natychmiast z cache (bez club — cache nie przechowuje)
+      // 1. Pokaż natychmiast z cache (club zawsze null do czasu odpowiedzi serwera)
       if (localRaw) {
-        setProfile(mapToProfile(JSON.parse(localRaw)));
+        const cached = JSON.parse(localRaw);
+        delete cached.club;
+        setProfile(mapToProfile(cached));
       }
 
       if (!token) throw new Error('Brak tokenu');
@@ -81,7 +84,7 @@ export function useProfile() {
 
       if (res.ok) {
         const data   = await res.json();
-        const mapped = mapToProfile(data);
+        const mapped = mapToProfile(data, { includeClub: true });
         setProfile(mapped);
 
         // Cache — zachowaj userId i inne pola, club nie cachujemy
@@ -103,6 +106,12 @@ export function useProfile() {
     }
   }, []);
 
+  useEffect(() => {
+    return onProfileClubUpdated((club) => {
+      setProfile((prev) => (prev ? { ...prev, club } : prev));
+    });
+  }, []);
+
   // ── Publiczny profil ──────────────────────────────────
   const fetchPublicProfile = useCallback(async (userId: number) => {
     setLoading(true);
@@ -115,7 +124,7 @@ export function useProfile() {
       const res = await fetch(`${API_URL}/api/profile/${userId}`, { headers });
       if (!res.ok) throw new Error('Błąd pobierania profilu');
       const data = await res.json();
-      setProfile(mapToProfile(data));
+      setProfile(mapToProfile(data, { includeClub: true }));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -148,6 +157,7 @@ export function useProfile() {
         ...data,
         avatarUrl: mapped.avatarUrl,
         avatar:    mapped.avatarUrl,
+        club:      undefined,
       }));
       return true;
     } catch (e: any) {

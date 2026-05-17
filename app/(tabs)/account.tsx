@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -117,26 +117,49 @@ export default function ProfileScreen() {
       const localUser = JSON.parse(raw);
       const userId: number = localUser.userId ?? localUser.id;
       if (!userId) { router.replace('/login'); return; }
-      await fetchProfile();
-      fetchCars(userId);
-      fetchMyAchievements();
-      fetchUserSpots(userId);
-      fetchMyRoutes();
-      fetchParticipated();
-      fetchActivityHistory({ includeRoute: true });
-      fetchMonthlyStats();
+      void fetchProfile();
+      await Promise.all([
+        fetchCars(userId),
+        fetchMyAchievements(),
+        fetchUserSpots(userId),
+        fetchMyRoutes(),
+        fetchParticipated(),
+      ]);
+      setTimeout(() => {
+        fetchActivityHistory({ includeRoute: true });
+        fetchMonthlyStats();
+      }, 400);
     })();
   }, []);
+
+  const focusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
+      focusRefreshTimer.current = setTimeout(() => {
+        fetchProfile();
+      }, 300);
+      return () => {
+        if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
+      };
+    }, [fetchProfile]),
+  );
 
   const onRefresh = async () => {
     const raw = await AsyncStorage.getItem('user');
     if (!raw) return;
     const localUser = JSON.parse(raw);
     const userId: number = localUser.userId ?? localUser.id;
-    fetchProfile(); fetchCars(userId); fetchMyAchievements();
-    fetchUserSpots(userId); fetchMyRoutes(); fetchParticipated();
-    fetchActivityHistory({ includeRoute: true });
-    fetchMonthlyStats();
+    await Promise.all([
+      fetchProfile(),
+      fetchCars(userId),
+      fetchMyAchievements(),
+      fetchUserSpots(userId),
+      fetchMyRoutes(),
+      fetchParticipated(),
+      fetchActivityHistory({ includeRoute: true }),
+      fetchMonthlyStats(),
+    ]);
   };
 
   const handleAddCar = () => {

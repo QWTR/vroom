@@ -80,6 +80,21 @@ export const CATEGORY_ICONS: Record<SpotCategory, string> = {
   'Skałki':         'filter-hdr',
 };
 
+/** Klucze obrazków Mapbox Images (ASCII, bez spacji). */
+export const CATEGORY_IMAGE_KEYS: Record<SpotCategory, string> = {
+  'Fotki':          'spot_fotki',
+  'Trasa':          'spot_trasa',
+  'Punkt widokowy': 'spot_widok',
+  'Inne':           'spot_inne',
+  'Cross':          'spot_cross',
+  'Bagna':          'spot_bagna',
+  'Błoto':          'spot_blotto',
+  'Leśna droga':    'spot_las',
+  'Podjazd':        'spot_podjazd',
+  'Piaski':         'spot_piaski',
+  'Skałki':         'spot_skalki',
+};
+
 export const CATEGORY_COLORS: Record<SpotCategory, string> = {
   'Fotki':          '#ff9f43',
   'Trasa':          '#00bfff',

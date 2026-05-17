@@ -1,8 +1,14 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
 import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
 import { haversineKm } from '../scripts/navigationUtils';
 import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
+import { compactRoutePolyline } from '../core/navigationCore';
+
+export const MAX_ROUTE_PINS = 25;
+const MAX_DISPLAY_POINTS = 400;
+const MAX_SAVE_POINTS = 500;
 
 export type RoutePin = {
   id:        string;
@@ -41,11 +47,21 @@ export function useRouteBuilder() {
     }));
 
   const addPin = useCallback((lat: number, lng: number) => {
-    counterRef.current += 1;
-    setPins(prev => rebuildLabels([
-      ...prev,
-      { id: `pin_${Date.now()}`, latitude: lat, longitude: lng, label: '' },
-    ]));
+    setPins(prev => {
+      if (prev.length >= MAX_ROUTE_PINS) {
+        Toast.show({
+          type: 'info',
+          text1: 'Limit punktów',
+          text2: `Maksymalnie ${MAX_ROUTE_PINS} punktów na trasę.`,
+        });
+        return prev;
+      }
+      counterRef.current += 1;
+      return rebuildLabels([
+        ...prev,
+        { id: `pin_${Date.now()}`, latitude: lat, longitude: lng, label: '' },
+      ]);
+    });
     setSnappedRoute([]);
   }, []);
 
@@ -63,7 +79,7 @@ export function useRouteBuilder() {
     setSnapping(true);
 
     try {
-      const segmentPromises: Promise<{ latitude: number; longitude: number }[]>[] = [];
+      const segments: { latitude: number; longitude: number }[][] = [];
 
       for (let i = 0; i < pinsToSnap.length - 1; i++) {
         const origin      = pinsToSnap[i];
@@ -79,11 +95,13 @@ export function useRouteBuilder() {
           `->${Math.round(destination.latitude * 10000) / 10000},${Math.round(destination.longitude * 10000) / 10000}`;
         const cached = segmentCacheRef.current.get(segKey);
         if (cached && Date.now() - cached.at < 10 * 60_000) {
-          segmentPromises.push(Promise.resolve(cached.points));
+          segments.push(cached.points);
           continue;
         }
-        segmentPromises.push(
-          fetchDirectionsViaProxy<any>(
+
+        let segPoints: { latitude: number; longitude: number }[];
+        try {
+          const json = await fetchDirectionsViaProxy<any>(
             {
               coordinates: [
                 [origin.longitude, origin.latitude],
@@ -97,32 +115,35 @@ export function useRouteBuilder() {
               language: 'pl',
             },
             url,
-          )
-            .then(json => {
-              if (!json.routes?.[0]) {
-                return [
-                  { latitude: origin.latitude,      longitude: origin.longitude },
-                  { latitude: destination.latitude, longitude: destination.longitude },
-                ];
-              }
-              const points = decodePolyline(json.routes[0].geometry);
-              segmentCacheRef.current.set(segKey, { at: Date.now(), points });
-              return points;
-            })
-            .catch(() => [
-              { latitude: origin.latitude,      longitude: origin.longitude },
+          );
+          if (!json.routes?.[0]) {
+            segPoints = [
+              { latitude: origin.latitude, longitude: origin.longitude },
               { latitude: destination.latitude, longitude: destination.longitude },
-            ])
-        );
+            ];
+          } else {
+            segPoints = decodePolyline(json.routes[0].geometry);
+            segmentCacheRef.current.set(segKey, { at: Date.now(), points: segPoints });
+          }
+        } catch {
+          segPoints = [
+            { latitude: origin.latitude, longitude: origin.longitude },
+            { latitude: destination.latitude, longitude: destination.longitude },
+          ];
+        }
+        segments.push(segPoints);
       }
 
-      const segments = await Promise.all(segmentPromises);
       const merged: { latitude: number; longitude: number }[] = [];
       for (let i = 0; i < segments.length; i++) {
         merged.push(...(i === 0 ? segments[i] : segments[i].slice(1)));
       }
 
-      setSnappedRoute(merged);
+      const compacted = compactRoutePolyline(merged, MAX_DISPLAY_POINTS).map((p) => ({
+        latitude: p.lat,
+        longitude: p.lng,
+      }));
+      setSnappedRoute(compacted);
     } catch (e) {
       console.log('snapToRoad error:', e);
       setSnappedRoute(pinsToSnap.map(p => ({ latitude: p.latitude, longitude: p.longitude })));
@@ -171,12 +192,18 @@ export function useRouteBuilder() {
       if (!token) return null;
 
       // Offroad = zawsze surowe piny, nigdy snapped
+      const routePts = (!isOffroad && snappedRoute.length > 0) ? snappedRoute : pins.map(p => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+      }));
+      const savePoly = compactRoutePolyline(routePts, MAX_SAVE_POINTS).map((p, i, arr) => ({
+        latitude: p.lat,
+        longitude: p.lng,
+        label: i === 0 ? 'Start' : i === arr.length - 1 ? 'Koniec' : null,
+      }));
+
       const pointsToSave = (!isOffroad && snappedRoute.length > 0)
-        ? snappedRoute.map((p, i) => ({
-            latitude:  p.latitude,
-            longitude: p.longitude,
-            label: i === 0 ? 'Start' : i === snappedRoute.length - 1 ? 'Koniec' : null,
-          }))
+        ? savePoly
         : pins.map(p => ({
             latitude:  p.latitude,
             longitude: p.longitude,
@@ -208,10 +235,21 @@ export function useRouteBuilder() {
     }
   }, [pins, snappedRoute, cancelBuilding, totalDistance]);
 
+  const displaySnappedRoute = useMemo(
+    () =>
+      snappedRoute.length > MAX_DISPLAY_POINTS
+        ? compactRoutePolyline(snappedRoute, MAX_DISPLAY_POINTS).map((p) => ({
+            latitude: p.lat,
+            longitude: p.lng,
+          }))
+        : snappedRoute,
+    [snappedRoute],
+  );
+
   return {
-    isBuilding, pins, saving, snapping, snappedRoute,
+    isBuilding, pins, saving, snapping, snappedRoute, displaySnappedRoute,
     startBuilding, cancelBuilding,
     addPin, removePin, finishPin, snapToRoad,
-    totalDistance, saveRoute,
+    totalDistance, saveRoute, maxPins: MAX_ROUTE_PINS,
   };
 }

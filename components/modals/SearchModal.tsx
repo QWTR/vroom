@@ -20,6 +20,7 @@ import {
   detectBrand,
 } from '../../hooks/usePlacesNearby';
 import { fetchGeocodingViaProxy } from '../../scripts/mapboxProxyClient';
+import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 interface GeocodingResult {
   mapboxId:      string;
@@ -44,6 +45,8 @@ export const SearchModal = memo(({
   visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers, homeLocation, onPressSetHome,
 }: SearchModalProps) => {
   const { theme: t } = useTheme();
+  const keyboardInset = useKeyboardInset(visible);
+  const listPadBottom = 32 + keyboardInset;
   const {
     places, loading: placesLoading,
     activeCategory, fetchPlaces, clear: clearPlaces,
@@ -362,7 +365,7 @@ export const SearchModal = memo(({
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: listPadBottom }}
           >
             <TouchableOpacity onPress={activeTab === 'end' ? handleSelectHome : handleSelectCurrent} activeOpacity={0.85} style={{ marginBottom: 12 }}>
               <LinearGradient
@@ -516,7 +519,7 @@ export const SearchModal = memo(({
                 data={places}
                 keyExtractor={item => item.placeId}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8 }}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + keyboardInset, paddingTop: 8 }}
                 ListHeaderComponent={
                   places.length > 0
                     ? (
@@ -605,7 +608,7 @@ export const SearchModal = memo(({
             keyExtractor={item => item.id}
             keyboardShouldPersistTaps="handled"
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + keyboardInset, paddingTop: 8 }}
             ListHeaderComponent={
               <Text style={[ss.sectionLabel, { color: t.textDim }]}>
                 {searchMode === 'friends' ? 'TWOI ZNAJOMI' : 'UŻYTKOWNICY W POBLIŻU'}
@@ -667,7 +670,7 @@ export const SearchModal = memo(({
                 keyExtractor={item => item._k}
                 keyboardShouldPersistTaps="handled"
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8 }}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + keyboardInset, paddingTop: 8 }}
                 ListHeaderComponent={
                   filteredPlaces.length > 0
                     ? <Text style={[ss.sectionLabel, { color: t.textDim }]}>

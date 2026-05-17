@@ -20,6 +20,7 @@ import { RouteMessageCard } from '../../../components/chat/RouteMessageCard';
 // @ts-ignore
 import { LinkPreviewCard } from '../../../components/chat/LinkPreviewCard';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
+import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 
 const API = 'https://v-room.app/api/chat';
 const WS  = 'https://v-room.app';
@@ -128,19 +129,7 @@ export default function ChatScreen() {
   const tokenRef         = useRef<string>('');
   const typingTimer      = useRef<any>(null);
 
-  /** iOS: KAV + FlatList bywa zawodny — jedna ścieżka przez wysokość klawiatury. */
-  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const onShow = Keyboard.addListener('keyboardWillShow', e => {
-      setIosKeyboardHeight(e.endCoordinates?.height ?? 0);
-    });
-    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardHeight(0));
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, []);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   useEffect(() => {
     Animated.parallel([
@@ -228,7 +217,7 @@ export default function ChatScreen() {
       setMessages(msgs);
       setNextCursor(d.nextCursor ?? null);
       setHasMore(!!d.nextCursor);
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 120);
+      scrollChatToEndAfterLayout(listRef, false);
     } catch (e) { console.error('fetchMessages:', e); }
     finally { setLoading(false); }
   };
@@ -582,9 +571,9 @@ export default function ChatScreen() {
       {/* ══════════════════ LISTA + INPUT ═══════════════════ */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
-        enabled={Platform.OS === 'android'}
+        enabled={Platform.OS === 'ios'}
       >
         {/* WIADOMOŚCI */}
         {loading
@@ -634,7 +623,7 @@ export default function ChatScreen() {
                     <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>Napisz pierwszą wiadomość!</Text>
                   </View>
                 }
-                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, flexGrow: 1 }}
+                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: chatListPad, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
@@ -649,8 +638,8 @@ export default function ChatScreen() {
           borderTopWidth: 1,
           borderTopColor: theme.border,
           paddingBottom:
-            Platform.OS === 'ios' && iosKeyboardHeight > 0
-              ? iosKeyboardHeight
+            chatInputPad > 0
+              ? chatInputPad
               : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
 

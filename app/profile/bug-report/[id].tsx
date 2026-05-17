@@ -126,7 +126,8 @@ export default function BugReportThreadScreen() {
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bgAlt }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 24}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+      enabled={Platform.OS === 'ios'}
     >
       <View style={{ marginTop: 56, paddingHorizontal: '5%', flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>

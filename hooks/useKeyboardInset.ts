@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Keyboard, Platform, type KeyboardEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /** Wysokość klawiatury (px) — do paddingBottom / marginBottom nad klawiaturą. */
 export function useKeyboardInset(enabled = true): number {
@@ -31,4 +32,27 @@ export function useKeyboardInset(enabled = true): number {
   }, [enabled]);
 
   return inset;
+}
+
+/** Padding dla ScrollView / footera formularzy — Android: inset; iOS: safe area + opcjonalny KAV. */
+export function useFormKeyboardPadding(extra = 24): {
+  keyboardHeight: number;
+  scrollPaddingBottom: number;
+  footerPaddingBottom: number;
+} {
+  const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardInset(true);
+  const base = Math.max(insets.bottom, 12);
+  if (keyboardHeight > 0) {
+    return {
+      keyboardHeight,
+      scrollPaddingBottom: keyboardHeight + extra,
+      footerPaddingBottom: keyboardHeight + 12,
+    };
+  }
+  return {
+    keyboardHeight: 0,
+    scrollPaddingBottom: base + extra,
+    footerPaddingBottom: base,
+  };
 }

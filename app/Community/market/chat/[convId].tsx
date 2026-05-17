@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { API_URL } from '../../../../constants/config';
+import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../../hooks/useChatKeyboard';
 
 const MAX_CHAT_PHOTOS  = 5;
 
@@ -63,18 +64,7 @@ export default function MarketChatScreen() {
   const listRef    = useRef<FlatList>(null);
   const tokenRef   = useRef('');
 
-  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const onShow = Keyboard.addListener('keyboardWillShow', e => {
-      setIosKeyboardHeight(e.endCoordinates?.height ?? 0);
-    });
-    const onHide = Keyboard.addListener('keyboardWillHide', () => setIosKeyboardHeight(0));
-    return () => {
-      onShow.remove();
-      onHide.remove();
-    };
-  }, []);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -115,7 +105,7 @@ export default function MarketChatScreen() {
         setMessages(prev => [...msgs, ...prev]);
       } else {
         setMessages(msgs);
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+        scrollChatToEndAfterLayout(listRef, false);
       }
       setNextCursor(d.nextCursor ?? null);
       setHasMore(!!d.nextCursor);
@@ -283,9 +273,9 @@ export default function MarketChatScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
-        enabled={Platform.OS === 'android'}
+        enabled={Platform.OS === 'ios'}
       >
         {loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -319,7 +309,8 @@ export default function MarketChatScreen() {
                 <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Napisz pierwszą wiadomość!</Text>
               </View>
             }
-            contentContainerStyle={{ paddingTop: 10, paddingBottom: 8, flexGrow: 1 }}
+            contentContainerStyle={{ paddingTop: 10, paddingBottom: chatListPad, flexGrow: 1 }}
+            keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           />
@@ -330,8 +321,8 @@ export default function MarketChatScreen() {
           backgroundColor: theme.surface,
           borderTopWidth: 1, borderTopColor: theme.border,
           paddingBottom:
-            Platform.OS === 'ios' && iosKeyboardHeight > 0
-              ? iosKeyboardHeight
+            chatInputPad > 0
+              ? chatInputPad
               : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
         }}>
           {photos.length > 0 && (
