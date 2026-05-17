@@ -40,7 +40,7 @@ export default function ProfileScreen() {
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
   const { achievements, fetchMyAchievements }                    = useAchievements();
   const { spots,   loading: sLoad, fetchUserSpots }              = useProfileSpots();
-  const { routes,  loading: rLoad, fetchMyRoutes, deleteRoute }  = useMyRoutes();
+  const { routes,  loading: rLoad, fetchMyRoutes, fetchRouteGeometry, deleteRoute }  = useMyRoutes();
   const { routes: participatedRoutes, loading: prLoad, fetchParticipated } = useParticipatedRoutes();
 
   const [shareRoute,          setShareRoute]          = useState<MyRoute | null>(null);
@@ -122,7 +122,7 @@ export default function ProfileScreen() {
         fetchCars(userId),
         fetchMyAchievements(),
         fetchUserSpots(userId),
-        fetchMyRoutes(),
+        fetchMyRoutes({ includeGeometry: true }),
         fetchParticipated(),
       ]);
       setTimeout(() => {
@@ -157,7 +157,7 @@ export default function ProfileScreen() {
       fetchCars(userId),
       fetchMyAchievements(),
       fetchUserSpots(userId),
-      fetchMyRoutes(),
+      fetchMyRoutes({ includeGeometry: true }),
       fetchParticipated(),
       fetchActivityHistory({ includeRoute: true }),
       fetchMonthlyStats(),
@@ -173,11 +173,16 @@ export default function ProfileScreen() {
   };
 
   const handleNavigateRoute = async (route: MyRoute) => {
-    if (route.points.length < 2) return;
+    let points = route.points;
+    if (!points || points.length < 2) {
+      const full = await fetchRouteGeometry(route.id);
+      points = full?.points;
+    }
+    if (!points || points.length < 2) return;
     await AsyncStorage.setItem('nav_route', JSON.stringify({
       routeId:   route.id,
       routeName: route.name,
-      points:    route.points,
+      points,
       distance:  route.distance,
       isOffroad: (route as any).isOffroad ?? false,  // ← NOWE
     }));

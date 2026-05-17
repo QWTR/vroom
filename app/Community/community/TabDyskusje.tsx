@@ -260,6 +260,7 @@ const PostCard = React.memo(({
     </>
   );
 });
+PostCard.displayName = 'PostCard';
 
 // Reklama co N postów
 const AD_INSERTION_INTERVAL = 2;
@@ -268,7 +269,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, bottomInset }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, bottomInset, isPremium, onUpgradePremium }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -286,6 +287,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onBlock: (post: Post) => void;
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
   bottomInset: number;
+  isPremium: boolean;
+  onUpgradePremium: () => void;
 }) {
   const [composeHeight, setComposeHeight] = useState(120);
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -328,6 +331,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         bottomInset={bottomInset}
         mentionsEnabled
         onHeightChange={setComposeHeight}
+        isPremium={isPremium}
+        onUpgradePremium={onUpgradePremium}
       />
     </View>
   );

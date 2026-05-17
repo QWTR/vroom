@@ -11,19 +11,20 @@ export type MyRoute = {
   isOffroad:   boolean;   // ← NOWE
   createdAt:   string;
   _count:      { likes: number };
-  points:      { latitude: number; longitude: number; order: number }[];
+  points?:     { latitude: number; longitude: number; order: number }[];
 };
 
 export function useMyRoutes() {
   const [routes,  setRoutes]  = useState<MyRoute[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchMyRoutes = useCallback(async () => {
+  const fetchMyRoutes = useCallback(async (opts?: { includeGeometry?: boolean }) => {
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-      const res  = await fetch(`${API_URL}/api/routes/my`, {
+      const includeGeometry = opts?.includeGeometry === true;
+      const res  = await fetch(`${API_URL}/api/routes/my${includeGeometry ? '' : '?lite=1'}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
@@ -32,6 +33,20 @@ export function useMyRoutes() {
       console.log('fetchMyRoutes error:', e);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchRouteGeometry = useCallback(async (id: number): Promise<MyRoute | null> => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return null;
+      const res = await fetch(`${API_URL}/api/routes/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
   }, []);
 
@@ -53,5 +68,5 @@ export function useMyRoutes() {
     }
   }, []);
 
-  return { routes, loading, fetchMyRoutes, deleteRoute };
+  return { routes, loading, fetchMyRoutes, fetchRouteGeometry, deleteRoute };
 }

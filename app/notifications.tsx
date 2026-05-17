@@ -37,6 +37,7 @@ export default function NotificationsScreen() {
   const [rows, setRows]       = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [scope, setScope] = useState<'all' | 'friends' | 'following' | 'official'>('all');
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +46,7 @@ export default function NotificationsScreen() {
         router.replace('/login');
         return;
       }
-      const r = await fetch(`${API_URL}/api/notifications?limit=100&page=1`, {
+      const r = await fetch(`${API_URL}/api/notifications?limit=100&page=1&scope=${scope}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!r.ok) throw new Error();
@@ -61,7 +62,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router]);
+  }, [router, scope]);
 
   useFocusEffect(
     useCallback(() => {
@@ -175,6 +176,33 @@ export default function NotificationsScreen() {
               tintColor={theme.primary}
             />
           }
+          ListHeaderComponent={(
+            <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 }}>
+              {[
+                { id: 'all', label: 'Wszystkie' },
+                { id: 'friends', label: 'Znajomi' },
+                { id: 'following', label: 'Obserwowani' },
+                { id: 'official', label: 'Oficjalne' },
+              ].map((f) => (
+                <TouchableOpacity
+                  key={f.id}
+                  onPress={() => { setScope(f.id as any); setLoading(true); }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: scope === f.id ? theme.primary : theme.border,
+                    backgroundColor: scope === f.id ? theme.primaryBg : theme.surface,
+                  }}
+                >
+                  <Text style={{ color: scope === f.id ? theme.primary : theme.textDim, fontSize: 11, fontFamily: 'Orbitron' }}>
+                    {f.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           ListEmptyComponent={(
             <Text style={{ textAlign: 'center', color: theme.textDim, marginTop: 40, fontFamily: 'Orbitron' }}>
               Brak powiadomień

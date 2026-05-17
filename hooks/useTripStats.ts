@@ -15,7 +15,7 @@ const TRIP_MAX_FIX_GAP_SEC   = 180;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
 const TRIP_MIN_SEGMENT_KM = 0.003;
-const TRIP_MAX_SEGMENT_KM = 1.8;
+const TRIP_MAX_SEGMENT_KM = 2.5;
 const TRIP_FALLBACK_MAX_SEGMENT_KM = 1.1;
 const TRIP_FALLBACK_MIN_SPEED_KMH = 5;
 const TRIP_MAX_DISTANCE_KM = 1200;
@@ -75,6 +75,8 @@ export function useTripStats() {
     startTimeRef.current = Date.now();
     estSecRef.current    = estimatedDurationSec;
     lastPointRef.current = null;
+    lastLiveKmEmitRef.current = 0;
+    lastLiveKmValueRef.current = 0;
     setStats(null);
     setLiveDistanceKm(0);
   }, []);
@@ -168,6 +170,16 @@ export function useTripStats() {
           const nextDistance = distanceRef.current + fallbackKm;
           if (Number.isFinite(nextDistance) && nextDistance <= TRIP_MAX_DISTANCE_KM) {
             distanceRef.current = nextDistance;
+            const rounded = parseFloat(distanceRef.current.toFixed(2));
+            const emitNow = Date.now();
+            if (
+              emitNow - lastLiveKmEmitRef.current >= 450
+              || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.05
+            ) {
+              lastLiveKmEmitRef.current = emitNow;
+              lastLiveKmValueRef.current = rounded;
+              setLiveDistanceKm(rounded);
+            }
             segmentDiagRef.current.fallbackAccepted += 1;
             return fallbackKm;
           }

@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
-  Alert,
+  Alert, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
+import * as FileSystem        from 'expo-file-system/legacy';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
@@ -34,6 +35,8 @@ import { TabAuta }     from './TabAuta';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
+const FREE_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
+const PREMIUM_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
 
 export default function CommunityScreen() {
   const router = useRouter();
@@ -148,8 +151,8 @@ export default function CommunityScreen() {
     try {
       const token = await getToken();
       const url   = cursor
-        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}`
-        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}`;
+        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}&lite=1`
+        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}&lite=1`;
       const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const json  = await res.json();
       const newRoutes  = Array.isArray(json) ? json : json.routes ?? [];
@@ -253,18 +256,109 @@ export default function CommunityScreen() {
   }, []);
 
   const handleNavigateRoute = useCallback(async (route: PublicRoute) => {
-    await AsyncStorage.setItem('nav_route', JSON.stringify({ routeId: route.id, routeName: route.name, points: route.points, distance: route.distance }));
+    let points = route.points;
+    if (!points || points.length < 2) {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/routes/${route.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const full = await res.json();
+        points = full?.points;
+      }
+    }
+    if (!points || points.length < 2) {
+      Toast.show({ type: 'error', text1: 'Brak geometrii trasy' });
+      return;
+    }
+    await AsyncStorage.setItem('nav_route', JSON.stringify({ routeId: route.id, routeName: route.name, points, distance: route.distance }));
     router.push('/(tabs)/map' as any);
   }, [router]);
 
   const handlePost = async (text: string, photos: string[], video: string | null, poll?: { question: string; options: string[] } | null) => {
     try {
       const token = await getToken();
+      if (video) {
+        const info = await FileSystem.getInfoAsync(video, { size: true });
+        const fileSize = Number((info as any)?.size ?? 0);
+        const isPremium = !!settings.isPremium;
+        const maxBytes = isPremium ? PREMIUM_VIDEO_MAX_BYTES : FREE_VIDEO_MAX_BYTES;
+        if (fileSize > maxBytes) {
+          if (!isPremium) {
+            Toast.show({
+              type: 'error',
+              text1: 'Plik za duży',
+              text2: 'Odblokuj Premium, aby wysyłać filmy do 120MB',
+            });
+            router.push('/premium' as any);
+            return;
+          }
+          Toast.show({
+            type: 'error',
+            text1: 'Film za duży',
+            text2: 'Maksymalnie 120MB dla Premium',
+          });
+          return;
+        }
+
+        Toast.show({
+          type: 'info',
+          text1: 'Wysyłanie filmu...',
+          text2: 'Upload działa w tle, możesz wyjść z ekranu',
+        });
+        const bgVideo = video;
+        const bgText = text;
+        const bgPoll = poll;
+        void (async () => {
+          try {
+            const ext = bgVideo.split('.').pop() ?? 'mp4';
+            const result = await FileSystem.uploadAsync(`${API_URL}/api/posts`, bgVideo, {
+              httpMethod: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+              fieldName: 'video',
+              mimeType: `video/${ext}`,
+              parameters: {
+                content: bgText,
+                ...(bgPoll ? { poll: JSON.stringify(bgPoll) } : {}),
+              },
+              sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
+            });
+            let payload: any = null;
+            try {
+              payload = result.body ? JSON.parse(result.body) : null;
+            } catch {
+              payload = null;
+            }
+            if (result.status !== 200 && result.status !== 201) {
+              if (payload?.code === 'PREMIUM_REQUIRED_VIDEO_LIMIT') {
+                Toast.show({
+                  type: 'error',
+                  text1: 'Plik za duży',
+                  text2: 'Odblokuj Premium, aby wysyłać filmy do 120MB',
+                });
+                router.push('/premium' as any);
+                return;
+              }
+              throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
+            }
+            if (payload) {
+              setPosts(prev => [payload, ...prev]);
+              Toast.show({
+                type: 'success',
+                text1: 'Film został opublikowany',
+              });
+            }
+          } catch (err: any) {
+            Toast.show({ type: 'error', text1: err?.message ?? 'Błąd wysyłania filmu' });
+          }
+        })();
+        return;
+      }
       const form  = new FormData();
       form.append('content', text);
       if (poll) form.append('poll', JSON.stringify(poll));
       photos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `p${i}.${ext}`, type: `image/${ext}` } as any); });
-      if (video) { const ext = video.split('.').pop() ?? 'mp4'; form.append('video', { uri: video, name: `video.${ext}`, type: `video/${ext}` } as any); }
       const res  = await fetch(`${API_URL}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -323,7 +417,7 @@ export default function CommunityScreen() {
     setShareSending(convId);
     try {
       const token   = await getToken();
-      const content = JSON.stringify({ type: 'route', routeId: shareRoute.id, name: shareRoute.name, distance: shareRoute.distance, points: shareRoute.points.slice(0, 50), isPublic: shareRoute.isPublic });
+      const content = JSON.stringify({ type: 'route', routeId: shareRoute.id, name: shareRoute.name, distance: shareRoute.distance, points: (shareRoute.points ?? []).slice(0, 50), isPublic: shareRoute.isPublic });
       const form    = new FormData();
       form.append('content', content);
       await fetch(`${API_URL}/api/chat/conversations/${convId}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
@@ -362,8 +456,20 @@ export default function CommunityScreen() {
 
   const pickCommentPhoto = async () => {
     if (commentPhotos.length >= 2) return;
-    const r = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
-    if (!r.canceled && r.assets[0]) setCommentPhotos(prev => [...prev, r.assets[0].uri]);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Toast.show({ type: 'info', text1: 'Brak dostępu do galerii' });
+      return;
+    }
+    const r = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.82,
+      allowsMultipleSelection: true,
+      selectionLimit: Math.max(1, 2 - commentPhotos.length),
+    });
+    if (!r.canceled && r.assets?.length) {
+      setCommentPhotos(prev => [...prev, ...r.assets.map((a) => a.uri)].slice(0, 2));
+    }
   };
 
   useFocusEffect(useCallback(() => {
@@ -391,6 +497,9 @@ export default function CommunityScreen() {
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
   const modalBottomPadding = Math.max(insets.bottom, 12);
+  const effectiveCommentKeyboardInset = Platform.OS === 'ios'
+    ? Math.max(0, commentKeyboardInset - insets.bottom)
+    : commentKeyboardInset;
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -503,6 +612,8 @@ export default function CommunityScreen() {
               onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
               onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
               onLoadMore={loadMorePosts} bottomInset={insets.bottom}
+              isPremium={!!settings.isPremium}
+              onUpgradePremium={() => router.push('/premium' as any)}
             />
           )}
         </View>
@@ -556,8 +667,8 @@ export default function CommunityScreen() {
               backgroundColor: theme.surface,
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
               borderWidth: 1, borderColor: theme.border2,
-              maxHeight: commentKeyboardInset > 0 ? '82%' : '88%',
-              marginBottom: commentKeyboardInset,
+              maxHeight: effectiveCommentKeyboardInset > 0 ? '82%' : '88%',
+              marginBottom: effectiveCommentKeyboardInset,
             }}
           >
             <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
@@ -615,7 +726,7 @@ export default function CommunityScreen() {
                   ref={commentListRef}
                   data={comments}
                   keyExtractor={c => String(c.id)}
-                  style={{ maxHeight: commentKeyboardInset > 0 ? 180 : 300 }}
+                  style={{ maxHeight: effectiveCommentKeyboardInset > 0 ? 180 : 300 }}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
@@ -698,8 +809,8 @@ export default function CommunityScreen() {
             <View style={{
               paddingHorizontal: 16,
               paddingTop: 12,
-              paddingBottom: commentKeyboardInset > 0
-                ? commentKeyboardInset + 8
+              paddingBottom: effectiveCommentKeyboardInset > 0
+                ? effectiveCommentKeyboardInset + 8
                 : modalBottomPadding,
               borderTopWidth: 1,
               borderTopColor: theme.border,

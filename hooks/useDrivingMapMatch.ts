@@ -11,7 +11,7 @@ import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapbo
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-const MIN_INTERVAL_MS = 3_400;
+const MIN_INTERVAL_MS = 4_200;
 const BUFFER_SIZE     = 9;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
@@ -20,14 +20,17 @@ const FORCE_MATCH_RADIUS_M = 50;
 const EXPIRE_MS       = 120_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
-const MIN_FETCH_MOVE_M  = 8;     // częstsze odświeżanie geometrii przy jeździe miejskiej
+const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeździe miejskiej
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
 const FORCE_MATCH_MIN_INTERVAL_MS = 57_600;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 29;
+const MAX_REQUESTS_PER_WINDOW = 18;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
-const MAX_MANUAL_BURST_PER_WINDOW = 7;
+const MAX_MANUAL_BURST_PER_WINDOW = 2;
+/** Gdy zbliżamy się do limitu / h, agresywnie ogranicz częstotliwość odświeżeń. */
+const BUDGET_SOFT_CAP_PER_WINDOW = 12;
+const BUDGET_HARD_CAP_PER_WINDOW = 16;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -37,6 +40,7 @@ const DIRECTIONS_STUB_MIN_INTERVAL_MS = 38_400;
 const DIRECTIONS_STUB_MIN_MOVE_M = 140;
 const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 9_600;
 const DIRECTIONS_STUB_AGGR_MOVE_M = 45;
+const DIRECTIONS_STUB_MAX_PER_WINDOW = 7;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -136,6 +140,7 @@ export function useDrivingMapMatch() {
   const lastCallRef    = useRef<number>(0);
   const lastFetchRef   = useRef<{ lat: number; lng: number } | null>(null);
   const requestTimesRef = useRef<number[]>([]);
+  const directionsStubTimesRef = useRef<number[]>([]);
   const lastRefreshForceRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const lastDirectionsStubRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const isFetchingRef  = useRef<boolean>(false);
@@ -157,15 +162,24 @@ export function useDrivingMapMatch() {
     return true;
   }, []);
 
+  const getRequestUsageCount = useCallback((now: number): number => {
+    requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+    return requestTimesRef.current.length;
+  }, []);
+
   const shouldAttemptDirectionsStub = useCallback((
     lat: number,
     lng: number,
     aggressive: boolean,
   ): boolean => {
     const now = Date.now();
+    directionsStubTimesRef.current = directionsStubTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
+    if (directionsStubTimesRef.current.length >= DIRECTIONS_STUB_MAX_PER_WINDOW) return false;
+    if (getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) return false;
     const last = lastDirectionsStubRef.current;
     if (!last) {
       lastDirectionsStubRef.current = { at: now, lat, lng };
+      directionsStubTimesRef.current.push(now);
       return true;
     }
     const minGap = aggressive ? DIRECTIONS_STUB_AGGR_INTERVAL_MS : DIRECTIONS_STUB_MIN_INTERVAL_MS;
@@ -173,8 +187,9 @@ export function useDrivingMapMatch() {
     const movedM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
     if (now - last.at < minGap && movedM < minMove) return false;
     lastDirectionsStubRef.current = { at: now, lat, lng };
+    directionsStubTimesRef.current.push(now);
     return true;
-  }, []);
+  }, [getRequestUsageCount]);
 
   const addPosition = useCallback(async (
     lat: number,
@@ -197,12 +212,13 @@ export function useDrivingMapMatch() {
     const noRoad = !!ctx?.noRoad;
     const acc = ctx?.accuracyM;
     const poorAcc = acc != null && Number.isFinite(acc) && acc > 35;
+    const usageCount = getRequestUsageCount(now);
 
     let dynamicMinIntervalMs = MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
     if (noRoad) {
-      dynamicMinIntervalMs = 3_000;
-      dynamicMinMoveM = 3;
+      dynamicMinIntervalMs = 4_200;
+      dynamicMinMoveM = 6;
     } else if (speedKmh >= 55) {
       dynamicMinIntervalMs = 7_200;
       dynamicMinMoveM = 22;
@@ -210,16 +226,24 @@ export function useDrivingMapMatch() {
       dynamicMinIntervalMs = 6_100;
       dynamicMinMoveM = 14;
     } else {
-      dynamicMinIntervalMs = 5_000;
-      dynamicMinMoveM = 8;
+      dynamicMinIntervalMs = 6_500;
+      dynamicMinMoveM = 10;
     }
     if (poorAcc && !noRoad) {
       dynamicMinIntervalMs += 1_900;
       dynamicMinMoveM += 8;
     }
     if (matchedPtsRef.current && !noRoad && speedKmh < 16 && !poorAcc) {
-      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 8_800);
-      dynamicMinMoveM = Math.max(dynamicMinMoveM, 20);
+      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 12_000);
+      dynamicMinMoveM = Math.max(dynamicMinMoveM, 24);
+    }
+    if (usageCount >= BUDGET_SOFT_CAP_PER_WINDOW) {
+      dynamicMinIntervalMs += 2_200;
+      dynamicMinMoveM += 10;
+    }
+    if (usageCount >= BUDGET_HARD_CAP_PER_WINDOW) {
+      dynamicMinIntervalMs += 4_000;
+      dynamicMinMoveM += 16;
     }
 
     if (now - lastCallRef.current < dynamicMinIntervalMs) return;
@@ -330,6 +354,9 @@ export function useDrivingMapMatch() {
           await sleep(60);
         }
       } else if (refresh) {
+        if (getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW) {
+          return matchedPtsRef.current;
+        }
         for (let i = 0; i < 15 && isFetchingRef.current; i++) {
           await sleep(50);
         }
@@ -355,6 +382,9 @@ export function useDrivingMapMatch() {
       }
 
       const now = Date.now();
+      if (!manual && getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) {
+        return matchedPtsRef.current;
+      }
       if (!consumeRequestSlot(now, manual)) return matchedPtsRef.current;
 
       const genWhenStarted = matchGenRef.current;
@@ -475,6 +505,7 @@ export function useDrivingMapMatch() {
     lastRefreshForceRef.current = null;
     lastDirectionsStubRef.current = null;
     requestTimesRef.current = [];
+    directionsStubTimesRef.current = [];
     isFetchingRef.current = false;
     matchedTimeRef.current = 0;
     console.log('[DrivingMapMatch] reset');

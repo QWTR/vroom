@@ -15,6 +15,55 @@ const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
 const MATCHING_FALLBACK_MAX_PER_WINDOW = 120;
 const MATCHING_FALLBACK_COOLDOWN_MS = 4_000;
 
+type SearchCacheEntry = { at: number; data: unknown };
+const searchCache = new Map<string, SearchCacheEntry>();
+const inflightSearch = new Map<string, Promise<unknown>>();
+const MAX_SEARCH_CACHE_ENTRIES = 220;
+
+function pruneSearchCache(now: number) {
+  if (searchCache.size <= MAX_SEARCH_CACHE_ENTRIES) return;
+  for (const [key, value] of searchCache) {
+    if (now - value.at > 2 * 60_000) {
+      searchCache.delete(key);
+    }
+    if (searchCache.size <= MAX_SEARCH_CACHE_ENTRIES) break;
+  }
+}
+
+function makeCoordBucket(value?: number, precision = 3): string {
+  if (!Number.isFinite(value)) return 'na';
+  const p = Math.max(0, Math.min(6, precision));
+  return Number(value).toFixed(p);
+}
+
+async function withCachedSearch<T>(
+  cacheKey: string,
+  ttlMs: number,
+  factory: () => Promise<T>,
+): Promise<T> {
+  const now = Date.now();
+  const cached = searchCache.get(cacheKey);
+  if (cached && now - cached.at < ttlMs) {
+    return cached.data as T;
+  }
+  const inflight = inflightSearch.get(cacheKey);
+  if (inflight) {
+    return (await inflight) as T;
+  }
+  const task = (async () => {
+    const data = await factory();
+    searchCache.set(cacheKey, { at: Date.now(), data });
+    pruneSearchCache(Date.now());
+    return data;
+  })();
+  inflightSearch.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    inflightSearch.delete(cacheKey);
+  }
+}
+
 async function getAuthToken(): Promise<string | null> {
   const now = Date.now();
   if (cachedAuthToken && now - tokenFetchedAt < TOKEN_TTL_MS) return cachedAuthToken;
@@ -163,25 +212,38 @@ export async function fetchGeocodingViaProxy<T>(params: {
   country?: string;
   types?: string;
 }): Promise<T> {
-  const viaProxy = await callProxy<T>('/api/mapbox/geocode', {
-    method: 'POST',
-    body: JSON.stringify(params),
+  const normalizedQuery = params.query.trim().toLowerCase();
+  const cacheKey = [
+    'geocode',
+    normalizedQuery,
+    params.limit ?? 5,
+    params.language ?? 'pl',
+    params.country ?? 'pl',
+    params.types ?? 'address,poi,place,locality,neighborhood',
+    makeCoordBucket(params.proximityLng, 2),
+    makeCoordBucket(params.proximityLat, 2),
+  ].join('|');
+  return withCachedSearch<T>(cacheKey, 5 * 60_000, async () => {
+    const viaProxy = await callProxy<T>('/api/mapbox/geocode', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (viaProxy != null) return viaProxy;
+    const proximity =
+      Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
+        ? `&proximity=${params.proximityLng},${params.proximityLat}`
+        : '';
+    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+    const types = params.types
+      ? `&types=${encodeURIComponent(params.types)}`
+      : '&types=address,poi,place,locality,neighborhood';
+    const fallbackUrl =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(params.query)}.json` +
+      `?access_token=${MAPBOX_TOKEN}&language=${params.language ?? 'pl'}&limit=${params.limit ?? 5}` +
+      `${proximity}${country}${types}`;
+    const res = await fetch(fallbackUrl);
+    return await res.json() as T;
   });
-  if (viaProxy != null) return viaProxy;
-  const proximity =
-    Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
-      ? `&proximity=${params.proximityLng},${params.proximityLat}`
-      : '';
-  const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
-  const types = params.types
-    ? `&types=${encodeURIComponent(params.types)}`
-    : '&types=address,poi,place,locality,neighborhood';
-  const fallbackUrl =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(params.query)}.json` +
-    `?access_token=${MAPBOX_TOKEN}&language=${params.language ?? 'pl'}&limit=${params.limit ?? 5}` +
-    `${proximity}${country}${types}`;
-  const res = await fetch(fallbackUrl);
-  return await res.json() as T;
 }
 
 export async function fetchSearchSuggestViaProxy<T>(params: {
@@ -193,26 +255,38 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
   proximityLat?: number;
   country?: string;
 }): Promise<T> {
-  const viaProxy = await callProxy<T>('/api/mapbox/search/suggest', {
-    method: 'POST',
-    body: JSON.stringify(params),
+  const normalizedQuery = params.query.trim().toLowerCase();
+  const cacheKey = [
+    'suggest',
+    normalizedQuery,
+    params.limit ?? 8,
+    params.language ?? 'pl',
+    params.country ?? 'pl',
+    makeCoordBucket(params.proximityLng, 3),
+    makeCoordBucket(params.proximityLat, 3),
+  ].join('|');
+  return withCachedSearch<T>(cacheKey, 45_000, async () => {
+    const viaProxy = await callProxy<T>('/api/mapbox/search/suggest', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (viaProxy != null) return viaProxy;
+    const proximity =
+      Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
+        ? `&proximity=${params.proximityLng},${params.proximityLat}`
+        : '';
+    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+    const fallbackUrl =
+      `https://api.mapbox.com/search/searchbox/v1/suggest` +
+      `?q=${encodeURIComponent(params.query)}` +
+      `&session_token=${encodeURIComponent(params.sessionToken)}` +
+      `&language=${params.language ?? 'pl'}` +
+      `&limit=${params.limit ?? 8}` +
+      `${proximity}${country}` +
+      `&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(fallbackUrl);
+    return await res.json() as T;
   });
-  if (viaProxy != null) return viaProxy;
-  const proximity =
-    Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
-      ? `&proximity=${params.proximityLng},${params.proximityLat}`
-      : '';
-  const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
-  const fallbackUrl =
-    `https://api.mapbox.com/search/searchbox/v1/suggest` +
-    `?q=${encodeURIComponent(params.query)}` +
-    `&session_token=${encodeURIComponent(params.sessionToken)}` +
-    `&language=${params.language ?? 'pl'}` +
-    `&limit=${params.limit ?? 8}` +
-    `${proximity}${country}` +
-    `&access_token=${MAPBOX_TOKEN}`;
-  const res = await fetch(fallbackUrl);
-  return await res.json() as T;
 }
 
 export async function fetchSearchRetrieveViaProxy<T>(params: {
@@ -241,16 +315,26 @@ export async function fetchSearchCategoryViaProxy<T>(params: {
   limit?: number;
   language?: string;
 }): Promise<T> {
-  const viaProxy = await callProxy<T>('/api/mapbox/search/category', {
-    method: 'POST',
-    body: JSON.stringify(params),
+  const cacheKey = [
+    'category',
+    params.category,
+    params.limit ?? 20,
+    params.language ?? 'pl',
+    makeCoordBucket(params.proximityLng, 3),
+    makeCoordBucket(params.proximityLat, 3),
+  ].join('|');
+  return withCachedSearch<T>(cacheKey, 90_000, async () => {
+    const viaProxy = await callProxy<T>('/api/mapbox/search/category', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (viaProxy != null) return viaProxy;
+    const fallbackUrl =
+      `https://api.mapbox.com/search/searchbox/v1/category/${params.category}` +
+      `?proximity=${params.proximityLng},${params.proximityLat}` +
+      `&limit=${params.limit ?? 20}&language=${params.language ?? 'pl'}&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(fallbackUrl);
+    return await res.json() as T;
   });
-  if (viaProxy != null) return viaProxy;
-  const fallbackUrl =
-    `https://api.mapbox.com/search/searchbox/v1/category/${params.category}` +
-    `?proximity=${params.proximityLng},${params.proximityLat}` +
-    `&limit=${params.limit ?? 20}&language=${params.language ?? 'pl'}&access_token=${MAPBOX_TOKEN}`;
-  const res = await fetch(fallbackUrl);
-  return await res.json() as T;
 }
 

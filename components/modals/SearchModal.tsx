@@ -36,6 +36,8 @@ interface GeocodingResult {
   needsRetrieve?: boolean;
 }
 
+const SEARCH_SESSION_IDLE_MS = 12 * 60 * 1000;
+
 function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
   return features.map((f: any) => {
     const mainText = f.text ?? f.place_name ?? '';
@@ -108,6 +110,9 @@ export const SearchModal = memo(({
   const resetToInitialRef   = useRef<() => void>(() => {});
   const onCloseRef          = useRef(onClose);
   const searchSessionRef    = useRef('');
+  const searchSessionLastUsedAtRef = useRef(0);
+  const searchCacheRef      = useRef<Map<string, { at: number; results: GeocodingResult[] }>>(new Map());
+  const searchReqSeqRef     = useRef(0);
 
   useEffect(() => { searchModeRef.current = searchMode; },    [searchMode]);
   useEffect(() => { onCloseRef.current    = onClose; },       [onClose]);
@@ -124,9 +129,23 @@ export const SearchModal = memo(({
 
   useEffect(() => { resetToInitialRef.current = resetToInitial; }, [resetToInitial]);
 
+  const ensureSearchSession = useCallback((): string => {
+    const now = Date.now();
+    const shouldRotate =
+      !searchSessionRef.current
+      || (searchSessionLastUsedAtRef.current > 0 && now - searchSessionLastUsedAtRef.current > SEARCH_SESSION_IDLE_MS);
+    if (shouldRotate) {
+      searchSessionRef.current = createMapboxSearchSessionToken();
+    }
+    searchSessionLastUsedAtRef.current = now;
+    return searchSessionRef.current;
+  }, []);
+
   useEffect(() => {
-    if (visible) searchSessionRef.current = createMapboxSearchSessionToken();
-  }, [visible]);
+    if (visible) {
+      ensureSearchSession();
+    }
+  }, [visible, ensureSearchSession]);
 
   // ── BackHandler ───────────────────────────────────────
   useEffect(() => {
@@ -186,7 +205,9 @@ export const SearchModal = memo(({
   // ─────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSearch = useCallback(debounce(async (query: string) => {
-    if (query.length < 2) {
+    const trimmed = query.trim();
+    const normalized = trimmed.toLowerCase();
+    if (trimmed.length < 2) {
       setSearchMode('initial');
       setFilteredPlaces([]);
       setFilteredUsers([]);
@@ -195,7 +216,7 @@ export const SearchModal = memo(({
       return;
     }
 
-    const brand = detectBrand(query);
+    const brand = detectBrand(trimmed);
     if (brand && userLocation) {
       setDetectedBrand(brand.label);
       setSearchMode('nearby');
@@ -210,14 +231,21 @@ export const SearchModal = memo(({
     setIsSearching(true);
     setFilteredUsers([]);
     clearPlaces();
+    const reqSeq = ++searchReqSeqRef.current;
     try {
-      const sessionToken = searchSessionRef.current || createMapboxSearchSessionToken();
-      if (!searchSessionRef.current) searchSessionRef.current = sessionToken;
+      const cached = searchCacheRef.current.get(normalized);
+      const now = Date.now();
+      if (cached && now - cached.at < 75_000) {
+        if (reqSeq === searchReqSeqRef.current) setFilteredPlaces(cached.results);
+        return;
+      }
+
+      const sessionToken = ensureSearchSession();
 
       let results: GeocodingResult[] = [];
       try {
         const suggestData = await fetchSearchSuggestViaProxy<any>({
-          query,
+          query: trimmed,
           sessionToken,
           language: 'pl',
           country: 'pl',
@@ -230,9 +258,14 @@ export const SearchModal = memo(({
         // fallback do geokodowania poniżej
       }
 
-      if (results.length === 0) {
+      const shouldTryGeocodeFallback =
+        normalized.length >= 4
+        || /\d/.test(normalized)
+        || normalized.includes(' ');
+
+      if (results.length === 0 && shouldTryGeocodeFallback) {
         const data = await fetchGeocodingViaProxy<any>({
-          query,
+          query: trimmed,
           language: 'pl',
           country: 'pl',
           types: 'address,poi,place,locality,neighborhood',
@@ -243,13 +276,16 @@ export const SearchModal = memo(({
         results = mapGeocodeFeatures(data.features ?? []);
       }
 
-      setFilteredPlaces(results);
+      searchCacheRef.current.set(normalized, { at: now, results });
+      if (reqSeq === searchReqSeqRef.current) setFilteredPlaces(results);
     } catch {
-      Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
+      if (reqSeq === searchReqSeqRef.current) {
+        Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
+      }
     } finally {
-      setIsSearching(false);
+      if (reqSeq === searchReqSeqRef.current) setIsSearching(false);
     }
-  }, 400), [userLocation, clearPlaces, fetchPlaces]);
+  }, 500), [userLocation, clearPlaces, fetchPlaces]);
 
   // ─────────────────────────────────────────────────────
   const selectLocation = useCallback((location: LocationState, label: string) => {
@@ -274,7 +310,7 @@ export const SearchModal = memo(({
       try {
         const data = await fetchSearchRetrieveViaProxy<any>({
           mapboxId: item.mapboxId,
-          sessionToken: searchSessionRef.current,
+          sessionToken: ensureSearchSession(),
           language: 'pl',
         });
         const feature = data?.features?.[0];
@@ -289,7 +325,6 @@ export const SearchModal = memo(({
           Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się ustalić lokalizacji' });
           return;
         }
-        searchSessionRef.current = createMapboxSearchSessionToken();
       } catch {
         Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA', text2: 'Spróbuj ponownie' });
         return;
@@ -302,7 +337,7 @@ export const SearchModal = memo(({
       { latitude: lat, longitude: lng, name: item.mainText, placeId: item.mapboxId },
       item.mainText,
     );
-  }, [selectLocation]);
+  }, [selectLocation, ensureSearchSession]);
 
   const handleSelectNearby = useCallback((place: NearbyPlace) => {
     selectLocation(

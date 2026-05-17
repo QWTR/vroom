@@ -46,6 +46,8 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 const PROXIMITY_THRESHOLD_M     = 500;
 const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
+const LIVE_USERS_RADIUS_KM = 35;
+const LIVE_USERS_TAKE = 220;
 
 async function fetchWithTimeout(
   url: string,
@@ -121,6 +123,17 @@ export function useLiveMap(
   const easeInOut = (t: number) => t * t * (3 - 2 * t);
 
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
+  const buildLiveUsersUrl = useCallback(() => {
+    const loc = userLocationRef.current;
+    const qs = new URLSearchParams();
+    qs.set('take', String(LIVE_USERS_TAKE));
+    if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+      qs.set('lat', String(loc.latitude));
+      qs.set('lng', String(loc.longitude));
+      qs.set('radiusKm', String(LIVE_USERS_RADIUS_KM));
+    }
+    return `${API_URL}/api/live/users?${qs.toString()}`;
+  }, []);
 
   useEffect(() => { userLocationRef.current = userLocation; },   [userLocation]);
   useEffect(() => { isSpeechRef.current     = isSpeechEnabled; }, [isSpeechEnabled]);
@@ -173,7 +186,7 @@ export function useLiveMap(
       const warningsUrl = `${API_URL}/api/live/warnings${warningsQs.toString() ? `?${warningsQs}` : ''}`;
       const [warningsRes, usersRes] = await Promise.all([
         fetchWithTimeout(warningsUrl, { headers: { Authorization: `Bearer ${token}` } }),
-        fetchWithTimeout(`${API_URL}/api/live/users`,    { headers: { Authorization: `Bearer ${token}` } }),
+        fetchWithTimeout(buildLiveUsersUrl(),    { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (warningsRes.ok) {
         const data = await warningsRes.json();
@@ -200,7 +213,7 @@ export function useLiveMap(
     } catch (e) {
       console.log('fetchInitialData error:', e);
     }
-  }, []);
+  }, [buildLiveUsersUrl]);
 
   // Gdy udostępnianie włączone — odśwież listę po połączeniu socketu (np. hydracja z API).
   useEffect(() => {
@@ -441,7 +454,7 @@ export function useLiveMap(
       if (!token) return;
       try {
         const res = await fetchWithTimeout(
-          `${API_URL}/api/live/users`,
+          buildLiveUsersUrl(),
           { headers: { Authorization: `Bearer ${token}` } },
         );
         if (!res.ok || !isSharingRef.current) return;
@@ -472,7 +485,7 @@ export function useLiveMap(
       }
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [isSharing, enabled]);
+  }, [isSharing, enabled, buildLiveUsersUrl]);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {

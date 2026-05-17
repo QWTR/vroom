@@ -1040,13 +1040,13 @@ export default function ProfileView({
       </View>
 
       <RouteLeaderboardModal visible={lbVisible} routeId={lbRouteId} routeName={lbRouteName} data={lbData} runsData={lbRunsData} loading={lbLoading} onClose={() => { setLbVisible(false); setLbRouteId(null); setLbRouteName(''); }} />
-      <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend(f.id); fetchFriends(); }} />
+      <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend((f as any).friendshipId ?? f.id); fetchFriends(); }} />
       <FriendRequestsModal
         visible={invitesModalVisible}
         requests={requests}
         onClose={() => setInvitesModalVisible(false)}
-        onAccept={async (id) => { await acceptRequest(id); }}
-        onReject={async (id) => { await rejectRequest(id); }}
+        onAccept={async (id) => { await acceptRequest(id); fetchRequests(); fetchFriends(); }}
+        onReject={async (id) => { await rejectRequest(id); fetchRequests(); }}
       />
 
       {/* ══ STATS MODAL ══ */}

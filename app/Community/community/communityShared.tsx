@@ -26,7 +26,7 @@ export interface PostPollData {
 }
 export interface PostPollInput { question: string; options: string[]; }
 export interface Post         { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; poll?: PostPollData | null; }
-export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
+export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points?: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
 export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: { id: number; username: string; avatarUrl: string | null }; likesCount: number; commentsCount: number; isLiked: boolean; }
 export type Tab = 'dyskusje' | 'trasy' | 'auta';
 
@@ -579,6 +579,8 @@ export const ComposeBox = ({
   bottomInset,
   mentionsEnabled = false,
   onHeightChange,
+  isPremium = false,
+  onUpgradePremium,
 }: {
   onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
   bottomInset: number;
@@ -586,6 +588,8 @@ export const ComposeBox = ({
   mentionsEnabled?: boolean;
   /** Raportuje wysokość paska (FlatList paddingBottom). */
   onHeightChange?: (height: number) => void;
+  isPremium?: boolean;
+  onUpgradePremium?: () => void;
 }) => {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -623,8 +627,19 @@ export const ComposeBox = ({
       videoMaxDuration: 60,
     });
     if (!r.canceled && r.assets[0]) {
-      if (((r.assets[0] as any).fileSize ?? 0) > 20 * 1024 * 1024) {
-        Toast.show({ type: 'error', text1: 'Film za duży', text2: 'Maksymalnie 20MB' });
+      const fileSize = Number((r.assets[0] as any).fileSize ?? 0);
+      const maxBytes = isPremium ? 120 * 1024 * 1024 : 20 * 1024 * 1024;
+      if (fileSize > maxBytes) {
+        if (!isPremium) {
+          Toast.show({
+            type: 'error',
+            text1: 'Plik za duży',
+            text2: 'Odblokuj Premium, aby wysyłać filmy do 120MB',
+          });
+          onUpgradePremium?.();
+          return;
+        }
+        Toast.show({ type: 'error', text1: 'Film za duży', text2: 'Maksymalnie 120MB dla Premium' });
         return;
       }
       setVideo(r.assets[0].uri);

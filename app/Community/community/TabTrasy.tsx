@@ -26,6 +26,7 @@ const RouteCard = React.memo(({
 }) => {
   const { theme } = useTheme();
   const time = formatDistanceToNow(new Date(route.createdAt), { addSuffix: true, locale: pl });
+  const points = route.points ?? [];
 
   return (
     <View style={{
@@ -64,7 +65,7 @@ const RouteCard = React.memo(({
         activeOpacity={0.88}
       >
         <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}>
-          <RouteMiniMap points={route.points} width={100} height={70} />
+          <RouteMiniMap points={points} width={100} height={70} />
         </View>
         <View style={{ flex: 1, justifyContent: 'center' }}>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
@@ -77,7 +78,7 @@ const RouteCard = React.memo(({
           )}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <StatPill icon="straighten" value={`${route.distance.toFixed(1)} km`} color="#e33835" />
-            <StatPill icon="place" value={`${route.points.length} pkt`} />
+            <StatPill icon="place" value={`${points.length} pkt`} />
             {!!route.runsCount && route.runsCount > 0 && (
               <StatPill icon="replay" value={`${route.runsCount} przej.`} />
             )}
@@ -136,6 +137,7 @@ const RouteCard = React.memo(({
     </View>
   );
 });
+RouteCard.displayName = 'RouteCard';
 
 // ─────────────────────────────────────────────────────────
 // TAB TRASY

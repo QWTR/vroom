@@ -120,6 +120,8 @@ export default function PublicProfileScreen() {
   const [statsModalVisible,    setStatsModalVisible]    = useState(false);
   const [topSpeedModalVisible, setTopSpeedModalVisible] = useState(false);
   const [visitFx, setVisitFx] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
 
   const { startConversation } = useChat();
 
@@ -146,7 +148,7 @@ export default function PublicProfileScreen() {
     try {
       const token = await getToken();
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes, followCountRes] = await Promise.all([
+      const [profileRes, carsRes, spotsRes, achRes, fsRes, followRes, followCountRes, blocksRes] = await Promise.all([
         fetch(`${API_URL}/api/profile/${userId}`,              { headers }),
         fetch(`${API_URL}/api/profile/${userId}/cars`,         { headers }),
         fetch(`${API_URL}/api/profile/${userId}/spots`,        { headers }),
@@ -154,6 +156,7 @@ export default function PublicProfileScreen() {
         fetch(`${API_URL}/api/chat/friends/status/${userId}`,  { headers }),
         fetch(`${API_URL}/api/follow/status/${userId}`,        { headers }),
         fetch(`${API_URL}/api/follow/counts/${userId}`,        { headers }),
+        fetch(`${API_URL}/api/moderation/blocks`,              { headers }),
       ]);
 
       // Accumulate follow counts from whichever endpoint(s) provide them
@@ -218,6 +221,11 @@ export default function PublicProfileScreen() {
             if (typeof lc_followers === 'number') resolvedFollowers = lc_followers;
           }
         } catch {}
+      }
+      if (blocksRes.ok) {
+        const b = await blocksRes.json();
+        const ids: number[] = Array.isArray(b?.blockedUserIds) ? b.blockedUserIds : [];
+        setIsBlocked(ids.includes(Number(userId)));
       }
 
       // Safety floor: if the current user is following this person, they have at least 1 follower
@@ -372,6 +380,7 @@ export default function PublicProfileScreen() {
                 body: JSON.stringify({ reason: 'abusive_or_objectionable' }),
               });
               if (!res.ok) throw new Error();
+              setIsBlocked(true);
               Toast.show({ type: 'success', text1: 'Zablokowano', text2: 'Profil został ukryty w Twojej aplikacji.' });
               router.back();
             } catch {
@@ -382,6 +391,25 @@ export default function PublicProfileScreen() {
       ],
     );
   }, [profile, myUserId, router]);
+
+  const handleUnblockUser = useCallback(async () => {
+    if (!profile?.id || !isBlocked) return;
+    setBlockBusy(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/moderation/block/${profile.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      setIsBlocked(false);
+      Toast.show({ type: 'success', text1: 'Odblokowano użytkownika' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się odblokować użytkownika.' });
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [profile?.id, isBlocked]);
 
   const resolvedPreset = profile?.profileThemePreset ?? 'default';
   const resolvedPremiumUi = profile?.isPremium ? mergeProfilePremiumExtras(profile?.profilePremiumExtras) : null;
@@ -802,7 +830,8 @@ export default function PublicProfileScreen() {
 
           {myUserId != null && profile.id !== myUserId && (
             <TouchableOpacity
-              onPress={handleBlockUser}
+              onPress={isBlocked ? handleUnblockUser : handleBlockUser}
+              disabled={blockBusy}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -812,13 +841,13 @@ export default function PublicProfileScreen() {
                 paddingVertical: 12,
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: '#ff6b3550',
-                backgroundColor: '#ff6b3510',
+                borderColor: isBlocked ? '#4de92650' : '#ff6b3550',
+                backgroundColor: isBlocked ? '#4de92610' : '#ff6b3510',
               }}
             >
-              <MaterialIcons name="block" size={18} color="#ff6b35" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#ff6b35', fontWeight: '700', letterSpacing: 1 }}>
-                ZABLOKUJ UŻYTKOWNIKA
+              <MaterialIcons name={isBlocked ? 'lock-open' : 'block'} size={18} color={isBlocked ? '#4de926' : '#ff6b35'} />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isBlocked ? '#4de926' : '#ff6b35', fontWeight: '700', letterSpacing: 1 }}>
+                {isBlocked ? 'ODBLOKUJ UŻYTKOWNIKA' : 'ZABLOKUJ UŻYTKOWNIKA'}
               </Text>
             </TouchableOpacity>
           )}

@@ -10,6 +10,7 @@ export interface ChatUser {
   username:  string;
   avatarUrl: string | null;
   online:    boolean;
+  friendshipId?: number;
 }
 
 export interface Message {
@@ -118,7 +119,17 @@ export function useChat() {
 
       // Zaproszenie do znajomych
       socket.on('friend:request', (data) => {
-        setRequests(prev => (Array.isArray(prev) ? [...prev, data] : [data]));
+        const normalized = {
+          id: Number(data?.id ?? data?.friendshipId),
+          status: data?.status ?? 'pending',
+          requester: data?.requester ?? data?.from,
+        };
+        if (!Number.isFinite(normalized.id) || !normalized.requester) return;
+        setRequests(prev => {
+          const src = Array.isArray(prev) ? prev : [];
+          if (src.some((r) => r.id === normalized.id)) return src;
+          return [...src, normalized as FriendRequest];
+        });
       });
 
       socket.on('friend:accepted', () => {
@@ -230,10 +241,11 @@ export function useChat() {
   // ── Accept friend request ────────────────────────────────
   const acceptRequest = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}/accept`, {
+    const res = await fetch(`${API}/friends/${friendshipId}/accept`, {
       method:  'POST',
       headers: h,
     });
+    if (!res.ok) throw new Error('accept_failed');
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
@@ -243,10 +255,11 @@ export function useChat() {
   // ── Reject friend request ────────────────────────────────
   const rejectRequest = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}/reject`, {
+    const res = await fetch(`${API}/friends/${friendshipId}/reject`, {
       method:  'POST',
       headers: h,
     });
+    if (!res.ok) throw new Error('reject_failed');
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
@@ -255,10 +268,11 @@ export function useChat() {
   // ── Remove friend ────────────────────────────────────────
   const removeFriend = useCallback(async (friendshipId: number) => {
     const h = await headers();
-    await fetch(`${API}/friends/${friendshipId}`, {
+    const res = await fetch(`${API}/friends/${friendshipId}`, {
       method:  'DELETE',
       headers: h,
     });
+    if (!res.ok) throw new Error('remove_failed');
     fetchFriends();
   }, [headers, fetchFriends]);
 
