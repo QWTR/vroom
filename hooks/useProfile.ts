@@ -68,11 +68,15 @@ export function useProfile() {
       const token    = await getToken();
       const localRaw = await AsyncStorage.getItem('user');
 
-      // 1. Pokaż natychmiast z cache (club zawsze null do czasu odpowiedzi serwera)
+      // 1. Pokaż natychmiast z cache, ale nie nadpisuj istniejącego cluba w UI.
       if (localRaw) {
         const cached = JSON.parse(localRaw);
         delete cached.club;
-        setProfile(mapToProfile(cached));
+        setProfile((prev) => {
+          const mappedCached = mapToProfile(cached);
+          if (!prev) return mappedCached;
+          return { ...mappedCached, club: prev.club ?? null };
+        });
       }
 
       if (!token) throw new Error('Brak tokenu');
@@ -147,8 +151,11 @@ export function useProfile() {
       });
       if (!res.ok) throw new Error('Błąd aktualizacji profilu');
       const data   = await res.json();
-      const mapped = mapToProfile(data);
-      setProfile(mapped);
+      const mapped = mapToProfile(data, { includeClub: true });
+      setProfile((prev) => ({
+        ...mapped,
+        club: mapped.club ?? prev?.club ?? null,
+      }));
 
       const localRaw = await AsyncStorage.getItem('user');
       const old      = localRaw ? JSON.parse(localRaw) : {};

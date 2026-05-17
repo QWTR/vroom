@@ -219,6 +219,7 @@ function RootLayoutInner() {
 
   const notifListener    = useRef<any>();
   const responseListener = useRef<any>();
+  const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
 
   useEffect(() => {
     if (!UsersModule?.saveAuthTokenForAuto) return;
@@ -257,10 +258,20 @@ function RootLayoutInner() {
   const handleNotificationNavigation = async (data: any) => {
     if (!data?.type) return;
     try {
+      const navKey = `${String(data.type)}:${String(data.conversationId ?? data.postId ?? data.clubId ?? data.spotId ?? data.carId ?? data.meetId ?? data.userId ?? 'none')}`;
+      const now = Date.now();
+      if (lastNotifRouteRef.current && lastNotifRouteRef.current.key === navKey && now - lastNotifRouteRef.current.ts < 2500) {
+        console.log('[Notifications] Skip duplicate navigation:', navKey);
+        return;
+      }
+      lastNotifRouteRef.current = { key: navKey, ts: now };
+
       setTimeout(async () => {
-        if (data.type === 'new_message' && data.conversationId)
-          router.push(`/Community/chats/${data.conversationId}` as any);
-        else if (
+        let target: string | null = null;
+
+        if (data.type === 'new_message' && data.conversationId) {
+          target = `/Community/chats/${data.conversationId}`;
+        } else if (
           (data.type === 'like_post' ||
             data.type === 'comment_post' ||
             data.type === 'new_follow_post' ||
@@ -269,21 +280,31 @@ function RootLayoutInner() {
           data.postId
         ) {
           await AsyncStorage.setItem('open_post_id', String(data.postId));
-          router.push(`/Community/community/community` as any);
+          target = `/Community/community/community`;
         } else if ((data.type === 'club_chat' || data.type === 'mention_club') && data.clubId) {
           const channelQuery = data.channelId ? `?channelId=${data.channelId}` : '';
-          router.push(`/Community/clubs/${data.clubId}${channelQuery}` as any);
-        } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId)
-          router.push(`/(tabs)/map` as any);
-        else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId)
-          router.push(`(tabs)/account` as any);
-        else if (data.type === 'friend_request' || data.type === 'friend_accepted')
-          router.push(`/Community/chats` as any);
-        else if (data.type === 'achievement')
-          router.push(`/(tabs)/account` as any);
-        else if ((data.type === 'meet_nearby_invite' || data.type === 'meet_joined') && data.meetId)
+          target = `/Community/clubs/${data.clubId}${channelQuery}`;
+        } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId) {
+          target = `/(tabs)/map`;
+        } else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId) {
+          target = `/(tabs)/account`;
+        } else if (data.type === 'friend_request' || data.type === 'friend_accepted') {
+          target = `/Community/chats/chats`;
+        } else if (data.type === 'achievement') {
+          target = `/(tabs)/account`;
+        }
+
+        if (target) {
+          console.log('[Notifications] Navigate:', { type: data.type, target });
+          router.push(target as any);
+          return;
+        }
+
+        if ((data.type === 'meet_nearby_invite' || data.type === 'meet_joined') && data.meetId) {
+          console.log('[Notifications] Navigate meet:', { type: data.type, meetId: data.meetId });
           router.push({ pathname: '/Community/meets/meet', params: { id: String(data.meetId) } } as any);
-      }, 300);
+        }
+      }, 350);
     } catch (e) { console.error('Navigation error:', e); }
   };
 

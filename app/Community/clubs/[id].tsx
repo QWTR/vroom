@@ -16,7 +16,7 @@ import AsyncStorage               from '@react-native-async-storage/async-storag
 import { io, Socket }             from 'socket.io-client';
 import Toast                      from 'react-native-toast-message';
 import { useTheme }               from '../../../contexts/ThemeContext';
-import { API_URL }                from '../../../constants/config';
+import { API_URL, SOCKET_URL }    from '../../../constants/config';
 import { UAv }                    from '../../../components/clubs/ClubCard';
 import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
@@ -24,8 +24,11 @@ import { renderDiscussionBody }   from '../community/communityShared';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 
-const WS_URL   = 'https://v-room.app';
-const getToken = () => AsyncStorage.getItem('token');
+const WS_URL   = SOCKET_URL;
+const getToken = async () => (
+  (await AsyncStorage.getItem('userToken'))
+  ?? (await AsyncStorage.getItem('token'))
+);
 const PAGE     = 30;
 
 const CHAT_THEMES = [
@@ -42,7 +45,7 @@ const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
 function normalizePhotoUri(uri: string): string {
   if (!uri) return uri;
   if (/^https?:\/\//i.test(uri) || /^file:\/\//i.test(uri) || /^content:\/\//i.test(uri)) return uri;
-  return `https://v-room.app${uri.startsWith('/') ? uri : `/${uri}`}`;
+  return `${API_URL}${uri.startsWith('/') ? uri : `/${uri}`}`;
 }
 
 interface ClubMessage {
@@ -282,8 +285,11 @@ export default function ClubChatScreen() {
       const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
       socket.emit('club:join', clubId);
       socket.on('club:message', (msg: ClubMessage) => {
-        if (msg.clubId === clubId && (!activeChannelIdRef.current || msg.channelId === activeChannelIdRef.current)) {
-          setMessages(prev => [...prev, msg]);
+        if (msg.clubId === clubId && activeChannelIdRef.current != null && msg.channelId === activeChannelIdRef.current) {
+          setMessages(prev => {
+            if (prev.some(m => m.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
       });
@@ -323,6 +329,16 @@ export default function ClubChatScreen() {
       const res  = await fetch(`${API_URL}/api/clubs/${clubId}/messages?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) {
+        let msg = `Błąd pobierania (${res.status})`;
+        try {
+          const err = await res.json();
+          if (typeof err?.error === 'string' && err.error.length > 0) msg = err.error;
+        } catch {
+        }
+        Toast.show({ type: 'error', text1: 'Czat chwilowo niedostępny', text2: msg });
+        return;
+      }
       const data = await res.json();
       if (cur) setMessages(prev => [...(data.messages ?? []), ...prev]);
       else     setMessages(data.messages ?? []);

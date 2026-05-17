@@ -393,6 +393,9 @@ export function useBackgroundTracking(
     pendingRetrySaved: 0,
     navMergedFlushes: 0,
     navMergedBgKm: 0,
+    bgStarts: 0,
+    bgStops: 0,
+    forceStarts: 0,
   });
 
   // Mirror user setting + sharing flag for the BG task handler
@@ -433,7 +436,9 @@ export function useBackgroundTracking(
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        console.log('flushPendingActivitySave failed:', res.status);
+        let details = '';
+        try { details = await res.text(); } catch {}
+        console.log('flushPendingActivitySave failed:', res.status, details?.slice(0, 200));
         telemetryRef.current.flushFail += 1;
         return false;
       }
@@ -518,7 +523,9 @@ export function useBackgroundTracking(
           body: JSON.stringify(payload),
         });
         if (!saveRes.ok) {
-          console.log('flushPendingKm(nav) save failed:', saveRes.status);
+          let details = '';
+          try { details = await saveRes.text(); } catch {}
+          console.log('flushPendingKm(nav) save failed:', saveRes.status, details?.slice(0, 200));
           telemetryRef.current.flushFail += 1;
           await Promise.all([
             AsyncStorage.setItem(BG_PENDING_ACTIVITY_SAVE_KEY, JSON.stringify(payload)),
@@ -578,7 +585,9 @@ export function useBackgroundTracking(
           }),
         });
         if (!saveRes.ok) {
-          console.log('flushPendingKm(passive) save failed:', saveRes.status);
+          let details = '';
+          try { details = await saveRes.text(); } catch {}
+          console.log('flushPendingKm(passive) save failed:', saveRes.status, details?.slice(0, 200));
           telemetryRef.current.flushFail += 1;
           return;
         }
@@ -625,11 +634,12 @@ export function useBackgroundTracking(
       if (bg !== 'granted') return;
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRegistered) return;
+      const highCadence = isSharing || forceEnabled;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         // BestForNavigation + tight intervals caused native instability on some devices.
-        accuracy:         isSharing ? Location.Accuracy.High : Location.Accuracy.Balanced,
-        distanceInterval: isSharing ? 15 : 30,
-        timeInterval:     isSharing ? 5000 : 12000,
+        accuracy:         highCadence ? Location.Accuracy.High : Location.Accuracy.Balanced,
+        distanceInterval: highCadence ? 15 : 60,
+        timeInterval:     highCadence ? 5000 : 20000,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: '🚗 VROOM aktywne',
@@ -639,11 +649,15 @@ export function useBackgroundTracking(
         ...(Platform.OS === 'ios'
           ? {
               // Udostępnianie w tle wymaga ciągłych fixów; same statystyki mogą używać pauzy OS.
-              pausesUpdatesAutomatically: !isSharing,
+              pausesUpdatesAutomatically: !highCadence,
               activityType: Location.ActivityType.AutomotiveNavigation,
+              deferredUpdatesInterval: highCadence ? 10_000 : 30_000,
+              deferredUpdatesDistance: highCadence ? 40 : 120,
             }
           : {}),
       });
+      telemetryRef.current.bgStarts += 1;
+      if (forceEnabled) telemetryRef.current.forceStarts += 1;
     } catch (e: any) {
       console.log('⚠️ startBackgroundTracking error:', e?.message ?? e);
     } finally {
@@ -656,7 +670,10 @@ export function useBackgroundTracking(
     stopInFlightRef.current = true;
     try {
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-      if (isRegistered) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (isRegistered) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        telemetryRef.current.bgStops += 1;
+      }
     } catch (e: any) {
       console.log('⚠️ stopBackgroundTracking error:', e?.message ?? e);
     } finally {
@@ -691,7 +708,7 @@ export function useBackgroundTracking(
         return;
       }
       if (s === 'active') {
-        if (isSharing && bgEnabled && sharingHydrated) {
+        if ((isSharing || forceEnabled) && bgEnabled && sharingHydrated) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
@@ -699,7 +716,7 @@ export function useBackgroundTracking(
       }
     });
     return () => sub.remove();
-  }, [bgEnabled, sharingHydrated, isSharing, startBackgroundTracking, stopBackgroundTracking]);
+  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, startBackgroundTracking, stopBackgroundTracking]);
 
   // ── Flush passive stats when app returns to foreground ───────────────────
   useEffect(() => {

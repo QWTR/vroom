@@ -2,7 +2,7 @@
   "expo": {
     "name": "vroom",
     "slug": "vroom",
-    "version": "1.0.11",
+    "version": "1.0.21",
     "orientation": "portrait",
     "icon": "./assets/images/Frame1933.png",
     "scheme": "vroom",
@@ -14,7 +14,7 @@
       "checkAutomatically": "NEVER",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.11",
+    "runtimeVersion": "1.0.21",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom.app",

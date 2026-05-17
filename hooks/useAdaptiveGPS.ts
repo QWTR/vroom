@@ -21,7 +21,7 @@ interface Options {
   }) => void;
 }
 
-const DRIVE_SPEED_KMH  = 5;
+const DRIVE_SPEED_KMH  = 10;
 const MAX_ACCURACY_M   = 40;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
 const MAX_ACCURACY_ACTIVE_M = 120;
@@ -30,7 +30,7 @@ const MAX_ACCURACY_ACTIVE_HARD_M = 220;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 16000;
-const IDLE_FIX_TIMEOUT_MS   = 25000;
+const IDLE_FIX_TIMEOUT_MS   = 35000;
 /** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
 const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
@@ -48,13 +48,13 @@ const GPS_CONFIG: Record<GpsProfile, {
 }> = {
   offMap: {
     accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     15000,
-    distanceInterval: 40,
+    timeInterval:     25000,
+    distanceInterval: 80,
   },
   browsing: {
     accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     4000,
-    distanceInterval: 15,
+    timeInterval:     6500,
+    distanceInterval: 22,
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,

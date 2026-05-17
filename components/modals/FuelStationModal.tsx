@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, Pressable,
-  Platform, TextInput, ActivityIndicator,
+  Platform, TextInput, ActivityIndicator, InputAccessoryView, Keyboard, ScrollView,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 import type { FuelStation } from '../../hooks/useFuelStations';
 
 
@@ -36,12 +38,26 @@ const FUEL_ROWS: Array<{ key: keyof { pb95: number; pb98: number; diesel: number
   { key: 'lpg',    label: 'LPG',    icon: 'propane-tank', color: '#e33835' },
 ];
 
+const IOS_DECIMAL_ACCESSORY_ID = 'fuel-prices-decimal-accessory';
+
+function parsePriceInput(value: string): number | null {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  if (!/^\d+(\.\d{1,3})?$/.test(normalized)) return Number.NaN;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  return parsed;
+}
+
 export function FuelStationModal({ visible, station, onClose, onNavigate, onPricesUpdated, updatePrices }: Props) {
   const { theme, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [editMode, setEditMode]     = useState(false);
   const [saving,   setSaving]       = useState(false);
   const [prices, setPrices]         = useState({ pb95: '', pb98: '', diesel: '', lpg: '' });
+  const scrollRef = useRef<ScrollView | null>(null);
+  const keyboardInset = useKeyboardInset(visible && editMode);
 
   useEffect(() => {
     if (station) {
@@ -64,10 +80,25 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
     setSaving(true);
     try {
       const payload: { pb95?: number; pb98?: number; diesel?: number; lpg?: number } = {};
+      const invalidKeys: string[] = [];
       const fuelKeys = ['pb95', 'pb98', 'diesel', 'lpg'] as const;
       for (const k of fuelKeys) {
-        const v = prices[k];
-        if (v && !isNaN(Number(v))) payload[k] = Number(v);
+        const parsed = parsePriceInput(prices[k]);
+        if (parsed == null) continue;
+        if (Number.isNaN(parsed)) {
+          invalidKeys.push(k.toUpperCase());
+          continue;
+        }
+        payload[k] = parsed;
+      }
+
+      if (invalidKeys.length > 0) {
+        Toast.show({
+          type: 'error',
+          text1: 'Niepoprawny format ceny',
+          text2: `Popraw pola: ${invalidKeys.join(', ')} (użyj np. 6,45 lub 6.45)`,
+        });
+        return;
       }
 
       if (Object.keys(payload).length === 0) {
@@ -92,11 +123,21 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
         <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={onClose} />
-        <View style={{
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            justifyContent: 'flex-end',
+            flexGrow: 1,
+          }}
+        >
+          <View style={{
           backgroundColor: theme.surface,
           borderTopLeftRadius: 24, borderTopRightRadius: 24,
           borderTopWidth: 1, borderColor: isDark ? '#1e1e1e' : '#e0e0e0',
-          paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+          paddingBottom: keyboardInset > 0
+            ? keyboardInset + 12
+            : Math.max(insets.bottom, Platform.OS === 'ios' ? 34 : 20),
           padding: 20,
         }}>
           {/* Handle */}
@@ -143,8 +184,13 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
                       value={prices[row.key]}
                       onChangeText={v => setPrices(p => ({ ...p, [row.key]: v }))}
                       keyboardType="decimal-pad"
+                      inputAccessoryViewID={Platform.OS === 'ios' ? IOS_DECIMAL_ACCESSORY_ID : undefined}
+                      onFocus={() => {
+                        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+                      }}
                       placeholder="0.00"
                       placeholderTextColor={isDark ? '#444' : '#aaa'}
+                      selectionColor="#00bfff"
                     />
                   ) : (
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: val != null ? row.color : (isDark ? '#333' : '#ccc'), fontWeight: '700' }}>
@@ -214,7 +260,29 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
               )}
             </View>
           )}
-        </View>
+          </View>
+        </ScrollView>
+        {Platform.OS === 'ios' && editMode && (
+          <InputAccessoryView nativeID={IOS_DECIMAL_ACCESSORY_ID}>
+            <View style={{
+              backgroundColor: isDark ? '#111' : '#f1f1f1',
+              borderTopWidth: 1,
+              borderTopColor: isDark ? '#242424' : '#d8d8d8',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              alignItems: 'flex-end',
+            }}>
+              <TouchableOpacity
+                onPress={() => Keyboard.dismiss()}
+                style={{ paddingHorizontal: 12, paddingVertical: 6 }}
+              >
+                <Text style={{ color: '#00bfff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                  GOTOWE
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
       </View>
     </Modal>
   );

@@ -3558,7 +3558,12 @@ export default function MapScreen() {
       }
       if (nextState === 'background' || nextState === 'inactive') {
         lastBackgroundAtRef.current = Date.now();
-        stopGPSRef.current();
+        const keepForegroundWatcher =
+          !settings.backgroundTracking
+          && (isDrivingRef.current || isNavigatingRef.current);
+        if (!keepForegroundWatcher) {
+          stopGPSRef.current();
+        }
         stopDRRef.current();
         if (!settings.backgroundTracking && isSharingRef.current) {
           setIsSharing(false);
@@ -3609,7 +3614,10 @@ export default function MapScreen() {
     return () => {
       isMapFocusedRef.current = false;
       setIsMapFocused(false);
-      stopGPSRef.current();
+      const keepWatcherOffMap = isDrivingRef.current || isNavigatingRef.current;
+      if (!keepWatcherOffMap) {
+        stopGPSRef.current();
+      }
       stopDRRef.current();
       if (resumeOneShotTimerRef.current) {
         clearTimeout(resumeOneShotTimerRef.current);
@@ -5689,7 +5697,7 @@ export default function MapScreen() {
             <Text style={styles.topSearchButtonText}>
               {startLocation && endLocation
                 ? `${startLocation.name ?? 'Start'} → ${endLocation.name ?? 'Cel'}`
-                : 'Wyszukaj trasę...'
+                : 'Wyszukaj adres lub miejsce...'
               }
             </Text>
             {(startLocation || endLocation) ? (

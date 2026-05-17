@@ -146,12 +146,22 @@ export async function fetchMatchingViaProxy<T>(
   }
 }
 
+export function createMapboxSearchSessionToken(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export async function fetchGeocodingViaProxy<T>(params: {
   query: string;
   limit?: number;
   language?: string;
   proximityLng?: number;
   proximityLat?: number;
+  country?: string;
+  types?: string;
 }): Promise<T> {
   const viaProxy = await callProxy<T>('/api/mapbox/geocode', {
     method: 'POST',
@@ -162,9 +172,64 @@ export async function fetchGeocodingViaProxy<T>(params: {
     Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
       ? `&proximity=${params.proximityLng},${params.proximityLat}`
       : '';
+  const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+  const types = params.types
+    ? `&types=${encodeURIComponent(params.types)}`
+    : '&types=address,poi,place,locality,neighborhood';
   const fallbackUrl =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(params.query)}.json` +
-    `?access_token=${MAPBOX_TOKEN}&language=${params.language ?? 'pl'}&limit=${params.limit ?? 5}${proximity}`;
+    `?access_token=${MAPBOX_TOKEN}&language=${params.language ?? 'pl'}&limit=${params.limit ?? 5}` +
+    `${proximity}${country}${types}`;
+  const res = await fetch(fallbackUrl);
+  return await res.json() as T;
+}
+
+export async function fetchSearchSuggestViaProxy<T>(params: {
+  query: string;
+  sessionToken: string;
+  limit?: number;
+  language?: string;
+  proximityLng?: number;
+  proximityLat?: number;
+  country?: string;
+}): Promise<T> {
+  const viaProxy = await callProxy<T>('/api/mapbox/search/suggest', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  if (viaProxy != null) return viaProxy;
+  const proximity =
+    Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
+      ? `&proximity=${params.proximityLng},${params.proximityLat}`
+      : '';
+  const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+  const fallbackUrl =
+    `https://api.mapbox.com/search/searchbox/v1/suggest` +
+    `?q=${encodeURIComponent(params.query)}` +
+    `&session_token=${encodeURIComponent(params.sessionToken)}` +
+    `&language=${params.language ?? 'pl'}` +
+    `&limit=${params.limit ?? 8}` +
+    `${proximity}${country}` +
+    `&access_token=${MAPBOX_TOKEN}`;
+  const res = await fetch(fallbackUrl);
+  return await res.json() as T;
+}
+
+export async function fetchSearchRetrieveViaProxy<T>(params: {
+  mapboxId: string;
+  sessionToken: string;
+  language?: string;
+}): Promise<T> {
+  const viaProxy = await callProxy<T>('/api/mapbox/search/retrieve', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  if (viaProxy != null) return viaProxy;
+  const fallbackUrl =
+    `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(params.mapboxId)}` +
+    `?session_token=${encodeURIComponent(params.sessionToken)}` +
+    `&language=${params.language ?? 'pl'}` +
+    `&access_token=${MAPBOX_TOKEN}`;
   const res = await fetch(fallbackUrl);
   return await res.json() as T;
 }

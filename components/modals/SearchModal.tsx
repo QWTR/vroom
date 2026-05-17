@@ -19,7 +19,12 @@ import {
   NearbyPlace,
   detectBrand,
 } from '../../hooks/usePlacesNearby';
-import { fetchGeocodingViaProxy } from '../../scripts/mapboxProxyClient';
+import {
+  createMapboxSearchSessionToken,
+  fetchGeocodingViaProxy,
+  fetchSearchRetrieveViaProxy,
+  fetchSearchSuggestViaProxy,
+} from '../../scripts/mapboxProxyClient';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 interface GeocodingResult {
@@ -28,6 +33,42 @@ interface GeocodingResult {
   secondaryText: string;
   latitude:      number;
   longitude:     number;
+  needsRetrieve?: boolean;
+}
+
+function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
+  return features.map((f: any) => {
+    const mainText = f.text ?? f.place_name ?? '';
+    const fullName = f.place_name ?? '';
+    const idx = mainText && fullName.includes(mainText)
+      ? fullName.indexOf(mainText) + mainText.length
+      : -1;
+    const secondaryText = idx > 0
+      ? fullName.substring(idx).replace(/^[,\s]+/, '')
+      : fullName;
+    return {
+      mapboxId:      f.id ?? '',
+      mainText,
+      secondaryText,
+      latitude:      f.geometry.coordinates[1] as number,
+      longitude:     f.geometry.coordinates[0] as number,
+      needsRetrieve: false,
+    };
+  });
+}
+
+function mapSuggestResults(suggestions: any[]): GeocodingResult[] {
+  return suggestions
+    .filter((s) => s?.mapbox_id)
+    .map((s) => ({
+      mapboxId:      String(s.mapbox_id),
+      mainText:      String(s.name_preferred ?? s.name ?? ''),
+      secondaryText: String(s.place_formatted ?? s.full_address ?? s.address ?? ''),
+      latitude:      NaN,
+      longitude:     NaN,
+      needsRetrieve: true,
+    }))
+    .filter((r) => r.mainText.length > 0);
 }
 
 interface SearchModalProps {
@@ -63,9 +104,10 @@ export const SearchModal = memo(({
   >('initial');
 
   // ── Refs żeby BackHandler zawsze miał świeże wartości ──
-  const searchModeRef    = useRef(searchMode);
-  const resetToInitialRef = useRef<() => void>(() => {});
-  const onCloseRef       = useRef(onClose);
+  const searchModeRef       = useRef(searchMode);
+  const resetToInitialRef   = useRef<() => void>(() => {});
+  const onCloseRef          = useRef(onClose);
+  const searchSessionRef    = useRef('');
 
   useEffect(() => { searchModeRef.current = searchMode; },    [searchMode]);
   useEffect(() => { onCloseRef.current    = onClose; },       [onClose]);
@@ -81,6 +123,10 @@ export const SearchModal = memo(({
   }, [clearPlaces]);
 
   useEffect(() => { resetToInitialRef.current = resetToInitial; }, [resetToInitial]);
+
+  useEffect(() => {
+    if (visible) searchSessionRef.current = createMapboxSearchSessionToken();
+  }, [visible]);
 
   // ── BackHandler ───────────────────────────────────────
   useEffect(() => {
@@ -165,31 +211,39 @@ export const SearchModal = memo(({
     setFilteredUsers([]);
     clearPlaces();
     try {
-      const data = await fetchGeocodingViaProxy<any>({
-        query,
-        language: 'pl',
-        limit: 5,
-        proximityLng: userLocation?.longitude,
-        proximityLat: userLocation?.latitude,
-      });
-      const features = data.features ?? [];
-      setFilteredPlaces(features.map((f: any) => {
-        const mainText = f.text ?? f.place_name ?? '';
-        const fullName = f.place_name ?? '';
-        const idx = mainText && fullName.includes(mainText)
-          ? fullName.indexOf(mainText) + mainText.length
-          : -1;
-        const secondaryText = idx > 0
-          ? fullName.substring(idx).replace(/^[,\s]+/, '')
-          : fullName;
-        return {
-          mapboxId:      f.id ?? '',
-          mainText:      mainText,
-          secondaryText: secondaryText,
-          latitude:      f.geometry.coordinates[1] as number,
-          longitude:     f.geometry.coordinates[0] as number,
-        } as GeocodingResult;
-      }));
+      const sessionToken = searchSessionRef.current || createMapboxSearchSessionToken();
+      if (!searchSessionRef.current) searchSessionRef.current = sessionToken;
+
+      let results: GeocodingResult[] = [];
+      try {
+        const suggestData = await fetchSearchSuggestViaProxy<any>({
+          query,
+          sessionToken,
+          language: 'pl',
+          country: 'pl',
+          limit: 8,
+          proximityLng: userLocation?.longitude,
+          proximityLat: userLocation?.latitude,
+        });
+        results = mapSuggestResults(suggestData?.suggestions ?? []);
+      } catch {
+        // fallback do geokodowania poniżej
+      }
+
+      if (results.length === 0) {
+        const data = await fetchGeocodingViaProxy<any>({
+          query,
+          language: 'pl',
+          country: 'pl',
+          types: 'address,poi,place,locality,neighborhood',
+          limit: 8,
+          proximityLng: userLocation?.longitude,
+          proximityLat: userLocation?.latitude,
+        });
+        results = mapGeocodeFeatures(data.features ?? []);
+      }
+
+      setFilteredPlaces(results);
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
     } finally {
@@ -211,9 +265,41 @@ export const SearchModal = memo(({
     }
   }, [activeTab, onSelectStart, onSelectEnd, onClose, resetToInitial]);
 
-  const handleSelectAutocomplete = useCallback((item: GeocodingResult) => {
+  const handleSelectAutocomplete = useCallback(async (item: GeocodingResult) => {
+    let lat = item.latitude;
+    let lng = item.longitude;
+
+    if (item.needsRetrieve || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setIsSearching(true);
+      try {
+        const data = await fetchSearchRetrieveViaProxy<any>({
+          mapboxId: item.mapboxId,
+          sessionToken: searchSessionRef.current,
+          language: 'pl',
+        });
+        const feature = data?.features?.[0];
+        const coords = feature?.geometry?.coordinates;
+        if (!Array.isArray(coords) || coords.length < 2) {
+          Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się ustalić lokalizacji' });
+          return;
+        }
+        lng = Number(coords[0]);
+        lat = Number(coords[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się ustalić lokalizacji' });
+          return;
+        }
+        searchSessionRef.current = createMapboxSearchSessionToken();
+      } catch {
+        Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA', text2: 'Spróbuj ponownie' });
+        return;
+      } finally {
+        setIsSearching(false);
+      }
+    }
+
     selectLocation(
-      { latitude: item.latitude, longitude: item.longitude, name: item.mainText, placeId: item.mapboxId },
+      { latitude: lat, longitude: lng, name: item.mainText, placeId: item.mapboxId },
       item.mainText,
     );
   }, [selectLocation]);
@@ -329,7 +415,7 @@ export const SearchModal = memo(({
           <MaterialIcons name="search" size={20} color={t.primary} />
           <TextInput
             style={[ss.input, { color: t.text }]}
-            placeholder={activeTab === 'start' ? 'Skąd jedziesz?' : 'Dokąd jedziesz?'}
+            placeholder={activeTab === 'start' ? 'Skąd jedziesz? (adres lub miejsce)' : 'Dokąd jedziesz? (adres lub miejsce)'}
             placeholderTextColor={t.textDim}
             value={searchQuery}
             onChangeText={text => { setSearchQuery(text); handleSearch(text); }}
@@ -458,7 +544,7 @@ export const SearchModal = memo(({
             <View style={[ss.hintRow, { marginTop: 20 }]}>
               <MaterialIcons name="keyboard" size={12} color={t.textFaint} />
               <Text style={[ss.hintText, { color: t.textFaint }]}>
-                wpisz adres, nazwę lub brand (np. Orlen, Lidl)
+                wpisz adres, galerię lub miejsce (np. Manufaktura, Kraków)
               </Text>
             </View>
           </ScrollView>
