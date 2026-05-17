@@ -255,7 +255,12 @@ export function useDrivingMapMatch() {
         },
         url,
         // Proxy może zwrócić null (429, auth); driving bez geometrii = surowy GPS „po polu”.
-        { allowFallback: true },
+        {
+          allowFallback: true,
+          cooldownMs: noRoad ? 1800 : 3500,
+          proxyTimeoutMs: noRoad ? 2200 : 3000,
+          fallbackTimeoutMs: noRoad ? 2200 : 2800,
+        },
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) {
@@ -392,7 +397,13 @@ export function useDrivingMapMatch() {
             radiuses: [FORCE_MATCH_RADIUS_M, FORCE_MATCH_RADIUS_M],
           },
           url,
-          { allowFallback: true },
+          {
+            allowFallback: true,
+            forceFallback: manual,
+            cooldownMs: manual ? 1200 : (refresh ? 2200 : 3500),
+            proxyTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
+            fallbackTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
+          },
         );
         if (genWhenStarted !== matchGenRef.current) return null;
 

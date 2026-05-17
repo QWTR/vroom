@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator, Animated,
 } from 'react-native';
@@ -26,6 +26,26 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
   const [tasks, setTasks]           = useState<TaskRow[]>([]);
   const [weeklyPoints, setWeekly]   = useState(0);
   const [monthlySelf, setMonthly]   = useState(0);
+  const [nextResetAt, setNextResetAt] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const formatCountdown = useCallback((targetIso: string | null) => {
+    if (!targetIso) return null;
+    const targetMs = new Date(targetIso).getTime();
+    if (!Number.isFinite(targetMs)) return null;
+    let leftSec = Math.floor((targetMs - nowMs) / 1000);
+    if (leftSec <= 0) return 'za chwilę';
+    const days = Math.floor(leftSec / 86400);
+    leftSec -= days * 86400;
+    const hours = Math.floor(leftSec / 3600);
+    leftSec -= hours * 3600;
+    const minutes = Math.floor(leftSec / 60);
+    const seconds = leftSec - minutes * 60;
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    return days > 0 ? `${days}d ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
+  }, [nowMs]);
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +58,7 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
       const j = await r.json();
       setTasks(Array.isArray(j.tasks) ? j.tasks : []);
       setWeekly(typeof j.weeklyPoints === 'number' ? j.weeklyPoints : 0);
+      setNextResetAt(typeof j.nextResetAt === 'string' ? j.nextResetAt : null);
       const mr = j.monthlyRankPoints ?? j.monthlyPointsSelf;
       setMonthly(typeof mr === 'number' ? mr : 0);
     } catch {
@@ -54,12 +75,24 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
     }, [load]),
   );
 
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const resetCountdown = formatCountdown(nextResetAt);
+
   return (
     <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 18 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4 }}>
-          TYGODNIOWY TOR VROOM
-        </Text>
+        <View>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4 }}>
+            TYGODNIOWY TOR VROOM
+          </Text>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, marginTop: 4 }}>
+            {resetCountdown ? `Reset za: ${resetCountdown}` : 'Reset: brak danych'}
+          </Text>
+        </View>
         <TouchableOpacity
           onPress={() =>
             router.push({

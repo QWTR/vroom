@@ -10,11 +10,33 @@ interface DeadReckoningOptions {
   onFrame:       (pos: Position, heading: number) => void;
   frameInterval?: number;
   stallTimeout?:  number;
+  /** Gdy false — brak pętli rAF (oszczędność baterii). */
+  enabled?:       boolean;
+}
+
+function easeOutCubic(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - x, 3);
+}
+
+function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2) ** 2;
+  const s2 =
+    Math.cos((aLat * Math.PI) / 180) *
+    Math.cos((bLat * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  const a = s1 + s2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function useDeadReckoning({
   onFrame,
+  frameInterval = 16,
   stallTimeout = 2500,
+  enabled = true,
 }: DeadReckoningOptions) {
 
   const displayLat = useRef(0);
@@ -29,14 +51,16 @@ export function useDeadReckoning({
   const toHdg   = useRef(0);
 
   const lerpStartMs    = useRef(0);
-  const lerpDurMs      = useRef(260);
+  const lerpDurMs      = useRef(280);
   const lastFeedMs     = useRef(0);
   const hasFirstFeed   = useRef(false);
   const rafRef         = useRef<number | null>(null);
-  const stoppedRef     = useRef(false);
-  // Ref do onFrame żeby nie restartować pętli rAF przy zmianie callbacka
+  const stoppedRef     = useRef(true);
   const onFrameRef     = useRef(onFrame);
   const stallTimeoutRef = useRef(stallTimeout);
+  const enabledRef     = useRef(enabled);
+  const frameIntervalRef = useRef(frameInterval);
+  const lastFrameEmitRef = useRef(0);
 
   useEffect(() => {
     onFrameRef.current = onFrame;
@@ -46,14 +70,38 @@ export function useDeadReckoning({
     stallTimeoutRef.current = stallTimeout;
   }, [stallTimeout]);
 
+  useEffect(() => {
+    frameIntervalRef.current = frameInterval;
+  }, [frameInterval]);
+
+  useEffect(() => {
+    enabledRef.current = enabled;
+    if (!enabled) {
+      stoppedRef.current = true;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    }
+  }, [enabled]);
+
   const lerpAngle = (a: number, b: number, t: number) => {
     const diff = ((b - a + 540) % 360) - 180;
     return ((a + diff * t) + 360) % 360;
   };
 
-  // Pętla startuje RAZ przy montowaniu — nie zależy od onFrame
+  const snapDisplayToTarget = useCallback(() => {
+    displayLat.current = toLat.current;
+    displayLng.current = toLng.current;
+    displayHdg.current = toHdg.current;
+    fromLat.current = toLat.current;
+    fromLng.current = toLng.current;
+    fromHdg.current = toHdg.current;
+    lerpStartMs.current = performance.now();
+  }, []);
+
   const loop = useCallback(() => {
-    if (stoppedRef.current) return;
+    if (stoppedRef.current || !enabledRef.current) return;
     rafRef.current = requestAnimationFrame(loop);
 
     if (!hasFirstFeed.current) return;
@@ -63,35 +111,43 @@ export function useDeadReckoning({
     if (now - lastFeedMs.current > stallTimeoutRef.current) {
       stoppedRef.current = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
       return;
     }
 
     const elapsed = now - lerpStartMs.current;
-    const t = Math.min(elapsed / Math.max(lerpDurMs.current, 70), 1.0);
+    const rawT = Math.min(elapsed / Math.max(lerpDurMs.current, 90), 1.0);
+    const t = easeOutCubic(rawT);
 
-    const lat = fromLat.current + (toLat.current - fromLat.current) * t;
-    const lng = fromLng.current + (toLng.current - fromLng.current) * t;
-    const hdg = lerpAngle(fromHdg.current, toHdg.current, Math.min(t, 1));
+    let lat = fromLat.current + (toLat.current - fromLat.current) * t;
+    let lng = fromLng.current + (toLng.current - fromLng.current) * t;
+    let hdg = lerpAngle(fromHdg.current, toHdg.current, Math.min(t, 1));
+
+    if (rawT >= 0.999) {
+      lat = toLat.current;
+      lng = toLng.current;
+      hdg = toHdg.current;
+    }
 
     displayLat.current = lat;
     displayLng.current = lng;
     displayHdg.current = hdg;
 
-    // Wywołaj przez ref — bez restartu pętli gdy callback się zmieni
+    if (now - lastFrameEmitRef.current < frameIntervalRef.current) return;
+    lastFrameEmitRef.current = now;
     onFrameRef.current({ latitude: lat, longitude: lng }, hdg);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ← celowo pusta — pętla tworzona raz
+  }, []);
 
-  useEffect(() => {
+  const startLoop = useCallback(() => {
+    if (!enabledRef.current) return;
     stoppedRef.current = false;
-    rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      stoppedRef.current = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(loop);
+    }
   }, [loop]);
 
   const feed = useCallback((pos: Position, _speedMs: number, heading: number) => {
+    if (!enabledRef.current) return;
     if (
       !Number.isFinite(pos.latitude) ||
       !Number.isFinite(pos.longitude) ||
@@ -102,16 +158,28 @@ export function useDeadReckoning({
     const now = performance.now();
 
     if (hasFirstFeed.current && lastFeedMs.current > 0) {
+      const jumpM = haversineMeters(
+        toLat.current, toLng.current,
+        pos.latitude, pos.longitude,
+      );
       const dt = now - lastFeedMs.current;
+      if (jumpM < 0.4 && dt < 500) {
+        return;
+      }
+      const speedMs = _speedMs ?? 0;
+      if (speedMs < 0.7) {
+        if (jumpM < 8 && dt < 6000) return;
+        if (jumpM < 2.5 && dt < 2500) return;
+      } else if (jumpM < 0.4 && dt < 2200 && speedMs < 1.2) {
+        return;
+      }
+      if (jumpM < 1.2) {
+        snapDisplayToTarget();
+      }
       if (dt > 0 && dt < 10_000) {
-        // Match interpolation duration to the real interval between fixes.
-        // A slight +5% keeps motion continuous even when next fix arrives late,
-        // so the marker "flows" instead of finishing early and waiting still.
-        const targetDur = dt * 1.06;
-        const blended = lerpDurMs.current * 0.28 + targetDur * 0.72;
-        // Wide but bounded window: smooth on sparse GPS (2-5s) without
-        // introducing excessive lag when updates are frequent.
-        lerpDurMs.current = Math.max(120, Math.min(2700, blended));
+        const targetDur = Math.max(200, dt * 0.98);
+        const blended = lerpDurMs.current * 0.22 + targetDur * 0.78;
+        lerpDurMs.current = Math.max(200, Math.min(1800, blended));
       }
     }
 
@@ -136,17 +204,15 @@ export function useDeadReckoning({
     toLng.current = pos.longitude;
     toHdg.current = heading;
 
-    if (stoppedRef.current) {
-      stoppedRef.current = false;
-      rafRef.current = requestAnimationFrame(loop);
-    }
-  }, [loop]);
+    startLoop();
+  }, [startLoop, snapDisplayToTarget]);
 
   const reset = useCallback(() => {
     hasFirstFeed.current = false;
     lastFeedMs.current   = 0;
-    lerpDurMs.current    = 260;
+    lerpDurMs.current    = 280;
     lerpStartMs.current  = 0;
+    lastFrameEmitRef.current = 0;
     fromLat.current = toLat.current = displayLat.current = 0;
     fromLng.current = toLng.current = displayLng.current = 0;
     fromHdg.current = toHdg.current = displayHdg.current = 0;
@@ -160,6 +226,5 @@ export function useDeadReckoning({
     }
   }, []);
 
-  // Zwróć refy do odczytu pozycji bez setState
-  return { feed, reset, stop, displayLat, displayLng, displayHdg };
+  return { feed, reset, stop, startLoop, displayLat, displayLng, displayHdg };
 }

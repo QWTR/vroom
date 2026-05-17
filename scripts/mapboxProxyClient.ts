@@ -10,8 +10,10 @@ const TOKEN_TTL_MS = 60_000;
 let matchingFallbackTimes: number[] = [];
 let lastMatchingFallbackAt = 0;
 const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
-const MATCHING_FALLBACK_MAX_PER_WINDOW = 3;
-const MATCHING_FALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
+// Driving/navigation need frequent road snaps; very strict fallback throttling
+// caused prolonged "no snap" windows when proxy was temporarily unavailable.
+const MATCHING_FALLBACK_MAX_PER_WINDOW = 120;
+const MATCHING_FALLBACK_COOLDOWN_MS = 4_000;
 
 async function getAuthToken(): Promise<string | null> {
   const now = Date.now();
@@ -50,19 +52,34 @@ async function refreshAuthToken(currentToken: string | null): Promise<string | n
   }
 }
 
-async function callProxy<T>(path: string, init: RequestInit): Promise<T | null> {
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(300, timeoutMs));
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callProxy<T>(
+  path: string,
+  init: RequestInit,
+  opts?: { timeoutMs?: number },
+): Promise<T | null> {
   try {
     let token = await getAuthToken();
     if (!token) return null;
+    const timeoutMs = Math.max(500, opts?.timeoutMs ?? 8000);
 
-    const makeRequest = (authToken: string) => fetch(`${API_URL}${path}`, {
+    const makeRequest = (authToken: string) => fetchWithTimeout(`${API_URL}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authToken}`,
         ...(init.headers ?? {}),
       },
-    });
+    }, timeoutMs);
 
     let res = await makeRequest(token);
     if (res.status === 401) {
@@ -91,22 +108,42 @@ export async function fetchDirectionsViaProxy<T>(payload: Record<string, unknown
 export async function fetchMatchingViaProxy<T>(
   payload: Record<string, unknown>,
   fallbackUrl: string,
-  opts?: { allowFallback?: boolean },
+  opts?: {
+    allowFallback?: boolean;
+    /** Skip fallback cooldown for critical entry/recovery snaps. */
+    forceFallback?: boolean;
+    /** Optional custom cooldown for this call. */
+    cooldownMs?: number;
+    /** Timeout for proxy matching request. */
+    proxyTimeoutMs?: number;
+    /** Timeout for direct fallback matching request. */
+    fallbackTimeoutMs?: number;
+  },
 ): Promise<T | null> {
   const viaProxy = await callProxy<T>('/api/mapbox/matching', {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
+  }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500 });
   if (viaProxy != null) return viaProxy;
   if (opts?.allowFallback === false) return null;
   const now = Date.now();
+  const cooldownMs = Math.max(0, opts?.cooldownMs ?? MATCHING_FALLBACK_COOLDOWN_MS);
   matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
-  if (matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
-  if (now - lastMatchingFallbackAt < MATCHING_FALLBACK_COOLDOWN_MS) return null;
+  if (!opts?.forceFallback && matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
+  if (!opts?.forceFallback && now - lastMatchingFallbackAt < cooldownMs) return null;
   lastMatchingFallbackAt = now;
   matchingFallbackTimes.push(now);
-  const res = await fetch(fallbackUrl);
-  return await res.json() as T;
+  try {
+    const res = await fetchWithTimeout(
+      fallbackUrl,
+      {},
+      Math.max(500, opts?.fallbackTimeoutMs ?? 3000),
+    );
+    if (!res.ok) return null;
+    return await res.json() as T;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchGeocodingViaProxy<T>(params: {

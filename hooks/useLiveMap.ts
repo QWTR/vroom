@@ -163,8 +163,16 @@ export function useLiveMap(
   // ── Pobierz dane startowe ─────────────────────────────
   const fetchInitialData = useCallback(async (token: string) => {
     try {
+      const loc = userLocationRef.current;
+      const warningsQs = new URLSearchParams();
+      if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+        warningsQs.set('lat', String(loc.latitude));
+        warningsQs.set('lng', String(loc.longitude));
+        warningsQs.set('radiusKm', String(WARNING_VISIBLE_RADIUS_KM));
+      }
+      const warningsUrl = `${API_URL}/api/live/warnings${warningsQs.toString() ? `?${warningsQs}` : ''}`;
       const [warningsRes, usersRes] = await Promise.all([
-        fetchWithTimeout(`${API_URL}/api/live/warnings`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetchWithTimeout(warningsUrl, { headers: { Authorization: `Bearer ${token}` } }),
         fetchWithTimeout(`${API_URL}/api/live/users`,    { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (warningsRes.ok) {
@@ -222,6 +230,7 @@ export function useLiveMap(
 
       socket.on('connect', async () => {
         setConnected(true);
+        socket.emit('live:join');
         fetchInitialData(token);
       });
 
@@ -341,7 +350,13 @@ export function useLiveMap(
 
       await fetchInitialData(token);
     })();
-    return () => { socketRef.current?.disconnect(); };
+    return () => {
+      const s = socketRef.current;
+      if (s) {
+        s.emit('live:leave');
+        s.disconnect();
+      }
+    };
   }, [fetchInitialData, enabled]);
 
   // Pause socket/interp when app is backgrounded without background permission
@@ -350,12 +365,18 @@ export function useLiveMap(
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       appStateRef.current = next;
       if ((next === 'background' || next === 'inactive') && !allowBgRef.current) {
-        socketRef.current?.disconnect();
+        const s = socketRef.current;
+        s?.emit('live:leave');
+        s?.disconnect();
         setConnected(false);
         interpRef.current.clear();
       } else if (next === 'active' && isSharingRef.current && tokenRef.current) {
         const s = socketRef.current;
-        if (s && !s.connected) s.connect();
+        if (s && !s.connected) {
+          s.connect();
+        } else if (s?.connected) {
+          s.emit('live:join');
+        }
       }
     });
     return () => sub.remove();

@@ -7,7 +7,12 @@ import type { SpotifyProfileTrack } from '../constants/profile';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 
 const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
-const CLIENT_ONLY_SETTING_KEYS: (keyof AppSettings)[] = ['locationMarkerStyle'];
+const CLIENT_ONLY_SETTING_KEYS: (keyof AppSettings)[] = [
+  'locationMarkerStyle',
+  'homeLatitude',
+  'homeLongitude',
+  'homeLabel',
+];
 
 function fetchWithTimeout(
   url: string,
@@ -52,6 +57,9 @@ export interface AppSettings {
   notifFollowedPosts:  boolean;
   notifDiscussionPosts: boolean;
   locationMarkerStyle: 'arrow' | 'profile';
+  homeLatitude: number | null;
+  homeLongitude: number | null;
+  homeLabel: string | null;
   friendsOnlyMessages: boolean;
   nickColor?: string | null;
   profileThemePreset?: string;
@@ -79,6 +87,9 @@ const DEFAULTS: AppSettings = {
   notifFollowedPosts:  true,
   notifDiscussionPosts: true,
   locationMarkerStyle: 'profile',
+  homeLatitude: null,
+  homeLongitude: null,
+  homeLabel: null,
   friendsOnlyMessages: false,
   nickColor: null,
   profileThemePreset: 'default',

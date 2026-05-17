@@ -57,7 +57,9 @@ export function maxIdleBrowsingJumpM(deltaMs: number, reportedSpeedKmh: number, 
   const expected = (v / 3.6) * dtS;
   const sedentary = reportedSpeedKmh < 6.5;
   if (sedentary) {
-    return Math.max(10, Math.min(25, expected * 1.2 + acc * 0.35 + 6 + dtS * 1.5));
+    // Stojąc w miejscu: małe skoki (sieć/Wi‑Fi) — sufit ~12 m zależny od accuracy.
+    const accCap = Math.max(5, Math.min(acc * 0.4 + 4, 14));
+    return Math.max(6, Math.min(12, expected * 1.0 + accCap + dtS * 0.6));
   }
   return Math.max(18, Math.min(60, expected * 1.7 + acc * 0.7 + 12 + dtS * 3));
 }

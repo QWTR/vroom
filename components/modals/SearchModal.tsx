@@ -36,10 +36,12 @@ interface SearchModalProps {
   onSelectEnd:   (location: LocationState) => void;
   userLocation:  LocationState | null;
   nearbyUsers:   User[];
+  homeLocation?: LocationState | null;
+  onPressSetHome?: () => void;
 }
 
 export const SearchModal = memo(({
-  visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers,
+  visible, onClose, onSelectStart, onSelectEnd, userLocation, nearbyUsers, homeLocation, onPressSetHome,
 }: SearchModalProps) => {
   const { theme: t } = useTheme();
   const {
@@ -228,6 +230,23 @@ export const SearchModal = memo(({
     if (userLocation) selectLocation({ ...userLocation, name: 'Moja pozycja' }, 'Moja pozycja');
   }, [userLocation, selectLocation]);
 
+  const handleSelectHome = useCallback(() => {
+    if (homeLocation && Number.isFinite(homeLocation.latitude) && Number.isFinite(homeLocation.longitude)) {
+      selectLocation(
+        {
+          latitude: homeLocation.latitude,
+          longitude: homeLocation.longitude,
+          name: homeLocation.name || 'Dom',
+          placeId: homeLocation.placeId,
+        },
+        homeLocation.name || 'Dom',
+      );
+      return;
+    }
+    Toast.show({ type: 'info', text1: 'Brak adresu Dom', text2: 'Ustaw go w Profil → Ustawienia' });
+    onPressSetHome?.();
+  }, [homeLocation, onPressSetHome, selectLocation]);
+
   // ─────────────────────────────────────────────────────
   const friendCount    = nearbyUsers.filter(u => u.isFriend).length;
   const otherUserCount = nearbyUsers.filter(u =>
@@ -345,7 +364,7 @@ export const SearchModal = memo(({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}
           >
-            <TouchableOpacity onPress={handleSelectCurrent} activeOpacity={0.85} style={{ marginBottom: 20 }}>
+            <TouchableOpacity onPress={activeTab === 'end' ? handleSelectHome : handleSelectCurrent} activeOpacity={0.85} style={{ marginBottom: 12 }}>
               <LinearGradient
                 colors={['#e33835', '#b01e1b']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -353,12 +372,14 @@ export const SearchModal = memo(({
               >
                 <View style={{ position: 'absolute', right: -20, top: -20, width: 110, height: 110, borderRadius: 55, backgroundColor: '#ffffff12' }} />
                 <View style={ss.myLocIcon}>
-                  <MaterialIcons name="my-location" size={22} color="#fff" />
+                  <MaterialIcons name={activeTab === 'end' ? 'home' : 'my-location'} size={22} color="#fff" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={ss.myLocTitle}>Moja pozycja</Text>
+                  <Text style={ss.myLocTitle}>{activeTab === 'end' ? 'Dom' : 'Moja pozycja'}</Text>
                   <Text style={ss.myLocSub}>
-                    Ustaw jako {activeTab === 'start' ? 'punkt startowy' : 'cel podróży'}
+                    {activeTab === 'end'
+                      ? (homeLocation ? 'Jeden klik ustawia cel na Dom' : 'Brak ustawionego Domu')
+                      : 'Ustaw jako punkt startowy'}
                   </Text>
                 </View>
                 <View style={ss.myLocArrow}>
@@ -366,6 +387,21 @@ export const SearchModal = memo(({
                 </View>
               </LinearGradient>
             </TouchableOpacity>
+
+            {activeTab === 'end' && (
+              <TouchableOpacity onPress={handleSelectCurrent} activeOpacity={0.85} style={{ marginBottom: 20 }}>
+                <View style={[ss.homeSecondaryCard, { backgroundColor: t.surface, borderColor: t.border2 }]}>
+                  <View style={[ss.homeSecondaryIcon, { backgroundColor: t.surface3, borderColor: t.border2 }]}>
+                    <MaterialIcons name="my-location" size={18} color={t.textDim} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[ss.homeSecondaryTitle, { color: t.text }]}>Moja pozycja</Text>
+                    <Text style={[ss.homeSecondarySub, { color: t.textDim }]}>Ustaw bieżące położenie jako cel</Text>
+                  </View>
+                  <MaterialIcons name="arrow-forward-ios" size={12} color={t.textDim} />
+                </View>
+              </TouchableOpacity>
+            )}
 
             <Text style={[ss.sectionLabel, { color: t.textDim }]}>W POBLIŻU</Text>
             <View style={ss.nearbyGrid}>
@@ -723,6 +759,25 @@ const ss = StyleSheet.create({
   myLocTitle: { fontFamily: 'Orbitron', fontSize: 14, color: '#fff', fontWeight: '900' },
   myLocSub:   { fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff70', marginTop: 3 },
   myLocArrow: { width: 30, height: 30, borderRadius: 9, backgroundColor: '#ffffff20', alignItems: 'center', justifyContent: 'center' },
+  homeSecondaryCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  homeSecondaryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  homeSecondaryTitle: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' },
+  homeSecondarySub: { fontFamily: 'Orbitron', fontSize: 8, marginTop: 2 },
   nearbyGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
   nearbyCard:  { width: '22.5%', aspectRatio: 1, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 5, overflow: 'hidden' },
   nearbyEmoji: { fontSize: 24 },

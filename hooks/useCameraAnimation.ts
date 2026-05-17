@@ -1,4 +1,4 @@
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import Mapbox from '@rnmapbox/maps';
 
 type CameraFollowMode =
@@ -24,12 +24,18 @@ type CameraPose = {
   pitch: number;
 };
 
-const CAMERA_TICK_MS = 80;
 const RETURN_TO_USER_MS = 4500;
 const BROWSE_PITCH = 52;
 const ACTIVE_PITCH = 68;
 const BROWSE_ZOOM = 15;
-const CAMERA_DEBUG_LOGS = false;
+const RECENTER_ANIM_MS = 1000;
+const IDLE_APPLY_MS = 120;
+
+/** Stałe czasowe wygładzania (sekundy). */
+const CENTER_TAU_S = 0.22;
+const HEADING_TAU_S = 0.18;
+const ZOOM_TAU_S = 1.35;
+const PITCH_TAU_S = 0.55;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -37,6 +43,11 @@ function clampNum(n: number, min: number, max: number): number {
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function expAlpha(dtSec: number, tauSec: number): number {
+  if (tauSec <= 0) return 1;
+  return 1 - Math.exp(-dtSec / tauSec);
 }
 
 function normalizeHeading(h: number): number {
@@ -47,10 +58,9 @@ function headingDelta(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
-function moveHeadingToward(from: number, to: number, maxDelta: number): number {
+function lerpHeading(from: number, to: number, t: number): number {
   const d = headingDelta(from, to);
-  const c = clampNum(d, -maxDelta, maxDelta);
-  return normalizeHeading(from + c);
+  return normalizeHeading(from + d * t);
 }
 
 function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -64,6 +74,20 @@ function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number)
     Math.sin(dLng / 2) ** 2;
   const a = s1 + s2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function moveCenterToward(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+  maxStepM: number,
+): { latitude: number; longitude: number } {
+  const distM = haversineMeters(from.latitude, from.longitude, to.latitude, to.longitude);
+  if (!Number.isFinite(distM) || distM <= maxStepM || distM < 0.05) return to;
+  const t = clampNum(maxStepM / distM, 0, 1);
+  return {
+    latitude: lerpNum(from.latitude, to.latitude, t),
+    longitude: lerpNum(from.longitude, to.longitude, t),
+  };
 }
 
 function offsetCenter(
@@ -89,7 +113,6 @@ function offsetCenter(
 
 function zoomFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  // Wolno (miasto/manewry): kamera bliżej. Szybko: stopniowe oddalanie.
   if (s <= 8) return 18.75;
   if (s <= 20) return lerpNum(18.75, 18.1, (s - 8) / 12);
   if (s <= 30) return lerpNum(18.1, 17.7, (s - 20) / 10);
@@ -101,10 +124,6 @@ function zoomFromSpeed(speedKmh: number): number {
 
 function lookaheadFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  // Wolno: krótszy lookahead (lepsza czytelność ciasnych ulic).
-  // Szybko: dłuższy lookahead, żeby widzieć więcej przed autem.
-  // Jednocześnie utrzymujemy auto niżej na ekranie (nie na środku),
-  // więc minimalny lookahead nie może być zbyt mały.
   if (s <= 8) return 50;
   if (s <= 25) return lerpNum(50, 64, (s - 8) / 17);
   if (s <= 40) return lerpNum(64, 82, (s - 25) / 15);
@@ -125,44 +144,137 @@ function computeFollowMode(input: {
   return 'idleBrowse';
 }
 
+function isActiveFollowMode(mode: CameraFollowMode): boolean {
+  return mode === 'drivingFollow' || mode === 'navigationFollow';
+}
+
+function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): CameraPose | null {
+  if (!Number.isFinite(input.center.latitude) || !Number.isFinite(input.center.longitude)) {
+    return null;
+  }
+  const active = isActiveFollowMode(mode);
+  const targetHeading = normalizeHeading(input.heading || 0);
+  const lookaheadM = active ? lookaheadFromSpeed(input.speedKmh) : 0;
+  const center = offsetCenter(
+    input.center.latitude,
+    input.center.longitude,
+    targetHeading,
+    lookaheadM,
+  );
+  return {
+    center,
+    heading: targetHeading,
+    zoom: active ? zoomFromSpeed(input.speedKmh) : BROWSE_ZOOM,
+    pitch: active ? ACTIVE_PITCH : BROWSE_PITCH,
+  };
+}
+
 export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const modeRef = useRef<CameraFollowMode>('idleBrowse');
   const userPanUntilRef = useRef(0);
-  const lastApplyAtRef = useRef(0);
-  const lastPoseRef = useRef<CameraPose | null>(null);
-  const smoothZoomRef = useRef<number | null>(null);
-  const smoothHeadingRef = useRef<number | null>(null);
-  /** When stopped in follow mode, still refresh camera occasionally (avoids perceived freeze). */
-  const lastStationaryApplyRef = useRef(0);
+  const targetPoseRef = useRef<CameraPose | null>(null);
+  const displayPoseRef = useRef<CameraPose | null>(null);
+  const lastMapApplyRef = useRef<CameraPose | null>(null);
+  const lastIdleApplyRef = useRef(0);
+  const recenterLockUntilRef = useRef(0);
+  const followRafRef = useRef<number | null>(null);
+  const lastRafAtRef = useRef(0);
+  const speedKmhRef = useRef(0);
 
-  const logTransition = useCallback((next: CameraFollowMode, reason: string) => {
-    if (!CAMERA_DEBUG_LOGS) return;
-    if (modeRef.current === next) return;
-    console.log('[CAMDBG] camera_mode_transition', JSON.stringify({
-      from: modeRef.current,
-      to: next,
-      reason,
-      at: Date.now(),
-    }));
-  }, []);
-
-  const applyPose = useCallback((pose: CameraPose, duration: number) => {
+  const applyToMap = useCallback((
+    pose: CameraPose,
+    duration: number,
+    animationMode: 'linear' | 'easeTo' = 'linear',
+  ) => {
+    const prev = lastMapApplyRef.current;
+    if (prev && duration === 0) {
+      const dm = haversineMeters(
+        prev.center.latitude, prev.center.longitude,
+        pose.center.latitude, pose.center.longitude,
+      );
+      const hdgD = Math.abs(headingDelta(prev.heading, pose.heading));
+      if (dm < 0.12 && hdgD < 0.35 && Math.abs(prev.zoom - pose.zoom) < 0.002 && Math.abs(prev.pitch - pose.pitch) < 0.08) {
+        return;
+      }
+    }
     (cameraRef.current as any)?.setCamera({
       centerCoordinate: [pose.center.longitude, pose.center.latitude],
       heading: pose.heading,
       zoomLevel: pose.zoom,
       pitch: pose.pitch,
-      animationMode: 'linear',
+      animationMode,
       animationDuration: duration,
     });
-    lastPoseRef.current = pose;
+    lastMapApplyRef.current = pose;
+    displayPoseRef.current = pose;
   }, [cameraRef]);
+
+  const stopFollowLoop = useCallback(() => {
+    if (followRafRef.current != null) {
+      cancelAnimationFrame(followRafRef.current);
+      followRafRef.current = null;
+    }
+  }, []);
+
+  const followTick = useCallback((now: number) => {
+    followRafRef.current = requestAnimationFrame(followTick);
+
+    if (Date.now() < recenterLockUntilRef.current) return;
+    if (modeRef.current === 'userPanning') return;
+
+    const target = targetPoseRef.current;
+    let display = displayPoseRef.current;
+    if (!target) return;
+
+    if (!display) {
+      display = { ...target };
+      displayPoseRef.current = display;
+      applyToMap(display, 0, 'linear');
+      lastRafAtRef.current = now;
+      return;
+    }
+
+    const dtSec = clampNum((now - lastRafAtRef.current) / 1000, 0.008, 0.05);
+    lastRafAtRef.current = now;
+
+    const centerErrM = haversineMeters(
+      display.center.latitude, display.center.longitude,
+      target.center.latitude, target.center.longitude,
+    );
+    const centerTau = centerErrM > 45 ? 0.35 : CENTER_TAU_S;
+    const centerAlpha = expAlpha(dtSec, centerTau);
+    const maxCenterStep = clampNum(35 + speedKmhRef.current * 1.1, 28, 95) * dtSec;
+
+    const center = moveCenterToward(
+      {
+        latitude: lerpNum(display.center.latitude, target.center.latitude, centerAlpha),
+        longitude: lerpNum(display.center.longitude, target.center.longitude, centerAlpha),
+      },
+      target.center,
+      maxCenterStep,
+    );
+
+    const heading = lerpHeading(display.heading, target.heading, expAlpha(dtSec, HEADING_TAU_S));
+    const zoom = lerpNum(display.zoom, target.zoom, expAlpha(dtSec, ZOOM_TAU_S));
+    const pitch = lerpNum(display.pitch, target.pitch, expAlpha(dtSec, PITCH_TAU_S));
+
+    const next: CameraPose = { center, heading, zoom, pitch };
+    displayPoseRef.current = next;
+    applyToMap(next, 0, 'linear');
+  }, [applyToMap]);
+
+  const startFollowLoop = useCallback(() => {
+    if (followRafRef.current != null) return;
+    lastRafAtRef.current = performance.now();
+    followRafRef.current = requestAnimationFrame(followTick);
+  }, [followTick]);
+
+  useEffect(() => () => stopFollowLoop(), [stopFollowLoop]);
 
   const markUserGesture = useCallback(() => {
     userPanUntilRef.current = Date.now() + RETURN_TO_USER_MS;
-    logTransition('userPanning', 'gesture');
     modeRef.current = 'userPanning';
-  }, [logTransition]);
+  }, []);
 
   const recenterTo = useCallback((params: {
     center: { latitude: number; longitude: number };
@@ -174,148 +286,88 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     userPanUntilRef.current = 0;
     modeRef.current = 'recenterTransition';
+    speedKmhRef.current = params.speedKmh;
+
     const heading = normalizeHeading(params.heading || 0);
     const lookaheadM = params.active ? lookaheadFromSpeed(params.speedKmh) : 0;
     const center = offsetCenter(params.center.latitude, params.center.longitude, heading, lookaheadM);
-    const zoom = params.active ? zoomFromSpeed(params.speedKmh) : BROWSE_ZOOM;
-    const pitch = params.active ? ACTIVE_PITCH : BROWSE_PITCH;
+    const pose: CameraPose = {
+      center,
+      heading,
+      zoom: params.active ? zoomFromSpeed(params.speedKmh) : BROWSE_ZOOM,
+      pitch: params.active ? ACTIVE_PITCH : BROWSE_PITCH,
+    };
 
-    if (CAMERA_DEBUG_LOGS) {
-      console.log('[CAMDBG] camera_frame_applied', JSON.stringify({
-        mode: modeRef.current,
-        reason: 'recenter',
-        zoom: Number(zoom.toFixed(2)),
-        pitch,
-      }));
-    }
+    targetPoseRef.current = pose;
+    recenterLockUntilRef.current = Date.now() + RECENTER_ANIM_MS;
+    stopFollowLoop();
+    applyToMap(pose, RECENTER_ANIM_MS, 'easeTo');
 
-    smoothZoomRef.current = zoom;
-    smoothHeadingRef.current = heading;
-    applyPose({ center, heading, zoom, pitch }, 420);
-    modeRef.current = params.active ? 'drivingFollow' : 'idleBrowse';
-  }, [applyPose]);
+    setTimeout(() => {
+      displayPoseRef.current = pose;
+      targetPoseRef.current = pose;
+      lastMapApplyRef.current = pose;
+      recenterLockUntilRef.current = 0;
+      modeRef.current = params.active ? 'drivingFollow' : 'idleBrowse';
+      if (params.active) startFollowLoop();
+    }, RECENTER_ANIM_MS + 60);
+  }, [applyToMap, startFollowLoop, stopFollowLoop]);
 
   const resetBrowseCamera = useCallback((center: { latitude: number; longitude: number }) => {
-    recenterTo({
-      center,
-      heading: 0,
-      speedKmh: 0,
-      active: false,
-    });
+    recenterTo({ center, heading: 0, speedKmh: 0, active: false });
   }, [recenterTo]);
 
   const updateCameraFrame = useCallback((input: CameraFrameInput) => {
-    if (!Number.isFinite(input.center.latitude) || !Number.isFinite(input.center.longitude)) return;
     const now = input.timestamp ?? Date.now();
-    if (now - lastApplyAtRef.current < CAMERA_TICK_MS) {
-      if (CAMERA_DEBUG_LOGS) {
-        console.log('[CAMDBG] camera_update_skipped', JSON.stringify({ reason: 'throttle', at: now }));
-      }
-      return;
-    }
-    lastApplyAtRef.current = now;
+    speedKmhRef.current = input.speedKmh;
 
     const nextMode = computeFollowMode({
       isDriving: input.isDriving,
       isNavigating: input.isNavigating,
       userPanUntilMs: userPanUntilRef.current,
     });
+    modeRef.current = nextMode;
 
-    if (modeRef.current !== nextMode) {
-      logTransition(nextMode, 'state_update');
-      modeRef.current = nextMode;
-    }
-    if (nextMode === 'userPanning') return;
-
-    const active = nextMode === 'drivingFollow' || nextMode === 'navigationFollow';
-    const targetZoom = active ? zoomFromSpeed(input.speedKmh) : BROWSE_ZOOM;
-    const targetPitch = active ? ACTIVE_PITCH : BROWSE_PITCH;
-    const targetHeading = normalizeHeading(input.heading || 0);
-    const lookaheadM = active ? lookaheadFromSpeed(input.speedKmh) : 0;
-    const targetCenter = offsetCenter(
-      input.center.latitude,
-      input.center.longitude,
-      targetHeading,
-      lookaheadM,
-    );
-
-    const prev = lastPoseRef.current;
-
-    let smoothZoom = smoothZoomRef.current ?? targetZoom;
-    const zoomDiff = targetZoom - smoothZoom;
-    const zoomDeadband = zoomDiff > 0 ? 0.05 : 0.08;
-    if (Math.abs(zoomDiff) > zoomDeadband) {
-      smoothZoom = smoothZoom + clampNum(zoomDiff * 0.32, -0.14, 0.14);
+    if (nextMode === 'userPanning') {
+      stopFollowLoop();
+      return;
     }
 
-    let smoothHeading = smoothHeadingRef.current ?? targetHeading;
-    smoothHeading = moveHeadingToward(smoothHeading, targetHeading, active ? 24 : 14);
-    smoothHeading = normalizeHeading(lerpNum(smoothHeading, targetHeading, active ? 0.28 : 0.18));
+    const target = buildTargetPose(input, nextMode);
+    if (!target) return;
 
-    let center = targetCenter;
-    if (prev) {
-      const distM = haversineMeters(prev.center.latitude, prev.center.longitude, targetCenter.latitude, targetCenter.longitude);
-      if (Number.isFinite(distM) && distM > 0) {
-        const maxStepM = active ? 42 : 75;
-        const ratio = clampNum(maxStepM / distM, 0, 1);
-        center = {
-          latitude: lerpNum(prev.center.latitude, targetCenter.latitude, ratio),
-          longitude: lerpNum(prev.center.longitude, targetCenter.longitude, ratio),
-        };
-      }
+    const active = isActiveFollowMode(nextMode);
+
+    if (!active) {
+      stopFollowLoop();
+      if (now - lastIdleApplyRef.current < IDLE_APPLY_MS) return;
+      lastIdleApplyRef.current = now;
+      targetPoseRef.current = target;
+      applyToMap(target, 140, 'linear');
+      return;
     }
 
-    const pose: CameraPose = {
-      center,
-      heading: smoothHeading,
-      zoom: smoothZoom,
-      pitch: targetPitch,
-    };
-
-    // Moving follow: drop micro-delta spam (main freeze source on Android).
-    // Stopped follow: allow a slow heartbeat so the map does not look deadlocked.
-    const stationaryFollow = active && input.speedKmh < 8;
-    if (prev && !stationaryFollow) {
-      const centerDeltaM = haversineMeters(
-        prev.center.latitude,
-        prev.center.longitude,
-        pose.center.latitude,
-        pose.center.longitude,
-      );
-      const headingDeltaDeg = Math.abs(headingDelta(prev.heading, pose.heading));
-      const zoomDelta = Math.abs(prev.zoom - pose.zoom);
-      const pitchDelta = Math.abs(prev.pitch - pose.pitch);
-      const nearlySamePose =
-        centerDeltaM < 0.9 &&
-        headingDeltaDeg < 0.8 &&
-        zoomDelta < 0.015 &&
-        pitchDelta < 0.15;
-      if (nearlySamePose) return;
-    } else if (stationaryFollow) {
-      const stationaryGapMs = 420;
-      if (now - lastStationaryApplyRef.current < stationaryGapMs) return;
-      lastStationaryApplyRef.current = now;
+    if (now < recenterLockUntilRef.current) {
+      targetPoseRef.current = target;
+      return;
     }
 
-    if (CAMERA_DEBUG_LOGS) {
-      console.log('[CAMDBG] camera_frame_applied', JSON.stringify({
-        mode: nextMode,
-        speedKmh: Number((input.speedKmh || 0).toFixed(1)),
-        zoom: Number(pose.zoom.toFixed(2)),
-        heading: Number(pose.heading.toFixed(1)),
-      }));
+    targetPoseRef.current = target;
+
+    if (!displayPoseRef.current) {
+      displayPoseRef.current = { ...target };
+      applyToMap(target, 0, 'linear');
     }
 
-    smoothZoomRef.current = smoothZoom;
-    smoothHeadingRef.current = smoothHeading;
-    applyPose(pose, active ? 95 : 140);
-  }, [applyPose, logTransition]);
+    startFollowLoop();
+  }, [applyToMap, startFollowLoop, stopFollowLoop]);
 
   const setFollowMode = useCallback((mode: 'idleBrowse' | 'drivingFollow' | 'navigationFollow') => {
     userPanUntilRef.current = 0;
-    logTransition(mode, 'explicit_set');
     modeRef.current = mode;
-  }, [logTransition]);
+    if (mode === 'idleBrowse') stopFollowLoop();
+    else startFollowLoop();
+  }, [startFollowLoop, stopFollowLoop]);
 
   return {
     updateCameraFrame,

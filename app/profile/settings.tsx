@@ -210,6 +210,34 @@ export default function SettingsScreen() {
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
+  const setHomeFromGps = async () => {
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Toast.show({ type: 'error', text1: 'Brak zgody GPS', text2: 'Włącz lokalizację i spróbuj ponownie' });
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const lat = Number(pos.coords.latitude.toFixed(6));
+      const lng = Number(pos.coords.longitude.toFixed(6));
+      await updateSetting('homeLatitude', lat);
+      await updateSetting('homeLongitude', lng);
+      await updateSetting('homeLabel', 'Dom');
+      Toast.show({ type: 'success', text1: '🏠 Dom ustawiony', text2: `${lat}, ${lng}` });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Nie udało się ustawić Domu' });
+    }
+  };
+
+  const clearHome = async () => {
+    await updateSetting('homeLatitude', null);
+    await updateSetting('homeLongitude', null);
+    await updateSetting('homeLabel', null);
+    Toast.show({ type: 'info', text1: '🏠 Dom usunięty' });
+  };
+
   const handleLogout = async () => {
     setLogoutModal(false);
     await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
@@ -1625,6 +1653,70 @@ export default function SettingsScreen() {
 											</Text>
 										</TouchableOpacity>
 									))}
+								</View>
+							</View>
+						</Card>
+					</View>
+
+					<View style={{ marginTop: 10 }}>
+						<Card>
+							<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+								<View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
+									<View
+										style={{
+											width: 36,
+											height: 36,
+											borderRadius: 11,
+											backgroundColor: "#4de92620",
+											borderWidth: 1,
+											borderColor: "#4de92640",
+											justifyContent: "center",
+											alignItems: "center",
+										}}>
+										<MaterialIcons name='home' size={18} color='#4de926' />
+									</View>
+									<View style={{ flex: 1 }}>
+										<Text style={{ fontFamily: "Orbitron", fontSize: 12, color: textMain, fontWeight: "600" }}>
+											Adres Dom
+										</Text>
+										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: textDim, marginTop: 3 }}>
+											{settings.homeLatitude != null && settings.homeLongitude != null
+												? `${settings.homeLabel || 'Dom'} · ${settings.homeLatitude.toFixed(5)}, ${settings.homeLongitude.toFixed(5)}`
+												: 'Nie ustawiono'}
+										</Text>
+									</View>
+								</View>
+								<View style={{ flexDirection: "row", gap: 8 }}>
+									<TouchableOpacity
+										onPress={setHomeFromGps}
+										style={{
+											flex: 1,
+											backgroundColor: "#4de92618",
+											borderColor: "#4de92640",
+											borderWidth: 1,
+											borderRadius: 12,
+											paddingVertical: 11,
+											alignItems: "center",
+										}}>
+										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: "#4de926", fontWeight: "700" }}>
+											USTAW Z GPS
+										</Text>
+									</TouchableOpacity>
+									<TouchableOpacity
+										onPress={clearHome}
+										style={{
+											paddingHorizontal: 14,
+											borderRadius: 12,
+											borderWidth: 1,
+											borderColor: inputBorder,
+											backgroundColor: rowAlt,
+											alignItems: "center",
+											justifyContent: "center",
+										}}>
+										<Text style={{ fontFamily: "Orbitron", fontSize: 9, color: textDim, fontWeight: "700" }}>
+											WYCZYŚĆ
+										</Text>
+									</TouchableOpacity>
 								</View>
 							</View>
 						</Card>

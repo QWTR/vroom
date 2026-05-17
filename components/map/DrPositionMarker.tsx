@@ -2,45 +2,32 @@ import React, { memo, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
-import type { LocationState } from '../../constants/types';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
-const DEFAULT_DR_STALE_MS = 18_000;
 const MARKER_SIZE = 40;
 const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
-const FALLBACK_DOT = 18;
+const FALLBACK_DOT = 22;
 
 export interface DrPositionMarkerProps {
-  active: boolean;
-  drLatRef: React.MutableRefObject<number>;
-  drLngRef: React.MutableRefObject<number>;
-  drHdgRef: React.MutableRefObject<number>;
-  drLastFrameAtRef: React.MutableRefObject<number>;
-  userLocation: LocationState;
-  fallbackHeading: number;
+  latitude: number;
+  longitude: number;
+  heading: number;
   /** ViewShot PNG (strzałka / legacy). */
   imageUri?: string | null;
   /** Bezpośredni URL avatara — preferowany dla markera profilowego. */
   avatarUrl?: string | null;
-  drStaleMs?: number;
 }
 
 export const DrPositionMarker = memo(function DrPositionMarker({
-  active,
-  drLatRef,
-  drLngRef,
-  drHdgRef,
-  drLastFrameAtRef,
-  userLocation,
-  fallbackHeading,
+  latitude,
+  longitude,
+  heading,
   imageUri,
   avatarUrl,
-  drStaleMs = DEFAULT_DR_STALE_MS,
 }: DrPositionMarkerProps) {
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [, setFrameTick] = useState(0);
 
   const mediaAvatar = normalizeMediaUri(avatarUrl);
 
@@ -52,49 +39,17 @@ export const DrPositionMarker = memo(function DrPositionMarker({
     setAvatarFailed(false);
   }, [mediaAvatar]);
 
-  useEffect(() => {
-    if (!active) return;
-    let rafId = 0;
-    let lastEmit = 0;
-    const loop = (ts: number) => {
-      if (ts - lastEmit >= 80) {
-        lastEmit = ts;
-        setFrameTick((v) => (v + 1) % 100000);
-      }
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [active]);
-
-  const drFresh =
-    active &&
-    Number.isFinite(drLatRef.current) &&
-    Number.isFinite(drLngRef.current) &&
-    drLatRef.current !== 0 &&
-    drLngRef.current !== 0 &&
-    Date.now() - drLastFrameAtRef.current <= drStaleMs;
-
-  const lat = drFresh ? drLatRef.current : userLocation.latitude;
-  const lng = drFresh ? drLngRef.current : userLocation.longitude;
-
-  const hdg =
-    drFresh && drHdgRef.current !== 0
-      ? drHdgRef.current
-      : fallbackHeading;
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) < 1e-6 && Math.abs(longitude) < 1e-6) return null;
 
   const showAvatar = !!mediaAvatar && !avatarFailed;
   const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar;
-
+  const hdg = Number.isFinite(heading) ? heading : 0;
   const markerTransform = { transform: [{ rotate: `${hdg}deg` }] as const };
 
   return (
     <Mapbox.MarkerView
-      coordinate={[lng, lat]}
+      coordinate={[longitude, latitude]}
       anchor={{ x: 0.5, y: 0.5 }}
       allowOverlapWithPuck
       allowOverlap
@@ -140,8 +95,13 @@ export const DrPositionMarker = memo(function DrPositionMarker({
             height: FALLBACK_DOT,
             borderRadius: FALLBACK_DOT / 2,
             backgroundColor: '#e33835',
-            borderWidth: 1.5,
+            borderWidth: 2,
             borderColor: '#fff',
+            shadowColor: '#000',
+            shadowOpacity: 0.35,
+            shadowRadius: 3,
+            shadowOffset: { width: 0, height: 1 },
+            elevation: 4,
             ...markerTransform,
           }}
         />

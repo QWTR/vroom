@@ -9,11 +9,11 @@ const SNAP_RADIUS_M_FAST    = 85;
 // errors in parking lots / courtyards (often 80-150 m) still snap to the road.
 const SNAP_RADIUS_M_MATCHED = 145;
 // Gdy włączony twardy lock (driving mode): kolejne próby zanim odpuścimy snap.
-const SNAP_RADIUS_M_MATCHED_TIER2 = 300;
-const SNAP_RADIUS_M_MATCHED_TIER3 = 520;
+const SNAP_RADIUS_M_MATCHED_TIER2 = 160;
+const SNAP_RADIUS_M_MATCHED_TIER3 = 220;
 const SNAP_RADIUS_M_ROUTE_HARD    = 280;
 /** Awaryjny promień dla hard lock — nadal ograniczony, żeby nie łapać odległych dróg. */
-const SNAP_RADIUS_EMERGENCY_M     = 900;
+const SNAP_RADIUS_EMERGENCY_M     = 220;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps

@@ -105,6 +105,14 @@ function safePendingKm(raw: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** Align with server ROUTE_POINTS_MAX before POST /api/activity/save. */
+export function trimRoutePointsForActivitySave(
+  points?: { latitude: number; longitude: number }[],
+): { latitude: number; longitude: number }[] | undefined {
+  if (!points || points.length <= 1) return undefined;
+  return compactBgRoutePoints(points).slice(0, BG_ROUTE_MAX_POINTS);
+}
+
 function compactBgRoutePoints(
   points: { latitude: number; longitude: number }[],
 ): { latitude: number; longitude: number }[] {
@@ -413,10 +421,16 @@ export function useBackgroundTracking(
       const raw = await AsyncStorage.getItem(BG_PENDING_ACTIVITY_SAVE_KEY);
       if (!raw) return true;
       const payload = JSON.parse(raw);
+      const routePoints = trimRoutePointsForActivitySave(payload.routePoints);
+      const body = {
+        ...payload,
+        routePoints,
+        routePointsCount: routePoints?.length ?? payload.routePointsCount ?? 0,
+      };
       const res = await fetch(`${API_URL}/api/activity/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         console.log('flushPendingActivitySave failed:', res.status);
@@ -471,9 +485,10 @@ export function useBackgroundTracking(
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null && navPayload.avgSpeedKmh > 0
           ? navPayload.avgSpeedKmh
           : avgSpeed;
-        const routePointsToSave = navPayload?.routePoints && navPayload.routePoints.length > 1
+        const routePointsRaw = navPayload?.routePoints && navPayload.routePoints.length > 1
           ? navPayload.routePoints
           : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
+        const routePointsToSave = trimRoutePointsForActivitySave(routePointsRaw);
 
         if (distanceToSave < 0.05) return;
 
@@ -546,6 +561,9 @@ export function useBackgroundTracking(
           ? samples.reduce((a, b) => a + b, 0) / samples.length
           : 0;
 
+        const passiveRoutePoints = trimRoutePointsForActivitySave(
+          bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
+        );
         const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -554,9 +572,9 @@ export function useBackgroundTracking(
             maxSpeed: Math.round(maxSpeed * 10) / 10,
             avgSpeed: Math.round(avgSpeed * 10) / 10,
             duration: null,
-            routePoints: bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
+            routePoints: passiveRoutePoints,
             source: 'background-passive',
-            routePointsCount: bgRoutePoints.length,
+            routePointsCount: passiveRoutePoints?.length ?? 0,
           }),
         });
         if (!saveRes.ok) {

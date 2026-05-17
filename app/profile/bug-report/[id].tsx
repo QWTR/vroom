@@ -11,6 +11,8 @@ import Toast from 'react-native-toast-message';
 import { Video, ResizeMode } from 'expo-av';
 import { API_URL } from '../../../constants/config';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -28,6 +30,8 @@ export default function BugReportThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset();
   const scrollRef = useRef<ScrollView>(null);
 
   const [loading, setLoading] = useState(true);
@@ -121,7 +125,7 @@ export default function BugReportThreadScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bgAlt }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 24}
     >
       <View style={{ marginTop: 56, paddingHorizontal: '5%', flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -141,10 +145,9 @@ export default function BugReportThreadScreen() {
       <ScrollView
         ref={scrollRef}
         style={{ flex: 1, paddingHorizontal: '5%' }}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingBottom: Math.max(140, keyboardInset + 120) }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        onScrollBeginDrag={Keyboard.dismiss}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
         {messages.map(m => {
@@ -197,7 +200,16 @@ export default function BugReportThreadScreen() {
         </View>
       )}
 
-      <View style={{ paddingHorizontal: '5%', paddingBottom: 24, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 }}>
+      <View
+        style={{
+          paddingHorizontal: '5%',
+          paddingBottom: keyboardInset > 0 ? keyboardInset + 12 : Math.max(insets.bottom, 12),
+          borderTopWidth: 1,
+          borderTopColor: theme.border,
+          paddingTop: 10,
+          backgroundColor: theme.bgAlt,
+        }}
+      >
         <TextInput
           value={body}
           onChangeText={setBody}

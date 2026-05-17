@@ -82,7 +82,27 @@ type ActiveGridVote = {
 	currentRound: number;
 	status: "open" | "active";
 	entriesCount: number;
+	resetAt: string | null;
+	resetKind: "round" | "registration" | null;
 };
+
+function formatGridCountdown(targetIso: string | null, nowMs: number): string | null {
+	if (!targetIso) return null;
+	const targetMs = new Date(targetIso).getTime();
+	if (!Number.isFinite(targetMs)) return null;
+	let leftSec = Math.floor((targetMs - nowMs) / 1000);
+	if (leftSec <= 0) return "za chwilę";
+	const days = Math.floor(leftSec / 86400);
+	leftSec -= days * 86400;
+	const hours = Math.floor(leftSec / 3600);
+	leftSec -= hours * 3600;
+	const minutes = Math.floor(leftSec / 60);
+	const seconds = leftSec - minutes * 60;
+	const hh = String(hours).padStart(2, "0");
+	const mm = String(minutes).padStart(2, "0");
+	const ss = String(seconds).padStart(2, "0");
+	return days > 0 ? `${days}d ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
+}
 
 async function fetchFreshUser(): Promise<User | null> {
 	try {
@@ -128,6 +148,7 @@ export default function HomeScreen() {
 
 	const [activeGridVotes, setActiveGridVotes] = useState<ActiveGridVote[]>([]);
 	const [gridCarouselIndex, setGridCarouselIndex] = useState(0);
+	const [nowMs, setNowMs] = useState(() => Date.now());
 
 	const [pollVisible, setPollVisible] = useState(false);
 	const [giftVisible, setGiftVisible] = useState(false);
@@ -265,6 +286,10 @@ export default function HomeScreen() {
 					id: number;
 					status: string;
 					currentRound?: number;
+					registrationEndsAt?: string;
+					roundEndsAt?: string | null;
+					nextResetAt?: string | null;
+					nextResetKind?: "round" | "registration";
 					_count?: { entries?: number };
 				}[];
 			}[];
@@ -275,8 +300,20 @@ export default function HomeScreen() {
 					const entriesCount =
 						typeof ev?._count?.entries === "number" ? ev._count.entries : 0;
 					const shouldShow =
-						ev.status === "active" || (ev.status === "open" && entriesCount > 0);
+						ev.status === "active" || ev.status === "open";
 					if (shouldShow) {
+						const resetKind: "round" | "registration" | null =
+							ev.nextResetKind
+								? ev.nextResetKind
+								: (ev.status === "active" ? "round" : "registration");
+						const resetAt =
+							ev.nextResetAt
+								? ev.nextResetAt
+								: (
+									ev.status === "active"
+										? (ev.roundEndsAt ?? null)
+										: (ev.registrationEndsAt ?? null)
+								);
 						votes.push({
 							eventId: ev.id,
 							categoryName: cat.name,
@@ -285,6 +322,8 @@ export default function HomeScreen() {
 							currentRound: ev.currentRound ?? 1,
 							status: ev.status === "active" ? "active" : "open",
 							entriesCount,
+							resetAt,
+							resetKind,
 						});
 					}
 				}
@@ -305,6 +344,12 @@ export default function HomeScreen() {
 	useEffect(() => {
 		setGridCarouselIndex(0);
 	}, [activeGridVotes.length]);
+
+	useEffect(() => {
+		if (!isFocused || activeGridVotes.length === 0) return;
+		const id = setInterval(() => setNowMs(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, [isFocused, activeGridVotes.length]);
 
 	useEffect(() => {
 		pollRef.current = poll;
@@ -1079,6 +1124,21 @@ export default function HomeScreen() {
 												? "1v1 Arena · oddaj głos teraz"
 												: "Są aktywne zgłoszenia · sprawdź kategorię"}
 										</Text>
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 8,
+												color: t.textDim,
+												marginTop: 3,
+											}}>
+											{(() => {
+												const countdown = formatGridCountdown(activeGridVotes[0].resetAt, nowMs);
+												if (!countdown) return "Brak danych o resecie";
+												return activeGridVotes[0].resetKind === "round"
+													? `Reset rundy za: ${countdown}`
+													: `Koniec zapisów za: ${countdown}`;
+											})()}
+										</Text>
 									</View>
 									<View
 										style={{
@@ -1217,6 +1277,21 @@ export default function HomeScreen() {
 														{item.status === "active"
 															? "Przesuń palcem · zagłosuj"
 															: "Przesuń palcem · zobacz zgłoszenia"}
+													</Text>
+													<Text
+														style={{
+															fontFamily: "Orbitron",
+															fontSize: 8,
+															color: t.textDim,
+															marginTop: 3,
+														}}>
+														{(() => {
+															const countdown = formatGridCountdown(item.resetAt, nowMs);
+															if (!countdown) return "Brak danych o resecie";
+															return item.resetKind === "round"
+																? `Reset rundy za: ${countdown}`
+																: `Koniec zapisów za: ${countdown}`;
+														})()}
 													</Text>
 												</View>
 												<View
@@ -1677,7 +1752,7 @@ export default function HomeScreen() {
 								lib: "mi",
 								label: "CZAT",
 								sub: "Znajomi",
-								route: "/(tabs)/community",
+								route: "/Community/chats/chats",
 								color: "#268bff",
 							},
 						].map(item => (
@@ -1739,6 +1814,54 @@ export default function HomeScreen() {
 							</TouchableOpacity>
 						))}
 					</View>
+				</Animated.View>
+
+				<Animated.View
+					style={{
+						opacity: fadeAnim,
+						paddingHorizontal: 20,
+						marginBottom: 12,
+					}}>
+					<TouchableOpacity
+						onPress={() => router.push("/profile/settings")}
+						activeOpacity={0.85}>
+						<LinearGradient
+							colors={isDark ? ["#2a1208", "#160b06"] : ["#fff4ef", "#ffe9df"]}
+							start={{ x: 0, y: 0 }}
+							end={{ x: 1, y: 1 }}
+							style={{
+								borderRadius: 16,
+								borderWidth: 1,
+								borderColor: "#ff704360",
+								padding: 14,
+								flexDirection: "row",
+								alignItems: "center",
+								gap: 10,
+							}}>
+							<View
+								style={{
+									width: 36,
+									height: 36,
+									borderRadius: 10,
+									backgroundColor: "#ff704320",
+									borderWidth: 1,
+									borderColor: "#ff704350",
+									alignItems: "center",
+									justifyContent: "center",
+								}}>
+								<MaterialIcons name="bug-report" size={18} color="#ff7043" />
+							</View>
+							<View style={{ flex: 1 }}>
+								<Text style={{ fontFamily: "Orbitron", fontSize: 11, color: t.text, fontWeight: "700" }}>
+									Zgłoś błąd (beta)
+								</Text>
+								<Text style={{ fontFamily: "Orbitron", fontSize: 8, color: t.textDim, marginTop: 2 }}>
+									Stały skrót do formularza zgłoszeń
+								</Text>
+							</View>
+							<MaterialIcons name="arrow-forward-ios" size={12} color="#ff7043" />
+						</LinearGradient>
+					</TouchableOpacity>
 				</Animated.View>
 
 				{/* Modal ogłoszeń */}

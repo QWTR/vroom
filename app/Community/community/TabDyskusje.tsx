@@ -285,6 +285,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
   bottomInset: number;
 }) {
+  const [composeHeight, setComposeHeight] = useState(120);
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
   const feedItems: FeedItem[] = useMemo(() =>
     posts.flatMap((post, index) =>
@@ -317,13 +318,14 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={<ListFooter loading={loadingMoreP} />}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 12 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: composeHeight + Math.max(bottomInset, 12) }}
         keyboardShouldPersistTaps="handled"
       />
       <ComposeBox
         onPost={onPost}
         bottomInset={bottomInset}
         mentionsEnabled
+        onHeightChange={setComposeHeight}
       />
     </View>
   );
