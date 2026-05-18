@@ -226,7 +226,7 @@ export async function fetchGeocodingViaProxy<T>(params: {
     normalizedQuery,
     params.limit ?? 5,
     params.language ?? 'pl',
-    params.country ?? 'pl',
+    params.country ?? '',
     params.types ?? 'address,poi,place,locality,neighborhood',
     makeCoordBucket(params.proximityLng, 2),
     makeCoordBucket(params.proximityLat, 2),
@@ -241,7 +241,7 @@ export async function fetchGeocodingViaProxy<T>(params: {
       Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
         ? `&proximity=${params.proximityLng},${params.proximityLat}`
         : '';
-    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '';
     const types = params.types
       ? `&types=${encodeURIComponent(params.types)}`
       : '&types=address,poi,place,locality,neighborhood';
@@ -269,7 +269,7 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
     normalizedQuery,
     params.limit ?? 8,
     params.language ?? 'pl',
-    params.country ?? 'pl',
+    params.country ?? '',
     makeCoordBucket(params.proximityLng, 3),
     makeCoordBucket(params.proximityLat, 3),
   ].join('|');
@@ -283,7 +283,7 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
       Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
         ? `&proximity=${params.proximityLng},${params.proximityLat}`
         : '';
-    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '&country=pl';
+    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '';
     const fallbackUrl =
       `https://api.mapbox.com/search/searchbox/v1/suggest` +
       `?q=${encodeURIComponent(params.query)}` +

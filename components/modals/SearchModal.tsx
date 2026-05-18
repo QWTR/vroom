@@ -248,7 +248,6 @@ export const SearchModal = memo(({
           query: trimmed,
           sessionToken,
           language: 'pl',
-          country: 'pl',
           limit: 8,
           proximityLng: userLocation?.longitude,
           proximityLat: userLocation?.latitude,
@@ -267,7 +266,6 @@ export const SearchModal = memo(({
         const data = await fetchGeocodingViaProxy<any>({
           query: trimmed,
           language: 'pl',
-          country: 'pl',
           types: 'address,poi,place,locality,neighborhood',
           limit: 8,
           proximityLng: userLocation?.longitude,

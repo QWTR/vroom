@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { API_URL } from '../constants/config';
 
-const REFRESH_MS_FOREGROUND = 60_000;
+const REFRESH_MS_FOREGROUND = 120_000;
 
 async function getAuthToken(): Promise<string | null> {
   return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));

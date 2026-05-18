@@ -77,8 +77,8 @@ export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
 export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
-const BG_APP_ACTIVE_STALE_MS = 25_000;
-const BG_APP_ACTIVE_HEARTBEAT_MS = 8_000;
+const BG_APP_ACTIVE_STALE_MS = 90_000;
+const BG_APP_ACTIVE_HEARTBEAT_MS = 30_000;
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
 const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
@@ -100,6 +100,24 @@ const BG_PENDING_KM_HARD_CAP    = 1200;
 
 function encodeAppActiveSnapshot(active: boolean): string {
   return JSON.stringify({ active, at: Date.now() });
+}
+
+function shouldPersistAppActiveSnapshot(
+  lastPersistedRaw: string | null,
+  nextActive: boolean,
+  nowMs: number,
+): boolean {
+  if (!lastPersistedRaw) return true;
+  try {
+    const parsed = JSON.parse(lastPersistedRaw);
+    const prevActive = parsed?.active === true;
+    const prevAt = Number(parsed?.at);
+    if (prevActive !== nextActive) return true;
+    if (!Number.isFinite(prevAt) || prevAt <= 0) return true;
+    return nowMs - prevAt >= BG_APP_ACTIVE_HEARTBEAT_MS;
+  } catch {
+    return true;
+  }
 }
 
 function isAppLikelyActive(raw: string | null, nowMs: number): boolean {
@@ -434,6 +452,7 @@ export function useBackgroundTracking(
   const flushInFlightRef = useRef(false);
   const startInFlightRef = useRef(false);
   const stopInFlightRef = useRef(false);
+  const lastAppActiveSnapshotRef = useRef<string | null>(null);
   const telemetryRef = useRef({
     flushSuccess: 0,
     flushFail: 0,
@@ -705,7 +724,14 @@ export function useBackgroundTracking(
         (!appIsActive && (bgEnabled || forceEnabled))
         || (appIsActive && forceEnabled)
       );
-      if (!shouldTrack) return;
+      if (!shouldTrack) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        return;
+      }
       void isSharing;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
@@ -725,8 +751,8 @@ export function useBackgroundTracking(
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         // BestForNavigation + tight intervals caused native instability on some devices.
         accuracy:         highCadence ? Location.Accuracy.High : Location.Accuracy.Balanced,
-        distanceInterval: highCadence ? 15 : 60,
-        timeInterval:     highCadence ? 5000 : 20000,
+        distanceInterval: highCadence ? 15 : 140,
+        timeInterval:     highCadence ? 5000 : 45000,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: '🚗 VROOM aktywne',
@@ -783,19 +809,27 @@ export function useBackgroundTracking(
 
   // Recover BG task on foreground only when user enabled background work
   useEffect(() => {
-    AsyncStorage.setItem(BG_APP_ACTIVE_KEY, encodeAppActiveSnapshot(AppState.currentState === 'active')).catch(() => {});
+    const persistAppActive = (active: boolean) => {
+      const now = Date.now();
+      if (!shouldPersistAppActiveSnapshot(lastAppActiveSnapshotRef.current, active, now)) return;
+      const encoded = encodeAppActiveSnapshot(active);
+      lastAppActiveSnapshotRef.current = encoded;
+      AsyncStorage.setItem(BG_APP_ACTIVE_KEY, encoded).catch(() => {});
+    };
+
+    persistAppActive(AppState.currentState === 'active');
     let activeHeartbeat: ReturnType<typeof setInterval> | null = null;
     if (AppState.currentState === 'active') {
       activeHeartbeat = setInterval(() => {
-        AsyncStorage.setItem(BG_APP_ACTIVE_KEY, encodeAppActiveSnapshot(true)).catch(() => {});
+        persistAppActive(true);
       }, BG_APP_ACTIVE_HEARTBEAT_MS);
     }
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      AsyncStorage.setItem(BG_APP_ACTIVE_KEY, encodeAppActiveSnapshot(s === 'active')).catch(() => {});
+      persistAppActive(s === 'active');
       if (s === 'active') {
         if (!activeHeartbeat) {
           activeHeartbeat = setInterval(() => {
-            AsyncStorage.setItem(BG_APP_ACTIVE_KEY, encodeAppActiveSnapshot(true)).catch(() => {});
+            persistAppActive(true);
           }, BG_APP_ACTIVE_HEARTBEAT_MS);
         }
       } else if (activeHeartbeat) {
@@ -811,7 +845,7 @@ export function useBackgroundTracking(
         return;
       }
       if (s === 'active') {
-        if (sharingHydrated && (bgEnabled || isSharing || forceEnabled)) {
+        if (sharingHydrated && (isSharing || forceEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();

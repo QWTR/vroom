@@ -26,11 +26,13 @@ const MAX_ACCURACY_M   = 40;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
 const MAX_ACCURACY_ACTIVE_M = 120;
 /** Powyżej tego fix jest zwykle bezużyteczny nawet dla active mode. */
-const MAX_ACCURACY_ACTIVE_HARD_M = 220;
+const MAX_ACCURACY_ACTIVE_HARD_M = 420;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 16000;
 const IDLE_FIX_TIMEOUT_MS   = 35000;
+const WATCHDOG_CHECK_MS = 8000;
+const ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE = 1;
 /** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
 const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
@@ -104,6 +106,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
   const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
   const lastFixAtRef      = useRef<number>(0);
+  const staleStrikeRef    = useRef(0);
   const opSeqRef          = useRef(0);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
@@ -132,6 +135,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
           try {
             const now    = Date.now();
             lastFixAtRef.current = now;
+            staleStrikeRef.current = 0;
             const rawLat = loc.coords.latitude;
             const rawLng = loc.coords.longitude;
             const acc    = loc.coords.accuracy ?? 999;
@@ -167,7 +171,20 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
 
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
           if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
+            // In active trip mode never fully stop emitting location ticks.
+            // Very poor fixes are still forwarded and later clamped/snapped
+            // in map.tsx; dropping them here can freeze marker progression.
             consecutiveBadRef.current += 1;
+            lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
+            speedRef.current    = effectiveSpeedKmh;
+            onLocRef.current({
+              latitude:  rawLat,
+              longitude: rawLng,
+              speed:     emitSpeedMs,
+              heading:   loc.coords.heading,
+              accuracy:  acc,
+              timestamp: now,
+            });
             return;
           }
 
@@ -321,6 +338,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
     opSeqRef.current += 1;
     subRef.current?.remove();
     subRef.current = null;
+    staleStrikeRef.current = 0;
     // Intentionally keep lastGoodRef: clearing it made the first post-restart
     // watch callback skip teleport checks. Stale fused fixes then slipped through
     // before map.tsx had a chance to anchor against the previous position.
@@ -335,10 +353,20 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
       const timeoutMs = profileRef.current === 'active'
         ? ACTIVE_FIX_TIMEOUT_MS
         : IDLE_FIX_TIMEOUT_MS;
-      if (Date.now() - lastFixAtRef.current < timeoutMs) return;
+      const staleForMs = Date.now() - lastFixAtRef.current;
+      if (staleForMs < timeoutMs) {
+        staleStrikeRef.current = 0;
+        return;
+      }
+      const requiredStrikes = profileRef.current === 'active'
+        ? ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE
+        : 1;
+      staleStrikeRef.current += 1;
+      if (staleStrikeRef.current < requiredStrikes) return;
+      staleStrikeRef.current = 0;
       lastFixAtRef.current = Date.now();
       subscribe(currentProfile());
-    }, 10000);
+    }, WATCHDOG_CHECK_MS);
     return () => clearInterval(id);
   }, [currentProfile, subscribe]);
 

@@ -114,11 +114,11 @@ export function useLiveMap(
     lastUpdateMs: number;
   };
   const interpRef = useRef<Map<number, InterpEntry>>(new Map());
-  const INTERP_TICK_BASE_MS = 100;
-  const INTERP_TICK_BUSY_MS = 150;
+  const INTERP_TICK_BASE_MS = 180;
+  const INTERP_TICK_BUSY_MS = 260;
   const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
   const MAX_INTERP_DUR_MS  = 6000;
-  const USERS_REFRESH_MS   = 60000;
+  const USERS_REFRESH_MS   = 90000;
 
   const easeInOut = (t: number) => t * t * (3 - 2 * t);
 
@@ -243,13 +243,17 @@ export function useLiveMap(
 
       socket.on('connect', async () => {
         setConnected(true);
-        socket.emit('live:join');
+        if (isSharingRef.current) {
+          socket.emit('live:join');
+        }
         fetchInitialData(token);
       });
 
       socket.on('disconnect', (reason) => {
         setConnected(false);
-        if (reason === 'io server disconnect') socket.connect();
+        if (reason === 'io server disconnect' && (isSharingRef.current || isForegroundActive())) {
+          socket.connect();
+        }
       });
 
       socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
@@ -377,7 +381,7 @@ export function useLiveMap(
     if (!enabled) return;
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       appStateRef.current = next;
-      if ((next === 'background' || next === 'inactive') && !allowBgRef.current) {
+      if ((next === 'background' || next === 'inactive') && (!allowBgRef.current || !isSharingRef.current)) {
         const s = socketRef.current;
         s?.emit('live:leave');
         s?.disconnect();
@@ -450,6 +454,7 @@ export function useLiveMap(
     if (!isSharing) return;
     const interval = setInterval(async () => {
       if (!allowBgRef.current && !isForegroundActive()) return;
+      if (!connected) return;
       const token = tokenRef.current;
       if (!token) return;
       try {
@@ -485,7 +490,7 @@ export function useLiveMap(
       }
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [isSharing, enabled, buildLiveUsersUrl]);
+  }, [isSharing, enabled, connected, buildLiveUsersUrl]);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {

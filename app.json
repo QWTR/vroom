@@ -25,8 +25,7 @@
         "NSLocationWhenInUseUsageDescription": "VROOM używa lokalizacji do mapy, nawigacji i ostrzeżeń drogowych.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM używa lokalizacji także w tle do liczenia kilometrów, aktywnej nawigacji i udostępniania pozycji live po włączeniu tej funkcji.",
         "UIBackgroundModes": [
-          "location",
-          "fetch"
+          "location"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
