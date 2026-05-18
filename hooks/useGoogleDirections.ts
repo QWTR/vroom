@@ -5,7 +5,7 @@ import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
 
 // ── Debug flag — set to true to log cache hits, misses, and in-flight dedup ──
 // Flip to false (or guard with __DEV__) in production.
-const DEBUG_NETWORK = false;
+const DEBUG_NETWORK = __DEV__;
 
 export interface Step {
   html_instructions: string;
@@ -60,8 +60,6 @@ function round4(n: number) { return Math.round(n * 10000) / 10000; }
 // Increase both values to reduce API calls further if stale routes are acceptable.
 const SINGLE_ROUTE_TTL_MS = 600_000; // 10 min — ta sama trasa w nawigacji bez ponownego API
 const ALT_ROUTES_TTL_MS   = 300_000; // 5 min — podgląd alternatyw przed startem
-/** Tylko dla alternatyw (podgląd) — nawigacja nigdy nie może być zablokowana przez gap. */
-const MIN_ALT_DIRECTIONS_GAP_MS = 3_000;
 
 interface CacheEntry {
   result:    DirectionsResult | DirectionsResult[];
@@ -69,13 +67,6 @@ interface CacheEntry {
 }
 const directionsCache = new Map<string, CacheEntry>();
 
-// In-flight deduplication: if a fetch for a given key is already running,
-// skip launching another one for the same hook instance.
-// JavaScript is single-threaded, so there are no true race conditions here;
-// this guards against the same async IIFE being started twice within one
-// event loop tick (e.g., rapid dep changes triggering consecutive effects).
-const inflightKeys = new Set<string>();
-let lastDirectionsFetchAt = 0;
 
 function makeCacheKey(
   oLat: number, oLng: number,
@@ -86,32 +77,35 @@ function makeCacheKey(
   return `${oLat}:${oLng}:${dLat}:${dLng}:${hdgBucket ?? ''}:${alternatives}`;
 }
 
-function parseMapboxRoute(route: any, index: number): DirectionsResult {
+function parseMapboxRoute(route: any, index: number, includeSteps = true): DirectionsResult {
   const leg = route.legs[0];
 
-  const steps: Step[] = leg.steps.map((step: any) => {
+  const rawSteps = includeSteps && Array.isArray(leg?.steps) ? leg.steps : [];
+  const steps: Step[] = rawSteps.map((step: any) => {
     const [sLng, sLat] = step.maneuver.location;
-    const decodedGeom  = decodePolyline(step.geometry);
-    const lastPt       = decodedGeom[decodedGeom.length - 1] ?? { latitude: sLat, longitude: sLng };
+    const decodedGeom = decodePolyline(step.geometry);
+    const lastPt = decodedGeom[decodedGeom.length - 1] ?? { latitude: sLat, longitude: sLng };
 
     return {
       html_instructions: step.maneuver.instruction ?? '',
       distance: {
         value: Math.round(step.distance),
-        text:  `${(step.distance / 1000).toFixed(1)} km`,
+        text: `${(step.distance / 1000).toFixed(1)} km`,
       },
       duration: {
         value: Math.round(step.duration),
-        text:  formatDurationText(step.duration),
+        text: formatDurationText(step.duration),
       },
       start_location: { lat: sLat, lng: sLng },
-      end_location:   { lat: lastPt.latitude, lng: lastPt.longitude },
+      end_location: { lat: lastPt.latitude, lng: lastPt.longitude },
       maneuver: step.maneuver.type,
       polyline: { points: step.geometry },
     } as Step;
   });
 
-  const points = steps.flatMap(s => decodePolyline(s.polyline.points));
+  const points = steps.length > 0
+    ? steps.flatMap((s) => decodePolyline(s.polyline.points))
+    : decodePolyline(route.geometry ?? '');
 
   return {
     points,
@@ -147,6 +141,8 @@ export function useGoogleDirections(
   useEffect(() => {
     if (originLat == null || originLng == null || destLat == null || destLng == null) {
       setRoute(null);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -157,12 +153,8 @@ export function useGoogleDirections(
     if (cached && Date.now() - cached.fetchedAt < SINGLE_ROUTE_TTL_MS) {
       if (DEBUG_NETWORK) console.log('[useGoogleDirections] cache hit', cacheKey);
       setRoute(cached.result as DirectionsResult);
-      return;
-    }
-
-    // ── In-flight dedup: same key already fetching, skip ────────────────────
-    if (inflightKeys.has(cacheKey)) {
-      if (DEBUG_NETWORK) console.log('[useGoogleDirections] in-flight dedup, skipping', cacheKey);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -170,7 +162,6 @@ export function useGoogleDirections(
     const controller = new AbortController();
     abortRef.current = controller;
 
-    inflightKeys.add(cacheKey);
     setLoading(true);
     setError(null);
 
@@ -216,13 +207,11 @@ export function useGoogleDirections(
         if (e.name !== 'AbortError') setError('FETCH_ERROR');
       } finally {
         setLoading(false);
-        inflightKeys.delete(cacheKey);
       }
     })();
 
     return () => {
       controller.abort();
-      inflightKeys.delete(cacheKey);
     };
   }, [originLat, originLng, destLat, destLng, roundedHeading]);
 
@@ -248,6 +237,8 @@ export function useGoogleDirectionsAlternatives(
   useEffect(() => {
     if (originLat == null || originLng == null || destLat == null || destLng == null) {
       setRoutes([]);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -258,12 +249,8 @@ export function useGoogleDirectionsAlternatives(
     if (cached && Date.now() - cached.fetchedAt < ALT_ROUTES_TTL_MS) {
       if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] cache hit', cacheKey);
       setRoutes(cached.result as DirectionsResult[]);
-      return;
-    }
-
-    // ── In-flight dedup ───────────────────────────────────────────────────────
-    if (inflightKeys.has(cacheKey)) {
-      if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] in-flight dedup, skipping', cacheKey);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -271,13 +258,6 @@ export function useGoogleDirectionsAlternatives(
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const now = Date.now();
-    if (now - lastDirectionsFetchAt < MIN_ALT_DIRECTIONS_GAP_MS) {
-      if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] alt gap, skip', cacheKey);
-      return;
-    }
-
-    inflightKeys.add(cacheKey);
     setLoading(true);
     setError(null);
 
@@ -285,7 +265,6 @@ export function useGoogleDirectionsAlternatives(
 
     (async () => {
       try {
-        lastDirectionsFetchAt = Date.now();
         const url =
           `https://api.mapbox.com/directions/v5/mapbox/driving/` +
           `${originLng},${originLat};${destLng},${destLat}` +
@@ -324,13 +303,11 @@ export function useGoogleDirectionsAlternatives(
         if (e.name !== 'AbortError') setError('FETCH_ERROR');
       } finally {
         setLoading(false);
-        inflightKeys.delete(cacheKey);
       }
     })();
 
     return () => {
       controller.abort();
-      inflightKeys.delete(cacheKey);
     };
   }, [originLat, originLng, destLat, destLng]);
 

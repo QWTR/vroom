@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
-  Alert,
+  Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable,
+  StatusBar, ScrollView, Alert, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -26,7 +26,7 @@ import {
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
 } from './communityShared';
-import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
+import { useKeyboardInset, modalKeyboardFooterPadding } from '../../../hooks/useKeyboardInset';
 import { TabDyskusje } from './TabDyskusje';
 import {
   reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
@@ -104,6 +104,14 @@ export default function CommunityScreen() {
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commentListRef = useRef<FlatList<Comment>>(null);
   const commentKeyboardInset = useKeyboardInset(!!commentPost);
+
+  useEffect(() => {
+    if (!commentPost || commentKeyboardInset <= 0) return;
+    const t = setTimeout(() => {
+      commentListRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [commentPost, commentKeyboardInset]);
 
   const onCommentTextChange = (v: string) => {
     setCommentText(v);
@@ -616,10 +624,12 @@ export default function CommunityScreen() {
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
   const modalBottomPadding = Math.max(insets.bottom, 12);
-  const commentInputBottomPad = commentKeyboardInset > 0
-    ? commentKeyboardInset
-    : modalBottomPadding;
-  const commentListMaxHeight = commentKeyboardInset > 0 ? 220 : 340;
+  const commentInputBottomPad = modalKeyboardFooterPadding(
+    commentKeyboardInset,
+    modalBottomPadding,
+    { parentHasKeyboardAvoiding: Platform.OS === 'ios' },
+  );
+  const commentListMaxHeight = commentKeyboardInset > 0 ? 200 : 340;
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -784,6 +794,11 @@ export default function CommunityScreen() {
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
           <Pressable style={{ flex: 1 }} onPress={() => { Keyboard.dismiss(); setCommentPost(null); }} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            enabled={Platform.OS === 'ios'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom : 0}
+          >
           <View
             style={{
               backgroundColor: theme.surface,
@@ -792,7 +807,7 @@ export default function CommunityScreen() {
               maxHeight: '88%',
             }}
           >
-            <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 12, flexShrink: 1 }}>
               {/* Handle */}
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
 
@@ -985,6 +1000,7 @@ export default function CommunityScreen() {
                     </Text>
                   }
                   keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 />
               )}
             </View>
@@ -1067,8 +1083,9 @@ export default function CommunityScreen() {
                   placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Napisz komentarz...'}
                   placeholderTextColor={theme.textDim}
                   multiline
+                  blurOnSubmit={false}
                   onFocus={() => {
-                    setTimeout(() => commentListRef.current?.scrollToEnd({ animated: true }), 120);
+                    setTimeout(() => commentListRef.current?.scrollToEnd({ animated: true }), 280);
                   }}
                 />
                 <TouchableOpacity
@@ -1088,6 +1105,7 @@ export default function CommunityScreen() {
               </View>
             </View>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 

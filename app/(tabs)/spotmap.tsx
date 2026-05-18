@@ -6,8 +6,10 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE, MAPBOX_TOKEN } from '../../constants/mapConfig';
-Mapbox.setAccessToken(MAPBOX_TOKEN);
+import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE } from '../../constants/mapConfig';
+import { ensureMapboxToken } from '../../lib/mapboxInit';
+
+ensureMapboxToken();
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORIES, OFFROAD_CATEGORIES } from '../../constants/spotTypes';
@@ -128,7 +130,6 @@ export default function SpotMap() {
 
       {/* MAPA */}
       <View
-        key={`spot-map-${isFocused ? 'focused' : 'blurred'}`}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
         collapsable={false}
       >

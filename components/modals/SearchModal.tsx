@@ -283,7 +283,7 @@ export const SearchModal = memo(({
     } finally {
       if (reqSeq === searchReqSeqRef.current) setIsSearching(false);
     }
-  }, 500), [userLocation, clearPlaces, fetchPlaces]);
+  }, 320), [userLocation, clearPlaces, fetchPlaces]);
 
   // ─────────────────────────────────────────────────────
   const selectLocation = useCallback((location: LocationState, label: string) => {

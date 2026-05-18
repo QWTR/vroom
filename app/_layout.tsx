@@ -30,6 +30,7 @@ import {
   hasAcceptedBackgroundLocationDisclosure,
   requestBackgroundLocationPermissionAfterDisclosure,
 } from '../lib/backgroundLocationConsent';
+import { initMapbox } from '../lib/mapboxInit';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -220,6 +221,10 @@ function RootLayoutInner() {
   const notifListener    = useRef<any>();
   const responseListener = useRef<any>();
   const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
+
+  useEffect(() => {
+    initMapbox().catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!UsersModule?.saveAuthTokenForAuto) return;

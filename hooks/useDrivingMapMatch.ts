@@ -2,6 +2,7 @@ import { useRef, useCallback } from 'react';
 import { MAPBOX_TOKEN }        from '../constants/mapConfig';
 import { haversineKm }         from '../scripts/navigationUtils';
 import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
+import { roadGeometryStore } from '../lib/roadGeometry/RoadGeometryStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -25,12 +26,12 @@ const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeź
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 6;
+const MAX_REQUESTS_PER_WINDOW = 24;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
-const MAX_MANUAL_BURST_PER_WINDOW = 0;
+const MAX_MANUAL_BURST_PER_WINDOW = 2;
 /** Gdy zbliżamy się do limitu / h, agresywnie ogranicz częstotliwość odświeżeń. */
-const BUDGET_SOFT_CAP_PER_WINDOW = 3;
-const BUDGET_HARD_CAP_PER_WINDOW = 5;
+const BUDGET_SOFT_CAP_PER_WINDOW = 12;
+const BUDGET_HARD_CAP_PER_WINDOW = 20;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -40,7 +41,7 @@ const DIRECTIONS_STUB_MIN_INTERVAL_MS = 120_000;
 const DIRECTIONS_STUB_MIN_MOVE_M = 260;
 const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 45_000;
 const DIRECTIONS_STUB_AGGR_MOVE_M = 45;
-const DIRECTIONS_STUB_MAX_PER_WINDOW = 1;
+const DIRECTIONS_STUB_MAX_PER_WINDOW = 5;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -148,6 +149,44 @@ export function useDrivingMapMatch() {
   const matchedTimeRef = useRef<number>(0);
   /** Inkrementowany przy reset() — odrzuca zapisy z fetchy anulowanych po wyjściu z driving. */
   const matchGenRef    = useRef(0);
+  const lastRejectLogAtRef = useRef<Record<string, number>>({});
+
+  const applyLocalRoadCache = useCallback(async (
+    lat: number,
+    lng: number,
+    radiusM = 80,
+  ): Promise<{ latitude: number; longitude: number }[] | null> => {
+    const hit = await roadGeometryStore.findNearest(lat, lng, radiusM);
+    if (!hit || hit.points.length < 2) return null;
+    matchedPtsRef.current = hit.points;
+    matchedTimeRef.current = Date.now();
+    if (__DEV__) {
+      console.log('[DrivingMapMatch] SQLite road cache hit', hit.points.length, 'pts', 'ageMs', hit.ageMs);
+    }
+    return hit.points;
+  }, []);
+
+  const persistMatchedGeometry = useCallback(async (
+    points: { latitude: number; longitude: number }[],
+  ) => {
+    if (points.length >= 2) {
+      await roadGeometryStore.insert(points);
+    }
+  }, []);
+
+  const logSnapReject = useCallback((reason: string, payload?: Record<string, unknown>) => {
+    if (!__DEV__) return;
+    const now = Date.now();
+    const last = lastRejectLogAtRef.current[reason] ?? 0;
+    if (now - last < 1500) return;
+    lastRejectLogAtRef.current[reason] = now;
+    console.log('[SNAP_REJECT]', JSON.stringify({
+      at: now,
+      source: 'useDrivingMapMatch',
+      reason,
+      ...(payload ?? {}),
+    }));
+  }, []);
 
   const consumeRequestSlot = useCallback((now: number, manual = false): boolean => {
     requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
@@ -171,11 +210,12 @@ export function useDrivingMapMatch() {
     lat: number,
     lng: number,
     aggressive: boolean,
+    manual = false,
   ): boolean => {
     const now = Date.now();
     directionsStubTimesRef.current = directionsStubTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
     if (directionsStubTimesRef.current.length >= DIRECTIONS_STUB_MAX_PER_WINDOW) return false;
-    if (getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) return false;
+    if (!manual && getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) return false;
     const last = lastDirectionsStubRef.current;
     if (!last) {
       lastDirectionsStubRef.current = { at: now, lat, lng };
@@ -196,7 +236,10 @@ export function useDrivingMapMatch() {
     lng: number,
     ctx?: AddMatchContext,
   ): Promise<void> => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      logSnapReject('add_invalid_coord');
+      return;
+    }
     const now  = Date.now();
 
     // Skip duplicate / near-duplicate points
@@ -248,11 +291,25 @@ export function useDrivingMapMatch() {
 
     // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
     // (DR + drivingSnap), nie dopytując API.
-    if (matchedPtsRef.current && speedKmh < 8 && !noRoad) return;
+    if (matchedPtsRef.current && speedKmh < 8 && !noRoad) {
+      logSnapReject('add_low_speed_cached_geometry', { speedKmh: Math.round(speedKmh) });
+      return;
+    }
 
-    if (now - lastCallRef.current < dynamicMinIntervalMs) return;
-    if (isFetchingRef.current)                       return;
-    if (bufferRef.current.length < MIN_BUFFER_POINTS) return;
+    if (now - lastCallRef.current < dynamicMinIntervalMs) {
+      logSnapReject('add_interval_gate', {
+        waitMs: dynamicMinIntervalMs - (now - lastCallRef.current),
+      });
+      return;
+    }
+    if (isFetchingRef.current) {
+      logSnapReject('add_fetch_inflight');
+      return;
+    }
+    if (bufferRef.current.length < MIN_BUFFER_POINTS) {
+      logSnapReject('add_buffer_too_short', { points: bufferRef.current.length });
+      return;
+    }
     if (lastFetchRef.current) {
       const movedSinceLastFetchM = haversineKm(
         lastFetchRef.current.lat,
@@ -260,9 +317,24 @@ export function useDrivingMapMatch() {
         lat,
         lng,
       ) * 1000;
-      if (movedSinceLastFetchM < dynamicMinMoveM) return;
+      if (movedSinceLastFetchM < dynamicMinMoveM) {
+        logSnapReject('add_move_gate', {
+          movedM: Math.round(movedSinceLastFetchM),
+          minMoveM: Math.round(dynamicMinMoveM),
+        });
+        return;
+      }
     }
-    if (!consumeRequestSlot(now)) return;
+    if (!consumeRequestSlot(now)) {
+      logSnapReject('add_budget_exhausted');
+      return;
+    }
+
+    const sqliteHit = await applyLocalRoadCache(lat, lng, 80);
+    if (sqliteHit) {
+      logSnapReject('add_sqlite_cache_hit');
+      return;
+    }
 
     lastCallRef.current   = now;
     lastFetchRef.current  = { lat, lng };
@@ -282,9 +354,10 @@ export function useDrivingMapMatch() {
           radiuses: pts.map(() => MATCH_RADIUS_M),
         },
         url,
-        // Proxy może zwrócić null (429, auth); driving bez geometrii = surowy GPS „po polu”.
+        // Proxy może zwrócić null (429, auth); allow direct fallback so
+        // geometry is still refreshed during driving, not only on forceMatch.
         {
-          allowFallback: false,
+          allowFallback: true,
           cooldownMs: noRoad ? 3000 : 6000,
           proxyTimeoutMs: noRoad ? 2200 : 3200,
           fallbackTimeoutMs: noRoad ? 2200 : 3200,
@@ -292,6 +365,7 @@ export function useDrivingMapMatch() {
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) {
+        logSnapReject('add_proxy_and_fallback_null');
         return;
       }
 
@@ -301,16 +375,19 @@ export function useDrivingMapMatch() {
         );
         matchedPtsRef.current  = matched;
         matchedTimeRef.current = Date.now();
+        await persistMatchedGeometry(matched);
         console.log('[DrivingMapMatch] Matched', matched.length, 'points to road');
       } else {
         console.log('[DrivingMapMatch] No match found (code:', json.code, ')');
+        logSnapReject('add_no_match', { code: json.code ?? 'unknown' });
       }
     } catch (e) {
       console.warn('[DrivingMapMatch] API error:', e);
+      logSnapReject('add_api_error');
     } finally {
       isFetchingRef.current = false;
     }
-  }, [consumeRequestSlot, shouldAttemptDirectionsStub]);
+  }, [applyLocalRoadCache, consumeRequestSlot, logSnapReject, persistMatchedGeometry, shouldAttemptDirectionsStub]);
 
   /**
    * Immediately snaps a single position to the nearest road, bypassing the
@@ -331,7 +408,10 @@ export function useDrivingMapMatch() {
       lng: number,
       opts?: ForceMatchOptions,
     ): Promise<{ latitude: number; longitude: number }[] | null> => {
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        logSnapReject('force_invalid_coord');
+        return null;
+      }
 
       const manual = !!opts?.manual;
 
@@ -343,20 +423,28 @@ export function useDrivingMapMatch() {
         }
       } else if (refresh) {
         if (getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW) {
+          logSnapReject('force_refresh_budget_hard_cap');
           return matchedPtsRef.current;
         }
         for (let i = 0; i < 15 && isFetchingRef.current; i++) {
           await sleep(50);
         }
-        if (isFetchingRef.current) return matchedPtsRef.current;
+        if (isFetchingRef.current) {
+          logSnapReject('force_refresh_fetch_inflight');
+          return matchedPtsRef.current;
+        }
         const lr = lastRefreshForceRef.current;
         if (lr) {
           const movedM = haversineKm(lr.lat, lr.lng, lat, lng) * 1000;
           if (Date.now() - lr.at < REFRESH_FORCE_MIN_INTERVAL_MS && movedM < REFRESH_FORCE_MIN_MOVE_M) {
+            logSnapReject('force_refresh_interval_gate', {
+              movedM: Math.round(movedM),
+            });
             return matchedPtsRef.current;
           }
         }
       } else if (isFetchingRef.current) {
+        logSnapReject('force_fetch_inflight');
         return null;
       }
 
@@ -366,14 +454,25 @@ export function useDrivingMapMatch() {
         matchedPtsRef.current &&
         Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
       ) {
+        logSnapReject('force_recent_cache_used');
         return matchedPtsRef.current;
       }
 
       const now = Date.now();
       if (!manual && getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) {
+        logSnapReject('force_budget_hard_cap');
         return matchedPtsRef.current;
       }
-      if (!consumeRequestSlot(now, manual)) return matchedPtsRef.current;
+      if (!consumeRequestSlot(now, manual)) {
+        logSnapReject('force_budget_slot_denied');
+        return matchedPtsRef.current;
+      }
+
+      const sqliteHit = await applyLocalRoadCache(lat, lng, manual ? 70 : 80);
+      if (sqliteHit) {
+        logSnapReject(manual ? 'force_sqlite_cache_hit_manual' : 'force_sqlite_cache_hit');
+        return sqliteHit;
+      }
 
       const genWhenStarted = matchGenRef.current;
       isFetchingRef.current = true;
@@ -392,8 +491,15 @@ export function useDrivingMapMatch() {
         const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
         const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
-          if (!manual) return null;
-          const stub = shouldAttemptDirectionsStub(lat, lng, true)
+          const canUseStub = manual || refresh;
+          if (!canUseStub) return null;
+          const cached = await roadGeometryStore.findNearest(lat, lng, 80);
+          if (cached && cached.points.length >= 2) {
+            matchedPtsRef.current = cached.points;
+            matchedTimeRef.current = Date.now();
+            return cached.points;
+          }
+          const stub = shouldAttemptDirectionsStub(lat, lng, true, manual)
             ? await roadGeometryFromDirectionsStub(lat, lng)
             : null;
           if (genWhenStarted !== matchGenRef.current) return null;
@@ -401,6 +507,7 @@ export function useDrivingMapMatch() {
             matchedPtsRef.current  = stub;
             matchedTimeRef.current = Date.now();
             console.log('[DrivingMapMatch] forceMatch directions stub', stub.length, 'pts');
+            await persistMatchedGeometry(stub);
             return stub;
           }
           return null;
@@ -427,6 +534,7 @@ export function useDrivingMapMatch() {
         if (genWhenStarted !== matchGenRef.current) return null;
 
         if (!json) {
+          logSnapReject('force_proxy_and_fallback_null');
           return (await tryDirectionsStub()) ?? matchedPtsRef.current;
         }
 
@@ -437,21 +545,25 @@ export function useDrivingMapMatch() {
           if (genWhenStarted !== matchGenRef.current) return null;
           matchedPtsRef.current  = matched;
           matchedTimeRef.current = Date.now();
+          await persistMatchedGeometry(matched);
           console.log('[DrivingMapMatch] forceMatch snapped to road:', matched.length, 'pts');
           return matched;
         }
         console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
+        logSnapReject('force_no_match', { code: json.code ?? 'unknown' });
         return (await tryDirectionsStub()) ?? null;
       } catch (e) {
         console.warn('[DrivingMapMatch] forceMatch error:', e);
+        logSnapReject('force_api_error');
         if (genWhenStarted !== matchGenRef.current) return null;
-        const stub = manual && shouldAttemptDirectionsStub(lat, lng, true)
+        const stub = (manual || refresh) && shouldAttemptDirectionsStub(lat, lng, true, manual)
           ? await roadGeometryFromDirectionsStub(lat, lng)
           : null;
         if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
           matchedPtsRef.current  = stub;
           matchedTimeRef.current = Date.now();
           console.log('[DrivingMapMatch] forceMatch error recovery stub', stub.length, 'pts');
+          await persistMatchedGeometry(stub);
           return stub;
         }
         return null;
@@ -459,7 +571,7 @@ export function useDrivingMapMatch() {
         isFetchingRef.current = false;
       }
     },
-    [consumeRequestSlot, shouldAttemptDirectionsStub],
+    [applyLocalRoadCache, consumeRequestSlot, getRequestUsageCount, logSnapReject, persistMatchedGeometry, shouldAttemptDirectionsStub],
   );
 
   /**

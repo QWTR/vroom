@@ -146,7 +146,7 @@ export default function TabLayout() {
             <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBg }]} />
           ),
         animation:           Platform.OS === 'ios' ? 'fade' : 'shift',
-        lazy:                  false,
+        lazy:                  true,
         freezeOnBlur:          false,
         tabBarHideOnKeyboard: true,
         sceneStyle:          { paddingBottom: tabBarHeight, backgroundColor: theme.bg },

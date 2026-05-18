@@ -19,8 +19,14 @@ export const ArrowMarkerRenderer = ({ onCapture }: ArrowMarkerRendererProps) => 
 
   return (
     <View style={{
-      position: 'absolute', top: 0, left: 0,
-      opacity: 0, zIndex: -999, pointerEvents: 'none',
+      position: 'absolute',
+      top: 0,
+      left: -10_000,
+      width: 60,
+      height: 60,
+      opacity: 0,
+      overflow: 'hidden',
+      pointerEvents: 'none',
     }}>
       <ViewShot
         ref={shotRef}

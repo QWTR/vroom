@@ -280,7 +280,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
             speed:     emitSpeedMs,
             heading:   loc.coords.heading,
             accuracy:  acc,
-            timestamp: activeMode ? now : loc.timestamp,
+            timestamp: loc.timestamp ?? now,
           });
 
           // ══ 6. Auto-upgrade browsing → active ════════════════

@@ -14,8 +14,6 @@ const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
 // caused prolonged "no snap" windows when proxy was temporarily unavailable.
 const MATCHING_FALLBACK_MAX_PER_WINDOW = 120;
 const MATCHING_FALLBACK_COOLDOWN_MS = 4_000;
-let lastDirectionsFallbackAt = 0;
-const DIRECTIONS_FALLBACK_COOLDOWN_MS = 20_000;
 
 type SearchCacheEntry = { at: number; data: unknown };
 const searchCache = new Map<string, SearchCacheEntry>();
@@ -152,11 +150,6 @@ export async function fetchDirectionsViaProxy<T>(payload: Record<string, unknown
     body: JSON.stringify(payload),
   }, { timeoutMs: 12_000 });
   if (viaProxy != null) return viaProxy;
-  const now = Date.now();
-  if (now - lastDirectionsFallbackAt < DIRECTIONS_FALLBACK_COOLDOWN_MS) {
-    throw new Error('DIRECTIONS_PROXY_UNAVAILABLE');
-  }
-  lastDirectionsFallbackAt = now;
   const res = await fetchWithTimeout(fallbackUrl, {}, 12_000);
   if (!res.ok) throw new Error(`DIRECTIONS_FALLBACK_${res.status}`);
   return await res.json() as T;
