@@ -147,7 +147,24 @@ export function useDeadReckoning({
   }, [loop]);
 
   const feed = useCallback((pos: Position, _speedMs: number, heading: number) => {
-    if (!enabledRef.current) return;
+    if (!enabledRef.current) {
+      // Gdy rAF wyłączone — nadal zapamiętaj cel; rodzic może odświeżyć marker przez bumpActiveMarker.
+      if (
+        Number.isFinite(pos.latitude) &&
+        Number.isFinite(pos.longitude) &&
+        Number.isFinite(heading)
+      ) {
+        toLat.current = pos.latitude;
+        toLng.current = pos.longitude;
+        toHdg.current = heading;
+        displayLat.current = pos.latitude;
+        displayLng.current = pos.longitude;
+        displayHdg.current = heading;
+        hasFirstFeed.current = true;
+        lastFeedMs.current = performance.now();
+      }
+      return;
+    }
     if (
       !Number.isFinite(pos.latitude) ||
       !Number.isFinite(pos.longitude) ||
@@ -166,8 +183,10 @@ export function useDeadReckoning({
       if (jumpM < 0.4 && dt < 500) {
         return;
       }
-      const speedMs = _speedMs ?? 0;
-      if (speedMs < 0.7) {
+      const speedMs = Math.max(0, _speedMs ?? 0);
+      if (speedMs >= 2.5) {
+        if (jumpM < 0.2 && dt < 350) return;
+      } else if (speedMs < 0.7) {
         if (jumpM < 8 && dt < 6000) return;
         if (jumpM < 2.5 && dt < 2500) return;
       } else if (jumpM < 0.4 && dt < 2200 && speedMs < 1.2) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, Pressable, Platform, TextInput, ActivityIndicator,
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -85,6 +85,9 @@ export function AddFuelStationModal({ visible, latitude, longitude, onClose, onS
                 {latitude.toFixed(5)}, {longitude.toFixed(5)}
               </Text>
             </View>
+            <TouchableOpacity onPress={onClose} disabled={saving} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <MaterialIcons name="close" size={22} color={saving ? theme.textFaint : theme.textDim} />
+            </TouchableOpacity>
           </View>
 
           <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1, marginBottom: 6 }}>NAZWA *</Text>

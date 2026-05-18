@@ -60,7 +60,8 @@ function round4(n: number) { return Math.round(n * 10000) / 10000; }
 // Increase both values to reduce API calls further if stale routes are acceptable.
 const SINGLE_ROUTE_TTL_MS = 600_000; // 10 min — ta sama trasa w nawigacji bez ponownego API
 const ALT_ROUTES_TTL_MS   = 300_000; // 5 min — podgląd alternatyw przed startem
-const MIN_DIRECTIONS_GAP_MS = 8_000; // globalny odstęp między dowolnymi callami Directions
+/** Tylko dla alternatyw (podgląd) — nawigacja nigdy nie może być zablokowana przez gap. */
+const MIN_ALT_DIRECTIONS_GAP_MS = 3_000;
 
 interface CacheEntry {
   result:    DirectionsResult | DirectionsResult[];
@@ -169,12 +170,6 @@ export function useGoogleDirections(
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const now = Date.now();
-    if (now - lastDirectionsFetchAt < MIN_DIRECTIONS_GAP_MS) {
-      if (DEBUG_NETWORK) console.log('[useGoogleDirections] global gap, skip', cacheKey);
-      return;
-    }
-
     inflightKeys.add(cacheKey);
     setLoading(true);
     setError(null);
@@ -183,7 +178,6 @@ export function useGoogleDirections(
 
     (async () => {
       try {
-        lastDirectionsFetchAt = Date.now();
         const bearingParam = roundedHeading != null ? `&bearings=${roundedHeading},45;` : '';
 
         const url =
@@ -278,8 +272,8 @@ export function useGoogleDirectionsAlternatives(
     abortRef.current = controller;
 
     const now = Date.now();
-    if (now - lastDirectionsFetchAt < MIN_DIRECTIONS_GAP_MS) {
-      if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] global gap, skip', cacheKey);
+    if (now - lastDirectionsFetchAt < MIN_ALT_DIRECTIONS_GAP_MS) {
+      if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] alt gap, skip', cacheKey);
       return;
     }
 

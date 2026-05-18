@@ -3,7 +3,7 @@ import {
   View, Text, Modal, TouchableOpacity, Pressable,
   Platform, TextInput, ActivityIndicator, InputAccessoryView, Keyboard, ScrollView,
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -158,6 +158,13 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
                 </Text>
               )}
             </View>
+            <TouchableOpacity
+              onPress={() => { setEditMode(false); onClose(); }}
+              disabled={saving}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <MaterialIcons name="close" size={22} color={saving ? theme.textFaint : theme.textDim} />
+            </TouchableOpacity>
           </View>
 
           {/* Prices table */}
