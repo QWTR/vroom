@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  RefreshControl, Alert,
+  RefreshControl, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
@@ -19,6 +19,7 @@ import {
   type Post,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
   DiscussionPollCard, extractUrl, renderDiscussionBody, resolveMentionUserId,
+  ReactionChips, DISCUSSION_REACTION_EMOJIS,
   type PostPollData, type PostPollInput,
 } from './communityShared';
 
@@ -27,6 +28,7 @@ import {
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
   post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock, onPollVote,
+  onReact, onOpenReactionPicker,
 }: {
   post: Post; myId: number | null;
   onLike: (id: number) => void;
@@ -37,10 +39,14 @@ const PostCard = React.memo(({
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
+  onReact: (postId: number, emoji: string) => void;
+  onOpenReactionPicker: (post: Post) => void;
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
   const [joiningClub, setJoiningClub] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
   const isOwn = post.author.id === myId;
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
   const getToken = () => AsyncStorage.getItem('token');
@@ -70,6 +76,53 @@ const PostCard = React.memo(({
   const plainText = clubInviteData ? clubInviteMessage : (hasPoll ? '' : post.content);
   const caption   = hasPoll ? post.content?.trim() : '';
   const linkUrl   = (!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null;
+
+  useEffect(() => {
+    if (isOwn || !myId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${API_URL}/api/follow/status/${post.author.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setIsFollowing(!!data.isFollowing);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [post.author.id, isOwn, myId]);
+
+  const handleFollowToggle = useCallback(async () => {
+    if (isOwn || !myId) return;
+    setFollowLoading(true);
+    try {
+      const token = await getToken();
+      if (isFollowing) {
+        const res = await fetch(`${API_URL}/api/follow/${post.author.id}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setIsFollowing(false);
+          Toast.show({ type: 'success', text1: 'Przestałeś obserwować' });
+        }
+      } else {
+        const res = await fetch(`${API_URL}/api/follow/${post.author.id}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setIsFollowing(true);
+          Toast.show({ type: 'success', text1: 'Obserwujesz!' });
+        }
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } finally {
+      setFollowLoading(false);
+    }
+  }, [isFollowing, isOwn, myId, post.author.id]);
 
   const handleJoinClub = async () => {
     if (!clubInviteData?.clubId || joiningClub) return;
@@ -147,6 +200,30 @@ const PostCard = React.memo(({
             </TouchableOpacity>
             <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2, letterSpacing: 1 }}>{time}</Text>
           </View>
+          {!isOwn && myId != null && (
+            <TouchableOpacity
+              onPress={handleFollowToggle}
+              disabled={followLoading}
+              style={{
+                paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, marginRight: 6,
+                backgroundColor: isFollowing ? theme.surface2 : '#e33835',
+                borderWidth: 1,
+                borderColor: isFollowing ? theme.border : '#e33835',
+              }}
+            >
+              {followLoading
+                ? <ActivityIndicator size="small" color={isFollowing ? theme.textDim : '#fff'} />
+                : (
+                  <Text style={{
+                    fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700',
+                    color: isFollowing ? theme.textDim : '#fff',
+                  }}>
+                    {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                  </Text>
+                )
+              }
+            </TouchableOpacity>
+          )}
           {isOwn ? (
             <TouchableOpacity
               onPress={() => setShowDelete(true)}
@@ -167,7 +244,12 @@ const PostCard = React.memo(({
         </View>
 
         {/* Treść */}
-        <TouchableOpacity activeOpacity={0.95} onPress={() => onComment(post)}>
+        <TouchableOpacity
+          activeOpacity={0.95}
+          onPress={() => onComment(post)}
+          onLongPress={() => onOpenReactionPicker(post)}
+          delayLongPress={400}
+        >
           {!!caption?.length && (
             <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 8 }}>
               {renderDiscussionBody(caption, theme, {
@@ -236,6 +318,12 @@ const PostCard = React.memo(({
           <DiscussionPollCard postId={post.id} poll={post.poll} onVote={onPollVote} />
         )}
 
+        {!!post.reactions?.length && (
+          <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
+            <ReactionChips reactions={post.reactions} onToggle={(emoji) => onReact(post.id, emoji)} />
+          </View>
+        )}
+
         {/* Repost badge */}
         {post.isReposted && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginHorizontal: 14, marginBottom: 8 }}>
@@ -254,6 +342,12 @@ const PostCard = React.memo(({
           <ActionBtn icon="comment-outline" count={post.commentsCount} active={false} onPress={() => onComment(post)} />
           <ActionBtn icon="repeat" count={post.repostsCount} active={post.isReposted} activeColor="#4de926" onPress={() => onRepost(post.id)} />
           <ActionBtn icon={post.isLiked ? 'heart' : 'heart-outline'} count={post.likesCount} active={post.isLiked} activeColor="#e33835" onPress={() => onLike(post.id)} />
+          <TouchableOpacity
+            onPress={() => onOpenReactionPicker(post)}
+            style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ fontSize: 16 }}>😀</Text>
+          </TouchableOpacity>
         </View>
       </View>
       <DeleteModal visible={showDelete} onCancel={() => setShowDelete(false)} onConfirm={() => { setShowDelete(false); onDelete(post.id); }} />
@@ -269,7 +363,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, bottomInset, isPremium, onUpgradePremium }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, bottomInset, isPremium, onUpgradePremium }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -286,6 +380,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
+  onReact: (postId: number, emoji: string) => void;
+  onOpenReactionPicker: (post: Post) => void;
   bottomInset: number;
   isPremium: boolean;
   onUpgradePremium: () => void;
@@ -317,7 +413,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote} />
+            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
+            onReact={onReact} onOpenReactionPicker={onOpenReactionPicker} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}

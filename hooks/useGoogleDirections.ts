@@ -55,11 +55,12 @@ function round4(n: number) { return Math.round(n * 10000) / 10000; }
 // ── Module-level in-memory cache ─────────────────────────────────────────────
 // Shared across all hook instances; cleared only on app restart.
 // TTLs below control how long a cached result is considered fresh.
-//   - SINGLE_ROUTE_TTL_MS  (30 s): keeps navigation + reroute results fresh enough for a drive
-//   - ALT_ROUTES_TTL_MS    (60 s): alternatives panel rarely needs sub-minute freshness
+//   - SINGLE_ROUTE_TTL_MS  (10 min): nawigacja bez ponownego Directions przy tym samym O/D
+//   - ALT_ROUTES_TTL_MS    (5 min): podgląd alternatyw przed startem
 // Increase both values to reduce API calls further if stale routes are acceptable.
-const SINGLE_ROUTE_TTL_MS = 90_000;
-const ALT_ROUTES_TTL_MS   = 180_000;
+const SINGLE_ROUTE_TTL_MS = 600_000; // 10 min — ta sama trasa w nawigacji bez ponownego API
+const ALT_ROUTES_TTL_MS   = 300_000; // 5 min — podgląd alternatyw przed startem
+const MIN_DIRECTIONS_GAP_MS = 8_000; // globalny odstęp między dowolnymi callami Directions
 
 interface CacheEntry {
   result:    DirectionsResult | DirectionsResult[];
@@ -73,6 +74,7 @@ const directionsCache = new Map<string, CacheEntry>();
 // this guards against the same async IIFE being started twice within one
 // event loop tick (e.g., rapid dep changes triggering consecutive effects).
 const inflightKeys = new Set<string>();
+let lastDirectionsFetchAt = 0;
 
 function makeCacheKey(
   oLat: number, oLng: number,
@@ -138,7 +140,8 @@ export function useGoogleDirections(
   const destLat   = destination ? round4(destination.latitude) : null;
   const destLng   = destination ? round4(destination.longitude): null;
 
-  const roundedHeading = heading != null ? Math.round(heading / 10) * 10 : null;
+  // Grubsze kubełki kierunku = mniej reroute'ów przy lekkiej zmianie heading GPS.
+  const roundedHeading = heading != null ? Math.round(heading / 45) * 45 : null;
 
   useEffect(() => {
     if (originLat == null || originLng == null || destLat == null || destLng == null) {
@@ -166,6 +169,12 @@ export function useGoogleDirections(
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const now = Date.now();
+    if (now - lastDirectionsFetchAt < MIN_DIRECTIONS_GAP_MS) {
+      if (DEBUG_NETWORK) console.log('[useGoogleDirections] global gap, skip', cacheKey);
+      return;
+    }
+
     inflightKeys.add(cacheKey);
     setLoading(true);
     setError(null);
@@ -174,6 +183,7 @@ export function useGoogleDirections(
 
     (async () => {
       try {
+        lastDirectionsFetchAt = Date.now();
         const bearingParam = roundedHeading != null ? `&bearings=${roundedHeading},45;` : '';
 
         const url =
@@ -267,6 +277,12 @@ export function useGoogleDirectionsAlternatives(
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const now = Date.now();
+    if (now - lastDirectionsFetchAt < MIN_DIRECTIONS_GAP_MS) {
+      if (DEBUG_NETWORK) console.log('[useGoogleDirectionsAlternatives] global gap, skip', cacheKey);
+      return;
+    }
+
     inflightKeys.add(cacheKey);
     setLoading(true);
     setError(null);
@@ -275,6 +291,7 @@ export function useGoogleDirectionsAlternatives(
 
     (async () => {
       try {
+        lastDirectionsFetchAt = Date.now();
         const url =
           `https://api.mapbox.com/directions/v5/mapbox/driving/` +
           `${originLng},${originLat};${destLng},${destLat}` +

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Keyboard, Modal, Pressable, StatusBar, ScrollView,
-  Alert, Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect }        from 'expo-router';
@@ -24,6 +24,7 @@ import {
   type Author, type Comment, type Post, type PublicRoute, type CommunityCar, type Tab,
   Avatar, PhotoViewer, LoadingView,
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
+  ReactionChips, DISCUSSION_REACTION_EMOJIS,
 } from './communityShared';
 import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
 import { TabDyskusje } from './TabDyskusje';
@@ -97,6 +98,9 @@ export default function CommunityScreen() {
   const [commentPhotoIdx,    setCommentPhotoIdx]    = useState(0);
   const [commentPhotoUris,   setCommentPhotoUris]   = useState<string[]>([]);
   const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const [commentAuthorFollowing, setCommentAuthorFollowing] = useState(false);
+  const [commentFollowLoading, setCommentFollowLoading] = useState(false);
+  const [reactionPicker, setReactionPicker] = useState<{ type: 'post' | 'comment'; id: number } | null>(null);
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commentListRef = useRef<FlatList<Comment>>(null);
   const commentKeyboardInset = useKeyboardInset(!!commentPost);
@@ -428,13 +432,128 @@ export default function CommunityScreen() {
   const openComments = useCallback(async (post: Post) => {
     setCommentPost(post); setComments([]); setLoadingComments(true);
     setCommentMentionUsers([]);
+    setCommentAuthorFollowing(false);
+    if (post.author.id !== myId && myId) {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${API_URL}/api/follow/status/${post.author.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCommentAuthorFollowing(!!data.isFollowing);
+        }
+      } catch {}
+    }
     try {
       const token = await getToken();
       const res   = await fetch(`${API_URL}/api/posts/${post.id}/comments`, { headers: { Authorization: `Bearer ${token}` } });
       const data  = await res.json();
       setComments(Array.isArray(data) ? data : []);
     } catch {} finally { setLoadingComments(false); }
-  }, []);
+  }, [myId]);
+
+  const goToProfile = useCallback((userId: number) => {
+    setCommentPost(null);
+    router.push({ pathname: '/profile/[userId]', params: { userId: String(userId) } });
+  }, [router]);
+
+  const handleCommentAuthorFollow = useCallback(async () => {
+    if (!commentPost || commentPost.author.id === myId) return;
+    setCommentFollowLoading(true);
+    try {
+      const token = await getToken();
+      if (commentAuthorFollowing) {
+        const res = await fetch(`${API_URL}/api/follow/${commentPost.author.id}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setCommentAuthorFollowing(false);
+          Toast.show({ type: 'success', text1: 'Przestałeś obserwować' });
+        }
+      } else {
+        const res = await fetch(`${API_URL}/api/follow/${commentPost.author.id}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setCommentAuthorFollowing(true);
+          Toast.show({ type: 'success', text1: 'Obserwujesz!' });
+        }
+      }
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    } finally {
+      setCommentFollowLoading(false);
+    }
+  }, [commentPost, commentAuthorFollowing, myId]);
+
+  const handlePostReact = useCallback(async (postId: number, emoji: string) => {
+    const post = posts.find(p => p.id === postId);
+    const hasMine = !!post?.reactions?.find(r => r.emoji === emoji)?.myReaction;
+    try {
+      const token = await getToken();
+      const endpoint = hasMine
+        ? `${API_URL}/api/posts/${postId}/reactions/${encodeURIComponent(emoji)}`
+        : `${API_URL}/api/posts/${postId}/reactions`;
+      const res = await fetch(endpoint, {
+        method: hasMine ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, reactions: data.reactions ?? [] } : p));
+      setCommentPost(prev => (prev?.id === postId ? { ...prev, reactions: data.reactions ?? [] } : prev));
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    }
+  }, [posts]);
+
+  const handleCommentReact = useCallback(async (commentId: number, emoji: string) => {
+    const comment = comments.find(c => c.id === commentId);
+    const hasMine = !!comment?.reactions?.find(r => r.emoji === emoji)?.myReaction;
+    try {
+      const token = await getToken();
+      const endpoint = hasMine
+        ? `${API_URL}/api/posts/comments/${commentId}/reactions/${encodeURIComponent(emoji)}`
+        : `${API_URL}/api/posts/comments/${commentId}/reactions`;
+      const res = await fetch(endpoint, {
+        method: hasMine ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setComments(prev => prev.map(c => c.id === commentId ? { ...c, reactions: data.reactions ?? [] } : c));
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    }
+  }, [comments]);
+
+  const handleLikeComment = useCallback(async (commentId: number) => {
+    const comment = comments.find(c => c.id === commentId);
+    if (!comment) return;
+    const nextLiked = !comment.isLiked;
+    const nextCount = Math.max(0, (comment.likesCount ?? 0) + (nextLiked ? 1 : -1));
+    setComments(prev => prev.map(c => c.id === commentId ? { ...c, isLiked: nextLiked, likesCount: nextCount } : c));
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/posts/comments/${commentId}/like`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setComments(prev => prev.map(c => c.id === commentId ? comment : c));
+        return;
+      }
+      const data = await res.json();
+      setComments(prev => prev.map(c => c.id === commentId
+        ? { ...c, isLiked: !!data.liked, likesCount: data.likesCount ?? nextCount }
+        : c,
+      ));
+    } catch {
+      setComments(prev => prev.map(c => c.id === commentId ? comment : c));
+    }
+  }, [comments]);
 
   const handleSendComment = async () => {
     if (!commentText.trim() && commentPhotos.length === 0) return;
@@ -497,9 +616,10 @@ export default function CommunityScreen() {
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
   const modalBottomPadding = Math.max(insets.bottom, 12);
-  const effectiveCommentKeyboardInset = Platform.OS === 'ios'
-    ? Math.max(0, commentKeyboardInset - insets.bottom)
-    : commentKeyboardInset;
+  const commentInputBottomPad = commentKeyboardInset > 0
+    ? commentKeyboardInset
+    : modalBottomPadding;
+  const commentListMaxHeight = commentKeyboardInset > 0 ? 220 : 340;
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -609,6 +729,8 @@ export default function CommunityScreen() {
               onDelete={handleDeletePost} onPost={handlePost} onPollVote={handlePollVote}
               onReport={handleReportPost}
               onBlock={handleBlockPostAuthor}
+              onReact={handlePostReact}
+              onOpenReactionPicker={(post) => setReactionPicker({ type: 'post', id: post.id })}
               onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
               onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
               onLoadMore={loadMorePosts} bottomInset={insets.bottom}
@@ -667,11 +789,10 @@ export default function CommunityScreen() {
               backgroundColor: theme.surface,
               borderTopLeftRadius: 28, borderTopRightRadius: 28,
               borderWidth: 1, borderColor: theme.border2,
-              maxHeight: effectiveCommentKeyboardInset > 0 ? '82%' : '88%',
-              marginBottom: effectiveCommentKeyboardInset,
+              maxHeight: '88%',
             }}
           >
-            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
               {/* Handle */}
               <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
 
@@ -693,16 +814,45 @@ export default function CommunityScreen() {
                   backgroundColor: theme.surface2, borderRadius: 14, padding: 10,
                   borderWidth: 1, borderColor: theme.border,
                 }}>
-                  <Avatar user={commentPost.author} size={30} />
+                  <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
+                    <Avatar user={commentPost.author} size={30} />
+                  </TouchableOpacity>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, marginBottom: 3 }}>{commentPost.author.username}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                      <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11 }}>{commentPost.author.username}</Text>
+                      </TouchableOpacity>
+                      {commentPost.author.id !== myId && myId != null && (
+                        <TouchableOpacity
+                          onPress={handleCommentAuthorFollow}
+                          disabled={commentFollowLoading}
+                          style={{
+                            paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+                            backgroundColor: commentAuthorFollowing ? theme.surface : '#e33835',
+                            borderWidth: 1, borderColor: commentAuthorFollowing ? theme.border : '#e33835',
+                          }}
+                        >
+                          {commentFollowLoading
+                            ? <ActivityIndicator size="small" color={commentAuthorFollowing ? theme.textDim : '#fff'} />
+                            : (
+                              <Text style={{
+                                fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
+                                color: commentAuthorFollowing ? theme.textDim : '#fff',
+                              }}>
+                                {commentAuthorFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                              </Text>
+                            )
+                          }
+                        </TouchableOpacity>
+                      )}
+                    </View>
                     {commentPost.content.length > 0 && (
                       <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
                         {renderDiscussionBody(commentPost.content, theme, {
                           textColor: theme.textDim,
                           onMentionPress: async (username) => {
                             const uid = await resolveMentionUserId(username);
-                            if (uid) router.push({ pathname: '/profile/[userId]', params: { userId: String(uid) } });
+                            if (uid) goToProfile(uid);
                           },
                         })}
                       </Text>
@@ -711,6 +861,12 @@ export default function CommunityScreen() {
                       <TouchableOpacity onPress={() => { setCommentPhotoUris(commentPost.photos); setCommentPhotoIdx(0); setCommentPhotoViewer(true); }}>
                         <Image source={{ uri: commentPost.photos[0] }} style={{ width: 60, height: 44, borderRadius: 8, marginTop: 6 }} resizeMode="cover" />
                       </TouchableOpacity>
+                    )}
+                    {!!commentPost.reactions?.length && (
+                      <ReactionChips
+                        reactions={commentPost.reactions}
+                        onToggle={(emoji) => handlePostReact(commentPost.id, emoji)}
+                      />
                     )}
                   </View>
                 </View>
@@ -726,18 +882,23 @@ export default function CommunityScreen() {
                   ref={commentListRef}
                   data={comments}
                   keyExtractor={c => String(c.id)}
-                  style={{ maxHeight: effectiveCommentKeyboardInset > 0 ? 180 : 300 }}
+                  style={{ maxHeight: commentListMaxHeight }}
+                  contentContainerStyle={{ paddingBottom: 8 }}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-                      <Avatar user={item.author} size={32} />
+                      <TouchableOpacity onPress={() => goToProfile(item.author.id)}>
+                        <Avatar user={item.author} size={32} />
+                      </TouchableOpacity>
                       <View style={{
                         flex: 1, backgroundColor: theme.surface2,
                         borderRadius: 14, padding: 10,
                         borderWidth: 1, borderColor: theme.border,
                       }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>{item.author.username}</Text>
+                          <TouchableOpacity onPress={() => goToProfile(item.author.id)}>
+                            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>{item.author.username}</Text>
+                          </TouchableOpacity>
                           <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}
                           </Text>
@@ -766,20 +927,43 @@ export default function CommunityScreen() {
                           >
                             <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8 }}>↩ odpowiedz</Text>
                           </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleLikeComment(item.id)}>
+                            <MaterialCommunityIcons
+                              name={item.isLiked ? 'heart' : 'heart-outline'}
+                              size={14}
+                              color={item.isLiked ? '#e33835' : theme.textDim}
+                            />
+                          </TouchableOpacity>
+                          {(item.likesCount ?? 0) > 0 && (
+                            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>{item.likesCount}</Text>
+                          )}
+                          <TouchableOpacity onPress={() => setReactionPicker({ type: 'comment', id: item.id })}>
+                            <Text style={{ fontSize: 12 }}>😀</Text>
+                          </TouchableOpacity>
                         </View>
                         {item.replyTo && (
                           <Text style={{ fontFamily: 'Orbitron', color: '#e3383555', fontSize: 8, marginBottom: 4 }}>
                             ↩ @{item.replyTo.username}
                           </Text>
                         )}
-                        <Text style={{ fontSize: 13, lineHeight: 19 }}>
-                          {renderDiscussionBody(item.content, theme, {
-                            onMentionPress: async (username) => {
-                              const uid = await resolveMentionUserId(username);
-                              if (uid) router.push({ pathname: '/profile/[userId]', params: { userId: String(uid) } });
-                            },
-                          })}
-                        </Text>
+                        <TouchableOpacity
+                          activeOpacity={0.9}
+                          onLongPress={() => setReactionPicker({ type: 'comment', id: item.id })}
+                          delayLongPress={400}
+                        >
+                          <Text style={{ fontSize: 13, lineHeight: 19 }}>
+                            {renderDiscussionBody(item.content, theme, {
+                              onMentionPress: async (username) => {
+                                const uid = await resolveMentionUserId(username);
+                                if (uid) goToProfile(uid);
+                              },
+                            })}
+                          </Text>
+                        </TouchableOpacity>
+                        <ReactionChips
+                          reactions={item.reactions}
+                          onToggle={(emoji) => handleCommentReact(item.id, emoji)}
+                        />
                         {item.photos?.length > 0 && (
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                             {item.photos.map((uri: string, i: number) => (
@@ -809,9 +993,7 @@ export default function CommunityScreen() {
             <View style={{
               paddingHorizontal: 16,
               paddingTop: 12,
-              paddingBottom: effectiveCommentKeyboardInset > 0
-                ? effectiveCommentKeyboardInset + 8
-                : modalBottomPadding,
+              paddingBottom: commentInputBottomPad,
               borderTopWidth: 1,
               borderTopColor: theme.border,
               backgroundColor: theme.surface,
@@ -1005,6 +1187,54 @@ export default function CommunityScreen() {
         data={lbData} runsData={lbRunsData} loading={lbLoading}
         onClose={() => setLbRoute(null)}
       />
+
+      {/* ══ PICKER REAKCJI ════════════════════════════════════ */}
+      <Modal
+        visible={!!reactionPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReactionPicker(null)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}
+          onPress={() => setReactionPicker(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 24, borderTopRightRadius: 24,
+              paddingHorizontal: 20, paddingTop: 16,
+              paddingBottom: modalBottomPadding + 12,
+              borderWidth: 1, borderColor: theme.border2,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 14, textAlign: 'center' }}>
+              WYBIERZ REAKCJĘ
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', gap: 8 }}>
+              {DISCUSSION_REACTION_EMOJIS.map(emoji => (
+                <TouchableOpacity
+                  key={emoji}
+                  onPress={() => {
+                    if (!reactionPicker) return;
+                    if (reactionPicker.type === 'post') handlePostReact(reactionPicker.id, emoji);
+                    else handleCommentReact(reactionPicker.id, emoji);
+                    setReactionPicker(null);
+                  }}
+                  style={{
+                    width: 48, height: 48, borderRadius: 24,
+                    backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1, borderColor: theme.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 24 }}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ══ PHOTO VIEWER (globalny) ════════════════════════════ */}
       <PhotoViewer

@@ -18,14 +18,27 @@ import { useKeyboardInset }   from '../../../hooks/useKeyboardInset';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // ─── Types ────────────────────────────────────────────────
+export interface DiscussionReaction { emoji: string; count: number; myReaction: boolean; }
+export const DISCUSSION_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+
 export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; nickColor?: string | null; }
-export interface Comment      { id: number; content: string; photos: string[]; createdAt: string; author: Author; replyTo?: { id: number; username: string } | null; }
+export interface Comment      {
+  id: number; content: string; photos: string[]; createdAt: string; author: Author;
+  replyTo?: { id: number; username: string } | null;
+  likesCount?: number; isLiked?: boolean;
+  reactions?: DiscussionReaction[];
+}
 export interface PostPollData {
   id: number; question: string; options: string[];
   voteCounts: number[]; totalVotes: number; myVote: number | null;
 }
 export interface PostPollInput { question: string; options: string[]; }
-export interface Post         { id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author; likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean; poll?: PostPollData | null; }
+export interface Post         {
+  id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author;
+  likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean;
+  reactions?: DiscussionReaction[];
+  poll?: PostPollData | null;
+}
 export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points?: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
 export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: { id: number; username: string; avatarUrl: string | null }; likesCount: number; commentsCount: number; isLiked: boolean; }
 export type Tab = 'dyskusje' | 'trasy' | 'auta';
@@ -431,6 +444,41 @@ export const ActionBtn = ({
       />
       <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: active ? activeColor : theme.textDim }}>{count}</Text>
     </TouchableOpacity>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// REACTION CHIPS (dyskusje)
+// ─────────────────────────────────────────────────────────
+export const ReactionChips = ({
+  reactions,
+  onToggle,
+}: {
+  reactions?: DiscussionReaction[];
+  onToggle: (emoji: string) => void;
+}) => {
+  const { theme } = useTheme();
+  if (!reactions?.length) return null;
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+      {reactions.map(r => (
+        <TouchableOpacity
+          key={r.emoji}
+          onPress={() => onToggle(r.emoji)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 3,
+            backgroundColor: r.myReaction ? '#e3383530' : theme.surface2,
+            borderRadius: 12, paddingHorizontal: 7, paddingVertical: 3,
+            borderWidth: 1, borderColor: r.myReaction ? '#e33835' : theme.border,
+          }}
+        >
+          <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
+          <Text style={{ fontSize: 10, color: r.myReaction ? '#e33835' : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>
+            {r.count}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 };
 

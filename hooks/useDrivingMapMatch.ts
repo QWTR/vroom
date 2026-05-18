@@ -11,7 +11,7 @@ import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapbo
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-const MIN_INTERVAL_MS = 4_200;
+const MIN_INTERVAL_MS = 15_000;
 const BUFFER_SIZE     = 9;      // number of GPS points sent to API
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
@@ -22,25 +22,25 @@ const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolny
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
 const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeździe miejskiej
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
-const FORCE_MATCH_MIN_INTERVAL_MS = 57_600;
+const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 18;
+const MAX_REQUESTS_PER_WINDOW = 6;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
-const MAX_MANUAL_BURST_PER_WINDOW = 2;
+const MAX_MANUAL_BURST_PER_WINDOW = 0;
 /** Gdy zbliżamy się do limitu / h, agresywnie ogranicz częstotliwość odświeżeń. */
-const BUDGET_SOFT_CAP_PER_WINDOW = 12;
-const BUDGET_HARD_CAP_PER_WINDOW = 16;
+const BUDGET_SOFT_CAP_PER_WINDOW = 3;
+const BUDGET_HARD_CAP_PER_WINDOW = 5;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
-const REFRESH_FORCE_MIN_INTERVAL_MS = 9_600;
-const REFRESH_FORCE_MIN_MOVE_M = 35;
-const DIRECTIONS_STUB_MIN_INTERVAL_MS = 38_400;
-const DIRECTIONS_STUB_MIN_MOVE_M = 140;
-const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 9_600;
+const REFRESH_FORCE_MIN_INTERVAL_MS = 45_000;
+const REFRESH_FORCE_MIN_MOVE_M = 120;
+const DIRECTIONS_STUB_MIN_INTERVAL_MS = 120_000;
+const DIRECTIONS_STUB_MIN_MOVE_M = 260;
+const DIRECTIONS_STUB_AGGR_INTERVAL_MS = 45_000;
 const DIRECTIONS_STUB_AGGR_MOVE_M = 45;
-const DIRECTIONS_STUB_MAX_PER_WINDOW = 7;
+const DIRECTIONS_STUB_MAX_PER_WINDOW = 1;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -217,34 +217,38 @@ export function useDrivingMapMatch() {
     let dynamicMinIntervalMs = MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
     if (noRoad) {
-      dynamicMinIntervalMs = 4_200;
-      dynamicMinMoveM = 6;
+      dynamicMinIntervalMs = 18_000;
+      dynamicMinMoveM = 24;
     } else if (speedKmh >= 55) {
-      dynamicMinIntervalMs = 7_200;
-      dynamicMinMoveM = 22;
+      dynamicMinIntervalMs = 20_000;
+      dynamicMinMoveM = 52;
     } else if (speedKmh >= 25) {
-      dynamicMinIntervalMs = 6_100;
-      dynamicMinMoveM = 14;
+      dynamicMinIntervalMs = 18_000;
+      dynamicMinMoveM = 40;
     } else {
-      dynamicMinIntervalMs = 6_500;
-      dynamicMinMoveM = 10;
+      dynamicMinIntervalMs = 22_000;
+      dynamicMinMoveM = 34;
     }
     if (poorAcc && !noRoad) {
       dynamicMinIntervalMs += 1_900;
       dynamicMinMoveM += 8;
     }
     if (matchedPtsRef.current && !noRoad && speedKmh < 16 && !poorAcc) {
-      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 12_000);
-      dynamicMinMoveM = Math.max(dynamicMinMoveM, 24);
+      dynamicMinIntervalMs = Math.max(dynamicMinIntervalMs, 30_000);
+      dynamicMinMoveM = Math.max(dynamicMinMoveM, 70);
     }
     if (usageCount >= BUDGET_SOFT_CAP_PER_WINDOW) {
-      dynamicMinIntervalMs += 2_200;
-      dynamicMinMoveM += 10;
+      dynamicMinIntervalMs += 12_000;
+      dynamicMinMoveM += 30;
     }
     if (usageCount >= BUDGET_HARD_CAP_PER_WINDOW) {
-      dynamicMinIntervalMs += 4_000;
-      dynamicMinMoveM += 16;
+      dynamicMinIntervalMs += 22_000;
+      dynamicMinMoveM += 55;
     }
+
+    // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
+    // (DR + drivingSnap), nie dopytując API.
+    if (matchedPtsRef.current && speedKmh < 8 && !noRoad) return;
 
     if (now - lastCallRef.current < dynamicMinIntervalMs) return;
     if (isFetchingRef.current)                       return;
@@ -280,22 +284,14 @@ export function useDrivingMapMatch() {
         url,
         // Proxy może zwrócić null (429, auth); driving bez geometrii = surowy GPS „po polu”.
         {
-          allowFallback: true,
-          cooldownMs: noRoad ? 1800 : 3500,
-          proxyTimeoutMs: noRoad ? 2200 : 3000,
-          fallbackTimeoutMs: noRoad ? 2200 : 2800,
+          allowFallback: false,
+          cooldownMs: noRoad ? 3000 : 6000,
+          proxyTimeoutMs: noRoad ? 2200 : 3200,
+          fallbackTimeoutMs: noRoad ? 2200 : 3200,
         },
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) {
-        const stub = shouldAttemptDirectionsStub(lat, lng, false)
-          ? await roadGeometryFromDirectionsStub(lat, lng)
-          : null;
-        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
-          matchedPtsRef.current = stub;
-          matchedTimeRef.current = Date.now();
-          console.log('[DrivingMapMatch] Trace fallback directions stub', stub.length, 'pts');
-        }
         return;
       }
 
@@ -308,14 +304,6 @@ export function useDrivingMapMatch() {
         console.log('[DrivingMapMatch] Matched', matched.length, 'points to road');
       } else {
         console.log('[DrivingMapMatch] No match found (code:', json.code, ')');
-        const stub = shouldAttemptDirectionsStub(lat, lng, false)
-          ? await roadGeometryFromDirectionsStub(lat, lng)
-          : null;
-        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
-          matchedPtsRef.current = stub;
-          matchedTimeRef.current = Date.now();
-          console.log('[DrivingMapMatch] Trace fallback directions stub', stub.length, 'pts');
-        }
       }
     } catch (e) {
       console.warn('[DrivingMapMatch] API error:', e);
@@ -404,7 +392,8 @@ export function useDrivingMapMatch() {
         const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
         const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
-          const stub = shouldAttemptDirectionsStub(lat, lng, manual)
+          if (!manual) return null;
+          const stub = shouldAttemptDirectionsStub(lat, lng, true)
             ? await roadGeometryFromDirectionsStub(lat, lng)
             : null;
           if (genWhenStarted !== matchGenRef.current) return null;
@@ -428,9 +417,9 @@ export function useDrivingMapMatch() {
           },
           url,
           {
-            allowFallback: true,
-            forceFallback: manual,
-            cooldownMs: manual ? 1200 : (refresh ? 2200 : 3500),
+            allowFallback: false,
+            forceFallback: false,
+            cooldownMs: manual ? 2000 : (refresh ? 4000 : 6000),
             proxyTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
             fallbackTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
           },
@@ -456,7 +445,7 @@ export function useDrivingMapMatch() {
       } catch (e) {
         console.warn('[DrivingMapMatch] forceMatch error:', e);
         if (genWhenStarted !== matchGenRef.current) return null;
-        const stub = shouldAttemptDirectionsStub(lat, lng, manual)
+        const stub = manual && shouldAttemptDirectionsStub(lat, lng, true)
           ? await roadGeometryFromDirectionsStub(lat, lng)
           : null;
         if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
