@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView }       from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -22,9 +22,11 @@ import EditClubModal          from '../../../components/clubs/EditClubModal';
 import RanksModal             from '../../../components/clubs/RanksModal';
 import { Club }               from '../../../components/clubs/types';
 import { MyInvitesModal }     from '../../../components/clubs/MyInvitesModal';
+import { MyClubsModal }       from '../../../components/clubs/MyClubsModal';
 import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
 import { getAuthToken } from '../../../lib/getAuthToken';
 const PAGE     = 20;
+type ClubSort  = 'created' | 'members';
 /** iOS nie obsługuje dwóch Modal jednocześnie — zamknij szczegóły, potem otwórz drugi. */
 const IOS_MODAL_SWAP_MS = 350;
 type ClubDetailResult = {
@@ -45,16 +47,17 @@ export default function ClubsScreen() {
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
   const [nextCursor,  setNextCursor]  = useState<number | null>(null);
+  const [nextSkip,    setNextSkip]    = useState<number | null>(null);
+  const [clubSort,    setClubSort]    = useState<ClubSort>('created');
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore,     setHasMore]     = useState(true);
   const [search,      setSearch]      = useState('');
   const [searchActive, setSearchActive] = useState(false);
   const [joining,     setJoining]     = useState<number | null>(null);
 
-  // ── Mój owned klub (założony przeze mnie) ─────────────
-  const [myOwnedClub, setMyOwnedClub] = useState<Club | null>(null);
-  // ── Kluby w których jestem członkiem (nie owner) ──────
-  const [myMemberClubs, setMyMemberClubs] = useState<Club[]>([]);
+  const [myOwnedClubs,   setMyOwnedClubs]   = useState<Club[]>([]);
+  const [myMemberClubs,  setMyMemberClubs]  = useState<Club[]>([]);
+  const [myClubsVisible, setMyClubsVisible] = useState(false);
 
   const [createVisible, setCreateVisible] = useState(false);
   const [detailClub,    setDetailClub]    = useState<Club | null>(null);
@@ -80,28 +83,71 @@ export default function ClubsScreen() {
     }).catch(() => {});
   }, []);
 
-  // ── Fetch clubs ────────────────────────────────────────
-  const fetchClubs = useCallback(async (cursor?: number, q?: string) => {
+  const applyClubList = useCallback((
+    list: Club[],
+    append: boolean,
+    sortMode: ClubSort,
+    data: { nextCursor?: number | null; nextSkip?: number | null },
+  ) => {
+    if (append) setClubs(prev => [...prev, ...list]);
+    else setClubs(list);
+    if (sortMode === 'members') {
+      setNextCursor(null);
+      setNextSkip(data.nextSkip ?? null);
+      setHasMore(data.nextSkip != null);
+    } else {
+      setNextSkip(null);
+      setNextCursor(data.nextCursor ?? null);
+      setHasMore(!!data.nextCursor);
+    }
+  }, []);
+
+  const fetchClubs = useCallback(async (opts?: {
+    cursor?: number;
+    skip?: number;
+    q?: string;
+    sortMode?: ClubSort;
+    append?: boolean;
+  }) => {
+    const sortMode = opts?.sortMode ?? clubSort;
+    const q = opts?.q ?? search;
+    const append = !!opts?.append;
     try {
       const token  = await getAuthToken();
-      const params = new URLSearchParams({ limit: String(PAGE) });
-      if (cursor) params.append('cursor', String(cursor));
-      if (q)      params.append('search', q);
+      const params = new URLSearchParams({ limit: String(PAGE), sort: sortMode });
+      if (q) params.append('search', q);
+      if (sortMode === 'members') {
+        if (opts?.skip) params.append('skip', String(opts.skip));
+      } else if (opts?.cursor) {
+        params.append('cursor', String(opts.cursor));
+      }
       const res  = await fetch(`${API_URL}/api/clubs?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       const list: Club[] = data.clubs ?? [];
-      if (cursor) setClubs(prev => [...prev, ...list]);
-      else        setClubs(list);
-      setNextCursor(data.nextCursor ?? null);
-      setHasMore(!!data.nextCursor);
+      applyClubList(list, append, sortMode, data);
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd ładowania klubów' });
     } finally {
       setLoading(false); setRefreshing(false); setLoadingMore(false);
     }
-  }, []);
+  }, [clubSort, search, applyClubList]);
+
+  const reloadAllClubs = useCallback((sortMode?: ClubSort) => {
+    setLoading(true);
+    setHasMore(true);
+    fetchClubs({ q: search, sortMode: sortMode ?? clubSort, append: false });
+  }, [clubSort, search, fetchClubs]);
+
+  const changeClubSort = useCallback((next: ClubSort) => {
+    if (next === clubSort) return;
+    setClubSort(next);
+    setClubs([]);
+    setLoading(true);
+    setHasMore(true);
+    fetchClubs({ q: search, sortMode: next, append: false });
+  }, [clubSort, search, fetchClubs]);
 
   const fetchMyInviteCount = useCallback(async () => {
     try {
@@ -123,11 +169,8 @@ export default function ClubsScreen() {
       if (!res.ok) return;
       const clubs: Club[] = await res.json();
 
-      const owned  = clubs.find(c => c.myRole === 'owner') ?? null;
-      const member = clubs.filter(c => c.myRole !== 'owner');
-
-      setMyOwnedClub(owned);
-      setMyMemberClubs(member);
+      setMyOwnedClubs(clubs.filter(c => c.myRole === 'owner'));
+      setMyMemberClubs(clubs.filter(c => c.myRole !== 'owner'));
     } catch {}
   }, []);
 
@@ -172,7 +215,7 @@ export default function ClubsScreen() {
 
   useFocusEffect(useCallback(() => {
     setLoading(true); setHasMore(true);
-    fetchClubs();
+    reloadAllClubs('created');
     fetchMyClub();
     fetchMyInviteCount();
   }, []));
@@ -213,14 +256,14 @@ export default function ClubsScreen() {
     }
     setDetailClub(detail.club);
     await fetchMyClub();
-    fetchClubs(undefined, search);
+    fetchClubs({ q: search, append: false });
   }, [detailClub, fetchClubDetail, fetchMyClub, fetchClubs, search]);
 
   const handleSearch = (text: string) => {
     setSearch(text);
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
-      setLoading(true); setHasMore(true); fetchClubs(undefined, text);
+      setLoading(true); setHasMore(true); fetchClubs({ q: text, sortMode: clubSort, append: false });
     }, 400);
   };
 
@@ -294,7 +337,6 @@ export default function ClubsScreen() {
         if (!res.ok) { Toast.show({ type: 'error', text1: 'Błąd usuwania' }); return; }
         setClubs(prev => prev.filter(c => c.id !== clubId));
         setDetailClub(null);
-        setMyOwnedClub(null);
         await Promise.all([fetchMyClub(), syncProfileClubFromServer()]);
         Toast.show({ type: 'success', text1: 'Klub usunięty' });
       }},
@@ -320,8 +362,8 @@ export default function ClubsScreen() {
     const data = await res.json();
     if (!res.ok) { Toast.show({ type: 'error', text1: data.error }); return; }
     setClubs(prev => [data, ...prev]);
-    setMyOwnedClub(data);
     setCreateVisible(false);
+    void fetchMyClub();
     await syncProfileClubFromServer();
     Toast.show({ type: 'success', text1: '🏁 KLUB STWORZONY!', text2: data.name });
   }, []);
@@ -380,7 +422,7 @@ export default function ClubsScreen() {
               autoFocus
             />
             <TouchableOpacity onPress={() => {
-              setSearch(''); setSearchActive(false); setLoading(true); fetchClubs();
+              setSearch(''); setSearchActive(false); reloadAllClubs();
             }}>
               <MaterialIcons name="close" size={15} color={theme.textDim} />
             </TouchableOpacity>
@@ -403,7 +445,7 @@ export default function ClubsScreen() {
             flexDirection: 'row', alignItems: 'center', gap: 4,
           }}
           onPress={() => {
-            if (!isPremium && myOwnedClub) {
+            if (!isPremium && myOwnedClubs.length > 0) {
               router.push('/premium' as any);
               return;
             }
@@ -415,113 +457,33 @@ export default function ClubsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── MÓJ OWNED KLUB ──────────────────────────────── */}
-      {myOwnedClub && (
-        <TouchableOpacity
-          style={{
-            flexDirection: 'row', alignItems: 'center', gap: 10,
-            marginHorizontal: 12, marginTop: 12,
-            marginBottom: myMemberClubs.length > 0 ? 4 : 12,
-            backgroundColor: '#e3383512', borderRadius: 13,
-            padding: 11, borderWidth: 1, borderColor: '#e3383530',
-          }}
-          onPress={() => openDetail(myOwnedClub)}
-          activeOpacity={0.85}
-        >
-          <View style={{
-            width: 38, height: 38, borderRadius: 10, overflow: 'hidden',
-            backgroundColor: '#e3383520', alignItems: 'center', justifyContent: 'center',
-          }}>
-            {myOwnedClub.avatarUrl
-              ? <Image source={{ uri: myOwnedClub.avatarUrl }} style={{ width: 38, height: 38 }} />
-              : <MaterialCommunityIcons name="shield-crown" size={18} color="#e33835" />
-            }
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', letterSpacing: 2, marginBottom: 1 }}>
-              TWÓJ KLUB
-            </Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }}>
-              {myOwnedClub.name}
-            </Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 1 }}>
-              {myOwnedClub.memberCount} członków · ZAŁOŻYCIEL
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={{
-              backgroundColor: '#e33835', borderRadius: 9,
-              paddingHorizontal: 10, paddingVertical: 7,
-              flexDirection: 'row', alignItems: 'center', gap: 4,
-            }}
-            onPress={() => router.push(`/Community/clubs/${myOwnedClub.id}` as any)}
-          >
-            <MaterialCommunityIcons name="chat" size={13} color="#fff" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>CZAT</Text>
-          </TouchableOpacity>
-          <Feather name="chevron-right" size={15} color={theme.textDim} />
-        </TouchableOpacity>
-      )}
-
-      {/* ── KLUBY W KTÓRYCH JESTEM CZŁONKIEM ────────────── */}
-      {myMemberClubs.length > 0 && (
-        <View style={{ marginHorizontal: 12, marginBottom: 8, marginTop: myOwnedClub ? 0 : 12 }}>
-          <Text style={{
-            fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim,
-            letterSpacing: 2, marginBottom: 6, marginTop: 4,
-          }}>
-            MOJE KLUBY ({myMemberClubs.length})
+      {/* ── MOJE KLUBY (przycisk → modal) ───────────────── */}
+      <TouchableOpacity
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+          marginHorizontal: 12, marginTop: 10, marginBottom: 4,
+          backgroundColor: theme.surface, borderRadius: 12,
+          paddingVertical: 11, paddingHorizontal: 14,
+          borderWidth: 1, borderColor: theme.border2,
+        }}
+        onPress={() => setMyClubsVisible(true)}
+        activeOpacity={0.88}
+      >
+        <MaterialCommunityIcons name="shield-account" size={18} color="#e33835" />
+        <Text style={{ flex: 1, fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
+          MOJE KLUBY
+        </Text>
+        <View style={{
+          backgroundColor: '#e3383520', borderRadius: 8,
+          paddingHorizontal: 8, paddingVertical: 3,
+          borderWidth: 1, borderColor: '#e3383540',
+        }}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '700' }}>
+            {myOwnedClubs.length + myMemberClubs.length}
           </Text>
-          {myMemberClubs.map(c => (
-            <TouchableOpacity
-              key={c.id}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 10,
-                backgroundColor: theme.surface, borderRadius: 13,
-                padding: 10, borderWidth: 1, borderColor: theme.border2,
-                marginBottom: 6,
-              }}
-              onPress={() => openDetail(c)}
-              activeOpacity={0.85}
-            >
-              <View style={{
-                width: 34, height: 34, borderRadius: 9, overflow: 'hidden',
-                backgroundColor: '#e3383518', alignItems: 'center', justifyContent: 'center',
-                borderWidth: 1, borderColor: '#e3383530',
-              }}>
-                {c.avatarUrl
-                  ? <Image source={{ uri: c.avatarUrl }} style={{ width: 34, height: 34 }} />
-                  : <MaterialCommunityIcons name="shield-crown-outline" size={15} color="#e33835" />
-                }
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{
-                  fontFamily: 'Orbitron', fontSize: 11,
-                  color: theme.text, fontWeight: '700',
-                }} numberOfLines={1}>
-                  {c.name}
-                </Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 1 }}>
-                  {c.memberCount} członków · {c.myRank ? c.myRank.name.toUpperCase() : 'CZŁONEK'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={{
-                  backgroundColor: theme.surface2, borderRadius: 8,
-                  paddingHorizontal: 9, paddingVertical: 6,
-                  flexDirection: 'row', alignItems: 'center', gap: 3,
-                  borderWidth: 1, borderColor: theme.border2,
-                }}
-                onPress={() => router.push(`/Community/clubs/${c.id}` as any)}
-              >
-                <MaterialCommunityIcons name="chat" size={12} color={theme.textDim} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>CZAT</Text>
-              </TouchableOpacity>
-              <Feather name="chevron-right" size={14} color={theme.textDim} />
-            </TouchableOpacity>
-          ))}
         </View>
-      )}
+        <Feather name="chevron-right" size={16} color={theme.textDim} />
+      </TouchableOpacity>
 
       {/* ── LISTA KLUBÓW ────────────────────────────────── */}
       {loading ? (
@@ -533,6 +495,44 @@ export default function ClubsScreen() {
           data={clubs}
           keyExtractor={c => String(c.id)}
           contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 20 }}
+          ListHeaderComponent={(
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{
+                fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim,
+                letterSpacing: 2, marginBottom: 8,
+              }}>
+                WSZYSTKIE KLUBY
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {([
+                  { key: 'created' as ClubSort, label: 'DATA UTWORZENIA' },
+                  { key: 'members' as ClubSort, label: 'CZŁONKOWIE' },
+                ]).map(({ key, label }) => {
+                  const active = clubSort === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      onPress={() => changeClubSort(key)}
+                      style={{
+                        flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
+                        backgroundColor: active ? '#e33835' : theme.surface2,
+                        borderWidth: 1,
+                        borderColor: active ? '#e33835' : theme.border2,
+                      }}
+                    >
+                      <Text style={{
+                        fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
+                        color: active ? '#fff' : theme.textDim,
+                        letterSpacing: 0.5,
+                      }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
           renderItem={({ item }) => (
             <ClubCard
               club={item}
@@ -547,14 +547,23 @@ export default function ClubsScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true); setHasMore(true);
-                fetchClubs(undefined, search); fetchMyClub();
+                fetchClubs({ q: search, sortMode: clubSort, append: false });
+                fetchMyClub();
               }}
               tintColor="#e33835"
             />
           }
           onEndReached={() => {
-            if (!nextCursor || loadingMore || !hasMore) return;
-            setLoadingMore(true); fetchClubs(nextCursor, search);
+            if (loadingMore || !hasMore) return;
+            if (clubSort === 'members') {
+              if (nextSkip == null) return;
+              setLoadingMore(true);
+              fetchClubs({ skip: nextSkip, q: search, sortMode: 'members', append: true });
+              return;
+            }
+            if (!nextCursor) return;
+            setLoadingMore(true);
+            fetchClubs({ cursor: nextCursor, q: search, sortMode: 'created', append: true });
           }}
           onEndReachedThreshold={0.4}
           ListFooterComponent={loadingMore
@@ -575,7 +584,7 @@ export default function ClubsScreen() {
                     flexDirection: 'row', alignItems: 'center', gap: 7,
                   }}
                   onPress={() => {
-                    if (!isPremium && myOwnedClub) {
+                    if (!isPremium && myOwnedClubs.length > 0) {
                       router.push('/premium' as any);
                       return;
                     }
@@ -627,7 +636,7 @@ export default function ClubsScreen() {
         onClose={() => {
           setInviteClubId(null);
           fetchMyClub();
-          fetchClubs(undefined, search);
+          fetchClubs({ q: search, sortMode: clubSort, append: false });
         }}
       />
 
@@ -640,7 +649,7 @@ export default function ClubsScreen() {
           setEditClub(null);
           if (detailClub?.id === updated.id) setDetailClub(updated);
           fetchMyClub();
-          fetchClubs(undefined, search);
+          fetchClubs({ q: search, sortMode: clubSort, append: false });
         }}
       />
 
@@ -671,8 +680,23 @@ export default function ClubsScreen() {
         onClose={() => { setInvitesVisible(false); fetchMyInviteCount(); }}
         onAccepted={(clubId) => {
           router.push(`/Community/clubs/${clubId}` as any);
-          fetchClubs();
+          reloadAllClubs();
           fetchMyClub();
+        }}
+      />
+
+      <MyClubsModal
+        visible={myClubsVisible}
+        ownedClubs={myOwnedClubs}
+        memberClubs={myMemberClubs}
+        onClose={() => setMyClubsVisible(false)}
+        onOpenClub={(club) => {
+          setMyClubsVisible(false);
+          void openDetail(club);
+        }}
+        onOpenChat={(clubId) => {
+          setMyClubsVisible(false);
+          router.push(`/Community/clubs/${clubId}` as any);
         }}
       />
     </SafeAreaView>

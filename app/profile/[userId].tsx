@@ -23,6 +23,7 @@ import { linearGradientFromSpec } from '../../components/profile/profileGradient
 import { useTheme } from '../../contexts/ThemeContext';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
+import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 
 const { width, height } = Dimensions.get('window');
@@ -56,6 +57,7 @@ interface PublicProfile {
   monthlyDistance?: number;
   totalRides?: number;
   isPremium?: boolean;
+  isAdmin?: boolean;
   bannerUrl?: string | null;
   nickColor?: string | null;
   profileThemePreset?: string;
@@ -632,7 +634,7 @@ export default function PublicProfileScreen() {
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: profile.nickColor || '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                     {profile.username}
                   </Text>
-                  {profile.isPremium && <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />}
+                  <UserBadges isAdmin={profile.isAdmin} isPremium={profile.isPremium} />
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5 }}>
                   {!!profile.location && (

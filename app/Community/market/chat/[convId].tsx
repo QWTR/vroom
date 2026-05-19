@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity, ScrollView,
+  View, Text, FlatList, TextInput, TouchableOpacity,
   StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Pressable, Dimensions, Keyboard,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -100,15 +100,16 @@ export default function MarketChatScreen() {
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const d    = await r.json();
-      const msgs = d.messages ?? [];
+      const msgs = Array.isArray(d) ? d : (d.messages ?? []);
       if (cursor) {
         setMessages(prev => [...msgs, ...prev]);
       } else {
         setMessages(msgs);
         scrollChatToEndAfterLayout(listRef, false);
       }
-      setNextCursor(d.nextCursor ?? null);
-      setHasMore(!!d.nextCursor);
+      const next = Array.isArray(d) ? null : (d.nextCursor ?? null);
+      setNextCursor(next);
+      setHasMore(!!next);
     } catch (e) { console.error('fetchMessages:', e); }
     finally {
       setLoading(false);
@@ -191,32 +192,33 @@ export default function MarketChatScreen() {
           )}
 
           <View style={[{
-            paddingHorizontal: 12, paddingVertical: 8, gap: 4,
+            paddingHorizontal: item.photos?.length > 0 && !item.content ? 6 : 12,
+            paddingVertical: item.photos?.length > 0 && !item.content ? 6 : 8,
+            gap: 4,
+            alignSelf: isMe ? 'flex-end' : 'flex-start',
             ...(isMe
               ? { backgroundColor: '#e33835' }
               : { backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }),
           }, bubbleRadius]}>
             {item.photos?.length > 0 && (
-              <ScrollView
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 4, flexDirection: 'row' }}
-              >
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignSelf: 'flex-start' }}>
                 {item.photos.map((uri, i) => {
                   const single = item.photos.length === 1;
                   const w = single ? 200 : 120;
                   const h = single ? 150 : 90;
                   const r = single ? 10 : 8;
                   return (
-                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
-                      <View style={{ width: w, height: h, borderRadius: r, overflow: 'hidden' }}>
-                        <Image source={{ uri }} style={{ width: w, height: h }} contentFit="cover" transition={0} />
-                      </View>
+                    <TouchableOpacity key={`${uri}-${i}`} activeOpacity={0.85} onPress={() => setPreviewPhoto(uri)}>
+                      <Image
+                        source={{ uri }}
+                        style={{ width: w, height: h, borderRadius: r }}
+                        contentFit="cover"
+                        transition={0}
+                      />
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
             )}
             {!!item.content && (
               <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>{item.content}</Text>
@@ -231,6 +233,13 @@ export default function MarketChatScreen() {
   }, [myId, messages, theme]);
 
   const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
+  const isSellerView  = myId !== null && conv?.buyer != null && myId !== conv.buyer.id;
+  const chatPeer      = isSellerView ? conv?.buyer : conv?.seller;
+
+  const openPeerProfile = useCallback(() => {
+    if (!chatPeer?.id) return;
+    router.push({ pathname: '/profile/[userId]', params: { userId: String(chatPeer.id) } } as any);
+  }, [router, chatPeer?.id]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -258,14 +267,22 @@ export default function MarketChatScreen() {
               {conv.listing.photos?.[0] && (
                 <Image source={{ uri: conv.listing.photos[0] }} style={{ width: 40, height: 40, borderRadius: 8, borderWidth: 1, borderColor: theme.border }} contentFit="cover" />
               )}
-              <View style={{ flex: 1 }}>
+              <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={openPeerProfile} disabled={!chatPeer}>
                 <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }} numberOfLines={1}>
                   {conv.listing.title}
                 </Text>
+                {chatPeer ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }} numberOfLines={1}>
+                      {isSellerView ? 'Kupujący: ' : 'Sprzedający: '}@{chatPeer.username}
+                    </Text>
+                    <Feather name="external-link" size={10} color={theme.primary} />
+                  </View>
+                ) : null}
                 <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '900' }}>
                   {conv.listing.price.toLocaleString('pl-PL')} PLN
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           )}
         </View>

@@ -21,7 +21,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 export interface DiscussionReaction { emoji: string; count: number; myReaction: boolean; }
 export const DISCUSSION_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
-export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; nickColor?: string | null; }
+export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; isAdmin?: boolean; nickColor?: string | null; }
 export interface Comment      {
   id: number; content: string; photos: string[]; createdAt: string; author: Author;
   replyTo?: { id: number; username: string } | null;
@@ -70,15 +70,37 @@ export function renderTextWithLinks(content: string, baseStyle: object, linkColo
   });
 }
 
-/** Tekst dyskusji / komentarzy / czatu: @wzmianki + linki w pozostałych fragmentach */
+/** Hashtag: # + litery/cyfry/_ (w tym polskie znaki) */
+const HASHTAG_BODY_RE = /^#[a-zA-Z0-9_ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+$/;
+const DISCUSSION_TOKEN_SPLIT_RE = /(@[a-zA-Z0-9_.-]+|#[a-zA-Z0-9_ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+)/g;
+
+export function normalizeHashtag(raw: string): string {
+  const tag = raw.replace(/^#+/, '').trim();
+  return tag ? `#${tag.toLowerCase()}` : '';
+}
+
+/** Filtr listy dyskusji: #tag dopasowuje token hashtagu w treści posta */
+export function postMatchesDiscussionSearch(content: string, query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  if (q.startsWith('#') && q.length > 1) {
+    const tag = q.slice(1).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`#${tag}(?![a-zA-Z0-9_ąćęłńóśźżĄĆĘŁŃÓŚŹŻ])`, 'i').test(content);
+  }
+  return content.toLowerCase().includes(q.toLowerCase());
+}
+
+/** Tekst dyskusji / komentarzy: @wzmianki, #hashtagi + linki */
 export function renderDiscussionBody(
   content: string,
   theme: { textMuted: string },
   opts?: {
     textColor?: string;
     mentionColor?: string;
+    hashtagColor?: string;
     linkColor?: string;
     onMentionPress?: (username: string) => void;
+    onHashtagPress?: (hashtag: string) => void;
   },
 ) {
   const baseStyle = {
@@ -87,8 +109,9 @@ export function renderDiscussionBody(
     lineHeight: 22,
   };
   const mentionColor = opts?.mentionColor ?? '#4a9eff';
+  const hashtagColor = opts?.hashtagColor ?? '#e8a838';
   const linkColor = opts?.linkColor ?? '#4a9eff';
-  const parts = content.split(/(@[a-zA-Z0-9_.-]+)/g);
+  const parts = content.split(DISCUSSION_TOKEN_SPLIT_RE);
   return parts.map((part, index) => {
     if (/^@[a-zA-Z0-9_.-]+$/.test(part)) {
       const username = part.slice(1);
@@ -97,6 +120,19 @@ export function renderDiscussionBody(
           key={index}
           style={[baseStyle, { color: mentionColor, fontWeight: '700' }]}
           onPress={opts?.onMentionPress ? () => opts.onMentionPress?.(username) : undefined}
+          suppressHighlighting={false}
+        >
+          {part}
+        </Text>
+      );
+    }
+    if (HASHTAG_BODY_RE.test(part)) {
+      const tag = part.slice(1);
+      return (
+        <Text
+          key={index}
+          style={[baseStyle, { color: hashtagColor, fontWeight: '700' }]}
+          onPress={opts?.onHashtagPress ? () => opts.onHashtagPress?.(tag) : undefined}
           suppressHighlighting={false}
         >
           {part}
@@ -628,6 +664,7 @@ export const ComposeBox = ({
   mentionsEnabled = false,
   onHeightChange,
   isPremium = false,
+  isAdmin = false,
   onUpgradePremium,
 }: {
   onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
@@ -637,6 +674,7 @@ export const ComposeBox = ({
   /** Raportuje wysokość paska (FlatList paddingBottom). */
   onHeightChange?: (height: number) => void;
   isPremium?: boolean;
+  isAdmin?: boolean;
   onUpgradePremium?: () => void;
 }) => {
   const { theme } = useTheme();
@@ -676,9 +714,9 @@ export const ComposeBox = ({
     });
     if (!r.canceled && r.assets[0]) {
       const fileSize = Number((r.assets[0] as any).fileSize ?? 0);
-      const maxBytes = isPremium ? 120 * 1024 * 1024 : 20 * 1024 * 1024;
-      if (fileSize > maxBytes) {
-        if (!isPremium) {
+      const maxBytes = isAdmin ? null : (isPremium ? 120 * 1024 * 1024 : 20 * 1024 * 1024);
+      if (maxBytes !== null && fileSize > maxBytes) {
+        if (!isPremium && !isAdmin) {
           Toast.show({
             type: 'error',
             text1: 'Plik za duży',

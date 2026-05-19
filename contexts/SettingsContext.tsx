@@ -66,6 +66,7 @@ export interface AppSettings {
   avatarFramePreset?: string;
   accountTheme?: any;
   isPremium?: boolean;
+  isAdmin?: boolean;
   premiumExpiresAt?: string | null;
   profilePremiumExtras?: ProfilePremiumExtras | null;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
@@ -96,6 +97,7 @@ const DEFAULTS: AppSettings = {
   avatarFramePreset: 'vroom',
   accountTheme: null,
   isPremium: false,
+  isAdmin: false,
   premiumExpiresAt: null,
   profilePremiumExtras: null,
   spotifyProfileTrack: null,

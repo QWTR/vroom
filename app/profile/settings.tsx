@@ -74,6 +74,10 @@ export default function SettingsScreen() {
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
   const effectivePremium = !!(premiumFromContext || settings.isPremium);
   const { scrollPaddingBottom } = useFormKeyboardPadding(88);
+  const scrollBottomPad =
+    Platform.OS === 'ios'
+      ? Math.max(insets.bottom, 12) + 88
+      : scrollPaddingBottom;
 
   // ── Kolory zależne od motywu ───────────────────────────
   const bg        = theme.bgAlt;
@@ -545,13 +549,19 @@ export default function SettingsScreen() {
         </Text>
         <View style={{ width: 38 }} />
       </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: bg }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
+      >
 			<ScrollView
-				style={{ flex: 1, backgroundColor: bg }}
-				contentContainerStyle={{ paddingBottom: scrollPaddingBottom }}
+				style={{ flex: 1 }}
+				contentContainerStyle={{ paddingBottom: scrollBottomPad }}
 				showsVerticalScrollIndicator={false}
-				keyboardShouldPersistTaps="handled"
-				keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        onScrollBeginDrag={Keyboard.dismiss}>
+				keyboardShouldPersistTaps="always"
+				keyboardDismissMode="none"
+        nestedScrollEnabled
+      >
 				{/* ══ HERO ══ */}
 				<View
 					style={{
@@ -1990,11 +2000,11 @@ export default function SettingsScreen() {
 							icon='info-outline'
 							iconBg='#607D8B'
 							label='O aplikacji'
-							sublabel='VROOM V1.1.21'
+							sublabel='VROOM V1.0.21'
 							onPress={() =>
 								Toast.show({
 									type: "info",
-									text1: "🚗 VROOM V1.1.21",
+									text1: "🚗 VROOM V1.0.21",
 									text2: "Made with ❤️ for car enthusiasts",
 								})
 							}
@@ -2071,7 +2081,7 @@ export default function SettingsScreen() {
 									color: textDim,
 									letterSpacing: 2,
 								}}>
-								VROOM OS V1.1.21
+								VROOM OS V1.0.21
 							</Text>
 							<View
 								style={{
@@ -2094,6 +2104,7 @@ export default function SettingsScreen() {
 					</View>
 				</View>
 			</ScrollView>
+      </KeyboardAvoidingView>
 
 			{/* ══ MODAL WYLOGUJ ══ */}
 			<Modal

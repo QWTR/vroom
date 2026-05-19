@@ -136,8 +136,9 @@ export const SpotifyTrackSearchField = memo(function SpotifyTrackSearchField({
           autoCapitalize="none"
           autoCorrect={false}
           blurOnSubmit={false}
-          returnKeyType="done"
+          returnKeyType="search"
           importantForAutofill="no"
+          showSoftInputOnFocus
           style={[styles.input, { color: textMain }]}
           underlineColorAndroid="transparent"
         />
@@ -158,10 +159,12 @@ export const SpotifyTrackSearchField = memo(function SpotifyTrackSearchField({
           ]}>
           <ScrollView
             nestedScrollEnabled
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="handled"
             keyboardDismissMode="none"
-            style={styles.listScroll}>
-            {results.map((t) => (
+            style={styles.listScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {results.map((t, idx) => (
               <TouchableOpacity
                 key={t.trackId}
                 onPress={() => onRowPress(t.trackId)}
@@ -169,6 +172,7 @@ export const SpotifyTrackSearchField = memo(function SpotifyTrackSearchField({
                 activeOpacity={0.75}
                 style={[
                   styles.row,
+                  idx === results.length - 1 ? styles.rowLast : null,
                   { borderBottomColor: inputBorder, opacity: saving ? 0.55 : 1 },
                 ]}>
                 <View style={styles.thumbWrap}>
@@ -245,6 +249,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
+  },
+  rowLast: {
+    borderBottomWidth: 0,
   },
   thumbWrap: {
     width: 40,

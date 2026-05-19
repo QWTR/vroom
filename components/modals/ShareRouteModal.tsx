@@ -34,10 +34,12 @@ interface Props {
   route:   ShareableRoute | null;
   onClose: () => void;
   onSent:  () => void;
+  /** Nowy post w dyskusjach (szkic trasy w feedzie). */
+  onDiscussionPost?: (post: unknown) => void;
   myId:    number | null;
 }
 
-export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props) {
+export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionPost, myId }: Props) {
   const { theme } = useTheme();
   const [tab,         setTab]         = useState<ShareTab>('chat');
   const [convs,       setConvs]       = useState<Conversation[]>([]);
@@ -76,14 +78,50 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
     finally { setSending(null); }
   };
 
+  const buildRoutePostContent = () => {
+    if (!route) return '';
+    const points = route.points
+      .slice(0, 80)
+      .map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+    return JSON.stringify({
+      type: 'route',
+      routeId: route.id,
+      name: route.name,
+      distance: route.distance,
+      points,
+      isPublic: route.isPublic,
+    });
+  };
+
   const handleShareToCommunity = async () => {
     if (!route) return;
     setPostingComm(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      await fetch(`${API_URL}/api/routes/${route.id}/share-community`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      await fetch(`${API_URL}/api/routes/${route.id}/share-community`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const content = buildRoutePostContent();
+      const form = new FormData();
+      form.append('content', content);
+      const postRes = await fetch(`${API_URL}/api/posts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (postRes.ok) {
+        const post = await postRes.json();
+        onDiscussionPost?.(post);
+      }
+
       setSharedComm(true);
-      Toast.show({ type: 'success', text1: 'Trasa udostępniona!', text2: 'Widoczna w zakładce Trasy' });
+      Toast.show({
+        type: 'success',
+        text1: 'Trasa udostępniona!',
+        text2: 'Szkic w Dyskusjach i lista w zakładce Trasy',
+      });
       onSent();
     } catch { Toast.show({ type: 'error', text1: 'Błąd udostępniania' }); }
     finally { setPostingComm(false); }
@@ -207,7 +245,8 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
                   </View>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 2 }}>UDOSTĘPNIONO!</Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, textAlign: 'center', lineHeight: 16 }}>
-                    Trasa jest widoczna w zakładce{'\n'}<Text style={{ color: theme.primary }}>Społeczność → Trasy</Text>
+                    Szkic trasy w <Text style={{ color: theme.primary }}>Dyskusjach</Text>
+                    {'\n'}oraz na liście <Text style={{ color: theme.primary }}>Trasy</Text>
                   </Text>
                   <TouchableOpacity style={{ backgroundColor: '#4de926', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12, marginTop: 8 }} onPress={handleClose}>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#000', fontWeight: '700' }}>GOTOWE</Text>
@@ -216,7 +255,8 @@ export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props
               ) : (
                 <>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, lineHeight: 16, marginBottom: 20 }}>
-                    Trasa pojawi się w zakładce <Text style={{ color: theme.primary }}>Trasy</Text> w sekcji Społeczność. Wszyscy użytkownicy będą mogli ją zobaczyć i przejechać.
+                    Opublikujemy szkic trasy w <Text style={{ color: theme.primary }}>Dyskusjach</Text> (punkty z mapy)
+                    {' '}oraz dodamy ją do zakładki <Text style={{ color: theme.primary }}>Trasy</Text>.
                   </Text>
                   <TouchableOpacity
                     style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14 }, postingComm && { opacity: 0.6 }]}

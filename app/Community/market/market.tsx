@@ -319,7 +319,11 @@ export default function MarketScreen() {
 
         {/* Seller + date */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => router.push({ pathname: '/profile/[userId]', params: { userId: String(item.seller.id) } } as any)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}
+          >
             <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {item.seller.avatarUrl
                 ? <Image source={{ uri: item.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
@@ -327,7 +331,7 @@ export default function MarketScreen() {
               }
             </View>
             <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>@{item.seller.username}</Text>
-          </View>
+          </TouchableOpacity>
           <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8 }}>
             {item.isPromoted ? 'PROMOWANE · ' : ''}{formatDate(item.createdAt)}
           </Text>

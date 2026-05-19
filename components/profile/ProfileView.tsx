@@ -10,6 +10,7 @@ import { MaterialCommunityIcons }   from '@expo/vector-icons';
 import { useRouter }                from 'expo-router';
 import { useTheme }                 from '../../contexts/ThemeContext';
 
+import { UserBadges }               from '../user/UserBadges';
 import AvatarCircle                 from './AvatarCircle';
 import StatBox                      from './StatBox';
 import CarCard                      from './CarCard';
@@ -85,6 +86,7 @@ interface Props {
   onBack?:                   () => void;
   carLimitBanner?:           React.ReactNode;
   isPremium?:                boolean;
+  isAdmin?:                  boolean;
   locationFriendsOnly?:      boolean;
   onLocationFriendsOnlyChange?: (v: boolean) => void;
   onBannerChange?:           (uri: string) => void;
@@ -111,7 +113,7 @@ export default function ProfileView({
   routes, routesLoading, participatedRoutes, participatedRoutesLoading,
   onNavigateParticipated, onDeleteRoute, onRefresh, onSettings, onEdit,
   onAddCar, onCarPress, onBack, onNavigateRoute, onShareRoute, carLimitBanner,
-  isPremium, locationFriendsOnly, onLocationFriendsOnlyChange,
+  isPremium, isAdmin, locationFriendsOnly, onLocationFriendsOnlyChange,
   onBannerChange, bannerUploading = false,
   activityHistory = [], monthlyStats = [], monthlyCompare = null,
 }: Props) {
@@ -606,7 +608,7 @@ export default function ProfileView({
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                   {profile?.username ?? '—'}
                 </Text>
-                {isPremium && <MaterialIcons name="workspace-premium" size={16} color="#FFD700" />}
+                <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={isPremium} compact />
               </View>
               {!!profile?.location && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>

@@ -12,11 +12,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { getMarketViewerKey } from '../../../utils/marketViewerKey';
 
 interface Seller {
   id: number;
   username: string;
   avatarUrl: string | null;
+}
+
+interface MarketConvPreview {
+  id: number;
+  updatedAt: string;
+  buyer: { id: number; username: string; avatarUrl: string | null };
+  messages: { content: string | null; createdAt: string; sender: { id: number; username: string } }[];
 }
 
 interface Listing {
@@ -62,9 +70,15 @@ export default function ListingDetailScreen() {
   const [deleting,      setDeleting]      = useState(false);
   const [promoting,     setPromoting]     = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
+  const [inquiries,      setInquiries]      = useState<MarketConvPreview[]>([]);
+  const [loadingInquiries, setLoadingInquiries] = useState(false);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
+
+  const openUserProfile = useCallback((userId: number) => {
+    router.push({ pathname: '/profile/[userId]', params: { userId: String(userId) } } as any);
+  }, [router]);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -79,9 +93,13 @@ export default function ListingDetailScreen() {
   const fetchListing = useCallback(async () => {
     setLoading(true);
     try {
-      const token = await getToken();
+      const token     = await getToken();
+      const viewerKey = await getMarketViewerKey();
       const r     = await fetch(`${API_URL}/api/market/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Viewer-Key': viewerKey,
+        },
       });
       if (!r.ok) throw new Error('Błąd pobierania');
       const data = await r.json();
@@ -92,6 +110,29 @@ export default function ListingDetailScreen() {
       setLoading(false);
     }
   }, [id]);
+
+  const fetchInquiries = useCallback(async (listingId: number) => {
+    setLoadingInquiries(true);
+    try {
+      const token = await getToken();
+      const r     = await fetch(`${API_URL}/api/market/${listingId}/conversations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) setInquiries(await r.json());
+    } catch (e) {
+      console.error('fetchInquiries:', e);
+    } finally {
+      setLoadingInquiries(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!listing || myId === null || listing.seller.id !== myId) {
+      setInquiries([]);
+      return;
+    }
+    fetchInquiries(listing.id);
+  }, [listing, myId, fetchInquiries]);
 
   const handleContact = async () => {
     if (!listing) return;
@@ -347,7 +388,14 @@ export default function ListingDetailScreen() {
           )}
 
           {/* Seller */}
-          <View style={{ backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openUserProfile(listing.seller.id)}
+            style={{
+              backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border,
+              padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14,
+            }}
+          >
             <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
               {listing.seller.avatarUrl
                 ? <Image source={{ uri: listing.seller.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
@@ -357,8 +405,10 @@ export default function ListingDetailScreen() {
             <View style={{ flex: 1 }}>
               <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>SPRZEDAJĄCY</Text>
               <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>@{listing.seller.username}</Text>
+              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, marginTop: 4 }}>Zobacz profil</Text>
             </View>
-          </View>
+            <Feather name="chevron-right" size={20} color={theme.textDim} />
+          </TouchableOpacity>
 
           {/* Action buttons */}
           {isOwner ? (
@@ -384,6 +434,67 @@ export default function ListingDetailScreen() {
                       </>
                   }
                 </TouchableOpacity>
+              </View>
+
+              <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
+                    WIADOMOŚCI ({inquiries.length})
+                  </Text>
+                  {loadingInquiries && <ActivityIndicator size="small" color={theme.primary} />}
+                </View>
+                {inquiries.length === 0 && !loadingInquiries ? (
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>
+                    Brak wiadomości od zainteresowanych.
+                  </Text>
+                ) : (
+                  inquiries.map(conv => {
+                    const last = conv.messages?.[0];
+                    const preview = last?.content?.trim()
+                      || (last ? 'Zdjęcie' : 'Brak wiadomości');
+                    return (
+                      <View
+                        key={conv.id}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 12,
+                          paddingVertical: 10, borderTopWidth: 1, borderTopColor: theme.border,
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => openUserProfile(conv.buyer.id)}
+                          activeOpacity={0.85}
+                          style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          {conv.buyer.avatarUrl
+                            ? <Image source={{ uri: conv.buyer.avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                            : <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{conv.buyer.username.charAt(0).toUpperCase()}</Text>
+                          }
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ flex: 1, gap: 3 }}
+                          activeOpacity={0.85}
+                          onPress={() => router.push({
+                            pathname: '/Community/market/chat/[convId]',
+                            params: { convId: String(conv.id) },
+                          } as any)}
+                        >
+                          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                            @{conv.buyer.username}
+                          </Text>
+                          <Text style={{ color: theme.textDim, fontSize: 12 }} numberOfLines={1}>{preview}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => router.push({
+                            pathname: '/Community/market/chat/[convId]',
+                            params: { convId: String(conv.id) },
+                          } as any)}
+                        >
+                          <MaterialCommunityIcons name="chevron-right" size={20} color={theme.textDim} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })
+                )}
               </View>
 
               <View style={{ backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, gap: 10 }}>

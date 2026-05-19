@@ -37,6 +37,7 @@ export interface UserProfile {
   cityCount: number;
   position: number | null;
   isPremium?: boolean;
+  isAdmin?: boolean;
   premiumExpiresAt?: string | null;
   nickColor?: string | null;
   profileThemePreset?: string;

@@ -237,6 +237,7 @@ export default function ProfileScreen() {
         participatedRoutesLoading={prLoad}
         onNavigateParticipated={handleNavigateParticipated}
         isPremium={effectivePremium}
+        isAdmin={!!profile?.isAdmin}
         activityHistory={activityHistory}
         monthlyStats={monthlyStats}
         monthlyCompare={monthlyCompare}

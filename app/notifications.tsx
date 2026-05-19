@@ -101,6 +101,10 @@ export default function NotificationsScreen() {
       router.push({ pathname: '/Community/meets/meet', params: { id: String(meetId) } } as any);
       return;
     }
+    if (item.type === 'market_message' && d?.conversationId != null) {
+      router.push({ pathname: '/Community/market/chat/[convId]', params: { convId: String(d.conversationId) } } as any);
+      return;
+    }
     if (d?.conversationId != null)
       router.push(`/Community/chats/${d.conversationId}` as any);
     else if (

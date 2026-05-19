@@ -276,6 +276,8 @@ function RootLayoutInner() {
 
         if (data.type === 'new_message' && data.conversationId) {
           target = `/Community/chats/${data.conversationId}`;
+        } else if (data.type === 'market_message' && data.conversationId) {
+          target = `/Community/market/chat/${data.conversationId}`;
         } else if (
           (data.type === 'like_post' ||
             data.type === 'comment_post' ||
@@ -604,7 +606,7 @@ function RootLayoutInner() {
                   <MaterialCommunityIcons name="shield-check-outline" size={10} color={`${R}99`} />
                   <Text style={s.onlineTxt}>SECURE BOOT</Text>
                 </View>
-                <Text style={s.versionTxt}>V1.1.21</Text>
+                <Text style={s.versionTxt}>V1.0.21</Text>
               </View>
             </Animated.View>
 

@@ -21,6 +21,7 @@ import { RouteMessageCard } from '../../../components/chat/RouteMessageCard';
 import { LinkPreviewCard } from '../../../components/chat/LinkPreviewCard';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
+import { UserBadges } from '../../../components/user/UserBadges';
 
 const API = 'https://v-room.app/api/chat';
 const WS  = 'https://v-room.app';
@@ -47,6 +48,7 @@ interface ChatUser {
   avatarUrl: string | null;
   online?:   boolean;
   isPremium?: boolean;
+  isAdmin?: boolean;
   nickColor?: string | null;
 }
 
@@ -357,11 +359,7 @@ export default function ChatScreen() {
                 <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                   {item.sender.username}
                 </Text>
-                {item.sender.isPremium && (
-                  <View style={{ backgroundColor: '#FFD7001f', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70045', paddingHorizontal: 6, paddingVertical: 1 }}>
-                    <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 7 }}>PREMIUM</Text>
-                  </View>
-                )}
+                <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
               </View>
             )}
             <RouteMessageCard data={routeData} isMe={isMe} onNavigate={handleNavigateRoute} />
@@ -386,11 +384,7 @@ export default function ChatScreen() {
                   <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                     {item.sender.username}
                   </Text>
-                  {item.sender.isPremium && (
-                    <View style={{ backgroundColor: '#FFD7001f', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70045', paddingHorizontal: 6, paddingVertical: 1 }}>
-                      <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 7 }}>PREMIUM</Text>
-                    </View>
-                  )}
+                  <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
                 </View>
               )}
 

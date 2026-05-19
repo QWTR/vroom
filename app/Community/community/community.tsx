@@ -18,12 +18,14 @@ import { API_URL }            from '../../../constants/config';
 import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { RouteMiniMap }          from '../../../components/profile/RouteMiniMap';
+import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '../../../components/community/RoutePreviewCard';
 import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboardModal';
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
   type Author, type Comment, type Post, type PublicRoute, type CommunityCar, type Tab,
   Avatar, PhotoViewer, LoadingView,
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
+  postMatchesDiscussionSearch, normalizeHashtag,
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
 } from './communityShared';
 import { useKeyboardInset, modalKeyboardFooterPadding } from '../../../hooks/useKeyboardInset';
@@ -163,8 +165,8 @@ export default function CommunityScreen() {
     try {
       const token = await getToken();
       const url   = cursor
-        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}&lite=1`
-        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}&lite=1`;
+        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}`
+        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}`;
       const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const json  = await res.json();
       const newRoutes  = Array.isArray(json) ? json : json.routes ?? [];
@@ -287,6 +289,31 @@ export default function CommunityScreen() {
     router.push('/(tabs)/map' as any);
   }, [router]);
 
+  const handleNavigateRoutePreview = useCallback(async (data: RoutePreviewData) => {
+    let points = data.points;
+    if (!points || points.length < 2) {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/routes/${data.routeId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const full = await res.json();
+        points = full?.points ?? [];
+      }
+    }
+    if (!points || points.length < 2) {
+      Toast.show({ type: 'error', text1: 'Brak geometrii trasy' });
+      return;
+    }
+    await AsyncStorage.setItem('nav_route', JSON.stringify({
+      routeId: data.routeId,
+      routeName: data.name,
+      points,
+      distance: data.distance,
+    }));
+    router.push('/(tabs)/map' as any);
+  }, [router]);
+
   const handlePost = async (text: string, photos: string[], video: string | null, poll?: { question: string; options: string[] } | null) => {
     try {
       const token = await getToken();
@@ -294,9 +321,10 @@ export default function CommunityScreen() {
         const info = await FileSystem.getInfoAsync(video, { size: true });
         const fileSize = Number((info as any)?.size ?? 0);
         const isPremium = !!settings.isPremium;
-        const maxBytes = isPremium ? PREMIUM_VIDEO_MAX_BYTES : FREE_VIDEO_MAX_BYTES;
-        if (fileSize > maxBytes) {
-          if (!isPremium) {
+        const isAdmin = !!settings.isAdmin;
+        const maxBytes = isAdmin ? null : (isPremium ? PREMIUM_VIDEO_MAX_BYTES : FREE_VIDEO_MAX_BYTES);
+        if (maxBytes !== null && fileSize > maxBytes) {
+          if (!isPremium && !isAdmin) {
             Toast.show({
               type: 'error',
               text1: 'Plik za duży',
@@ -617,8 +645,24 @@ export default function CommunityScreen() {
 
   // ── Filtered lists ───────────────────────────────────────
   const visiblePosts = posts.filter((p) => !blockedIds.includes(p.author.id));
+  const handleHashtagPress = useCallback((rawTag: string) => {
+    const tag = normalizeHashtag(rawTag);
+    if (!tag) return;
+    setCommentPost(null);
+    setSearch(tag);
+    setSearchActive(true);
+    setActiveTab('dyskusje');
+  }, []);
+
   const filteredPosts  = search.trim()
-    ? visiblePosts.filter(p => p.content.toLowerCase().includes(search.toLowerCase()) || p.author.username.toLowerCase().includes(search.toLowerCase()))
+    ? visiblePosts.filter((p) => {
+        const q = search.trim();
+        if (q.startsWith('#') && q.length > 1) {
+          return postMatchesDiscussionSearch(p.content, q);
+        }
+        const ql = q.toLowerCase();
+        return p.content.toLowerCase().includes(ql) || p.author.username.toLowerCase().includes(ql);
+      })
     : visiblePosts;
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
@@ -654,7 +698,7 @@ export default function CommunityScreen() {
             <TextInput
               style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: 'Orbitron' }}
               value={search} onChangeText={setSearch}
-              placeholder="Szukaj..." placeholderTextColor={theme.textDim}
+              placeholder="Szukaj, @nick lub #tag..." placeholderTextColor={theme.textDim}
               autoFocus
             />
             <TouchableOpacity onPress={() => { setSearch(''); setSearchActive(false); }}>
@@ -742,9 +786,12 @@ export default function CommunityScreen() {
               onReact={handlePostReact}
               onOpenReactionPicker={(post) => setReactionPicker({ type: 'post', id: post.id })}
               onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
+              onHashtagPress={handleHashtagPress}
+              onNavigateRoute={handleNavigateRoutePreview}
               onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
               onLoadMore={loadMorePosts} bottomInset={insets.bottom}
               isPremium={!!settings.isPremium}
+              isAdmin={!!settings.isAdmin}
               onUpgradePremium={() => router.push('/premium' as any)}
             />
           )}
@@ -861,17 +908,33 @@ export default function CommunityScreen() {
                         </TouchableOpacity>
                       )}
                     </View>
-                    {commentPost.content.length > 0 && (
-                      <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
-                        {renderDiscussionBody(commentPost.content, theme, {
-                          textColor: theme.textDim,
-                          onMentionPress: async (username) => {
-                            const uid = await resolveMentionUserId(username);
-                            if (uid) goToProfile(uid);
-                          },
-                        })}
-                      </Text>
-                    )}
+                    {(() => {
+                      const routePreview = parseRoutePostContent(commentPost.content);
+                      if (routePreview) {
+                        return (
+                          <RoutePreviewCard
+                            data={routePreview}
+                            onNavigate={handleNavigateRoutePreview}
+                            fullWidth
+                          />
+                        );
+                      }
+                      if (commentPost.content.length > 0) {
+                        return (
+                          <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
+                            {renderDiscussionBody(commentPost.content, theme, {
+                              textColor: theme.textDim,
+                              onMentionPress: async (username) => {
+                                const uid = await resolveMentionUserId(username);
+                                if (uid) goToProfile(uid);
+                              },
+                              onHashtagPress: handleHashtagPress,
+                            })}
+                          </Text>
+                        );
+                      }
+                      return null;
+                    })()}
                     {commentPost.photos?.length > 0 && (
                       <TouchableOpacity onPress={() => { setCommentPhotoUris(commentPost.photos); setCommentPhotoIdx(0); setCommentPhotoViewer(true); }}>
                         <Image source={{ uri: commentPost.photos[0] }} style={{ width: 60, height: 44, borderRadius: 8, marginTop: 6 }} resizeMode="cover" />
@@ -972,6 +1035,7 @@ export default function CommunityScreen() {
                                 const uid = await resolveMentionUserId(username);
                                 if (uid) goToProfile(uid);
                               },
+                              onHashtagPress: handleHashtagPress,
                             })}
                           </Text>
                         </TouchableOpacity>

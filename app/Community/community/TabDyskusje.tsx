@@ -13,8 +13,10 @@ import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
 import { AdNativePost }         from '../../../components/ads/AdNativePost';
 import { AdPostBoundary }       from '../../../components/ads/AdPostBoundary';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
+import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '../../../components/community/RoutePreviewCard';
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
+import { UserBadges } from '../../../components/user/UserBadges';
 import {
   type Post,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
@@ -28,7 +30,7 @@ import {
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
   post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock, onPollVote,
-  onReact, onOpenReactionPicker,
+  onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress,
 }: {
   post: Post; myId: number | null;
   onLike: (id: number) => void;
@@ -41,6 +43,8 @@ const PostCard = React.memo(({
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
   onReact: (postId: number, emoji: string) => void;
   onOpenReactionPicker: (post: Post) => void;
+  onNavigateRoute?: (data: RoutePreviewData) => void;
+  onHashtagPress?: (tag: string) => void;
 }) => {
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
@@ -51,14 +55,6 @@ const PostCard = React.memo(({
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
   const getToken = () => AsyncStorage.getItem('token');
 
-  function parseRouteMessage(content: string) {
-    try {
-      const parsed = JSON.parse(content);
-      if (parsed?.type === 'route') return parsed;
-    } catch {}
-    return null;
-  }
-
   function parseClubInviteMessage(content: string) {
     try {
       const parsed = JSON.parse(content);
@@ -67,13 +63,13 @@ const PostCard = React.memo(({
     return null;
   }
 
-  const routeData = parseRouteMessage(post.content);
+  const routeData = parseRoutePostContent(post.content);
   const clubInviteData = parseClubInviteMessage(post.content);
   const clubInviteMessage = clubInviteData
     ? (typeof clubInviteData.message === 'string' ? clubInviteData.message.trim() : '')
     : '';
   const hasPoll   = !!post.poll;
-  const plainText = clubInviteData ? clubInviteMessage : (hasPoll ? '' : post.content);
+  const plainText = clubInviteData ? clubInviteMessage : (hasPoll || routeData ? '' : post.content);
   const caption   = hasPoll ? post.content?.trim() : '';
   const linkUrl   = (!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null;
 
@@ -187,11 +183,7 @@ const PostCard = React.memo(({
                 <Text style={{ fontFamily: 'Orbitron', color: post.author.nickColor || theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                   {post.author.username}
                 </Text>
-                {post.author.isPremium && (
-                  <View style={{ backgroundColor: '#FFD70020', borderRadius: 8, borderWidth: 1, borderColor: '#FFD70040', paddingHorizontal: 6, paddingVertical: 2 }}>
-                    <Text style={{ fontFamily: 'Orbitron', color: '#FFD700', fontSize: 8 }}>PREMIUM</Text>
-                  </View>
-                )}
+                <UserBadges isAdmin={post.author.isAdmin} isPremium={post.author.isPremium} compact />
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#e3383515', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
                   <MaterialIcons name="bolt" size={10} color="#e33835" />
                   <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{post.author.points}</Text>
@@ -257,6 +249,7 @@ const PostCard = React.memo(({
                   const uid = await resolveMentionUserId(username);
                   if (uid) onProfile(uid);
                 },
+                onHashtagPress,
               })}
             </Text>
           )}
@@ -267,8 +260,12 @@ const PostCard = React.memo(({
                   const uid = await resolveMentionUserId(username);
                   if (uid) onProfile(uid);
                 },
+                onHashtagPress,
               })}
             </Text>
+          )}
+          {!!routeData && (
+            <RoutePreviewCard data={routeData} onNavigate={onNavigateRoute} fullWidth />
           )}
           {!!clubInviteData && (
             <View
@@ -363,7 +360,7 @@ const AD_INSERTION_INTERVAL = 2;
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, bottomInset, isPremium, onUpgradePremium }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress, bottomInset, isPremium, isAdmin, onUpgradePremium }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -382,8 +379,11 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
   onReact: (postId: number, emoji: string) => void;
   onOpenReactionPicker: (post: Post) => void;
+  onNavigateRoute?: (data: RoutePreviewData) => void;
+  onHashtagPress?: (tag: string) => void;
   bottomInset: number;
   isPremium: boolean;
+  isAdmin?: boolean;
   onUpgradePremium: () => void;
 }) {
   const [composeHeight, setComposeHeight] = useState(120);
@@ -414,7 +414,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
             onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
-            onReact={onReact} onOpenReactionPicker={onOpenReactionPicker} />
+            onReact={onReact} onOpenReactionPicker={onOpenReactionPicker} onNavigateRoute={onNavigateRoute} onHashtagPress={onHashtagPress} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}
@@ -429,6 +429,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         mentionsEnabled
         onHeightChange={setComposeHeight}
         isPremium={isPremium}
+        isAdmin={!!isAdmin}
         onUpgradePremium={onUpgradePremium}
       />
     </View>
