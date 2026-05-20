@@ -6,6 +6,11 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { API_URL } from '../constants/config';
 import type { UserProfile } from '../constants/profile';
 import { mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
+import {
+  AVATAR_BUST_STORAGE_KEY,
+  avatarUrlHasVersion,
+  withAvatarCacheBust,
+} from '../lib/avatarUri';
 
 const getToken = async (): Promise<string | null> => {
   return (
@@ -14,13 +19,17 @@ const getToken = async (): Promise<string | null> => {
   );
 };
 
-function mapToProfile(u: any, opts?: { includeClub?: boolean }): UserProfile {
+function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: number | null }): UserProfile {
+  let avatarUrl = u.avatarUrl ?? u.avatar ?? null;
+  if (avatarUrl && opts?.avatarCacheBust && !avatarUrlHasVersion(avatarUrl)) {
+    avatarUrl = withAvatarCacheBust(avatarUrl, opts.avatarCacheBust);
+  }
   return {
     id:            u.userId        ?? u.id,
     username:      u.username,
     location:      u.location      ?? null,
     bio:           u.bio           ?? null,
-    avatarUrl:     u.avatarUrl     ?? u.avatar ?? null,
+    avatarUrl,
     bannerUrl:     u.bannerUrl     ?? null,
     createdAt:     u.createdAt     ?? new Date().toISOString(),
     totalDistance:   Number(u.totalDistance ?? 0) || 0,
@@ -70,17 +79,24 @@ export function useProfile() {
       const localRaw = await AsyncStorage.getItem('user');
 
       // 1. Pokaż natychmiast z cache, ale nie nadpisuj istniejącego cluba w UI.
+      const avatarBustRawEarly = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
+      const avatarCacheBustEarly = avatarBustRawEarly ? Number(avatarBustRawEarly) : null;
       if (localRaw) {
         const cached = JSON.parse(localRaw);
         delete cached.club;
         setProfile((prev) => {
-          const mappedCached = mapToProfile(cached);
+          const mappedCached = mapToProfile(cached, {
+            avatarCacheBust: Number.isFinite(avatarCacheBustEarly) ? avatarCacheBustEarly : null,
+          });
           if (!prev) return mappedCached;
           return { ...mappedCached, club: prev.club ?? null };
         });
       }
 
       if (!token) throw new Error('Brak tokenu');
+
+      const avatarBustRaw = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
+      const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
 
       // 2. Odśwież z serwera — tu będzie club
       const res = await fetch(`${API_URL}/api/profile/me`, {
@@ -89,7 +105,10 @@ export function useProfile() {
 
       if (res.ok) {
         const data   = await res.json();
-        const mapped = mapToProfile(data, { includeClub: true });
+        const mapped = mapToProfile(data, {
+          includeClub: true,
+          avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,
+        });
         setProfile(mapped);
 
         // Cache — zachowaj userId i inne pola, club nie cachujemy
@@ -116,12 +135,6 @@ export function useProfile() {
       setProfile((prev) => (prev ? { ...prev, club } : prev));
     });
   }, []);
-
-  useEffect(() => {
-    return onProfileStatsUpdated(() => {
-      void fetchProfile();
-    });
-  }, [fetchProfile]);
 
   // ── Publiczny profil ──────────────────────────────────
   const fetchPublicProfile = useCallback(async (userId: number) => {
@@ -158,7 +171,12 @@ export function useProfile() {
       });
       if (!res.ok) throw new Error('Błąd aktualizacji profilu');
       const data   = await res.json();
-      const mapped = mapToProfile(data, { includeClub: true });
+      const avatarBustRaw = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
+      const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
+      const mapped = mapToProfile(data, {
+        includeClub: true,
+        avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,
+      });
       setProfile((prev) => ({
         ...mapped,
         club: mapped.club ?? prev?.club ?? null,
@@ -234,11 +252,19 @@ export function useProfile() {
       }
 
       const data = await res.json();
-      const avatarUrl = data?.avatarUrl as string | undefined;
+      let avatarUrl = data?.avatarUrl as string | undefined;
       if (!avatarUrl) {
         const msg = 'Serwer nie zwrócił adresu avatara.';
         setError(msg);
         return { ok: false, error: msg };
+      }
+
+      if (avatarUrlHasVersion(avatarUrl)) {
+        await AsyncStorage.removeItem(AVATAR_BUST_STORAGE_KEY);
+      } else {
+        const bust = Date.now();
+        await AsyncStorage.setItem(AVATAR_BUST_STORAGE_KEY, String(bust));
+        avatarUrl = withAvatarCacheBust(avatarUrl, bust);
       }
 
       setProfile(prev => prev ? { ...prev, avatarUrl } : prev);
@@ -293,6 +319,13 @@ export function useProfile() {
       setActivityHistory(data.items ?? []);
     } catch {}
   }, []);
+
+  useEffect(() => {
+    return onProfileStatsUpdated(() => {
+      void fetchProfile();
+      void fetchActivityHistory({ includeRoute: true, limit: 50 });
+    });
+  }, [fetchProfile, fetchActivityHistory]);
 
   const fetchMonthlyStats = useCallback(async () => {
     try {

@@ -174,18 +174,22 @@ export default function ChatScreen() {
         });
       });
 
-      // ✅ FIX: nasłuchuj na aktualizacje online z socketa
-      socket.on('user:online', ({ userId, online }: { userId: number; online: boolean }) => {
+      const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
         setConv(prev => {
           if (!prev) return prev;
+          const uid = Number(userId);
           return {
             ...prev,
+            online: prev.participants.some(p => p.id === uid) ? online : prev.online,
             participants: prev.participants.map(p =>
-              p.id === userId ? { ...p, online } : p
+              p.id === uid ? { ...p, online } : p
             ),
           };
         });
-      });
+      };
+
+      socket.on('presence:update', applyPresence);
+      socket.on('user:online', applyPresence);
 
       socketRef.current = socket;
       await Promise.all([fetchConv(token), fetchMessages(token)]);

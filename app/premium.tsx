@@ -340,12 +340,11 @@ export default function PremiumScreen() {
               );
             })
           ) : !isPremium ? (
-            /* Brak pakietów z RevenueCat (np. brak current offering albo sieć) */
             <View style={s.noOffersWrap}>
-              <Text style={s.noOffersTitle}>Plany subskrypcji</Text>
+              <Text style={s.noOffersTitle}>VROOM Premium</Text>
               <Text style={s.noOffersBody}>
                 {Platform.OS === 'ios'
-                  ? 'Aby zobaczyć ceny i kupić VROOM Premium, zaloguj się kontem testowym w środowisku Apple Sandbox (Ustawienia → App Store → Konto sandbox). Plany pojawią się tutaj po poprawnej konfiguracji oferty w App Store Connect i RevenueCat.'
+                  ? 'Plany subskrypcji ładują się z App Store. Upewnij się, że masz połączenie z internetem. W środowisku testowym Apple (Sandbox) zaloguj się kontem sandbox w Ustawienia → App Store → Konto sandbox, a następnie wróć tutaj.'
                   : 'Plany subskrypcji pojawią się tutaj po połączeniu z siecią i poprawnej konfiguracji oferty w Google Play oraz RevenueCat.'}
                 {'\n\n'}
                 Korzyści Premium są opisane powyżej. Możesz używać „Przywróć zakupy”, jeśli subskrypcja była wcześniej aktywna na tym koncie {Platform.OS === 'ios' ? 'Apple' : 'Google'}.

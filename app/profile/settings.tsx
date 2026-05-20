@@ -23,6 +23,8 @@ import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
 import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
+import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
+import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
 import {
@@ -30,7 +32,7 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
-import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
+import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import type {
   ProfilePremiumExtras,
@@ -102,6 +104,7 @@ export default function SettingsScreen() {
 
   // ── State ──────────────────────────────────────────────
   const [deleteModal,        setDeleteModal]        = useState(false);
+  const deleteKeyboardInset = useKeyboardInset(deleteModal);
   const [logoutModal,        setLogoutModal]        = useState(false);
   const [bugModal,           setBugModal]           = useState(false);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
@@ -139,6 +142,59 @@ export default function SettingsScreen() {
   const [refUsedCount, setRefUsedCount] = useState(0);
   const [refLoading, setRefLoading] = useState(false);
   const [refSaving, setRefSaving] = useState(false);
+
+  const { checkForUpdate, applyUpdate, downloading: otaDownloading } = useAppUpdate();
+  const [otaChecking, setOtaChecking] = useState(false);
+  const otaDiag = useMemo(() => getUpdateDiagnostics(), []);
+
+  const handleCheckAppUpdate = useCallback(async () => {
+    const diag = getUpdateDiagnostics();
+    if (diag.isDev) {
+      Toast.show({ type: 'info', text1: 'OTA wyłączone w dev', text2: 'Tylko build produkcyjny ze sklepu / EAS' });
+      return;
+    }
+    if (!diag.enabled) {
+      Toast.show({
+        type: 'error',
+        text1: 'Aktualizacje OTA wyłączone',
+        text2: `Runtime ${diag.runtimeVersion ?? '?'} · kanał ${diag.channel ?? 'brak'}`,
+      });
+      return;
+    }
+    setOtaChecking(true);
+    try {
+      const available = await checkForUpdate({ retries: 3 });
+      const shortId = diag.updateId ? diag.updateId.slice(0, 8) : 'brak';
+      if (available) {
+        Toast.show({
+          type: 'success',
+          text1: 'Nowa wersja — pobieranie…',
+          text2: `Runtime ${diag.runtimeVersion} · kanał ${diag.channel ?? '?'}`,
+        });
+        await applyUpdate();
+        return;
+      }
+      Toast.show({
+        type: 'info',
+        text1: 'Masz najnowszą wersję OTA',
+        text2: `Runtime ${diag.runtimeVersion} · kanał ${diag.channel ?? '?'} · pakiet ${shortId}`,
+      });
+    } catch {
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się sprawdzić aktualizacji',
+        text2: `Runtime ${diag.runtimeVersion} · kanał ${diag.channel ?? '?'}`,
+      });
+    } finally {
+      setOtaChecking(false);
+    }
+  }, [checkForUpdate, applyUpdate]);
+
+  const otaSublabel = otaDiag.isDev
+    ? 'Dostępne tylko w buildzie produkcyjnym'
+    : !otaDiag.enabled
+      ? 'OTA wyłączone w tym buildzie'
+      : `Runtime ${otaDiag.runtimeVersion ?? '?'} · kanał ${otaDiag.channel ?? 'brak'}`;
 
   useEffect(() => {
     const e = mergeProfilePremiumExtras(settings.profilePremiumExtras);
@@ -456,48 +512,7 @@ export default function SettingsScreen() {
     } catch {}
   };
 
-  // ── Sub-components (wewnątrz — mają dostęp do kolorów) ─
-  const SectionLabel = ({ title }: { title: string }) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, marginBottom: 12, marginHorizontal: 4 }}>
-      <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : '#00000010' }} />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED + '90', letterSpacing: 3 }}>{title}</Text>
-      <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : '#00000010' }} />
-    </View>
-  );
-
-  const Card = ({ children, danger = false }: { children: React.ReactNode; danger?: boolean }) => (
-    <View style={{ backgroundColor: danger ? dangerCardBg : cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: danger ? RED + '25' : cardBorder }}>
-      {children}
-    </View>
-  );
-
-  const Row = ({
-    icon, iconBg, label, sublabel, onPress, right, destructive = false, disabled = false, last = false,
-  }: {
-    icon: string; iconBg?: string; label: string; sublabel?: string;
-    onPress?: () => void; right?: React.ReactNode;
-    destructive?: boolean; disabled?: boolean; last?: boolean;
-  }) => {
-    const ic = destructive ? RED : (iconBg ?? RED);
-    return (
-      <>
-        <TouchableOpacity
-          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12, opacity: disabled ? 0.4 : 1 }}
-          onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={disabled || !onPress}
-        >
-          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: ic + '20', borderWidth: 1, borderColor: ic + '30', justifyContent: 'center', alignItems: 'center' }}>
-            <MaterialIcons name={icon as any} size={17} color={ic} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: destructive ? RED : textMain, fontWeight: '600' }}>{label}</Text>
-            {sublabel && <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textDim, marginTop: 3, lineHeight: 14 }}>{sublabel}</Text>}
-          </View>
-          {right !== undefined ? right : (onPress && <MaterialIcons name="chevron-right" size={18} color={textDim} />)}
-        </TouchableOpacity>
-        {!last && <View style={{ height: 1, backgroundColor: divider, marginLeft: 64 }} />}
-      </>
-    );
-  };
+  // ── Sub-components (module-level SettingsLayout — stable identity for TextInput focus) ─
 
   // ── Loading ────────────────────────────────────────────
   if (settingsLoading) {
@@ -510,6 +525,8 @@ export default function SettingsScreen() {
   }
 
   const swProps = { trackColor: { true: RED, false: isDark ? '#2a2a2a' : '#c0c0c0' }, thumbColor: '#fff' };
+  const settingsCardProps = { cardBg, dangerCardBg, cardBorder };
+  const settingsRowProps = { textMain, textDim, divider };
 
   return (
 		<>
@@ -734,8 +751,8 @@ export default function SettingsScreen() {
 				{/* ══ CONTENT ══ */}
 				<View style={{ paddingHorizontal: 20 }}>
 					{/* WYGLĄD */}
-					<SectionLabel title='WYGLĄD' />
-					<Card>
+					<SettingsSectionLabel isDark={isDark} title='WYGLĄD' />
+					<SettingsCard {...settingsCardProps}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
 							<View
 								style={{
@@ -880,12 +897,12 @@ export default function SettingsScreen() {
 								</TouchableOpacity>
 							</>
 						)}
-					</Card>
+					</SettingsCard>
 
-					<SectionLabel title='PREMIUM PERSONALIZACJA' />
-					<Card>
+					<SettingsSectionLabel isDark={isDark} title='PREMIUM PERSONALIZACJA' />
+					<SettingsCard {...settingsCardProps}>
 						{!effectivePremium ? (
-							<Row
+							<SettingsRow {...settingsRowProps}
 								icon='workspace-premium'
 								iconBg='#FFD700'
 								label='Dostępne w Premium'
@@ -1444,10 +1461,10 @@ export default function SettingsScreen() {
 								</View>
 							</>
 						)}
-					</Card>
+					</SettingsCard>
 
 					<View style={{ marginTop: 10 }}>
-						<Card>
+						<SettingsCard {...settingsCardProps}>
 							<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 								<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
 									Muzyka w profilu (Spotify)
@@ -1566,12 +1583,12 @@ export default function SettingsScreen() {
 									</TouchableOpacity>
 								</View>
 							</View>
-						</Card>
+						</SettingsCard>
 					</View>
 
 					{/* IKONA LOKALIZACJI */}
 					<View style={{ marginTop: 10 }}>
-						<Card>
+						<SettingsCard {...settingsCardProps}>
 							<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
 								<View
 									style={{
@@ -1667,11 +1684,11 @@ export default function SettingsScreen() {
 									))}
 								</View>
 							</View>
-						</Card>
+						</SettingsCard>
 					</View>
 
 					<View style={{ marginTop: 10 }}>
-						<Card>
+						<SettingsCard {...settingsCardProps}>
 							<View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
 								<View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
 									<View
@@ -1731,27 +1748,27 @@ export default function SettingsScreen() {
 									</TouchableOpacity>
 								</View>
 							</View>
-						</Card>
+						</SettingsCard>
 					</View>
 
 					{/* KONTO */}
-					<SectionLabel title='KONTO' />
-					<Card>
-						<Row
+					<SettingsSectionLabel isDark={isDark} title='KONTO' />
+					<SettingsCard {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
 							icon='person-outline'
 							iconBg={RED}
 							label='Edytuj profil'
 							sublabel='Zmień avatar, bio, lokalizację'
 							onPress={() => router.push("/profile/edit")}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='lock-outline'
 							iconBg={RED}
 							label='Zmień hasło'
 							sublabel='Zaktualizuj hasło do konta'
 							onPress={() => router.push("/profile/change-password")}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='email'
 							iconBg={RED}
 							label='Zmień e-mail'
@@ -1759,9 +1776,9 @@ export default function SettingsScreen() {
 							onPress={() => router.push("/profile/change-email")}
 							last
 						/>
-					</Card>
+					</SettingsCard>
 
-					<SectionLabel title='POLECENIA / REF LINK' />
+					<SettingsSectionLabel isDark={isDark} title='POLECENIA / REF LINK' />
 					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
@@ -1841,9 +1858,9 @@ export default function SettingsScreen() {
 					</View>
 
 					{/* PRYWATNOŚĆ */}
-					<SectionLabel title='PRYWATNOŚĆ' />
-					<Card>
-						<Row
+					<SettingsSectionLabel isDark={isDark} title='PRYWATNOŚĆ' />
+					<SettingsCard {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
 							icon='leaderboard'
 							iconBg='#9C27B0'
 							label='Tryb prywatny'
@@ -1856,7 +1873,7 @@ export default function SettingsScreen() {
 								/>
 							}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='location-off'
 							iconBg='#FF9800'
 							label='Ukryj lokalizację'
@@ -1869,7 +1886,7 @@ export default function SettingsScreen() {
 								/>
 							}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='message'
 							iconBg='#9C27B0'
 							label='Tylko znajomi mogą pisać'
@@ -1883,11 +1900,11 @@ export default function SettingsScreen() {
 								/>
 							}
 						/>
-					</Card>
+					</SettingsCard>
 
 					{/* POWIADOMIENIA */}
-					<SectionLabel title='POWIADOMIENIA' />
-					<Card>
+					<SettingsSectionLabel isDark={isDark} title='POWIADOMIENIA' />
+					<SettingsCard {...settingsCardProps}>
 						{(
 							[
 								{
@@ -1955,7 +1972,7 @@ export default function SettingsScreen() {
 								},
 							] as const
 						).map((item, i, arr) => (
-							<Row
+							<SettingsRow {...settingsRowProps}
 								key={item.key}
 								icon={item.icon}
 								iconBg={item.iconBg}
@@ -1971,12 +1988,12 @@ export default function SettingsScreen() {
 								}
 							/>
 						))}
-					</Card>
+					</SettingsCard>
 
 					{/* APLIKACJA */}
-					<SectionLabel title='APLIKACJA' />
-					<Card>
-						<Row
+					<SettingsSectionLabel isDark={isDark} title='APLIKACJA' />
+					<SettingsCard {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
 							icon='directions-run'
 							iconBg='#4CAF50'
 							label='Praca w tle'
@@ -1989,14 +2006,24 @@ export default function SettingsScreen() {
 								/>
 							}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='workspace-premium'
 							iconBg='#FFD700'
 							label='VROOM Premium'
 							sublabel={effectivePremium ? 'Zarządzaj subskrypcją i korzyściami' : 'Subskrypcja i korzyści'}
 							onPress={() => router.push('/premium')}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
+							icon='system-update'
+							iconBg='#4CAF50'
+							label='Sprawdź aktualizację'
+							sublabel={otaSublabel}
+							onPress={handleCheckAppUpdate}
+							right={(otaChecking || otaDownloading) ? (
+								<ActivityIndicator color={RED} size="small" />
+							) : undefined}
+						/>
+						<SettingsRow {...settingsRowProps}
 							icon='info-outline'
 							iconBg='#607D8B'
 							label='O aplikacji'
@@ -2009,21 +2036,21 @@ export default function SettingsScreen() {
 								})
 							}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='bug-report'
 							iconBg='#FF5722'
 							label='Zgłoś błąd'
 							sublabel='Pomóż nam ulepszyć aplikację'
 							onPress={() => setBugModal(true)}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='forum'
 							iconBg='#2196F3'
 							label='Moje zgłoszenia'
 							sublabel='Status, odpowiedzi supportu, czat'
 							onPress={() => router.push('/profile/bug-reports')}
 						/>
-						<Row
+						<SettingsRow {...settingsRowProps}
 							icon='star-outline'
 							iconBg='#FFC107'
 							label='Oceń aplikację'
@@ -2031,12 +2058,12 @@ export default function SettingsScreen() {
 							last
 							onPress={() => Toast.show({ type: "info", text1: "WKRÓTCE" })}
 						/>
-					</Card>
+					</SettingsCard>
 
 					{/* SESJA */}
-					<SectionLabel title='SESJA' />
-					<Card>
-						<Row
+					<SettingsSectionLabel isDark={isDark} title='SESJA' />
+					<SettingsCard {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
 							icon='logout'
 							iconBg='#FF9800'
 							label='Wyloguj się'
@@ -2044,12 +2071,12 @@ export default function SettingsScreen() {
 							last
 							onPress={() => setLogoutModal(true)}
 						/>
-					</Card>
+					</SettingsCard>
 
 					{/* STREFA NIEBEZPIECZNA */}
-					<SectionLabel title='STREFA NIEBEZPIECZNA' />
-					<Card danger>
-						<Row
+					<SettingsSectionLabel isDark={isDark} title='STREFA NIEBEZPIECZNA' />
+					<SettingsCard danger {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
 							icon='delete-forever'
 							label='Usuń konto'
 							sublabel='Trwale usuwa konto i wszystkie dane'
@@ -2060,7 +2087,7 @@ export default function SettingsScreen() {
 								setDeleteModal(true);
 							}}
 						/>
-					</Card>
+					</SettingsCard>
 
 					{/* Bottom badge */}
 					<View style={{ alignItems: "center", marginTop: 36, gap: 6 }}>
@@ -2217,14 +2244,18 @@ export default function SettingsScreen() {
 				transparent
 				animationType='fade'
 				onRequestClose={() => setDeleteModal(false)}>
-				<View
+				<KeyboardAvoidingView
 					style={{
 						flex: 1,
 						backgroundColor: overlayBg,
 						justifyContent: "center",
 						alignItems: "center",
 						padding: 20,
-					}}>
+						paddingBottom: deleteKeyboardInset > 0 ? deleteKeyboardInset + 20 : 20,
+					}}
+					behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+					enabled={Platform.OS === 'ios'}
+				>
 					<View
 						style={{
 							backgroundColor: cardBg,
@@ -2354,7 +2385,7 @@ export default function SettingsScreen() {
 							</TouchableOpacity>
 						</View>
 					</View>
-				</View>
+				</KeyboardAvoidingView>
 			</Modal>
 
 			{/* ══ MODAL BUG REPORT ══ */}

@@ -13,6 +13,7 @@ import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcon
 import * as ImagePicker           from 'expo-image-picker';
 import { LinearGradient }         from 'expo-linear-gradient';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
+import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSheet';
 import { io, Socket }             from 'socket.io-client';
 import Toast                      from 'react-native-toast-message';
 import { useTheme }               from '../../../contexts/ThemeContext';
@@ -211,6 +212,7 @@ export default function ClubChatScreen() {
   const [menuMsg,     setMenuMsg]     = useState<ClubMessage | null>(null);
   const [editVisible, setEditVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
+  const shareSheetPadding = useModalSheetPadding(shareVisible);
   const [shareText, setShareText] = useState('');
   const [sharing, setSharing] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -1305,9 +1307,14 @@ export default function ClubChatScreen() {
       </Modal>
 
       <Modal visible={shareVisible} transparent animationType="slide" onRequestClose={() => setShareVisible(false)}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          enabled={Platform.OS === 'ios'}
+        >
         <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setShareVisible(false)}>
           <Pressable onPress={e => e.stopPropagation()}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 18, borderTopWidth: 1, borderColor: theme.border2 }}>
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: shareSheetPadding, borderTopWidth: 1, borderColor: theme.border2 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
               <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, marginBottom: 4 }}>
                 UDOSTĘPNIJ KLUB W DYSKUSJACH
@@ -1359,6 +1366,7 @@ export default function ClubChatScreen() {
             </View>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={!!memberModal} transparent animationType="slide" onRequestClose={() => setMemberModal(null)}>

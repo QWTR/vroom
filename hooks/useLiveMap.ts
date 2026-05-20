@@ -76,7 +76,10 @@ export function useLiveMap(
   isSpeechEnabled: boolean,
   allowBackgroundWork = false,
   enabled = true,
+  tripActive = false,
 ) {
+  const tripActiveRef = useRef(tripActive);
+  useEffect(() => { tripActiveRef.current = tripActive; }, [tripActive]);
   const [liveUsers,       setLiveUsers]       = useState<LiveUser[]>([]);
   const [warnings,        setWarnings]        = useState<LiveWarning[]>([]);
   const [visibleWarnings, setVisibleWarnings] = useState<LiveWarning[]>([]);
@@ -124,6 +127,7 @@ export function useLiveMap(
   const pendingOfflineRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const INTERP_TICK_BASE_MS = 180;
   const INTERP_TICK_BUSY_MS = 260;
+  const INTERP_TICK_TRIP_MS = 500;
   const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
   const MAX_INTERP_DUR_MS  = 6000;
   const USERS_REFRESH_MS   = 45_000;
@@ -568,9 +572,11 @@ export function useLiveMap(
 
     const arm = () => {
       if (interval) clearInterval(interval);
-      const ms = interpRef.current.size > 5
-        ? INTERP_TICK_BUSY_MS
-        : INTERP_TICK_BASE_MS;
+      const ms = tripActiveRef.current
+        ? INTERP_TICK_TRIP_MS
+        : interpRef.current.size > 5
+          ? INTERP_TICK_BUSY_MS
+          : INTERP_TICK_BASE_MS;
       interval = setInterval(tick, ms);
     };
 
@@ -581,7 +587,7 @@ export function useLiveMap(
       if (interval) clearInterval(interval);
       clearInterval(rescheduler);
     };
-  }, [isForegroundActive, enabled]);
+  }, [isForegroundActive, enabled, tripActive]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {

@@ -105,3 +105,24 @@ export async function asyncFindNearest(
   }
   return best ? { points: best.points, ageMs: best.ageMs } : null;
 }
+
+export async function asyncFindInBbox(
+  minLat: number,
+  maxLat: number,
+  minLng: number,
+  maxLng: number,
+  limit = 24,
+): Promise<RoadPoint[][]> {
+  const now = Date.now();
+  const segments = (await loadSegments()).filter(
+    (s) =>
+      now - s.updated_at < TTL_MS &&
+      s.min_lat <= maxLat && s.max_lat >= minLat &&
+      s.min_lng <= maxLng && s.max_lng >= minLng,
+  );
+  return segments
+    .sort((a, b) => b.updated_at - a.updated_at)
+    .slice(0, limit)
+    .map((s) => s.points)
+    .filter((pts) => pts.length >= 2);
+}

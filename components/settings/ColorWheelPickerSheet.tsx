@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, Platform } from 'react-native';
+import { Modal, View, Text, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import ColorPicker from 'react-native-wheel-color-picker';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -25,6 +26,7 @@ type Props = {
 
 export function ColorWheelPickerSheet({ visible, title, color, onClose, onConfirm }: Props) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [temp, setTemp] = useState(normalizePickerHex(color));
 
   useEffect(() => {
@@ -44,7 +46,7 @@ export function ColorWheelPickerSheet({ visible, title, color, onClose, onConfir
           borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
           paddingTop: 16,
-          paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+          paddingBottom: insets.bottom + 16,
           borderTopWidth: 1,
           borderColor: theme.border2,
         }}>

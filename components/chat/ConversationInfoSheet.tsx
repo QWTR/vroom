@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, Image,
   ScrollView, TextInput, ActivityIndicator, FlatList,
-  Animated, Dimensions, Modal,
+  Animated, Dimensions, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage  from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme }  from '../../contexts/ThemeContext';
+import { useModalSheetPadding } from '../layout/ModalKeyboardSheet';
 
 const { height: SCREEN_H, width: W } = Dimensions.get('window');
 const THUMB  = (W - 6) / 3;
@@ -50,6 +51,7 @@ export function ConversationInfoSheet({
   const [editingName,    setEditingName]    = useState(false);
   const [saving,         setSaving]         = useState(false);
   const tokenRef = useRef('');
+  const sheetPaddingBottom = useModalSheetPadding(visible);
 
   useEffect(() => {
     if (visible) {
@@ -177,6 +179,11 @@ export function ConversationInfoSheet({
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
+      >
       <TouchableOpacity style={{ ...require('react-native').StyleSheet.absoluteFillObject, backgroundColor: theme.overlay }} onPress={onClose} activeOpacity={1} />
 
       <Animated.View style={{
@@ -185,6 +192,7 @@ export function ConversationInfoSheet({
         backgroundColor: theme.surface2,
         borderTopLeftRadius: 24, borderTopRightRadius: 24,
         overflow: 'hidden',
+        paddingBottom: sheetPaddingBottom,
         transform: [{ translateY: slideAnim }],
       }}>
         {/* Handle */}
@@ -340,6 +348,7 @@ export function ConversationInfoSheet({
           </View>
         )}
       </Animated.View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -127,3 +127,26 @@ export async function sqliteFindNearest(
   }
   return best ? { points: best.points, ageMs: best.ageMs } : null;
 }
+
+export async function sqliteFindInBbox(
+  minLat: number,
+  maxLat: number,
+  minLng: number,
+  maxLng: number,
+  limit = 24,
+): Promise<RoadPoint[][]> {
+  const db = await getDb();
+  const now = Date.now();
+  const rows = await db.getAllAsync<SegmentRow>(
+    `SELECT * FROM road_segments
+     WHERE updated_at >= ?
+       AND min_lat <= ? AND max_lat >= ?
+       AND min_lng <= ? AND max_lng >= ?
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+    [now - TTL_MS, maxLat, minLat, maxLng, minLng, limit],
+  );
+  return rows
+    .map((row) => parsePoints(row.points_json))
+    .filter((pts) => pts.length >= 2);
+}

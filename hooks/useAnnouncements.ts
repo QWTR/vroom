@@ -18,6 +18,14 @@ export type Announcement = {
 const CACHE_KEY = 'announcements_cache';
 const SEEN_KEY  = 'announcements_seen';
 
+function isProductionAnnouncement(a: Announcement): boolean {
+  return a.category !== 'beta' && !/vroom\s+beta/i.test(a.title ?? '');
+}
+
+function filterProductionAnnouncements(list: Announcement[]): Announcement[] {
+  return list.filter(isProductionAnnouncement);
+}
+
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
@@ -67,7 +75,10 @@ export function useAnnouncements() {
 
       // Cache najpierw — szybki render
       const cached = await AsyncStorage.getItem(CACHE_KEY);
-      if (cached) setAnnouncements(JSON.parse(cached));
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) setAnnouncements(filterProductionAnnouncements(parsed));
+      }
 
       // Fresh z API
       const token = await getToken();
@@ -76,8 +87,10 @@ export function useAnnouncements() {
       });
       if (res.ok) {
         const data: Announcement[] = await res.json();
-        setAnnouncements(data); // backend już sortuje pinned desc + createdAt desc
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        // Nie pokazuj ogłoszeń kategorii beta w produkcji (App Store 2.2).
+        const production = filterProductionAnnouncements(data);
+        setAnnouncements(production);
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(production));
       }
     } catch (e) {
       console.warn('useAnnouncements error:', e);

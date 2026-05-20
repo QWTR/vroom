@@ -8,6 +8,8 @@ import {
   Dimensions, Text,
   Image,
   NativeModules,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import * as SplashScreen    from 'expo-splash-screen';
 import { LinearGradient }   from 'expo-linear-gradient';
@@ -31,6 +33,13 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
 } from '../lib/backgroundLocationConsent';
 import { initMapbox } from '../lib/mapboxInit';
+import { useAppPresence } from '../hooks/useAppPresence';
+
+/** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
+function AppPresenceHeartbeat() {
+  useAppPresence();
+  return null;
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -187,6 +196,7 @@ function RootLayoutInner() {
   const {
     updateAvailable,
     downloading: updateDownloading,
+    error: updateError,
     checkForUpdate,
     applyUpdate,
     dismiss: dismissUpdate,
@@ -201,6 +211,8 @@ function RootLayoutInner() {
   const bgDisclosureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bootstrapAfterUpdateRef = useRef<(() => Promise<void>) | null>(null);
   const bootstrapStartedRef = useRef(false);
+  const updateDismissedRef = useRef(false);
+  const lastForegroundUpdateCheckRef = useRef(0);
 
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
@@ -401,7 +413,7 @@ function RootLayoutInner() {
 
     let cancelled = false;
     (async () => {
-      const available = await checkForUpdate();
+      const available = await checkForUpdate({ retries: 3 });
       if (cancelled) return;
       if (available) {
         setUpdatePromptVisible(true);
@@ -415,7 +427,27 @@ function RootLayoutInner() {
     return () => { cancelled = true; };
   }, [loaded, error, phase, checkForUpdate]);
 
+  /** Ponowne sprawdzenie OTA po powrocie do apki (słaba sieć przy starcie, „Później” wcześniej). */
+  useEffect(() => {
+    if (phase !== 'done') return;
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      if (updatePromptVisible || updateDownloading) return;
+      const now = Date.now();
+      if (now - lastForegroundUpdateCheckRef.current < 45_000) return;
+      lastForegroundUpdateCheckRef.current = now;
+      void (async () => {
+        const available = await checkForUpdate({ retries: 2 });
+        if (available && !updateDismissedRef.current) {
+          setUpdatePromptVisible(true);
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [phase, checkForUpdate, updatePromptVisible, updateDownloading]);
+
   const handleUpdateLater = () => {
+    updateDismissedRef.current = true;
     setUpdatePromptVisible(false);
     dismissUpdate();
     void bootstrapAfterUpdateRef.current?.();
@@ -489,11 +521,13 @@ function RootLayoutInner() {
         <Stack.Screen name="Community/clubs/[id]" />
         <Stack.Screen name="notifications" />
       </Stack>
+      <AppPresenceHeartbeat />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={isDark ? '#0a0a0a' : '#efefef'} />
       <Toast config={toastConfig} />
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}
         loading={updateDownloading}
+        error={updateError}
         onUpdate={applyUpdate}
         onDismiss={handleUpdateLater}
       />

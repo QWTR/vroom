@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, ScrollView,
-  Platform, StatusBar,
+  StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import ColorPicker from 'react-native-wheel-color-picker';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -93,6 +93,7 @@ const GROUPS: { title: string; keys: ColorKey[] }[] = [
 
 export function CustomThemeEditor({ visible, onClose }: Props) {
   const { theme, customTheme, setCustomColor, resetCustomTheme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [activeKey,     setActiveKey]     = useState<keyof AppTheme | null>(null);
@@ -112,7 +113,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
       <StatusBar barStyle={getStatusBarStyle(theme.bg)} backgroundColor={theme.bg} />
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top', 'bottom']}>
+      <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: insets.top, paddingBottom: insets.bottom }}>
 
         {/* Nagłówek */}
         <View style={{
@@ -131,6 +132,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
           </Text>
           <TouchableOpacity
             onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}
           >
             <MaterialIcons name="close" size={18} color={theme.textDim} />
@@ -213,7 +215,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
             <View style={{
               backgroundColor: theme.surface,
               borderTopLeftRadius: 24, borderTopRightRadius: 24,
-              paddingTop: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+              paddingTop: 16, paddingBottom: insets.bottom + 16,
               borderTopWidth: 1, borderColor: theme.border2,
             }}>
               {/* Handle */}
@@ -269,7 +271,7 @@ export function CustomThemeEditor({ visible, onClose }: Props) {
           </View>
         </Modal>
 
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

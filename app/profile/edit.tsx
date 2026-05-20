@@ -57,9 +57,14 @@ export default function EditProfileScreen() {
         });
         return;
       }
+      setLocalAvatar(null);
     }
     const ok = await updateProfile({ username: username.trim(), location: location.trim(), bio: bio.trim() });
-    if (ok) { Toast.show({ type: 'success', text1: '✅ ZAPISANO', text2: 'Profil zaktualizowany!' }); router.back(); }
+    if (ok) {
+      await fetchProfile();
+      Toast.show({ type: 'success', text1: '✅ ZAPISANO', text2: 'Profil zaktualizowany!' });
+      router.back();
+    }
     else    { Toast.show({ type: 'error',   text1: 'BŁĄD',      text2: 'Nie udało się zaktualizować profilu.' }); }
   };
 
@@ -95,7 +100,7 @@ export default function EditProfileScreen() {
           {avatarLoading
             ? <ActivityIndicator color={theme.primary} size="large" />
             : avatarSource
-            ? <Image source={{ uri: avatarSource }} style={{ width: 100, height: 100 }} />
+            ? <Image key={avatarSource} source={{ uri: avatarSource }} style={{ width: 100, height: 100 }} />
             : <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: theme.primary }}>{initials}</Text>
           }
         </View>

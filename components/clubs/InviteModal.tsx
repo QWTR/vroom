@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  FlatList, ActivityIndicator, Pressable, Platform, StyleSheet,
+  FlatList, ActivityIndicator, Pressable, StyleSheet,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
+import { useModalSheetPadding } from '../layout/ModalKeyboardSheet';
 import { API_URL }            from '../../constants/config';
 import { getAuthToken }       from '../../lib/getAuthToken';
 import { UAv }                from './ClubCard';
@@ -35,6 +37,7 @@ export function InviteModal({
   const [cancelling, setCancelling]   = useState<number | null>(null);
   const [error,    setError]          = useState('');
   const [success,  setSuccess]        = useState('');
+  const sheetPaddingBottom = useModalSheetPadding(visible);
 
   useEffect(() => {
     if (visible) { setSearch(''); setError(''); setSuccess(''); fetchInvites(); }
@@ -97,12 +100,17 @@ export function InviteModal({
       presentationStyle="overFullScreen"
       statusBarTranslucent
     >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
+      >
       <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
           <View style={{
             backgroundColor: theme.surface,
             borderTopLeftRadius: 28, borderTopRightRadius: 28,
-            paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+            paddingBottom: sheetPaddingBottom,
             maxHeight: '82%',
             borderTopWidth: 1, borderColor: theme.border2,
           }}>
@@ -299,6 +307,7 @@ export function InviteModal({
             )}
           </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

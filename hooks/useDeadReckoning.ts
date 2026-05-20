@@ -180,16 +180,29 @@ export function useDeadReckoning({
         pos.latitude, pos.longitude,
       );
       const dt = now - lastFeedMs.current;
+      // Android często zgłasza speed=0 mimo ruchu — wylicz z delty pozycji.
+      const impliedSpeedMs = dt > 0 ? jumpM / dt : 0;
+      const speedMs = Math.max(_speedMs ?? 0, impliedSpeedMs);
+      const keepAlive = () => {
+        lastFeedMs.current = now;
+      };
       if (jumpM < 0.4 && dt < 500) {
+        keepAlive();
         return;
       }
-      const speedMs = Math.max(0, _speedMs ?? 0);
       if (speedMs >= 2.5) {
-        if (jumpM < 0.2 && dt < 350) return;
+        if (jumpM < 0.2 && dt < 350) {
+          keepAlive();
+          return;
+        }
       } else if (speedMs < 0.7) {
-        if (jumpM < 8 && dt < 6000) return;
-        if (jumpM < 2.5 && dt < 2500) return;
+        // Przy „zerowej” prędkości nadal aktualizuj cel, jeśli jest realny ruch.
+        if (jumpM < 1.5 && dt < 2500) {
+          keepAlive();
+          return;
+        }
       } else if (jumpM < 0.4 && dt < 2200 && speedMs < 1.2) {
+        keepAlive();
         return;
       }
       if (jumpM < 1.2) {

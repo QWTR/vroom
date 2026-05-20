@@ -356,6 +356,18 @@ PostCard.displayName = 'PostCard';
 // Reklama co N postów
 const AD_INSERTION_INTERVAL = 2;
 
+export const DISCUSSIONS_SCROLL_STATE = { offset: 0 };
+const discussionsListRef: { current: FlatList<any> | null } = { current: null };
+
+export function restoreDiscussionsScroll() {
+  requestAnimationFrame(() => {
+    discussionsListRef.current?.scrollToOffset({
+      offset: DISCUSSIONS_SCROLL_STATE.offset,
+      animated: false,
+    });
+  });
+}
+
 // ─────────────────────────────────────────────────────────
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
@@ -387,6 +399,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onUpgradePremium: () => void;
 }) {
   const [composeHeight, setComposeHeight] = useState(120);
+  const restoredRef = React.useRef(false);
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
   const feedItems: FeedItem[] = useMemo(() =>
     posts.flatMap((post, index) =>
@@ -396,9 +409,26 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
     ),
   [posts]);
 
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (!posts.length) return;
+    if (DISCUSSIONS_SCROLL_STATE.offset <= 0) {
+      restoredRef.current = true;
+      return;
+    }
+    requestAnimationFrame(() => {
+      discussionsListRef.current?.scrollToOffset({
+        offset: DISCUSSIONS_SCROLL_STATE.offset,
+        animated: false,
+      });
+      restoredRef.current = true;
+    });
+  }, [posts.length]);
+
   return (
     <View style={{ flex: 1 }}>
       <FlatList
+        ref={(r) => { discussionsListRef.current = r; }}
         style={{ flex: 1 }}
         keyboardDismissMode="interactive"
         data={feedItems}
@@ -407,6 +437,10 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         windowSize={7}
         removeClippedSubviews
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
+        onScroll={(e) => {
+          DISCUSSIONS_SCROLL_STATE.offset = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         renderItem={({ item }) => '_adType' in item ? (
           <AdPostBoundary>
             <AdNativePost />

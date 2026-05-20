@@ -30,11 +30,14 @@ import { usePolls } from "../../hooks/usePolls";
 import { useGifts } from "../../hooks/useGifts";
 import { PollModal } from "../../components/modals/PollModal";
 import { GiftModal } from "../../components/modals/GiftModal";
+import { CampaignFlowModal } from "../../components/modals/CampaignFlowModal";
+import { useEntryCampaign } from "../../hooks/useEntryCampaign";
 import { AdBanner } from "../../components/ads/AdBanner";
 import { usePremium } from "../../contexts/PremiumContext";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
+import { useAppPresence } from "../../hooks/useAppPresence";
 
 const { width, height } = Dimensions.get("window");
 
@@ -140,6 +143,7 @@ export default function HomeScreen() {
     premiumStatus,
 	} = usePremium();
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
+	const onlineCount = useAppPresence();
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [user, setUser] = useState<User | null>(null);
@@ -152,10 +156,12 @@ export default function HomeScreen() {
 
 	const [pollVisible, setPollVisible] = useState(false);
 	const [giftVisible, setGiftVisible] = useState(false);
+	const [campaignVisible, setCampaignVisible] = useState(false);
 	const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
 	const [notifUnread, setNotifUnread] = useState(0);
 	const giftAutoShownRef = useRef(false);
 	const pollAutoShownRef = useRef(false);
+	const campaignAutoShownRef = useRef(false);
 
 	const fetchNotifUnread = useCallback(async () => {
 		try {
@@ -194,6 +200,13 @@ export default function HomeScreen() {
 
 	const { poll, voted, fetchActivePoll, vote } = usePolls();
 	const { gifts, fetchAvailableGifts, claimGift } = useGifts();
+	const {
+		campaign,
+		fetchActiveCampaign,
+		completeCampaign,
+		claimCampaignGift,
+		voteCampaignPoll,
+	} = useEntryCampaign();
 	const pollRef = useRef(poll);
 	const votedRef = useRef(voted);
 
@@ -359,15 +372,45 @@ export default function HomeScreen() {
 	}, [voted]);
 
 	useEffect(() => {
-		setHomeOverlayOpen(giftVisible || pollVisible);
-	}, [giftVisible, pollVisible, setHomeOverlayOpen]);
+		setHomeOverlayOpen(campaignVisible || giftVisible || pollVisible);
+	}, [campaignVisible, giftVisible, pollVisible, setHomeOverlayOpen]);
 
-	// GIFTY — po globalnych zgodach (regulamin / lokalizacja), żeby nie nakładać modali
+	// Kampanie powitalne — priorytet nad legacy gift/poll
 	useEffect(() => {
 		if (!isFocused) return;
 		if (loading) return;
 		if (!gatesSettled) return;
 		if (layoutGateOpen) return;
+		if (campaignAutoShownRef.current) return;
+
+		let cancelled = false;
+		let timeoutId: ReturnType<typeof setTimeout> | null = null;
+		const task = InteractionManager.runAfterInteractions(() => {
+			timeoutId = setTimeout(async () => {
+				if (cancelled || campaignAutoShownRef.current) return;
+				const needsUgc = await AsyncStorage.getItem("needsUgcTerms");
+				if (needsUgc === "1") return;
+				const active = await fetchActiveCampaign();
+				if (cancelled || !active) return;
+				campaignAutoShownRef.current = true;
+				setCampaignVisible(true);
+			}, 600);
+		});
+
+		return () => {
+			cancelled = true;
+			task.cancel();
+			if (timeoutId) clearTimeout(timeoutId);
+		};
+	}, [isFocused, loading, gatesSettled, layoutGateOpen, fetchActiveCampaign]);
+
+	// GIFTY — po globalnych zgodach (pomiń gdy kampania powitalna)
+	useEffect(() => {
+		if (!isFocused) return;
+		if (loading) return;
+		if (!gatesSettled) return;
+		if (layoutGateOpen) return;
+		if (campaignAutoShownRef.current || campaignVisible) return;
 		if (gifts.length === 0) return;
 		if (giftAutoShownRef.current) return;
 
@@ -389,20 +432,29 @@ export default function HomeScreen() {
 			task.cancel();
 			if (timeoutId) clearTimeout(timeoutId);
 		};
-	}, [isFocused, loading, gifts.length, gatesSettled, layoutGateOpen]);
+	}, [isFocused, loading, gifts.length, gatesSettled, layoutGateOpen, campaignVisible]);
 
-	// ANKIETA — pokaż gdy brak giftów lub po zamknięciu giftów
+	// ANKIETA — pokaż gdy brak giftów lub po zamknięciu giftów (pomiń gdy kampania)
 	useEffect(() => {
 		if (!isFocused) return;
 		if (loading) return;
 		if (!poll) return;
 		if (voted) return;
 		if (giftVisible) return;
+		if (campaignVisible || campaignAutoShownRef.current) return;
 		if (gifts.length > 0) return;
 		if (pollAutoShownRef.current) return;
 		pollAutoShownRef.current = true;
 		setPollVisible(true);
-	}, [isFocused, loading, poll?.id, voted, giftVisible, gifts.length]);
+	}, [isFocused, loading, poll?.id, voted, giftVisible, gifts.length, campaignVisible]);
+
+	const handleCampaignClose = () => {
+		setCampaignVisible(false);
+	};
+
+	const handleCampaignComplete = async () => {
+		if (campaign) await completeCampaign(campaign.id);
+	};
 
 	const handleGiftClose = () => {
 		const nextIdx = currentGiftIdx + 1;
@@ -616,6 +668,26 @@ export default function HomeScreen() {
 						<View
 							style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
 							<TouchableOpacity
+								onPress={() => router.push("/premium" as any)}
+								activeOpacity={0.85}
+								accessibilityLabel="VROOM Premium"
+								style={{
+									width: 40,
+									height: 40,
+									borderRadius: 20,
+									backgroundColor: effectivePremium ? "#FFD70018" : t.surface,
+									borderWidth: 1,
+									borderColor: effectivePremium ? "#FFD70055" : t.border2,
+									alignItems: "center",
+									justifyContent: "center",
+								}}>
+								<MaterialIcons
+									name="workspace-premium"
+									size={22}
+									color={effectivePremium ? "#FFD700" : "#e33835"}
+								/>
+							</TouchableOpacity>
+							<TouchableOpacity
 								onPress={() => router.push("/notifications")}
 								activeOpacity={0.85}
 								style={{
@@ -678,7 +750,7 @@ export default function HomeScreen() {
 										color: "#4de926",
 										letterSpacing: 2,
 									}}>
-									ONLINE
+									{onlineCount != null ? `${onlineCount} ONLINE` : "ONLINE"}
 								</Text>
 							</View>
 							{/* Avatar */}
@@ -1853,7 +1925,7 @@ export default function HomeScreen() {
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text style={{ fontFamily: "Orbitron", fontSize: 11, color: t.text, fontWeight: "700" }}>
-									Zgłoś błąd (beta)
+									Zgłoś błąd
 								</Text>
 								<Text style={{ fontFamily: "Orbitron", fontSize: 8, color: t.textDim, marginTop: 2 }}>
 									Stały skrót do formularza zgłoszeń
@@ -2132,6 +2204,17 @@ export default function HomeScreen() {
 					</TouchableOpacity>
 				</Animated.View>
 			</ScrollView>
+
+			{campaign && campaignVisible && (
+				<CampaignFlowModal
+					visible
+					campaign={campaign}
+					onClaimGift={claimCampaignGift}
+					onVotePoll={voteCampaignPoll}
+					onComplete={handleCampaignComplete}
+					onClose={handleCampaignClose}
+				/>
+			)}
 
 			{poll && pollVisible && (
 				<PollModal

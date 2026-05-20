@@ -32,12 +32,16 @@ export const SmoothDrPositionMarker = memo(function SmoothDrPositionMarker({
     }
     let rafId = 0;
     let alive = true;
-    const loop = () => {
+    let lastEmit = 0;
+    const loop = (ts: number) => {
       if (!alive) return;
-      const slat = lat.value;
-      const slng = lng.value;
-      if (isValidCoord(slat, slng)) {
-        setPose({ lat: slat, lng: slng, hdg: heading.value });
+      if (ts - lastEmit >= 33) {
+        lastEmit = ts;
+        const slat = lat.value;
+        const slng = lng.value;
+        if (isValidCoord(slat, slng)) {
+          setPose({ lat: slat, lng: slng, hdg: heading.value });
+        }
       }
       rafId = requestAnimationFrame(loop);
     };

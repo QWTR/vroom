@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity,
+  View, Text, TouchableOpacity,
   FlatList, Image, ActivityIndicator, TextInput,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme }      from '../../contexts/ThemeContext';
 import { useRouter }     from 'expo-router';
 import AsyncStorage      from '@react-native-async-storage/async-storage';
@@ -134,15 +135,7 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
-        <View style={{
-          backgroundColor: theme.surface,
-          borderTopLeftRadius: 24, borderTopRightRadius: 24,
-          maxHeight: '85%',
-          borderTopWidth: 1, borderColor: theme.border2,
-          paddingHorizontal: 16,
-        }}>
+    <ModalKeyboardSheet visible={visible} onClose={handleClose} maxHeight="85%">
           {/* Handle */}
           <View style={{ width: 40, height: 4, backgroundColor: theme.border3, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8 }} />
 
@@ -361,8 +354,6 @@ export function FriendsModal({ visible, friends, loading, onClose, onRemove, isO
               )}
             </View>
           )}
-        </View>
-      </View>
-    </Modal>
+    </ModalKeyboardSheet>
   );
 }

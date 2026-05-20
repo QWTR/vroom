@@ -1,6 +1,6 @@
 import { NativeModules } from 'react-native';
 import type { RoadPoint } from './RoadGeometryStore.types';
-import { asyncFindNearest, asyncInsert } from './roadGeometryAsyncStorage';
+import { asyncFindInBbox, asyncFindNearest, asyncInsert } from './roadGeometryAsyncStorage';
 
 export type { RoadPoint } from './RoadGeometryStore.types';
 
@@ -54,6 +54,21 @@ class RoadGeometryStoreImpl {
       return sqliteModule.sqliteFindNearest(lat, lng, radiusM);
     }
     return asyncFindNearest(lat, lng, radiusM);
+  }
+
+  /** Segmenty drogi z lokalnego cache (SQLite / AsyncStorage) w bbox trasy. */
+  async findInBbox(
+    minLat: number,
+    maxLat: number,
+    minLng: number,
+    maxLng: number,
+    limit = 24,
+  ): Promise<RoadPoint[][]> {
+    const mode = await resolveBackend();
+    if (mode === 'sqlite' && sqliteModule) {
+      return sqliteModule.sqliteFindInBbox(minLat, maxLat, minLng, maxLng, limit);
+    }
+    return asyncFindInBbox(minLat, maxLat, minLng, maxLng, limit);
   }
 }
 

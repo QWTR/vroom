@@ -29,7 +29,7 @@ import {
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
 } from './communityShared';
 import { useKeyboardInset, modalKeyboardFooterPadding } from '../../../hooks/useKeyboardInset';
-import { TabDyskusje } from './TabDyskusje';
+import { TabDyskusje, restoreDiscussionsScroll } from './TabDyskusje';
 import {
   reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
 } from '../../../lib/ugcActions';
@@ -489,10 +489,16 @@ export default function CommunityScreen() {
     } catch {} finally { setLoadingComments(false); }
   }, [myId]);
 
-  const goToProfile = useCallback((userId: number) => {
+  const closeComments = useCallback(() => {
+    Keyboard.dismiss();
     setCommentPost(null);
+    restoreDiscussionsScroll();
+  }, []);
+
+  const goToProfile = useCallback((userId: number) => {
+    closeComments();
     router.push({ pathname: '/profile/[userId]', params: { userId: String(userId) } });
-  }, [router]);
+  }, [router, closeComments]);
 
   const handleCommentAuthorFollow = useCallback(async () => {
     if (!commentPost || commentPost.author.id === myId) return;
@@ -648,11 +654,11 @@ export default function CommunityScreen() {
   const handleHashtagPress = useCallback((rawTag: string) => {
     const tag = normalizeHashtag(rawTag);
     if (!tag) return;
-    setCommentPost(null);
+    closeComments();
     setSearch(tag);
     setSearchActive(true);
     setActiveTab('dyskusje');
-  }, []);
+  }, [closeComments]);
 
   const filteredPosts  = search.trim()
     ? visiblePosts.filter((p) => {
@@ -835,42 +841,34 @@ export default function CommunityScreen() {
       <Modal
         visible={!!commentPost}
         animationType="slide"
-        transparent
+        transparent={false}
         statusBarTranslucent
-        onRequestClose={() => setCommentPost(null)}
+        onRequestClose={closeComments}
       >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000bb' }}>
-          <Pressable style={{ flex: 1 }} onPress={() => { Keyboard.dismiss(); setCommentPost(null); }} />
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: 16, paddingVertical: 10,
+            borderBottomWidth: 1, borderBottomColor: theme.border,
+          }}>
+            <TouchableOpacity
+              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
+              onPress={closeComments}
+            >
+              <MaterialIcons name="arrow-back" size={20} color={theme.text} />
+            </TouchableOpacity>
+            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, letterSpacing: 2 }}>POST</Text>
+            <View style={{ width: 38 }} />
+          </View>
           <KeyboardAvoidingView
+            style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             enabled={Platform.OS === 'ios'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom : 0}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
           >
-          <View
-            style={{
-              backgroundColor: theme.surface,
-              borderTopLeftRadius: 28, borderTopRightRadius: 28,
-              borderWidth: 1, borderColor: theme.border2,
-              maxHeight: '88%',
-            }}
-          >
-            <View style={{ paddingHorizontal: 16, paddingTop: 12, flexShrink: 1 }}>
-              {/* Handle */}
-              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-
-              {/* Header */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2 }}>KOMENTARZE</Text>
-                <TouchableOpacity
-                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
-                  onPress={() => setCommentPost(null)}
-                >
-                  <MaterialIcons name="close" size={16} color={theme.textDim} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Post preview */}
-              {commentPost && (
+          <View style={{ flex: 1, backgroundColor: theme.surface }}>
+            <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 12 }}>
+              {commentPost ? (
                 <View style={{
                   flexDirection: 'row', gap: 10, marginBottom: 12,
                   backgroundColor: theme.surface2, borderRadius: 14, padding: 10,
@@ -921,7 +919,7 @@ export default function CommunityScreen() {
                       }
                       if (commentPost.content.length > 0) {
                         return (
-                          <Text style={{ fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
+                          <Text style={{ fontSize: 15, lineHeight: 22 }}>
                             {renderDiscussionBody(commentPost.content, theme, {
                               textColor: theme.textDim,
                               onMentionPress: async (username) => {
@@ -948,9 +946,12 @@ export default function CommunityScreen() {
                     )}
                   </View>
                 </View>
-              )}
+              ) : null}
 
               <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 12 }} />
+              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 10 }}>
+                KOMENTARZE
+              </Text>
 
               {/* Lista komentarzy */}
               {loadingComments ? (
@@ -960,9 +961,9 @@ export default function CommunityScreen() {
                   ref={commentListRef}
                   data={comments}
                   keyExtractor={c => String(c.id)}
-                  style={{ maxHeight: commentListMaxHeight }}
+                  style={{ flex: 1 }}
                   contentContainerStyle={{ paddingBottom: 8 }}
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={true}
                   renderItem={({ item }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
                       <TouchableOpacity onPress={() => goToProfile(item.author.id)}>
@@ -1170,7 +1171,7 @@ export default function CommunityScreen() {
             </View>
           </View>
           </KeyboardAvoidingView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* ══ MODAL WYŚLIJ TRASĘ ════════════════════════════════ */}

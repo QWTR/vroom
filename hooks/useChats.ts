@@ -136,6 +136,29 @@ export function useChat() {
         fetchFriends();
       });
 
+      const applyPresence = ({ userId, online }: { userId: number; online: boolean }) => {
+        const uid = Number(userId);
+        if (!Number.isFinite(uid)) return;
+        setFriends(prev =>
+          Array.isArray(prev)
+            ? prev.map(f => (f.id === uid ? { ...f, online } : f))
+            : prev,
+        );
+        setConversations(prev => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map(c => ({
+            ...c,
+            online: !c.isGroup && c.participants.some(p => p.id === uid) ? online : c.online,
+            participants: c.participants.map(p =>
+              p.id === uid ? { ...p, online } : p,
+            ),
+          }));
+        });
+      };
+
+      socket.on('presence:update', applyPresence);
+      socket.on('user:online', applyPresence);
+
       socketRef.current = socket;
     })();
 

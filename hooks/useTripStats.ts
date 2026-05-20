@@ -10,8 +10,10 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
-const TRIP_MAX_PLAUSIBLE_KMH = 190;
-const TRIP_MAX_FIX_GAP_SEC   = 180;
+const TRIP_MAX_PLAUSIBLE_KMH = 240;
+/** Dłuższe przerwy GPS (tunel, Doze) — po tym segmencie reset kotwicy zamiast wiecznego odrzucania. */
+const TRIP_MAX_FIX_GAP_SEC   = 480;
+const TRIP_FALLBACK_MAX_GAP_SEC = 900;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
 const TRIP_MIN_SEGMENT_KM = 0.003;
@@ -137,7 +139,7 @@ export function useTripStats() {
       segmentDiagRef.current.rejected[segment.reason] = (segmentDiagRef.current.rejected[segment.reason] ?? 0) + 1;
       const dtSec = Math.max(0, (now - lastMeta.time) / 1000);
       const isRecoverable = segment.reason === 'jump' || segment.reason === 'impossible_speed' || segment.reason === 'stale_gap';
-      if (isRecoverable && dtSec > 0 && dtSec <= TRIP_MAX_FIX_GAP_SEC * 2) {
+      if (isRecoverable && dtSec > 0 && dtSec <= TRIP_FALLBACK_MAX_GAP_SEC) {
         const rawKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
         const cappedByTimeKm = (TRIP_MAX_PLAUSIBLE_KMH / 3600) * Math.min(dtSec, TRIP_MAX_FIX_GAP_SEC);
         const hasMotionSignal = speedKmh != null && speedKmh >= TRIP_FALLBACK_MIN_SPEED_KMH;

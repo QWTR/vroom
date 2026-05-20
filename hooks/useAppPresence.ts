@@ -1,87 +1,114 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { API_URL } from '../constants/config';
 
-const REFRESH_MS_FOREGROUND = 120_000;
+const REFRESH_MS_FOREGROUND = 30_000;
+
+type Listener = (count: number | null) => void;
+
+let sharedCount: number | null = null;
+const listeners = new Set<Listener>();
+let loopStarted = false;
+let cancelled = false;
+let refreshInterval: ReturnType<typeof setInterval> | null = null;
+let appStateSub: { remove: () => void } | null = null;
+const appStateRef = { current: AppState.currentState as AppStateStatus };
 
 async function getAuthToken(): Promise<string | null> {
   return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 }
 
-/** Polling licznika online + ping `lastSeen` dla zalogowanych. */
+function notifyListeners(count: number | null) {
+  sharedCount = count;
+  for (const fn of listeners) fn(count);
+}
+
+async function fetchOnline() {
+  if (appStateRef.current !== 'active') return;
+  try {
+    const res = await fetch(`${API_URL}/api/stats/online`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return;
+    const j = (await res.json()) as { activeInApp?: number };
+    if (!cancelled && typeof j.activeInApp === 'number') {
+      notifyListeners(j.activeInApp);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function ping() {
+  if (appStateRef.current !== 'active') return;
+  try {
+    const token = await getAuthToken();
+    if (!token) return;
+    const res = await fetch(`${API_URL}/api/profile/ping`, {
+      method:  'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept:        'application/json',
+      },
+    });
+    if (!res.ok) return;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function pingThenFetch() {
+  await ping();
+  await fetchOnline();
+}
+
+function scheduleRefresh() {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = null;
+  if (appStateRef.current !== 'active') return;
+  refreshInterval = setInterval(() => void pingThenFetch(), REFRESH_MS_FOREGROUND);
+}
+
+function startPresenceLoop() {
+  if (loopStarted) return;
+  loopStarted = true;
+  cancelled = false;
+
+  void pingThenFetch();
+  scheduleRefresh();
+
+  appStateSub = AppState.addEventListener('change', (s) => {
+    if (appStateRef.current.match(/inactive|background/) && s === 'active') {
+      void pingThenFetch();
+    }
+    appStateRef.current = s;
+    scheduleRefresh();
+  });
+}
+
+function stopPresenceLoop() {
+  if (!loopStarted) return;
+  cancelled = true;
+  loopStarted = false;
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = null;
+  appStateSub?.remove();
+  appStateSub = null;
+}
+
+/** Polling licznika online + ping `lastSeen` — jedna instancja na całą apkę. */
 export function useAppPresence() {
-  const [onlineCount, setOnlineCount] = useState<number | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const [onlineCount, setOnlineCount] = useState<number | null>(sharedCount);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const fetchOnline = async () => {
-      if (appStateRef.current !== 'active') return;
-      try {
-        const res = await fetch(`${API_URL}/api/stats/online`, {
-          headers: { Accept: 'application/json' },
-        });
-        if (!res.ok) return;
-        const j = (await res.json()) as { activeInApp?: number };
-        if (!cancelled && typeof j.activeInApp === 'number') {
-          setOnlineCount(j.activeInApp);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const ping = async () => {
-      if (appStateRef.current !== 'active') return;
-      try {
-        const token = await getAuthToken();
-        if (!token) return;
-        const res = await fetch(`${API_URL}/api/profile/ping`, {
-          method:  'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept:        'application/json',
-          },
-        });
-        if (!res.ok) return;
-      } catch {
-        /* ignore */
-      }
-    };
-
-    /** Najpierw ping (invaliduje cache + wpisuje lastSeen), potem GET — ta kolejność jest kluczowa. */
-    const pingThenFetch = async () => {
-      await ping();
-      await fetchOnline();
-    };
-
-    void pingThenFetch();
-
-    let refreshInterval: ReturnType<typeof setInterval> | null = null;
-
-    const scheduleRefresh = () => {
-      if (refreshInterval) clearInterval(refreshInterval);
-      refreshInterval = null;
-      if (appStateRef.current !== 'active') return;
-      refreshInterval = setInterval(() => void pingThenFetch(), REFRESH_MS_FOREGROUND);
-    };
-
-    scheduleRefresh();
-
-    const sub = AppState.addEventListener('change', (s) => {
-      if (appStateRef.current.match(/inactive|background/) && s === 'active') {
-        void pingThenFetch();
-      }
-      appStateRef.current = s;
-      scheduleRefresh();
-    });
+    startPresenceLoop();
+    listeners.add(setOnlineCount);
+    setOnlineCount(sharedCount);
 
     return () => {
-      cancelled = true;
-      if (refreshInterval) clearInterval(refreshInterval);
-      sub.remove();
+      listeners.delete(setOnlineCount);
+      if (listeners.size === 0) stopPresenceLoop();
     };
   }, []);
 

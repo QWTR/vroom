@@ -622,9 +622,18 @@ export default function ClubsScreen() {
           setDetailClub(null);
           setTimeout(() => setInviteClubId(c.id), IOS_MODAL_SWAP_MS);
         }}
-        onEditRequest={c => {
+        onEditRequest={async c => {
           setDetailClub(null);
-          setTimeout(() => setEditClub(c), IOS_MODAL_SWAP_MS);
+          const detail = await fetchClubDetail(c.id);
+          if (!detail.ok || !detail.club) {
+            Toast.show({
+              type: 'error',
+              text1: 'Błąd',
+              text2: detail.error ?? 'Nie można otworzyć ustawień klubu',
+            });
+            return;
+          }
+          setTimeout(() => setEditClub(detail.club), IOS_MODAL_SWAP_MS);
         }}
         joining={joining}
         onRefresh={refreshDetail}

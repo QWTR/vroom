@@ -30,7 +30,7 @@ const MAX_ACCURACY_ACTIVE_HARD_M = 420;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 250;
 const ACTIVE_FIX_TIMEOUT_MS = 16000;
-const IDLE_FIX_TIMEOUT_MS   = 35000;
+const IDLE_FIX_TIMEOUT_MS   = 22000;
 const WATCHDOG_CHECK_MS = 8000;
 const ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE = 1;
 /** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
@@ -66,12 +66,13 @@ const GPS_CONFIG: Record<GpsProfile, {
 };
 
 function resolveGpsProfile(
-  isMapFocused: boolean,
+  _isMapFocused: boolean,
   isNavigating: boolean,
   isDriving: boolean,
   speedKmh: number,
 ): GpsProfile {
-  if (!isMapFocused) return 'offMap';
+  // Map screen stays mounted (lazy:false) — keep browsing GPS alive on other tabs
+  // instead of throttling to offMap (25s), which caused stale anchors after tab switches.
   if (isNavigating || isDriving || speedKmh > DRIVE_SPEED_KMH) return 'active';
   return 'browsing';
 }
@@ -191,6 +192,10 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
           const maxAcc = activeMode ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_M;
           if (acc > maxAcc) {
             consecutiveBadRef.current += 1;
+            if (!activeMode && consecutiveBadRef.current >= 6) {
+              // Reset poisoned anchor so the next acceptable fix can through.
+              lastGoodRef.current = null;
+            }
             if (!activeMode && consecutiveBadRef.current >= 5 && lastGoodRef.current) {
               const fallbackAgeMs = now - lastGoodRef.current.time;
               if (fallbackAgeMs > IDLE_FALLBACK_MAX_AGE_MS) {

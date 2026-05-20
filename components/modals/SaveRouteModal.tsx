@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  Modal, View, Text, TextInput, TouchableOpacity,
-  Switch, ActivityIndicator, KeyboardAvoidingView, Platform,
+  View, Text, TextInput, TouchableOpacity,
+  Switch, ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
@@ -37,18 +38,11 @@ export function SaveRouteModal({
   useModalBackHandler(visible, onCancel);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: theme.overlay }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        enabled={Platform.OS === 'ios'}
-      >
-        <View style={{
-          backgroundColor: theme.surface,
-          borderTopLeftRadius: 20, borderTopRightRadius: 20,
-          padding: 24, paddingBottom: 40,
-          borderTopWidth: 1, borderColor: theme.border2,
-        }}>
+    <ModalKeyboardSheet
+      visible={visible}
+      onClose={onCancel}
+      sheetStyle={{ borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingHorizontal: 24 }}
+    >
           <View style={{ width: 40, height: 4, backgroundColor: theme.border3, borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
 
           <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, letterSpacing: 3, marginBottom: 4 }}>
@@ -190,8 +184,6 @@ export function SaveRouteModal({
               <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    </ModalKeyboardSheet>
   );
 }

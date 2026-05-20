@@ -3,6 +3,7 @@ import { MAPBOX_TOKEN }        from '../constants/mapConfig';
 import { haversineKm }         from '../scripts/navigationUtils';
 import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
 import { roadGeometryStore } from '../lib/roadGeometry/RoadGeometryStore';
+import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -18,7 +19,9 @@ const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
+/** Gdy przekroczone — tylko log stale; geometria zostaje do STALE_MAX_MS. */
 const EXPIRE_MS       = 120_000;
+const STALE_MAX_MS    = 15 * 60_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
 const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeździe miejskiej
@@ -26,7 +29,7 @@ const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeź
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 24;
+const MAX_REQUESTS_PER_WINDOW = 40;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
 const MAX_MANUAL_BURST_PER_WINDOW = 2;
 /** Gdy zbliżamy się do limitu / h, agresywnie ogranicz częstotliwość odświeżeń. */
@@ -149,12 +152,10 @@ export function useDrivingMapMatch() {
   const matchedTimeRef = useRef<number>(0);
   /** Inkrementowany przy reset() — odrzuca zapisy z fetchy anulowanych po wyjściu z driving. */
   const matchGenRef    = useRef(0);
-  const lastRejectLogAtRef = useRef<Record<string, number>>({});
-
   const applyLocalRoadCache = useCallback(async (
     lat: number,
     lng: number,
-    radiusM = 80,
+    radiusM = 120,
   ): Promise<{ latitude: number; longitude: number }[] | null> => {
     const hit = await roadGeometryStore.findNearest(lat, lng, radiusM);
     if (!hit || hit.points.length < 2) return null;
@@ -175,17 +176,7 @@ export function useDrivingMapMatch() {
   }, []);
 
   const logSnapReject = useCallback((reason: string, payload?: Record<string, unknown>) => {
-    if (!__DEV__) return;
-    const now = Date.now();
-    const last = lastRejectLogAtRef.current[reason] ?? 0;
-    if (now - last < 1500) return;
-    lastRejectLogAtRef.current[reason] = now;
-    console.log('[SNAP_REJECT]', JSON.stringify({
-      at: now,
-      source: 'useDrivingMapMatch',
-      reason,
-      ...(payload ?? {}),
-    }));
+    vroomGpsLog(`MATCH_${reason}`, { source: 'useDrivingMapMatch', ...(payload ?? {}) }, 1500);
   }, []);
 
   const consumeRequestSlot = useCallback((now: number, manual = false): boolean => {
@@ -468,7 +459,7 @@ export function useDrivingMapMatch() {
         return matchedPtsRef.current;
       }
 
-      const sqliteHit = await applyLocalRoadCache(lat, lng, manual ? 70 : 80);
+      const sqliteHit = await applyLocalRoadCache(lat, lng, manual ? 120 : 150);
       if (sqliteHit) {
         logSnapReject(manual ? 'force_sqlite_cache_hit_manual' : 'force_sqlite_cache_hit');
         return sqliteHit;
@@ -491,14 +482,15 @@ export function useDrivingMapMatch() {
         const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
 
         const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
-          const canUseStub = manual || refresh;
-          if (!canUseStub) return null;
-          const cached = await roadGeometryStore.findNearest(lat, lng, 80);
+          const cached = await roadGeometryStore.findNearest(lat, lng, 150);
           if (cached && cached.points.length >= 2) {
             matchedPtsRef.current = cached.points;
             matchedTimeRef.current = Date.now();
+            vroomGpsLog('FORCE_SQLITE_FALLBACK', { pts: cached.points.length, ageMs: cached.ageMs });
             return cached.points;
           }
+          const canUseStub = manual || refresh;
+          if (!canUseStub) return matchedPtsRef.current;
           const stub = shouldAttemptDirectionsStub(lat, lng, true, manual)
             ? await roadGeometryFromDirectionsStub(lat, lng)
             : null;
@@ -524,11 +516,11 @@ export function useDrivingMapMatch() {
           },
           url,
           {
-            allowFallback: false,
-            forceFallback: false,
+            allowFallback: true,
+            forceFallback: manual || refresh,
             cooldownMs: manual ? 2000 : (refresh ? 4000 : 6000),
-            proxyTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
-            fallbackTimeoutMs: manual ? 2200 : (refresh ? 2600 : 3200),
+            proxyTimeoutMs: manual ? 3500 : (refresh ? 4000 : 4500),
+            fallbackTimeoutMs: manual ? 4000 : (refresh ? 4500 : 5000),
           },
         );
         if (genWhenStarted !== matchGenRef.current) return null;
@@ -581,9 +573,14 @@ export function useDrivingMapMatch() {
   const getMatchedPoints = useCallback(
     (): { latitude: number; longitude: number }[] | null => {
       if (!matchedPtsRef.current) return null;
-      if (Date.now() - matchedTimeRef.current > EXPIRE_MS) {
+      const ageMs = Date.now() - matchedTimeRef.current;
+      if (ageMs > STALE_MAX_MS) {
+        vroomGpsLog('GEOMETRY_DISCARDED', { ageMs });
         matchedPtsRef.current = null;
         return null;
+      }
+      if (ageMs > EXPIRE_MS) {
+        vroomGpsLog('GEOMETRY_STALE', { ageMs });
       }
       return matchedPtsRef.current;
     },

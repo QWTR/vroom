@@ -84,7 +84,7 @@ const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
-const BG_MAX_PLAUSIBLE_KMH      = 220;
+const BG_MAX_PLAUSIBLE_KMH      = 240;
 const BG_MIN_SEGMENT_KM         = 0.003;
 const BG_MAX_SEGMENT_KM         = 12;
 const BG_ROUTE_MAX_POINTS       = 1500;
@@ -93,7 +93,7 @@ const BG_MIN_REPORTED_SPEED_KMH = 3;
 const BG_MAX_ACCURACY_M         = 65;
 const BG_MIN_MOVE_ABS_M         = 10;
 const BG_TRACE_MIN_WRITE_MS     = 1500;
-const BG_TRACE_MIN_MOVE_M       = 12;
+const BG_TRACE_MIN_MOVE_M       = 8;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
 const BG_TRACE_MAX_JUMP_M       = 220;
 const BG_PENDING_KM_HARD_CAP    = 1200;
@@ -140,6 +140,48 @@ let _tracePendingKm = 0;
 let _traceLastWriteAt = 0;
 let _traceLastPoint: { latitude: number; longitude: number } | null = null;
 let _traceWriteInFlight = false;
+let _traceLastPendingFlushAt = 0;
+const TRACE_PENDING_FLUSH_INTERVAL_MS = 45_000;
+
+/** Zapisz km z pamięci procesu do AsyncStorage (crash / długa jazda). */
+export async function flushTracePendingKmToStorage(): Promise<void> {
+  if (_tracePendingKm <= 0) return;
+  try {
+    const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
+    await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + _tracePendingKm));
+    _tracePendingKm = 0;
+    _traceLastPendingFlushAt = Date.now();
+  } catch { /* ignore */ }
+}
+
+export async function saveIncrementalTripKm(payload: {
+  distanceKm: number;
+  maxSpeedKmh?: number;
+  avgSpeedKmh?: number;
+}): Promise<boolean> {
+  const dist = Number(payload.distanceKm);
+  if (!Number.isFinite(dist) || dist < 0.5) return false;
+  const token = await getAuthToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_URL}/api/activity/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        distance: Math.round(dist * 1000) / 1000,
+        maxSpeed: Math.round((payload.maxSpeedKmh ?? 0) * 10) / 10,
+        avgSpeed: Math.round((payload.avgSpeedKmh ?? 0) * 10) / 10,
+        duration: null,
+        source: 'trip-checkpoint',
+      }),
+    });
+    if (!res.ok) return false;
+    void syncProfileStatsFromServer();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function safePendingKm(raw: string | null): number {
   const n = parseFloat(raw ?? '0');
@@ -191,6 +233,10 @@ export async function recordDrivingTracePoint(
   try {
     if (opts?.addDistanceKm && opts.addDistanceKm > 0) {
       _tracePendingKm += opts.addDistanceKm;
+      const nowFlush = Date.now();
+      if (nowFlush - _traceLastPendingFlushAt >= TRACE_PENDING_FLUSH_INTERVAL_MS) {
+        await flushTracePendingKmToStorage();
+      }
     }
     const now = Date.now();
     const movedM = _traceLastPoint

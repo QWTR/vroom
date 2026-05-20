@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, TextInput,
+  View, Text, TouchableOpacity, TextInput,
   ScrollView, ActivityIndicator, Alert,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Toast         from 'react-native-toast-message';
+import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme }  from '../../contexts/ThemeContext';
 import { API_URL }   from '../../constants/config';
 import { getAuthToken } from '../../lib/getAuthToken';
@@ -74,14 +75,8 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-        <View style={{
-          backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-          maxHeight: '85%', borderTopWidth: 1, borderColor: theme.border2,
-        }}>
-          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
+    <ModalKeyboardSheet visible={visible} onClose={onClose} maxHeight="85%" sheetStyle={{ paddingHorizontal: 0 }}>
+      <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 14 }} />
 
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginBottom: 14 }}>
@@ -180,8 +175,6 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
               ))
             )}
           </ScrollView>
-        </View>
-      </View>
-    </Modal>
+    </ModalKeyboardSheet>
   );
 }

@@ -153,7 +153,13 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index"     options={{ tabBarIcon: (p) => <TabIcon {...p} icon="home"                      label="HOME"     /> }} />
-      <Tabs.Screen name="map"       options={{ tabBarIcon: (p) => <TabIcon {...p} icon="navigation"                label="MAPA"     /> }} />
+      <Tabs.Screen
+        name="map"
+        options={{
+          lazy: false,
+          tabBarIcon: (p) => <TabIcon {...p} icon="navigation" label="MAPA" />,
+        }}
+      />
       <Tabs.Screen name="community" options={{ tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline"     label="SPOŁECZ." iconLib="material" /> }} />
       <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"    iconLib="material" /> }} />
       <Tabs.Screen name="account"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="user"                      label="PROFIL"   /> }} />

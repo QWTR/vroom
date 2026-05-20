@@ -25,7 +25,7 @@ export default function AvatarCircle({ initials, avatarUrl, uploading = false, o
         {uploading ? (
           <ActivityIndicator color={theme.primary} size="large" />
         ) : avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={{ width: 80, height: 80 }} />
+          <Image key={avatarUrl} source={{ uri: avatarUrl }} style={{ width: 80, height: 80 }} />
         ) : (
           <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: theme.primary }}>{initials}</Text>
         )}

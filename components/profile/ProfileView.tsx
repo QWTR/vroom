@@ -588,7 +588,7 @@ export default function ProfileView({
                 backgroundColor: theme.surface,
               }}>
                 {profile?.avatarUrl
-                  ? <Image source={{ uri: profile.avatarUrl }} style={{ width: 74, height: 74 }} />
+                  ? <Image key={profile.avatarUrl} source={{ uri: profile.avatarUrl }} style={{ width: 74, height: 74 }} />
                   : (
                     <View style={{ flex: 1, backgroundColor: '#e3383515', alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: '#e33835', fontWeight: '900' }}>{initials}</Text>

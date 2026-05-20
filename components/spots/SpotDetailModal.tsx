@@ -8,6 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
+import { useModalSheetPadding } from '../layout/ModalKeyboardSheet';
 import { Spot, SpotDetails, SpotComment, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
 import { PhotoGalleryModal } from './PhotoGalleryModal';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -32,6 +33,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
   const [galleryVisible, setGalleryVisible] = useState(false);
   const [galleryIndex,   setGalleryIndex]   = useState(0);
   const [myUserId,       setMyUserId]       = useState<number | null>(null);
+  const sheetPaddingBottom = useModalSheetPadding(visible && !galleryVisible);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -113,7 +115,7 @@ export const SpotDetailModal = ({ visible, spot, onClose, getDistance, onLikeTog
     <>
       <Modal visible={visible && !galleryVisible} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'} style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '88%' }}>
+          <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: sheetPaddingBottom, maxHeight: '88%' }}>
 
             {/* Header */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>

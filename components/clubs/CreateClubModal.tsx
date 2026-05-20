@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, TextInput,
-  Image, ActivityIndicator, Switch, KeyboardAvoidingView, Platform,
+  View, Text, TouchableOpacity, TextInput,
+  Image, ActivityIndicator, Switch,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
 import Toast                  from 'react-native-toast-message';
+import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { useTheme }           from '../../contexts/ThemeContext';
 
 interface Props {
@@ -44,16 +45,8 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={Platform.OS === 'ios'}>
-          <View style={{
-            backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-            borderTopWidth: 1, borderColor: theme.border2,
-          }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
+    <ModalKeyboardSheet visible={visible} onClose={onClose} sheetStyle={{ padding: 20, paddingHorizontal: 20 }}>
+          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
             <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 18 }}>
               STWÓRZ KLUB
             </Text>
@@ -136,9 +129,6 @@ export default function CreateClubModal({ visible, onClose, onCreate }: Props) {
                 </>
               )}
             </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+    </ModalKeyboardSheet>
   );
 }

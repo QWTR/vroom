@@ -33,6 +33,8 @@ const RECENTER_ANIM_MS = 1000;
 /** Szybkie, płynne wejście kamery w tryb jazdy (zoom + pitch), bez 1 s opóźnienia. */
 const DRIVING_ENTRY_RECENTER_MS = 480;
 const IDLE_APPLY_MS = 120;
+/** Throttle native setCamera during follow (~14 Hz) to reduce GPU load. */
+const FOLLOW_APPLY_INTERVAL_MS = 72;
 
 /** Stałe czasowe wygładzania (sekundy). */
 const CENTER_TAU_S = 0.32;
@@ -267,6 +269,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const travelHeadingRef = useRef<number | null>(null);
   const lastVehicleCenterRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const lastTravelUpdateAtRef = useRef(0);
+  const lastFollowApplyRef = useRef(0);
 
   const applyToMap = useCallback((
     pose: CameraPose,
@@ -353,6 +356,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     const next: CameraPose = { center, heading, zoom, pitch };
     displayPoseRef.current = next;
+    if (now - lastFollowApplyRef.current < FOLLOW_APPLY_INTERVAL_MS) return;
+    lastFollowApplyRef.current = now;
     applyToMap(next, 0, 'linear');
   }, [applyToMap]);
 

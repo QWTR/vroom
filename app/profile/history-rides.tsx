@@ -6,12 +6,13 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_TOKEN } from '../../constants/mapConfig';
 import { useProfile } from '../../hooks/useProfile';
+import { snapHistoryRouteToRoad } from '../../scripts/snapHistoryRoute';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const MAX_HISTORY_ROUTES_ON_MAP = 20;
-const MAX_POINTS_PER_ROUTE_ON_MAP = 320;
-const HISTORY_SANITIZE_MAX_JUMP_KM = 1.2;
+const MAX_POINTS_PER_ROUTE_ON_MAP = 500;
+const HISTORY_SANITIZE_MAX_JUMP_KM = 0.2;
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -91,7 +92,7 @@ function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
   }
 
   if (sanitized.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return sanitized;
-  const epsilonMeters = 8;
+  const epsilonMeters = 3;
   let simplified = simplifyDouglasPeucker(sanitized, epsilonMeters);
   if (simplified.length <= MAX_POINTS_PER_ROUTE_ON_MAP) return simplified;
   const step = Math.ceil(simplified.length / MAX_POINTS_PER_ROUTE_ON_MAP);
@@ -112,6 +113,7 @@ export default function HistoryRidesScreen() {
   const [showAllHistoryOnMap, setShowAllHistoryOnMap] = useState(true);
   const [selectedHistoryRoute, setSelectedHistoryRoute] = useState<any | null>(null);
   const [historyMapEnabled, setHistoryMapEnabled] = useState(false);
+  const [snappedCoordsById, setSnappedCoordsById] = useState<Record<number, [number, number][]>>({});
 
   useEffect(() => {
     (async () => {
@@ -120,6 +122,25 @@ export default function HistoryRidesScreen() {
       setLoading(false);
     })();
   }, [fetchActivityHistory]);
+
+  useEffect(() => {
+    if (showAllHistoryOnMap) return;
+    const item = selectedHistoryRoute;
+    if (!item?.id) return;
+    const raw = sanitizeAndDownsampleRoutePoints(item.routePoints || []);
+    if (raw.length < 2) return;
+    let cancelled = false;
+    (async () => {
+      const snapped = await snapHistoryRouteToRoad(raw);
+      if (!cancelled) {
+        setSnappedCoordsById(prev => {
+          if (prev[item.id]) return prev;
+          return { ...prev, [item.id]: snapped };
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedHistoryRoute?.id, showAllHistoryOnMap]);
 
   const historyWithRoute = useMemo(
     () => activityHistory.filter((a: any) => (a?.routePoints?.length ?? 0) > 1),
@@ -131,10 +152,16 @@ export default function HistoryRidesScreen() {
     : (selectedHistoryRoute && (selectedHistoryRoute?.routePoints?.length ?? 0) > 1 ? [selectedHistoryRoute] : []);
 
   const mapHistoryShapes = mapHistoryItems
-    .map((item: any) => ({
-      id: item.id,
-      coordinates: sanitizeAndDownsampleRoutePoints(item.routePoints || []),
-    }))
+    .map((item: any) => {
+      const sanitized = sanitizeAndDownsampleRoutePoints(item.routePoints || []);
+      const coordinates = !showAllHistoryOnMap && snappedCoordsById[item.id]?.length
+        ? snappedCoordsById[item.id]
+        : sanitized;
+      return {
+        id: item.id,
+        coordinates,
+      };
+    })
     .filter((shape: any) => shape.coordinates.length > 1);
 
   const historyShapeGeoJson = useMemo(() => {

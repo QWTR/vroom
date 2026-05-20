@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   RefreshControl, ActivityIndicator, StatusBar, Modal,
-  ScrollView, Pressable, Platform,
+  ScrollView, Pressable, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -11,6 +11,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSheet';
 import { usePremium } from '../../../contexts/PremiumContext';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
@@ -121,6 +122,7 @@ export default function MarketScreen() {
     fuel: 'wszystkie',
   });
   const [pendingFilters, setPendingFilters] = useState<Filters>(filters);
+  const filterSheetPadding = useModalSheetPadding(filterVisible);
 
   const fetchingRef = useRef(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,12 +466,17 @@ export default function MarketScreen() {
 
       {/* Filter Modal */}
       <Modal visible={filterVisible} transparent animationType="slide" onRequestClose={() => setFilterVisible(false)}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          enabled={Platform.OS === 'ios'}
+        >
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
           <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setFilterVisible(false)} />
           <View style={{
             backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
             borderTopWidth: 1, borderColor: theme.border2,
-            paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+            paddingBottom: filterSheetPadding,
             maxHeight: '85%',
           }}>
             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 12, marginBottom: 16 }} />
@@ -597,6 +604,7 @@ export default function MarketScreen() {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

@@ -34,12 +34,10 @@ interface Props {
   route:   ShareableRoute | null;
   onClose: () => void;
   onSent:  () => void;
-  /** Nowy post w dyskusjach (szkic trasy w feedzie). */
-  onDiscussionPost?: (post: unknown) => void;
   myId:    number | null;
 }
 
-export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionPost, myId }: Props) {
+export function ShareRouteModal({ visible, route, onClose, onSent, myId }: Props) {
   const { theme } = useTheme();
   const [tab,         setTab]         = useState<ShareTab>('chat');
   const [convs,       setConvs]       = useState<Conversation[]>([]);
@@ -78,49 +76,33 @@ export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionP
     finally { setSending(null); }
   };
 
-  const buildRoutePostContent = () => {
-    if (!route) return '';
-    const points = route.points
-      .slice(0, 80)
-      .map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
-    return JSON.stringify({
-      type: 'route',
-      routeId: route.id,
-      name: route.name,
-      distance: route.distance,
-      points,
-      isPublic: route.isPublic,
-    });
-  };
-
   const handleShareToCommunity = async () => {
     if (!route) return;
+    if (!route.isPublic) {
+      Toast.show({
+        type: 'info',
+        text1: 'Trasa prywatna',
+        text2: 'Udostępnij ją jako publiczną, aby pojawiła się w Społeczności → Trasy',
+      });
+      return;
+    }
     setPostingComm(true);
     try {
       const token = await AsyncStorage.getItem('token');
-      await fetch(`${API_URL}/api/routes/${route.id}/share-community`, {
+      const res = await fetch(`${API_URL}/api/routes/${route.id}/share-community`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      const content = buildRoutePostContent();
-      const form = new FormData();
-      form.append('content', content);
-      const postRes = await fetch(`${API_URL}/api/posts`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      });
-      if (postRes.ok) {
-        const post = await postRes.json();
-        onDiscussionPost?.(post);
-      }
+      if (!res.ok) throw new Error('share failed');
+      const data = await res.json();
 
       setSharedComm(true);
       Toast.show({
         type: 'success',
-        text1: 'Trasa udostępniona!',
-        text2: 'Szkic w Dyskusjach i lista w zakładce Trasy',
+        text1: data.sharedToCommunity ? 'Trasa udostępniona!' : 'Trasa ukryta',
+        text2: data.sharedToCommunity
+          ? 'Widoczna w Społeczności → Trasy'
+          : 'Usunięto z listy tras w Społeczności',
       });
       onSent();
     } catch { Toast.show({ type: 'error', text1: 'Błąd udostępniania' }); }
@@ -177,7 +159,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionP
                   : <MaterialCommunityIcons name="map-marker-path" size={13} color={tab === t ? '#fff' : theme.textDim} />
                 }
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: tab === t ? '#fff' : theme.textDim, fontWeight: '700' }}>
-                  {t === 'chat' ? 'CZAT' : 'SPOŁECZNOŚĆ'}
+                  {t === 'chat' ? 'CZAT' : 'TRASY'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -245,8 +227,8 @@ export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionP
                   </View>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text, fontWeight: '700', letterSpacing: 2 }}>UDOSTĘPNIONO!</Text>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, textAlign: 'center', lineHeight: 16 }}>
-                    Szkic trasy w <Text style={{ color: theme.primary }}>Dyskusjach</Text>
-                    {'\n'}oraz na liście <Text style={{ color: theme.primary }}>Trasy</Text>
+                    Trasa jest widoczna w zakładce{' '}
+                    <Text style={{ color: theme.primary }}>Społeczność → Trasy</Text>
                   </Text>
                   <TouchableOpacity style={{ backgroundColor: '#4de926', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12, marginTop: 8 }} onPress={handleClose}>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#000', fontWeight: '700' }}>GOTOWE</Text>
@@ -255,8 +237,9 @@ export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionP
               ) : (
                 <>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, lineHeight: 16, marginBottom: 20 }}>
-                    Opublikujemy szkic trasy w <Text style={{ color: theme.primary }}>Dyskusjach</Text> (punkty z mapy)
-                    {' '}oraz dodamy ją do zakładki <Text style={{ color: theme.primary }}>Trasy</Text>.
+                    Trasa pojawi się tylko w zakładce{' '}
+                    <Text style={{ color: theme.primary }}>Społeczność → Trasy</Text>.
+                    {' '}Bez posta w Dyskusjach.
                   </Text>
                   <TouchableOpacity
                     style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14 }, postingComm && { opacity: 0.6 }]}
@@ -264,7 +247,7 @@ export function ShareRouteModal({ visible, route, onClose, onSent, onDiscussionP
                   >
                     {postingComm
                       ? <ActivityIndicator size={14} color="#fff" />
-                      : <><MaterialCommunityIcons name="map-marker-path" size={15} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>UDOSTĘPNIJ W SPOŁECZNOŚCI</Text></>
+                      : <><MaterialCommunityIcons name="map-marker-path" size={15} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>DODAJ DO TRAS</Text></>
                     }
                   </TouchableOpacity>
                 </>

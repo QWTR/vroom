@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  Modal, View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity,
   FlatList,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { ModalKeyboardSheet } from '../layout/ModalKeyboardSheet';
 import { Spot, CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
 import { SortMode } from '../../hooks/useSpots';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -29,9 +30,7 @@ export const SpotListModal = ({ visible, onClose, spots, maxDistance, onSelectSp
     : spots;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'flex-end' }}>
-        <View style={{ backgroundColor: theme.surface2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' }}>
+    <ModalKeyboardSheet visible={visible} onClose={onClose} maxHeight="85%" sheetStyle={{ padding: 20, paddingHorizontal: 20 }}>
 
           {/* Header */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -103,8 +102,6 @@ export const SpotListModal = ({ visible, onClose, spots, maxDistance, onSelectSp
               </TouchableOpacity>
             )}
           />
-        </View>
-      </View>
-    </Modal>
+    </ModalKeyboardSheet>
   );
 };
