@@ -10,8 +10,6 @@ const TOKEN_TTL_MS = 60_000;
 let matchingFallbackTimes: number[] = [];
 let lastMatchingFallbackAt = 0;
 const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
-// Driving/navigation need frequent road snaps; very strict fallback throttling
-// caused prolonged "no snap" windows when proxy was temporarily unavailable.
 const MATCHING_FALLBACK_MAX_PER_WINDOW = 120;
 const MATCHING_FALLBACK_COOLDOWN_MS = 4_000;
 
@@ -19,6 +17,16 @@ type SearchCacheEntry = { at: number; data: unknown };
 const searchCache = new Map<string, SearchCacheEntry>();
 const inflightSearch = new Map<string, Promise<unknown>>();
 const MAX_SEARCH_CACHE_ENTRIES = 220;
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+}
 
 function pruneSearchCache(now: number) {
   if (searchCache.size <= MAX_SEARCH_CACHE_ENTRIES) return;
@@ -40,7 +48,9 @@ async function withCachedSearch<T>(
   cacheKey: string,
   ttlMs: number,
   factory: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  throwIfAborted(signal);
   const now = Date.now();
   const cached = searchCache.get(cacheKey);
   if (cached && now - cached.at < ttlMs) {
@@ -51,7 +61,9 @@ async function withCachedSearch<T>(
     return (await inflight) as T;
   }
   const task = (async () => {
+    throwIfAborted(signal);
     const data = await factory();
+    throwIfAborted(signal);
     searchCache.set(cacheKey, { at: Date.now(), data });
     pruneSearchCache(Date.now());
     return data;
@@ -101,22 +113,36 @@ async function refreshAuthToken(currentToken: string | null): Promise<string | n
   }
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  externalSignal?: AbortSignal,
+): Promise<Response> {
+  throwIfAborted(externalSignal);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(300, timeoutMs));
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    externalSignal.addEventListener('abort', onExternalAbort);
+  }
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
 async function callProxy<T>(
   path: string,
   init: RequestInit,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<T | null> {
   try {
+    throwIfAborted(opts?.signal);
     let token = await getAuthToken();
     if (!token) return null;
     const timeoutMs = Math.max(500, opts?.timeoutMs ?? 8000);
@@ -128,10 +154,11 @@ async function callProxy<T>(
         Authorization: `Bearer ${authToken}`,
         ...(init.headers ?? {}),
       },
-    }, timeoutMs);
+    }, timeoutMs, opts?.signal);
 
     let res = await makeRequest(token);
     if (res.status === 401) {
+      throwIfAborted(opts?.signal);
       const refreshed = await refreshAuthToken(token);
       if (!refreshed) return null;
       token = refreshed;
@@ -139,7 +166,8 @@ async function callProxy<T>(
     }
     if (!res.ok) return null;
     return await res.json() as T;
-  } catch {
+  } catch (e) {
+    if (isAbortError(e)) throw e;
     return null;
   }
 }
@@ -159,23 +187,21 @@ export async function fetchMatchingViaProxy<T>(
   payload: Record<string, unknown>,
   fallbackUrl: string,
   opts?: {
+    /** Direct Mapbox only when explicitly true (default: proxy-only). */
     allowFallback?: boolean;
-    /** Skip fallback cooldown for critical entry/recovery snaps. */
     forceFallback?: boolean;
-    /** Optional custom cooldown for this call. */
     cooldownMs?: number;
-    /** Timeout for proxy matching request. */
     proxyTimeoutMs?: number;
-    /** Timeout for direct fallback matching request. */
     fallbackTimeoutMs?: number;
+    signal?: AbortSignal;
   },
 ): Promise<T | null> {
   const viaProxy = await callProxy<T>('/api/mapbox/matching', {
     method: 'POST',
     body: JSON.stringify(payload),
-  }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500 });
+  }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500, signal: opts?.signal });
   if (viaProxy != null) return viaProxy;
-  if (opts?.allowFallback === false) return null;
+  if (opts?.allowFallback !== true) return null;
   const now = Date.now();
   const cooldownMs = Math.max(0, opts?.cooldownMs ?? MATCHING_FALLBACK_COOLDOWN_MS);
   matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
@@ -188,10 +214,12 @@ export async function fetchMatchingViaProxy<T>(
       fallbackUrl,
       {},
       Math.max(500, opts?.fallbackTimeoutMs ?? 3000),
+      opts?.signal,
     );
     if (!res.ok) return null;
     return await res.json() as T;
-  } catch {
+  } catch (e) {
+    if (isAbortError(e)) throw e;
     return null;
   }
 }
@@ -212,39 +240,42 @@ export async function fetchGeocodingViaProxy<T>(params: {
   proximityLat?: number;
   country?: string;
   types?: string;
+  signal?: AbortSignal;
 }): Promise<T> {
-  const normalizedQuery = params.query.trim().toLowerCase();
+  const { signal, ...rest } = params;
+  const normalizedQuery = rest.query.trim().toLowerCase();
   const cacheKey = [
     'geocode',
     normalizedQuery,
-    params.limit ?? 5,
-    params.language ?? 'pl',
-    params.country ?? '',
-    params.types ?? 'address,poi,place,locality,neighborhood',
-    makeCoordBucket(params.proximityLng, 2),
-    makeCoordBucket(params.proximityLat, 2),
+    rest.limit ?? 5,
+    rest.language ?? 'pl',
+    rest.country ?? '',
+    rest.types ?? 'address,poi,place,locality,neighborhood',
+    makeCoordBucket(rest.proximityLng, 2),
+    makeCoordBucket(rest.proximityLat, 2),
   ].join('|');
   return withCachedSearch<T>(cacheKey, 5 * 60_000, async () => {
     const viaProxy = await callProxy<T>('/api/mapbox/geocode', {
       method: 'POST',
-      body: JSON.stringify(params),
-    });
+      body: JSON.stringify(rest),
+    }, { signal });
     if (viaProxy != null) return viaProxy;
+    throwIfAborted(signal);
     const proximity =
-      Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
-        ? `&proximity=${params.proximityLng},${params.proximityLat}`
+      Number.isFinite(rest.proximityLng) && Number.isFinite(rest.proximityLat)
+        ? `&proximity=${rest.proximityLng},${rest.proximityLat}`
         : '';
-    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '';
-    const types = params.types
-      ? `&types=${encodeURIComponent(params.types)}`
+    const country = rest.country ? `&country=${encodeURIComponent(rest.country)}` : '';
+    const types = rest.types
+      ? `&types=${encodeURIComponent(rest.types)}`
       : '&types=address,poi,place,locality,neighborhood';
     const fallbackUrl =
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(params.query)}.json` +
-      `?access_token=${MAPBOX_TOKEN}&language=${params.language ?? 'pl'}&limit=${params.limit ?? 5}` +
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(rest.query)}.json` +
+      `?access_token=${MAPBOX_TOKEN}&language=${rest.language ?? 'pl'}&limit=${rest.limit ?? 5}` +
       `${proximity}${country}${types}`;
-    const res = await fetch(fallbackUrl);
+    const res = await fetchWithTimeout(fallbackUrl, {}, 12_000, signal);
     return await res.json() as T;
-  });
+  }, signal);
 }
 
 export async function fetchSearchSuggestViaProxy<T>(params: {
@@ -255,39 +286,42 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
   proximityLng?: number;
   proximityLat?: number;
   country?: string;
+  signal?: AbortSignal;
 }): Promise<T> {
-  const normalizedQuery = params.query.trim().toLowerCase();
+  const { signal, ...rest } = params;
+  const normalizedQuery = rest.query.trim().toLowerCase();
   const cacheKey = [
     'suggest',
     normalizedQuery,
-    params.limit ?? 8,
-    params.language ?? 'pl',
-    params.country ?? '',
-    makeCoordBucket(params.proximityLng, 3),
-    makeCoordBucket(params.proximityLat, 3),
+    rest.limit ?? 8,
+    rest.language ?? 'pl',
+    rest.country ?? '',
+    makeCoordBucket(rest.proximityLng, 3),
+    makeCoordBucket(rest.proximityLat, 3),
   ].join('|');
   return withCachedSearch<T>(cacheKey, 45_000, async () => {
     const viaProxy = await callProxy<T>('/api/mapbox/search/suggest', {
       method: 'POST',
-      body: JSON.stringify(params),
-    });
+      body: JSON.stringify(rest),
+    }, { signal });
     if (viaProxy != null) return viaProxy;
+    throwIfAborted(signal);
     const proximity =
-      Number.isFinite(params.proximityLng) && Number.isFinite(params.proximityLat)
-        ? `&proximity=${params.proximityLng},${params.proximityLat}`
+      Number.isFinite(rest.proximityLng) && Number.isFinite(rest.proximityLat)
+        ? `&proximity=${rest.proximityLng},${rest.proximityLat}`
         : '';
-    const country = params.country ? `&country=${encodeURIComponent(params.country)}` : '';
+    const country = rest.country ? `&country=${encodeURIComponent(rest.country)}` : '';
     const fallbackUrl =
       `https://api.mapbox.com/search/searchbox/v1/suggest` +
-      `?q=${encodeURIComponent(params.query)}` +
-      `&session_token=${encodeURIComponent(params.sessionToken)}` +
-      `&language=${params.language ?? 'pl'}` +
-      `&limit=${params.limit ?? 8}` +
+      `?q=${encodeURIComponent(rest.query)}` +
+      `&session_token=${encodeURIComponent(rest.sessionToken)}` +
+      `&language=${rest.language ?? 'pl'}` +
+      `&limit=${rest.limit ?? 8}` +
       `${proximity}${country}` +
       `&access_token=${MAPBOX_TOKEN}`;
-    const res = await fetch(fallbackUrl);
+    const res = await fetchWithTimeout(fallbackUrl, {}, 12_000, signal);
     return await res.json() as T;
-  });
+  }, signal);
 }
 
 export async function fetchSearchRetrieveViaProxy<T>(params: {
@@ -315,27 +349,31 @@ export async function fetchSearchCategoryViaProxy<T>(params: {
   proximityLat: number;
   limit?: number;
   language?: string;
+  signal?: AbortSignal;
 }): Promise<T> {
+  const { signal, ...rest } = params;
   const cacheKey = [
     'category',
-    params.category,
-    params.limit ?? 20,
-    params.language ?? 'pl',
-    makeCoordBucket(params.proximityLng, 3),
-    makeCoordBucket(params.proximityLat, 3),
+    rest.category,
+    rest.limit ?? 20,
+    rest.language ?? 'pl',
+    makeCoordBucket(rest.proximityLng, 3),
+    makeCoordBucket(rest.proximityLat, 3),
   ].join('|');
   return withCachedSearch<T>(cacheKey, 90_000, async () => {
     const viaProxy = await callProxy<T>('/api/mapbox/search/category', {
       method: 'POST',
-      body: JSON.stringify(params),
-    });
+      body: JSON.stringify(rest),
+    }, { signal });
     if (viaProxy != null) return viaProxy;
+    throwIfAborted(signal);
     const fallbackUrl =
-      `https://api.mapbox.com/search/searchbox/v1/category/${params.category}` +
-      `?proximity=${params.proximityLng},${params.proximityLat}` +
-      `&limit=${params.limit ?? 20}&language=${params.language ?? 'pl'}&access_token=${MAPBOX_TOKEN}`;
-    const res = await fetch(fallbackUrl);
+      `https://api.mapbox.com/search/searchbox/v1/category/${rest.category}` +
+      `?proximity=${rest.proximityLng},${rest.proximityLat}` +
+      `&limit=${rest.limit ?? 20}&language=${rest.language ?? 'pl'}&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetchWithTimeout(fallbackUrl, {}, 12_000, signal);
     return await res.json() as T;
-  });
+  }, signal);
 }
 
+export { isAbortError as isMapboxProxyAbortError };

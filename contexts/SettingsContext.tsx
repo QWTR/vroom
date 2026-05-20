@@ -5,6 +5,7 @@ import type { ProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import type { SpotifyProfileTrack } from '../constants/profile';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
+import { resolveBackendPremium } from '../lib/resolveBackendPremium';
 
 const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
 const CLIENT_ONLY_SETTING_KEYS: (keyof AppSettings)[] = [
@@ -30,6 +31,19 @@ function fetchWithTimeout(
     clearTimeout(t);
     if (outer) outer.removeEventListener('abort', onOuterAbort);
   });
+}
+
+/** Premium z backendu (status + /me + giełda) — spójnie z banerem i PATCH ustawień. */
+async function fetchServerPremiumActive(
+  token: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  try {
+    return await resolveBackendPremium(token);
+  } catch {
+    return false;
+  }
 }
 
 function readClientOnlySettings(source: Partial<AppSettings> | null | undefined): Partial<AppSettings> {
@@ -107,14 +121,14 @@ const DEFAULTS: AppSettings = {
 interface SettingsContextType {
   settings:      AppSettings;
   loading:       boolean;
-  updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<boolean>;
   fetchSettings: () => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextType>({
   settings:      DEFAULTS,
   loading:       true,
-  updateSetting: async () => {},
+  updateSetting: async () => false,
   fetchSettings: async () => {},
 });
 
@@ -148,6 +162,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const serverPremiumActive = await fetchServerPremiumActive(token, signal);
+
       const res = await fetchWithTimeout(`${API_URL}/api/settings`, {
         headers: { Authorization: `Bearer ${token}` },
         signal,
@@ -162,6 +178,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...prev,
             ...data,
             ...clientOnlyFromCache,
+            isPremium: !!(serverPremiumActive || data.isPremium),
             backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
             // Keep last known premium config locally when premium is expired.
             profilePremiumExtras: data.profilePremiumExtras != null
@@ -185,6 +202,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           ...premiumData,
           ...readClientOnlySettings(prev),
+          isPremium: !!(serverPremiumActive || premiumData.isPremium),
           backgroundTracking: backgroundLocationAccepted ? prev.backgroundTracking : false,
           profilePremiumExtras: premiumData.profilePremiumExtras != null
             ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
@@ -197,6 +215,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...current,
             ...premiumData,
             ...readClientOnlySettings(current),
+            isPremium: !!(serverPremiumActive || premiumData.isPremium),
             profilePremiumExtras: premiumData.profilePremiumExtras != null
               ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
               : current.profilePremiumExtras,
@@ -247,7 +266,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const updateSetting = useCallback(async <K extends keyof AppSettings>(
     key:   K,
     value: AppSettings[K],
-  ) => {
+  ): Promise<boolean> => {
     const nextVal = key === 'profilePremiumExtras' && value != null
       ? mergeProfilePremiumExtras(value as ProfilePremiumExtras)
       : value;
@@ -261,7 +280,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-      if (!token) return;
+      if (!token) return false;
       const res = await fetch(`${API_URL}/api/settings`, {
         method:  'PATCH',
         headers: {
@@ -272,20 +291,44 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) {
         let errorCode: string | null = null;
+        let errorMsg: string | null = null;
         try {
           const errJson = await res.json();
           errorCode = typeof errJson?.code === 'string' ? errJson.code : null;
+          errorMsg = typeof errJson?.error === 'string' ? errJson.error : null;
         } catch { /* ignore */ }
 
-        // When premium expired, preserve local premium options so they can be
-        // restored immediately after user renews premium.
         if (errorCode !== 'PREMIUM_REQUIRED') {
           const def = (DEFAULTS as any)[key];
-          setSettings(prev => ({ ...prev, [key]: def !== undefined ? def : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]) }));
+          setSettings(prev => ({
+            ...prev,
+            [key]: def !== undefined
+              ? def
+              : (key === 'profilePremiumExtras' ? DEFAULT_PROFILE_PREMIUM_EXTRAS : prev[key]),
+          }));
         }
+        console.log('updateSetting failed:', res.status, errorCode, errorMsg);
+        return false;
       }
+
+      try {
+        const data = await res.json();
+        setSettings(prev => {
+          const patch: Partial<AppSettings> = {};
+          if (key === 'profilePremiumExtras' && data.profilePremiumExtras != null) {
+            patch.profilePremiumExtras = mergeProfilePremiumExtras(data.profilePremiumExtras);
+          }
+          if (data.profileThemePreset != null) patch.profileThemePreset = data.profileThemePreset;
+          if (data.avatarFramePreset != null) patch.avatarFramePreset = data.avatarFramePreset;
+          if (data.nickColor !== undefined) patch.nickColor = data.nickColor;
+          return Object.keys(patch).length ? { ...prev, ...patch } : prev;
+        });
+      } catch { /* ignore */ }
+
+      return true;
     } catch (e) {
       console.log('updateSetting error:', e);
+      return false;
     }
   }, []);
 

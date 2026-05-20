@@ -9,6 +9,11 @@ const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
 
+export interface CursorSkinOverlay {
+  imageUrl?: string | null;
+  borderColor?: string;
+}
+
 export interface DrPositionMarkerProps {
   latitude: number;
   longitude: number;
@@ -17,6 +22,8 @@ export interface DrPositionMarkerProps {
   imageUri?: string | null;
   /** Bezpośredni URL avatara — preferowany dla markera profilowego. */
   avatarUrl?: string | null;
+  /** Skórka z API (premium / odblokowane) — nad avatar/strzałką. */
+  cursorSkin?: CursorSkinOverlay | null;
 }
 
 export const DrPositionMarker = memo(function DrPositionMarker({
@@ -25,6 +32,7 @@ export const DrPositionMarker = memo(function DrPositionMarker({
   heading,
   imageUri,
   avatarUrl,
+  cursorSkin,
 }: DrPositionMarkerProps) {
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -42,8 +50,11 @@ export const DrPositionMarker = memo(function DrPositionMarker({
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   if (Math.abs(latitude) < 1e-6 && Math.abs(longitude) < 1e-6) return null;
 
-  const showAvatar = !!mediaAvatar && !avatarFailed;
-  const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar;
+  const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);
+  const skinBorder = cursorSkin?.borderColor ?? '#e33835';
+  const showAvatar = !!mediaAvatar && !avatarFailed && !skinUri;
+  const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar && !skinUri;
+  const showSkin = !!skinUri;
   const hdg = Number.isFinite(heading) ? heading : 0;
   const markerTransform = { transform: [{ rotate: `${hdg}deg` }] as const };
 
@@ -54,7 +65,31 @@ export const DrPositionMarker = memo(function DrPositionMarker({
       allowOverlapWithPuck
       allowOverlap
     >
-      {showAvatar ? (
+      {showSkin ? (
+        <View style={[{ width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' }, markerTransform]}>
+          <View
+            style={{
+              width: MARKER_SIZE,
+              height: MARKER_SIZE,
+              borderRadius: MARKER_SIZE / 2,
+              backgroundColor: '#111',
+              borderWidth: MARKER_BORDER + 1,
+              borderColor: skinBorder,
+              overflow: 'hidden',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Image
+              source={{ uri: skinUri }}
+              style={{ width: AVATAR_INNER, height: AVATAR_INNER }}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              transition={0}
+            />
+          </View>
+        </View>
+      ) : showAvatar ? (
         <View style={[{ width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' }, markerTransform]}>
           <View
             style={{

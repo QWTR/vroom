@@ -23,6 +23,9 @@ import { linearGradientFromSpec } from '../../components/profile/profileGradient
 import { useTheme } from '../../contexts/ThemeContext';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
+import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
+import ShopEntranceOverlay from '../../components/shop/ShopEntranceOverlay';
+import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 
@@ -64,6 +67,7 @@ interface PublicProfile {
   avatarFramePreset?: string;
   profilePremiumExtras?: unknown;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
+  shopCosmetics?: UserShopCosmetics | null;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -122,6 +126,7 @@ export default function PublicProfileScreen() {
   const [statsModalVisible,    setStatsModalVisible]    = useState(false);
   const [topSpeedModalVisible, setTopSpeedModalVisible] = useState(false);
   const [visitFx, setVisitFx] = useState(false);
+  const [shopVisitFx, setShopVisitFx] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
 
@@ -247,6 +252,12 @@ export default function PublicProfileScreen() {
   }, [myUserId, profile]);
 
   useEffect(() => {
+    if (profile?.shopCosmetics?.entranceEffect?.assetUrl) {
+      setShopVisitFx(true);
+      setVisitFx(false);
+      return;
+    }
+    setShopVisitFx(false);
     if (!profile?.isPremium) {
       setVisitFx(false);
       return;
@@ -254,7 +265,7 @@ export default function PublicProfileScreen() {
     const ex = mergeProfilePremiumExtras(profile.profilePremiumExtras);
     if (ex.visitEntranceAnim && ex.visitEntranceAnim !== 'none') setVisitFx(true);
     else setVisitFx(false);
-  }, [profile?.id, profile?.isPremium, profile?.profilePremiumExtras]);
+  }, [profile?.id, profile?.isPremium, profile?.profilePremiumExtras, profile?.shopCosmetics?.entranceEffect?.assetUrl]);
 
   // ── Like toggle (aktualizuje lokalnie bez przeładowania) ─
   const handleLikeToggle = useCallback((spotId: string, liked: boolean, count: number) => {
@@ -541,9 +552,9 @@ export default function PublicProfileScreen() {
       >
         {/* ══ HERO HEADER ══════════════════════════════════ */}
         <View style={{ height: height * 0.36, position: 'relative', overflow: 'hidden' }}>
-          {profile.bannerUrl ? (
+          {(profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl) ? (
             <Image
-              source={{ uri: profile.bannerUrl }}
+              source={{ uri: profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl! }}
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
             />
@@ -555,7 +566,7 @@ export default function PublicProfileScreen() {
               style={StyleSheet.absoluteFill}
             />
           )}
-          {!!profile.bannerUrl && (
+          {!!(profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl) && (
             <LinearGradient
               colors={(heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) as any}
               start={{ x: 0, y: 0 }}
@@ -622,6 +633,7 @@ export default function PublicProfileScreen() {
                     }
                   </View>
                 )}
+                <ShopAvatarDecoration item={profile.shopCosmetics?.avatarFrame} size={80} />
                 {isFriend && (
                   <View style={{ position: 'absolute', bottom: -4, right: -4, width: 22, height: 22, borderRadius: 11, backgroundColor: '#ff6b9d', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#090909' }}>
                     <MaterialIcons name="favorite" size={10} color="#fff" />
@@ -926,7 +938,10 @@ export default function PublicProfileScreen() {
 
         </Animated.View>
       </ScrollView>
-      {visitFx && resolvedPremiumUi?.visitEntranceAnim && resolvedPremiumUi.visitEntranceAnim !== 'none' && (
+      {shopVisitFx && profile.shopCosmetics?.entranceEffect && (
+        <ShopEntranceOverlay item={profile.shopCosmetics.entranceEffect} onDone={() => setShopVisitFx(false)} />
+      )}
+      {visitFx && !shopVisitFx && resolvedPremiumUi?.visitEntranceAnim && resolvedPremiumUi.visitEntranceAnim !== 'none' && (
         <VisitEntranceFx kind={resolvedPremiumUi.visitEntranceAnim} onDone={() => setVisitFx(false)} />
       )}
       </View>

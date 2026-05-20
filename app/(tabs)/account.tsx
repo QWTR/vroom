@@ -4,7 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../contexts/ThemeContext';
-import { usePremium } from '../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { API_URL } from '../../constants/config';
 
 import { useProfile }      from '../../hooks/useProfile';
@@ -23,8 +23,6 @@ const FREE_CAR_LIMIT = 3;
 export default function ProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { isPremium } = usePremium();
-
   const {
     profile,
     loading: pLoad,
@@ -36,7 +34,7 @@ export default function ProfileScreen() {
     fetchActivityHistory,
     fetchMonthlyStats,
   } = useProfile();
-  const effectivePremium = !!(isPremium || profile?.isPremium);
+  const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
   const { achievements, fetchMyAchievements }                    = useAchievements();
   const { spots,   loading: sLoad, fetchUserSpots }              = useProfileSpots();
@@ -137,6 +135,7 @@ export default function ProfileScreen() {
     useCallback(() => {
       if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       focusRefreshTimer.current = setTimeout(() => {
+        void refreshPremiumAccess();
         void fetchProfile();
         void fetchActivityHistory({ includeRoute: true });
         void fetchMonthlyStats();
@@ -144,7 +143,7 @@ export default function ProfileScreen() {
       return () => {
         if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       };
-    }, [fetchProfile, fetchActivityHistory, fetchMonthlyStats]),
+    }, [refreshPremiumAccess, fetchProfile, fetchActivityHistory, fetchMonthlyStats]),
   );
 
   const onRefresh = async () => {

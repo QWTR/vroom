@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { fetchSearchCategoryViaProxy } from '../scripts/mapboxProxyClient';
+import { fetchSearchCategoryViaProxy, isMapboxProxyAbortError } from '../scripts/mapboxProxyClient';
 
 export interface NearbyPlace {
   placeId:   string;
@@ -147,7 +147,9 @@ export function usePlacesNearby() {
     // Mapbox Search Box używa własnego zasięgu (~5 km); parametr jest ignorowany
     // ale zachowany dla zachowania kompatybilności z dotychczasowym API hooka.
     radiusM = 5000, // eslint-disable-line @typescript-eslint/no-unused-vars
+    signal?:  AbortSignal,
   ) => {
+    if (signal?.aborted) return;
     const now = Date.now();
     const last = lastReqRef.current;
     if (last && last.category === category) {
@@ -157,6 +159,7 @@ export function usePlacesNearby() {
     const key = `${category}:${Math.round(lat * 500) / 500}:${Math.round(lng * 500) / 500}`;
     const cached = cacheRef.current.get(key);
     if (cached && now - cached.at < 120_000) {
+      if (signal?.aborted) return;
       setActiveCategory(category);
       setPlaces(cached.items);
       return;
@@ -173,7 +176,9 @@ export function usePlacesNearby() {
         proximityLat: lat,
         limit: 20,
         language: 'pl',
+        signal,
       });
+      if (signal?.aborted) return;
       if (data.features) {
         const mapped: NearbyPlace[] = data.features
           .slice(0, 20)
@@ -195,9 +200,10 @@ export function usePlacesNearby() {
         lastReqRef.current = { lat, lng, at: now, category };
       }
     } catch (e) {
+      if (isMapboxProxyAbortError(e)) return;
       console.warn('usePlacesNearby error:', e);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, []);
 

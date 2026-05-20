@@ -1,12 +1,13 @@
 import React, {
   createContext, useContext, useState, useEffect, useCallback,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { API_URL } from '../constants/config';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { isRevenueCatSdkReady, markRevenueCatSdkReady } from '../lib/revenueCatSdkState';
+import { resolveBackendPremium } from '../lib/resolveBackendPremium';
 
 // ─── RevenueCat (require jak w Expo / web — brak modułu nie wywali bundlera) ───
 // Dokumentacja: configure per platform + getCustomerInfo + entitlements.active
@@ -36,6 +37,49 @@ function hasPremiumEntitlement(info: any): boolean {
   return !!(active?.premium || active?.['vroom Premium'] || active?.['Vroom Premium']);
 }
 
+/** Najpóźniejsza data wygaśnięcia entitlementu (ms) — do /api/premium/sync gdy webhook nie dotarł. */
+function getPremiumExpirationMs(info: any): number | null {
+  const active = info?.entitlements?.active ?? {};
+  let best: number | null = null;
+  for (const ent of Object.values(active) as any[]) {
+    if (!ent || typeof ent !== 'object') continue;
+    const raw = ent.expirationDate ?? ent.expiresDate ?? null;
+    if (raw == null) return Date.now() + 365 * 24 * 60 * 60 * 1000;
+    const ms = new Date(raw).getTime();
+    if (!Number.isFinite(ms) || ms <= Date.now()) continue;
+    if (best == null || ms > best) best = ms;
+  }
+  return best;
+}
+
+async function syncPremiumWithBackend(
+  token: string,
+  customerInfo: CustomerInfo | null,
+): Promise<boolean> {
+  const body: Record<string, unknown> = {};
+  const expMs = customerInfo ? getPremiumExpirationMs(customerInfo) : null;
+  if (expMs) body.expiresAtMs = expMs;
+  const activeEnt = customerInfo?.entitlements?.active ?? {};
+  const ent = activeEnt.premium ?? activeEnt['vroom Premium'] ?? activeEnt['Vroom Premium'];
+  if (ent?.productIdentifier) body.productId = ent.productIdentifier;
+
+  try {
+    const res = await fetch(`${API_URL}/api/premium/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return !!data?.isPremium;
+  } catch {
+    return false;
+  }
+}
+
 interface PremiumContextType {
   isPremium:           boolean;
   isLoading:           boolean;
@@ -45,7 +89,7 @@ interface PremiumContextType {
   restorePurchases:    () => Promise<boolean>;
   getOfferings:        () => Promise<PurchasesOfferings | null>;
   getRevenueCatDebugSnapshot: () => Promise<any>;
-  refreshPremiumStatus:() => Promise<void>;
+  refreshPremiumStatus:() => Promise<boolean>;
 }
 
 const PremiumContext = createContext<PremiumContextType>({
@@ -64,7 +108,7 @@ const PremiumContext = createContext<PremiumContextType>({
   restorePurchases:    async () => false,
   getOfferings:        async () => null,
   getRevenueCatDebugSnapshot: async () => ({}),
-  refreshPremiumStatus:async () => {},
+  refreshPremiumStatus:async () => false,
 });
 
 function getRevenueCatApiKeys(): { ios: string; android: string } {
@@ -145,31 +189,46 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   });
 
   // Sprawdź premium z RevenueCat ORAZ backendu
-  const refreshPremiumStatus = useCallback(async () => {
+  const refreshPremiumStatus = useCallback(async (): Promise<boolean> => {
+    const token =
+      (await AsyncStorage.getItem('userToken')) ??
+      (await AsyncStorage.getItem('token'));
+
     let rcPremium = false;
+    let customerInfoSnapshot: CustomerInfo | null = null;
+
+    const rcPromise = Purchases
+      ? Purchases.getCustomerInfo()
+          .then((info: CustomerInfo) => {
+            customerInfoSnapshot = info;
+            setCustomerInfo(info);
+            return hasPremiumEntitlement(info);
+          })
+          .catch(() => false)
+      : Promise.resolve(false);
+
+    const backendPromise = token
+      ? resolveBackendPremium(token)
+      : Promise.resolve(false);
+
     let backendPremium = false;
-
-    // RevenueCat jest opcjonalny — jego błąd nie może wyłączać premium z backendu (gifty/admin).
-    if (Purchases) {
-      try {
-        const info: CustomerInfo = await Purchases.getCustomerInfo();
-        setCustomerInfo(info);
-        rcPremium = hasPremiumEntitlement(info);
-      } catch {}
-    }
-
-    // Sprawdź backend
     try {
-      const token =
-        (await AsyncStorage.getItem('userToken')) ??
-        (await AsyncStorage.getItem('token'));
+      [rcPremium, backendPremium] = await Promise.all([rcPromise, backendPromise]);
+
+      if (token && rcPremium && !backendPremium) {
+        backendPremium = await syncPremiumWithBackend(token, customerInfoSnapshot);
+        if (!backendPremium) {
+          backendPremium = await resolveBackendPremium(token);
+        }
+      }
+
       if (token) {
         const res = await fetch(`${API_URL}/api/premium/status`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
           const data = await res.json();
-          backendPremium = !!data?.isPremium;
+          if (data?.isPremium) backendPremium = true;
           setPremiumStatus({
             plan: data?.plan ?? null,
             status: data?.status ?? (backendPremium ? 'active' : 'inactive'),
@@ -178,6 +237,13 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
             source: rcPremium ? 'backend+rc' : 'backend',
             error: null,
           });
+        } else if (backendPremium) {
+          setPremiumStatus(prev => ({
+            ...prev,
+            status: 'active',
+            source: rcPremium ? 'backend+rc' : 'backend',
+            error: null,
+          }));
         }
       }
     } catch (e: any) {
@@ -188,7 +254,8 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       }));
     }
 
-    setIsPremium(rcPremium || backendPremium);
+    setIsPremium(backendPremium);
+    return backendPremium;
   }, []);
 
   // Inicjalizacja SDK + logowanie usera
@@ -210,33 +277,41 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, [refreshPremiumStatus]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        void refreshPremiumStatus();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshPremiumStatus]);
+
   const purchasePremium = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
     if (!Purchases) return false;
     ensureRevenueCatConfigured();
     try {
       const { customerInfo: info } = await Purchases.purchasePackage(pkg);
       setCustomerInfo(info);
-      const premium = hasPremiumEntitlement(info);
-      setIsPremium(premium);
-      if (premium) await refreshPremiumStatus();
-      return premium;
+      const active = await refreshPremiumStatus();
+      return active || hasPremiumEntitlement(info);
     } catch {
       return false;
     }
   }, [refreshPremiumStatus]);
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
-    if (!Purchases) return false;
+    if (!Purchases) {
+      return refreshPremiumStatus();
+    }
     ensureRevenueCatConfigured();
     try {
       const info: CustomerInfo = await Purchases.restorePurchases();
       setCustomerInfo(info);
-      const premium = hasPremiumEntitlement(info);
-      setIsPremium(premium);
-      if (premium) await refreshPremiumStatus();
-      return premium;
+      const active = await refreshPremiumStatus();
+      return active || hasPremiumEntitlement(info);
     } catch {
-      return false;
+      return refreshPremiumStatus();
     }
   }, [refreshPremiumStatus]);
 

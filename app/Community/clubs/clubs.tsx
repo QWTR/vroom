@@ -11,7 +11,7 @@ import { Feather }            from '@expo/vector-icons';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
-import { usePremium }         from '../../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../../hooks/useEffectivePremium';
 import { API_URL }            from '../../../constants/config';
 
 import ClubCard               from '../../../components/clubs/ClubCard';
@@ -39,7 +39,7 @@ type ClubDetailResult = {
 export default function ClubsScreen() {
   const router    = useRouter();
   const { theme } = useTheme();
-  const { isPremium } = usePremium();
+  const { isPremium, refresh: refreshPremiumAccess } = useEffectivePremium();
 
   const [myId, setMyId] = useState<number | null>(null);
 
@@ -214,11 +214,12 @@ export default function ClubsScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => {
+    void refreshPremiumAccess();
     setLoading(true); setHasMore(true);
     reloadAllClubs('created');
     fetchMyClub();
     fetchMyInviteCount();
-  }, []));
+  }, [refreshPremiumAccess]));
 
   const openDetail = useCallback(async (club: Club) => {
     const isOwner = club.myRole === 'owner';

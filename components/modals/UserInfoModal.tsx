@@ -1,5 +1,9 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '../../constants/config';
+import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
+import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
@@ -26,6 +30,29 @@ export const UserInfoModal = memo(
 
     const isOnline  = user.status === 'Online';
     const hasAvatar = user.avatar && user.avatar.startsWith('http');
+    const [shopCosmetics, setShopCosmetics] = useState<UserShopCosmetics | null>(null);
+
+    useEffect(() => {
+      if (!visible || !user?.id) {
+        setShopCosmetics(null);
+        return;
+      }
+      (async () => {
+        try {
+          const token = await AsyncStorage.getItem('userToken') ?? await AsyncStorage.getItem('token');
+          if (!token) return;
+          const res = await fetch(`${API_URL}/api/profile/${user.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          setShopCosmetics(data.shopCosmetics ?? null);
+        } catch {
+          setShopCosmetics(null);
+        }
+      })();
+    }, [visible, user?.id]);
+
     useModalBackHandler(visible, onClose);
     return (
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -37,7 +64,7 @@ export const UserInfoModal = memo(
 
             {/* Header */}
             <View style={styles.userInfoHeader}>
-              <View style={styles.userInfoAvatarWrap}>
+              <View style={[styles.userInfoAvatarWrap, { overflow: 'visible' }]}>
                 {hasAvatar ? (
                   <Image
                     source={{ uri: user.avatar as string }}
@@ -49,6 +76,7 @@ export const UserInfoModal = memo(
                     {user.name?.slice(0, 2).toUpperCase() ?? '👤'}
                   </Text>
                 )}
+                <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={56} />
               </View>
 
               <View style={styles.userInfoHeaderText}>

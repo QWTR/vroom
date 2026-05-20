@@ -36,6 +36,11 @@ import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import type { ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from './VisitEntranceFx';
+import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
+import ShopEntranceOverlay from '../shop/ShopEntranceOverlay';
+import { NitroShopPromoCard } from '../shop/NitroShopPromoCard';
+import type { UserShopCosmetics } from '../../constants/shopCosmetics';
+import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { linearGradientFromSpec } from './profileGradientUtils';
 import { SpotifyProfileTrackRow } from './SpotifyProfileTrackRow';
 
@@ -119,31 +124,30 @@ export default function ProfileView({
 }: Props) {
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
-  const useProfileSnapshotForOwner = isOwner && !settings.isPremium && !!profile?.isPremium;
+  const premiumActive = !!(isPremium || (isOwner && profile?.isPremium));
+  /** Właściciel edytuje personalizację w Ustawieniach — zawsze stan z settings, nie /me. */
   const rawProfileThemePreset = (
     isOwner
-      ? (useProfileSnapshotForOwner ? profile?.profileThemePreset : settings.profileThemePreset)
+      ? (settings.profileThemePreset ?? profile?.profileThemePreset)
       : profile?.profileThemePreset
   ) ?? 'default';
   const rawAvatarFramePreset = (
     isOwner
-      ? (useProfileSnapshotForOwner ? profile?.avatarFramePreset : settings.avatarFramePreset)
+      ? (settings.avatarFramePreset ?? profile?.avatarFramePreset)
       : profile?.avatarFramePreset
   ) ?? 'vroom';
   const rawProfileNickColor = (
     isOwner
-      ? (useProfileSnapshotForOwner ? profile?.nickColor : settings.nickColor)
+      ? (settings.nickColor ?? profile?.nickColor)
       : profile?.nickColor
   ) ?? null;
-  const hasPremiumProfileUi = !!isPremium;
+  const hasPremiumProfileUi = premiumActive;
   const profileThemePreset = hasPremiumProfileUi ? rawProfileThemePreset : 'default';
   const avatarFramePreset = hasPremiumProfileUi ? rawAvatarFramePreset : 'vroom';
   const profileNickColor = hasPremiumProfileUi ? rawProfileNickColor : null;
   const premiumUi: ProfilePremiumExtras | null = hasPremiumProfileUi
     ? mergeProfilePremiumExtras(
-        isOwner
-          ? (useProfileSnapshotForOwner ? profile?.profilePremiumExtras : settings.profilePremiumExtras)
-          : profile?.profilePremiumExtras,
+        isOwner ? settings.profilePremiumExtras : profile?.profilePremiumExtras,
       )
     : null;
 
@@ -245,6 +249,7 @@ export default function ProfileView({
     lime: ['#4de926', '#a6ff4d', '#4de926'],
   };
   const router = useRouter();
+  const { wallet: nitroWallet } = useNitroWallet();
   const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat();
   const { counts: followCounts } = useFollowCounts(profile?.id);
 
@@ -273,7 +278,7 @@ export default function ProfileView({
   const avatarBreathe = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!isPremium || !premiumUi) return;
+    if (!premiumActive || !premiumUi) return;
     const mode = premiumUi.avatarRingAnim ?? 'none';
     avatarSpin.setValue(0);
     avatarPulse.setValue(1);
@@ -301,7 +306,7 @@ export default function ProfileView({
       avatarPulse.setValue(1);
       avatarBreathe.setValue(1);
     };
-  }, [isPremium, premiumUi?.avatarRingAnim, avatarSpin, avatarPulse, avatarBreathe]);
+  }, [premiumActive, premiumUi?.avatarRingAnim, avatarSpin, avatarPulse, avatarBreathe]);
 
   const heroShim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -340,14 +345,30 @@ export default function ProfileView({
 
   const heroFloatY = heroFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
 
+  const shopCosmetics = (profile as { shopCosmetics?: UserShopCosmetics | null })?.shopCosmetics ?? null;
+  const shopBannerUri = shopCosmetics?.profileBanner?.assetUrl ?? null;
+
   const [visitFx, setVisitFx] = useState(false);
+  const [shopVisitFx, setShopVisitFx] = useState(false);
   useEffect(() => {
-    if (isOwner || !premiumUi?.visitEntranceAnim || premiumUi.visitEntranceAnim === 'none') {
+    if (isOwner) {
+      setVisitFx(false);
+      setShopVisitFx(false);
+      return;
+    }
+    if (shopCosmetics?.entranceEffect?.assetUrl) {
+      setShopVisitFx(true);
       setVisitFx(false);
       return;
     }
+    if (!premiumUi?.visitEntranceAnim || premiumUi.visitEntranceAnim === 'none') {
+      setVisitFx(false);
+      setShopVisitFx(false);
+      return;
+    }
     setVisitFx(true);
-  }, [isOwner, profile?.id, premiumUi?.visitEntranceAnim]);
+    setShopVisitFx(false);
+  }, [isOwner, profile?.id, premiumUi?.visitEntranceAnim, shopCosmetics?.entranceEffect?.assetUrl]);
 
   const openStats = () => {
     setStatsModalVisible(true);
@@ -384,7 +405,7 @@ export default function ProfileView({
   const FREE_ACTIVITY_HISTORY_DAYS = 30;
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - FREE_ACTIVITY_HISTORY_DAYS);
-  const displayRoutes = (isOwner && !isPremium)
+  const displayRoutes = (isOwner && !premiumActive)
     ? routes.filter(r => new Date(r.createdAt) >= thirtyDaysAgo)
     : routes;
   const hiddenRoutesCount = routes.length - displayRoutes.length;
@@ -419,9 +440,9 @@ export default function ProfileView({
             transform:             premiumUi?.heroMotion === 'float' ? [{ translateY: heroFloatY }] : [],
           }}
         >
-          {(profile as any)?.bannerUrl ? (
+          {shopBannerUri || (profile as any)?.bannerUrl ? (
             <Image
-              source={{ uri: (profile as any).bannerUrl }}
+              source={{ uri: shopBannerUri || (profile as any).bannerUrl }}
               style={{ ...StyleSheet.absoluteFillObject }}
               resizeMode="cover"
             />
@@ -433,7 +454,7 @@ export default function ProfileView({
               style={{ ...StyleSheet.absoluteFillObject }}
             />
           )}
-          {!!(profile as any)?.bannerUrl && (
+          {!!(shopBannerUri || (profile as any)?.bannerUrl) && (
             <LinearGradient
               colors={(heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) as any}
               start={{ x: 0, y: 0 }}
@@ -505,7 +526,7 @@ export default function ProfileView({
             </View>
             {isOwner && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {isPremium && onBannerChange && (
+                {premiumActive && onBannerChange && (
                   <>
                     {!!profile?.bannerUrl && (
                       <TouchableOpacity
@@ -532,6 +553,12 @@ export default function ProfileView({
                   </>
                 )}
                 <TouchableOpacity
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFD70022', borderWidth: 1, borderColor: '#FFD70044', alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => router.push('/shop' as any)}
+                >
+                  <MaterialIcons name="bolt" size={18} color="#FFD700" />
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015', alignItems: 'center', justifyContent: 'center' }}
                   onPress={onSettings}
                 >
@@ -545,7 +572,7 @@ export default function ProfileView({
           <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
             {/* Avatar */}
             <View style={{ position: 'relative', width: 80, height: 80 }}>
-              {isPremium && avatarRingLin ? (
+              {premiumActive && avatarRingLin ? (
                 <Animated.View
                   pointerEvents="none"
                   style={{
@@ -583,7 +610,7 @@ export default function ProfileView({
                 borderRadius: 37,
                 margin: 3,
                 borderWidth: 1.5,
-                borderColor: isPremium ? '#0f0f0fcc' : '#e33835',
+                borderColor: premiumActive ? '#0f0f0fcc' : '#e33835',
                 overflow: 'hidden',
                 backgroundColor: theme.surface,
               }}>
@@ -596,7 +623,7 @@ export default function ProfileView({
                   )
                 }
               </View>
-              
+              <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={80} />
             </View>
 
             {/* Name + info */}
@@ -608,7 +635,7 @@ export default function ProfileView({
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                   {profile?.username ?? '—'}
                 </Text>
-                <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={isPremium} compact />
+                <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={premiumActive} compact />
               </View>
               {!!profile?.location && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
@@ -694,6 +721,13 @@ export default function ProfileView({
               <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: pillAccentColors[3], letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
             </TouchableOpacity>
           </View>
+
+          {isOwner && (
+            <NitroShopPromoCard
+              nitroBalance={nitroWallet?.nitroBalance ?? profile?.nitroBalance ?? 0}
+              onPress={() => router.push('/shop' as any)}
+            />
+          )}
 
           {/* ══ ACTION BUTTONS ROW ══ */}
           {isOwner && (
@@ -841,7 +875,7 @@ export default function ProfileView({
           )}
 
           {/* ══ LOKALIZACJA TYLKO DLA ZNAJOMYCH (Premium) ══ */}
-          {isOwner && isPremium && onLocationFriendsOnlyChange && (
+          {isOwner && premiumActive && onLocationFriendsOnlyChange && (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 20 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFD70015', borderWidth: 1, borderColor: '#FFD70030', alignItems: 'center', justifyContent: 'center' }}>
@@ -940,7 +974,7 @@ export default function ProfileView({
 
           {/* ══ MOJE TRASY ══ */}
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
-            {isOwner && !isPremium && hiddenRoutesCount > 0 && (
+            {isOwner && !premiumActive && hiddenRoutesCount > 0 && (
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD70010', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 10 }}
                 onPress={() => router.push('/premium' as any)}
@@ -1032,9 +1066,14 @@ export default function ProfileView({
         </View>
 
         <SpotDetailModal visible={selectedSpot !== null} spot={selectedSpot} onClose={() => setSelectedSpot(null)} getDistance={() => 0} onLikeToggle={handleLikeToggle} />
-        <RoutesListModal visible={routesModalVisible} routes={displayRoutes} onClose={() => setRoutesModalVisible(false)} onNavigate={onNavigateRoute} onShare={onShareRoute} onDelete={onDeleteRoute} onLeaderboard={route => { setRoutesModalVisible(false); setTimeout(() => handleLeaderboard(route), 350); }} isOwner={isOwner} isPremium={isPremium} />
+        <RoutesListModal visible={routesModalVisible} routes={displayRoutes} onClose={() => setRoutesModalVisible(false)} onNavigate={onNavigateRoute} onShare={onShareRoute} onDelete={onDeleteRoute} onLeaderboard={route => { setRoutesModalVisible(false); setTimeout(() => handleLeaderboard(route), 350); }} isOwner={isOwner} isPremium={premiumActive} />
       </ScrollView>
-      {visitFx && !isOwner && premiumUi?.visitEntranceAnim && premiumUi.visitEntranceAnim !== 'none' && (
+      {shopVisitFx && !isOwner && shopCosmetics?.entranceEffect && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 500, elevation: 50 }]} pointerEvents="box-none">
+          <ShopEntranceOverlay item={shopCosmetics.entranceEffect} onDone={() => setShopVisitFx(false)} />
+        </View>
+      )}
+      {visitFx && !isOwner && !shopVisitFx && premiumUi?.visitEntranceAnim && premiumUi.visitEntranceAnim !== 'none' && (
         <View style={[StyleSheet.absoluteFillObject, { zIndex: 500, elevation: 50 }]} pointerEvents="box-none">
           <VisitEntranceFx kind={premiumUi.visitEntranceAnim} onDone={() => setVisitFx(false)} />
         </View>
@@ -1169,7 +1208,7 @@ export default function ProfileView({
               </StatsModalSection>
 
               <StatsModalSection title="WYKRESY MIESIĘCZNE" color="#a855f7" icon="chart-bar">
-                {!isPremium ? (
+                {!premiumActive ? (
                   <TouchableOpacity
                     style={{ backgroundColor: '#FFD70010', borderWidth: 1, borderColor: '#FFD70030', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
                     onPress={() => router.push('/premium' as any)}

@@ -56,7 +56,9 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     spotifyProfileTrack: u.spotifyProfileTrack ?? null,
     club:          opts?.includeClub ? (u.club ?? null) : null,
     followersCount: u.followersCount ?? 0,  
-    followingCount: u.followingCount ?? 0,  
+    followingCount: u.followingCount ?? 0,
+    nitroBalance: u.nitroBalance ?? 0,
+    shopCosmetics: u.shopCosmetics ?? null,
   };
 }
 

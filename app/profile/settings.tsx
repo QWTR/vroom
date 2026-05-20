@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter }    from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -18,12 +18,16 @@ import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useSettings }  from '../../hooks/useSettings';
 import { useTheme }     from '../../contexts/ThemeContext';
-import { usePremium }   from '../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
+import { useProfile } from '../../hooks/useProfile';
+import { useCursorSkin } from '../../hooks/useCursorSkin';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
-import { ColorWheelPickerSheet, ColorPickTriggerRow } from '../../components/settings/ColorWheelPickerSheet';
+import { ColorWheelPickerSheet, ColorPickTriggerRow, normalizePickerHex } from '../../components/settings/ColorWheelPickerSheet';
 import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
+import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
+import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
 import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
@@ -72,9 +76,12 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { theme, isDark, mode, setMode } = useTheme();
-  const { isPremium: premiumFromContext } = usePremium();
+  const { profile, fetchProfile } = useProfile();
+  const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
-  const effectivePremium = !!(premiumFromContext || settings.isPremium);
+  const { skins: cursorSkins, activeSkin, setActiveSkinId } = useCursorSkin();
+  const { wallet: nitroWallet } = useNitroWallet();
+  const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
   const { scrollPaddingBottom } = useFormKeyboardPadding(88);
   const scrollBottomPad =
     Platform.OS === 'ios'
@@ -124,6 +131,43 @@ export default function SettingsScreen() {
   const premiumExtras = useMemo(
     () => mergeProfilePremiumExtras(settings.profilePremiumExtras),
     [settings.profilePremiumExtras],
+  );
+
+  const buildTwoColorGradient = useCallback(
+    (c1: string, c2: string, vertical = false) => ({
+      colors: [normalizePickerHex(c1), normalizePickerHex(c2)],
+      start: { x: 0, y: 0 },
+      end: vertical ? { x: 0, y: 1 } : { x: 1, y: 1 },
+    }),
+    [],
+  );
+
+  const persistPremiumExtras = useCallback(
+    async (
+      patch: Partial<ProfilePremiumExtras>,
+      opts?: { setCustomTheme?: boolean; okMessage?: string },
+    ) => {
+      if (opts?.setCustomTheme && settings.profileThemePreset !== 'custom') {
+        await updateSetting('profileThemePreset', 'custom');
+      }
+      const merged = mergeProfilePremiumExtras({ ...premiumExtras, ...patch });
+      const ok = await updateSetting('profilePremiumExtras', merged);
+      if (ok) {
+        void fetchProfile();
+        Toast.show({
+          type: 'success',
+          text1: opts?.okMessage ?? 'Zapisano',
+          text2: 'Odśwież profil, jeśli nie widzisz zmian od razu.',
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Nie zapisano',
+          text2: 'Aktywne Premium i internet są wymagane.',
+        });
+      }
+    },
+    [premiumExtras, settings.profileThemePreset, updateSetting, fetchProfile],
   );
 
   const [heroC1, setHeroC1] = useState('#E33835');
@@ -233,6 +277,13 @@ export default function SettingsScreen() {
     loadReferralData().catch(() => {});
   }, [loadReferralData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void refreshPremiumAccess();
+      void fetchProfile();
+    }, [refreshPremiumAccess, fetchProfile]),
+  );
+
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
     if (!val) {
@@ -240,6 +291,16 @@ export default function SettingsScreen() {
       const isRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRunning) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       Toast.show({ type: 'info', text1: '📍 Śledzenie w tle wyłączone' });
+      return;
+    }
+
+    if (!effectivePremium) {
+      Toast.show({
+        type: 'info',
+        text1: 'VROOM Premium',
+        text2: 'GPS w tle podczas jazdy i nawigacji po zminimalizowaniu aplikacji',
+      });
+      router.push('/premium');
       return;
     }
 
@@ -750,6 +811,12 @@ export default function SettingsScreen() {
 
 				{/* ══ CONTENT ══ */}
 				<View style={{ paddingHorizontal: 20 }}>
+					<SettingsSectionLabel isDark={isDark} title='SKLEP NITRO' />
+					<NitroShopPromoCard
+						nitroBalance={nitroWallet?.nitroBalance ?? 0}
+						onPress={() => router.push('/shop' as any)}
+					/>
+
 					{/* WYGLĄD */}
 					<SettingsSectionLabel isDark={isDark} title='WYGLĄD' />
 					<SettingsCard {...settingsCardProps}>
@@ -1102,14 +1169,10 @@ export default function SettingsScreen() {
 										/>
 										<TouchableOpacity
 											onPress={() =>
-												updateSetting('profilePremiumExtras', {
-													...premiumExtras,
-													customHeroGradient: {
-														colors: [heroC1.trim().toUpperCase(), heroC2.trim().toUpperCase()],
-														start: { x: 0, y: 0 },
-														end: { x: 1, y: 1 },
-													},
-												} as ProfilePremiumExtras)
+												void persistPremiumExtras(
+													{ customHeroGradient: buildTwoColorGradient(heroC1, heroC2) },
+													{ setCustomTheme: true, okMessage: 'Gradient tła zapisany' },
+												)
 											}
 											style={{
 												backgroundColor: RED,
@@ -1200,14 +1263,10 @@ export default function SettingsScreen() {
 											/>
 											<TouchableOpacity
 												onPress={() =>
-													updateSetting('profilePremiumExtras', {
-														...premiumExtras,
-														sectionAccentGradient: {
-															colors: [accG1.trim().toUpperCase(), accG2.trim().toUpperCase()],
-															start: { x: 0, y: 0 },
-															end: { x: 0, y: 1 },
-														},
-													} as ProfilePremiumExtras)
+													void persistPremiumExtras(
+														{ sectionAccentGradient: buildTwoColorGradient(accG1, accG2, true) },
+														{ okMessage: 'Gradient nagłówków zapisany' },
+													)
 												}
 												style={{
 													backgroundColor: RED,
@@ -1239,10 +1298,10 @@ export default function SettingsScreen() {
 											/>
 											<TouchableOpacity
 												onPress={() =>
-													updateSetting('profilePremiumExtras', {
-														...premiumExtras,
-														sectionAccentSolid: accSolid.trim().toUpperCase(),
-													} as ProfilePremiumExtras)
+													void persistPremiumExtras(
+														{ sectionAccentSolid: normalizePickerHex(accSolid) },
+														{ okMessage: 'Kolor nagłówków zapisany' },
+													)
 												}
 												style={{
 													backgroundColor: RED,
@@ -1346,18 +1405,16 @@ export default function SettingsScreen() {
 										/>
 										<TouchableOpacity
 											onPress={() =>
-												updateSetting('profilePremiumExtras', {
-													...premiumExtras,
-													avatarRingGradient: {
-														colors: [
-															ringC1.trim().toUpperCase(),
-															ringC2.trim().toUpperCase(),
-															ringC3.trim().toUpperCase(),
-														],
-														start: { x: 0, y: 0 },
-														end: { x: 1, y: 1 },
+												void persistPremiumExtras(
+													{
+														avatarRingGradient: {
+															colors: [ringC1, ringC2, ringC3].map(normalizePickerHex),
+															start: { x: 0, y: 0 },
+															end: { x: 1, y: 1 },
+														},
 													},
-												} as ProfilePremiumExtras)
+													{ okMessage: 'Pierścień avatara zapisany' },
+												)
 											}
 											style={{
 												backgroundColor: RED,
@@ -1997,14 +2054,24 @@ export default function SettingsScreen() {
 							icon='directions-run'
 							iconBg='#4CAF50'
 							label='Praca w tle'
-							sublabel='Lokalizacja w tle do km, nawigacji i statystyk jazdy'
+							sublabel={effectivePremium
+								? 'GPS w tle — km, nawigacja i jazda po zminimalizowaniu'
+								: 'Premium — GPS w tle podczas jazdy i nawigacji'}
 							right={
 								<Switch
-									value={settings.backgroundTracking}
+									value={settings.backgroundTracking && effectivePremium}
 									onValueChange={toggleBgTracking}
+									disabled={!effectivePremium}
 									{...swProps}
 								/>
 							}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='navigation'
+							iconBg='#e33835'
+							label='Skórka kursora'
+							sublabel={activeSkin?.name ?? 'Domyślna'}
+							onPress={() => setCursorSkinModalVisible(true)}
 						/>
 						<SettingsRow {...settingsRowProps}
 							icon='workspace-premium'
@@ -2704,6 +2771,94 @@ export default function SettingsScreen() {
 				onCancel={() => setBgDisclosureVisible(false)}
 				onAccept={acceptBgDisclosure}
 			/>
+
+			<Modal
+				visible={cursorSkinModalVisible}
+				transparent
+				animationType="slide"
+				onRequestClose={() => setCursorSkinModalVisible(false)}
+			>
+				<View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' }}>
+					<View style={{
+						backgroundColor: cardBg,
+						borderTopLeftRadius: 18,
+						borderTopRightRadius: 18,
+						paddingBottom: insets.bottom + 16,
+						maxHeight: '70%',
+					}}>
+						<View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
+							<Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', color: textMain }}>
+								SKÓRKA KURSORA
+							</Text>
+							<Text style={{ color: textMuted, fontSize: 11, marginTop: 4 }}>
+								Wyświetlana na mapie podczas jazdy
+							</Text>
+						</View>
+						<ScrollView style={{ paddingHorizontal: 12 }}>
+							{cursorSkins.map((skin) => {
+								const locked = !skin.unlocked;
+								const selected = activeSkin?.id === skin.id;
+								return (
+									<TouchableOpacity
+										key={skin.id}
+										disabled={locked}
+										onPress={async () => {
+											const ok = await setActiveSkinId(skin.id);
+											if (!ok) {
+												if (skin.requiresPremium && !effectivePremium) {
+													Toast.show({ type: 'info', text1: 'Wymaga Premium' });
+													router.push('/premium');
+												} else {
+													Toast.show({ type: 'error', text1: 'Nie udało się wybrać skórki' });
+												}
+												return;
+											}
+											Toast.show({ type: 'success', text1: skin.name });
+											setCursorSkinModalVisible(false);
+										}}
+										style={{
+											flexDirection: 'row',
+											alignItems: 'center',
+											paddingVertical: 12,
+											paddingHorizontal: 8,
+											opacity: locked ? 0.45 : 1,
+											borderBottomWidth: 1,
+											borderBottomColor: cardBorder,
+										}}
+									>
+										<View style={{
+											width: 36,
+											height: 36,
+											borderRadius: 18,
+											borderWidth: 2,
+											borderColor: skin.borderColor,
+											backgroundColor: rowAlt,
+											marginRight: 12,
+										}} />
+										<View style={{ flex: 1 }}>
+											<Text style={{ color: textMain, fontWeight: '700' }}>{skin.name}</Text>
+											<Text style={{ color: textMuted, fontSize: 10 }}>
+												{locked
+													? (skin.requiresPremium ? 'Premium' : 'Zablokowane')
+													: (selected ? 'Aktywna' : 'Dostępna')}
+											</Text>
+										</View>
+										{selected ? (
+											<MaterialIcons name="check-circle" size={22} color={RED} />
+										) : null}
+									</TouchableOpacity>
+								);
+							})}
+						</ScrollView>
+						<TouchableOpacity
+							onPress={() => setCursorSkinModalVisible(false)}
+							style={{ margin: 16, padding: 12, alignItems: 'center' }}
+						>
+							<Text style={{ color: textMuted, fontWeight: '700' }}>Zamknij</Text>
+						</TouchableOpacity>
+					</View>
+				</View>
+			</Modal>
 		</>
 	);
 }

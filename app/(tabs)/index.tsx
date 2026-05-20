@@ -34,6 +34,7 @@ import { CampaignFlowModal } from "../../components/modals/CampaignFlowModal";
 import { useEntryCampaign } from "../../hooks/useEntryCampaign";
 import { AdBanner } from "../../components/ads/AdBanner";
 import { usePremium } from "../../contexts/PremiumContext";
+import { useEffectivePremium } from "../../hooks/useEffectivePremium";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
@@ -137,10 +138,9 @@ export default function HomeScreen() {
 	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
 	const {
-		isPremium,
 		isLoading: premiumLoading,
 		refreshPremiumStatus,
-    premiumStatus,
+		premiumStatus,
 	} = usePremium();
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
 	const onlineCount = useAppPresence();
@@ -477,14 +477,17 @@ export default function HomeScreen() {
 	const onRefresh = () => {
 		setRefreshing(true);
 		refreshPremiumStatus().catch(() => {});
+		refreshPremiumAccess().catch(() => {});
 		loadAnnouncements();
 		fetchActiveGridVotes();
 		fetchNotifUnread();
 		loadUser(false);
 	};
 
+	const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(
+		user ? { isPremium: !!user.isPremium, premiumExpiresAt: user.premiumExpiresAt ?? null } : null,
+	);
 	const t = theme;
-	const effectivePremium = !!(isPremium || user?.isPremium);
   const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndDateRaw
     ? new Date(premiumEndDateRaw).toLocaleDateString("pl-PL")

@@ -13,8 +13,10 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-const MIN_INTERVAL_MS = 15_000;
-const BUFFER_SIZE     = 9;      // number of GPS points sent to API
+const MIN_INTERVAL_MS = 30_000;
+const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
+/** Brak trace matching API poniżej tej prędkości — płynność z lokalnego snap/DR. */
+const STATIONARY_SPEED_KMH = 6;
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
@@ -244,6 +246,11 @@ export function useDrivingMapMatch() {
 
     const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
     const noRoad = !!ctx?.noRoad;
+    // Przy braku geometrii trace może iść na postoju; przy snapie na drodze — oszczędzamy API.
+    if (speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
+      logSnapReject('add_stationary_skip', { speedKmh: Math.round(speedKmh) });
+      return;
+    }
     const acc = ctx?.accuracyM;
     const poorAcc = acc != null && Number.isFinite(acc) && acc > 35;
     const usageCount = getRequestUsageCount(now);
@@ -251,16 +258,16 @@ export function useDrivingMapMatch() {
     let dynamicMinIntervalMs = MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
     if (noRoad) {
-      dynamicMinIntervalMs = 18_000;
+      dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 24;
     } else if (speedKmh >= 55) {
-      dynamicMinIntervalMs = 20_000;
+      dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 52;
     } else if (speedKmh >= 25) {
-      dynamicMinIntervalMs = 18_000;
+      dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 40;
     } else {
-      dynamicMinIntervalMs = 22_000;
+      dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 34;
     }
     if (poorAcc && !noRoad) {
@@ -348,10 +355,8 @@ export function useDrivingMapMatch() {
         // Proxy może zwrócić null (429, auth); allow direct fallback so
         // geometry is still refreshed during driving, not only on forceMatch.
         {
-          allowFallback: true,
-          cooldownMs: noRoad ? 3000 : 6000,
-          proxyTimeoutMs: noRoad ? 2200 : 3200,
-          fallbackTimeoutMs: noRoad ? 2200 : 3200,
+          allowFallback: false,
+          proxyTimeoutMs: noRoad ? 2800 : 4000,
         },
       );
       if (genWhenStarted !== matchGenRef.current) return;
@@ -516,11 +521,11 @@ export function useDrivingMapMatch() {
           },
           url,
           {
-            allowFallback: true,
-            forceFallback: manual || refresh,
-            cooldownMs: manual ? 2000 : (refresh ? 4000 : 6000),
-            proxyTimeoutMs: manual ? 3500 : (refresh ? 4000 : 4500),
-            fallbackTimeoutMs: manual ? 4000 : (refresh ? 4500 : 5000),
+            // Ręczne wejście w jazdę: jednorazowy fallback gdy proxy ma limit 429.
+            allowFallback: manual,
+            forceFallback: manual,
+            proxyTimeoutMs: manual ? 4500 : (refresh ? 4000 : 4500),
+            fallbackTimeoutMs: manual ? 5000 : undefined,
           },
         );
         if (genWhenStarted !== matchGenRef.current) return null;

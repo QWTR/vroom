@@ -5,7 +5,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import ColorPicker from 'react-native-wheel-color-picker';
 import { useTheme } from '../../contexts/ThemeContext';
 
-function normalizePickerHex(raw: string): string {
+export function normalizePickerHex(raw: string): string {
   if (!raw || typeof raw !== 'string') return '#888888';
   const t = raw.trim();
   if (/^#[0-9A-Fa-f]{6}$/i.test(t)) return t.toUpperCase();

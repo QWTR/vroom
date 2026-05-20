@@ -493,6 +493,8 @@ export function useBackgroundTracking(
   forceEnabled: boolean = false,
   /** Gdy false — nie nadpisuj BG_IS_SHARING do czasu hydracji z API (unikaj false przy starcie). */
   sharingHydrated: boolean = true,
+  /** GPS w tle (nawigacja / jazda po zminimalizowaniu) — tylko Premium. */
+  isPremium: boolean = false,
 ) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const flushInFlightRef = useRef(false);
@@ -764,8 +766,17 @@ export function useBackgroundTracking(
     startInFlightRef.current = true;
     try {
       const appIsActive = AppState.currentState === 'active';
+      // Free: brak śledzenia po zminimalizowaniu — mapa/nawigacja w foreground bez limitów.
+      if (!isPremium && !appIsActive) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        return;
+      }
       // Prevent double accounting while app is active in foreground trip pipeline.
-      // Nawigacja/jazda w tle: GPS nawet gdy użytkownik wyłączył „śledzenie w tle” w ustawieniach.
+      // Nawigacja/jazda w tle (Premium): GPS nawet gdy wyłączone „śledzenie w tle” w ustawieniach.
       const shouldTrack = sharingHydrated && (
         (!appIsActive && (bgEnabled || forceEnabled))
         || (appIsActive && forceEnabled)
@@ -822,7 +833,7 @@ export function useBackgroundTracking(
     } finally {
       startInFlightRef.current = false;
     }
-  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled]);
+  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, isPremium]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -883,7 +894,7 @@ export function useBackgroundTracking(
         activeHeartbeat = null;
       }
       if (s === 'background' || s === 'inactive') {
-        if (sharingHydrated && (bgEnabled || forceEnabled)) {
+        if (isPremium && sharingHydrated && (bgEnabled || forceEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
@@ -902,7 +913,7 @@ export function useBackgroundTracking(
       sub.remove();
       if (activeHeartbeat) clearInterval(activeHeartbeat);
     };
-  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, startBackgroundTracking, stopBackgroundTracking]);
+  }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, isPremium, startBackgroundTracking, stopBackgroundTracking]);
 
   // ── Flush passive stats when app returns to foreground ───────────────────
   useEffect(() => {

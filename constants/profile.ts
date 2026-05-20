@@ -1,4 +1,5 @@
 import type { ProfilePremiumExtras } from './profilePremiumExtras';
+import type { UserShopCosmetics } from './shopCosmetics';
 
 export interface SpotifyProfileTrack {
   trackId: string;
@@ -48,6 +49,8 @@ export interface UserProfile {
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;
+  nitroBalance?: number;
+  shopCosmetics?: UserShopCosmetics | null;
   club?: {
     id:          number;
     name:        string;

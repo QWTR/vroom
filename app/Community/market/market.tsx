@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSheet';
-import { usePremium } from '../../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../../hooks/useEffectivePremium';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 
@@ -98,9 +98,10 @@ function formatDate(iso: string) {
 export default function MarketScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const { isPremium } = usePremium();
   const [marketMeta, setMarketMeta] = useState<MarketMeta | null>(null);
-  const effectivePremium = !!(isPremium || marketMeta?.isPremium);
+  const { refresh: refreshPremiumAccess } = useEffectivePremium();
+  /** Limity giełdy = wyłącznie odpowiedź serwera (/api/market/meta). */
+  const effectivePremium = !!marketMeta?.isPremium;
 
   const [listings,       setListings]       = useState<Listing[]>([]);
   const [loading,        setLoading]        = useState(true);
@@ -211,9 +212,10 @@ export default function MarketScreen() {
   }, [hasMore, page, filters, search]);
 
   useFocusEffect(useCallback(() => {
+    void refreshPremiumAccess();
     fetchListings(true);
     fetchMarketMeta();
-  }, []));
+  }, [refreshPremiumAccess, fetchListings, fetchMarketMeta]));
 
   const handleSearch = (q: string) => {
     setSearch(q);

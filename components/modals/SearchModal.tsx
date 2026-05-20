@@ -24,8 +24,10 @@ import {
   fetchGeocodingViaProxy,
   fetchSearchRetrieveViaProxy,
   fetchSearchSuggestViaProxy,
+  isMapboxProxyAbortError,
 } from '../../scripts/mapboxProxyClient';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
+import { fetchPartnerPoisSearch } from '../../hooks/usePartnerPois';
 
 interface GeocodingResult {
   mapboxId:      string;
@@ -37,6 +39,9 @@ interface GeocodingResult {
 }
 
 const SEARCH_SESSION_IDLE_MS = 12 * 60 * 1000;
+const SEARCH_DEBOUNCE_MS = 320;
+const SEARCH_MIN_QUERY_LEN = 3;
+const SEARCH_GEOCODE_MIN_LEN = 5;
 
 function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
   return features.map((f: any) => {
@@ -113,9 +118,17 @@ export const SearchModal = memo(({
   const searchSessionLastUsedAtRef = useRef(0);
   const searchCacheRef      = useRef<Map<string, { at: number; results: GeocodingResult[] }>>(new Map());
   const searchReqSeqRef     = useRef(0);
+  const searchAbortRef      = useRef<AbortController | null>(null);
+  const userLocationRef     = useRef(userLocation);
+  const fetchPlacesRef      = useRef(fetchPlaces);
+  const clearPlacesRef      = useRef(clearPlaces);
+  const ensureSearchSessionRef = useRef<() => string>(() => '');
 
   useEffect(() => { searchModeRef.current = searchMode; },    [searchMode]);
   useEffect(() => { onCloseRef.current    = onClose; },       [onClose]);
+  useEffect(() => { userLocationRef.current = userLocation; }, [userLocation]);
+  useEffect(() => { fetchPlacesRef.current = fetchPlaces; }, [fetchPlaces]);
+  useEffect(() => { clearPlacesRef.current = clearPlaces; }, [clearPlaces]);
 
   // ─────────────────────────────────────────────────────
   const resetToInitial = useCallback(() => {
@@ -142,10 +155,8 @@ export const SearchModal = memo(({
   }, []);
 
   useEffect(() => {
-    if (visible) {
-      ensureSearchSession();
-    }
-  }, [visible, ensureSearchSession]);
+    ensureSearchSessionRef.current = ensureSearchSession;
+  }, [ensureSearchSession]);
 
   // ── BackHandler ───────────────────────────────────────
   useEffect(() => {
@@ -202,27 +213,48 @@ export const SearchModal = memo(({
     fetchPlaces(userLocation.latitude, userLocation.longitude, category);
   }, [userLocation, fetchPlaces]);
 
-  // ─────────────────────────────────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleSearch = useCallback(debounce(async (query: string) => {
+  const runSearchQuery = useCallback(async (query: string) => {
     const trimmed = query.trim();
     const normalized = trimmed.toLowerCase();
-    if (trimmed.length < 2) {
+    if (trimmed.length < SEARCH_MIN_QUERY_LEN) {
       setSearchMode('initial');
       setFilteredPlaces([]);
       setFilteredUsers([]);
       setDetectedBrand(null);
-      clearPlaces();
+      clearPlacesRef.current();
       return;
     }
 
+    searchAbortRef.current?.abort();
+    const ac = new AbortController();
+    searchAbortRef.current = ac;
+    const { signal } = ac;
+
+    const loc = userLocationRef.current;
+    const reqSeq = ++searchReqSeqRef.current;
+
     const brand = detectBrand(trimmed);
-    if (brand && userLocation) {
+    if (brand && loc) {
       setDetectedBrand(brand.label);
       setSearchMode('nearby');
       setFilteredPlaces([]);
       setFilteredUsers([]);
-      fetchPlaces(userLocation.latitude, userLocation.longitude, brand.type);
+      setIsSearching(true);
+      try {
+        await fetchPlacesRef.current(
+          loc.latitude,
+          loc.longitude,
+          brand.type,
+          5000,
+          signal,
+        );
+      } catch (e) {
+        if (isMapboxProxyAbortError(e)) return;
+      } finally {
+        if (!signal.aborted && reqSeq === searchReqSeqRef.current) {
+          setIsSearching(false);
+        }
+      }
       return;
     }
 
@@ -230,8 +262,8 @@ export const SearchModal = memo(({
     setSearchMode('results');
     setIsSearching(true);
     setFilteredUsers([]);
-    clearPlaces();
-    const reqSeq = ++searchReqSeqRef.current;
+    clearPlacesRef.current();
+
     try {
       const cached = searchCacheRef.current.get(normalized);
       const now = Date.now();
@@ -240,7 +272,7 @@ export const SearchModal = memo(({
         return;
       }
 
-      const sessionToken = ensureSearchSession();
+      const sessionToken = ensureSearchSessionRef.current();
 
       let results: GeocodingResult[] = [];
       try {
@@ -249,41 +281,108 @@ export const SearchModal = memo(({
           sessionToken,
           language: 'pl',
           limit: 8,
-          proximityLng: userLocation?.longitude,
-          proximityLat: userLocation?.latitude,
+          proximityLng: loc?.longitude,
+          proximityLat: loc?.latitude,
+          signal,
         });
         results = mapSuggestResults(suggestData?.suggestions ?? []);
-      } catch {
-        // fallback do geokodowania poniżej
+      } catch (e) {
+        if (isMapboxProxyAbortError(e)) return;
       }
 
       const shouldTryGeocodeFallback =
-        normalized.length >= 4
-        || /\d/.test(normalized)
-        || normalized.includes(' ');
+        results.length === 0
+        && (
+          normalized.length >= SEARCH_GEOCODE_MIN_LEN
+          || /\d/.test(normalized)
+          || normalized.includes(' ')
+        );
 
-      if (results.length === 0 && shouldTryGeocodeFallback) {
+      if (shouldTryGeocodeFallback) {
         const data = await fetchGeocodingViaProxy<any>({
           query: trimmed,
           language: 'pl',
           types: 'address,poi,place,locality,neighborhood',
           limit: 8,
-          proximityLng: userLocation?.longitude,
-          proximityLat: userLocation?.latitude,
+          proximityLng: loc?.longitude,
+          proximityLat: loc?.latitude,
+          signal,
         });
         results = mapGeocodeFeatures(data.features ?? []);
       }
 
-      searchCacheRef.current.set(normalized, { at: now, results });
-      if (reqSeq === searchReqSeqRef.current) setFilteredPlaces(results);
-    } catch {
+      let merged = results;
+      try {
+        const partners = await fetchPartnerPoisSearch(trimmed, signal);
+        if (partners.length > 0) {
+          const partnerRows: GeocodingResult[] = partners
+            .sort((a, b) => (b.priorityRank ?? 0) - (a.priorityRank ?? 0))
+            .map((p) => ({
+              mapboxId: `partner_${p.id}`,
+              mainText: p.name,
+              secondaryText: p.brandSlug ? `Partner · ${p.brandSlug}` : 'Partner VROOM',
+              latitude: p.lat,
+              longitude: p.lng,
+            }));
+          const seen = new Set<string>();
+          merged = [...partnerRows, ...results].filter((r) => {
+            const key = `${r.latitude.toFixed(5)}_${r.longitude.toFixed(5)}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+      } catch (e) {
+        if (isMapboxProxyAbortError(e)) return;
+      }
+
+      searchCacheRef.current.set(normalized, { at: now, results: merged });
+      if (reqSeq === searchReqSeqRef.current) setFilteredPlaces(merged);
+    } catch (e) {
+      if (isMapboxProxyAbortError(e)) return;
       if (reqSeq === searchReqSeqRef.current) {
         Toast.show({ type: 'error', text1: 'BŁĄD WYSZUKIWANIA' });
       }
     } finally {
-      if (reqSeq === searchReqSeqRef.current) setIsSearching(false);
+      if (!signal.aborted && reqSeq === searchReqSeqRef.current) {
+        setIsSearching(false);
+      }
     }
-  }, 320), [userLocation, clearPlaces, fetchPlaces]);
+  }, []);
+
+  const debouncedSearchRef = useRef(
+    debounce((query: string) => { void runSearchQuery(query); }, SEARCH_DEBOUNCE_MS),
+  );
+
+  useEffect(() => {
+    debouncedSearchRef.current.cancel();
+    debouncedSearchRef.current = debounce(
+      (query: string) => { void runSearchQuery(query); },
+      SEARCH_DEBOUNCE_MS,
+    );
+  }, [runSearchQuery]);
+
+  const handleSearchInputChange = useCallback((text: string) => {
+    searchAbortRef.current?.abort();
+    debouncedSearchRef.current.cancel();
+    setSearchQuery(text);
+    debouncedSearchRef.current(text);
+  }, []);
+
+  useEffect(() => {
+    if (visible) {
+      ensureSearchSession();
+    } else {
+      searchAbortRef.current?.abort();
+      searchAbortRef.current = null;
+      debouncedSearchRef.current.cancel();
+    }
+  }, [visible, ensureSearchSession]);
+
+  useEffect(() => () => {
+    searchAbortRef.current?.abort();
+    debouncedSearchRef.current.cancel();
+  }, []);
 
   // ─────────────────────────────────────────────────────
   const selectLocation = useCallback((location: LocationState, label: string) => {
@@ -451,7 +550,7 @@ export const SearchModal = memo(({
             placeholder={activeTab === 'start' ? 'Skąd jedziesz? (adres lub miejsce)' : 'Dokąd jedziesz? (adres lub miejsce)'}
             placeholderTextColor={t.textDim}
             value={searchQuery}
-            onChangeText={text => { setSearchQuery(text); handleSearch(text); }}
+            onChangeText={handleSearchInputChange}
             autoFocus
             autoCorrect={false}
             autoCapitalize="none"
