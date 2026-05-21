@@ -149,7 +149,23 @@ export default function SpotMap() {
             zoomLevel: 12,
           }}
         />
-        <Mapbox.UserLocation visible={true} />
+        {userLocation && (
+          <Mapbox.MarkerView
+            coordinate={[userLocation.longitude, userLocation.latitude]}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 9,
+                backgroundColor: '#e33835',
+                borderWidth: 3,
+                borderColor: '#ffffff',
+              }}
+            />
+          </Mapbox.MarkerView>
+        )}
 
         <SpotMapLayers
           spots={visibleSpots}

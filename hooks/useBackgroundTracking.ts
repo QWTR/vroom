@@ -25,7 +25,7 @@ let _speedMax     = 0;
 export function feedSpeedSample(speedMs: number | null) {
   if (speedMs == null || speedMs < 0) return;
   const kmh = speedMs * 3.6;
-  if (kmh < 1 || kmh > 260) return;
+  if (kmh < 1 || kmh > 360) return;
   _speedSamples.push(kmh);
   if (kmh > _speedMax) _speedMax = kmh;
 }
@@ -84,7 +84,7 @@ const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
-const BG_MAX_PLAUSIBLE_KMH      = 240;
+const BG_MAX_PLAUSIBLE_KMH      = 360;
 const BG_MIN_SEGMENT_KM         = 0.003;
 const BG_MAX_SEGMENT_KM         = 12;
 const BG_ROUTE_MAX_POINTS       = 1500;
@@ -295,7 +295,7 @@ export async function recordDrivingTracePoint(
       }
     }
 
-    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 260) {
+    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 360) {
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
       const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
@@ -356,7 +356,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate speed stats ────────────────────────────────────────────
-    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= 260) {
+    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= 360) {
       const kmh        = speed * 3.6;
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples    = samplesRaw ? JSON.parse(samplesRaw) : [];

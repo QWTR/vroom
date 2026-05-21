@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import Mapbox from '@rnmapbox/maps';
-import { bearingBetween } from '../scripts/navigationUtils';
 
 type CameraFollowMode =
   | 'idleBrowse'
@@ -33,17 +32,17 @@ const RECENTER_ANIM_MS = 1000;
 /** Szybkie, płynne wejście kamery w tryb jazdy (zoom + pitch), bez 1 s opóźnienia. */
 const DRIVING_ENTRY_RECENTER_MS = 480;
 const IDLE_APPLY_MS = 120;
-/** Throttle native setCamera during follow (~14 Hz) to reduce GPU load. */
-const FOLLOW_APPLY_INTERVAL_MS = 72;
+/** ~30 FPS apply do Mapbox — płynnie, ale bez przeciążania renderu. */
+const FOLLOW_APPLY_INTERVAL_MS = 32;
 
 /** Stałe czasowe wygładzania (sekundy). */
-const CENTER_TAU_S = 0.32;
-/** Wolniejsze obracanie mapy — kamera „jedzie” z kierunkiem ruchu, nie ze skokami snapu. */
-const HEADING_TAU_S = 0.52;
+const CENTER_TAU_S = 0.48;
+/** Płynne obracanie w stronę jazdy (wektor ruchu + snap drogi). */
+const HEADING_TAU_S = 0.38;
 const ZOOM_TAU_S = 2.2;
 const PITCH_TAU_S = 0.85;
-/** Minimalny dystans (m) między próbkami pozycji do wyliczenia azymutu jazdy. */
-const TRAVEL_BEARING_MIN_DIST_M = 1.1;
+const HEADING_VECTOR_MIN_MOVE_M = 1.8;
+const HEADING_LOW_SPEED_HOLD_KMH = 6;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -87,58 +86,6 @@ function maxHeadingRateDegPerSec(speedKmh: number): number {
   return 115;
 }
 
-/**
- * Kierunek patrzenia kamery: przede wszystkim wektor ruchu (gdzie jedziemy),
- * z lekkim dopasowaniem do hintu (snap/GPS). Odcina nagłe obroty segmentu drogi.
- */
-function blendTravelHeading(
-  hintDeg: number,
-  vehicleCenter: { latitude: number; longitude: number },
-  speedKmh: number,
-  prevTravel: number | null,
-  lastVehicleCenter: { latitude: number; longitude: number } | null,
-  dtSec: number,
-): { heading: number; lastCenter: { latitude: number; longitude: number } } {
-  let target = normalizeHeading(hintDeg || 0);
-  const nextCenter = { ...vehicleCenter };
-
-  if (lastVehicleCenter && speedKmh >= 2.5) {
-    const distM = haversineMeters(
-      lastVehicleCenter.latitude,
-      lastVehicleCenter.longitude,
-      vehicleCenter.latitude,
-      vehicleCenter.longitude,
-    );
-    if (distM >= TRAVEL_BEARING_MIN_DIST_M) {
-      const moveBearing = bearingBetween(
-        lastVehicleCenter.latitude,
-        lastVehicleCenter.longitude,
-        vehicleCenter.latitude,
-        vehicleCenter.longitude,
-      );
-      const snapDiff = Math.abs(headingDelta(hintDeg, moveBearing));
-      if (speedKmh >= 7 && snapDiff > 22) {
-        target = moveBearing;
-      } else if (speedKmh >= 4) {
-        const moveWeight = speedKmh >= 12 ? 0.82 : 0.68;
-        target = lerpHeading(hintDeg, moveBearing, moveWeight);
-      } else {
-        target = lerpHeading(hintDeg, moveBearing, 0.55);
-      }
-    }
-  } else if (prevTravel != null && speedKmh < 2.5) {
-    target = prevTravel;
-  }
-
-  const maxStep = maxHeadingRateDegPerSec(speedKmh) * clampNum(dtSec, 0.012, 0.12);
-  const heading =
-    prevTravel == null
-      ? target
-      : lerpHeadingWithMaxStep(prevTravel, target, maxStep);
-
-  return { heading, lastCenter: nextCenter };
-}
-
 function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
@@ -150,6 +97,17 @@ function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number)
     Math.sin(dLng / 2) ** 2;
   const a = s1 + s2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R)
+    - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return normalizeHeading((Math.atan2(y, x) * 180) / Math.PI);
 }
 
 function moveCenterToward(
@@ -189,13 +147,13 @@ function offsetCenter(
 
 function zoomFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  if (s <= 8) return 18.75;
-  if (s <= 20) return lerpNum(18.75, 18.1, (s - 8) / 12);
-  if (s <= 30) return lerpNum(18.1, 17.7, (s - 20) / 10);
-  if (s <= 60) return lerpNum(17.7, 16.9, (s - 30) / 30);
-  if (s <= 100) return lerpNum(16.9, 16.2, (s - 60) / 40);
-  if (s <= 140) return lerpNum(16.2, 15.7, (s - 100) / 40);
-  return 15.6;
+  // Bliżej mapy przy wyższej prędkości — mniej agresywne oddalanie.
+  if (s <= 10) return 18.9;
+  if (s <= 30) return lerpNum(18.9, 18.45, (s - 10) / 20);
+  if (s <= 60) return lerpNum(18.45, 18.05, (s - 30) / 30);
+  if (s <= 100) return lerpNum(18.05, 17.65, (s - 60) / 40);
+  if (s <= 160) return lerpNum(17.65, 17.25, (s - 100) / 60);
+  return 17.0;
 }
 
 function lookaheadFromSpeed(speedKmh: number): number {
@@ -269,6 +227,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const travelHeadingRef = useRef<number | null>(null);
   const lastVehicleCenterRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const lastTravelUpdateAtRef = useRef(0);
+  const lastResolvedHeadingAtRef = useRef(0);
+  const resolvedHeadingRef = useRef<number | null>(null);
   const lastFollowApplyRef = useRef(0);
 
   const applyToMap = useCallback((
@@ -333,7 +293,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     );
     const centerTau = centerErrM > 45 ? 0.35 : CENTER_TAU_S;
     const centerAlpha = expAlpha(dtSec, centerTau);
-    const maxCenterStep = clampNum(22 + speedKmhRef.current * 0.75, 18, 72) * dtSec;
+    const maxCenterStep = clampNum(14 + speedKmhRef.current * 0.55, 12, 58) * dtSec;
 
     const center = moveCenterToward(
       {
@@ -344,8 +304,11 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       maxCenterStep,
     );
 
-    const maxDisplayTurn = maxHeadingRateDegPerSec(speedKmhRef.current) * dtSec;
-    const softTarget = lerpHeading(display.heading, target.heading, expAlpha(dtSec, HEADING_TAU_S));
+    const headingErr = Math.abs(headingDelta(display.heading, target.heading));
+    const turnBoost = headingErr > 56 ? 1.55 : headingErr > 32 ? 1.3 : 1;
+    const maxDisplayTurn = maxHeadingRateDegPerSec(speedKmhRef.current) * dtSec * turnBoost;
+    const headingTau = headingErr > 70 ? 0.18 : headingErr > 40 ? 0.24 : HEADING_TAU_S;
+    const softTarget = lerpHeading(display.heading, target.heading, expAlpha(dtSec, headingTau));
     const heading = lerpHeadingWithMaxStep(display.heading, softTarget, maxDisplayTurn);
     const zoomErr = Math.abs(target.zoom - display.zoom);
     const pitchErr = Math.abs(target.pitch - display.pitch);
@@ -356,7 +319,12 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     const next: CameraPose = { center, heading, zoom, pitch };
     displayPoseRef.current = next;
-    if (now - lastFollowApplyRef.current < FOLLOW_APPLY_INTERVAL_MS) return;
+    if (
+      FOLLOW_APPLY_INTERVAL_MS > 0
+      && now - lastFollowApplyRef.current < FOLLOW_APPLY_INTERVAL_MS
+    ) {
+      return;
+    }
     lastFollowApplyRef.current = now;
     applyToMap(next, 0, 'linear');
   }, [applyToMap]);
@@ -391,7 +359,9 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     const heading = normalizeHeading(params.heading || 0);
     const entrySpeedKmh = params.active
-      ? Math.max(params.speedKmh, params.entryAnim ? 12 : 0)
+      ? (params.speedKmh > 4
+        ? Math.max(params.speedKmh, params.entryAnim ? 8 : 0)
+        : 0)
       : params.speedKmh;
     const lookaheadM = params.active ? lookaheadFromSpeed(entrySpeedKmh) : 0;
     const center = offsetCenter(params.center.latitude, params.center.longitude, heading, lookaheadM);
@@ -404,6 +374,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     targetPoseRef.current = pose;
     travelHeadingRef.current = pose.heading;
+    resolvedHeadingRef.current = pose.heading;
+    lastResolvedHeadingAtRef.current = Date.now();
     lastVehicleCenterRef.current = { ...params.center };
     lastTravelUpdateAtRef.current = Date.now();
     if (params.active) {
@@ -468,28 +440,62 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const active = isActiveFollowMode(nextMode);
     if (active) {
       const nowMs = now;
-      const dtSec = lastTravelUpdateAtRef.current > 0
-        ? clampNum((nowMs - lastTravelUpdateAtRef.current) / 1000, 0.02, 0.2)
-        : 0.05;
+      const prevCenter = lastVehicleCenterRef.current;
+      const prevResolvedHeading = resolvedHeadingRef.current ?? travelHeadingRef.current;
+      let resolvedHeading = target.heading;
+      let moveBearing: number | null = null;
+      let movedM = 0;
+
+      if (prevCenter) {
+        movedM = haversineMeters(
+          prevCenter.latitude,
+          prevCenter.longitude,
+          input.center.latitude,
+          input.center.longitude,
+        );
+        if (movedM >= HEADING_VECTOR_MIN_MOVE_M) {
+          moveBearing = bearingBetween(
+            prevCenter.latitude,
+            prevCenter.longitude,
+            input.center.latitude,
+            input.center.longitude,
+          );
+        }
+      }
+
+      if (moveBearing != null) {
+        const vectorWeight = clampNum((input.speedKmh - 4) / 32, 0.18, 0.78);
+        const blended = lerpHeading(resolvedHeading, moveBearing, vectorWeight);
+        const maxVectorDiff = input.speedKmh >= 55 ? 34 : input.speedKmh >= 25 ? 46 : 68;
+        resolvedHeading = lerpHeadingWithMaxStep(blended, moveBearing, maxVectorDiff);
+      } else if (prevResolvedHeading != null && input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH) {
+        // Near standstill heading noise (GPS/compass) should not rotate the camera.
+        resolvedHeading = prevResolvedHeading;
+      }
+
+      if (prevResolvedHeading != null) {
+        const prevResolvedAt = lastResolvedHeadingAtRef.current || nowMs;
+        const dtSec = clampNum((nowMs - prevResolvedAt) / 1000, 0.016, 0.55);
+        const impliedKmh = dtSec > 0 ? (movedM / dtSec) * 3.6 : 0;
+        const turnRate = maxHeadingRateDegPerSec(Math.max(input.speedKmh, impliedKmh));
+        const maxStep = turnRate * dtSec * 1.8 + 7;
+        resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, resolvedHeading, maxStep);
+      }
+
+      resolvedHeading = normalizeHeading(resolvedHeading);
+      lastResolvedHeadingAtRef.current = nowMs;
       lastTravelUpdateAtRef.current = nowMs;
-      const blended = blendTravelHeading(
-        input.heading,
-        input.center,
-        input.speedKmh,
-        travelHeadingRef.current,
-        lastVehicleCenterRef.current,
-        dtSec,
-      );
-      travelHeadingRef.current = blended.heading;
-      lastVehicleCenterRef.current = blended.lastCenter;
+      travelHeadingRef.current = resolvedHeading;
+      resolvedHeadingRef.current = resolvedHeading;
+      lastVehicleCenterRef.current = { ...input.center };
       const lookaheadM = lookaheadFromSpeed(input.speedKmh);
       target = {
         ...target,
-        heading: blended.heading,
+        heading: resolvedHeading,
         center: offsetCenter(
           input.center.latitude,
           input.center.longitude,
-          blended.heading,
+          resolvedHeading,
           lookaheadM,
         ),
         zoom: smoothZoomTarget(lastTargetZoomRef.current, target.zoom),
@@ -498,6 +504,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     } else {
       lastTargetZoomRef.current = null;
       travelHeadingRef.current = null;
+      resolvedHeadingRef.current = null;
+      lastResolvedHeadingAtRef.current = 0;
       lastVehicleCenterRef.current = null;
       lastTravelUpdateAtRef.current = 0;
     }

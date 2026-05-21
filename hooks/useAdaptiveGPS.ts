@@ -10,6 +10,8 @@ interface Options {
   /** Mapa w focus — bez tego używany jest tryb offMap (oszczędny). */
   isMapFocused?: boolean;
   speedKmh:     number;
+  /** Wcześniejszy profil active (ruch wykryty, zanim state speed dogoni). */
+  forceActive?: boolean;
   onLocation:   (loc: {
     latitude:  number;
     longitude: number;
@@ -21,20 +23,19 @@ interface Options {
   }) => void;
 }
 
-const DRIVE_SPEED_KMH  = 10;
-const MAX_ACCURACY_M   = 40;
+const DRIVE_SPEED_KMH  = 6;
+/** W przeglądaniu mapy telefon często podaje 50–90 m — 40 m odcinała wszystkie ticki (stojący marker). */
+const MAX_ACCURACY_BROWSING_M = 100;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
-const MAX_ACCURACY_ACTIVE_M = 120;
+const MAX_ACCURACY_ACTIVE_M = 100;
 /** Powyżej tego fix jest zwykle bezużyteczny nawet dla active mode. */
-const MAX_ACCURACY_ACTIVE_HARD_M = 420;
+const MAX_ACCURACY_ACTIVE_HARD_M = 240;
 const MAX_SPEED_IDLE_KMH = 110;
-const MAX_SPEED_ACTIVE_KMH = 250;
+const MAX_SPEED_ACTIVE_KMH = 360;
 const ACTIVE_FIX_TIMEOUT_MS = 16000;
 const IDLE_FIX_TIMEOUT_MS   = 22000;
 const WATCHDOG_CHECK_MS = 8000;
 const ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE = 1;
-/** Nie używaj fallbacku do historycznego fixa, jeśli jest zbyt stary po resume. */
-const IDLE_FALLBACK_MAX_AGE_MS = 12000;
 /** Przy nowej subskrypcji wyczyść dawno nieaktualny anchor anty-teleportu. */
 const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
@@ -55,8 +56,8 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   browsing: {
     accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     6500,
-    distanceInterval: 22,
+    timeInterval:     2000,
+    distanceInterval: 6,
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
@@ -70,10 +71,11 @@ function resolveGpsProfile(
   isNavigating: boolean,
   isDriving: boolean,
   speedKmh: number,
+  forceActive: boolean,
 ): GpsProfile {
   // Map screen stays mounted (lazy:false) — keep browsing GPS alive on other tabs
   // instead of throttling to offMap (25s), which caused stale anchors after tab switches.
-  if (isNavigating || isDriving || speedKmh > DRIVE_SPEED_KMH) return 'active';
+  if (isNavigating || isDriving || forceActive || speedKmh > DRIVE_SPEED_KMH) return 'active';
   return 'browsing';
 }
 
@@ -95,7 +97,14 @@ function calcSpeedKmh(
   return (distM / (dtMs / 1000)) * 3.6;
 }
 
-export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, speedKmh, onLocation }: Options) {
+export function useAdaptiveGPS({
+  isNavigating,
+  isDriving,
+  isMapFocused = true,
+  speedKmh,
+  forceActive = false,
+  onLocation,
+}: Options) {
   const subRef            = useRef<any>(null);
   const profileRef        = useRef<GpsProfile>('browsing');
   const onLocRef          = useRef(onLocation);
@@ -103,18 +112,21 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
   const navRef            = useRef(isNavigating);
   const drivingRef        = useRef(isDriving ?? false);
   const mapFocusedRef     = useRef(isMapFocused);
+  const forceActiveRef    = useRef(forceActive);
 
   const lastGoodRef       = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
   const lastFixAtRef      = useRef<number>(0);
   const staleStrikeRef    = useRef(0);
   const opSeqRef          = useRef(0);
+  const lastPoorActiveEmitAtRef = useRef(0);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
   useEffect(() => { navRef.current   = isNavigating; }, [isNavigating]);
   useEffect(() => { drivingRef.current = isDriving ?? false; }, [isDriving]);
   useEffect(() => { mapFocusedRef.current = isMapFocused; }, [isMapFocused]);
+  useEffect(() => { forceActiveRef.current = forceActive; }, [forceActive]);
 
   const subscribe = useCallback(async (profile: GpsProfile) => {
     const opId = ++opSeqRef.current;
@@ -172,9 +184,13 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
 
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
           if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
-            // In active trip mode never fully stop emitting location ticks.
-            // Very poor fixes are still forwarded and later clamped/snapped
-            // in map.tsx; dropping them here can freeze marker progression.
+            // Very poor active fixes are allowed only occasionally to avoid
+            // marker drift from low-quality network locations.
+            const nowMs = now;
+            if (nowMs - lastPoorActiveEmitAtRef.current < 4500) {
+              return;
+            }
+            lastPoorActiveEmitAtRef.current = nowMs;
             consecutiveBadRef.current += 1;
             lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
             speedRef.current    = effectiveSpeedKmh;
@@ -189,31 +205,18 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
             return;
           }
 
-          const maxAcc = activeMode ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_M;
+          const maxAcc = activeMode ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_BROWSING_M;
           if (acc > maxAcc) {
             consecutiveBadRef.current += 1;
             if (!activeMode && consecutiveBadRef.current >= 6) {
               // Reset poisoned anchor so the next acceptable fix can through.
               lastGoodRef.current = null;
             }
-            if (!activeMode && consecutiveBadRef.current >= 5 && lastGoodRef.current) {
-              const fallbackAgeMs = now - lastGoodRef.current.time;
-              if (fallbackAgeMs > IDLE_FALLBACK_MAX_AGE_MS) {
-                return;
-              }
-              onLocRef.current({
-                latitude:  lastGoodRef.current.lat,
-                longitude: lastGoodRef.current.lng,
-                speed:     0,
-                heading:   loc.coords.heading,
-                accuracy:  acc,
-                timestamp: now,
-              });
-            }
-            if (activeMode) {
-              // During driving/navigation never freeze on stale lastGood fallback.
-              // Forward weaker fixes; downstream map.tsx pipeline applies its own
-              // anti-teleport guards and snapping.
+            const forwardWeakBrowsing =
+              !activeMode
+              && mapFocusedRef.current
+              && (effectiveSpeedKmh >= 4 || derivedSpeedKmh >= 4);
+            if (activeMode || forwardWeakBrowsing) {
               lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
               speedRef.current    = effectiveSpeedKmh;
               onLocRef.current({
@@ -222,10 +225,11 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
                 speed:     emitSpeedMs,
                 heading:   loc.coords.heading,
                 accuracy:  acc,
-                timestamp: now,
+                timestamp: loc.timestamp ?? now,
               });
             }
-            return;
+            if (!activeMode && !forwardWeakBrowsing) return;
+            if (activeMode) return;
           }
           consecutiveBadRef.current = 0;
 
@@ -261,7 +265,10 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               : Math.max(70, expectedM * 2 + 70);
             if (!activeMode) {
               const reportedKmh = speedMs * 3.6;
-              maxDistM = Math.min(maxDistM, maxIdleBrowsingJumpM(dtMs, reportedKmh, acc));
+              maxDistM = Math.min(
+                maxDistM,
+                maxIdleBrowsingJumpM(dtMs, reportedKmh, acc, effectiveSpeedKmh),
+              );
             }
             if (distM > maxDistM) {
               if (GPS_DEBUG_LOGS) {
@@ -296,6 +303,7 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
               navRef.current,
               drivingRef.current,
               effectiveSpeedKmh,
+              forceActiveRef.current,
             );
             if (nextProfile === 'active' && profileRef.current !== 'active') {
               setTimeout(() => {
@@ -325,15 +333,22 @@ export function useAdaptiveGPS({ isNavigating, isDriving, isMapFocused = true, s
       navRef.current,
       drivingRef.current,
       speedRef.current,
+      forceActiveRef.current,
     );
   }, []);
 
   useEffect(() => {
-    const next = resolveGpsProfile(isMapFocused, isNavigating, isDriving ?? false, speedKmh);
+    const next = resolveGpsProfile(
+      isMapFocused,
+      isNavigating,
+      isDriving ?? false,
+      speedKmh,
+      forceActive,
+    );
     if (next !== profileRef.current) {
       subscribe(next);
     }
-  }, [isNavigating, isDriving, isMapFocused, speedKmh, subscribe]);
+  }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, subscribe]);
 
   const start = useCallback(async () => {
     await subscribe(currentProfile());

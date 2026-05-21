@@ -469,9 +469,34 @@ export function useLiveMap(
         });
       });
 
+      socket.on('live:users:snapshot', (data: any) => {
+        if (!enabledRef.current || !isSharingRef.current) return;
+        const users: LiveUser[] = (Array.isArray(data) ? data : [])
+          .map((u) => ({
+            id: Number(u?.id),
+            username: typeof u?.username === 'string' ? u.username : '',
+            avatarUrl: typeof u?.avatarUrl === 'string' ? u.avatarUrl : null,
+            lat: Number(u?.lat),
+            lng: Number(u?.lng),
+            online: u?.online !== false,
+            isPremium: !!u?.isPremium,
+          }))
+          .filter((u) =>
+            Number.isFinite(u.id)
+            && Number.isFinite(u.lat)
+            && Number.isFinite(u.lng),
+          );
+        mergeLiveUsersFromApi(users);
+      });
+
       socket.on('user:offline', (data) => {
         const id = Number(data?.id);
         if (!Number.isFinite(id)) return;
+        // Manual OFF should disappear immediately; disconnects still use grace.
+        if (data?.hard === true || data?.reason === 'manual_off') {
+          removeLiveUser(id);
+          return;
+        }
         scheduleLiveUserOffline(id);
       });
 
@@ -511,7 +536,7 @@ export function useLiveMap(
         s.disconnect();
       }
     };
-  }, [fetchInitialData, enabled, touchLiveUser, scheduleLiveUserOffline]);
+  }, [fetchInitialData, enabled, touchLiveUser, scheduleLiveUserOffline, removeLiveUser]);
 
   // Pause socket/interp when app is backgrounded without background permission
   useEffect(() => {

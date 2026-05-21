@@ -521,6 +521,44 @@ export function useDrivingSnap() {
       }
     }
 
+    if (hardRoadLock && prevSnapped) {
+      const travelHeading = expectedHeading ?? lastTargetHeadingRef.current;
+      const stepBearing = bearingBetween(
+        prevSnapped.latitude,
+        prevSnapped.longitude,
+        snappedCoord.latitude,
+        snappedCoord.longitude,
+      );
+      const stepM = haversineKm(
+        prevSnapped.latitude,
+        prevSnapped.longitude,
+        snappedCoord.latitude,
+        snappedCoord.longitude,
+      ) * 1000;
+      const headingTurnDelta = expectedHeading != null
+        ? angleDeltaDeg(expectedHeading, lastTargetHeadingRef.current)
+        : 0;
+      const likelyUTurn = expectedHeading != null && headingTurnDelta > 108 && movedRawM >= 6;
+      const backwardJump =
+        speedKmh >= 8
+        && stepM >= 8
+        && angleDeltaDeg(stepBearing, travelHeading) > 122;
+
+      if (backwardJump && !likelyUTurn) {
+        // Reject hard-lock snap behind the car; keep forward continuity.
+        const projectedStepM = Math.min(
+          16,
+          Math.max(2.5, movedRawM > 0 ? movedRawM * 0.85 : speedKmh / 5),
+        );
+        snappedCoord = projectByBearingMeters(
+          prevSnapped.latitude,
+          prevSnapped.longitude,
+          travelHeading,
+          projectedStepM,
+        );
+      }
+    }
+
     lastSnappedRef.current = snappedCoord;
     lastSegmentIndexRef.current = result.segmentIndex;
     lastSnapAtRef.current = Date.now();

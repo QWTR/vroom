@@ -14,7 +14,7 @@ module.exports = ({ config }) => {
       revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '',
       revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '',
     },
-    plugins: [...(base.expo.plugins ?? []), 'expo-sqlite'].map((plugin) => {
+    plugins: [...(base.expo.plugins ?? []), 'expo-sqlite', 'react-native-iap'].map((plugin) => {
       if (Array.isArray(plugin) && plugin[0] === '@rnmapbox/maps') {
         return [
           '@rnmapbox/maps',

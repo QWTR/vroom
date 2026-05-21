@@ -11,7 +11,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
-type TaskRow = { key: string; label: string; points: number; done: boolean; earned: number };
+type TaskRow = { key: string; label: string; points: number; premiumPoints?: number; done: boolean; earned: number };
 
 interface Props {
   theme: any;
@@ -27,6 +27,9 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
   const [weeklyPoints, setWeekly]   = useState(0);
   const [monthlySelf, setMonthly]   = useState(0);
   const [nextResetAt, setNextResetAt] = useState<string | null>(null);
+  const [isPremium, setIsPremium] = useState(false);
+  const [weeklyTaskLimit, setWeeklyTaskLimit] = useState(6);
+  const [pointsMultiplier, setPointsMultiplier] = useState(1);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const formatCountdown = useCallback((targetIso: string | null) => {
@@ -59,6 +62,9 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
       setTasks(Array.isArray(j.tasks) ? j.tasks : []);
       setWeekly(typeof j.weeklyPoints === 'number' ? j.weeklyPoints : 0);
       setNextResetAt(typeof j.nextResetAt === 'string' ? j.nextResetAt : null);
+      setIsPremium(j?.isPremium === true);
+      setWeeklyTaskLimit(Number.isFinite(j?.weeklyTaskLimit) ? Number(j.weeklyTaskLimit) : 6);
+      setPointsMultiplier(Number.isFinite(j?.pointsMultiplier) ? Number(j.pointsMultiplier) : 1);
       const mr = j.monthlyRankPoints ?? j.monthlyPointsSelf;
       setMonthly(typeof mr === 'number' ? mr : 0);
     } catch {
@@ -91,6 +97,11 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
           </Text>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, marginTop: 4 }}>
             {resetCountdown ? `Reset za: ${resetCountdown}` : 'Reset: brak danych'}
+          </Text>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: isPremium ? '#FFD700' : t.textDim, marginTop: 4 }}>
+            {isPremium
+              ? `PREMIUM: ${weeklyTaskLimit} zadań / +${Math.round((pointsMultiplier - 1) * 100)}% pkt`
+              : `FREE: ${weeklyTaskLimit} zadań`}
           </Text>
         </View>
         <TouchableOpacity
@@ -148,7 +159,9 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
                   {task.label}
                 </Text>
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: primary, fontWeight: '800' }}>+{task.points}</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: primary, fontWeight: '800' }}>
+                +{Math.round(isPremium ? (task.premiumPoints ?? task.points) : task.points)}
+              </Text>
             </View>
           ))
         )}

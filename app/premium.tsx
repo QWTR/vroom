@@ -10,51 +10,33 @@ import MaterialIcons      from '@expo/vector-icons/MaterialIcons';
 import Toast              from 'react-native-toast-message';
 import { usePremium }     from '../contexts/PremiumContext';
 import { useSettings }    from '../hooks/useSettings';
+import type { PremiumProduct } from '../types/premiumProduct';
+import { IOS_PREMIUM_SUBSCRIPTION_IDS } from '../constants/iapProducts';
 
 const { width } = Dimensions.get('window');
+const isTabletLayout = width >= 900;
 const R   = '#e33835';
 const GOLD = '#FFD700';
 const TERMS_URL   = 'https://v-room.app/terms';
 const PRIVACY_URL = 'https://v-room.app/privacy';
 
 /** Etykieta okresu rozliczenia — wymagane przez Google Play przy ofercie subskrypcji. */
-function billingPeriodLabel(pkg: any): string {
-  const type = String(pkg?.packageType ?? '').toUpperCase();
-  if (type.includes('MONTH')) return 'miesiąc';
-  if (type.includes('ANNUAL') || type.includes('YEAR')) return 'rok';
-  if (type.includes('WEEK')) return 'tydzień';
-  const iso = String(pkg?.product?.subscriptionPeriod ?? '');
-  if (iso === 'P1M' || /month/i.test(iso)) return 'miesiąc';
-  if (iso === 'P1Y' || /year/i.test(iso)) return 'rok';
-  const priceStr = pkg?.product?.priceString ?? '';
+function billingPeriodLabel(product: PremiumProduct): string {
+  if (product.billingPeriod === 'month') return 'miesiąc';
+  if (product.billingPeriod === 'year') return 'rok';
+  if (product.billingPeriod === 'week') return 'tydzień';
+  const priceStr = product.priceString ?? '';
   if (/\/\s*mies|month|mies\./i.test(priceStr)) return 'miesiąc';
   if (/\/\s*rok|year|rocznie/i.test(priceStr)) return 'rok';
   return 'okres rozliczeniowy';
 }
 
-function billingFrequencyAdverb(pkg: any): string {
-  const period = billingPeriodLabel(pkg);
+function billingFrequencyAdverb(product: PremiumProduct): string {
+  const period = billingPeriodLabel(product);
   if (period === 'miesiąc') return 'co miesiąc';
   if (period === 'rok') return 'co rok';
   if (period === 'tydzień') return 'co tydzień';
   return `co ${period}`;
-}
-
-/** RevenueCat: `current` jest wypełnione tylko gdy oferta jest „Current” w dashboardzie — inaczej pakiety są w `all`. */
-function packagesFromOfferings(offerings: any): any[] {
-  if (!offerings) return [];
-  const cur = offerings.current;
-  if (Array.isArray(cur?.availablePackages) && cur.availablePackages.length > 0) {
-    return cur.availablePackages;
-  }
-  const all = offerings.all;
-  if (all && typeof all === 'object') {
-    for (const id of Object.keys(all)) {
-      const pkgs = all[id]?.availablePackages;
-      if (Array.isArray(pkgs) && pkgs.length > 0) return pkgs;
-    }
-  }
-  return [];
 }
 
 // ─── Benefity ─────────────────────────────────────────────────────────────────
@@ -64,6 +46,7 @@ const BENEFITS = [
   { icon: '🏠', text: 'Wiele klubów',                   sub: 'Free: 1 klub' },
   { icon: '📊', text: 'Pełna historia aktywności',      sub: '' },
   { icon: '🛒', text: '5 darmowych ogłoszeń/mies + tydzień promowania gratis', sub: '' },
+  { icon: '🏁', text: 'Tor VROOM Premium',              sub: '8 zadań/tydzień i +25% punktów' },
   { icon: '🗺️', text: 'Tryb prywatny na mapie',         sub: '' },
   { icon: '📤', text: 'Eksport GPX/CSV',                sub: '' },
   { icon: '🚫', text: 'Zero reklam',                    sub: '' },
@@ -74,7 +57,7 @@ export default function PremiumScreen() {
   const router = useRouter();
   const { fetchSettings } = useSettings();
   const {
-    getOfferings,
+    getPremiumProducts,
     getRevenueCatDebugSnapshot,
     purchasePremium,
     restorePurchases,
@@ -83,8 +66,9 @@ export default function PremiumScreen() {
     premiumStatus,
   } = usePremium();
 
-  const [offerings, setOfferings]   = useState<any>(null);
+  const [products, setProducts]     = useState<PremiumProduct[]>([]);
   const [loadingOff, setLoadingOff] = useState(true);
+  const [loadError, setLoadError]   = useState<string | null>(null);
   const [buying, setBuying]         = useState<string | null>(null);
   const [restoring, setRestoring]   = useState(false);
   const [rcDebugVisible, setRcDebugVisible] = useState(false);
@@ -92,20 +76,80 @@ export default function PremiumScreen() {
   const [rcDebugText, setRcDebugText] = useState('');
   const [justActivated, setJustActivated] = useState(false);
 
+  const loadProducts = async () => {
+    setLoadingOff(true);
+    setLoadError(null);
+    try {
+      const list = await getPremiumProducts();
+      setProducts(list);
+      if (list.length === 0) {
+        setLoadError('no_products');
+      }
+    } catch {
+      setProducts([]);
+      setLoadError('fetch_failed');
+    } finally {
+      setLoadingOff(false);
+    }
+  };
+
+  const triggerDirectPurchaseFallback = async (): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    const fallbackProduct: PremiumProduct = {
+      identifier: IOS_PREMIUM_SUBSCRIPTION_IDS[0],
+      title: 'VROOM Premium',
+      priceString: '—',
+      billingPeriod: 'month',
+      native: null,
+      source: 'storekit',
+    };
+    setBuying(fallbackProduct.identifier);
+    const ok = await purchasePremium(fallbackProduct);
+    setBuying(null);
+    if (ok) setJustActivated(true);
+    return ok;
+  };
+
+  const handleRetryPurchase = async () => {
+    await loadProducts();
+    const refreshed = await getPremiumProducts().catch(() => []);
+    if (refreshed.length > 0) {
+      await handlePurchase(refreshed[0]);
+      return;
+    }
+    const fallbackOk = await triggerDirectPurchaseFallback();
+    if (!fallbackOk) {
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się rozpocząć zakupu',
+        text2: 'Sprawdź App Store / połączenie i spróbuj ponownie.',
+      });
+    }
+  };
+
   useEffect(() => {
     if (isLoading) return;
     let cancelled = false;
     (async () => {
       setLoadingOff(true);
+      setLoadError(null);
       try {
-        const off = await getOfferings();
-        if (!cancelled) setOfferings(off);
+        const list = await getPremiumProducts();
+        if (!cancelled) {
+          setProducts(list);
+          if (list.length === 0) setLoadError('no_products');
+        }
+      } catch {
+        if (!cancelled) {
+          setProducts([]);
+          setLoadError('fetch_failed');
+        }
       } finally {
         if (!cancelled) setLoadingOff(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [getOfferings, isLoading]);
+  }, [getPremiumProducts, isLoading]);
 
   // Zamknij tylko po aktywacji na tym ekranie (purchase/restore),
   // żeby użytkownik z już aktywnym premium nie był wyrzucany po kilku sekundach.
@@ -128,9 +172,9 @@ export default function PremiumScreen() {
     }
   }, [isPremium, justActivated, router, fetchSettings]);
 
-  const handlePurchase = async (pkg: any) => {
-    setBuying(pkg.identifier);
-    const ok = await purchasePremium(pkg);
+  const handlePurchase = async (product: PremiumProduct) => {
+    setBuying(product.identifier);
+    const ok = await purchasePremium(product);
     setBuying(null);
     if (ok) {
       setJustActivated(true);
@@ -172,7 +216,7 @@ export default function PremiumScreen() {
     Toast.show({ type: 'success', text1: 'Udostępnij', text2: 'Wybierz „Kopiuj” w systemowym panelu.' });
   };
 
-  const packages: any[] = packagesFromOfferings(offerings);
+  const packages: PremiumProduct[] = products;
   const premiumEndsAt = premiumStatus.currentPeriodEnd ?? premiumStatus.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndsAt
     ? new Date(premiumEndsAt).toLocaleDateString('pl-PL')
@@ -198,9 +242,10 @@ export default function PremiumScreen() {
         </View>
 
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 50 }}
+          contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 50, alignItems: 'center' }}
           showsVerticalScrollIndicator={false}
         >
+          <View style={s.contentWrap}>
           {/* ─── Ikona Premium ─── */}
           <View style={s.iconWrap}>
             <LinearGradient
@@ -277,6 +322,75 @@ export default function PremiumScreen() {
           {/* ─── Oferty ─── */}
           <Text style={s.sectionLabel}>{isPremium ? 'TWOJE KORZYŚCI' : 'WYBIERZ PLAN'}</Text>
 
+          {!isPremium && loadingOff ? (
+            <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
+          ) : !isPremium && packages.length > 0 ? (
+            packages.map(product => {
+              const priceStr = product.priceString ?? '—';
+              const period = billingPeriodLabel(product);
+              const frequency = billingFrequencyAdverb(product);
+              return (
+              <View key={product.identifier} style={s.offerCardWrap}>
+              <TouchableOpacity
+                key={product.identifier}
+                style={s.offerBtn}
+                onPress={() => handlePurchase(product)}
+                activeOpacity={0.85}
+                disabled={buying !== null}
+              >
+                <LinearGradient
+                  colors={['#2a0707', '#1a0404']}
+                  style={StyleSheet.absoluteFill}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                />
+                <View style={s.offerDeco} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.offerName}>{product.title ?? 'VROOM Premium'}</Text>
+                  <Text style={s.offerPriceMain}>
+                    {priceStr}
+                    <Text style={s.offerPricePeriod}> / {period}</Text>
+                  </Text>
+                  <Text style={s.offerPriceSub}>
+                    Płatność {frequency} · automatyczne odnawianie do anulowania
+                  </Text>
+                </View>
+                {buying === product.identifier
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
+                }
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.offerCtaBtn}
+                onPress={() => handlePurchase(product)}
+                activeOpacity={0.9}
+                disabled={buying !== null}
+              >
+                {buying === product.identifier
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={s.offerCtaTxt}>AKTYWUJ SUBSKRYPCJĘ</Text>
+                }
+              </TouchableOpacity>
+              </View>
+              );
+            })
+          ) : !isPremium ? (
+            <View style={s.noOffersWrap}>
+              <Text style={s.noOffersTitle}>VROOM Premium</Text>
+              <Text style={s.noOffersBody}>
+                {Platform.OS === 'ios'
+                  ? 'Nie udało się pobrać planu z App Store. Sprawdź połączenie z internetem i spróbuj ponownie. Subskrypcja musi być przypięta do wersji aplikacji w App Store Connect.'
+                  : 'Plany subskrypcji pojawią się tutaj po połączeniu z siecią i poprawnej konfiguracji oferty w Google Play.'}
+                {'\n\n'}
+                Korzyści Premium są opisane powyżej. Możesz użyć „Przywróć zakupy”, jeśli subskrypcja była wcześniej aktywna na tym koncie {Platform.OS === 'ios' ? 'Apple' : 'Google'}.
+              </Text>
+              {!!loadError && (
+                <TouchableOpacity style={s.retryBtn} onPress={handleRetryPurchase} activeOpacity={0.85}>
+                  <Text style={s.retryTxt}>SPRÓBUJ PONOWNIE</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
+
           <View style={s.termsCard}>
             <Text style={s.termsCardTitle}>Warunki subskrypcji</Text>
             <Text style={s.termsBullet}>
@@ -300,57 +414,6 @@ export default function PremiumScreen() {
               <Text style={s.termsLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Polityka prywatności</Text>
             </View>
           </View>
-
-          {!isPremium && loadingOff ? (
-            <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
-          ) : !isPremium && packages.length > 0 ? (
-            packages.map(pkg => {
-              const priceStr = pkg.product?.priceString ?? '—';
-              const period = billingPeriodLabel(pkg);
-              const frequency = billingFrequencyAdverb(pkg);
-              return (
-              <TouchableOpacity
-                key={pkg.identifier}
-                style={s.offerBtn}
-                onPress={() => handlePurchase(pkg)}
-                activeOpacity={0.85}
-                disabled={buying !== null}
-              >
-                <LinearGradient
-                  colors={['#2a0707', '#1a0404']}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                />
-                <View style={s.offerDeco} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.offerName}>{pkg.product?.title ?? 'VROOM Premium'}</Text>
-                  <Text style={s.offerPriceMain}>
-                    {priceStr}
-                    <Text style={s.offerPricePeriod}> / {period}</Text>
-                  </Text>
-                  <Text style={s.offerPriceSub}>
-                    Płatność {frequency} · automatyczne odnawianie do anulowania
-                  </Text>
-                </View>
-                {buying === pkg.identifier
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <MaterialIcons name="arrow-forward-ios" size={16} color={R} />
-                }
-              </TouchableOpacity>
-              );
-            })
-          ) : !isPremium ? (
-            <View style={s.noOffersWrap}>
-              <Text style={s.noOffersTitle}>VROOM Premium</Text>
-              <Text style={s.noOffersBody}>
-                {Platform.OS === 'ios'
-                  ? 'Plany subskrypcji ładują się z App Store. Upewnij się, że masz połączenie z internetem. W środowisku testowym Apple (Sandbox) zaloguj się kontem sandbox w Ustawienia → App Store → Konto sandbox, a następnie wróć tutaj.'
-                  : 'Plany subskrypcji pojawią się tutaj po połączeniu z siecią i poprawnej konfiguracji oferty w Google Play oraz RevenueCat.'}
-                {'\n\n'}
-                Korzyści Premium są opisane powyżej. Możesz używać „Przywróć zakupy”, jeśli subskrypcja była wcześniej aktywna na tym koncie {Platform.OS === 'ios' ? 'Apple' : 'Google'}.
-              </Text>
-            </View>
-          ) : null}
 
           {/* ─── Przywróć zakupy ─── */}
           <TouchableOpacity
@@ -379,6 +442,7 @@ export default function PremiumScreen() {
             Subskrypcja VROOM Premium jest dobrowolna. Cena i okres rozliczenia są widoczne przy przycisku planu
             oraz w oknie płatności {Platform.OS === 'ios' ? 'App Store' : 'Google Play'} przed zatwierdzeniem transakcji.
           </Text>
+          </View>
         </ScrollView>
       </SafeAreaView>
 
@@ -417,6 +481,10 @@ export default function PremiumScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
+  contentWrap: {
+    width: '100%',
+    maxWidth: isTabletLayout ? 760 : 560,
+  },
   deco1: {
     position: 'absolute', top: -100, right: -80,
     width: 380, height: 380, borderRadius: 190,
@@ -642,6 +710,26 @@ const s = StyleSheet.create({
     gap: 14,
     overflow: 'hidden',
   },
+  offerCardWrap: {
+    marginBottom: 12,
+  },
+  offerCtaBtn: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: R,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ffffff20',
+  },
+  offerCtaTxt: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    color: '#fff',
+    letterSpacing: 1.5,
+    fontWeight: '900',
+  },
   offerBtnPlaceholder: {},
   offerBtnHighlight: {
     borderColor: GOLD + '50',
@@ -717,6 +805,23 @@ const s = StyleSheet.create({
     color: '#ffffff70',
     lineHeight: 15,
     textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 16,
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: R + '55',
+    alignItems: 'center',
+  },
+  retryTxt: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    color: R,
+    letterSpacing: 2,
+    fontWeight: '800',
   },
 
   restoreBtn: {

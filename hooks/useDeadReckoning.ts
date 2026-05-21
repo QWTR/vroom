@@ -12,6 +12,8 @@ interface DeadReckoningOptions {
   stallTimeout?:  number;
   /** Gdy false — brak pętli rAF (oszczędność baterii). */
   enabled?:       boolean;
+  /** Jazda/nawigacja — nie pomijaj feedu przy speed=0 gdy GPS faktycznie się przesunął. */
+  tripMode?:      boolean;
 }
 
 function easeOutCubic(t: number): number {
@@ -32,11 +34,51 @@ function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R)
+    - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return (((Math.atan2(y, x) * 180) / Math.PI) % 360 + 360) % 360;
+}
+
+function angleDeltaDeg(a: number, b: number): number {
+  return Math.abs((((a - b) + 540) % 360) - 180);
+}
+
+function projectByBearingMeters(
+  lat: number,
+  lng: number,
+  headingDeg: number,
+  distM: number,
+): { latitude: number; longitude: number } {
+  const R = 6371000;
+  const br = (headingDeg * Math.PI) / 180;
+  const latRad = (lat * Math.PI) / 180;
+  const lngRad = (lng * Math.PI) / 180;
+  const d = distM / R;
+  const nextLat = Math.asin(
+    Math.sin(latRad) * Math.cos(d) + Math.cos(latRad) * Math.sin(d) * Math.cos(br),
+  );
+  const nextLng = lngRad + Math.atan2(
+    Math.sin(br) * Math.sin(d) * Math.cos(latRad),
+    Math.cos(d) - Math.sin(latRad) * Math.sin(nextLat),
+  );
+  return {
+    latitude: (nextLat * 180) / Math.PI,
+    longitude: (nextLng * 180) / Math.PI,
+  };
+}
+
 export function useDeadReckoning({
   onFrame,
   frameInterval = 16,
   stallTimeout = 2500,
   enabled = true,
+  tripMode = false,
 }: DeadReckoningOptions) {
 
   const displayLat = useRef(0);
@@ -59,6 +101,7 @@ export function useDeadReckoning({
   const onFrameRef     = useRef(onFrame);
   const stallTimeoutRef = useRef(stallTimeout);
   const enabledRef     = useRef(enabled);
+  const tripModeRef    = useRef(tripMode);
   const frameIntervalRef = useRef(frameInterval);
   const lastFrameEmitRef = useRef(0);
 
@@ -73,6 +116,10 @@ export function useDeadReckoning({
   useEffect(() => {
     frameIntervalRef.current = frameInterval;
   }, [frameInterval]);
+
+  useEffect(() => {
+    tripModeRef.current = tripMode;
+  }, [tripMode]);
 
   useEffect(() => {
     enabledRef.current = enabled;
@@ -173,30 +220,58 @@ export function useDeadReckoning({
       return;
     }
     const now = performance.now();
+    let nextLat = pos.latitude;
+    let nextLng = pos.longitude;
+    let nextHeading = heading;
+    const anchorLat = toLat.current;
+    const anchorLng = toLng.current;
 
     if (hasFirstFeed.current && lastFeedMs.current > 0) {
-      const jumpM = haversineMeters(
-        toLat.current, toLng.current,
-        pos.latitude, pos.longitude,
-      );
+      let jumpM = haversineMeters(anchorLat, anchorLng, nextLat, nextLng);
       const dt = now - lastFeedMs.current;
       // Android często zgłasza speed=0 mimo ruchu — wylicz z delty pozycji.
-      const impliedSpeedMs = dt > 0 ? jumpM / dt : 0;
+      const impliedSpeedMs = dt > 0 ? jumpM / (dt / 1000) : 0;
       const speedMs = Math.max(_speedMs ?? 0, impliedSpeedMs);
+      const travelHeading = Number.isFinite(toHdg.current) ? toHdg.current : nextHeading;
+
+      if (tripModeRef.current && jumpM >= 8 && speedMs >= 2.2) {
+        const stepBearing = bearingBetween(anchorLat, anchorLng, nextLat, nextLng);
+        const backwardDelta = angleDeltaDeg(stepBearing, travelHeading);
+        if (backwardDelta > 124) {
+          const projectedStepM = Math.min(24, Math.max(2.5, speedMs * 1.8));
+          const projected = projectByBearingMeters(anchorLat, anchorLng, travelHeading, projectedStepM);
+          nextLat = projected.latitude;
+          nextLng = projected.longitude;
+          nextHeading = travelHeading;
+          jumpM = haversineMeters(anchorLat, anchorLng, nextLat, nextLng);
+        }
+      }
+
+      const maxTargetStepM = tripModeRef.current
+        ? Math.min(72, Math.max(14, speedMs * 2.8 + 7))
+        : 50;
+      if (jumpM > maxTargetStepM && jumpM > 0) {
+        const t = maxTargetStepM / jumpM;
+        nextLat = anchorLat + (nextLat - anchorLat) * t;
+        nextLng = anchorLng + (nextLng - anchorLng) * t;
+        jumpM = maxTargetStepM;
+      }
+
       const keepAlive = () => {
         lastFeedMs.current = now;
       };
-      if (jumpM < 0.4 && dt < 500) {
+      const tripActive = tripModeRef.current;
+      if (tripActive && jumpM >= 0.5) {
+        // W trybie jazdy/nawigacji zawsze aktualizuj cel przy realnym ruchu (Android speed=0).
+      } else if (jumpM < 0.4 && dt < 500) {
         keepAlive();
         return;
-      }
-      if (speedMs >= 2.5) {
+      } else if (speedMs >= 2.5) {
         if (jumpM < 0.2 && dt < 350) {
           keepAlive();
           return;
         }
       } else if (speedMs < 0.7) {
-        // Przy „zerowej” prędkości nadal aktualizuj cel, jeśli jest realny ruch.
         if (jumpM < 1.5 && dt < 2500) {
           keepAlive();
           return;
@@ -223,18 +298,18 @@ export function useDeadReckoning({
       fromLng.current = displayLng.current;
       fromHdg.current = displayHdg.current;
     } else {
-      fromLat.current = pos.latitude;
-      fromLng.current = pos.longitude;
-      fromHdg.current = heading;
-      displayLat.current = pos.latitude;
-      displayLng.current = pos.longitude;
-      displayHdg.current = heading;
+      fromLat.current = nextLat;
+      fromLng.current = nextLng;
+      fromHdg.current = nextHeading;
+      displayLat.current = nextLat;
+      displayLng.current = nextLng;
+      displayHdg.current = nextHeading;
       hasFirstFeed.current = true;
     }
 
-    toLat.current = pos.latitude;
-    toLng.current = pos.longitude;
-    toHdg.current = heading;
+    toLat.current = nextLat;
+    toLng.current = nextLng;
+    toHdg.current = nextHeading;
 
     startLoop();
   }, [startLoop, snapDisplayToTarget]);

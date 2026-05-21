@@ -49,13 +49,20 @@ export function haversineKm(
  * w trybie nawigacji ani driving mode — ogranicza „teleporty” z cache OS
  * (sieć/Wi‑Fi) po staniu w miejscu lub powrocie z tła.
  */
-export function maxIdleBrowsingJumpM(deltaMs: number, reportedSpeedKmh: number, accuracyM: number): number {
-  if (reportedSpeedKmh >= 22) return 1e7;
+/** @param motionKmh — max(reported GPS, prędkość z delty pozycji); bez tego przy speed=0 sufit był ~14 km/h. */
+export function maxIdleBrowsingJumpM(
+  deltaMs: number,
+  reportedSpeedKmh: number,
+  accuracyM: number,
+  motionKmh?: number,
+): number {
+  const effectiveKmh = Math.max(reportedSpeedKmh, motionKmh ?? 0);
+  if (effectiveKmh >= 22) return 1e7;
   const dtS = Math.min(Math.max(deltaMs / 1000, 0.15), 180);
   const acc = Math.min(Math.max(accuracyM || 32, 8), 100);
-  const v = Math.min(Math.max(reportedSpeedKmh, 0), 14);
+  const v = Math.min(Math.max(effectiveKmh, 0), 150);
   const expected = (v / 3.6) * dtS;
-  const sedentary = reportedSpeedKmh < 6.5;
+  const sedentary = effectiveKmh < 6.5;
   if (sedentary) {
     // Stojąc w miejscu: małe skoki (sieć/Wi‑Fi) — sufit ~12 m zależny od accuracy.
     const accCap = Math.max(5, Math.min(acc * 0.4 + 4, 14));
@@ -284,8 +291,9 @@ export function formatDuration(minutes: number): string {
 
 /** Formatuje prędkość m/s → "X km/h" */
 export function formatSpeed(ms: number | null): string {
-  if (ms == null || ms < 0) return '0';
-  return String(Math.round(ms * 3.6));
+  if (ms == null || ms < 0) return '00';
+  const kmh = Math.max(0, Math.round(ms * 3.6));
+  return kmh < 10 ? `0${kmh}` : String(kmh);
 }
 
 /**

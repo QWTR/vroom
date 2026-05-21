@@ -46,17 +46,39 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const instant = target.durationMs === 0;
       const duration = instant
         ? 0
-        : Math.max(200, Math.min(1800, target.durationMs ?? 1000));
+        : Math.max(90, Math.min(1400, target.durationMs ?? 1000));
 
-      fromLat.value = target.latitude;
-      fromLng.value = target.longitude;
-      fromHdg.value = target.heading;
+      const curLat = lat.value;
+      const curLng = lng.value;
+      const curHdg = heading.value;
+      const hasPos =
+        hasTarget.value === 1
+        && Number.isFinite(curLat)
+        && Number.isFinite(curLng)
+        && !(Math.abs(curLat) < 1e-6 && Math.abs(curLng) < 1e-6);
+
+      if (instant || !hasPos) {
+        fromLat.value = target.latitude;
+        fromLng.value = target.longitude;
+        fromHdg.value = target.heading;
+        toLat.value = target.latitude;
+        toLng.value = target.longitude;
+        toHdg.value = target.heading;
+        lat.value = target.latitude;
+        lng.value = target.longitude;
+        heading.value = target.heading;
+        segStart.value = now;
+        segDur.value = 0;
+        hasTarget.value = 1;
+        return;
+      }
+
+      fromLat.value = curLat;
+      fromLng.value = curLng;
+      fromHdg.value = curHdg;
       toLat.value = target.latitude;
       toLng.value = target.longitude;
       toHdg.value = target.heading;
-      lat.value = target.latitude;
-      lng.value = target.longitude;
-      heading.value = target.heading;
       segStart.value = now;
       segDur.value = duration;
       hasTarget.value = 1;

@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
+import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 export interface TripStats {
   maxSpeedKmh:   number;
@@ -10,7 +11,7 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
-const TRIP_MAX_PLAUSIBLE_KMH = 240;
+const TRIP_MAX_PLAUSIBLE_KMH = 360;
 /** Dłuższe przerwy GPS (tunel, Doze) — po tym segmencie reset kotwicy zamiast wiecznego odrzucania. */
 const TRIP_MAX_FIX_GAP_SEC   = 480;
 const TRIP_FALLBACK_MAX_GAP_SEC = 900;
@@ -86,7 +87,7 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (kmh > 1 && kmh <= 260) {
+    if (kmh > 1 && kmh <= 360) {
       speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
       if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
         speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -142,7 +143,10 @@ export function useTripStats() {
       if (isRecoverable && dtSec > 0 && dtSec <= TRIP_FALLBACK_MAX_GAP_SEC) {
         const rawKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
         const cappedByTimeKm = (TRIP_MAX_PLAUSIBLE_KMH / 3600) * Math.min(dtSec, TRIP_MAX_FIX_GAP_SEC);
-        const hasMotionSignal = speedKmh != null && speedKmh >= TRIP_FALLBACK_MIN_SPEED_KMH;
+        const derivedRawKmh = dtSecRaw > 0 ? (rawKm * 3600) / dtSecRaw : 0;
+        const hasMotionSignal =
+          (speedKmh != null && speedKmh >= TRIP_FALLBACK_MIN_SPEED_KMH)
+          || (Number.isFinite(derivedRawKmh) && derivedRawKmh >= TRIP_FALLBACK_MIN_SPEED_KMH);
         const fallbackCapKm = hasMotionSignal
           ? TRIP_FALLBACK_MAX_SEGMENT_KM
           : Math.min(0.2, TRIP_FALLBACK_MAX_SEGMENT_KM);
@@ -155,7 +159,7 @@ export function useTripStats() {
         const fallbackKm = Math.min(rawKm, cappedByTimeKm, fallbackCapKm);
         if (fallbackKm >= TRIP_MIN_SEGMENT_KM * 1.2) {
           const derivedKmh = dtSecRaw > 0 ? (fallbackKm * 3600) / dtSecRaw : 0;
-          if ((speedKmh == null || speedKmh < 2) && Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 260) {
+          if ((speedKmh == null || speedKmh < 2) && Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 360) {
             speedSamples.current.push(derivedKmh);
             if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
               speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -187,13 +191,18 @@ export function useTripStats() {
           }
         }
       }
+      vroomGpsLog('TRIP_SEGMENT_REJECT', {
+        reason: segment.reason,
+        dtSec: Number(dtSec.toFixed(1)),
+        speedKmh: speedKmh != null ? Number(speedKmh.toFixed(1)) : null,
+      }, 8_000);
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       return 0;
     }
 
     const derivedKmh = dtSecRaw > 0 ? (segment.distanceKm * 3600) / dtSecRaw : 0;
     if (speedKmh == null || speedKmh < 2) {
-      if (Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 260) {
+      if (Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 360) {
         speedSamples.current.push(derivedKmh);
         if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
           speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -231,6 +240,21 @@ export function useTripStats() {
     if (!TRIP_STATS_DIAGNOSTICS) return undefined;
     const id = setInterval(() => {
       console.log('[TripStats][diag]', segmentDiagRef.current);
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (TRIP_STATS_DIAGNOSTICS) return undefined;
+    const id = setInterval(() => {
+      const rejected = segmentDiagRef.current.rejected;
+      const totalRejected = (Object.values(rejected) as number[]).reduce((sum: number, n: number) => sum + Number(n || 0), 0);
+      if (totalRejected <= 0) return;
+      vroomGpsLog('TRIP_SEGMENT_STATS', {
+        rejected: totalRejected,
+        fallbackAccepted: segmentDiagRef.current.fallbackAccepted,
+        derivedUsed: segmentDiagRef.current.derivedSpeedUsed,
+      }, 60_000);
     }, 60_000);
     return () => clearInterval(id);
   }, []);

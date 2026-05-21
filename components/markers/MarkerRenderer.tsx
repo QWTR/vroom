@@ -3,6 +3,7 @@ import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
+import { normalizeMediaUri } from '../../lib/mediaUri';
 
 interface MarkerRendererProps {
   user:      User;
@@ -16,7 +17,8 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
   const color       = user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isFriend ? '#4de92622' : '#00bfff22';
   const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92650' : '#00bfff50');
-  const isUrl       = user.avatar?.startsWith('http');
+  const avatarUri   = normalizeMediaUri(user.avatar ?? null);
+  const isUrl       = !!avatarUri;
 
   const captureMarker = useCallback((delayMs = 0) => {
     setTimeout(() => {
@@ -84,7 +86,7 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
             }}>
               {isUrl ? (
                 <Image
-                  source={{ uri: user.avatar }}
+                  source={{ uri: avatarUri! }}
                   style={{ width: 40, height: 40, borderRadius: 20 }}
                   resizeMode="cover"
                   // Ensure the snapshot captures the loaded avatar (not blank placeholder).

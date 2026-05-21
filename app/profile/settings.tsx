@@ -377,13 +377,27 @@ export default function SettingsScreen() {
       const res   = await fetch(`${API_URL}/api/auth/delete-account`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error();
+      const payload = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const apiError = typeof payload?.error === 'string' ? payload.error : null;
+        const fallback =
+          res.status === 401 ? 'Sesja wygasła, zaloguj się ponownie'
+          : res.status === 503 ? 'Usuwanie kont jest chwilowo niedostępne'
+          : 'Nie można usunąć konta';
+        throw new Error(apiError || fallback);
+      }
       await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
       await syncRevenueCatLoginFromStorage();
       setDeleteModal(false);
       Toast.show({ type: 'success', text1: '🗑️ KONTO USUNIĘTE' });
       router.replace('/login');
-    } catch { Toast.show({ type: 'error', text1: 'Nie można usunąć konta' }); }
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Nie można usunąć konta',
+        text2: e?.message || 'Spróbuj ponownie za chwilę',
+      });
+    }
     finally  { setDeleteLoading(false); }
   };
 
