@@ -196,7 +196,7 @@ export const SpotifyTrackSearchField = memo(function SpotifyTrackSearchField({
                   {t.previewUrl ? (
                     <Text style={styles.previewOk}>Podgląd w profilu</Text>
                   ) : (
-                    <Text style={[styles.previewNo, { color: textDim }]}>Bez podglądu audio</Text>
+                    <Text style={[styles.previewNo, { color: textDim }]}>Brak podglądu audio (otworzy Spotify)</Text>
                   )}
                 </View>
                 <MaterialIcons name="add-circle-outline" size={22} color="#1DB954" />

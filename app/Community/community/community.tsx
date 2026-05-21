@@ -23,6 +23,8 @@ import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboa
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
   type Author, type Comment, type Post, type PublicRoute, type CommunityCar, type Tab,
+  type DiscussionCategoryFilter,
+  DISCUSSION_ALL_CATEGORIES,
   Avatar, PhotoViewer, LoadingView,
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
   postMatchesDiscussionSearch, normalizeHashtag,
@@ -52,6 +54,8 @@ export default function CommunityScreen() {
   const [blockedIds,   setBlockedIds]   = useState<number[]>([]);
   const [search,       setSearch]       = useState('');
   const [searchActive, setSearchActive] = useState(false);
+  const [discussionCategory, setDiscussionCategory] = useState<DiscussionCategoryFilter>(DISCUSSION_ALL_CATEGORIES);
+  const categoryReadyRef = useRef(false);
 
   // Posts
   const [posts,        setPosts]        = useState<Post[]>([]);
@@ -145,9 +149,12 @@ export default function CommunityScreen() {
   const fetchPosts = useCallback(async (cursor?: number) => {
     try {
       const token = await getToken();
+      const categoryParam = discussionCategory !== DISCUSSION_ALL_CATEGORIES
+        ? `&category=${encodeURIComponent(discussionCategory)}`
+        : '';
       const url   = cursor
-        ? `${API_URL}/api/posts?cursor=${cursor}&limit=${PAGE_SIZE}`
-        : `${API_URL}/api/posts?limit=${PAGE_SIZE}`;
+        ? `${API_URL}/api/posts?cursor=${cursor}&limit=${PAGE_SIZE}${categoryParam}`
+        : `${API_URL}/api/posts?limit=${PAGE_SIZE}${categoryParam}`;
       const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -158,7 +165,7 @@ export default function CommunityScreen() {
       setHasMoreP(!!data.nextCursor);
     } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania postów' }); }
     finally { setLoadingP(false); setRefreshingP(false); setLoadingMoreP(false); }
-  }, []);
+  }, [discussionCategory]);
 
   const fetchRoutes = useCallback(async (cursor?: number) => {
     if (!cursor) setLoadingR(true);
@@ -314,7 +321,13 @@ export default function CommunityScreen() {
     router.push('/(tabs)/map' as any);
   }, [router]);
 
-  const handlePost = async (text: string, photos: string[], video: string | null, poll?: { question: string; options: string[] } | null) => {
+  const handlePost = async (
+    text: string,
+    photos: string[],
+    video: string | null,
+    category: Post['category'],
+    poll?: { question: string; options: string[] } | null,
+  ) => {
     try {
       const token = await getToken();
       if (video) {
@@ -360,6 +373,7 @@ export default function CommunityScreen() {
               mimeType: `video/${ext}`,
               parameters: {
                 content: bgText,
+                category,
                 ...(bgPoll ? { poll: JSON.stringify(bgPoll) } : {}),
               },
               sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
@@ -383,7 +397,12 @@ export default function CommunityScreen() {
               throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
             }
             if (payload) {
-              setPosts(prev => [payload, ...prev]);
+              setPosts(prev => {
+                if (discussionCategory !== DISCUSSION_ALL_CATEGORIES && payload.category !== discussionCategory) {
+                  return prev;
+                }
+                return [payload, ...prev];
+              });
               Toast.show({
                 type: 'success',
                 text1: 'Film został opublikowany',
@@ -397,6 +416,7 @@ export default function CommunityScreen() {
       }
       const form  = new FormData();
       form.append('content', text);
+      form.append('category', category);
       if (poll) form.append('poll', JSON.stringify(poll));
       photos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `p${i}.${ext}`, type: `image/${ext}` } as any); });
       const res  = await fetch(`${API_URL}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
@@ -405,7 +425,12 @@ export default function CommunityScreen() {
         throw new Error(err?.error ?? 'Błąd');
       }
       const post = await res.json();
-      setPosts(prev => [post, ...prev]);
+      setPosts(prev => {
+        if (discussionCategory !== DISCUSSION_ALL_CATEGORIES && post.category !== discussionCategory) {
+          return prev;
+        }
+        return [post, ...prev];
+      });
     } catch (e: any) {
       Toast.show({ type: 'error', text1: e?.message ?? 'Błąd wysyłania' });
     }
@@ -670,26 +695,46 @@ export default function CommunityScreen() {
         return p.content.toLowerCase().includes(ql) || p.author.username.toLowerCase().includes(ql);
       })
     : visiblePosts;
+  useEffect(() => {
+    if (!categoryReadyRef.current) {
+      categoryReadyRef.current = true;
+      return;
+    }
+    setLoadingP(true);
+    setHasMoreP(true);
+    setPostCursor(null);
+    fetchPosts();
+  }, [discussionCategory, fetchPosts]);
+
+  const selectDiscussionCategory = useCallback((category: DiscussionCategoryFilter) => {
+    setDiscussionCategory(category);
+  }, []);
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
   const filteredCars   = search.trim() ? cars.filter(c   => c.brand.toLowerCase().includes(search.toLowerCase())    || c.owner.username.toLowerCase().includes(search.toLowerCase())) : cars;
 
   const modalBottomPadding = Math.max(insets.bottom, 12);
-  const commentInputBottomPad = modalKeyboardFooterPadding(
-    commentKeyboardInset,
-    modalBottomPadding,
-    { parentHasKeyboardAvoiding: Platform.OS === 'ios' },
-  );
+  const commentInputBottomPad = Platform.OS === 'ios'
+    ? modalKeyboardFooterPadding(
+        commentKeyboardInset,
+        modalBottomPadding,
+        { parentHasKeyboardAvoiding: true },
+      )
+    : modalBottomPadding;
   const commentListMaxHeight = commentKeyboardInset > 0 ? 200 : 340;
 
   // ─────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['left', 'right', 'bottom']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       {/* ── HEADER ─────────────────────────────────────────── */}
       <View style={{
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 16, paddingVertical: 12,
+        paddingHorizontal: 16,
+        paddingTop: Platform.OS === 'ios'
+          ? insets.top + 8
+          : Math.max((StatusBar.currentHeight ?? 0) + 8, 12),
+        paddingBottom: 12,
         borderBottomWidth: 1, borderBottomColor: theme.border,
         backgroundColor: theme.surface,
       }}>
@@ -794,6 +839,8 @@ export default function CommunityScreen() {
               onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
               onHashtagPress={handleHashtagPress}
               onNavigateRoute={handleNavigateRoutePreview}
+              selectedCategory={discussionCategory}
+              onSelectCategory={selectDiscussionCategory}
               onRefresh={() => { setRefreshingP(true); setHasMoreP(true); fetchPosts(); }}
               onLoadMore={loadMorePosts} bottomInset={insets.bottom}
               isPremium={!!settings.isPremium}
@@ -842,13 +889,17 @@ export default function CommunityScreen() {
         visible={!!commentPost}
         animationType="slide"
         transparent={false}
-        statusBarTranslucent
+        statusBarTranslucent={false}
         onRequestClose={closeComments}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['left', 'right', 'bottom']}>
           <View style={{
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-            paddingHorizontal: 16, paddingVertical: 10,
+            paddingHorizontal: 16,
+            paddingTop: Platform.OS === 'ios'
+              ? insets.top + 8
+              : Math.max((StatusBar.currentHeight ?? 0) + 8, 10),
+            paddingBottom: 10,
             borderBottomWidth: 1, borderBottomColor: theme.border,
           }}>
             <TouchableOpacity
@@ -934,9 +985,24 @@ export default function CommunityScreen() {
                       return null;
                     })()}
                     {commentPost.photos?.length > 0 && (
-                      <TouchableOpacity onPress={() => { setCommentPhotoUris(commentPost.photos); setCommentPhotoIdx(0); setCommentPhotoViewer(true); }}>
-                        <Image source={{ uri: commentPost.photos[0] }} style={{ width: 60, height: 44, borderRadius: 8, marginTop: 6 }} resizeMode="cover" />
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        {commentPost.photos.map((uri, i) => (
+                          <TouchableOpacity
+                            key={`${uri}-${i}`}
+                            onPress={() => {
+                              setCommentPhotoUris(commentPost.photos);
+                              setCommentPhotoIdx(i);
+                              setCommentPhotoViewer(true);
+                            }}
+                          >
+                            <Image
+                              source={{ uri }}
+                              style={{ width: 72, height: 72, borderRadius: 10 }}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     )}
                     {!!commentPost.reactions?.length && (
                       <ReactionChips

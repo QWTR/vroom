@@ -112,6 +112,7 @@ export default function NotificationsScreen() {
       && (
         item.type === 'like_post'
         || item.type === 'comment_post'
+        || item.type === 'comment_reply'
         || item.type === 'mention_discussion'
         || item.type === 'discussion_post_new'
       )

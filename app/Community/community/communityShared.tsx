@@ -20,6 +20,31 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 // ─── Types ────────────────────────────────────────────────
 export interface DiscussionReaction { emoji: string; count: number; myReaction: boolean; }
 export const DISCUSSION_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+export type DiscussionCategoryId =
+  | 'ogolne'
+  | 'porady_mechaniczne'
+  | 'elektryka_diagnostyka'
+  | 'modyfikacje_tuning'
+  | 'pielegnacja_detailing'
+  | 'trasy_wyjazdy'
+  | 'pomoc_apka'
+  | 'off_topic';
+export const DISCUSSION_CATEGORIES: { id: DiscussionCategoryId; label: string; icon: string }[] = [
+  { id: 'ogolne', label: 'Ogolne', icon: 'forum' },
+  { id: 'porady_mechaniczne', label: 'Porady mechaniczne', icon: 'build' },
+  { id: 'elektryka_diagnostyka', label: 'Elektryka i diagnostyka', icon: 'electrical-services' },
+  { id: 'modyfikacje_tuning', label: 'Modyfikacje i tuning', icon: 'bolt' },
+  { id: 'pielegnacja_detailing', label: 'Pielegnacja i detailing', icon: 'auto-fix-high' },
+  { id: 'trasy_wyjazdy', label: 'Trasy i wyjazdy', icon: 'route' },
+  { id: 'pomoc_apka', label: 'Pomoc / apka', icon: 'help-outline' },
+  { id: 'off_topic', label: 'Off-topic', icon: 'chat-bubble-outline' },
+];
+export const DISCUSSION_ALL_CATEGORIES = 'all';
+export type DiscussionCategoryFilter = DiscussionCategoryId | typeof DISCUSSION_ALL_CATEGORIES;
+
+export function getDiscussionCategoryMeta(category?: string | null) {
+  return DISCUSSION_CATEGORIES.find((c) => c.id === category) ?? DISCUSSION_CATEGORIES[0];
+}
 
 export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; isAdmin?: boolean; nickColor?: string | null; }
 export interface Comment      {
@@ -34,7 +59,7 @@ export interface PostPollData {
 }
 export interface PostPollInput { question: string; options: string[]; }
 export interface Post         {
-  id: number; content: string; photos: string[]; videos: string[]; createdAt: string; author: Author;
+  id: number; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; author: Author;
   likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean;
   reactions?: DiscussionReaction[];
   poll?: PostPollData | null;
@@ -196,6 +221,7 @@ export const PhotoViewer = ({
 }) => {
   const [idx, setIdx] = useState(initialIndex);
   const fadeAnim      = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (visible) {
@@ -221,7 +247,7 @@ export const PhotoViewer = ({
         <TouchableOpacity
           onPress={onClose}
           style={{
-            position: 'absolute', top: 54, right: 18, zIndex: 10,
+            position: 'absolute', top: insets.top + 14, right: 18, zIndex: 10,
             width: 40, height: 40, borderRadius: 20,
             backgroundColor: '#ffffff18',
             justifyContent: 'center', alignItems: 'center',
@@ -233,7 +259,7 @@ export const PhotoViewer = ({
         {/* Licznik */}
         {photos.length > 1 && (
           <View style={{
-            position: 'absolute', top: 60, left: 0, right: 0,
+            position: 'absolute', top: insets.top + 20, left: 0, right: 0,
             alignItems: 'center', zIndex: 10,
           }}>
             <View style={{
@@ -661,14 +687,22 @@ export const DiscussionPollCard = ({
 export const ComposeBox = ({
   onPost,
   bottomInset,
+  defaultCategory,
   mentionsEnabled = false,
   onHeightChange,
   isPremium = false,
   isAdmin = false,
   onUpgradePremium,
 }: {
-  onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
+  onPost: (
+    text: string,
+    photos: string[],
+    video: string | null,
+    category: DiscussionCategoryId,
+    poll?: PostPollInput | null,
+  ) => Promise<void>;
   bottomInset: number;
+  defaultCategory?: DiscussionCategoryId;
   /** Podpowiedzi @username przy pisaniu posta */
   mentionsEnabled?: boolean;
   /** Raportuje wysokość paska (FlatList paddingBottom). */
@@ -689,6 +723,8 @@ export const ComposeBox = ({
   const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const [pollModal, setPollModal] = useState(false);
   const [pollDraft, setPollDraft] = useState<PostPollInput | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<DiscussionCategoryId | null>(defaultCategory ?? null);
+  const [categoryModal, setCategoryModal] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -762,8 +798,12 @@ export const ComposeBox = ({
 
   const handleSend = async () => {
     if (!canSend) return;
+    if (!selectedCategory) {
+      Toast.show({ type: 'error', text1: 'Wybierz kategorię posta' });
+      return;
+    }
     setPosting(true);
-    await onPost(text.trim(), photos, video, pollDraft);
+    await onPost(text.trim(), photos, video, selectedCategory, pollDraft);
     setText(''); setPhotos([]); setVideo(null); setPollDraft(null);
     setPosting(false); setFocused(false);
     setMentionUsers([]);
@@ -933,6 +973,33 @@ export const ComposeBox = ({
           }
         </TouchableOpacity>
       </View>
+      <TouchableOpacity
+        onPress={() => setCategoryModal(true)}
+        style={{
+          marginTop: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 12,
+          paddingVertical: 9,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: selectedCategory ? '#e3383555' : theme.border,
+          backgroundColor: theme.surface2,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialIcons
+            name={selectedCategory ? (getDiscussionCategoryMeta(selectedCategory).icon as any) : 'category'}
+            size={16}
+            color={selectedCategory ? '#e33835' : theme.textDim}
+          />
+          <Text style={{ color: selectedCategory ? theme.text : theme.textDim, fontSize: 12 }}>
+            {selectedCategory ? getDiscussionCategoryMeta(selectedCategory).label : 'Wybierz kategorię posta'}
+          </Text>
+        </View>
+        <MaterialIcons name="expand-more" size={18} color={theme.textDim} />
+      </TouchableOpacity>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 8, paddingLeft: 2, paddingBottom: 2 }}>
         <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -1047,6 +1114,52 @@ export const ComposeBox = ({
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      <Modal visible={categoryModal} transparent animationType="fade" onRequestClose={() => setCategoryModal(false)}>
+        <Pressable
+          onPress={() => setCategoryModal(false)}
+          style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}
+        >
+          <Pressable
+            onPress={() => {}}
+            style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              borderWidth: 1,
+              borderColor: theme.border,
+              paddingHorizontal: 14,
+              paddingTop: 12,
+              paddingBottom: Math.max(insets.bottom, 12),
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Kategoria posta</Text>
+            {DISCUSSION_CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                onPress={() => {
+                  setSelectedCategory(cat.id);
+                  setCategoryModal(false);
+                }}
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: selectedCategory === cat.id ? '#e33835' : theme.border,
+                  backgroundColor: selectedCategory === cat.id ? '#e3383518' : theme.surface2,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <MaterialIcons name={cat.icon as any} size={16} color={selectedCategory === cat.id ? '#e33835' : theme.textDim} />
+                <Text style={{ color: theme.text, fontSize: 13 }}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );

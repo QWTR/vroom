@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  RefreshControl, Alert, ActivityIndicator,
+  RefreshControl, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
@@ -19,6 +19,11 @@ import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import { UserBadges } from '../../../components/user/UserBadges';
 import {
   type Post,
+  type DiscussionCategoryFilter,
+  type DiscussionCategoryId,
+  DISCUSSION_ALL_CATEGORIES,
+  DISCUSSION_CATEGORIES,
+  getDiscussionCategoryMeta,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
   DiscussionPollCard, extractUrl, renderDiscussionBody, resolveMentionUserId,
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
@@ -72,6 +77,7 @@ const PostCard = React.memo(({
   const plainText = clubInviteData ? clubInviteMessage : (hasPoll || routeData ? '' : post.content);
   const caption   = hasPoll ? post.content?.trim() : '';
   const linkUrl   = (!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null;
+  const categoryMeta = getDiscussionCategoryMeta(post.category);
 
   useEffect(() => {
     if (isOwn || !myId) return;
@@ -191,6 +197,22 @@ const PostCard = React.memo(({
               </View>
             </TouchableOpacity>
             <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2, letterSpacing: 1 }}>{time}</Text>
+            <View style={{ flexDirection: 'row', marginTop: 5 }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: '#e3383535',
+                backgroundColor: '#e3383518',
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+              }}>
+                <MaterialIcons name={categoryMeta.icon as any} size={10} color="#e33835" />
+                <Text style={{ color: '#e33835', fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
+              </View>
+            </View>
           </View>
           {!isOwn && myId != null && (
             <TouchableOpacity
@@ -372,7 +394,7 @@ export function restoreDiscussionsScroll() {
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress, bottomInset, isPremium, isAdmin, onUpgradePremium }: {
+  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress, selectedCategory, onSelectCategory, bottomInset, isPremium, isAdmin, onUpgradePremium }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -385,7 +407,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onProfile: (id: number) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
-  onPost: (text: string, photos: string[], video: string | null, poll?: PostPollInput | null) => Promise<void>;
+  onPost: (text: string, photos: string[], video: string | null, category: DiscussionCategoryId, poll?: PostPollInput | null) => Promise<void>;
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
@@ -393,11 +415,14 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onOpenReactionPicker: (post: Post) => void;
   onNavigateRoute?: (data: RoutePreviewData) => void;
   onHashtagPress?: (tag: string) => void;
+  selectedCategory: DiscussionCategoryFilter;
+  onSelectCategory: (category: DiscussionCategoryFilter) => void;
   bottomInset: number;
   isPremium: boolean;
   isAdmin?: boolean;
   onUpgradePremium: () => void;
 }) {
+  const { theme } = useTheme();
   const [composeHeight, setComposeHeight] = useState(120);
   const restoredRef = React.useRef(false);
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -453,12 +478,46 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.4}
+        ListHeaderComponent={(
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 12, gap: 6, paddingBottom: 8 }}
+          >
+            {[{ id: DISCUSSION_ALL_CATEGORIES, label: 'Wszystkie', icon: 'view-list' as const }, ...DISCUSSION_CATEGORIES].map((cat) => {
+              const active = selectedCategory === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  onPress={() => onSelectCategory(cat.id)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: active ? '#e33835' : theme.border,
+                    backgroundColor: active ? '#e3383520' : theme.surface,
+                    paddingHorizontal: 10,
+                    paddingVertical: 7,
+                  }}
+                >
+                  <MaterialIcons name={cat.icon as any} size={13} color={active ? '#e33835' : theme.textDim} />
+                  <Text style={{ color: active ? '#e33835' : theme.textDim, fontSize: 10, fontFamily: 'Orbitron' }}>
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
         ListFooterComponent={<ListFooter loading={loadingMoreP} />}
         contentContainerStyle={{ paddingTop: 8, paddingBottom: composeHeight + Math.max(bottomInset, 12) }}
         keyboardShouldPersistTaps="handled"
       />
       <ComposeBox
         onPost={onPost}
+        defaultCategory={selectedCategory === DISCUSSION_ALL_CATEGORIES ? undefined : selectedCategory}
         bottomInset={bottomInset}
         mentionsEnabled
         onHeightChange={setComposeHeight}
