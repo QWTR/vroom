@@ -107,12 +107,17 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
   if (input.isTripActive) {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
-    if (netM < TRIP_STANDSTILL_NET_M && sustained < 3.5) {
+    if (netM < 5 && sustained < 2.2 && gpsKmh < 2.2) {
       return 0;
     }
-    kmh = sustained;
-    if (gpsKmh > 0) {
-      kmh = Math.min(kmh, gpsKmh, sustained * 1.15);
+    // Fast wake-up from standstill: sustained window can lag for 1-2 ticks.
+    if (sustained < 2.5 && gpsKmh >= 6 && netM >= 4) {
+      kmh = Math.min(gpsKmh, 14);
+    } else {
+      kmh = sustained;
+      if (gpsKmh > 0) {
+        kmh = Math.min(kmh, gpsKmh, Math.max(18, sustained * 1.22));
+      }
     }
     if (derivedKmh > 0 && derivedKmh < sustained * 0.5) {
       kmh = Math.min(kmh, derivedKmh * 1.1);

@@ -6,5 +6,7 @@ export interface PremiumProduct {
   priceString: string;
   billingPeriod: PremiumBillingPeriod;
   native: unknown;
-  source: 'storekit' | 'revenuecat';
+  source: 'storekit' | 'revenuecat' | 'revenuecat_direct';
+  /** iOS: true gdy cena/SKU przyszły z App Store (można kupić). */
+  storeReady?: boolean;
 }

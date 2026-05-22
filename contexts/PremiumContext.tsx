@@ -9,7 +9,13 @@ import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { isRevenueCatSdkReady, markRevenueCatSdkReady } from '../lib/revenueCatSdkState';
 import { resolveBackendPremium } from '../lib/resolveBackendPremium';
 import {
+  IOS_PREMIUM_ASC_REFERENCE,
+  IOS_PREMIUM_SUBSCRIPTION_IDS,
+  isIosPremiumProductId,
+} from '../constants/iapProducts';
+import {
   fetchIosPremiumProducts,
+  getIosStoreKitDiagnostics,
   isIosStoreKitAvailable,
   purchaseExpirationMs,
   purchaseIosPremium,
@@ -18,6 +24,12 @@ import {
 import type { PremiumBillingPeriod, PremiumProduct } from '../types/premiumProduct';
 
 export type { PremiumProduct } from '../types/premiumProduct';
+
+export type PremiumPurchaseResult = {
+  ok: boolean;
+  error?: string | null;
+  cancelled?: boolean;
+};
 
 // ─── RevenueCat (require jak w Expo / web — brak modułu nie wywali bundlera) ───
 // Dokumentacja: configure per platform + getCustomerInfo + entitlements.active
@@ -139,12 +151,51 @@ function offeringsToPremiumProducts(offerings: PurchasesOfferings | null): Premi
   }));
 }
 
+function isRcPackage(native: unknown): boolean {
+  return native != null && typeof native === 'object' && 'packageType' in (native as object);
+}
+
+function inferBillingPeriodFromStoreProduct(sp: any): PremiumBillingPeriod {
+  const iso = String(sp?.subscriptionPeriod ?? '');
+  if (iso === 'P1M' || /month/i.test(iso)) return 'month';
+  if (iso === 'P1Y' || /year/i.test(iso)) return 'year';
+  if (iso === 'P1W' || /week/i.test(iso)) return 'week';
+  return inferBillingPeriodFromPackage({ product: sp, identifier: sp?.identifier });
+}
+
+function storeProductToPremium(sp: any): PremiumProduct {
+  return {
+    identifier: String(sp?.identifier ?? 'vroom_premium'),
+    title: sp?.title ?? 'VROOM Premium',
+    priceString: sp?.priceString ?? '—',
+    billingPeriod: inferBillingPeriodFromStoreProduct(sp),
+    native: sp,
+    source: 'revenuecat_direct',
+  };
+}
+
+/** Pobiera SKU bez offerings (StoreKit przez RC) — tylko diagnostyka. */
+async function fetchRcDirectStoreProducts(): Promise<PremiumProduct[]> {
+  if (!Purchases || !isRevenueCatSdkReady()) return [];
+  try {
+    const category = Purchases.PRODUCT_CATEGORY?.SUBSCRIPTION;
+    const products = await Purchases.getProducts(
+      [...IOS_PREMIUM_SUBSCRIPTION_IDS],
+      category,
+    );
+    if (!Array.isArray(products) || products.length === 0) return [];
+    return products.map(storeProductToPremium);
+  } catch {
+    return [];
+  }
+}
+
 interface PremiumContextType {
   isPremium:           boolean;
   isLoading:           boolean;
   customerInfo:        CustomerInfo | null;
   premiumStatus:       PremiumStatus;
-  purchasePremium:     (product: PremiumProduct) => Promise<boolean>;
+  purchasePremium:     (product: PremiumProduct) => Promise<PremiumPurchaseResult>;
   restorePurchases:    () => Promise<boolean>;
   getPremiumProducts:  () => Promise<PremiumProduct[]>;
   getOfferings:        () => Promise<PurchasesOfferings | null>;
@@ -164,7 +215,7 @@ const PremiumContext = createContext<PremiumContextType>({
     source: 'unknown',
     error: null,
   },
-  purchasePremium:     async () => false,
+  purchasePremium:     async () => ({ ok: false }),
   restorePurchases:    async () => false,
   getPremiumProducts:  async () => [],
   getOfferings:        async () => null,
@@ -191,10 +242,13 @@ function getRevenueCatApiKeys(): { ios: string; android: string } {
   const androidFromExtra = (extra?.revenueCatAndroidApiKey ?? '').trim();
   const iosFromEnv = (process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '').trim();
   const androidFromEnv = (process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '').trim();
+  // Public SDK keys (safe to ship in app); fallback for OTA/env propagation issues.
+  const iosFallback = 'appl_lSSJchcEaJJBGvAnDUuyFoxLvfR';
+  const androidFallback = 'goog_NzyiMtNIvOhxrHMNUNkBaKynuDU';
 
   return {
-    ios: iosFromExtra || iosFromEnv,
-    android: androidFromExtra || androidFromEnv,
+    ios: iosFromExtra || iosFromEnv || iosFallback,
+    android: androidFromExtra || androidFromEnv || androidFallback,
   };
 }
 
@@ -258,7 +312,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     let rcPremium = false;
     let customerInfoSnapshot: CustomerInfo | null = null;
 
-    const useRevenueCatClient = Purchases && !isIosStoreKitAvailable() && isRevenueCatSdkReady();
+    const useRevenueCatClient = Purchases && isRevenueCatSdkReady();
     const rcPromise = useRevenueCatClient
       ? Purchases.getCustomerInfo()
           .then((info: CustomerInfo) => {
@@ -324,7 +378,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        if (Purchases && !isIosStoreKitAvailable()) {
+        if (Purchases) {
           ensureRevenueCatConfigured();
           if (isRevenueCatSdkReady()) {
             await syncRevenueCatLoginFromStorage();
@@ -349,78 +403,190 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [refreshPremiumStatus]);
 
-  const purchasePremium = useCallback(async (product: PremiumProduct): Promise<boolean> => {
+  const syncRevenueCatAfterAppleIap = useCallback(async (): Promise<void> => {
+    if (!Purchases || !isRevenueCatSdkReady()) return;
+    try {
+      if (typeof Purchases.syncPurchasesForResult === 'function') {
+        await Purchases.syncPurchasesForResult();
+      } else if (typeof Purchases.syncPurchases === 'function') {
+        await Purchases.syncPurchases();
+      }
+      const info = await Purchases.getCustomerInfo();
+      setCustomerInfo(info);
+    } catch {
+      /* opcjonalne — plan i zakup i tak z App Store */
+    }
+  }, []);
+
+  const purchasePremium = useCallback(async (product: PremiumProduct): Promise<PremiumPurchaseResult> => {
     const token =
       (await AsyncStorage.getItem('userToken')) ??
       (await AsyncStorage.getItem('token'));
 
-    if (product.source === 'storekit') {
-      const purchase = await purchaseIosPremium(product.identifier);
-      if (!purchase) return false;
-      if (token) {
-        await syncPremiumWithBackend(token, {
-          productId: purchase.productId,
-          expiresAtMs: purchaseExpirationMs(purchase),
-        });
+    // iOS: StoreKit (Apple) albo RC purchaseStoreProduct gdy tylko RC ma cenę.
+    if (Platform.OS === 'ios' && isIosPremiumProductId(product.identifier)) {
+      if (product.source === 'storekit' && isIosStoreKitAvailable()) {
+        const result = await purchaseIosPremium(product.identifier);
+        if (!result.ok) {
+          return { ok: false, error: result.error, cancelled: result.cancelled };
+        }
+        if (token && result.purchase) {
+          await syncPremiumWithBackend(token, {
+            productId: result.purchase.productId,
+            expiresAtMs: purchaseExpirationMs(result.purchase),
+          });
+        }
+        await syncRevenueCatAfterAppleIap();
+        void refreshPremiumStatus();
+        return { ok: true };
       }
-      return refreshPremiumStatus();
+
+      if (
+        (product.source === 'revenuecat' || product.source === 'revenuecat_direct')
+        && Purchases
+      ) {
+        ensureRevenueCatConfigured();
+        if (!isRevenueCatSdkReady()) {
+          return { ok: false, error: 'RevenueCat nie skonfigurowany' };
+        }
+        try {
+          const rcResult = await Purchases.purchaseStoreProduct(product.native);
+          const info = rcResult?.customerInfo;
+          setCustomerInfo(info);
+          if (token && hasPremiumEntitlement(info)) {
+            await syncPremiumWithBackend(token, { customerInfo: info });
+          }
+          void refreshPremiumStatus();
+          return { ok: true };
+        } catch (e: unknown) {
+          const msg = String((e as Error)?.message ?? e);
+          if (isIosStoreKitAvailable()) {
+            const sk = await purchaseIosPremium(product.identifier);
+            if (sk.ok) {
+              if (token && sk.purchase) {
+                await syncPremiumWithBackend(token, {
+                  productId: sk.purchase.productId,
+                  expiresAtMs: purchaseExpirationMs(sk.purchase),
+                });
+              }
+              await syncRevenueCatAfterAppleIap();
+              void refreshPremiumStatus();
+              return { ok: true };
+            }
+            return { ok: false, error: sk.error ?? msg, cancelled: sk.cancelled };
+          }
+          return { ok: false, error: msg };
+        }
+      }
+
+      if (isIosStoreKitAvailable()) {
+        const result = await purchaseIosPremium(product.identifier);
+        if (!result.ok) {
+          return { ok: false, error: result.error, cancelled: result.cancelled };
+        }
+        if (token && result.purchase) {
+          await syncPremiumWithBackend(token, {
+            productId: result.purchase.productId,
+            expiresAtMs: purchaseExpirationMs(result.purchase),
+          });
+        }
+        await syncRevenueCatAfterAppleIap();
+        void refreshPremiumStatus();
+        return { ok: true };
+      }
+
+      return {
+        ok: false,
+        error: 'Brak natywnego modułu płatności — zbuduj aplikację przez EAS/TestFlight.',
+      };
     }
 
-    if (!Purchases) return false;
+    if (!Purchases) return { ok: false, error: 'Brak modułu płatności' };
     ensureRevenueCatConfigured();
+    if (!isRevenueCatSdkReady()) return { ok: false, error: 'RevenueCat nie skonfigurowany' };
     try {
-      const { customerInfo: info } = await Purchases.purchasePackage(product.native);
+      const useStoreProduct =
+        product.source === 'revenuecat_direct' || !isRcPackage(product.native);
+      const result = useStoreProduct
+        ? await Purchases.purchaseStoreProduct(product.native)
+        : await Purchases.purchasePackage(product.native);
+      const info = result?.customerInfo;
       setCustomerInfo(info);
       if (token && hasPremiumEntitlement(info)) {
         await syncPremiumWithBackend(token, { customerInfo: info });
       }
       const active = await refreshPremiumStatus();
-      return active || hasPremiumEntitlement(info);
-    } catch {
-      return false;
+      const ok = active || hasPremiumEntitlement(info);
+      return ok ? { ok: true } : { ok: false, error: 'Zakup bez aktywnego premium — sprawdź konto' };
+    } catch (e: unknown) {
+      return { ok: false, error: String((e as Error)?.message ?? e) };
     }
-  }, [refreshPremiumStatus]);
+  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap]);
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
     const token =
       (await AsyncStorage.getItem('userToken')) ??
       (await AsyncStorage.getItem('token'));
 
+    // iOS: najpierw Apple, potem RC.
     if (isIosStoreKitAvailable()) {
       const purchase = await restoreIosPremiumPurchase();
-      if (purchase && token) {
-        await syncPremiumWithBackend(token, {
-          productId: purchase.productId,
-          expiresAtMs: purchaseExpirationMs(purchase),
-        });
+      if (purchase) {
+        if (token) {
+          await syncPremiumWithBackend(token, {
+            productId: purchase.productId,
+            expiresAtMs: purchaseExpirationMs(purchase),
+          });
+        }
+        await syncRevenueCatAfterAppleIap();
+        return refreshPremiumStatus();
       }
-      return refreshPremiumStatus();
     }
 
-    if (!Purchases) {
-      return refreshPremiumStatus();
-    }
-    ensureRevenueCatConfigured();
-    try {
-      const info: CustomerInfo = await Purchases.restorePurchases();
-      setCustomerInfo(info);
-      if (token && hasPremiumEntitlement(info)) {
-        await syncPremiumWithBackend(token, { customerInfo: info });
+    if (Purchases) ensureRevenueCatConfigured();
+    const canUseRevenueCat = !!Purchases && isRevenueCatSdkReady();
+    if (canUseRevenueCat) {
+      try {
+        const info: CustomerInfo = await Purchases.restorePurchases();
+        setCustomerInfo(info);
+        if (token && hasPremiumEntitlement(info)) {
+          await syncPremiumWithBackend(token, { customerInfo: info });
+        }
+        const active = await refreshPremiumStatus();
+        return active || hasPremiumEntitlement(info);
+      } catch {
+        /* RC restore failed */
       }
-      const active = await refreshPremiumStatus();
-      return active || hasPremiumEntitlement(info);
+    }
+
+    if (!Purchases) return refreshPremiumStatus();
+    try {
+      return await refreshPremiumStatus();
     } catch {
       return refreshPremiumStatus();
     }
-  }, [refreshPremiumStatus]);
+  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap]);
 
   const getPremiumProducts = useCallback(async (): Promise<PremiumProduct[]> => {
-    if (isIosStoreKitAvailable()) {
-      return fetchIosPremiumProducts();
+    // iOS: najpierw Apple; jeśli brak ceny — zapas z RC getProducts (bez offerings).
+    if (Platform.OS === 'ios') {
+      const skProducts = await fetchIosPremiumProducts();
+      const withPrice = skProducts.filter((p) => (p.priceString ?? '—') !== '—');
+      if (withPrice.length > 0) return withPrice;
+
+      ensureRevenueCatConfigured();
+      const rcProducts = await fetchRcDirectStoreProducts();
+      const rcWithPrice = rcProducts.filter((p) => (p.priceString ?? '—') !== '—');
+      if (rcWithPrice.length > 0) return rcWithPrice;
+
+      if (skProducts.length > 0) return skProducts;
+      return rcProducts;
     }
+
     const offerings = await (async (): Promise<PurchasesOfferings | null> => {
       if (!Purchases) return null;
       ensureRevenueCatConfigured();
+      if (!isRevenueCatSdkReady()) return null;
       try {
         return await Purchases.getOfferings();
       } catch {
@@ -449,38 +615,76 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     const selectedKey = Platform.OS === 'ios' ? ios : android;
     const snapshot: any = {
       platform: Platform.OS,
+      bundleId:
+        Constants.expoConfig?.ios?.bundleIdentifier
+        ?? (Constants as any).manifest?.ios?.bundleIdentifier
+        ?? null,
+      appVersion: Constants.expoConfig?.version ?? null,
       hasPurchasesModule: !!Purchases,
       sdkReadyBefore: isRevenueCatSdkReady(),
       hasIosKey: !!ios,
       hasAndroidKey: !!android,
       selectedKeyPrefix: selectedKey ? selectedKey.slice(0, 5) : '',
+      requestedSkus: [...IOS_PREMIUM_SUBSCRIPTION_IDS],
+      ascReference: IOS_PREMIUM_ASC_REFERENCE,
     };
+
+    if (Platform.OS === 'ios') {
+      snapshot.storeKit = await getIosStoreKitDiagnostics();
+      const skPlans = await fetchIosPremiumProducts();
+      snapshot.storeKitPlanCount = skPlans.length;
+    }
 
     if (!Purchases) return snapshot;
 
     ensureRevenueCatConfigured();
     snapshot.sdkReadyAfter = isRevenueCatSdkReady();
 
+    if (Platform.OS === 'ios' && isRevenueCatSdkReady()) {
+      try {
+        const direct = await fetchRcDirectStoreProducts();
+        snapshot.rcDirectProductCount = direct.length;
+        snapshot.rcDirectProducts = direct.map((p) => ({
+          id: p.identifier,
+          price: p.priceString,
+          source: p.source,
+        }));
+      } catch (e: any) {
+        snapshot.rcDirectProductsError = String(e?.message ?? e);
+      }
+    }
+
     try {
       const offerings = await Purchases.getOfferings();
       snapshot.offeringsCurrentId = offerings?.current?.identifier ?? null;
       snapshot.offeringsCurrentPackageCount = offerings?.current?.availablePackages?.length ?? 0;
       snapshot.offeringsAllIds = Object.keys(offerings?.all ?? {});
-      snapshot.offeringsRaw = offerings;
+      for (const id of snapshot.offeringsAllIds as string[]) {
+        const off = offerings?.all?.[id];
+        snapshot[`offering_${id}_packages`] = off?.availablePackages?.length ?? 0;
+      }
     } catch (e: any) {
       snapshot.offeringsError = String(e?.message ?? e);
     }
 
     try {
       const info = await Purchases.getCustomerInfo();
-      snapshot.customerInfoRaw = info;
       snapshot.activeEntitlements = Object.keys(info?.entitlements?.active ?? {});
+      snapshot.originalAppUserId = info?.originalAppUserId ?? null;
     } catch (e: any) {
       snapshot.customerInfoError = String(e?.message ?? e);
     }
 
+    try {
+      const plans = await getPremiumProducts();
+      snapshot.resolvedPlanCount = plans.length;
+      snapshot.resolvedPlanSource = plans[0]?.source ?? null;
+    } catch (e: any) {
+      snapshot.resolvedPlansError = String(e?.message ?? e);
+    }
+
     return snapshot;
-  }, []);
+  }, [getPremiumProducts]);
 
   return (
     <PremiumContext.Provider value={{

@@ -11,7 +11,7 @@ import Toast              from 'react-native-toast-message';
 import { usePremium }     from '../contexts/PremiumContext';
 import { useSettings }    from '../hooks/useSettings';
 import type { PremiumProduct } from '../types/premiumProduct';
-import { IOS_PREMIUM_SUBSCRIPTION_IDS } from '../constants/iapProducts';
+import { isIosPremiumStoreReady } from '../lib/iosStoreKitPremium';
 
 const { width } = Dimensions.get('window');
 const isTabletLayout = width >= 900;
@@ -61,6 +61,7 @@ export default function PremiumScreen() {
     getRevenueCatDebugSnapshot,
     purchasePremium,
     restorePurchases,
+    refreshPremiumStatus,
     isPremium,
     isLoading,
     premiumStatus,
@@ -76,6 +77,32 @@ export default function PremiumScreen() {
   const [rcDebugText, setRcDebugText] = useState('');
   const [justActivated, setJustActivated] = useState(false);
 
+  const loadErrorText = (code: string | null): string => {
+    if (!code) return '';
+    if (code === 'rc_module_missing') {
+      return 'Brak natywnego modułu RevenueCat w tym buildzie iOS. Zrób nowy build aplikacji (Expo Go nie obsługuje zakupów natywnych).';
+    }
+    if (code === 'rc_not_configured') {
+      return 'RevenueCat nie został skonfigurowany (brak klucza iOS lub błąd configure). Sprawdź EXPO_PUBLIC_REVENUECAT_IOS_KEY.';
+    }
+    if (code === 'rc_offerings_fetch_failed') {
+      return 'RevenueCat nie zsynchronizował produktu z App Store (offeringsError). Plan może iść bezpośrednio z App Store — zrób OTA i sprawdź StoreKit w debugu.';
+    }
+    if (code === 'storekit_empty') {
+      return 'App Store nie zwraca vroom_premium. Approved w ASC to za mało — na produkcji app musi być wydana w sklepie z tą subskrypcją w buildzie.';
+    }
+    if (code === 'rc_no_offerings') {
+      return 'RevenueCat nie zwraca żadnych offerings dla tego projektu/aplikacji.';
+    }
+    if (code === 'rc_no_packages') {
+      return 'RevenueCat zwraca offering bez pakietów. Ustaw Current Offering i dodaj package z produktem App Store.';
+    }
+    if (code === 'fetch_failed') {
+      return 'Błąd pobierania planów. Sprawdź połączenie i spróbuj ponownie.';
+    }
+    return 'Brak planów premium.';
+  };
+
   const loadProducts = async () => {
     setLoadingOff(true);
     setLoadError(null);
@@ -83,7 +110,32 @@ export default function PremiumScreen() {
       const list = await getPremiumProducts();
       setProducts(list);
       if (list.length === 0) {
-        setLoadError('no_products');
+        if (Platform.OS === 'ios') {
+          try {
+            const snap = await getRevenueCatDebugSnapshot();
+            if (!snap?.hasPurchasesModule) {
+              setLoadError('rc_module_missing');
+            } else if (!snap?.sdkReadyAfter) {
+              setLoadError('rc_not_configured');
+            } else if ((snap?.storeKitPlanCount ?? 0) === 0 && (snap?.rcDirectProductCount ?? 0) === 0) {
+              if (snap?.storeKit?.error || (snap?.storeKit?.productCount ?? 0) === 0) {
+                setLoadError('storekit_empty');
+              } else if (typeof snap?.offeringsError === 'string' && snap.offeringsError.length > 0) {
+                setLoadError('rc_offerings_fetch_failed');
+              } else if (!Array.isArray(snap?.offeringsAllIds) || snap.offeringsAllIds.length === 0) {
+                setLoadError('rc_no_offerings');
+              } else {
+                setLoadError('rc_no_packages');
+              }
+            } else {
+              setLoadError('no_products');
+            }
+          } catch {
+            setLoadError('no_products');
+          }
+        } else {
+          setLoadError('no_products');
+        }
       }
     } catch {
       setProducts([]);
@@ -93,23 +145,6 @@ export default function PremiumScreen() {
     }
   };
 
-  const triggerDirectPurchaseFallback = async (): Promise<boolean> => {
-    if (Platform.OS !== 'ios') return false;
-    const fallbackProduct: PremiumProduct = {
-      identifier: IOS_PREMIUM_SUBSCRIPTION_IDS[0],
-      title: 'VROOM Premium',
-      priceString: '—',
-      billingPeriod: 'month',
-      native: null,
-      source: 'storekit',
-    };
-    setBuying(fallbackProduct.identifier);
-    const ok = await purchasePremium(fallbackProduct);
-    setBuying(null);
-    if (ok) setJustActivated(true);
-    return ok;
-  };
-
   const handleRetryPurchase = async () => {
     await loadProducts();
     const refreshed = await getPremiumProducts().catch(() => []);
@@ -117,14 +152,11 @@ export default function PremiumScreen() {
       await handlePurchase(refreshed[0]);
       return;
     }
-    const fallbackOk = await triggerDirectPurchaseFallback();
-    if (!fallbackOk) {
-      Toast.show({
-        type: 'error',
-        text1: 'Nie udało się rozpocząć zakupu',
-        text2: 'Sprawdź App Store / połączenie i spróbuj ponownie.',
-      });
-    }
+    Toast.show({
+      type: 'error',
+      text1: 'Nie udało się rozpocząć zakupu',
+      text2: 'Sprawdź App Store / połączenie i spróbuj ponownie.',
+    });
   };
 
   useEffect(() => {
@@ -137,7 +169,22 @@ export default function PremiumScreen() {
         const list = await getPremiumProducts();
         if (!cancelled) {
           setProducts(list);
-          if (list.length === 0) setLoadError('no_products');
+          if (list.length === 0) {
+            if (Platform.OS === 'ios') {
+              try {
+                const snap = await getRevenueCatDebugSnapshot();
+                if ((snap?.storeKitPlanCount ?? 0) === 0 && (snap?.rcDirectProductCount ?? 0) === 0) {
+                  if (snap?.storeKit?.error) setLoadError('storekit_empty');
+                  else if (snap?.offeringsError) setLoadError('rc_offerings_fetch_failed');
+                  else setLoadError('no_products');
+                }
+              } catch {
+                setLoadError('no_products');
+              }
+            } else {
+              setLoadError('no_products');
+            }
+          }
         }
       } catch {
         if (!cancelled) {
@@ -154,34 +201,53 @@ export default function PremiumScreen() {
   // Zamknij tylko po aktywacji na tym ekranie (purchase/restore),
   // żeby użytkownik z już aktywnym premium nie był wyrzucany po kilku sekundach.
   useEffect(() => {
-    if (isPremium && justActivated) {
-      (async () => {
-        try {
-          await fetchSettings();
-        } catch {
-          /* ignore */
-        }
-        Toast.show({
-          type: 'success',
-          text1: 'VROOM PREMIUM aktywny!',
-          text2: 'Ciesz się pełnymi możliwościami 🏆',
-          visibilityTime: 3500,
-        });
-        router.back();
-      })();
-    }
-  }, [isPremium, justActivated, router, fetchSettings]);
+    if (!justActivated) return;
+    (async () => {
+      try {
+        await fetchSettings();
+      } catch {
+        /* ignore */
+      }
+      Toast.show({
+        type: 'success',
+        text1: isPremium ? 'VROOM PREMIUM aktywny!' : 'Zakup w App Store zakończony',
+        text2: isPremium
+          ? 'Ciesz się pełnymi możliwościami 🏆'
+          : 'Premium synchronizuje się z kontem — odśwież profil za chwilę.',
+        visibilityTime: 4000,
+      });
+      router.back();
+    })();
+  }, [justActivated, isPremium, router, fetchSettings]);
 
   const handlePurchase = async (product: PremiumProduct) => {
+    if (Platform.OS === 'ios' && !isIosPremiumStoreReady(product)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Brak ceny z App Store',
+        text2: 'Produkcja: pobierz z App Store (nie TestFlight). Subskrypcja musi być w wersji appki wysłanej do review.',
+        visibilityTime: 6000,
+      });
+      return;
+    }
     setBuying(product.identifier);
-    const ok = await purchasePremium(product);
+    const result = await purchasePremium(product);
     setBuying(null);
-    if (ok) {
+    if (result.ok) {
+      await refreshPremiumStatus();
       setJustActivated(true);
+      return;
     }
-    if (!ok) {
-      Toast.show({ type: 'error', text1: 'Zakup nie powiódł się', text2: 'Spróbuj ponownie.' });
+    if (result.cancelled) {
+      Toast.show({ type: 'info', text1: 'Anulowano', text2: 'Zakup w App Store został przerwany.' });
+      return;
     }
+    Toast.show({
+      type: 'error',
+      text1: 'Zakup nie powiódł się',
+      text2: result.error ?? 'Sprawdź połączenie i czy kupujesz z wersji ze sklepu (produkcja).',
+      visibilityTime: 5000,
+    });
   };
 
   const handleRestore = async () => {
@@ -322,6 +388,18 @@ export default function PremiumScreen() {
           {/* ─── Oferty ─── */}
           <Text style={s.sectionLabel}>{isPremium ? 'TWOJE KORZYŚCI' : 'WYBIERZ PLAN'}</Text>
 
+          {!isPremium && Platform.OS === 'ios' && packages.length > 0 && (
+            <Text style={s.storeKitHint}>
+              {packages[0].source === 'storekit'
+                ? 'Cena i zakup z App Store.'
+                : 'Cena z RevenueCat — zakup przez App Store / RC.'}
+              {' '}
+              {(packages[0].priceString ?? '—') === '—'
+                ? 'Jeśli cena to „—”, na produkcji app musi być live w App Store z IAP w tej wersji.'
+                : ''}
+            </Text>
+          )}
+
           {!isPremium && loadingOff ? (
             <ActivityIndicator color={R} style={{ marginVertical: 24 }} />
           ) : !isPremium && packages.length > 0 ? (
@@ -329,14 +407,15 @@ export default function PremiumScreen() {
               const priceStr = product.priceString ?? '—';
               const period = billingPeriodLabel(product);
               const frequency = billingFrequencyAdverb(product);
+              const canBuy = Platform.OS !== 'ios' || isIosPremiumStoreReady(product);
               return (
               <View key={product.identifier} style={s.offerCardWrap}>
               <TouchableOpacity
                 key={product.identifier}
-                style={s.offerBtn}
+                style={[s.offerBtn, !canBuy && { opacity: 0.45 }]}
                 onPress={() => handlePurchase(product)}
                 activeOpacity={0.85}
-                disabled={buying !== null}
+                disabled={buying !== null || !canBuy}
               >
                 <LinearGradient
                   colors={['#2a0707', '#1a0404']}
@@ -360,10 +439,10 @@ export default function PremiumScreen() {
                 }
               </TouchableOpacity>
               <TouchableOpacity
-                style={s.offerCtaBtn}
+                style={[s.offerCtaBtn, !canBuy && { opacity: 0.45 }]}
                 onPress={() => handlePurchase(product)}
                 activeOpacity={0.9}
-                disabled={buying !== null}
+                disabled={buying !== null || !canBuy}
               >
                 {buying === product.identifier
                   ? <ActivityIndicator color="#fff" size="small" />
@@ -378,7 +457,7 @@ export default function PremiumScreen() {
               <Text style={s.noOffersTitle}>VROOM Premium</Text>
               <Text style={s.noOffersBody}>
                 {Platform.OS === 'ios'
-                  ? 'Nie udało się pobrać planu z App Store. Sprawdź połączenie z internetem i spróbuj ponownie. Subskrypcja musi być przypięta do wersji aplikacji w App Store Connect.'
+                  ? `Nie udało się załadować planu Premium. ${loadErrorText(loadError)}`
                   : 'Plany subskrypcji pojawią się tutaj po połączeniu z siecią i poprawnej konfiguracji oferty w Google Play.'}
                 {'\n\n'}
                 Korzyści Premium są opisane powyżej. Możesz użyć „Przywróć zakupy”, jeśli subskrypcja była wcześniej aktywna na tym koncie {Platform.OS === 'ios' ? 'Apple' : 'Google'}.
@@ -428,13 +507,13 @@ export default function PremiumScreen() {
             }
           </TouchableOpacity>
 
-          {__DEV__ && (
+          {(__DEV__ || (Platform.OS === 'ios' && !!loadError)) && (
             <TouchableOpacity
               style={s.restoreBtn}
               onPress={handleRevenueCatDebug}
               activeOpacity={0.75}
             >
-              <Text style={s.restoreTxt}>SPRAWDŹ RC DEBUG</Text>
+              <Text style={s.restoreTxt}>SPRAWDŹ PREMIUM DEBUG</Text>
             </TouchableOpacity>
           )}
 
@@ -455,7 +534,7 @@ export default function PremiumScreen() {
         <View style={s.debugBackdrop}>
           <View style={s.debugCard}>
             <View style={s.debugHeader}>
-              <Text style={s.debugTitle}>RC DEBUG</Text>
+              <Text style={s.debugTitle}>PREMIUM DEBUG</Text>
               <View style={s.debugHeaderActions}>
                 <TouchableOpacity onPress={handleCopyRevenueCatDebug} style={s.debugCopyBtn}>
                   <MaterialIcons name="content-copy" size={16} color="#fff" />
@@ -658,6 +737,14 @@ const s = StyleSheet.create({
     fontSize: 9, color: R,
     letterSpacing: 4, marginBottom: 14,
     textAlign: 'center',
+  },
+  storeKitHint: {
+    fontSize: 11,
+    color: '#ffffff70',
+    textAlign: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 8,
+    lineHeight: 16,
   },
   termsCard: {
     borderRadius: 14,

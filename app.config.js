@@ -11,8 +11,8 @@ module.exports = ({ config }) => {
       ...(typeof base.expo.extra === 'object' && base.expo.extra ? base.expo.extra : {}),
       ...(typeof config?.extra === 'object' && config.extra ? config.extra : {}),
       // Ustaw w .env (lokalnie) albo w EAS Environment / eas.json → EXPO_PUBLIC_*
-      revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '',
-      revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '',
+      revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? 'appl_lSSJchcEaJJBGvAnDUuyFoxLvfR',
+      revenueCatAndroidApiKey: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? 'goog_NzyiMtNIvOhxrHMNUNkBaKynuDU',
     },
     plugins: [...(base.expo.plugins ?? []), 'expo-sqlite', 'react-native-iap'].map((plugin) => {
       if (Array.isArray(plugin) && plugin[0] === '@rnmapbox/maps') {

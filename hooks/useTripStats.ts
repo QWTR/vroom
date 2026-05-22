@@ -17,10 +17,10 @@ const TRIP_MAX_FIX_GAP_SEC   = 480;
 const TRIP_FALLBACK_MAX_GAP_SEC = 900;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
 const TRIP_MAX_TRACKED_POINTS = 2500;
-const TRIP_MIN_SEGMENT_KM = 0.003;
+const TRIP_MIN_SEGMENT_KM = 0.0022;
 const TRIP_MAX_SEGMENT_KM = 2.5;
-const TRIP_FALLBACK_MAX_SEGMENT_KM = 1.1;
-const TRIP_FALLBACK_MIN_SPEED_KMH = 5;
+const TRIP_FALLBACK_MAX_SEGMENT_KM = 1.4;
+const TRIP_FALLBACK_MIN_SPEED_KMH = 4;
 const TRIP_MAX_DISTANCE_KM = 1200;
 const TRIP_STATS_DIAGNOSTICS = __DEV__;
 
@@ -106,7 +106,7 @@ export function useTripStats() {
     // Android często zgłasza 0 m/s przy jeździe — nie odrzucaj segmentu wyłącznie z powodu prędkości.
     if (speedKmh != null && speedKmh < 2 && lastMeta) {
       const movedKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
-      if (movedKm < TRIP_MIN_SEGMENT_KM * 2) return 0;
+      if (movedKm < TRIP_MIN_SEGMENT_KM * 1.5) return 0;
     }
     if (!lastMeta) {
       pts.push({ latitude: lat, longitude: lng });
@@ -152,7 +152,7 @@ export function useTripStats() {
           : Math.min(0.2, TRIP_FALLBACK_MAX_SEGMENT_KM);
         // With no motion signal (speed unknown/low), reject larger jumps so standing
         // jitter cannot leak into trip distance.
-        if (!hasMotionSignal && rawKm > 0.25) {
+        if (!hasMotionSignal && rawKm > 0.35) {
           lastPointRef.current = { latitude: lat, longitude: lng, time: now };
           return 0;
         }
@@ -180,7 +180,7 @@ export function useTripStats() {
             const emitNow = Date.now();
             if (
               emitNow - lastLiveKmEmitRef.current >= 450
-              || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.05
+              || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.02
             ) {
               lastLiveKmEmitRef.current = emitNow;
               lastLiveKmValueRef.current = rounded;
@@ -227,7 +227,7 @@ export function useTripStats() {
     const emitNow = Date.now();
     if (
       emitNow - lastLiveKmEmitRef.current >= 450
-      || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.05
+      || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.02
     ) {
       lastLiveKmEmitRef.current = emitNow;
       lastLiveKmValueRef.current = rounded;

@@ -39,8 +39,8 @@ interface GeocodingResult {
 }
 
 const SEARCH_SESSION_IDLE_MS = 12 * 60 * 1000;
-const SEARCH_DEBOUNCE_MS = 320;
-const SEARCH_MIN_QUERY_LEN = 3;
+const SEARCH_DEBOUNCE_MS = 430;
+const SEARCH_MIN_QUERY_LEN = 4;
 const SEARCH_GEOCODE_MIN_LEN = 5;
 
 function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
@@ -280,7 +280,8 @@ export const SearchModal = memo(({
           query: trimmed,
           sessionToken,
           language: 'pl',
-          limit: 8,
+          limit: 6,
+          types: 'address,street,poi,place,locality,neighborhood',
           proximityLng: loc?.longitude,
           proximityLat: loc?.latitude,
           signal,
@@ -303,7 +304,7 @@ export const SearchModal = memo(({
           query: trimmed,
           language: 'pl',
           types: 'address,poi,place,locality,neighborhood',
-          limit: 8,
+          limit: 6,
           proximityLng: loc?.longitude,
           proximityLat: loc?.latitude,
           signal,

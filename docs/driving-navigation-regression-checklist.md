@@ -7,6 +7,7 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 ## Pre-Flight
 
 - Device has fresh OTA/build with the current branch.
+- Run every test on both Android and iOS (same route where possible).
 - Location permission is set to precise/high accuracy.
 - Map tiles are preloaded for the test area.
 - Test route includes:
@@ -20,6 +21,7 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 
 - Start `Driving Mode` and drive 3-5 minutes in city traffic.
 - Verify marker does not teleport by visible jumps.
+- Verify marker follows movement live (no visible 1-2s trailing behind road position).
 - Verify camera heading remains stable on straight segments.
 - Verify no left-right oscillation when speed is steady.
 - Verify speed HUD updates continuously (no random drop to blank/zero while moving).
@@ -37,6 +39,14 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 - During navigation, compare driven distance vs HUD/summary growth.
 - During driving mode, verify distance keeps increasing even if GPS `speed=0` glitches.
 - Verify no long periods of frozen distance while marker visibly moves.
+- Verify summary distance remains close to reference trip distance (target drift <= 5% on 10-20 km run).
+
+## Test Run 4: Stop-Go Speed Stability
+
+- Run 2-3 minutes in stop-go traffic or repeated starts from standstill.
+- Verify speed wakes quickly after launch (no long zero hold while car already moves).
+- Verify speed drops to 0 smoothly when stopped (no oscillating 0/20 spikes).
+- Verify no stale high speed hold when vehicle is stationary.
 
 ## Log Signals to Check (ReactNativeJS)
 
@@ -45,6 +55,8 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
   - `speedPipeKmh`
   - `gpsAgeMs`
   - `drAgeMs`
+  - `gpsToDriftM`
+  - `snapAnchorDriftM`
   - `offRoute`
   - `reroutePending`
   - `rerouteLoading`
@@ -59,6 +71,7 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 ## Pass Criteria
 
 - No recurring marker jumps larger than ~10 m in normal city driving.
+- Marker lag is not visually noticeable; `gpsAgeMs` and `drAgeMs` stay stable, and drift metrics do not trend upward.
 - No repeated heading jitter left-right on straight roads.
 - Off-route reroute converges without infinite pending/loop.
 - Speed HUD remains available and plausible while moving.

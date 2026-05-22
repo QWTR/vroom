@@ -61,8 +61,9 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    timeInterval:     1200,
-    distanceInterval: 4,
+    // Faster active feed to reduce perceived marker lag in city driving.
+    timeInterval:     900,
+    distanceInterval: 3,
   },
 };
 

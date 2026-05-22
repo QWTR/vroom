@@ -283,6 +283,7 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
   sessionToken: string;
   limit?: number;
   language?: string;
+  types?: string;
   proximityLng?: number;
   proximityLat?: number;
   country?: string;
@@ -293,8 +294,9 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
   const cacheKey = [
     'suggest',
     normalizedQuery,
-    rest.limit ?? 8,
+    rest.limit ?? 6,
     rest.language ?? 'pl',
+    rest.types ?? '',
     rest.country ?? '',
     makeCoordBucket(rest.proximityLng, 3),
     makeCoordBucket(rest.proximityLat, 3),
@@ -311,13 +313,14 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
         ? `&proximity=${rest.proximityLng},${rest.proximityLat}`
         : '';
     const country = rest.country ? `&country=${encodeURIComponent(rest.country)}` : '';
+    const types = rest.types ? `&types=${encodeURIComponent(rest.types)}` : '';
     const fallbackUrl =
       `https://api.mapbox.com/search/searchbox/v1/suggest` +
       `?q=${encodeURIComponent(rest.query)}` +
       `&session_token=${encodeURIComponent(rest.sessionToken)}` +
       `&language=${rest.language ?? 'pl'}` +
-      `&limit=${rest.limit ?? 8}` +
-      `${proximity}${country}` +
+      `&limit=${rest.limit ?? 6}` +
+      `${proximity}${country}${types}` +
       `&access_token=${MAPBOX_TOKEN}`;
     const res = await fetchWithTimeout(fallbackUrl, {}, 12_000, signal);
     return await res.json() as T;

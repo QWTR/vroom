@@ -93,7 +93,7 @@ export function useDeadReckoning({
   const toHdg   = useRef(0);
 
   const lerpStartMs    = useRef(0);
-  const lerpDurMs      = useRef(280);
+  const lerpDurMs      = useRef(220);
   const lastFeedMs     = useRef(0);
   const hasFirstFeed   = useRef(false);
   const rafRef         = useRef<number | null>(null);
@@ -284,9 +284,9 @@ export function useDeadReckoning({
         snapDisplayToTarget();
       }
       if (dt > 0 && dt < 10_000) {
-        const targetDur = Math.max(200, dt * 0.98);
+        const targetDur = Math.max(140, dt * 0.92);
         const blended = lerpDurMs.current * 0.22 + targetDur * 0.78;
-        lerpDurMs.current = Math.max(200, Math.min(1800, blended));
+        lerpDurMs.current = Math.max(140, Math.min(1400, blended));
       }
     }
 
@@ -317,7 +317,7 @@ export function useDeadReckoning({
   const reset = useCallback(() => {
     hasFirstFeed.current = false;
     lastFeedMs.current   = 0;
-    lerpDurMs.current    = 280;
+    lerpDurMs.current    = 220;
     lerpStartMs.current  = 0;
     lastFrameEmitRef.current = 0;
     fromLat.current = toLat.current = displayLat.current = 0;
