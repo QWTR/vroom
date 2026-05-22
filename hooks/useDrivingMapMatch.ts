@@ -31,12 +31,14 @@ const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeź
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
-const MAX_REQUESTS_PER_WINDOW = 40;
+const MAX_REQUESTS_PER_WINDOW = 48;
 // Extra buffer only for manual forceMatch entry; keeps UX while preventing runaway costs.
 const MAX_MANUAL_BURST_PER_WINDOW = 2;
 /** Gdy zbliżamy się do limitu / h, agresywnie ogranicz częstotliwość odświeżeń. */
-const BUDGET_SOFT_CAP_PER_WINDOW = 12;
-const BUDGET_HARD_CAP_PER_WINDOW = 20;
+const BUDGET_SOFT_CAP_PER_WINDOW = 16;
+const BUDGET_HARD_CAP_PER_WINDOW = 28;
+/** Dodatkowy burst dla `staleSnap` (snap pokazuje >300 m od raw — geometria zmarznięta). */
+const STALE_SNAP_BURST_PER_WINDOW = 8;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -182,12 +184,17 @@ export function useDrivingMapMatch() {
     vroomGpsLog(`MATCH_${reason}`, { source: 'useDrivingMapMatch', ...(payload ?? {}) }, 1500);
   }, []);
 
-  const consumeRequestSlot = useCallback((now: number, manual = false): boolean => {
+  const consumeRequestSlot = useCallback((now: number, manual = false, staleSnap = false): boolean => {
     requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
     const count = requestTimesRef.current.length;
     if (manual) {
       if (count >= MAX_REQUESTS_PER_WINDOW + MAX_MANUAL_BURST_PER_WINDOW) return false;
       if (count < MAX_REQUESTS_PER_WINDOW) requestTimesRef.current.push(now);
+      return true;
+    }
+    if (staleSnap) {
+      if (count >= MAX_REQUESTS_PER_WINDOW + STALE_SNAP_BURST_PER_WINDOW) return false;
+      requestTimesRef.current.push(now);
       return true;
     }
     if (count >= MAX_REQUESTS_PER_WINDOW) return false;
@@ -289,20 +296,23 @@ export function useDrivingMapMatch() {
       dynamicMinMoveM += 55;
     }
     if (staleSnap) {
-      dynamicMinIntervalMs = Math.min(dynamicMinIntervalMs, 8_000);
-      dynamicMinMoveM = Math.min(dynamicMinMoveM, 12);
+      // Stale snap = geometria zmarznięta, raw odjechał. Maksymalnie agresywnie
+      // próbujemy odświeżyć match — bypass interval/move gate, krótszy budżet.
+      dynamicMinIntervalMs = 5_000;
+      dynamicMinMoveM = 8;
     }
 
     // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
-    // (DR + drivingSnap), nie dopytując API.
-    if (matchedPtsRef.current && speedKmh < 8 && !noRoad) {
+    // (DR + drivingSnap), nie dopytując API — chyba że staleSnap (geometria odjechała).
+    if (matchedPtsRef.current && speedKmh < 8 && !noRoad && !staleSnap) {
       logSnapReject('add_low_speed_cached_geometry', { speedKmh: Math.round(speedKmh) });
       return;
     }
 
-    if (!staleSnap && now - lastCallRef.current < dynamicMinIntervalMs) {
+    if (now - lastCallRef.current < dynamicMinIntervalMs) {
       logSnapReject('add_interval_gate', {
         waitMs: dynamicMinIntervalMs - (now - lastCallRef.current),
+        staleSnap,
       });
       return;
     }
@@ -321,16 +331,17 @@ export function useDrivingMapMatch() {
         lat,
         lng,
       ) * 1000;
-      if (!staleSnap && movedSinceLastFetchM < dynamicMinMoveM) {
+      if (movedSinceLastFetchM < dynamicMinMoveM) {
         logSnapReject('add_move_gate', {
           movedM: Math.round(movedSinceLastFetchM),
           minMoveM: Math.round(dynamicMinMoveM),
+          staleSnap,
         });
         return;
       }
     }
-    if (!consumeRequestSlot(now)) {
-      logSnapReject('add_budget_exhausted');
+    if (!consumeRequestSlot(now, false, staleSnap)) {
+      logSnapReject('add_budget_exhausted', { staleSnap });
       return;
     }
 

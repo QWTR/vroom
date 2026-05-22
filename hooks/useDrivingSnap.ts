@@ -16,6 +16,20 @@ const SNAP_RADIUS_M_MATCHED_TIER3 = 220;
 const SNAP_RADIUS_M_ROUTE_HARD    = 280;
 /** Awaryjny promień dla hard lock — nadal ograniczony, żeby nie łapać odległych dróg. */
 const SNAP_RADIUS_EMERGENCY_M     = 220;
+/**
+ * HARD GUARD: maksymalna odległość zwracanego snapu od surowego GPS.
+ *
+ * Z analizy telemetrii (mph7of5x): snap potrafił zwracać `snapped: true`
+ * gdy `lastSnappedRef` był 47 km od raw GPS (geometria zamrożona, raw odjechał
+ * na inną drogę). Skutek: marker "obok drogi" przez minuty, DR ekstrapoluje
+ * po starej polilinii, kamera trzyma się starej trasy.
+ *
+ * Po przekroczeniu tego progu zwracamy raw z `snapped: false` — niech wyżej
+ * w pipeline kod decyduje (force-match, reset geometrii, marker do raw).
+ */
+const MAX_SNAP_TO_RAW_DISTANCE_M = 300;
+/** Twardszy próg — przy 600 m rozjeździe nawet nie próbujemy trzymać starego snap (auto wykonuje skręt na inną drogę). */
+const HARD_SNAP_DROP_M = 600;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
@@ -294,14 +308,32 @@ export function useDrivingSnap() {
 
     if (last && lastSnappedRef.current) {
       const rawMoveM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
-      if (hardRoadLock && stationary && rawMoveM < 8) {
-        return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
-      }
-      if (!hardRoadLock) {
-        const dLat = Math.abs(lat - last.lat);
-        const dLng = Math.abs(lng - last.lng);
-        if (dLat < MIN_MOVE_DEG && dLng < MIN_MOVE_DEG && speedKmh < 60) {
+      // HARD GUARD: jeśli lastSnappedRef jest daleko od bieżącego raw GPS,
+      // znaczy że geometria/snap są martwe — nie zwracamy starego snap.
+      const lastSnapToRawM = haversineKm(
+        lat,
+        lng,
+        lastSnappedRef.current.latitude,
+        lastSnappedRef.current.longitude,
+      ) * 1000;
+      const lastSnapTooFar = lastSnapToRawM > MAX_SNAP_TO_RAW_DISTANCE_M;
+      if (lastSnapTooFar) {
+        logSnapReject('snap_last_too_far', {
+          lastSnapToRawM: Math.round(lastSnapToRawM),
+          speedKmh: Math.round(speedKmh),
+        });
+        lastSnappedRef.current = null;
+        lastSegmentIndexRef.current = -1;
+      } else {
+        if (hardRoadLock && stationary && rawMoveM < 8) {
           return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+        }
+        if (!hardRoadLock) {
+          const dLat = Math.abs(lat - last.lat);
+          const dLng = Math.abs(lng - last.lng);
+          if (dLat < MIN_MOVE_DEG && dLng < MIN_MOVE_DEG && speedKmh < 60) {
+            return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+          }
         }
       }
     }
@@ -398,8 +430,15 @@ export function useDrivingSnap() {
 
     // Brak drogi w promieniu — w driving mode trzymamy ostatni pewny snap,
     // żeby marker nie zrzucał się z drogi przy chwilowych brakach geometrii.
+    // ALE TYLKO jeśli ten ostatni snap jest blisko aktualnego raw GPS.
+    // Inaczej zwracamy raw z snapped:false (geometria odjechała, czekamy na match).
+    const lastSnapToRawM = lastSnappedRef.current
+      ? haversineKm(lat, lng, lastSnappedRef.current.latitude, lastSnappedRef.current.longitude) * 1000
+      : Infinity;
+    const lastSnapUsable = lastSnappedRef.current && lastSnapToRawM <= MAX_SNAP_TO_RAW_DISTANCE_M;
+
     if (!result) {
-      if (lastSnappedRef.current) {
+      if (lastSnapUsable && lastSnappedRef.current) {
         if (hardRoadLock && pts.length >= 2) {
           const reproject = snapToRouteWithInfo(lat, lng, pts, SNAP_RADIUS_EMERGENCY_M, {
             expectedHeading,
@@ -439,10 +478,18 @@ export function useDrivingSnap() {
           usingMatchedRoad,
           dynamicRadius,
           speedKmh: Math.round(speedKmh),
+          lastSnapToRawM: Number.isFinite(lastSnapToRawM) ? Math.round(lastSnapToRawM) : null,
         });
         lastSnapAtRef.current = Date.now();
-        if (hardRoadLock && lastSnappedRef.current) {
+        // KLUCZOWE: nie zwracamy starego lastSnap, jeśli jest daleko od raw —
+        // wyżej w pipeline `snapped: false` powoduje raw fallback i wymuszenie
+        // map-matchingu zamiast wizualnego "stania" na martwej geometrii.
+        if (hardRoadLock && lastSnapUsable && lastSnappedRef.current) {
           return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+        }
+        if (lastSnappedRef.current && !lastSnapUsable) {
+          lastSnappedRef.current = null;
+          lastSegmentIndexRef.current = -1;
         }
         return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
       }
@@ -692,6 +739,22 @@ export function useDrivingSnap() {
           projectedStepM,
         );
       }
+    }
+
+    // FINAL HARD GUARD: jeśli po wszystkich obróbkach snappedCoord wylądował
+    // dalej niż HARD_SNAP_DROP_M od raw GPS, geometria jest zmarznięta —
+    // resetuj snap i zwróć raw z snapped:false, niech wyżej w pipeline kod
+    // wymusi force-match i ustawi marker na raw.
+    const finalDistFromRawM = haversineKm(lat, lng, snappedCoord.latitude, snappedCoord.longitude) * 1000;
+    if (finalDistFromRawM > HARD_SNAP_DROP_M) {
+      logSnapReject('snap_drop_too_far', {
+        distM: Math.round(finalDistFromRawM),
+        speedKmh: Math.round(speedKmh),
+      });
+      lastSnappedRef.current = null;
+      lastSegmentIndexRef.current = -1;
+      lastSnapAtRef.current = Date.now();
+      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
     }
 
     lastSnappedRef.current = snappedCoord;
