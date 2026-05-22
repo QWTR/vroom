@@ -21,7 +21,7 @@ export type SanitizeSpeedInput = {
   sustainedKmh?: number;
 };
 
-const TRIP_SPEED_WINDOW_MS = 4500;
+const TRIP_SPEED_WINDOW_MS = 3000;
 const TRIP_STANDSTILL_NET_M = 7;
 
 /** Prędkość i netto dystans z ostatnich próbek (odcina jitter 30+ km/h na postoju). */
@@ -103,27 +103,56 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 
   let kmh = gpsKmh;
 
-  // Tryb jazdy / nawigacja: prędkość tylko przy realnym przemieszczeniu (okno + netto).
+  // Tryb jazdy / nawigacja: Doppler GPS jest głównym źródłem prędkości.
+  // iOS potrafi przez kilka sekund trzymać tę samą lat/lng lub snap, mimo że
+  // `coords.speed` jest poprawny. Dlatego brak przesunięcia nie może zerować HUD/DR.
   if (input.isTripActive) {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
-    if (netM < 5 && sustained < 2.2 && gpsKmh < 2.2) {
+    const stationaryEvidence = netM < 5.5 && sustained < 1.8;
+    if (gpsKmh >= 1) {
+      // Ghost Doppler guard: część telefonów raportuje 2-12 km/h na postoju.
+      // Nie ufamy niskiemu gpsKmh dopóki długoterminowy ruch (net/sustained)
+      // tego nie potwierdzi.
+      if (gpsKmh <= 12 && stationaryEvidence) {
+        // derivedKmh bywa zatrute jitterem, ale jeżeli jest spójne i netto ruch rośnie,
+        // pozwalamy na bardzo wolny start z miejsca.
+        if (!(derivedKmh >= 4 && derivedKmh <= 25 && netM >= 6)) {
+          return 0;
+        }
+      }
+      return Math.min(gpsKmh, maxKmh);
+    }
+
+    // ── KRYTYCZNE: GPS JITTER PROTECTION ─────────────────────────────────
+    // Gdy Doppler GPS = 0 (auto stoi) ale słaby sygnał (Android w garażu / pod
+    // wieżowcem) podaje lat/lng skaczące o 30–50m co tick, derivedKmh wybucha
+    // do 100–200 km/h MIMO POSTOJU. Stare zachowanie zwracało te 140 km/h jako
+    // prawdziwą prędkość → bridge w map.tsx projektował marker 40m do przodu
+    // co tick → marker uciekał po mapie mimo że auto stoi.
+    //
+    // Reguła generalna: bez Dopplera (gpsKmh = 0) NIGDY nie ufamy derivedKmh
+    // z pojedynczego ticka — używamy sustained (3s okno path, jitter immune).
+    //
+    // 1) Brak długoterminowego ruchu (sustained < 2.5) + duża delta = jitter:
+    if (sustained < 2.5) {
+      if (derivedKmh > 25) {
+        return 0;
+      }
+      // Bardzo wolny ruch (start z miejsca): derivedKmh ≤ 25 i netMoveM ≥ 3.5.
+      // Wtedy ufamy derivedKmh (max 25 km/h — fizyka startu z miejsca).
+      if (derivedKmh >= 3 && netM >= 3.5) {
+        return Math.min(derivedKmh, maxKmh);
+      }
       return 0;
     }
-    // Fast wake-up from standstill: sustained window can lag for 1-2 ticks.
-    if (sustained < 2.5 && gpsKmh >= 6 && netM >= 4) {
-      kmh = Math.min(gpsKmh, 14);
-    } else {
-      kmh = sustained;
-      if (gpsKmh > 0) {
-        kmh = Math.min(kmh, gpsKmh, Math.max(18, sustained * 1.22));
-      }
-    }
-    if (derivedKmh > 0 && derivedKmh < sustained * 0.5) {
-      kmh = Math.min(kmh, derivedKmh * 1.1);
-    }
-    if (!Number.isFinite(kmh) || kmh < 0) return 0;
-    return Math.min(kmh, maxKmh);
+
+    // 2) Sustained ≥ 2.5: długoterminowy ruch potwierdzony. UFAMY TYLKO sustained.
+    //    derivedKmh z pojedynczego ticka jest zatruty przez GPS jitter (Android
+    //    przy słabym sygnale dorzuca ±20m do każdego fixu → derivedKmh skacze
+    //    o 70 km/h). Bridge potrzebuje stabilnej prędkości żeby nie teleportować
+    //    markera; sustained jest dokładnie tym co potrzebne.
+    return Math.min(sustained, maxKmh);
   }
 
   if (derivedKmh > 0) {

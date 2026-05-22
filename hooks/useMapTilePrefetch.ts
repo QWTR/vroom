@@ -28,6 +28,7 @@ export function useMapTilePrefetch({
 }: Options): void {
   const lastDrivePrefetchRef = useRef<{ lat: number; lng: number } | null>(null);
   const navPrefetchedRef = useRef<string | null>(null);
+  const bootstrapPrefetchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isNavigating || !routeKey || routePoints.length < 2) return;
@@ -66,4 +67,15 @@ export function useMapTilePrefetch({
 
     prefetchDriveCorridorPack(mapStyleURL, userLocation).catch(() => {});
   }, [isDriving, isNavigating, mapStyleURL, userLocation]);
+
+  useEffect(() => {
+    if (isNavigating) return;
+    if (!userLocation) return;
+    if (!Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude)) return;
+    const coarseCell = `${mapStyleURL}|${userLocation.latitude.toFixed(2)}|${userLocation.longitude.toFixed(2)}`;
+    if (bootstrapPrefetchKeyRef.current === coarseCell) return;
+    bootstrapPrefetchKeyRef.current = coarseCell;
+    // Warm tiles early after first GPS lock so map does not start on empty/black blocks.
+    prefetchDriveCorridorPack(mapStyleURL, userLocation).catch(() => {});
+  }, [isNavigating, mapStyleURL, userLocation]);
 }

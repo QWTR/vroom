@@ -3,6 +3,7 @@ import { View, Text, Image, TouchableOpacity } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
+import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 
 interface UserCarMarkerProps {
   user:     User;
@@ -35,6 +36,14 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
   const color       = user.isPremium ? '#FFD700' : user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isPremium ? '#FFD70020' : user.isFriend ? '#4de92620' : '#00bfff20';
   const borderColor = user.isPremium ? '#FFD70045' : user.isFriend ? '#4de92645' : '#00bfff45';
+  const frameItem = user.avatarFrameUrl
+    ? {
+        id: `live_${user.id}`,
+        name: 'Live frame',
+        category: 'avatar_frame' as const,
+        assetUrl: user.avatarFrameUrl,
+      }
+    : null;
 
   return (
     <View style={{ alignItems: 'center' }}>
@@ -64,6 +73,7 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
         }}>
           <AvatarOrInitials avatar={user.avatar ?? ''} name={user.name} color={color} size={22} />
         </View>
+        <ShopAvatarDecoration item={frameItem} size={36} />
         {user.isPremium && (
           <View style={{
             position: 'absolute', top: -6, right: -6,

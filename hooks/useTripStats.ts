@@ -65,11 +65,43 @@ export function useTripStats() {
     fallbackAccepted: 0,
     derivedSpeedUsed: 0,
     derivedSpeedRejected: 0,
+    /** Liczba segmentów zaakceptowanych głównym torem (segment.accepted=true). */
+    acceptedMain: 0,
+    /** Suma km dodanych z głównego toru. */
+    acceptedMainKm: 0,
+    /** Suma km dodanych z fallbacku (jump/impossible_speed/stale_gap recovery). */
+    fallbackKm: 0,
+    /** Liczba segmentów z 0 przemieszczenia (appliedSnap = poprzednia pozycja). */
+    zeroMove: 0,
+    /** Lokalny low_speed counter (speedKmh < 2 && movedKm < min*1.5). */
+    lowSpeedDropped: 0,
   });
 
   const [stats, setStats] = useState<TripStats | null>(null);
   /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
+
+  const resetSegmentDiag = useCallback(() => {
+    const d = segmentDiagRef.current;
+    d.rejected = {
+      invalid_time: 0,
+      stale_gap: 0,
+      min_speed: 0,
+      accuracy: 0,
+      jitter: 0,
+      jump: 0,
+      impossible_speed: 0,
+      ok: 0,
+    };
+    d.fallbackAccepted = 0;
+    d.derivedSpeedUsed = 0;
+    d.derivedSpeedRejected = 0;
+    d.acceptedMain = 0;
+    d.acceptedMainKm = 0;
+    d.fallbackKm = 0;
+    d.zeroMove = 0;
+    d.lowSpeedDropped = 0;
+  }, []);
 
   const startTrip = useCallback((estimatedDurationSec: number) => {
     speedSamples.current = [];
@@ -82,7 +114,8 @@ export function useTripStats() {
     lastLiveKmValueRef.current = 0;
     setStats(null);
     setLiveDistanceKm(0);
-  }, []);
+    resetSegmentDiag();
+  }, [resetSegmentDiag]);
 
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
@@ -106,7 +139,11 @@ export function useTripStats() {
     // Android często zgłasza 0 m/s przy jeździe — nie odrzucaj segmentu wyłącznie z powodu prędkości.
     if (speedKmh != null && speedKmh < 2 && lastMeta) {
       const movedKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
-      if (movedKm < TRIP_MIN_SEGMENT_KM * 1.5) return 0;
+      if (movedKm < TRIP_MIN_SEGMENT_KM * 1.5) {
+        segmentDiagRef.current.lowSpeedDropped += 1;
+        if (movedKm < 0.0001) segmentDiagRef.current.zeroMove += 1;
+        return 0;
+      }
     }
     if (!lastMeta) {
       pts.push({ latitude: lat, longitude: lng });
@@ -187,6 +224,7 @@ export function useTripStats() {
               setLiveDistanceKm(rounded);
             }
             segmentDiagRef.current.fallbackAccepted += 1;
+            segmentDiagRef.current.fallbackKm += fallbackKm;
             return fallbackKm;
           }
         }
@@ -233,6 +271,8 @@ export function useTripStats() {
       lastLiveKmValueRef.current = rounded;
       setLiveDistanceKm(rounded);
     }
+    segmentDiagRef.current.acceptedMain += 1;
+    segmentDiagRef.current.acceptedMainKm += segment.distanceKm;
     return segment.distanceKm;
   }, []);
 
@@ -247,15 +287,33 @@ export function useTripStats() {
   useEffect(() => {
     if (TRIP_STATS_DIAGNOSTICS) return undefined;
     const id = setInterval(() => {
-      const rejected = segmentDiagRef.current.rejected;
+      const diag = segmentDiagRef.current;
+      const rejected = diag.rejected;
       const totalRejected = (Object.values(rejected) as number[]).reduce((sum: number, n: number) => sum + Number(n || 0), 0);
-      if (totalRejected <= 0) return;
+      // Emituj zawsze gdy trip jest aktywny — daje pełny obraz akumulacji.
+      if (totalRejected <= 0 && diag.acceptedMain <= 0 && diag.fallbackAccepted <= 0 && diag.lowSpeedDropped <= 0) {
+        return;
+      }
       vroomGpsLog('TRIP_SEGMENT_STATS', {
-        rejected: totalRejected,
-        fallbackAccepted: segmentDiagRef.current.fallbackAccepted,
-        derivedUsed: segmentDiagRef.current.derivedSpeedUsed,
-      }, 60_000);
-    }, 60_000);
+        totalDistanceKm: Number(distanceRef.current.toFixed(3)),
+        acceptedMain: diag.acceptedMain,
+        acceptedMainKm: Number(diag.acceptedMainKm.toFixed(3)),
+        fallbackAccepted: diag.fallbackAccepted,
+        fallbackKm: Number(diag.fallbackKm.toFixed(3)),
+        derivedSpeedUsed: diag.derivedSpeedUsed,
+        derivedSpeedRejected: diag.derivedSpeedRejected,
+        lowSpeedDropped: diag.lowSpeedDropped,
+        zeroMove: diag.zeroMove,
+        rejectedTotal: totalRejected,
+        rejectedJitter: rejected.jitter || 0,
+        rejectedJump: rejected.jump || 0,
+        rejectedStaleGap: rejected.stale_gap || 0,
+        rejectedMinSpeed: rejected.min_speed || 0,
+        rejectedAccuracy: rejected.accuracy || 0,
+        rejectedImpossible: rejected.impossible_speed || 0,
+        rejectedInvalidTime: rejected.invalid_time || 0,
+      }, 30_000);
+    }, 30_000);
     return () => clearInterval(id);
   }, []);
 

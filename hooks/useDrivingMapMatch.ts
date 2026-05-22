@@ -116,6 +116,7 @@ export type AddMatchContext = {
   speedKmh?: number | null;
   accuracyM?: number | null;
   noRoad?: boolean;
+  staleSnap?: boolean;
 };
 
 interface GpsPoint {
@@ -246,6 +247,7 @@ export function useDrivingMapMatch() {
 
     const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
     const noRoad = !!ctx?.noRoad;
+    const staleSnap = !!ctx?.staleSnap;
     // Przy braku geometrii trace może iść na postoju; przy snapie na drodze — oszczędzamy API.
     if (speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
       logSnapReject('add_stationary_skip', { speedKmh: Math.round(speedKmh) });
@@ -286,6 +288,10 @@ export function useDrivingMapMatch() {
       dynamicMinIntervalMs += 22_000;
       dynamicMinMoveM += 55;
     }
+    if (staleSnap) {
+      dynamicMinIntervalMs = Math.min(dynamicMinIntervalMs, 8_000);
+      dynamicMinMoveM = Math.min(dynamicMinMoveM, 12);
+    }
 
     // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
     // (DR + drivingSnap), nie dopytując API.
@@ -294,7 +300,7 @@ export function useDrivingMapMatch() {
       return;
     }
 
-    if (now - lastCallRef.current < dynamicMinIntervalMs) {
+    if (!staleSnap && now - lastCallRef.current < dynamicMinIntervalMs) {
       logSnapReject('add_interval_gate', {
         waitMs: dynamicMinIntervalMs - (now - lastCallRef.current),
       });
@@ -315,7 +321,7 @@ export function useDrivingMapMatch() {
         lat,
         lng,
       ) * 1000;
-      if (movedSinceLastFetchM < dynamicMinMoveM) {
+      if (!staleSnap && movedSinceLastFetchM < dynamicMinMoveM) {
         logSnapReject('add_move_gate', {
           movedM: Math.round(movedSinceLastFetchM),
           minMoveM: Math.round(dynamicMinMoveM),

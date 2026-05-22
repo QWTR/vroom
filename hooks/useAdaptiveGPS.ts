@@ -41,6 +41,11 @@ const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
+const ACTIVE_EMIT_MIN_INTERVAL_MS = 140;
+const BROWSING_EMIT_MIN_INTERVAL_MS = 700;
+const ACTIVE_EMIT_MIN_MOVE_M = 0.9;
+const BROWSING_EMIT_MIN_MOVE_M = 4.5;
+const ACTIVE_EMIT_MIN_HEADING_DELTA = 9;
 
 type GpsProfile = 'offMap' | 'browsing' | 'active';
 
@@ -61,9 +66,9 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    // Faster active feed to reduce perceived marker lag in city driving.
-    timeInterval:     900,
-    distanceInterval: 3,
+    // Active driving needs live GPS; render pressure is controlled in map.tsx, not by starving GPS.
+    timeInterval:     500,
+    distanceInterval: 1,
   },
 };
 
@@ -121,6 +126,12 @@ export function useAdaptiveGPS({
   const staleStrikeRef    = useRef(0);
   const opSeqRef          = useRef(0);
   const lastPoorActiveEmitAtRef = useRef(0);
+  const lastEmitRef = useRef<{
+    at: number;
+    lat: number;
+    lng: number;
+    heading: number | null;
+  } | null>(null);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { speedRef.current = speedKmh;   }, [speedKmh]);
@@ -182,6 +193,43 @@ export function useAdaptiveGPS({
           const emitSpeedMs = gpsSpeedMs != null
             ? gpsSpeedMs
             : (effectiveSpeedKmh >= DERIVED_SPEED_MIN_EMIT_KMH ? effectiveSpeedKmh / 3.6 : 0);
+          const maybeEmitLocation = (payload: {
+            latitude: number;
+            longitude: number;
+            speed: number | null;
+            heading: number | null;
+            accuracy: number | null;
+            timestamp?: number;
+          }, force = false) => {
+            const nowMs = now;
+            const lastEmit = lastEmitRef.current;
+            if (!force && lastEmit) {
+              const activeMinInterval = activeMode ? ACTIVE_EMIT_MIN_INTERVAL_MS : BROWSING_EMIT_MIN_INTERVAL_MS;
+              const dt = nowMs - lastEmit.at;
+              const movedM = haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000;
+              const minMoveM = activeMode ? ACTIVE_EMIT_MIN_MOVE_M : BROWSING_EMIT_MIN_MOVE_M;
+              const prevHeading = lastEmit.heading;
+              const nextHeading = payload.heading;
+              const headingDelta =
+                prevHeading != null && nextHeading != null && Number.isFinite(prevHeading) && Number.isFinite(nextHeading)
+                  ? Math.abs((((nextHeading - prevHeading) + 540) % 360) - 180)
+                  : 0;
+              const headingWake =
+                activeMode
+                && effectiveSpeedKmh >= 8
+                && headingDelta >= ACTIVE_EMIT_MIN_HEADING_DELTA;
+              if (dt < activeMinInterval && movedM < minMoveM && !headingWake) {
+                return;
+              }
+            }
+            lastEmitRef.current = {
+              at: nowMs,
+              lat: payload.latitude,
+              lng: payload.longitude,
+              heading: payload.heading,
+            };
+            onLocRef.current(payload);
+          };
 
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
           if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
@@ -195,7 +243,7 @@ export function useAdaptiveGPS({
             consecutiveBadRef.current += 1;
             lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
             speedRef.current    = effectiveSpeedKmh;
-            onLocRef.current({
+            maybeEmitLocation({
               latitude:  rawLat,
               longitude: rawLng,
               speed:     emitSpeedMs,
@@ -220,7 +268,7 @@ export function useAdaptiveGPS({
             if (activeMode || forwardWeakBrowsing) {
               lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
               speedRef.current    = effectiveSpeedKmh;
-              onLocRef.current({
+              maybeEmitLocation({
                 latitude:  rawLat,
                 longitude: rawLng,
                 speed:     emitSpeedMs,
@@ -287,7 +335,7 @@ export function useAdaptiveGPS({
           speedRef.current    = effectiveSpeedKmh;
 
           // ══ 5. Wyślij surowe dane — Kalman jest w map.tsx ════
-          onLocRef.current({
+          maybeEmitLocation({
             latitude:  rawLat,
             longitude: rawLng,
             speed:     emitSpeedMs,

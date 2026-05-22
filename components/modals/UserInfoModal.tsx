@@ -1,5 +1,5 @@
-import React, { memo, useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, Image } from 'react-native';
+import React, { memo, useEffect, useRef, useState } from 'react';
+import { Modal, View, Text, TouchableOpacity, Image, Animated, Easing } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../../constants/config';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
@@ -10,6 +10,7 @@ import { User } from '../../constants/types';
 import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface UserInfoModalProps {
   visible:       boolean;
@@ -31,10 +32,18 @@ export const UserInfoModal = memo(
     const isOnline  = user.status === 'Online';
     const hasAvatar = user.avatar && user.avatar.startsWith('http');
     const [shopCosmetics, setShopCosmetics] = useState<UserShopCosmetics | null>(null);
+    const [profileVisuals, setProfileVisuals] = useState<{
+      nickColor: string | null;
+      profileThemePreset: string;
+      profilePremiumExtras: any;
+      isPremiumProfile: boolean;
+    } | null>(null);
+    const premiumPulse = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
       if (!visible || !user?.id) {
         setShopCosmetics(null);
+        setProfileVisuals(null);
         return;
       }
       (async () => {
@@ -47,19 +56,94 @@ export const UserInfoModal = memo(
           if (!res.ok) return;
           const data = await res.json();
           setShopCosmetics(data.shopCosmetics ?? null);
+          setProfileVisuals({
+            nickColor: typeof data?.nickColor === 'string' ? data.nickColor : null,
+            profileThemePreset: typeof data?.profileThemePreset === 'string' ? data.profileThemePreset : 'default',
+            profilePremiumExtras: data?.profilePremiumExtras ?? null,
+            isPremiumProfile: !!data?.isPremium,
+          });
         } catch {
           setShopCosmetics(null);
+          setProfileVisuals(null);
         }
       })();
     }, [visible, user?.id]);
 
+    useEffect(() => {
+      if (!visible || !user?.isPremium) {
+        premiumPulse.stopAnimation();
+        premiumPulse.setValue(0);
+        return;
+      }
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(premiumPulse, { toValue: 1, duration: 1300, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(premiumPulse, { toValue: 0, duration: 1300, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    }, [visible, user?.isPremium, premiumPulse]);
+
     useModalBackHandler(visible, onClose);
+    const accentColor = profileVisuals?.nickColor || theme.primary;
+    const premiumGradient = Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
+      ? profileVisuals.profilePremiumExtras.customHeroGradient.colors.filter((c: unknown) => typeof c === 'string')
+      : null;
+    const showPremiumTheme = !!user.isPremium && !!profileVisuals?.isPremiumProfile;
+    const glowOpacity = premiumPulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.34] });
     return (
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <SafeAreaView style={styles.userInfoOverlay}>
           <TouchableOpacity style={styles.userInfoBackdrop} activeOpacity={1} onPress={onClose} />
 
-          <View style={styles.userInfoCard}>
+          <View
+            style={[
+              styles.userInfoCard,
+              showPremiumTheme && {
+                borderColor: `${accentColor}80`,
+                shadowColor: accentColor,
+              },
+            ]}
+          >
+            {showPremiumTheme && (
+              <>
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 150,
+                    opacity: glowOpacity,
+                  }}
+                >
+                  <LinearGradient
+                    colors={(premiumGradient && premiumGradient.length >= 2)
+                      ? premiumGradient as string[]
+                      : [`${accentColor}66`, '#00000000']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ flex: 1 }}
+                  />
+                </Animated.View>
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: -1,
+                    left: -1,
+                    right: -1,
+                    bottom: -1,
+                    borderRadius: 28,
+                    borderWidth: 1,
+                    borderColor: accentColor,
+                    opacity: glowOpacity,
+                  }}
+                />
+              </>
+            )}
             <View style={styles.userInfoHandle} />
 
             {/* Header */}
@@ -81,9 +165,9 @@ export const UserInfoModal = memo(
 
               <View style={styles.userInfoHeaderText}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.userInfoName}>{user.name}</Text>
+                  <Text style={[styles.userInfoName, showPremiumTheme && { color: accentColor }]}>{user.name}</Text>
                   {user.isPremium && (
-                    <View style={{ backgroundColor: '#FFD70018', borderRadius: 10, borderWidth: 1, borderColor: '#FFD70040', paddingHorizontal: 7, paddingVertical: 2 }}>
+                    <View style={{ backgroundColor: `${accentColor}18`, borderRadius: 10, borderWidth: 1, borderColor: `${accentColor}40`, paddingHorizontal: 7, paddingVertical: 2 }}>
                       <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 8 }}>PREMIUM</Text>
                     </View>
                   )}

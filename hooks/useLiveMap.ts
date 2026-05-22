@@ -12,11 +12,14 @@ export interface LiveUser {
   id:        number;
   username:  string;
   avatarUrl: string | null;
+  avatarFrameUrl?: string | null;
   lat:       number;
   lng:       number;
   online:    boolean;
   isFriend?: boolean;
   isPremium?: boolean;
+  serverAt?: number | null;
+  seq?: number | null;
 }
 
 export interface LiveWarning {
@@ -54,6 +57,8 @@ const LIVE_USER_STALE_MS = 5 * 60 * 1000;
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
+const LIVE_USER_MAX_STEP_M = 180;
+const LIVE_USER_EVENT_STALE_MS = 2 * 60 * 1000;
 
 async function fetchWithTimeout(
   url: string,
@@ -125,11 +130,13 @@ export function useLiveMap(
   const interpRef = useRef<Map<number, InterpEntry>>(new Map());
   const liveUserLastSeenRef = useRef<Map<number, number>>(new Map());
   const pendingOfflineRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const liveUserLastSeqRef = useRef<Map<number, number>>(new Map());
+  const liveUserLastServerAtRef = useRef<Map<number, number>>(new Map());
   const INTERP_TICK_BASE_MS = 180;
-  const INTERP_TICK_BUSY_MS = 260;
-  const INTERP_TICK_TRIP_MS = 500;
-  const MIN_INTERP_DUR_MS  = 120;  // minimum lerp duration guard
-  const MAX_INTERP_DUR_MS  = 6000;
+  const INTERP_TICK_BUSY_MS = 140;
+  const INTERP_TICK_TRIP_MS = 120;
+  const MIN_INTERP_DUR_MS  = 90;  // minimum lerp duration guard
+  const MAX_INTERP_DUR_MS  = 2200;
   const USERS_REFRESH_MS   = 45_000;
 
   const easeInOut = (t: number) => t * t * (3 - 2 * t);
@@ -151,6 +158,8 @@ export function useLiveMap(
     liveUserLastSeenRef.current.delete(id);
     smoothedPosRef.current.delete(id);
     interpRef.current.delete(id);
+    liveUserLastSeqRef.current.delete(id);
+    liveUserLastServerAtRef.current.delete(id);
     const pending = pendingOfflineRef.current.get(id);
     if (pending) {
       clearTimeout(pending);
@@ -203,6 +212,12 @@ export function useLiveMap(
 
       for (const u of incoming) {
         if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
+        if (Number.isFinite(Number(u?.seq))) {
+          liveUserLastSeqRef.current.set(u.id, Number(u.seq));
+        }
+        if (Number.isFinite(Number(u?.serverAt))) {
+          liveUserLastServerAtRef.current.set(u.id, Number(u.serverAt));
+        }
         incomingById.set(u.id, u);
         const prevU = prevById.get(u.id);
         const lat = prevU?.lat ?? u.lat;
@@ -266,6 +281,8 @@ export function useLiveMap(
       setLiveUsers([]);
       smoothedPosRef.current.clear();
       interpRef.current.clear();
+      liveUserLastSeqRef.current.clear();
+      liveUserLastServerAtRef.current.clear();
     } else if (connected) {
       setSharingStatus('on');
       joinLiveMapRoom();
@@ -284,6 +301,8 @@ export function useLiveMap(
     setConnected(false);
     setSharingStatus('off');
     interpRef.current.clear();
+    liveUserLastSeqRef.current.clear();
+    liveUserLastServerAtRef.current.clear();
   }, [enabled]);
 
   // ── Filtruj warnings do 25 km gdy zmienia się pozycja lub lista ──
@@ -401,7 +420,17 @@ export function useLiveMap(
         const id = Number(data?.id);
         const rawLat = Number(data?.lat);
         const rawLng = Number(data?.lng);
+        const seq = Number(data?.seq);
+        const serverAtRaw = Number(data?.serverAt ?? data?.locationAt);
+        const serverAt = Number.isFinite(serverAtRaw) ? serverAtRaw : Date.now();
         if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
+        if (Date.now() - serverAt > LIVE_USER_EVENT_STALE_MS) return;
+        const prevSeq = liveUserLastSeqRef.current.get(id);
+        if (Number.isFinite(seq) && prevSeq != null && seq <= prevSeq) return;
+        const prevServerAt = liveUserLastServerAtRef.current.get(id);
+        if (prevServerAt != null && serverAt < prevServerAt) return;
+        if (Number.isFinite(seq)) liveUserLastSeqRef.current.set(id, seq);
+        liveUserLastServerAtRef.current.set(id, serverAt);
         touchLiveUser(id);
 
         setLiveUsers((prev) => {
@@ -419,6 +448,11 @@ export function useLiveMap(
               targetLat = prevSmoothed.lat;
               targetLng = prevSmoothed.lng;
             } else {
+              if (distM > LIVE_USER_MAX_STEP_M) {
+                const ratio = LIVE_USER_MAX_STEP_M / distM;
+                targetLat = prevSmoothed.lat + (targetLat - prevSmoothed.lat) * ratio;
+                targetLng = prevSmoothed.lng + (targetLng - prevSmoothed.lng) * ratio;
+              }
               targetLat = prevSmoothed.lat + SMOOTH_ALPHA * (targetLat - prevSmoothed.lat);
               targetLng = prevSmoothed.lng + SMOOTH_ALPHA * (targetLng - prevSmoothed.lng);
             }
@@ -436,7 +470,7 @@ export function useLiveMap(
             fromLng = interp.fromLng + (interp.toLng - interp.fromLng) * te;
           }
           const lastMs = interp?.lastUpdateMs ?? now;
-          const durationMs = Math.min(Math.max(now - lastMs, 500), MAX_INTERP_DUR_MS);
+          const durationMs = Math.min(Math.max(now - lastMs, 220), MAX_INTERP_DUR_MS);
           interpRef.current.set(id, {
             fromLat,
             fromLng,
@@ -455,11 +489,16 @@ export function useLiveMap(
             avatarUrl: data?.avatarUrl !== undefined
               ? data.avatarUrl
               : (existingUser?.avatarUrl ?? null),
+            avatarFrameUrl: data?.avatarFrameUrl !== undefined
+              ? data.avatarFrameUrl
+              : (existingUser?.avatarFrameUrl ?? null),
             lat: fromLat,
             lng: fromLng,
             online: data?.online ?? existingUser?.online ?? true,
             isFriend: data?.isFriend ?? existingUser?.isFriend,
             isPremium: data?.isPremium ?? existingUser?.isPremium,
+            serverAt,
+            seq: Number.isFinite(seq) ? seq : null,
           };
 
           if (existingUser) {
@@ -476,10 +515,13 @@ export function useLiveMap(
             id: Number(u?.id),
             username: typeof u?.username === 'string' ? u.username : '',
             avatarUrl: typeof u?.avatarUrl === 'string' ? u.avatarUrl : null,
+            avatarFrameUrl: typeof u?.avatarFrameUrl === 'string' ? u.avatarFrameUrl : null,
             lat: Number(u?.lat),
             lng: Number(u?.lng),
             online: u?.online !== false,
             isPremium: !!u?.isPremium,
+            serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
+            seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
           }))
           .filter((u) =>
             Number.isFinite(u.id)
@@ -781,6 +823,8 @@ export function useLiveMap(
         liveUserLastSeenRef.current.clear();
         smoothedPosRef.current.clear();
         interpRef.current.clear();
+        liveUserLastSeqRef.current.clear();
+        liveUserLastServerAtRef.current.clear();
         setLiveUsers([]);
       }
       return nextShare;

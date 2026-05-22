@@ -33,16 +33,18 @@ const RECENTER_ANIM_MS = 1000;
 const DRIVING_ENTRY_RECENTER_MS = 480;
 const IDLE_APPLY_MS = 120;
 /** ~30 FPS apply do Mapbox — płynnie, ale bez przeciążania renderu. */
-const FOLLOW_APPLY_INTERVAL_MS = 32;
+const FOLLOW_APPLY_INTERVAL_MS = 24;
 
 /** Stałe czasowe wygładzania (sekundy). */
-const CENTER_TAU_S = 0.48;
+const CENTER_TAU_S = 0.32;
 /** Płynne obracanie w stronę jazdy (wektor ruchu + snap drogi). */
 const HEADING_TAU_S = 0.38;
 const ZOOM_TAU_S = 2.2;
 const PITCH_TAU_S = 0.85;
 const HEADING_VECTOR_MIN_MOVE_M = 1.8;
 const HEADING_LOW_SPEED_HOLD_KMH = 6;
+const HEADING_FLIP_GUARD_DEG = 105;
+const HEADING_LOW_SPEED_MAX_STEP_DEG = 10;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -293,7 +295,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     );
     const centerTau = centerErrM > 45 ? 0.35 : CENTER_TAU_S;
     const centerAlpha = expAlpha(dtSec, centerTau);
-    const maxCenterStep = clampNum(14 + speedKmhRef.current * 0.55, 12, 58) * dtSec;
+    const maxCenterStep = clampNum(20 + speedKmhRef.current * 0.72, 18, 84) * dtSec;
 
     const center = moveCenterToward(
       {
@@ -480,6 +482,13 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         const turnRate = maxHeadingRateDegPerSec(Math.max(input.speedKmh, impliedKmh));
         const maxStep = turnRate * dtSec * 1.8 + 7;
         resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, resolvedHeading, maxStep);
+        const flipDelta = Math.abs(headingDelta(prevResolvedHeading, resolvedHeading));
+        if (input.speedKmh < 18 && flipDelta > HEADING_FLIP_GUARD_DEG) {
+          resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, resolvedHeading, HEADING_LOW_SPEED_MAX_STEP_DEG);
+        }
+        if (input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH && movedM < 1.2) {
+          resolvedHeading = prevResolvedHeading;
+        }
       }
 
       resolvedHeading = normalizeHeading(resolvedHeading);

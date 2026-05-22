@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react';
+import { Platform } from 'react-native';
 import { alignBearingToReference, bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts/navigationUtils';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 
@@ -19,6 +20,15 @@ const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
 const RAW_FALLBACK_MAX_STEP_M = 30;    // max krok fallbacku gdy chwilowo brak snapa
+const IOS_WRONG_ROAD_GUARD_MAX_SPEED_KMH = 26;
+const IOS_WRONG_ROAD_GUARD_MIN_JUMP_M = 24;
+const IOS_WRONG_ROAD_GUARD_MAX_RAW_MOVE_M = 18;
+const IOS_WRONG_ROAD_GUARD_MIN_ACC_M = 18;
+const IOS_WRONG_ROAD_GUARD_SEGMENT_LEAP = 14;
+const IOS_WRONG_ROAD_GUARD_MAX_HEADING_DELTA = 68;
+const IOS_SEGMENT_SWITCH_CONFIRM_HITS = 2;
+const IOS_SEGMENT_SWITCH_CONFIRM_WINDOW_MS = 3000;
+const IOS_SEGMENT_SWITCH_CONFIRM_RADIUS_M = 32;
 
 function projectByBearingMeters(
   lat: number,
@@ -183,6 +193,13 @@ export function useDrivingSnap() {
   const roadMatchPtsRef      = useRef<{ latitude: number; longitude: number }[]>([]);
   const lastSegmentIndexRef  = useRef<number>(-1);
   const lastSnapAtRef        = useRef<number>(0);
+  const iosSegmentSwitchCandidateRef = useRef<{
+    lat: number;
+    lng: number;
+    segIdx: number;
+    hits: number;
+    at: number;
+  } | null>(null);
 
   const logSnapReject = useCallback((reason: string, payload?: Record<string, unknown>) => {
     vroomGpsLog(`SNAP_${reason}`, { source: 'useDrivingSnap', ...(payload ?? {}) }, 1500);
@@ -311,6 +328,16 @@ export function useDrivingSnap() {
     if (stationary && usingMatchedRoad) {
       matchedRoadRadius = Math.max(matchedRoadRadius, 80);
     }
+    if (
+      Platform.OS === 'ios'
+      && usingMatchedRoad
+      && hardRoadLock
+      && speedKmh < 30
+    ) {
+      // iOS potrafi dać przesunięty fix na równoległą jezdnię; ciaśniejszy promień
+      // ogranicza łapanie odległej geometrii przy wolnej jeździe.
+      matchedRoadRadius = Math.min(matchedRoadRadius, 105);
+    }
     if (usingMatchedRoad && accuracyM != null && Number.isFinite(accuracyM) && accuracyM < 25) {
       matchedRoadRadius = Math.min(matchedRoadRadius, 95);
     }
@@ -419,6 +446,114 @@ export function useDrivingSnap() {
         }
         return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
       }
+    }
+
+    // iOS guard: przy niskiej prędkości i słabszym fixie nie pozwól przeskoczyć
+    // na równoległą/złą drogę po dużym skoku segmentu.
+    if (Platform.OS === 'ios' && hardRoadLock && result && lastSnappedRef.current && lastRawRef.current) {
+      const acc = accuracyM != null && Number.isFinite(accuracyM) ? accuracyM : 999;
+      const jumpFromPrevSnapM = haversineKm(
+        lastSnappedRef.current.latitude,
+        lastSnappedRef.current.longitude,
+        result.latitude,
+        result.longitude,
+      ) * 1000;
+      const rawMoveM = haversineKm(
+        lastRawRef.current.lat,
+        lastRawRef.current.lng,
+        lat,
+        lng,
+      ) * 1000;
+      const segLeap = lastSegmentIndexRef.current >= 0
+        ? Math.abs(result.segmentIndex - lastSegmentIndexRef.current)
+        : 0;
+      const hdgDelta = angleDeltaDeg(result.segmentBearing, lastTargetHeadingRef.current || 0);
+      const likelyWrongRoadJump =
+        speedKmh <= IOS_WRONG_ROAD_GUARD_MAX_SPEED_KMH
+        && acc >= IOS_WRONG_ROAD_GUARD_MIN_ACC_M
+        && rawMoveM <= IOS_WRONG_ROAD_GUARD_MAX_RAW_MOVE_M
+        && jumpFromPrevSnapM >= IOS_WRONG_ROAD_GUARD_MIN_JUMP_M
+        && segLeap >= IOS_WRONG_ROAD_GUARD_SEGMENT_LEAP
+        && hdgDelta >= IOS_WRONG_ROAD_GUARD_MAX_HEADING_DELTA;
+      if (likelyWrongRoadJump) {
+        logSnapReject('ios_wrong_road_guard_hold', {
+          speedKmh: Math.round(speedKmh),
+          accM: Math.round(acc),
+          rawMoveM: Math.round(rawMoveM),
+          snapJumpM: Math.round(jumpFromPrevSnapM),
+          segLeap,
+          hdgDelta: Math.round(hdgDelta),
+        });
+        return {
+          ...lastSnappedRef.current,
+          snapped: true,
+          targetHeading: lastTargetHeadingRef.current,
+        };
+      }
+    }
+    if (Platform.OS === 'ios' && hardRoadLock && result && lastSnappedRef.current) {
+      const segLeap = lastSegmentIndexRef.current >= 0
+        ? Math.abs(result.segmentIndex - lastSegmentIndexRef.current)
+        : 0;
+      const jumpFromPrevSnapM = haversineKm(
+        lastSnappedRef.current.latitude,
+        lastSnappedRef.current.longitude,
+        result.latitude,
+        result.longitude,
+      ) * 1000;
+      if (segLeap >= 10 && jumpFromPrevSnapM >= 20 && speedKmh <= 45) {
+        const now = Date.now();
+        const cand = iosSegmentSwitchCandidateRef.current;
+        const sameCluster =
+          !!cand
+          && now - cand.at <= IOS_SEGMENT_SWITCH_CONFIRM_WINDOW_MS
+          && Math.abs(cand.segIdx - result.segmentIndex) <= 4
+          && haversineKm(cand.lat, cand.lng, result.latitude, result.longitude) * 1000 <= IOS_SEGMENT_SWITCH_CONFIRM_RADIUS_M;
+        if (!sameCluster) {
+          iosSegmentSwitchCandidateRef.current = {
+            lat: result.latitude,
+            lng: result.longitude,
+            segIdx: result.segmentIndex,
+            hits: 1,
+            at: now,
+          };
+          logSnapReject('ios_segment_switch_candidate_1', {
+            segLeap,
+            jumpM: Math.round(jumpFromPrevSnapM),
+            speedKmh: Math.round(speedKmh),
+          });
+          return {
+            ...lastSnappedRef.current,
+            snapped: true,
+            targetHeading: lastTargetHeadingRef.current,
+          };
+        }
+        const hits = (cand?.hits ?? 1) + 1;
+        if (hits < IOS_SEGMENT_SWITCH_CONFIRM_HITS) {
+          iosSegmentSwitchCandidateRef.current = {
+            lat: result.latitude,
+            lng: result.longitude,
+            segIdx: result.segmentIndex,
+            hits,
+            at: now,
+          };
+          logSnapReject(`ios_segment_switch_candidate_${hits}`, {
+            segLeap,
+            jumpM: Math.round(jumpFromPrevSnapM),
+            speedKmh: Math.round(speedKmh),
+          });
+          return {
+            ...lastSnappedRef.current,
+            snapped: true,
+            targetHeading: lastTargetHeadingRef.current,
+          };
+        }
+        iosSegmentSwitchCandidateRef.current = null;
+      } else {
+        iosSegmentSwitchCandidateRef.current = null;
+      }
+    } else {
+      iosSegmentSwitchCandidateRef.current = null;
     }
 
     // Ogranicz projekcję na złą geometrię (równoległa droga) — ale NIE przeciągaj w stronę
@@ -593,6 +728,7 @@ export function useDrivingSnap() {
     lastTargetHeadingRef.current = 0;
     lastSegmentIndexRef.current  = -1;
     lastSnapAtRef.current        = 0;
+    iosSegmentSwitchCandidateRef.current = null;
   }, []);
 
   const reset = useCallback(() => {

@@ -4,6 +4,7 @@ export interface User {
   latitude: number;
   longitude: number;
   avatar?: string;
+  avatarFrameUrl?: string;
   status?: string;
   distance?: number;
   isFriend?: boolean;

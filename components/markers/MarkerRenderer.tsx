@@ -4,6 +4,7 @@ import ViewShot from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 
 interface MarkerRendererProps {
   user:      User;
@@ -18,6 +19,15 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
   const bgColor     = user.isFriend ? '#4de92622' : '#00bfff22';
   const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92650' : '#00bfff50');
   const avatarUri   = normalizeMediaUri(user.avatar ?? null);
+  const avatarFrameUri = normalizeMediaUri(user.avatarFrameUrl ?? null);
+  const frameItem = avatarFrameUri
+    ? {
+        id: `live_${user.id}`,
+        name: 'Live frame',
+        category: 'avatar_frame' as const,
+        assetUrl: avatarFrameUri,
+      }
+    : null;
   const isUrl       = !!avatarUri;
 
   const captureMarker = useCallback((delayMs = 0) => {
@@ -98,6 +108,7 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
                 </Text>
               )}
             </View>
+            <ShopAvatarDecoration item={frameItem} size={40} />
             {user.isPremium && (
               <View style={{
                 position: 'absolute', top: -6, right: -6,

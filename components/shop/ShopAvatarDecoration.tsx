@@ -14,7 +14,8 @@ export const ShopAvatarDecoration = memo(function ShopAvatarDecoration({ item, s
   const uri = normalizeMediaUri(item?.assetUrl);
   if (!uri) return null;
 
-  const outer = size * 1.42;
+  // Keep the frame thinner so the avatar stays visually dominant.
+  const outer = size * 1.28;
   return (
     <View pointerEvents="none" style={[styles.wrap, { width: outer, height: outer, marginLeft: -(outer - size) / 2, marginTop: -(outer - size) / 2 }]}>
       <Image

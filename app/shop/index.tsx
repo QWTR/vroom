@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sheetFrame: { width: 100, height: 100, alignItems: 'center', justifyContent: 'center' },
-  sheetFakeAvatar: { width: 64, height: 64, borderRadius: 32 },
+  sheetFakeAvatar: { width: 100, height: 100, borderRadius: 50 },
   sheetPreviewImg: { width: '100%', height: '100%' },
   sheetCat: { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2, fontWeight: '800', marginBottom: 6 },
   sheetName: { fontFamily: 'Orbitron', fontSize: 18, fontWeight: '900', marginBottom: 8 },

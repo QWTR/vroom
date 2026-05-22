@@ -14,6 +14,12 @@ function lerpHeading(from: number, to: number, t: number): number {
   return ((from + diff * t) + 360) % 360;
 }
 
+function easeOutCubic(x: number): number {
+  'worklet';
+  const c = x < 0 ? 0 : x > 1 ? 1 : x;
+  return 1 - Math.pow(1 - c, 3);
+}
+
 export type SmoothMapPositionValues = {
   lat: ReturnType<typeof useSharedValue<number>>;
   lng: ReturnType<typeof useSharedValue<number>>;
@@ -46,7 +52,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const instant = target.durationMs === 0;
       const duration = instant
         ? 0
-        : Math.max(90, Math.min(1400, target.durationMs ?? 1000));
+        : Math.max(60, Math.min(1400, target.durationMs ?? 1000));
 
       const curLat = lat.value;
       const curLng = lng.value;
@@ -73,6 +79,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         return;
       }
 
+      // Wystartuj z aktualnej pozycji — bez teleportu nawet jeśli marker był w trakcie poprzedniej animacji.
       fromLat.value = curLat;
       fromLng.value = curLng;
       fromHdg.value = curHdg;
@@ -94,13 +101,15 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       if (hasTarget.value === 0) return;
 
       const now = Date.now();
-      const t = Math.min(1, (now - segStart.value) / Math.max(segDur.value, 1));
+      const segLength = Math.max(1, segDur.value);
+      const tRaw = (now - segStart.value) / segLength;
+      const t = easeOutCubic(tRaw);
 
       lat.value = fromLat.value + (toLat.value - fromLat.value) * t;
       lng.value = fromLng.value + (toLng.value - fromLng.value) * t;
       heading.value = lerpHeading(fromHdg.value, toHdg.value, t);
 
-      if (t >= 0.999) {
+      if (tRaw >= 0.999) {
         lat.value = toLat.value;
         lng.value = toLng.value;
         heading.value = toHdg.value;

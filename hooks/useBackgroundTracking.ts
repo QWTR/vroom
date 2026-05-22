@@ -320,14 +320,13 @@ export async function recordDrivingTracePoint(
 }
 
 // ── BG task ───────────────────────────────────────────────────────────────────
+// Hard rule: gdy użytkownik wyłączył „Śledzenie w tle" w ustawieniach, BG task
+// MUSI być nieaktywny niezależnie od jazdy/nawigacji/share. Wcześniej navFlag/
+// driveFlag potrafiły obejść przełącznik (BG GPS pracował podczas jazdy mimo
+// wyłączonego BG w ustawieniach) — to złamanie obietnicy UX i baterii.
 async function isBgTripTaskAllowed(): Promise<boolean> {
-  const [bgSetting, navFlag, driveFlag] = await Promise.all([
-    AsyncStorage.getItem(BG_TRACKING_SETTING_KEY),
-    AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
-    AsyncStorage.getItem(BG_IS_DRIVING_KEY),
-  ]);
-  // iOS „Zawsze” ≠ przełącznik w apce — podczas jazdy/nawigacji licz km w tle nawet bez globalnego BG.
-  return bgSetting === 'true' || navFlag === 'true' || driveFlag === 'true';
+  const bgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
+  return bgSetting === 'true';
 }
 
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
@@ -775,11 +774,12 @@ export function useBackgroundTracking(
         }
         return;
       }
-      // Prevent double accounting while app is active in foreground trip pipeline.
-      // Nawigacja/jazda w tle (Premium): GPS nawet gdy wyłączone „śledzenie w tle” w ustawieniach.
+      // Hard rule: jeśli użytkownik wyłączył „Śledzenie w tle" w ustawieniach,
+      // NIE startujemy BG location task w tle. forceEnabled (jazda/nawigacja)
+      // może podtrzymać task w foreground (do live share), ale NIE w tle.
       const shouldTrack = sharingHydrated && (
-        (!appIsActive && (bgEnabled || forceEnabled))
-        || (appIsActive && forceEnabled)
+        (!appIsActive && bgEnabled)
+        || (appIsActive && forceEnabled && bgEnabled)
       );
       if (!shouldTrack) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
@@ -894,7 +894,10 @@ export function useBackgroundTracking(
         activeHeartbeat = null;
       }
       if (s === 'background' || s === 'inactive') {
-        if (isPremium && sharingHydrated && (bgEnabled || forceEnabled)) {
+        // Hard rule: gdy bgEnabled=false NIGDY nie startuj BG location task
+        // — nawet w trakcie jazdy/nawigacji. Użytkownik wyłączył tę funkcję
+        // świadomie w ustawieniach i app musi to uszanować.
+        if (isPremium && sharingHydrated && bgEnabled) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
@@ -902,7 +905,10 @@ export function useBackgroundTracking(
         return;
       }
       if (s === 'active') {
-        if (sharingHydrated && (isSharing || forceEnabled)) {
+        // W foreground task może być potrzebny do live share — ale tylko gdy
+        // user faktycznie zgodził się na BG (bgEnabled). Inaczej share location
+        // chodzi przez foreground GPS w map.tsx.
+        if (sharingHydrated && bgEnabled && (isSharing || forceEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
