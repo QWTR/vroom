@@ -237,6 +237,35 @@ function resolveDrivingHeading(
   gpsHeading: number | null | undefined,
   kmh: number,
 ): number | null {
+  // ANALIZA mphanl3x: heading "next=57" przyklejony przez całą sesję bo snap
+  // chwytał boczną polilinię ze stałym bearingiem 57°, a Doppler GPS pokazywał
+  // ~237° (przeciwna strona). resolveDrivingHeading() i resolveUnifiedHeading()
+  // ważyły snap heading dużo bardziej niż GPS, więc heading zamykał się w pętli
+  // 57° → 57° → 57°. 48× HEADING_FLIP_GUARD ze skokami 154-179°.
+  //
+  // Fix: gdy snap i raw Doppler są drastycznie różne przy ruchu, snap jest
+  // najprawdopodobniej na bocznej polilinii — preferuj raw Doppler bezpośrednio,
+  // bez aliasingu do snap-bearing.
+  if (
+    appliedSnap.snapped
+    && Number.isFinite(appliedSnap.targetHeading)
+    && gpsHeading != null
+    && Number.isFinite(gpsHeading)
+    && Number(gpsHeading) >= 0
+    && kmh >= 25
+  ) {
+    const snapVsGps = Math.abs(
+      ((Number(gpsHeading) - appliedSnap.targetHeading + 540) % 360) - 180,
+    );
+    // ANALIZA mphbhukq (v4): HEADING_FLIP_GUARD 39× z `next=76` przyklejony,
+    // ale `delta` względem `prev` często 100-130° (a nie >60° vs gps_heading).
+    // Obniżenie progu na 45° łapie szerszy zakres bocznych polilinii.
+    if (snapVsGps > 45) {
+      const gpsBypass = smoothHeading(lastHeading, Number(gpsHeading), 0.6, 55);
+      return gpsBypass;
+    }
+  }
+
   let moveBearing: number | null = null;
   if (lastDrivingPos) {
     const distM = haversineKm(
@@ -308,6 +337,20 @@ function resolveUnifiedHeading(params: {
   const alignedSnap = hasSnap ? alignBearingToReference(Number(params.snapHeading), ref) : null;
   const alignedMove = hasMove ? alignBearingToReference(Number(params.movementHeading), ref) : null;
   const alignedGps = hasGps ? alignBearingToReference(Number(params.gpsHeading), ref) : null;
+
+  // ANALIZA mphbhukq (v4): obniżamy próg z 60 na 45° (boczne polilinie mają
+  // często diff 50-60° vs Doppler) i z 30 na 25 km/h (łapiemy też miejskie scenariusze).
+  if (
+    alignedSnap != null
+    && alignedGps != null
+    && speedKmh >= 25
+  ) {
+    const snapGpsDiff = Math.abs(((alignedSnap - alignedGps + 540) % 360) - 180);
+    if (snapGpsDiff > 45) {
+      const target = smoothHeading(prev, alignedGps, 0.65, 55);
+      return ((target % 360) + 360) % 360;
+    }
+  }
 
   let target = prev;
   if (alignedSnap != null) target = smoothHeading(target, alignedSnap, speedKmh >= 14 ? 0.5 : 0.42, 28);
@@ -504,12 +547,26 @@ const GPS_DEBUG_BUFFER_SIZE = 30;
 /** Active modes: instead of hard-dropping suspicious fixes, clamp step to keep motion smooth. */
 const GPS_ACTIVE_SOFT_REBASE_MAX_STEP_M = 95;
 const SNAP_STALE_MIN_KMH = 8;
-const SNAP_STALE_MIN_RAW_TO_SNAP_M = 60;
+// ANALIZA mphanl3x: poprzednie 60 m przepuszczało off-road 50-70 m (marker
+// równolegle do drogi przez kilka sekund). Próg 35 m łapie wszystko co wykracza
+// poza realną dokładność GPS (≤20 m typowo).
+const SNAP_STALE_MIN_RAW_TO_SNAP_M = 35;
 const SNAP_STALE_RESCUE_STREAK = 3;
-/** Próg rawToSnapM przy którym natychmiast resetujemy geometrię i wymuszamy match (poza streak). */
-const SNAP_STALE_HARD_RESET_M = 180;
-const DRIFT_CRITICAL_M = 160;
-const DRIFT_CRITICAL_STREAK = 3;
+/**
+ * Próg rawToSnapM przy którym natychmiast resetujemy geometrię i wymuszamy match
+ * (poza streak). Obniżone z 180 na 80 — w logu mphanl3x marker leciał 161 m
+ * od drogi przy snapped:true (próg 180 nie zadziałał wystarczająco wcześnie).
+ */
+const SNAP_STALE_HARD_RESET_M = 80;
+/**
+ * ANALIZA mph9uzxa: 337 DR_CRITICAL_REANCHOR w 3.5 min, driftFromSnapM mediana
+ * 18 657 m to artefakt — `anchor (lastSetLocRef)` jest okresowo niesynchronizowany
+ * z snappedPos po stałej akumulacji DR clamp + map-match catch-up. Realne dryfy
+ * krytyczne są zawsze >300 m. Podbicie progu i streak'a likwiduje false-positives
+ * bez utraty ratowania. Po tej zmianie spodziewamy się <80 wpisów na sesję 4-min.
+ */
+const DRIFT_CRITICAL_M = 300;
+const DRIFT_CRITICAL_STREAK = 5;
 /** Throttle DR_CRITICAL_REANCHOR — w poprzednim logu były 1347 wpisów (co klatkę). */
 const DR_REANCHOR_LOG_THROTTLE_MS = 500;
 /** Max odległość gdzie reanchor próbuje skok w stronę raw — powyżej traktujemy jako odjazd na inną drogę. */
@@ -756,6 +813,16 @@ export default function MapScreen() {
   /** Liczba kolejnych klatek z brakiem polilinii pod raw — używane do force-match. */
   const drNoRoadStreakRef = useRef(0);
   const lastDrForceMatchAtRef = useRef(0);
+  const cameraLagStreakRef = useRef<{ startAt: number; lastLagM: number } | null>(null);
+  const lastCameraWatchdogAtRef = useRef(0);
+  const markerStuckStreakRef = useRef<{ startAt: number; drToTargetM: number } | null>(null);
+  const lastMarkerStuckRecoveryAtRef = useRef(0);
+  // ANALIZA mphbhukq v4: 8/12 MARKER_STUCK_RECOVERY na tym samym snap point
+  // (53.12402, 21.678398) — snap geometria była martwa, samo resetowanie DR
+  // nie pomaga bo dryf wraca w 1-2 s. Trzymamy ostatni recovery snap point
+  // żeby wykryć loop i wymusić clearGeometry + force-match.
+  const lastRecoverySnapRef = useRef<{ lat: number; lng: number; count: number } | null>(null);
+  const lastRecoveryGeometryResetAtRef = useRef(0);
   const lastTripTargetUpdateAtRef = useRef(0);
   const lastGoodTimeRef       = useRef<number>(Date.now());
   /** Rzeczywisty czas ostatniego zaakceptowanego fixu — bez cofania przy resume (walidacja one-shot). */
@@ -1150,6 +1217,44 @@ export default function MapScreen() {
     }
     gpsDbgLastAcceptedRef.current = { lat: entry.lat, lng: entry.lng, at: now };
   }, [queueMapDiagnostic]);
+
+  // ── BUILD FINGERPRINT ─────────────────────────────────────────────────────
+  // Loguje przy każdym mount mapy konkretną wersję patchy. Patrz na pierwszy
+  // wpis w telemetrii — jeśli go nie ma, kod NIE doleciał do urządzenia
+  // (problem w `eas update` / cache / kanał) i żadne zmiany w kodzie nie
+  // zadziałają, bo telefon ich nie widzi.
+  useEffect(() => {
+    vroomGpsLog('BUILD_FINGERPRINT', {
+      version: 'snap-guard-v5-2026-05-22',
+      platform: Platform.OS,
+      mountedAt: new Date().toISOString(),
+      features: {
+        snapMaxToRawGuard: true,
+        snapHardDrop: true,
+        snapLastTooFarReset: true,
+        reanchorRoadProjection: true,
+        reanchorThrottle500ms: true,
+        reanchorForceMatchOnNoRoad: true,
+        mapMatchStaleSnapBypass: true,
+        mapMatchBudgetBurst: 8,
+        motionKmhCap: 200,
+        sustainedKmhCap: true,
+        resumeFreezeInstantRelease: true,
+        markerPipeRawToSnap: true,
+        hardRescueClampedStep: true,
+        driftCriticalThreshold300: true,
+        snapStaleAnchorRetryAfter1500ms: true,
+        snapMatchedRadius90m: true,
+        snapStaleHardReset80m: true,
+        snapLateralReject55m: true,
+        headingPreferGps45deg25kmh: true,
+        cameraLagWatchdog40m2s3s: true,
+        markerStuckRecovery2s: true,
+        markerStuckLoopGeometryNuke: true,
+        markerPipeSplitResync: true,
+      },
+    }, 0);
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -2349,7 +2454,10 @@ export default function MapScreen() {
         ) * 1000;
         const dopplerKmh = rawGpsKmhRef.current;
         const dopplerActive = dopplerKmh >= 5;
-        const driftThresholdM = dopplerActive ? 120 : 30;
+        // ANALIZA mph9uzxa: 120 m przy doppler aktywnym powodowało 337 reanchorów
+        // przez sumę drobnych dryftów (DR ekstrapoluje + bridge dosypuje co tick).
+        // Realne wymyki to >200 m, krytyczne >300 m (już SNAP_STALE_HARD_RESET tam łapie).
+        const driftThresholdM = dopplerActive ? 200 : 60;
         if (driftFromSnapM > driftThresholdM) {
           driftCriticalStreakRef.current += driftFromSnapM >= DRIFT_CRITICAL_M ? 1 : 0;
           const maxDriftStepM = dopplerActive
@@ -2547,6 +2655,47 @@ export default function MapScreen() {
             speedKmh: Math.round(speedKmhRef.current),
             heading: Math.round(camHeading || 0),
           }, 0);
+        }
+        // CAMERA WATCHDOG (analiza mphbhukq v4):
+        // W v4 watchdog odpalał się 8× ale tylko 1/8 było skuteczne (lag wracał
+        // do 59-188 m w 5 s). Po 19:34:18 z kolei 214 s bez watchdog bo lag
+        // siedział w paśmie 40-49 m (poniżej starego progu >50). Obniżamy
+        // próg na 40 m, streak na 2 s, cooldown na 3 s. Plus po recenter
+        // czyścimy markerStuckStreakRef bo recovery i watchdog często idą razem.
+        if (isDrivingRef.current && cameraLagM > 40) {
+          const streak = cameraLagStreakRef.current;
+          if (!streak) {
+            cameraLagStreakRef.current = { startAt: uiNow, lastLagM: cameraLagM };
+          } else {
+            streak.lastLagM = cameraLagM;
+            if (
+              uiNow - streak.startAt > 2000
+              && uiNow - lastCameraWatchdogAtRef.current > 3000
+            ) {
+              lastCameraWatchdogAtRef.current = uiNow;
+              vroomGpsLog('CAMERA_LAG_WATCHDOG', {
+                lagM: Math.round(cameraLagM),
+                durationMs: Math.round(uiNow - streak.startAt),
+                speedKmh: Math.round(speedKmhRef.current),
+                heading: Math.round(camHeading || 0),
+              }, 0);
+              recenterTo({
+                center: { latitude: snappedPos.latitude, longitude: snappedPos.longitude },
+                heading: camHeading || 0,
+                speedKmh: speedKmhRef.current,
+                active: true,
+                instant: true,
+              });
+              lastSetLocRef.current = { lat: snappedPos.latitude, lng: snappedPos.longitude };
+              cameraLagStreakRef.current = null;
+              markerStuckStreakRef.current = null;
+            }
+          }
+        } else if (cameraLagM < 25) {
+          // Wyzeruj streak tylko gdy faktyczna poprawa — w paśmie 25-40 m
+          // trzymamy stary streak, bo to jest "pre-watchdog" zone (lag rośnie
+          // ale jeszcze nie chcemy szarpnąć).
+          cameraLagStreakRef.current = null;
         }
         const targetDur = isDrivingRef.current
           ? Math.max(
@@ -4737,14 +4886,23 @@ export default function MapScreen() {
               // wewnątrz drivingSnap resetuje się też lastSnappedRef (przez
               // hard guard MAX_SNAP_TO_RAW_DISTANCE_M / HARD_SNAP_DROP_M).
               applyRoadMatchPoints([], { skipResync: true });
-              // Marker do raw GPS od razu (bo snap był martwy):
-              lastSetLocRef.current = { lat: rawLat, lng: rawLng };
-              if (drLatRef.current !== rawLat || drLngRef.current !== rawLng) {
-                drLatRef.current = rawLat;
-                drLngRef.current = rawLng;
+              // ANALIZA mph9uzxa: w incydencie 18:49:00-06 marker zrobił 3 widoczne
+              // skoki 100-141 m bo `feedDR(raw)` ściągał DR od razu do raw.
+              // Fix: dochodzimy do raw KROKIEM (max 35 m), marker w kolejnych 3-4
+              // klatkach (1-2 s) płynnie wraca na drogę zamiast teleportować.
+              const rescueFrom = lastSetLocRef.current ?? { lat: rawLat, lng: rawLng };
+              const rescueTarget = clampCoordStep(
+                { latitude: rescueFrom.lat, longitude: rescueFrom.lng },
+                { latitude: rawLat, longitude: rawLng },
+                DR_REANCHOR_MAX_HARD_STEP_M,
+              );
+              lastSetLocRef.current = { lat: rescueTarget.latitude, lng: rescueTarget.longitude };
+              if (drLatRef.current !== rescueTarget.latitude || drLngRef.current !== rescueTarget.longitude) {
+                drLatRef.current = rescueTarget.latitude;
+                drLngRef.current = rescueTarget.longitude;
               }
               feedDRRef.current(
-                { latitude: rawLat, longitude: rawLng },
+                { latitude: rescueTarget.latitude, longitude: rescueTarget.longitude },
                 Math.max(0, (kmh || rawGpsKmhRef.current) / 3.6),
                 lastHeadingRef.current || 0,
               );
@@ -4752,16 +4910,54 @@ export default function MapScreen() {
               resyncSnapAfterRoadGeometry(rawLat, rawLng, kmh, loc.accuracy ?? null, { maxStepM: 32 });
             }
             const reqId = ++mapMatchApplySeqRef.current;
+            const rescueSpeedKmh = Math.max(
+              kmh,
+              Math.min(motionKmh, MAX_REALISTIC_DRIVING_KMH),
+              Math.min(sustainedKmh, MAX_REALISTIC_DRIVING_KMH),
+            );
             void guardedForceMapMatch(rawLat, rawLng, {
               manual: true,
               forceImmediate: true,
-              speedKmh: Math.max(kmh, Math.min(motionKmh, MAX_REALISTIC_DRIVING_KMH), Math.min(sustainedKmh, MAX_REALISTIC_DRIVING_KMH)),
+              speedKmh: rescueSpeedKmh,
             })
               .then((p: { latitude: number; longitude: number }[] | null) => {
                 if (reqId !== mapMatchApplySeqRef.current) return;
                 if (p && p.length >= 2 && isDrivingRef.current) applyRoadMatchPoints(p);
               })
               .catch(() => {});
+            // ANALIZA mph9uzxa: po hardRescue interval_gate w useDrivingMapMatch
+            // blokuje kolejne requesty na 30 s. Jeden incydent = jedna szansa na
+            // pobranie nowej geometrii. Wymuszam drugą próbę po 1.5 s — wtedy
+            // staleSnap=true (drivingSnap zwróci snapped=false po hard guard),
+            // co odpala bypass w useDrivingMapMatch.STALE_SNAP_BURST.
+            setTimeout(() => {
+              if (!isDrivingRef.current) return;
+              const raw2 = lastRawForHeadingRef.current;
+              if (!raw2 || !Number.isFinite(raw2.lat) || !Number.isFinite(raw2.lng)) return;
+              const roadPtsNow = drivingSnapGeometryRef.current;
+              const lastSnapNow = lastSetLocRef.current;
+              const stillStale =
+                roadPtsNow.length < 2
+                || !lastSnapNow
+                || haversineKm(raw2.lat, raw2.lng, lastSnapNow.lat, lastSnapNow.lng) * 1000 > 100;
+              if (!stillStale) return;
+              const reqId2 = ++mapMatchApplySeqRef.current;
+              vroomGpsLog('SNAP_STALE_ANCHOR_RETRY', {
+                rawLat: Number(raw2.lat.toFixed(5)),
+                rawLng: Number(raw2.lng.toFixed(5)),
+                roadPts: roadPtsNow.length,
+              }, 0);
+              void guardedForceMapMatch(raw2.lat, raw2.lng, {
+                manual: true,
+                forceImmediate: true,
+                speedKmh: rescueSpeedKmh,
+              })
+                .then((p: { latitude: number; longitude: number }[] | null) => {
+                  if (reqId2 !== mapMatchApplySeqRef.current) return;
+                  if (p && p.length >= 2 && isDrivingRef.current) applyRoadMatchPoints(p);
+                })
+                .catch(() => {});
+            }, 1500);
           }
           if (!snapped.snapped || noRoad) {
             vroomGpsLog('SNAP_LOST', {
@@ -5158,6 +5354,35 @@ export default function MapScreen() {
             roadPts: drivingSnapGeometryRef.current.length,
             snapped: !!appliedSnap.snapped,
           }, 1000);
+          // SPLIT METRIC GUARD (analiza mphbhukq v4): SNAP_TICK rawToSnapM=14
+          // ale MARKER_PIPE rawToSnapM=302 w tym samym tickcie — to znaczy że
+          // DR ekstrapoluje 300 m daleko od appliedSnap. Force feedDR ściąga
+          // DR z powrotem na świeży snap point.
+          if (
+            markerRawToSnapM > 100
+            && drToTargetM != null
+            && drToTargetM > 80
+            && appliedSnap.snapped
+            && (kmh >= 20 || motionKmh >= 20 || sustainedKmh >= 20)
+            && now - lastMarkerStuckRecoveryAtRef.current > 2500
+          ) {
+            vroomGpsLog('MARKER_PIPE_SPLIT_RESYNC', {
+              markerRawToSnapM: Math.round(markerRawToSnapM),
+              drToTargetM: Math.round(drToTargetM),
+              speedKmh: Math.round(kmh),
+            }, 0);
+            drLatRef.current = appliedSnap.latitude;
+            drLngRef.current = appliedSnap.longitude;
+            lastSetLocRef.current = {
+              lat: appliedSnap.latitude,
+              lng: appliedSnap.longitude,
+            };
+            feedDRRef.current(
+              { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
+              Math.max(0, (kmh || sustainedKmh || motionKmh) / 3.6),
+              drivingHeading || lastHeadingRef.current || 0,
+            );
+          }
           if (
             prevMarkerDiag
             && (kmh >= 6 || motionKmh >= 8 || sustainedKmh >= 6)
@@ -5173,6 +5398,84 @@ export default function MapScreen() {
               ageMs: Math.round(now - prevMarkerDiag.at),
               drToTargetM: drToTargetM != null ? Math.round(drToTargetM) : null,
             }, 1000);
+            // MARKER STUCK RECOVERY (analiza mphanl3x): 28× MARKER_STUCK_SUSPECT
+            // z drToTargetM do 240 m mimo speed 93 km/h. DR ekstrapoluje POZA
+            // appliedSnap, marker wylatuje poza ekran. Fix: po 2+ stucks w 4 s
+            // robimy hard reset DR na appliedSnap.
+            if (
+              drToTargetM != null
+              && drToTargetM >= 40
+              && now - lastMarkerStuckRecoveryAtRef.current > 4000
+            ) {
+              const streak = markerStuckStreakRef.current;
+              if (!streak || now - streak.startAt > 4000) {
+                markerStuckStreakRef.current = { startAt: now, drToTargetM };
+              } else if (now - streak.startAt >= 2000) {
+                lastMarkerStuckRecoveryAtRef.current = now;
+                markerStuckStreakRef.current = null;
+                // RECOVERY LOOP DETECTION (analiza mphbhukq):
+                // jeśli ten sam snap point (≤8 m) odpala recovery 2+ raz,
+                // znaczy że snap geometria jest martwa — czyścimy ją i wymuszamy
+                // świeży map-match. Bez tego marker tkwi 64 m off przez minuty.
+                const prevRecovery = lastRecoverySnapRef.current;
+                const sameAsLast =
+                  prevRecovery
+                  && haversineKm(
+                    prevRecovery.lat,
+                    prevRecovery.lng,
+                    appliedSnap.latitude,
+                    appliedSnap.longitude,
+                  ) * 1000 < 8;
+                const recoveryCount = sameAsLast && prevRecovery
+                  ? prevRecovery.count + 1
+                  : 1;
+                lastRecoverySnapRef.current = {
+                  lat: appliedSnap.latitude,
+                  lng: appliedSnap.longitude,
+                  count: recoveryCount,
+                };
+                const shouldNukeGeometry =
+                  recoveryCount >= 2
+                  && now - lastRecoveryGeometryResetAtRef.current > 8000;
+                vroomGpsLog('MARKER_STUCK_RECOVERY', {
+                  drToTargetM: Math.round(drToTargetM),
+                  speedKmh: Math.round(kmh),
+                  appliedSnapLat: Number(appliedSnap.latitude.toFixed(6)),
+                  appliedSnapLng: Number(appliedSnap.longitude.toFixed(6)),
+                  loopCount: recoveryCount,
+                  geometryReset: shouldNukeGeometry,
+                }, 0);
+                drLatRef.current = appliedSnap.latitude;
+                drLngRef.current = appliedSnap.longitude;
+                lastSetLocRef.current = {
+                  lat: appliedSnap.latitude,
+                  lng: appliedSnap.longitude,
+                };
+                feedDRRef.current(
+                  { latitude: appliedSnap.latitude, longitude: appliedSnap.longitude },
+                  Math.max(0, (kmh || sustainedKmh || motionKmh) / 3.6),
+                  drivingHeading || lastHeadingRef.current || 0,
+                );
+                if (shouldNukeGeometry) {
+                  lastRecoveryGeometryResetAtRef.current = now;
+                  lastRecoverySnapRef.current = null;
+                  applyRoadMatchPoints([], { skipResync: true });
+                  const reqId = ++mapMatchApplySeqRef.current;
+                  void guardedForceMapMatch(rawLat, rawLng, {
+                    manual: true,
+                    forceImmediate: true,
+                    speedKmh: Math.max(kmh, Math.min(motionKmh, MAX_REALISTIC_DRIVING_KMH)),
+                  })
+                    .then((p: { latitude: number; longitude: number }[] | null) => {
+                      if (reqId !== mapMatchApplySeqRef.current) return;
+                      if (p && p.length >= 2 && isDrivingRef.current) applyRoadMatchPoints(p);
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+          } else if (drToTargetM != null && drToTargetM < 20) {
+            markerStuckStreakRef.current = null;
           }
           if (!prevMarkerDiag || markerMovedM >= 0.8) {
             lastMarkerDiagRef.current = { lat: appliedSnap.latitude, lng: appliedSnap.longitude, at: now };

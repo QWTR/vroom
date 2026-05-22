@@ -7,15 +7,30 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 // przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
 const SNAP_RADIUS_M_BASE    = 55;
 const SNAP_RADIUS_M_FAST    = 85;
-// Map Matching API returns verified road geometry — use a wider radius so GPS
-// errors in parking lots / courtyards (often 80-150 m) still snap to the road.
-const SNAP_RADIUS_M_MATCHED = 145;
+// ANALIZA mphanl3x: stary SNAP_RADIUS_M_MATCHED=145 (z boostem do 167) pozwalał
+// snapować marker 161 m OFF-ROAD przy snapped:true, hardRoadSnap:true.
+// Marker przez 5 s leciał równolegle do drogi po BOCZNEJ polilinii.
+// Obniżenie do 90 m + lateral guard po snap likwiduje ten wzorzec — odrzucone
+// snapy spadają do raw fallback i wyzwalają force-match w map.tsx.
+const SNAP_RADIUS_M_MATCHED = 90;
 // Gdy włączony twardy lock (driving mode): kolejne próby zanim odpuścimy snap.
-const SNAP_RADIUS_M_MATCHED_TIER2 = 160;
-const SNAP_RADIUS_M_MATCHED_TIER3 = 220;
-const SNAP_RADIUS_M_ROUTE_HARD    = 280;
+const SNAP_RADIUS_M_MATCHED_TIER2 = 115;
+const SNAP_RADIUS_M_MATCHED_TIER3 = 155;
+const SNAP_RADIUS_M_ROUTE_HARD    = 200;
 /** Awaryjny promień dla hard lock — nadal ograniczony, żeby nie łapać odległych dróg. */
-const SNAP_RADIUS_EMERGENCY_M     = 220;
+const SNAP_RADIUS_EMERGENCY_M     = 155;
+/**
+ * HARD LATERAL REJECT: w driving + ruch ≥25 km/h jakikolwiek snap dalej niż
+ * to od raw GPS jest traktowany jako odpuszczony — wyżej w pipeline raw fallback
+ * wyzwoli force-match.
+ *
+ * ANALIZA mphbhukq (v4): 5× snapped=true z rawToSnapM 48-69 m przeszło pod 75 m
+ * próg. Marker leciał obok drogi po sąsiedniej polilinii. Obniżenie do 55 m
+ * łapie te przypadki bez wpadania w false-positive (typowa dokładność GPS w mieście
+ * to 15-30 m).
+ */
+const DRIVING_LATERAL_REJECT_M = 55;
+const DRIVING_LATERAL_REJECT_MIN_KMH = 25;
 /**
  * HARD GUARD: maksymalna odległość zwracanego snapu od surowego GPS.
  *
@@ -426,6 +441,38 @@ export function useDrivingSnap() {
             expectedSegIndex,
           });
       }
+    }
+
+    // HARD LATERAL REJECT (driving): nawet jeśli snap się znalazł, ale jest dalej
+    // niż 75 m od raw GPS przy ruchu ≥30 km/h, traktujemy go jak chybiony.
+    // Powód (mphanl3x): SNAP_RADIUS_M_MATCHED chwytał segment 161 m daleko,
+    // marker leciał równolegle do drogi przez 5 s. Lepiej zwrócić snapped:false
+    // (raw fallback) i pozwolić pipeline force-matchowi pobrać nową geometrię.
+    if (
+      result
+      && hardRoadLock
+      && speedKmh >= DRIVING_LATERAL_REJECT_MIN_KMH
+      && result.distM > DRIVING_LATERAL_REJECT_M
+    ) {
+      logSnapReject('snap_lateral_reject', {
+        distM: Math.round(result.distM),
+        speedKmh: Math.round(speedKmh),
+        radius: dynamicRadius,
+        usingMatchedRoad,
+      });
+      // Wyzeruj lastSnappedRef jeśli też jest na boku (najpewniej ta sama zła polilinia).
+      if (lastSnappedRef.current) {
+        const lastDist = haversineKm(
+          lat, lng,
+          lastSnappedRef.current.latitude, lastSnappedRef.current.longitude,
+        ) * 1000;
+        if (lastDist > 50) {
+          lastSnappedRef.current = null;
+          lastSegmentIndexRef.current = -1;
+        }
+      }
+      lastSnapAtRef.current = Date.now();
+      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
     }
 
     // Brak drogi w promieniu — w driving mode trzymamy ostatni pewny snap,
