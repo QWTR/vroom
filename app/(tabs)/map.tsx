@@ -135,6 +135,7 @@ import {
   maxIdleBrowsingJumpM,
   snapToRoute,
 } from '../../scripts/navigationUtils';
+// testd sdsd
 
 import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
 import { ArrowMarkerRenderer } from '../../components/markers/ArrowMarkerRenderer';
