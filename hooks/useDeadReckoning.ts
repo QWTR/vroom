@@ -179,7 +179,13 @@ export function useDeadReckoning({
 
     let lat = fromLat.current + (toLat.current - fromLat.current) * t;
     let lng = fromLng.current + (toLng.current - fromLng.current) * t;
-    let hdg = lerpAngle(fromHdg.current, toHdg.current, Math.min(t, 1));
+    // PŁYNNOŚĆ v7: heading delta-aware.
+    // Małe zmiany kąta (<25°) interpolujemy WOLNIEJ niż pozycję (t * 0.55), żeby
+    // kamera nie "drgała" przy każdej drobnej korekcie snap heading. Duże zmiany
+    // (>= 25°, czyli realny zakręt) → pełne t = naturalna szybkość obrotu.
+    const hdgDelta = Math.abs(((toHdg.current - fromHdg.current + 540) % 360) - 180);
+    const headingT = hdgDelta < 25 ? Math.min(t * 0.55, 1) : Math.min(t, 1);
+    let hdg = lerpAngle(fromHdg.current, toHdg.current, headingT);
 
     if (rawT >= 0.999) {
       lat = toLat.current;
@@ -344,16 +350,16 @@ export function useDeadReckoning({
         snapDisplayToTarget();
       }
       if (dt > 0 && dt < 10_000) {
-        // W trip mode DR ma DOGANIAĆ snap target szybko — przy GPS 1 Hz lerp
-        // 1400 ms powodował, że marker był stale ~20–80 m za snap targetem
-        // (drToTargetM mediana 21 m, p95 77 m), bo lerp jeszcze nie kończył
-        // gdy nowy fix nadchodził. Cap 650 ms w trip mode = w pełni dogonić
-        // target w ramach jednego GPS ticka (1000 ms) z marginesem.
+        // PŁYNNOŚĆ v7: lerp 650 → 900 ms w trip mode. GPS 1 Hz = nowy fix co
+        // ~1000 ms, więc 900 ms lerp pozwala na PŁYNNE dochodzenie do targetu
+        // przez prawie całą sekundę (zamiast szybkiego dochodzenia w 650 ms
+        // + 350 ms ekstrapolacji = 2 "fazy" które było widać na ekranie).
+        // ratio 0.65 pozwala troche szybciej reagować na zmianę dt, blend 0.32.
         const trip = tripModeRef.current;
-        const targetDur = Math.max(140, dt * (trip ? 0.55 : 0.92));
-        const blended = lerpDurMs.current * 0.22 + targetDur * 0.78;
+        const targetDur = Math.max(140, dt * (trip ? 0.65 : 0.92));
+        const blended = lerpDurMs.current * 0.32 + targetDur * 0.68;
         const minDur = 140;
-        const maxDur = trip ? 650 : 1400;
+        const maxDur = trip ? 900 : 1400;
         lerpDurMs.current = Math.max(minDur, Math.min(maxDur, blended));
       }
     }

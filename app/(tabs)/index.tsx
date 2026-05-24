@@ -568,6 +568,7 @@ export default function HomeScreen() {
 
 					{/* Decorative circles */}
 					<View
+						pointerEvents="none"
 						style={{
 							position: "absolute",
 							top: -80,
@@ -581,6 +582,7 @@ export default function HomeScreen() {
 						}}
 					/>
 					<View
+						pointerEvents="none"
 						style={{
 							position: "absolute",
 							top: -40,
@@ -594,6 +596,7 @@ export default function HomeScreen() {
 						}}
 					/>
 					<View
+						pointerEvents="none"
 						style={{
 							position: "absolute",
 							bottom: -60,

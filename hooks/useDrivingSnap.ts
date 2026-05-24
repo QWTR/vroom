@@ -3,48 +3,23 @@ import { Platform } from 'react-native';
 import { alignBearingToReference, bearingBetween, distanceToSegmentMeters, haversineKm } from '../scripts/navigationUtils';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 
-// Dynamiczny promień snapowania: przy wolnej jeździe ufamy GPS bardziej,
-// przy szybkiej jeździe GPS ma większy dryf, więc używamy większego promienia.
-const SNAP_RADIUS_M_BASE    = 55;
-const SNAP_RADIUS_M_FAST    = 85;
-// ANALIZA mphanl3x: stary SNAP_RADIUS_M_MATCHED=145 (z boostem do 167) pozwalał
-// snapować marker 161 m OFF-ROAD przy snapped:true, hardRoadSnap:true.
-// Marker przez 5 s leciał równolegle do drogi po BOCZNEJ polilinii.
-// Obniżenie do 90 m + lateral guard po snap likwiduje ten wzorzec — odrzucone
-// snapy spadają do raw fallback i wyzwalają force-match w map.tsx.
-const SNAP_RADIUS_M_MATCHED = 90;
-// Gdy włączony twardy lock (driving mode): kolejne próby zanim odpuścimy snap.
-const SNAP_RADIUS_M_MATCHED_TIER2 = 115;
-const SNAP_RADIUS_M_MATCHED_TIER3 = 155;
-const SNAP_RADIUS_M_ROUTE_HARD    = 200;
-/** Awaryjny promień dla hard lock — nadal ograniczony, żeby nie łapać odległych dróg. */
-const SNAP_RADIUS_EMERGENCY_M     = 155;
-/**
- * HARD LATERAL REJECT: w driving + ruch ≥25 km/h jakikolwiek snap dalej niż
- * to od raw GPS jest traktowany jako odpuszczony — wyżej w pipeline raw fallback
- * wyzwoli force-match.
- *
- * ANALIZA mphbhukq (v4): 5× snapped=true z rawToSnapM 48-69 m przeszło pod 75 m
- * próg. Marker leciał obok drogi po sąsiedniej polilinii. Obniżenie do 55 m
- * łapie te przypadki bez wpadania w false-positive (typowa dokładność GPS w mieście
- * to 15-30 m).
- */
-const DRIVING_LATERAL_REJECT_M = 55;
+// v10 CLIENT-FIRST snap: ciasne radii zeby snap NIGDY nie przeciagal markera
+// na sasiednia ulice/budynek. Jesli najblizszy road segment dalej niz radius,
+// zwracamy snapped:false (= raw GPS). Validacja po stronie map.tsx zlapuje
+// pozostale niewiarygodne snap'y. Konsekwencja: marker zawsze blisko prawdziwej
+// pozycji GPS (max ~25-30m offset = szerokosc drogi/pasa), nigdy 90m w bok.
+const SNAP_RADIUS_M_BASE    = 22;
+const SNAP_RADIUS_M_FAST    = 35;
+const SNAP_RADIUS_M_MATCHED = 30;
+const SNAP_RADIUS_M_MATCHED_TIER2 = 45;
+const SNAP_RADIUS_M_MATCHED_TIER3 = 60;
+const SNAP_RADIUS_M_ROUTE_HARD    = 80;
+const SNAP_RADIUS_EMERGENCY_M     = 60;
+/** HARD LATERAL REJECT: snap dalej niz to od raw GPS = snapped:false (raw). */
+const DRIVING_LATERAL_REJECT_M = 25;
 const DRIVING_LATERAL_REJECT_MIN_KMH = 25;
-/**
- * HARD GUARD: maksymalna odległość zwracanego snapu od surowego GPS.
- *
- * Z analizy telemetrii (mph7of5x): snap potrafił zwracać `snapped: true`
- * gdy `lastSnappedRef` był 47 km od raw GPS (geometria zamrożona, raw odjechał
- * na inną drogę). Skutek: marker "obok drogi" przez minuty, DR ekstrapoluje
- * po starej polilinii, kamera trzyma się starej trasy.
- *
- * Po przekroczeniu tego progu zwracamy raw z `snapped: false` — niech wyżej
- * w pipeline kod decyduje (force-match, reset geometrii, marker do raw).
- */
-const MAX_SNAP_TO_RAW_DISTANCE_M = 300;
-/** Twardszy próg — przy 600 m rozjeździe nawet nie próbujemy trzymać starego snap (auto wykonuje skręt na inną drogę). */
-const HARD_SNAP_DROP_M = 600;
+const MAX_SNAP_TO_RAW_DISTANCE_M = 60;
+const HARD_SNAP_DROP_M = 120;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
@@ -85,10 +60,34 @@ function projectByBearingMeters(
 function angleDeltaDeg(a: number, b: number): number {
   return Math.abs((((a - b) + 540) % 360) - 180);
 }
-/** Max odległość snapu od surowego GPS — ogranicza „przyklejenie” do złej równoległej drogi (Map Matching). */
+
+/**
+ * v10: Walidacja czy polyline (np. z map-match API albo z queryRenderedFeatures)
+ * faktycznie pasuje do raw GPS. Jesli zaden punkt geometrii nie jest blizej
+ * niz `maxDistM` od raw GPS, geometria jest dla SASIEDNIEJ drogi — odrzuc ja.
+ *
+ * Zapobiega scenariuszu z mphg6mph: API zwracalo polyline dla rownoleglej ulicy,
+ * snap przeciagal marker 30-70m w bok od raw GPS.
+ */
+export function validateGeometryAgainstRaw(
+  pts: { latitude: number; longitude: number }[],
+  rawLat: number,
+  rawLng: number,
+  maxDistM: number = 35,
+): boolean {
+  if (!Array.isArray(pts) || pts.length < 2) return false;
+  let minDistM = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = haversineKm(rawLat, rawLng, pts[i].latitude, pts[i].longitude) * 1000;
+    if (d < minDistM) minDistM = d;
+    if (minDistM <= maxDistM) return true;
+  }
+  return false;
+}
+/** Max odleglosc snapu od surowego GPS — v10: ciasniej, marker blisko GPS. */
 function lateralSnapCapFromAccuracy(accuracyM: number | null | undefined): number {
-  const a = accuracyM != null && Number.isFinite(accuracyM) ? Math.max(8, accuracyM) : 45;
-  return Math.min(280, Math.max(85, a * 3.2));
+  const a = accuracyM != null && Number.isFinite(accuracyM) ? Math.max(8, accuracyM) : 20;
+  return Math.min(45, Math.max(20, a * 1.5));
 }
 
 function clampSnapTowardRaw(
@@ -443,36 +442,91 @@ export function useDrivingSnap() {
       }
     }
 
-    // HARD LATERAL REJECT (driving): nawet jeśli snap się znalazł, ale jest dalej
-    // niż 75 m od raw GPS przy ruchu ≥30 km/h, traktujemy go jak chybiony.
-    // Powód (mphanl3x): SNAP_RADIUS_M_MATCHED chwytał segment 161 m daleko,
-    // marker leciał równolegle do drogi przez 5 s. Lepiej zwrócić snapped:false
-    // (raw fallback) i pozwolić pipeline force-matchowi pobrać nową geometrię.
+    // v10.8 LATERAL CLAMP (zastapienie REJECT):
+    // Analiza logow 1741 (iOS, 65 km/h):
+    //   * 152 lateral_reject z distM mediana 29m, max 59m
+    //   * 304 raw_fallback (marker zostaje na starym anchor → user jedzie → snap
+    //     wraca → marker teleportuje sie do przodu)
+    // Reject powoduje WLASNIE to o czym user pisze: "pokazuje nas wszedzie".
+    //
+    // NOWE PODEJSCIE: zamiast rejekcji, KLAMPUJEMY snap w strone raw GPS.
+    // Marker zawsze blisko prawdziwej pozycji, nigdy nie freezuje, ZERO teleportow.
+    //   * distM <= softLimitM → snap akceptowany w 100%
+    //   * softLimitM < distM <= hardLimitM → snap przesuwany w kierunku raw
+    //     do softLimitM (max ~40m offset od raw, czyli ok. szerokosci 2 pasow)
+    //   * distM > hardLimitM → tylko wtedy oddajemy raw (geometria absurdalna)
+    const usingHighConfidenceGeom = usingMatchedRoad;
+    const softLimitM = (() => {
+      // Bazowy soft = 30m (= szerokosc drogi 2 pasy = realistyczny offset GPS)
+      // Booster predkosciowy bo lepsza geometria nadaza wolniej.
+      const speedBoost =
+        speedKmh >= 95 ? 22
+          : speedKmh >= 75 ? 18
+            : speedKmh >= 55 ? 12
+              : speedKmh >= 35 ? 8
+                : 0;
+      const acc = accuracyM != null && Number.isFinite(accuracyM) ? accuracyM : 12;
+      const accBoost = acc >= 18 ? Math.min(12, Math.round((acc - 16) * 0.5)) : 0;
+      // Matched road = +6 (Mapbox sprawdzilo geometrie)
+      const matchedBoost = usingHighConfidenceGeom ? 6 : 0;
+      return Math.min(70, 30 + speedBoost + accBoost + matchedBoost);
+    })();
+    const hardLimitM = Math.max(120, softLimitM + 50);
     if (
       result
       && hardRoadLock
       && speedKmh >= DRIVING_LATERAL_REJECT_MIN_KMH
-      && result.distM > DRIVING_LATERAL_REJECT_M
+      && result.distM > hardLimitM
     ) {
-      logSnapReject('snap_lateral_reject', {
-        distM: Math.round(result.distM),
+      // v10.14: nigdy raw/reject przy absurdalnym dist — klamruj do hardLimit lub hold.
+      const clamped = clampSnapTowardRaw(
+        lat, lng,
+        result.latitude, result.longitude,
+        result.distM,
+        hardLimitM,
+      );
+      logSnapReject('snap_lateral_hard_clamp_v10', {
+        origDistM: Math.round(result.distM),
+        newDistM: Math.round(clamped.distM),
+        hardLimitM: Math.round(hardLimitM),
         speedKmh: Math.round(speedKmh),
-        radius: dynamicRadius,
         usingMatchedRoad,
       });
-      // Wyzeruj lastSnappedRef jeśli też jest na boku (najpewniej ta sama zła polilinia).
-      if (lastSnappedRef.current) {
-        const lastDist = haversineKm(
-          lat, lng,
-          lastSnappedRef.current.latitude, lastSnappedRef.current.longitude,
-        ) * 1000;
-        if (lastDist > 50) {
-          lastSnappedRef.current = null;
-          lastSegmentIndexRef.current = -1;
-        }
+      result = {
+        ...result,
+        latitude: clamped.latitude,
+        longitude: clamped.longitude,
+        distM: clamped.distM,
+      };
+    }
+    if (
+      result
+      && hardRoadLock
+      && speedKmh >= DRIVING_LATERAL_REJECT_MIN_KMH
+      && result.distM > softLimitM
+    ) {
+      // Soft clamp: przesuwamy snap w strone raw do softLimitM.
+      // Marker NIE teleportuje, NIE freezuje, jest blisko realnej pozycji.
+      const clamped = clampSnapTowardRaw(
+        lat, lng,
+        result.latitude, result.longitude,
+        result.distM,
+        softLimitM,
+      );
+      if (Math.random() < 0.15) {
+        logSnapReject('snap_lateral_blend_v10', {
+          origDistM: Math.round(result.distM),
+          newDistM: Math.round(clamped.distM),
+          softLimitM: Math.round(softLimitM),
+          speedKmh: Math.round(speedKmh),
+        });
       }
-      lastSnapAtRef.current = Date.now();
-      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+      result = {
+        ...result,
+        latitude: clamped.latitude,
+        longitude: clamped.longitude,
+        distM: clamped.distM,
+      };
     }
 
     // Brak drogi w promieniu — w driving mode trzymamy ostatni pewny snap,

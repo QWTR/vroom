@@ -303,6 +303,8 @@ function RootLayoutInner() {
         } else if ((data.type === 'club_chat' || data.type === 'mention_club') && data.clubId) {
           const channelQuery = data.channelId ? `?channelId=${data.channelId}` : '';
           target = `/Community/clubs/${data.clubId}${channelQuery}`;
+        } else if (data.type === 'mention_public_chat' || data.type === 'public_chat_message') {
+          target = '/Community/public/public';
         } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId) {
           target = `/(tabs)/map`;
         } else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId) {

@@ -226,7 +226,9 @@ export default function ClubChatScreen() {
   const tabHapticSkip = useRef(true);
 
   const listRef   = useRef<FlatList>(null);
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
+    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
+  });
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
   const activeChannelIdRef = useRef<number | null>(null);

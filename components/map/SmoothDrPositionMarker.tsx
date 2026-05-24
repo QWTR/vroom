@@ -4,8 +4,11 @@ import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { type DrPositionMarkerProps } from './DrPositionMarker';
-import { useSmoothMapPosition } from '../../hooks/useSmoothMapPosition';
-import { feedSmoothPositionTarget } from '../../lib/mapPosition/smoothPositionFeed';
+import { useSmoothMapPosition, type SmoothMapPositionValues } from '../../hooks/useSmoothMapPosition';
+import {
+  feedSmoothPositionTarget,
+  subscribeSmoothPositionDisplay,
+} from '../../lib/mapPosition/smoothPositionFeed';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { vroomGpsLog } from '../../lib/vroomGpsLog';
 
@@ -16,6 +19,8 @@ const FALLBACK_DOT = 22;
 
 type Props = DrPositionMarkerProps & {
   enabled: boolean;
+  /** Gdy podane — pozycja z hooka na MapScreen (handler zawsze zarejestrowany przed feedem GPS). */
+  sharedPosition?: SmoothMapPositionValues | null;
 };
 
 /**
@@ -30,6 +35,7 @@ function isValidCoord(lat: number, lng: number): boolean {
 
 export const SmoothDrPositionMarker = memo(function SmoothDrPositionMarker({
   enabled,
+  sharedPosition,
   latitude: _lat,
   longitude: _lng,
   heading: _hdg,
@@ -37,11 +43,16 @@ export const SmoothDrPositionMarker = memo(function SmoothDrPositionMarker({
   avatarUrl,
   cursorSkin,
 }: Props) {
-  const { lat, lng, heading } = useSmoothMapPosition(enabled);
+  const internalSmooth = useSmoothMapPosition(enabled && !sharedPosition);
+  const { lat, lng, heading } = sharedPosition ?? internalSmooth;
   const [pose, setPose] = useState({ lat: _lat, lng: _lng, hdg: _hdg });
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const hasValidPoseRef = useRef(false);
+  const heartbeatLastLatRef = useRef(0);
+  const heartbeatLastLngRef = useRef(0);
+  const heartbeatLastChangeMsRef = useRef(Date.now());
+  const heartbeatLastEmitMsRef = useRef(0);
   const mediaAvatar = normalizeMediaUri(avatarUrl);
   const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);
   const skinBorder = cursorSkin?.borderColor ?? '#e33835';
@@ -80,77 +91,78 @@ export const SmoothDrPositionMarker = memo(function SmoothDrPositionMarker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
+  // Backup: props z MapScreen (tripMarkerDisplay) — gdy worklet/frame nie syncuja UI.
+  useEffect(() => {
+    if (!enabled) return;
+    if (!Number.isFinite(_lat) || !Number.isFinite(_lng)) return;
+    if (Math.abs(_lat) < 1e-6 && Math.abs(_lng) < 1e-6) return;
+    setPose((prev) => {
+      const movedM = Math.hypot(
+        (_lat - prev.lat) * 111320,
+        (_lng - prev.lng) * 111320 * Math.cos((_lat * Math.PI) / 180),
+      );
+      if (hasValidPoseRef.current && movedM < 0.12) {
+        if (Number.isFinite(_hdg) && Math.abs(_hdg - prev.hdg) > 0.5) {
+          return { ...prev, hdg: _hdg };
+        }
+        return prev;
+      }
+      hasValidPoseRef.current = true;
+      return {
+        lat: _lat,
+        lng: _lng,
+        hdg: Number.isFinite(_hdg) ? _hdg : prev.hdg,
+      };
+    });
+  }, [enabled, _lat, _lng, _hdg]);
+
   useEffect(() => {
     if (!enabled) {
       setPose({ lat: _lat, lng: _lng, hdg: _hdg });
       return;
     }
-    let rafId = 0;
-    let alive = true;
-    let lastEmit = 0;
-    // Heartbeat: sprawdzamy co ~3s czy marker realnie się przemieszcza.
-    // Jeśli enabled, ale lat/lng nie zmieniają się przez >3s, logujemy
-    // MARKER_HEARTBEAT_STUCK żeby zobaczyć że worklet nie dostaje feedu.
-    let heartbeatLastLat = 0;
-    let heartbeatLastLng = 0;
-    let heartbeatLastChangeMs = Date.now();
-    let heartbeatLastEmitMs = 0;
-    const loop = (ts: number) => {
-      if (!alive) return;
-      if (ts - lastEmit >= 16) {
-        lastEmit = ts;
-        const slat = lat.value;
-        const slng = lng.value;
-        if (isValidCoord(slat, slng)) {
-          hasValidPoseRef.current = true;
-          // MARKER_VIEW co 3s — wystarczy do diagnostyki, nie obciąża JS thread.
-          vroomGpsLog('MARKER_VIEW', {
-            lat: Number(slat.toFixed(6)),
-            lng: Number(slng.toFixed(6)),
-            hdg: Math.round(heading.value || 0),
-          }, 3000);
-          setPose({ lat: slat, lng: slng, hdg: heading.value });
-
-          const nowMs = Date.now();
-          const movedM = Math.hypot(
-            (slat - heartbeatLastLat) * 111320,
-            (slng - heartbeatLastLng) * 111320 * Math.cos((slat * Math.PI) / 180),
-          );
-          if (heartbeatLastLat === 0 || movedM >= 0.6) {
-            heartbeatLastChangeMs = nowMs;
-            heartbeatLastLat = slat;
-            heartbeatLastLng = slng;
-          }
-          if (nowMs - heartbeatLastEmitMs >= 3000) {
-            heartbeatLastEmitMs = nowMs;
-            vroomGpsLog('MARKER_HEARTBEAT', {
-              stuckMs: Math.round(nowMs - heartbeatLastChangeMs),
-              lat: Number(slat.toFixed(6)),
-              lng: Number(slng.toFixed(6)),
-              hdg: Math.round(heading.value || 0),
-              stuck: nowMs - heartbeatLastChangeMs > 3500,
-            }, 0);
-          }
-        } else {
-          if (hasValidPoseRef.current) {
-            vroomGpsLog('MARKER_VIEW_INVALID', {
-              lat: slat,
-              lng: slng,
-            }, 3000);
-          }
+    return subscribeSmoothPositionDisplay((slat, slng, shdg) => {
+      if (!Number.isFinite(slat) || !Number.isFinite(slng)) return;
+      if (Math.abs(slat) < 1e-6 && Math.abs(slng) < 1e-6) return;
+      hasValidPoseRef.current = true;
+      vroomGpsLog('MARKER_VIEW', {
+        lat: Number(slat.toFixed(6)),
+        lng: Number(slng.toFixed(6)),
+        hdg: Math.round(shdg || 0),
+      }, 3000);
+      setPose((prev) => {
+        const movedM = Math.hypot(
+          (slat - prev.lat) * 111320,
+          (slng - prev.lng) * 111320 * Math.cos((slat * Math.PI) / 180),
+        );
+        if (hasValidPoseRef.current && movedM < 0.08 && Math.abs(shdg - prev.hdg) < 1) {
+          return prev;
         }
+        return { lat: slat, lng: slng, hdg: shdg };
+      });
+
+      const nowMs = Date.now();
+      const movedM = Math.hypot(
+        (slat - heartbeatLastLatRef.current) * 111320,
+        (slng - heartbeatLastLngRef.current) * 111320 * Math.cos((slat * Math.PI) / 180),
+      );
+      if (heartbeatLastLatRef.current === 0 || movedM >= 0.6) {
+        heartbeatLastChangeMsRef.current = nowMs;
+        heartbeatLastLatRef.current = slat;
+        heartbeatLastLngRef.current = slng;
       }
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(rafId);
-    };
-    // Worklet refy (lat/lng/heading) są stabilne między renderami; _lat/_lng/_hdg
-    // celowo POMINIĘTE — fluktuacja heading nie ma rebootować rAF loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, lat, lng, heading]);
+      if (nowMs - heartbeatLastEmitMsRef.current >= 3000) {
+        heartbeatLastEmitMsRef.current = nowMs;
+        vroomGpsLog('MARKER_HEARTBEAT', {
+          stuckMs: Math.round(nowMs - heartbeatLastChangeMsRef.current),
+          lat: Number(slat.toFixed(6)),
+          lng: Number(slng.toFixed(6)),
+          hdg: Math.round(shdg || 0),
+          stuck: nowMs - heartbeatLastChangeMsRef.current > 3500,
+        }, 0);
+      }
+    });
+  }, [enabled]);
 
   const markerRotateStyle = useAnimatedStyle(() => {
     const hdg = Number.isFinite(heading.value) ? heading.value : _hdg;

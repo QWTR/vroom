@@ -49,13 +49,22 @@ const communityMenu = [
     tag:     null,
   },
   {
+    label:   'CZAT OGÓLNY',
+    desc:    'Live chat dla całej społeczności — tekst, zdjęcia i filmy.',
+    route:   '/Community/public/public',
+    icon:    'earth',
+    iconLib: 'material',
+    accent:  '#4de926',
+    tag:     'NOWE',
+  },
+  {
     label:   'GIEŁDA',
     desc:    'Kup lub sprzedaj auto, motocykl lub części.',
     route:   '/Community/market/market',
     icon:    'tag-multiple-outline',
     iconLib: 'material',
     accent:  '#e33835',
-    tag:     'NOWE',
+    tag:     null,
   },
   {
     label:   'KLUBY',

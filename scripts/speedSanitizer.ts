@@ -1,9 +1,10 @@
 import { haversineKm } from './navigationUtils';
 
-/** Fizyczny sufit (superauta / tor) — nie ogranicza legalnej jazdy 300+ km/h. */
-export const MAX_SPEED_HUD_KMH = 360;
+/** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 250. */
+export const MAX_SPEED_HUD_KMH = 250;
 export const MAX_SPEED_BROWSE_KMH = 150;
-export const MAX_SPEED_TRIP_STATS_KMH = 360;
+/** Statystyki trasy: osobny sufit (peak z kilku próbek). */
+export const MAX_SPEED_TRIP_STATS_KMH = 280;
 
 export type TripMoveSample = { lat: number; lng: number; t: number };
 
@@ -15,14 +16,18 @@ export type SanitizeSpeedInput = {
   newLng?: number | null;
   dtMs?: number;
   isTripActive?: boolean;
-  /** Przemieszczenie netto (m) w oknie ~4 s — postój < 12 m. */
+  /** Przemieszczenie netto (m) w oknie ~3 s — postój < ~12 m. */
   netMoveM?: number;
+  /** Suma odcinków w oknie (m) — wykrywa jitter „w kółko”. */
+  pathMoveM?: number;
   /** Prędkość z całego okna (km/h), nie z jednego ticka GPS. */
   sustainedKmh?: number;
 };
 
 const TRIP_SPEED_WINDOW_MS = 3000;
-const TRIP_STANDSTILL_NET_M = 7;
+const TRIP_STANDSTILL_NET_M = 10;
+/** net/path — poniżej = GPS skacze tam-z powrotem bez realnego jazdy. */
+const TRIP_MIN_PATH_EFFICIENCY = 0.38;
 
 /** Prędkość i netto dystans z ostatnich próbek (odcina jitter 30+ km/h na postoju). */
 export function sustainedTripSpeedFromSamples(
@@ -52,7 +57,11 @@ export function sustainedTripSpeedFromSamples(
   if (netMoveM < TRIP_STANDSTILL_NET_M) {
     return { netMoveM, pathMoveM, sustainedKmh: 0 };
   }
-  const sustainedKmh = Math.min(pathKmh, pathKmh * (netMoveM / Math.max(pathMoveM, 1)));
+  const efficiency = netMoveM / Math.max(pathMoveM, 0.5);
+  if (efficiency < TRIP_MIN_PATH_EFFICIENCY && pathKmh > 16) {
+    return { netMoveM, pathMoveM, sustainedKmh: 0 };
+  }
+  const sustainedKmh = Math.min(pathKmh, pathKmh * efficiency);
   return { netMoveM, pathMoveM, sustainedKmh: Number.isFinite(sustainedKmh) ? sustainedKmh : 0 };
 }
 
@@ -103,25 +112,33 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 
   let kmh = gpsKmh;
 
-  // Tryb jazdy / nawigacja: Doppler GPS jest głównym źródłem prędkości.
-  // iOS potrafi przez kilka sekund trzymać tę samą lat/lng lub snap, mimo że
-  // `coords.speed` jest poprawny. Dlatego brak przesunięcia nie może zerować HUD/DR.
+  // Tryb jazdy / nawigacja: HUD = max(Doppler, geometria), ale Doppler NIGDY sam
+  // nie może pokazać 100+ km/h bez potwierdzenia ruchem (net/sustained).
   if (input.isTripActive) {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
-    const stationaryEvidence = netM < 5.5 && sustained < 1.8;
-    if (gpsKmh >= 1) {
-      // Ghost Doppler guard: część telefonów raportuje 2-12 km/h na postoju.
-      // Nie ufamy niskiemu gpsKmh dopóki długoterminowy ruch (net/sustained)
-      // tego nie potwierdzi.
-      if (gpsKmh <= 12 && stationaryEvidence) {
-        // derivedKmh bywa zatrute jitterem, ale jeżeli jest spójne i netto ruch rośnie,
-        // pozwalamy na bardzo wolny start z miejsca.
-        if (!(derivedKmh >= 4 && derivedKmh <= 25 && netM >= 6)) {
-          return 0;
-        }
+    const geoKmh = Math.max(sustained, derivedKmh > 0 ? derivedKmh * 0.92 : 0);
+    const stationaryEvidence = netM < 12 && sustained < 4.5;
+
+    if (stationaryEvidence) {
+      if (derivedKmh >= 4 && derivedKmh <= 24 && netM >= 6) {
+        return Math.min(derivedKmh, maxKmh);
       }
-      return Math.min(gpsKmh, maxKmh);
+      return 0;
+    }
+
+    if (gpsKmh >= 1) {
+      const geoCap = Math.min(maxKmh, geoKmh * 1.18 + 8);
+      if (netM < 22) {
+        return Math.min(gpsKmh, geoCap);
+      }
+      if (gpsKmh > geoCap + 18) {
+        return geoCap;
+      }
+      if (sustained > 0) {
+        return Math.min(gpsKmh, maxKmh, sustained * 1.2 + 10, geoCap + 12);
+      }
+      return Math.min(gpsKmh, maxKmh, geoCap + 12);
     }
 
     // ── KRYTYCZNE: GPS JITTER PROTECTION ─────────────────────────────────
@@ -153,6 +170,11 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     //    o 70 km/h). Bridge potrzebuje stabilnej prędkości żeby nie teleportować
     //    markera; sustained jest dokładnie tym co potrzebne.
     return Math.min(sustained, maxKmh);
+  }
+
+  const browseNetM = input.netMoveM ?? 0;
+  if (gpsKmh > 22 && browseNetM < 12 && derivedKmh < 8) {
+    return 0;
   }
 
   if (derivedKmh > 0) {
@@ -188,4 +210,28 @@ export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
   const kmh = sanitizeSpeedKmh(input);
   if (kmh <= 0) return null;
   return kmh / 3.6;
+}
+
+/** Ostatnia linia obrony HUD — Doppler bez ruchu geometrycznego. */
+export function clampSpeedKmhToGeometry(
+  kmh: number,
+  opts: {
+    netMoveM: number;
+    sustainedKmh: number;
+    motionKmh: number;
+    rawGpsKmh: number;
+    isTripActive?: boolean;
+  },
+): number {
+  if (!opts.isTripActive || !Number.isFinite(kmh) || kmh <= 0) return Math.max(0, kmh);
+  const netM = opts.netMoveM;
+  const geo = Math.max(opts.sustainedKmh, opts.motionKmh * 0.88);
+  if (netM < 14) {
+    const cap = Math.min(22, geo * 1.12 + 4);
+    if (kmh > cap) return cap < 2.5 ? 0 : cap;
+  }
+  if (opts.rawGpsKmh >= 35 && netM < 20 && opts.sustainedKmh < 10) {
+    return Math.min(kmh, Math.max(geo * 1.15 + 6, 0));
+  }
+  return kmh;
 }

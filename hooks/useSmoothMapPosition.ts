@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
 import {
+  runOnJS,
   useSharedValue,
   useFrameCallback,
 } from 'react-native-reanimated';
 import {
+  clearSmoothPositionFeed,
+  notifySmoothPositionDisplay,
   registerSmoothPositionHandler,
   type SmoothTarget,
 } from '../lib/mapPosition/smoothPositionFeed';
@@ -14,10 +17,75 @@ function lerpHeading(from: number, to: number, t: number): number {
   return ((from + diff * t) + 360) % 360;
 }
 
-function easeOutCubic(x: number): number {
+function clampWorklet(n: number, min: number, max: number): number {
   'worklet';
-  const c = x < 0 ? 0 : x > 1 ? 1 : x;
-  return 1 - Math.pow(1 - c, 3);
+  return Math.max(min, Math.min(max, n));
+}
+
+function haversineMWorklet(
+  aLat: number,
+  aLng: number,
+  bLat: number,
+  bLng: number,
+): number {
+  'worklet';
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2) ** 2;
+  const s2 =
+    Math.cos((aLat * Math.PI) / 180)
+    * Math.cos((bLat * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  const a = s1 + s2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function projectMetersWorklet(
+  lat: number,
+  lng: number,
+  headingDeg: number,
+  distM: number,
+): { lat: number; lng: number } {
+  'worklet';
+  if (!Number.isFinite(distM) || distM <= 0) {
+    return { lat, lng };
+  }
+  const R = 6371000;
+  const br = (headingDeg * Math.PI) / 180;
+  const latRad = (lat * Math.PI) / 180;
+  const lngRad = (lng * Math.PI) / 180;
+  const d = distM / R;
+  const nextLat = Math.asin(
+    Math.sin(latRad) * Math.cos(d) + Math.cos(latRad) * Math.sin(d) * Math.cos(br),
+  );
+  const nextLng = lngRad + Math.atan2(
+    Math.sin(br) * Math.sin(d) * Math.cos(latRad),
+    Math.cos(d) - Math.sin(latRad) * Math.sin(nextLat),
+  );
+  return {
+    lat: (nextLat * 180) / Math.PI,
+    lng: (nextLng * 180) / Math.PI,
+  };
+}
+
+function moveTowardWorklet(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  maxStepM: number,
+): { lat: number; lng: number } {
+  'worklet';
+  const distM = haversineMWorklet(fromLat, fromLng, toLat, toLng);
+  if (!Number.isFinite(distM) || distM <= maxStepM || distM < 0.05) {
+    return { lat: toLat, lng: toLng };
+  }
+  const t = maxStepM / distM;
+  return {
+    lat: fromLat + (toLat - fromLat) * t,
+    lng: fromLng + (toLng - fromLng) * t,
+  };
 }
 
 export type SmoothMapPositionValues = {
@@ -26,37 +94,51 @@ export type SmoothMapPositionValues = {
   heading: ReturnType<typeof useSharedValue<number>>;
 };
 
+/**
+ * ANCHOR-FORWARD (v10.15): pozycja = ostatni snap/GPS + predykcja od czasu fixa.
+ * Bez akumulacji "jazdy do przodu + slabe dociaganie" (marker zostawal w tyle,
+ * kamera z lookahead wygladala jakby wyprzedzala).
+ */
 export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues {
   const lat = useSharedValue(0);
   const lng = useSharedValue(0);
   const heading = useSharedValue(0);
 
-  const fromLat = useSharedValue(0);
-  const fromLng = useSharedValue(0);
-  const fromHdg = useSharedValue(0);
-  const toLat = useSharedValue(0);
-  const toLng = useSharedValue(0);
-  const toHdg = useSharedValue(0);
-  const segStart = useSharedValue(0);
-  const segDur = useSharedValue(1000);
+  const anchorLat = useSharedValue(0);
+  const anchorLng = useSharedValue(0);
+  const anchorHdg = useSharedValue(0);
   const hasTarget = useSharedValue(0);
+  const speedMs = useSharedValue(0);
+  const lastNonZeroSpeedMs = useSharedValue(0);
+  const lastFeedMs = useSharedValue(0);
+  const lastDisplayPushMs = useSharedValue(0);
 
   useEffect(() => {
     if (!enabled) {
       registerSmoothPositionHandler(null);
+      hasTarget.value = 0;
+      speedMs.value = 0;
+      lastNonZeroSpeedMs.value = 0;
+      lastFeedMs.value = 0;
+      clearSmoothPositionFeed();
       return;
     }
 
     const onFeed = (target: SmoothTarget) => {
       const now = Date.now();
       const instant = target.durationMs === 0;
-      const duration = instant
-        ? 0
-        : Math.max(60, Math.min(1400, target.durationMs ?? 1000));
+
+      if (target.speedMs != null && Number.isFinite(target.speedMs) && target.speedMs > 0) {
+        speedMs.value = target.speedMs;
+        lastNonZeroSpeedMs.value = target.speedMs;
+      }
+      anchorLat.value = target.latitude;
+      anchorLng.value = target.longitude;
+      anchorHdg.value = target.heading;
+      lastFeedMs.value = now;
 
       const curLat = lat.value;
       const curLng = lng.value;
-      const curHdg = heading.value;
       const hasPos =
         hasTarget.value === 1
         && Number.isFinite(curLat)
@@ -64,36 +146,21 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         && !(Math.abs(curLat) < 1e-6 && Math.abs(curLng) < 1e-6);
 
       if (instant || !hasPos) {
-        fromLat.value = target.latitude;
-        fromLng.value = target.longitude;
-        fromHdg.value = target.heading;
-        toLat.value = target.latitude;
-        toLng.value = target.longitude;
-        toHdg.value = target.heading;
         lat.value = target.latitude;
         lng.value = target.longitude;
         heading.value = target.heading;
-        segStart.value = now;
-        segDur.value = 0;
         hasTarget.value = 1;
+        notifySmoothPositionDisplay(target.latitude, target.longitude, target.heading);
         return;
       }
 
-      // Wystartuj z aktualnej pozycji — bez teleportu nawet jeśli marker był w trakcie poprzedniej animacji.
-      fromLat.value = curLat;
-      fromLng.value = curLng;
-      fromHdg.value = curHdg;
-      toLat.value = target.latitude;
-      toLng.value = target.longitude;
-      toHdg.value = target.heading;
-      segStart.value = now;
-      segDur.value = duration;
+      // Nowy fix: tylko kotwica — ruch w frame callback (bez skoku co GPS).
       hasTarget.value = 1;
     };
 
     registerSmoothPositionHandler(onFeed);
     return () => registerSmoothPositionHandler(null);
-  }, [enabled, fromHdg, fromLat, fromLng, hasTarget, heading, lat, lng, segDur, segStart, toHdg, toLat, toLng]);
+  }, [enabled, anchorHdg, anchorLat, anchorLng, hasTarget, heading, lat, lastDisplayPushMs, lastFeedMs, lastNonZeroSpeedMs, lng, speedMs]);
 
   useFrameCallback(
     () => {
@@ -101,18 +168,58 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       if (hasTarget.value === 0) return;
 
       const now = Date.now();
-      const segLength = Math.max(1, segDur.value);
-      const tRaw = (now - segStart.value) / segLength;
-      const t = easeOutCubic(tRaw);
+      const feedAgeSec = lastFeedMs.value > 0
+        ? clampWorklet((now - lastFeedMs.value) / 1000, 0, 2.4)
+        : 0;
+      const spd = speedMs.value > 0.35
+        ? speedMs.value
+        : (feedAgeSec < 2.4 ? lastNonZeroSpeedMs.value : 0);
+      const moving = spd >= 0.35;
 
-      lat.value = fromLat.value + (toLat.value - fromLat.value) * t;
-      lng.value = fromLng.value + (toLng.value - fromLng.value) * t;
-      heading.value = lerpHeading(fromHdg.value, toHdg.value, t);
+      // Predykcja od kotwicy (ostatni snap/GPS) — marker jedzie miedzy fixami.
+      const maxPredictM = moving
+        ? Math.min(85, spd * feedAgeSec * 1.08)
+        : 0;
+      const predicted = maxPredictM > 0
+        ? projectMetersWorklet(anchorLat.value, anchorLng.value, anchorHdg.value, maxPredictM)
+        : { lat: anchorLat.value, lng: anchorLng.value };
 
-      if (tRaw >= 0.999) {
-        lat.value = toLat.value;
-        lng.value = toLng.value;
-        heading.value = toHdg.value;
+      const distToPredictM = haversineMWorklet(
+        lat.value,
+        lng.value,
+        predicted.lat,
+        predicted.lng,
+      );
+
+      if (distToPredictM > 0.04) {
+        const frameDt = 1 / 60;
+        const maxStepM = moving
+          ? Math.min(distToPredictM, Math.max(spd * frameDt * 1.15, distToPredictM * 0.35))
+          : Math.min(distToPredictM, 8 * frameDt + 0.8);
+        const next = moveTowardWorklet(
+          lat.value,
+          lng.value,
+          predicted.lat,
+          predicted.lng,
+          Math.max(0.2, maxStepM),
+        );
+        lat.value = next.lat;
+        lng.value = next.lng;
+      }
+
+      if (moving) {
+        heading.value = lerpHeading(
+          heading.value,
+          anchorHdg.value,
+          clampWorklet(feedAgeSec * 3.2, 0.06, 0.28),
+        );
+      } else {
+        heading.value = lerpHeading(heading.value, anchorHdg.value, 0.2);
+      }
+
+      if (now - lastDisplayPushMs.value >= 16) {
+        lastDisplayPushMs.value = now;
+        runOnJS(notifySmoothPositionDisplay)(lat.value, lng.value, heading.value);
       }
     },
     enabled,

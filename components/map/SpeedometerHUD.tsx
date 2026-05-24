@@ -1,12 +1,15 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useState, type ReactNode } from 'react';
 import { DeviceEventEmitter, Text, View } from 'react-native';
 
 export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 
+const HUD_SPEED_CAP_KMH = 250;
+
 export function emitSpeedometerKmh(kmh: number | null) {
-  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, {
-    kmh: Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : 0,
-  });
+  const raw = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : 0;
+  // Ostatnia bariera: HUD nie pokazuje absurdalnych skoków zanim pipeline je wyłapie.
+  const safe = raw > HUD_SPEED_CAP_KMH ? HUD_SPEED_CAP_KMH : raw;
+  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, { kmh: safe });
 }
 
 function useSpeedometerKmh(initialKmh = 0) {
@@ -23,8 +26,20 @@ function useSpeedometerKmh(initialKmh = 0) {
   return kmh;
 }
 
+export const SpeedometerHUD = memo(function SpeedometerHUD({
+  initialKmh = 0,
+  children,
+}: {
+  initialKmh?: number;
+  children: (kmh: number) => ReactNode;
+}) {
+  const kmh = useSpeedometerKmh(initialKmh);
+  return <>{children(kmh)}</>;
+});
+
 export const SpeedValueText = memo(function SpeedValueText({
   initialKmh = 0,
+  kmh,
   speedLimit,
   tolerance,
   style,
@@ -32,17 +47,19 @@ export const SpeedValueText = memo(function SpeedValueText({
   showUnit = false,
 }: {
   initialKmh?: number;
+  kmh?: number;
   speedLimit: number | null;
   tolerance: number;
   style: any;
   unitStyle?: any;
   showUnit?: boolean;
 }) {
-  const kmh = useSpeedometerKmh(initialKmh);
-  const overLimit = speedLimit !== null && kmh > speedLimit + tolerance;
+  const liveKmh = useSpeedometerKmh(initialKmh);
+  const valueKmh = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : liveKmh;
+  const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
   return (
     <Text style={[style, overLimit && { color: '#e33835' }]}>
-      {Math.round(kmh)}
+      {Math.round(valueKmh)}
       {showUnit ? <Text style={unitStyle}> km/h</Text> : null}
     </Text>
   );
@@ -50,6 +67,7 @@ export const SpeedValueText = memo(function SpeedValueText({
 
 export const SpeedLimitBadge = memo(function SpeedLimitBadge({
   initialKmh = 0,
+  kmh,
   speedLimit,
   tolerance,
   size = 44,
@@ -57,14 +75,16 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
   style,
 }: {
   initialKmh?: number;
+  kmh?: number;
   speedLimit: number | null;
   tolerance: number;
   size?: number;
   smallFontAt?: number;
   style?: any;
 }) {
-  const kmh = useSpeedometerKmh(initialKmh);
-  const overLimit = speedLimit !== null && kmh > speedLimit + tolerance;
+  const liveKmh = useSpeedometerKmh(initialKmh);
+  const valueKmh = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : liveKmh;
+  const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
   const smallFont = speedLimit != null && speedLimit >= smallFontAt;
 
   return (

@@ -70,6 +70,31 @@ class RoadGeometryStoreImpl {
     }
     return asyncFindInBbox(minLat, maxLat, minLng, maxLng, limit);
   }
+
+  /**
+   * v10: Prefetch geometrii calej trasy do cache - jednorazowo przy starcie nav.
+   * Dzieli route na segmenty po N punktow i persistuje kazdy do cache (z drobnym
+   * overlap). Pozniej w czasie jazdy findNearest na tych obszarach trafia od razu
+   * w cache zamiast wolac Map Matching API.
+   *
+   * Bezpieczne do wywolania wielokrotnie - jesli segmenty juz w cache, insert
+   * sie zduplicuje ale TTL/CAP eviction sobie z tym poradzi.
+   */
+  async prefetchAroundRoute(routePts: RoadPoint[]): Promise<void> {
+    if (!Array.isArray(routePts) || routePts.length < 4) return;
+    const CHUNK_SIZE = 80; // ~80 punktow = ~800-2000m segmentu zaleznie od densitu
+    const OVERLAP = 5;
+    try {
+      for (let i = 0; i < routePts.length; i += CHUNK_SIZE - OVERLAP) {
+        const chunk = routePts.slice(i, Math.min(routePts.length, i + CHUNK_SIZE));
+        if (chunk.length >= 2) {
+          await this.insert(chunk);
+        }
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[RoadGeometryStore] prefetchAroundRoute failed', e);
+    }
+  }
 }
 
 export const roadGeometryStore = new RoadGeometryStoreImpl();

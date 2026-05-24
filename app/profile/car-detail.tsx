@@ -10,6 +10,7 @@ import AsyncStorage              from '@react-native-async-storage/async-storage
 import Toast                     from 'react-native-toast-message';
 import { API_URL }               from '../../constants/config';
 import { useTheme }              from '../../contexts/ThemeContext';
+import { useEffectivePremium }   from '../../hooks/useEffectivePremium';
 import { PhotoGalleryModal }     from '../../components/spots/PhotoGalleryModal';
 
 const getToken = async () =>
@@ -45,6 +46,7 @@ interface CarComment {
 export default function CarDetailScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const { isPremium } = useEffectivePremium();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [car,            setCar]            = useState<CarDetail | null>(null);
@@ -152,6 +154,17 @@ export default function CarDetailScreen() {
           </TouchableOpacity>
           {isOwner && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: isPremium ? '#FFD70018' : theme.surface4, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: isPremium ? '#FFD70055' : theme.border2 }}
+                onPress={() => {
+                  if (!isPremium) { router.push('/premium' as any); return; }
+                  router.push({ pathname: '/profile/car-maintenance', params: { id: String(car.id), brand: car.brand } } as any);
+                }}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="build-circle" size={16} color={isPremium ? '#FFD700' : theme.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', color: isPremium ? '#FFD700' : theme.textDim, fontSize: 10, fontWeight: '700' }}>SERWIS</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.surface4, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: theme.border2 }}
                 onPress={() => router.push({ pathname: '/profile/edit-car', params: { id: String(car.id) } })}

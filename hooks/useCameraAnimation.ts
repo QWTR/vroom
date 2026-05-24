@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { Dimensions } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 
 type CameraFollowMode =
@@ -17,14 +18,53 @@ type CameraFrameInput = {
   timestamp?: number;
 };
 
+type MapCameraPadding = {
+  paddingLeft: number;
+  paddingRight: number;
+  paddingTop: number;
+  paddingBottom: number;
+};
+
 type CameraPose = {
   center: { latitude: number; longitude: number };
   heading: number;
   zoom: number;
   pitch: number;
+  padding: MapCameraPadding;
 };
 
-const RETURN_TO_USER_MS = 4500;
+const ZERO_PADDING: MapCameraPadding = {
+  paddingLeft: 0,
+  paddingRight: 0,
+  paddingTop: 0,
+  paddingBottom: 0,
+};
+
+/**
+ * Mapbox: punkt follow ląduje w GEOMETRICZNYM ŚRODKU obszaru [paddingTop .. height-paddingBottom].
+ * Duży paddingBottom + duży paddingTop = cienki pasek na ŚRODKU ekranu = marker na środku (bug).
+ * Żeby marker był NA DOLE (jak Waze): duży paddingTop, mały paddingBottom.
+ */
+export function getTripCameraPadding(isNavigating: boolean): MapCameraPadding {
+  const h = Dimensions.get('window').height;
+  const tabBarPx = 88;
+  const hudPx = isNavigating ? 200 : 240;
+  const top = Math.round(clampNum(h * (isNavigating ? 0.50 : 0.54), 320, 520) + hudPx * 0.35);
+  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 24 : 32), 72, 120));
+  return {
+    paddingTop: top,
+    paddingBottom: bottom,
+    paddingLeft: 24,
+    paddingRight: 24,
+  };
+}
+
+function activeCameraPadding(isNavigating: boolean): MapCameraPadding {
+  return getTripCameraPadding(isNavigating);
+}
+
+/** Po tym czasie bez gestu użytkownika kamera wraca do follow (jazda/nawigacja). */
+const RETURN_TO_USER_MS = 4000;
 const BROWSE_PITCH = 52;
 const ACTIVE_PITCH = 68;
 const BROWSE_ZOOM = 15;
@@ -36,7 +76,8 @@ const IDLE_APPLY_MS = 120;
 const FOLLOW_APPLY_INTERVAL_MS = 24;
 
 /** Stałe czasowe wygładzania (sekundy). */
-const CENTER_TAU_S = 0.32;
+/** Szybsze centrowanie kamery na markerze (mniejszy lag wzgledem worklet). */
+const CENTER_TAU_S = 0.2;
 /** Płynne obracanie w stronę jazdy (wektor ruchu + snap drogi). */
 const HEADING_TAU_S = 0.38;
 const ZOOM_TAU_S = 2.2;
@@ -158,14 +199,9 @@ function zoomFromSpeed(speedKmh: number): number {
   return 17.0;
 }
 
-function lookaheadFromSpeed(speedKmh: number): number {
-  const s = Math.max(0, speedKmh);
-  if (s <= 8) return 18;
-  if (s <= 25) return lerpNum(18, 42, (s - 8) / 17);
-  if (s <= 40) return lerpNum(42, 58, (s - 25) / 15);
-  if (s <= 80) return lerpNum(58, 88, (s - 40) / 40);
-  if (s <= 130) return lerpNum(88, 140, (s - 80) / 50);
-  return 165;
+function lookaheadFromSpeed(_speedKmh: number): number {
+  // v10.16: ZERO offset geograficzny — tylko padding (HUD + tab bar) ustawia marker na dole.
+  return 0;
 }
 
 function computeFollowMode(input: {
@@ -189,6 +225,7 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
     return null;
   }
   const active = isActiveFollowMode(mode);
+  const isNavigating = mode === 'navigationFollow';
   const targetHeading = normalizeHeading(input.heading || 0);
   const lookaheadM = active ? lookaheadFromSpeed(input.speedKmh) : 0;
   const center = offsetCenter(
@@ -203,6 +240,7 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
     heading: targetHeading,
     zoom: rawZoom,
     pitch: active ? ACTIVE_PITCH : BROWSE_PITCH,
+    padding: active ? activeCameraPadding(isNavigating) : ZERO_PADDING,
   };
 }
 
@@ -232,6 +270,37 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const lastResolvedHeadingAtRef = useRef(0);
   const resolvedHeadingRef = useRef<number | null>(null);
   const lastFollowApplyRef = useRef(0);
+  const lastFrameInputRef = useRef<CameraFrameInput | null>(null);
+  const tripActiveRef = useRef(false);
+  const gestureResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeAfterUserGestureRef = useRef<() => void>(() => {});
+
+  const clearGestureResumeTimer = useCallback(() => {
+    if (gestureResumeTimerRef.current != null) {
+      clearTimeout(gestureResumeTimerRef.current);
+      gestureResumeTimerRef.current = null;
+    }
+  }, []);
+
+  /** Po wyjściu z jazdy/nawigacji — zatrzymaj follow i anuluj auto-powrót po pan/zoom. */
+  const releaseTripCameraState = useCallback(() => {
+    tripActiveRef.current = false;
+    lastFrameInputRef.current = null;
+    userPanUntilRef.current = 0;
+    recenterLockUntilRef.current = 0;
+    clearGestureResumeTimer();
+    stopFollowLoop();
+    modeRef.current = 'idleBrowse';
+    targetPoseRef.current = null;
+    displayPoseRef.current = null;
+    lastTargetZoomRef.current = null;
+    travelHeadingRef.current = null;
+    resolvedHeadingRef.current = null;
+    lastResolvedHeadingAtRef.current = 0;
+    lastVehicleCenterRef.current = null;
+    lastTravelUpdateAtRef.current = 0;
+    speedKmhRef.current = 0;
+  }, [clearGestureResumeTimer, stopFollowLoop]);
 
   const applyToMap = useCallback((
     pose: CameraPose,
@@ -254,6 +323,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       heading: pose.heading,
       zoomLevel: pose.zoom,
       pitch: pose.pitch,
+      padding: pose.padding,
       animationMode,
       animationDuration: duration,
     });
@@ -319,7 +389,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const zoom = lerpNum(display.zoom, target.zoom, expAlpha(dtSec, zoomTau));
     const pitch = lerpNum(display.pitch, target.pitch, expAlpha(dtSec, pitchTau));
 
-    const next: CameraPose = { center, heading, zoom, pitch };
+    const next: CameraPose = { center, heading, zoom, pitch, padding: target.padding };
     displayPoseRef.current = next;
     if (
       FOLLOW_APPLY_INTERVAL_MS > 0
@@ -337,18 +407,36 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     followRafRef.current = requestAnimationFrame(followTick);
   }, [followTick]);
 
-  useEffect(() => () => stopFollowLoop(), [stopFollowLoop]);
+  useEffect(() => () => {
+    stopFollowLoop();
+    clearGestureResumeTimer();
+  }, [stopFollowLoop, clearGestureResumeTimer]);
 
   const markUserGesture = useCallback(() => {
+    if (!tripActiveRef.current) {
+      stopFollowLoop();
+      return;
+    }
     userPanUntilRef.current = Date.now() + RETURN_TO_USER_MS;
     modeRef.current = 'userPanning';
-  }, []);
+    stopFollowLoop();
+    // Po oddaleniu/panowaniu bez kolejnego gestu wracamy na pozycję jazdy.
+    // Wcześniej follow loop był zatrzymany i czekał na następny GPS fix (~1.5s+),
+    // więc kamera mogła zostać "oderwana" od markera przez wiele sekund.
+    clearGestureResumeTimer();
+    gestureResumeTimerRef.current = setTimeout(() => {
+      gestureResumeTimerRef.current = null;
+      if (!tripActiveRef.current) return;
+      resumeAfterUserGestureRef.current();
+    }, RETURN_TO_USER_MS);
+  }, [clearGestureResumeTimer, stopFollowLoop]);
 
   const recenterTo = useCallback((params: {
     center: { latitude: number; longitude: number };
     heading: number;
     speedKmh: number;
     active: boolean;
+    isNavigating?: boolean;
     /** Tylko pozycja/kierunek bez animacji — nie używać przy wejściu w jazdę (zoom zostaje na browse). */
     instant?: boolean;
     /** Krótka animacja zoom/pitch przy włączeniu trybu jazdy. */
@@ -367,11 +455,13 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       : params.speedKmh;
     const lookaheadM = params.active ? lookaheadFromSpeed(entrySpeedKmh) : 0;
     const center = offsetCenter(params.center.latitude, params.center.longitude, heading, lookaheadM);
+    const tripNav = !!params.isNavigating || modeRef.current === 'navigationFollow';
     const pose: CameraPose = {
       center,
       heading,
       zoom: params.active ? zoomFromSpeed(entrySpeedKmh) : BROWSE_ZOOM,
       pitch: params.active ? ACTIVE_PITCH : BROWSE_PITCH,
+      padding: params.active ? activeCameraPadding(tripNav) : ZERO_PADDING,
     };
 
     targetPoseRef.current = pose;
@@ -416,13 +506,25 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }, animMs + 60);
   }, [applyToMap, startFollowLoop, stopFollowLoop]);
 
-  const resetBrowseCamera = useCallback((center: { latitude: number; longitude: number }) => {
-    recenterTo({ center, heading: 0, speedKmh: 0, active: false });
-  }, [recenterTo]);
+  const resetBrowseCamera = useCallback((
+    center: { latitude: number; longitude: number },
+    opts?: { animate?: boolean },
+  ) => {
+    releaseTripCameraState();
+    recenterTo({
+      center,
+      heading: 0,
+      speedKmh: 0,
+      active: false,
+      instant: opts?.animate !== true,
+    });
+  }, [recenterTo, releaseTripCameraState]);
 
   const updateCameraFrame = useCallback((input: CameraFrameInput) => {
     const now = input.timestamp ?? Date.now();
     speedKmhRef.current = input.speedKmh;
+    lastFrameInputRef.current = input;
+    tripActiveRef.current = input.isDriving || input.isNavigating;
 
     const nextMode = computeFollowMode({
       isDriving: input.isDriving,
@@ -543,19 +645,43 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     startFollowLoop();
   }, [applyToMap, startFollowLoop, stopFollowLoop]);
 
+  resumeAfterUserGestureRef.current = () => {
+    if (!tripActiveRef.current) return;
+    const now = Date.now();
+    if (now < userPanUntilRef.current) return;
+
+    const input = lastFrameInputRef.current;
+    if (!input || (!input.isDriving && !input.isNavigating)) return;
+
+    userPanUntilRef.current = 0;
+    recenterTo({
+      center: input.center,
+      heading: input.heading,
+      speedKmh: input.speedKmh,
+      active: true,
+      isNavigating: input.isNavigating,
+    });
+    updateCameraFrame({ ...input, timestamp: now });
+  };
+
   const setFollowMode = useCallback((mode: 'idleBrowse' | 'drivingFollow' | 'navigationFollow') => {
     userPanUntilRef.current = 0;
+    clearGestureResumeTimer();
     modeRef.current = mode;
-    if (mode === 'idleBrowse') stopFollowLoop();
+    if (mode === 'idleBrowse') {
+      tripActiveRef.current = false;
+      stopFollowLoop();
+    }
     // Pętlę follow uruchamia recenterTo / updateCameraFrame — wcześniejszy start
     // przed recenterTo nadpisywał zoom browse i „rozjeżdżał” kamerę przy wejściu w jazdę.
-  }, [stopFollowLoop]);
+  }, [stopFollowLoop, clearGestureResumeTimer]);
 
   return {
     updateCameraFrame,
     markUserGesture,
     recenterTo,
     resetBrowseCamera,
+    releaseTripCameraState,
     setFollowMode,
   };
 }

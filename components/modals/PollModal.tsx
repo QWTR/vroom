@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity,
+  Modal, View, Text, TouchableOpacity, Pressable,
   ActivityIndicator, Animated,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -32,11 +32,15 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-        <View style={{
+        <Pressable
+          style={{
             flex: 1, backgroundColor: '#000000aa',
             justifyContent: 'center', alignItems: 'center', padding: 20,
-        }}>
-            <View style={{
+          }}
+          onPress={onClose}
+        >
+        <Pressable onPress={e => e.stopPropagation()}>
+        <View style={{
             width: '100%', maxWidth: 400,
             backgroundColor: t.surface,
             borderRadius: 24, padding: 24,
@@ -59,11 +63,9 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                     Zagłosuj raz · Wyniki na żywo
                 </Text>
                 </View>
-                {showResults && (
                 <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
                     <MaterialIcons name="close" size={20} color={t.textDim} />
                 </TouchableOpacity>
-                )}
             </View>
 
             {/* Pytanie */}
@@ -190,7 +192,8 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
                 </TouchableOpacity>
             )}
             </View>
-        </View>
+        </Pressable>
+        </Pressable>
         </Modal>
     );
 }

@@ -777,10 +777,7 @@ export function useBackgroundTracking(
       // Hard rule: jeśli użytkownik wyłączył „Śledzenie w tle" w ustawieniach,
       // NIE startujemy BG location task w tle. forceEnabled (jazda/nawigacja)
       // może podtrzymać task w foreground (do live share), ale NIE w tle.
-      const shouldTrack = sharingHydrated && (
-        (!appIsActive && bgEnabled)
-        || (appIsActive && forceEnabled && bgEnabled)
-      );
+      const shouldTrack = sharingHydrated && bgEnabled && (isSharing || forceEnabled);
       if (!shouldTrack) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
@@ -894,10 +891,7 @@ export function useBackgroundTracking(
         activeHeartbeat = null;
       }
       if (s === 'background' || s === 'inactive') {
-        // Hard rule: gdy bgEnabled=false NIGDY nie startuj BG location task
-        // — nawet w trakcie jazdy/nawigacji. Użytkownik wyłączył tę funkcję
-        // świadomie w ustawieniach i app musi to uszanować.
-        if (isPremium && sharingHydrated && bgEnabled) {
+        if (sharingHydrated && bgEnabled && (isSharing || forceEnabled)) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();

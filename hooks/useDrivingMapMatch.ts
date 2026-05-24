@@ -13,7 +13,8 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-const MIN_INTERVAL_MS = 30_000;
+/** Czestsze odswiezanie geometrii w jeździe (bylo 30s → lag snapu). */
+const MIN_INTERVAL_MS = 14_000;
 const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
 /** Brak trace matching API poniżej tej prędkości — płynność z lokalnego snap/DR. */
 const STATIONARY_SPEED_KMH = 6;
@@ -26,7 +27,7 @@ const EXPIRE_MS       = 120_000;
 const STALE_MAX_MS    = 15 * 60_000;
 const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
-const MIN_FETCH_MOVE_M  = 10;     // częstsze odświeżanie geometrii przy jeździe miejskiej
+const MIN_FETCH_MOVE_M  = 7;
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;

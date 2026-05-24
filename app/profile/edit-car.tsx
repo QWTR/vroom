@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, Switch, Image, Text,
@@ -8,17 +8,32 @@ import * as ImagePicker  from 'expo-image-picker';
 import MaterialIcons     from '@expo/vector-icons/MaterialIcons';
 import Toast             from 'react-native-toast-message';
 import AsyncStorage      from '@react-native-async-storage/async-storage';
+import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { API_URL }       from '../../constants/config';
 import { useTheme }      from '../../contexts/ThemeContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 interface PhotoAsset { uri: string; name: string; type: string; }
 
+type CarPhotoItem = {
+  key: string;
+  kind: 'existing' | 'new';
+  uri: string;
+  asset?: PhotoAsset;
+};
+
+function toExistingItems(urls: string[]): CarPhotoItem[] {
+  return urls.map((uri, i) => ({ key: `ex-${uri}-${i}`, kind: 'existing', uri }));
+}
+
 export default function EditCarScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const { isPremium } = useEffectivePremium();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [loading,        setLoading]        = useState(true);
@@ -31,8 +46,7 @@ export default function EditCarScreen() {
   const [color,          setColor]          = useState('');
   const [mods,           setMods]           = useState('');
   const [isMain,         setIsMain]         = useState(false);
-  const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
-  const [newPhotos,      setNewPhotos]      = useState<PhotoAsset[]>([]);
+  const [photoItems,     setPhotoItems]     = useState<CarPhotoItem[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -75,7 +89,7 @@ export default function EditCarScreen() {
         if (car.mods)   setMods(car.mods);
 
         setIsMain(car.isMain ?? false);
-        setExistingPhotos(car.photos ?? []);
+        setPhotoItems(toExistingItems(car.photos ?? []));
       } catch (e: any) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message });
         router.back();
@@ -83,15 +97,19 @@ export default function EditCarScreen() {
     })();
   }, [id]);
 
-  const totalPhotos = existingPhotos.length + newPhotos.length;
+  const totalPhotos = photoItems.length;
+  const photoBtnStyle = { width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center' as const, alignItems: 'center' as const };
 
   const pickPhotos = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 5 - totalPhotos, quality: 0.8 });
     if (!result.canceled) {
-      const picked: PhotoAsset[] = result.assets.map(a => ({ uri: a.uri, name: a.fileName ?? `car_edit_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' }));
-      setNewPhotos(prev => [...prev, ...picked].slice(0, 5 - existingPhotos.length));
+      const picked: CarPhotoItem[] = result.assets.map((a, i) => {
+        const asset: PhotoAsset = { uri: a.uri, name: a.fileName ?? `car_edit_${Date.now()}_${i}.jpg`, type: a.mimeType ?? 'image/jpeg' };
+        return { key: `new-${asset.uri}-${Date.now()}-${i}`, kind: 'new', uri: asset.uri, asset };
+      });
+      setPhotoItems(prev => [...prev, ...picked].slice(0, 5));
     }
   };
 
@@ -101,12 +119,67 @@ export default function EditCarScreen() {
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
       const a = result.assets[0];
-      setNewPhotos(prev => [...prev, { uri: a.uri, name: a.fileName ?? `car_edit_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' }].slice(0, 5 - existingPhotos.length));
+      const asset: PhotoAsset = { uri: a.uri, name: a.fileName ?? `car_edit_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' };
+      setPhotoItems(prev => [...prev, { key: `new-${asset.uri}-${Date.now()}`, kind: 'new', uri: asset.uri, asset }].slice(0, 5));
     }
   };
 
-  const removeExisting = (url: string) => setExistingPhotos(prev => prev.filter(u => u !== url));
-  const removeNew      = (idx: number)  => setNewPhotos(prev => prev.filter((_, i) => i !== idx));
+  const removePhoto = (key: string) => setPhotoItems(prev => prev.filter(p => p.key !== key));
+
+  const renderPhotoItem = useCallback(({ item, drag, isActive }: RenderItemParams<CarPhotoItem>) => (
+    <ScaleDecorator>
+      <TouchableOpacity
+        onLongPress={drag}
+        disabled={isActive}
+        activeOpacity={0.9}
+        style={{ marginRight: 10, opacity: isActive ? 0.85 : 1 }}
+      >
+        <View style={{ position: 'relative' }}>
+          <Image source={{ uri: item.uri }} style={{ width: 90, height: 90, borderRadius: 10 }} />
+          <View style={{
+            position: 'absolute', bottom: 4, left: 4,
+            backgroundColor: item.kind === 'existing' ? '#00000080' : theme.primaryBg,
+            borderRadius: 6, padding: 3,
+            borderWidth: item.kind === 'new' ? 1 : 0,
+            borderColor: theme.primaryBorder,
+          }}>
+            <MaterialIcons
+              name={item.kind === 'existing' ? 'cloud-done' : 'fiber-new'}
+              size={9}
+              color={item.kind === 'existing' ? '#4de926' : theme.primary}
+            />
+          </View>
+          <View style={{
+            position: 'absolute', bottom: 4, right: 4,
+            backgroundColor: '#00000080', borderRadius: 6, padding: 3,
+          }}>
+            <MaterialIcons name="drag-indicator" size={9} color="#fff" />
+          </View>
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 4, right: 4, backgroundColor: theme.primary, borderRadius: 10, padding: 2 }}
+            onPress={() => removePhoto(item.key)}
+          >
+            <MaterialIcons name="close" size={14} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    </ScaleDecorator>
+  ), [theme]);
+
+  const photoListHeader = useMemo(() => (
+    totalPhotos < 5 ? (
+      <>
+        <TouchableOpacity style={photoBtnStyle} onPress={pickPhotos}>
+          <MaterialIcons name="photo-library" size={26} color={theme.primary} />
+          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Galeria</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[photoBtnStyle, { marginLeft: 8 }]} onPress={pickFromCamera}>
+          <MaterialIcons name="photo-camera" size={26} color={theme.primary} />
+          <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Aparat</Text>
+        </TouchableOpacity>
+      </>
+    ) : null
+  ), [totalPhotos, theme, photoBtnStyle, pickPhotos, pickFromCamera]);
 
   const handleSave = async () => {
     if (!brand.trim()) { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj markę.' }); return; }
@@ -116,11 +189,15 @@ export default function EditCarScreen() {
       const token      = await getToken();
       const specsParts = [year && `${year} r.`, power && `${power} KM`, engine && engine, color && color].filter(Boolean).join(' · ');
       const specs      = specsParts || `${brand.trim()} ${model.trim()}`;
+      const existingPhotos = photoItems.filter(p => p.kind === 'existing').map(p => p.uri);
+      const newPhotos = photoItems.filter(p => p.kind === 'new').map(p => p.asset!);
+      const photoOrder = photoItems.map(p => (p.kind === 'existing' ? { t: 'e', u: p.uri } : { t: 'n' }));
       const form       = new FormData();
       form.append('brand',      `${brand.trim()} ${model.trim()}`);
       form.append('specs',      specs);
       form.append('isMain',     String(isMain));
       form.append('keepPhotos', JSON.stringify(existingPhotos));
+      form.append('photoOrder', JSON.stringify(photoOrder));
       if (year.trim())   form.append('year',   year.trim());
       if (power.trim())  form.append('power',  power.trim());
       if (engine.trim()) form.append('engine', engine.trim());
@@ -138,7 +215,6 @@ export default function EditCarScreen() {
 
   const inputStyle    = { backgroundColor: theme.surface3, borderRadius: 10, padding: 14, color: theme.text, fontFamily: 'Orbitron' as const, fontSize: 13, borderWidth: 1, borderColor: theme.border2, marginBottom: 20 };
   const labelStyle    = { fontFamily: 'Orbitron' as const, color: theme.textDim, fontSize: 11, marginBottom: 8, letterSpacing: 1 };
-  const photoBtnStyle = { width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center' as const, alignItems: 'center' as const };
 
   if (loading) return (
     <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
@@ -160,42 +236,39 @@ export default function EditCarScreen() {
 
       {/* ZDJĘCIA */}
       <Text style={labelStyle}>ZDJĘCIA ({totalPhotos}/5)</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-        {existingPhotos.map((url, i) => (
-          <View key={`ex-${i}`} style={{ position: 'relative', marginRight: 10 }}>
-            <Image source={{ uri: url }} style={{ width: 90, height: 90, borderRadius: 10 }} />
-            <View style={{ position: 'absolute', bottom: 4, left: 4, backgroundColor: '#00000080', borderRadius: 6, padding: 3 }}>
-              <MaterialIcons name="cloud-done" size={9} color="#4de926" />
-            </View>
-            <TouchableOpacity style={{ position: 'absolute', top: 4, right: 4, backgroundColor: theme.primary, borderRadius: 10, padding: 2 }} onPress={() => removeExisting(url)}>
-              <MaterialIcons name="close" size={14} color="#fff" />
-            </TouchableOpacity>
+      <Text style={{ fontFamily: 'Orbitron', color: theme.textFaint, fontSize: 9, marginBottom: 10 }}>
+        Przytrzymaj zdjęcie i przeciągnij, aby zmienić kolejność
+      </Text>
+      <GestureHandlerRootView style={{ marginBottom: 20 }}>
+        <DraggableFlatList
+          data={photoItems}
+          keyExtractor={item => item.key}
+          renderItem={renderPhotoItem}
+          onDragEnd={({ data }) => setPhotoItems(data)}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          containerStyle={{ flexGrow: 0 }}
+          ListFooterComponent={photoListHeader}
+        />
+      </GestureHandlerRootView>
+
+      {isPremium && (
+        <TouchableOpacity
+          onPress={() => router.push({ pathname: '/profile/car-maintenance', params: { id: String(id), brand: `${brand} ${model}`.trim() } } as any)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 10,
+            backgroundColor: '#FFD70012', borderRadius: 12, padding: 14, marginBottom: 20,
+            borderWidth: 1, borderColor: '#FFD70040',
+          }}
+        >
+          <MaterialIcons name="build-circle" size={22} color="#FFD700" />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Dziennik serwisowy</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 3 }}>Przegląd, OC, serwisy i naprawy</Text>
           </View>
-        ))}
-        {newPhotos.map((p, i) => (
-          <View key={`new-${i}`} style={{ position: 'relative', marginRight: 10 }}>
-            <Image source={{ uri: p.uri }} style={{ width: 90, height: 90, borderRadius: 10 }} />
-            <View style={{ position: 'absolute', bottom: 4, left: 4, backgroundColor: theme.primaryBg, borderRadius: 6, padding: 3, borderWidth: 1, borderColor: theme.primaryBorder }}>
-              <MaterialIcons name="fiber-new" size={9} color={theme.primary} />
-            </View>
-            <TouchableOpacity style={{ position: 'absolute', top: 4, right: 4, backgroundColor: theme.primary, borderRadius: 10, padding: 2 }} onPress={() => removeNew(i)}>
-              <MaterialIcons name="close" size={14} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        ))}
-        {totalPhotos < 5 && (
-          <>
-            <TouchableOpacity style={photoBtnStyle} onPress={pickPhotos}>
-              <MaterialIcons name="photo-library" size={26} color={theme.primary} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Galeria</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[photoBtnStyle, { marginLeft: 8 }]} onPress={pickFromCamera}>
-              <MaterialIcons name="photo-camera" size={26} color={theme.primary} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9, marginTop: 4 }}>Aparat</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </ScrollView>
+          <MaterialIcons name="chevron-right" size={20} color="#FFD700" />
+        </TouchableOpacity>
+      )}
 
       <Text style={labelStyle}>MARKA *</Text>
       <TextInput style={inputStyle} value={brand} onChangeText={setBrand} placeholder="Np. BMW, Mercedes..." placeholderTextColor={theme.textDim} />

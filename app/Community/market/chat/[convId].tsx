@@ -64,7 +64,9 @@ export default function MarketChatScreen() {
   const listRef    = useRef<FlatList>(null);
   const tokenRef   = useRef('');
 
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
+    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
+  });
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';

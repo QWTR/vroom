@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, Linking, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Modal, ScrollView, Dimensions,
-  Animated, Platform, Keyboard, KeyboardAvoidingView, Pressable,
+  Platform, Keyboard, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -206,133 +206,173 @@ export const LoadingView = () => (
 );
 
 // ─────────────────────────────────────────────────────────
-// PHOTO VIEWER (fullscreen lightbox)
+// PHOTO VIEWER (fullscreen lightbox + pinch zoom)
 // ─────────────────────────────────────────────────────────
+const ZOOM_IMAGE_H = SCREEN_H * 0.75;
+
+function ZoomablePhoto({ uri }: { uri: string }) {
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+  }, [uri]);
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      style={{ width: SCREEN_W, height: ZOOM_IMAGE_H }}
+      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
+      maximumZoomScale={4}
+      minimumZoomScale={1}
+      centerContent
+      bouncesZoom
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+    >
+      <Image
+        source={{ uri }}
+        style={{ width: SCREEN_W, height: ZOOM_IMAGE_H }}
+        resizeMode="contain"
+      />
+    </ScrollView>
+  );
+}
+
 export const PhotoViewer = ({
   photos,
   initialIndex = 0,
   visible,
   onClose,
+  useOverlay = false,
 }: {
   photos: string[];
   initialIndex?: number;
   visible: boolean;
   onClose: () => void;
+  /** Gdy true — render jako overlay (bez Modal), np. wewnątrz innego Modala na iOS. */
+  useOverlay?: boolean;
 }) => {
   const [idx, setIdx] = useState(initialIndex);
-  const fadeAnim      = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    if (visible) {
-      setIdx(initialIndex);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
-    } else {
-      fadeAnim.setValue(0);
-    }
+    if (visible) setIdx(initialIndex);
   }, [visible, initialIndex]);
 
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
   if (!visible || !photos.length) return null;
+
+  const content = (
+    <View style={{ flex: 1, backgroundColor: '#000000f0' }}>
+      <TouchableOpacity
+        onPress={handleClose}
+        style={{
+          position: 'absolute', top: insets.top + 14, right: 18, zIndex: 10,
+          width: 40, height: 40, borderRadius: 20,
+          backgroundColor: '#ffffff18',
+          justifyContent: 'center', alignItems: 'center',
+        }}
+      >
+        <MaterialIcons name="close" size={22} color="#fff" />
+      </TouchableOpacity>
+
+      {photos.length > 1 && (
+        <View style={{
+          position: 'absolute', top: insets.top + 20, left: 0, right: 0,
+          alignItems: 'center', zIndex: 10,
+        }} pointerEvents="none">
+          <View style={{
+            backgroundColor: '#000000aa', borderRadius: 20,
+            paddingHorizontal: 14, paddingVertical: 5,
+          }}>
+            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, letterSpacing: 2 }}>
+              {idx + 1} / {photos.length}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ZoomablePhoto uri={photos[idx]} />
+      </View>
+
+      {photos.length > 1 && (
+        <>
+          <TouchableOpacity
+            onPress={() => setIdx(i => (i - 1 + photos.length) % photos.length)}
+            style={{
+              position: 'absolute', left: 10, top: '50%',
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: '#ffffff20',
+              justifyContent: 'center', alignItems: 'center', zIndex: 10,
+            }}
+          >
+            <MaterialIcons name="chevron-left" size={28} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setIdx(i => (i + 1) % photos.length)}
+            style={{
+              position: 'absolute', right: 10, top: '50%',
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: '#ffffff20',
+              justifyContent: 'center', alignItems: 'center', zIndex: 10,
+            }}
+          >
+            <MaterialIcons name="chevron-right" size={28} color="#fff" />
+          </TouchableOpacity>
+        </>
+      )}
+
+      {photos.length > 1 && (
+        <View style={{
+          flexDirection: 'row', justifyContent: 'center',
+          gap: 8, paddingBottom: Math.max(insets.bottom, 24), paddingTop: 16,
+        }}>
+          {photos.map((uri, i) => (
+            <TouchableOpacity key={i} onPress={() => setIdx(i)}>
+              <Image
+                source={{ uri }}
+                style={{
+                  width: 52, height: 52, borderRadius: 8,
+                  borderWidth: 2,
+                  borderColor: i === idx ? '#e33835' : '#ffffff30',
+                  opacity: i === idx ? 1 : 0.5,
+                }}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+
+  if (useOverlay) {
+    return (
+      <View
+        style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          zIndex: 1000, elevation: 1000,
+        }}
+      >
+        {content}
+      </View>
+    );
+  }
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="none"
+      animationType="fade"
       statusBarTranslucent
-      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      onRequestClose={handleClose}
     >
-      <Animated.View style={{ flex: 1, backgroundColor: '#000000f0', opacity: fadeAnim }}>
-        {/* Zamknij */}
-        <TouchableOpacity
-          onPress={onClose}
-          style={{
-            position: 'absolute', top: insets.top + 14, right: 18, zIndex: 10,
-            width: 40, height: 40, borderRadius: 20,
-            backgroundColor: '#ffffff18',
-            justifyContent: 'center', alignItems: 'center',
-          }}
-        >
-          <MaterialIcons name="close" size={22} color="#fff" />
-        </TouchableOpacity>
-
-        {/* Licznik */}
-        {photos.length > 1 && (
-          <View style={{
-            position: 'absolute', top: insets.top + 20, left: 0, right: 0,
-            alignItems: 'center', zIndex: 10,
-          }}>
-            <View style={{
-              backgroundColor: '#000000aa', borderRadius: 20,
-              paddingHorizontal: 14, paddingVertical: 5,
-            }}>
-              <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 11, letterSpacing: 2 }}>
-                {idx + 1} / {photos.length}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Główne zdjęcie */}
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 0 }}>
-          <Image
-            source={{ uri: photos[idx] }}
-            style={{ width: SCREEN_W, height: SCREEN_H * 0.75 }}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* Strzałki nawigacji */}
-        {photos.length > 1 && (
-          <>
-            <TouchableOpacity
-              onPress={() => setIdx(i => (i - 1 + photos.length) % photos.length)}
-              style={{
-                position: 'absolute', left: 10, top: '50%',
-                width: 44, height: 44, borderRadius: 22,
-                backgroundColor: '#ffffff20',
-                justifyContent: 'center', alignItems: 'center',
-              }}
-            >
-              <MaterialIcons name="chevron-left" size={28} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setIdx(i => (i + 1) % photos.length)}
-              style={{
-                position: 'absolute', right: 10, top: '50%',
-                width: 44, height: 44, borderRadius: 22,
-                backgroundColor: '#ffffff20',
-                justifyContent: 'center', alignItems: 'center',
-              }}
-            >
-              <MaterialIcons name="chevron-right" size={28} color="#fff" />
-            </TouchableOpacity>
-          </>
-        )}
-
-        {/* Thumbnail strip */}
-        {photos.length > 1 && (
-          <View style={{
-            flexDirection: 'row', justifyContent: 'center',
-            gap: 8, paddingBottom: 40, paddingTop: 16,
-          }}>
-            {photos.map((uri, i) => (
-              <TouchableOpacity key={i} onPress={() => setIdx(i)}>
-                <Image
-                  source={{ uri }}
-                  style={{
-                    width: 52, height: 52, borderRadius: 8,
-                    borderWidth: 2,
-                    borderColor: i === idx ? '#e33835' : '#ffffff30',
-                    opacity: i === idx ? 1 : 0.5,
-                  }}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </Animated.View>
+      {content}
     </Modal>
   );
 };

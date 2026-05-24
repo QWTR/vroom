@@ -8,11 +8,12 @@ const DEFAULT_COMPOSER = 72;
 /** Keyboard inset + auto scroll-to-end for bottom-anchored chat lists. */
 export function useChatKeyboard(
   listRef: React.RefObject<FlatList | null>,
-  opts?: { composerHeight?: number; scrollOnShow?: boolean },
+  opts?: { composerHeight?: number; scrollOnShow?: boolean; parentUsesKeyboardAvoiding?: boolean },
 ) {
   const composerHeight = opts?.composerHeight ?? DEFAULT_COMPOSER;
   const keyboardHeight = useKeyboardInset(true);
   const prevHeightRef = useRef(0);
+  const iosKav = opts?.parentUsesKeyboardAvoiding ?? false;
 
   const scrollToEnd = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
@@ -30,8 +31,8 @@ export function useChatKeyboard(
 
   return {
     keyboardHeight,
-    listPaddingBottom: keyboardHeight > 0 ? keyboardHeight + 12 : 8,
-    inputPaddingBottom: keyboardHeight,
+    listPaddingBottom: keyboardHeight > 0 ? (iosKav ? 12 : keyboardHeight + 12) : 8,
+    inputPaddingBottom: iosKav ? 0 : keyboardHeight,
     scrollToEnd,
   };
 }

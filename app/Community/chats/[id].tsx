@@ -131,7 +131,9 @@ export default function ChatScreen() {
   const tokenRef         = useRef<string>('');
   const typingTimer      = useRef<any>(null);
 
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
+    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
+  });
 
   useEffect(() => {
     Animated.parallel([

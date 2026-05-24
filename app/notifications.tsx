@@ -6,8 +6,11 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
 import { useTheme } from '../contexts/ThemeContext';
 import { API_URL } from '../constants/config';
+
+const CHAT_API = `${API_URL}/api/chat`;
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -38,6 +41,7 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scope, setScope] = useState<'all' | 'friends' | 'following' | 'official'>('all');
+  const [friendActionId, setFriendActionId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -93,7 +97,57 @@ export default function NotificationsScreen() {
     } catch { /* ignore */ }
   };
 
+  const resolveFriendshipId = async (item: Row): Promise<number | null> => {
+    const d = item.data;
+    if (d?.friendshipId != null) return Number(d.friendshipId);
+    const senderId = d?.userId != null ? Number(d.userId) : null;
+    if (!senderId) return null;
+    try {
+      const token = await getToken();
+      const r = await fetch(`${CHAT_API}/friends/requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return null;
+      const requests = await r.json();
+      const match = (requests ?? []).find((req: { id: number; requester: { id: number } }) =>
+        req.requester?.id === senderId,
+      );
+      return match?.id ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleFriendAction = async (item: Row, action: 'accept' | 'reject') => {
+    setFriendActionId(item.id);
+    try {
+      const token = await getToken();
+      const friendshipId = await resolveFriendshipId(item);
+      if (!friendshipId) {
+        Toast.show({ type: 'error', text1: 'Zaproszenie wygasło lub zostało już obsłużone' });
+        setRows(prev => prev.filter(x => x.id !== item.id));
+        return;
+      }
+      const r = await fetch(`${CHAT_API}/friends/${friendshipId}/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error();
+      if (!item.read) await markRead(item.id);
+      setRows(prev => prev.filter(x => x.id !== item.id));
+      Toast.show({
+        type: 'success',
+        text1: action === 'accept' ? '✅ Zaakceptowano zaproszenie' : 'Odrzucono zaproszenie',
+      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Nie udało się obsłużyć zaproszenia' });
+    } finally {
+      setFriendActionId(null);
+    }
+  };
+
   const onPressRow = async (item: Row) => {
+    if (item.type === 'friend_request') return;
     if (!item.read) await markRead(item.id);
     const d = item.data;
     const meetId = d?.meetId != null ? Number(d.meetId) : null;
@@ -119,16 +173,21 @@ export default function NotificationsScreen() {
     ) {
       await AsyncStorage.setItem('open_post_id', String(d.postId));
       router.push('/Community/community/community' as any);
+    } else if (item.type === 'friend_request' && d?.userId != null) {
+      router.push({ pathname: '/profile/[userId]', params: { userId: String(d.userId) } } as any);
     } else if (d?.clubId != null) {
       const q = d.channelId ? `?channelId=${d.channelId}` : '';
       router.push(`/Community/clubs/${d.clubId}${q}` as any);
+    } else if (item.type === 'mention_public_chat' || item.type === 'public_chat_message') {
+      router.push('/Community/public/public' as any);
     }
   };
 
   const renderItem = ({ item }: { item: Row }) => (
     <TouchableOpacity
       onPress={() => onPressRow(item)}
-      activeOpacity={0.85}
+      activeOpacity={item.type === 'friend_request' ? 1 : 0.85}
+      disabled={item.type === 'friend_request'}
       style={{
         marginHorizontal: 16,
         marginBottom: 10,
@@ -145,6 +204,37 @@ export default function NotificationsScreen() {
         {!item.read && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary, marginTop: 4 }} />}
       </View>
       <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 6, lineHeight: 18 }}>{item.body}</Text>
+      {item.type === 'friend_request' && (
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+          <TouchableOpacity
+            onPress={() => void handleFriendAction(item, 'accept')}
+            disabled={friendActionId === item.id}
+            style={{
+              flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 10, borderRadius: 10,
+              backgroundColor: '#4de92620', borderWidth: 1, borderColor: '#4de92645',
+            }}
+          >
+            {friendActionId === item.id
+              ? <ActivityIndicator size="small" color="#4de926" />
+              : <MaterialIcons name="check" size={16} color="#4de926" />
+            }
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#4de926', fontWeight: '700' }}>AKCEPTUJ</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => void handleFriendAction(item, 'reject')}
+            disabled={friendActionId === item.id}
+            style={{
+              flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 10, borderRadius: 10,
+              backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder,
+            }}
+          >
+            <MaterialIcons name="close" size={16} color={theme.primary} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700' }}>ODRZUĆ</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <Text style={{ color: theme.textFaint, fontSize: 9, marginTop: 8 }}>
         {new Date(item.createdAt).toLocaleString('pl-PL')}
       </Text>

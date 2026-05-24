@@ -1237,6 +1237,15 @@ export default function CommunityScreen() {
             </View>
           </View>
           </KeyboardAvoidingView>
+          {commentPhotoViewer && (
+            <PhotoViewer
+              photos={commentPhotoUris}
+              initialIndex={commentPhotoIdx}
+              visible={commentPhotoViewer}
+              onClose={() => setCommentPhotoViewer(false)}
+              useOverlay
+            />
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -1385,13 +1394,7 @@ export default function CommunityScreen() {
         </Pressable>
       </Modal>
 
-      {/* ══ PHOTO VIEWER (globalny) ════════════════════════════ */}
-      <PhotoViewer
-        photos={commentPhotoUris}
-        initialIndex={commentPhotoIdx}
-        visible={commentPhotoViewer}
-        onClose={() => setCommentPhotoViewer(false)}
-      />
+      {/* PhotoViewer z komentarzy renderowany jako overlay wewnątrz modala komentarzy */}
     </SafeAreaView>
   );
 }
