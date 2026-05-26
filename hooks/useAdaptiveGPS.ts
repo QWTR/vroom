@@ -400,7 +400,11 @@ export function useAdaptiveGPS({
   }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, subscribe]);
 
   const start = useCallback(async () => {
-    await subscribe(currentProfile());
+    const profile =
+      navRef.current || drivingRef.current || forceActiveRef.current
+        ? 'active'
+        : currentProfile();
+    await subscribe(profile);
   }, [currentProfile, subscribe]);
 
   const stop = useCallback(() => {

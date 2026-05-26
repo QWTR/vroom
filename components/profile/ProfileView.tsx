@@ -124,7 +124,7 @@ export default function ProfileView({
 }: Props) {
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
-  const premiumActive = !!(isPremium || (isOwner && profile?.isPremium));
+  const premiumActive = !!isPremium;
   /** Właściciel edytuje personalizację w Ustawieniach — zawsze stan z settings, nie /me. */
   const rawProfileThemePreset = (
     isOwner

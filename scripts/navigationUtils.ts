@@ -459,6 +459,277 @@ export function snapToRoute(
   return { latitude: userLat, longitude: userLon };
 }
 
+export type PolylineProjection = {
+  latitude: number;
+  longitude: number;
+  segmentIndex: number;
+  distM: number;
+};
+
+/** Rzut punktu na polilinię z indeksem segmentu (do arc-length / sub-kotwic). */
+export function projectOntoPolylineWithIndex(
+  userLat: number,
+  userLng: number,
+  pts: { latitude: number; longitude: number }[],
+  maxRadiusM = 120,
+): PolylineProjection | null {
+  if (pts.length < 2) return null;
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  let minDist = Infinity;
+  let bestLat = userLat;
+  let bestLng = userLng;
+  let bestSegIdx = 0;
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    const aLat = pts[i].latitude;
+    const aLon = pts[i].longitude;
+    const bLat = pts[i + 1].latitude;
+    const bLon = pts[i + 1].longitude;
+    const dist = distanceToSegmentMeters(userLat, userLng, aLat, aLon, bLat, bLon);
+    if (dist >= minDist) continue;
+    minDist = dist;
+    bestSegIdx = i;
+    const ax = R * Math.cos(toRad(aLat)) * toRad(aLon);
+    const ay = R * toRad(aLat);
+    const bx = R * Math.cos(toRad(bLat)) * toRad(bLon);
+    const by = R * toRad(bLat);
+    const px = R * Math.cos(toRad(userLat)) * toRad(userLng);
+    const py = R * toRad(userLat);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    let t = 0;
+    if (lenSq > 0) {
+      t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+    }
+    bestLat = aLat + t * (bLat - aLat);
+    bestLng = aLon + t * (bLon - aLon);
+  }
+  if (!Number.isFinite(minDist) || minDist > maxRadiusM) return null;
+  return {
+    latitude: bestLat,
+    longitude: bestLng,
+    segmentIndex: bestSegIdx,
+    distM: minDist,
+  };
+}
+
+/**
+ * Gęstsza polilinia — eliminuje „chord defect” przy 2 punktach API (marker tnąc po skosie).
+ */
+export function densifyPolyline(
+  pts: { latitude: number; longitude: number }[],
+  maxSegmentM = 8,
+): { latitude: number; longitude: number }[] {
+  if (!Array.isArray(pts) || pts.length < 2) return pts;
+  const capM = Math.max(4, maxSegmentM);
+  const out: { latitude: number; longitude: number }[] = [
+    { latitude: pts[0].latitude, longitude: pts[0].longitude },
+  ];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const segM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+    if (segM > capM) {
+      const steps = Math.min(48, Math.ceil(segM / capM));
+      for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        out.push({
+          latitude: a.latitude + (b.latitude - a.latitude) * t,
+          longitude: a.longitude + (b.longitude - a.longitude) * t,
+        });
+      }
+    }
+    out.push({ latitude: b.latitude, longitude: b.longitude });
+  }
+  return out.length >= 2 ? out : pts;
+}
+
+function polylinePathLengthM(path: { latitude: number; longitude: number }[]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    total += haversineKm(
+      path[i - 1].latitude,
+      path[i - 1].longitude,
+      path[i].latitude,
+      path[i].longitude,
+    ) * 1000;
+  }
+  return total;
+}
+
+/** Punkt w odległości distanceM od początku ścieżki (łuk po wierzchołkach). */
+export function getPointAtDistanceAlongPath(
+  path: { latitude: number; longitude: number }[],
+  distanceM: number,
+): { latitude: number; longitude: number } {
+  if (path.length === 0) return { latitude: 0, longitude: 0 };
+  if (path.length === 1 || distanceM <= 0) {
+    return { latitude: path[0].latitude, longitude: path[0].longitude };
+  }
+  let remaining = distanceM;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const segM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+    if (segM <= 0) continue;
+    if (remaining <= segM) {
+      const t = remaining / segM;
+      return {
+        latitude: a.latitude + (b.latitude - a.latitude) * t,
+        longitude: a.longitude + (b.longitude - a.longitude) * t,
+      };
+    }
+    remaining -= segM;
+  }
+  const last = path[path.length - 1];
+  return { latitude: last.latitude, longitude: last.longitude };
+}
+
+/**
+ * Sub-kotwice równomiernie wzdłuż łuku drogi między poprzednim a bieżącym snap (arc-length).
+ */
+export function generateSubAnchorsAlongPolyline(
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number },
+  polyline: { latitude: number; longitude: number }[],
+  count: number,
+): { latitude: number; longitude: number }[] {
+  if (polyline.length < 2 || count < 1) return [];
+  const startProj = projectOntoPolylineWithIndex(start.latitude, start.longitude, polyline, 150);
+  const endProj = projectOntoPolylineWithIndex(end.latitude, end.longitude, polyline, 150);
+  if (!startProj || !endProj) return [];
+
+  let fromIdx = startProj.segmentIndex;
+  let toIdx = endProj.segmentIndex;
+  if (toIdx < fromIdx) {
+    const swap = fromIdx;
+    fromIdx = toIdx;
+    toIdx = swap;
+  }
+
+  const path: { latitude: number; longitude: number }[] = [
+    { latitude: startProj.latitude, longitude: startProj.longitude },
+  ];
+  for (let i = fromIdx + 1; i <= toIdx; i++) {
+    path.push({ latitude: polyline[i].latitude, longitude: polyline[i].longitude });
+  }
+  const last = { latitude: endProj.latitude, longitude: endProj.longitude };
+  const lastInPath = path[path.length - 1];
+  if (
+    haversineKm(lastInPath.latitude, lastInPath.longitude, last.latitude, last.longitude) * 1000 > 0.3
+  ) {
+    path.push(last);
+  }
+
+  const totalM = polylinePathLengthM(path);
+  if (totalM < 1.5) return [last];
+
+  const anchors: { latitude: number; longitude: number }[] = [];
+  for (let step = 1; step <= count; step++) {
+    const targetDist = (totalM / (count + 1)) * step;
+    anchors.push(getPointAtDistanceAlongPath(path, targetDist));
+  }
+  anchors.push(last);
+  return anchors;
+}
+
+/**
+ * Krok w stronę celu wzdłuż polilinii drogi (nie po skosie mapy).
+ * Używane przy zakrętach zamiast clampCoordStep.
+ */
+export function stepTowardSnapOnPolyline(
+  fromLat: number,
+  fromLng: number,
+  targetLat: number,
+  targetLng: number,
+  points: { latitude: number; longitude: number }[],
+  maxStepM: number,
+  maxSnapMeters = 85,
+): { latitude: number; longitude: number } {
+  if (
+    points.length < 2
+    || !Number.isFinite(maxStepM)
+    || maxStepM <= 0
+  ) {
+    const distM = haversineKm(fromLat, fromLng, targetLat, targetLng) * 1000;
+    if (!Number.isFinite(distM) || distM <= maxStepM) {
+      return { latitude: targetLat, longitude: targetLng };
+    }
+    const t = maxStepM / distM;
+    return {
+      latitude: fromLat + (targetLat - fromLat) * t,
+      longitude: fromLng + (targetLng - fromLng) * t,
+    };
+  }
+
+  const fromProj = projectOntoPolylineWithIndex(fromLat, fromLng, points, maxSnapMeters);
+  const targetProj = projectOntoPolylineWithIndex(targetLat, targetLng, points, maxSnapMeters);
+  if (!fromProj || !targetProj) {
+    const onRoad = snapStepTowardRoad(fromLat, fromLng, points, maxSnapMeters, maxStepM);
+    if (onRoad) return onRoad;
+    const distM = haversineKm(fromLat, fromLng, targetLat, targetLng) * 1000;
+    if (!Number.isFinite(distM) || distM <= maxStepM) {
+      return { latitude: targetLat, longitude: targetLng };
+    }
+    const t = maxStepM / distM;
+    return {
+      latitude: fromLat + (targetLat - fromLat) * t,
+      longitude: fromLng + (targetLng - fromLng) * t,
+    };
+  }
+
+  let fromIdx = fromProj.segmentIndex;
+  let toIdx = targetProj.segmentIndex;
+  if (toIdx < fromIdx) {
+    const swap = fromIdx;
+    fromIdx = toIdx;
+    toIdx = swap;
+  }
+
+  const path: { latitude: number; longitude: number }[] = [
+    { latitude: fromProj.latitude, longitude: fromProj.longitude },
+  ];
+  for (let i = fromIdx + 1; i <= toIdx; i++) {
+    path.push({ latitude: points[i].latitude, longitude: points[i].longitude });
+  }
+  const endPt = { latitude: targetProj.latitude, longitude: targetProj.longitude };
+  const pathEnd = path[path.length - 1];
+  if (
+    haversineKm(pathEnd.latitude, pathEnd.longitude, endPt.latitude, endPt.longitude) * 1000 > 0.3
+  ) {
+    path.push(endPt);
+  }
+
+  const pathLenM = polylinePathLengthM(path);
+  if (pathLenM <= maxStepM) {
+    return endPt;
+  }
+  return getPointAtDistanceAlongPath(path, maxStepM);
+}
+
+/** Krokowe dociąganie pozycji do drogi — bez gwałtownego skoku (frame-level snap). */
+export function snapStepTowardRoad(
+  lat: number,
+  lng: number,
+  points: { latitude: number; longitude: number }[],
+  maxSnapMeters: number,
+  maxStepM: number,
+): { latitude: number; longitude: number } | null {
+  if (points.length < 2 || !Number.isFinite(maxStepM) || maxStepM <= 0) return null;
+  const snapped = snapToRoute(lat, lng, points, maxSnapMeters);
+  const moveM = haversineKm(lat, lng, snapped.latitude, snapped.longitude) * 1000;
+  if (moveM < 0.3 || moveM > maxSnapMeters) return null;
+  if (moveM <= maxStepM) return snapped;
+  const t = maxStepM / moveM;
+  return {
+    latitude: lat + (snapped.latitude - lat) * t,
+    longitude: lng + (snapped.longitude - lng) * t,
+  };
+}
+
 /**
  * Sprawdza który krok jest aktualny.
  * Ulepszona wersja — sprawdza odległość od odcinków, nie tylko punktów.

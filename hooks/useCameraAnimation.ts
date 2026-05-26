@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Dimensions } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
+import { markerLogTick } from '../lib/markerPipelineLog';
 
 type CameraFollowMode =
   | 'idleBrowse'
@@ -16,6 +17,11 @@ type CameraFrameInput = {
   isDriving: boolean;
   isNavigating: boolean;
   timestamp?: number;
+};
+
+type CameraFrameOptions = {
+  /** Ten sam punkt co marker (worklet display) — bez drugiego LERP centrum w RAF. */
+  fromWorkletDisplay?: boolean;
 };
 
 type MapCameraPadding = {
@@ -72,12 +78,12 @@ const RECENTER_ANIM_MS = 1000;
 /** Szybkie, płynne wejście kamery w tryb jazdy (zoom + pitch), bez 1 s opóźnienia. */
 const DRIVING_ENTRY_RECENTER_MS = 480;
 const IDLE_APPLY_MS = 120;
-/** ~30 FPS apply do Mapbox — płynnie, ale bez przeciążania renderu. */
-const FOLLOW_APPLY_INTERVAL_MS = 24;
+/** 60 FPS apply do Mapbox w trybie follow. */
+const FOLLOW_APPLY_INTERVAL_MS = 16;
 
 /** Stałe czasowe wygładzania (sekundy). */
 /** Szybsze centrowanie kamery na markerze (mniejszy lag wzgledem worklet). */
-const CENTER_TAU_S = 0.2;
+const CENTER_TAU_S = 0.22;
 /** Płynne obracanie w stronę jazdy (wektor ruchu + snap drogi). */
 const HEADING_TAU_S = 0.38;
 const ZOOM_TAU_S = 2.2;
@@ -271,6 +277,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const resolvedHeadingRef = useRef<number | null>(null);
   const lastFollowApplyRef = useRef(0);
   const lastFrameInputRef = useRef<CameraFrameInput | null>(null);
+  const centerFromWorkletDisplayRef = useRef(false);
   const tripActiveRef = useRef(false);
   const gestureResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAfterUserGestureRef = useRef<() => void>(() => {});
@@ -285,6 +292,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   /** Po wyjściu z jazdy/nawigacji — zatrzymaj follow i anuluj auto-powrót po pan/zoom. */
   const releaseTripCameraState = useCallback(() => {
     tripActiveRef.current = false;
+    centerFromWorkletDisplayRef.current = false;
     lastFrameInputRef.current = null;
     userPanUntilRef.current = 0;
     recenterLockUntilRef.current = 0;
@@ -367,14 +375,16 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const centerAlpha = expAlpha(dtSec, centerTau);
     const maxCenterStep = clampNum(20 + speedKmhRef.current * 0.72, 18, 84) * dtSec;
 
-    const center = moveCenterToward(
-      {
-        latitude: lerpNum(display.center.latitude, target.center.latitude, centerAlpha),
-        longitude: lerpNum(display.center.longitude, target.center.longitude, centerAlpha),
-      },
-      target.center,
-      maxCenterStep,
-    );
+    const center = centerFromWorkletDisplayRef.current
+      ? target.center
+      : moveCenterToward(
+        {
+          latitude: lerpNum(display.center.latitude, target.center.latitude, centerAlpha),
+          longitude: lerpNum(display.center.longitude, target.center.longitude, centerAlpha),
+        },
+        target.center,
+        maxCenterStep,
+      );
 
     const headingErr = Math.abs(headingDelta(display.heading, target.heading));
     const turnBoost = headingErr > 56 ? 1.55 : headingErr > 32 ? 1.3 : 1;
@@ -520,11 +530,12 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     });
   }, [recenterTo, releaseTripCameraState]);
 
-  const updateCameraFrame = useCallback((input: CameraFrameInput) => {
+  const updateCameraFrame = useCallback((input: CameraFrameInput, opts?: CameraFrameOptions) => {
     const now = input.timestamp ?? Date.now();
     speedKmhRef.current = input.speedKmh;
     lastFrameInputRef.current = input;
     tripActiveRef.current = input.isDriving || input.isNavigating;
+    const fromWorkletDisplay = !!opts?.fromWorkletDisplay;
 
     const nextMode = computeFollowMode({
       isDriving: input.isDriving,
@@ -567,10 +578,18 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         }
       }
 
-      if (moveBearing != null) {
-        const vectorWeight = clampNum((input.speedKmh - 4) / 32, 0.18, 0.78);
+      if (input.speedKmh >= 14) {
+        resolvedHeading = target.heading;
+      } else if (moveBearing != null && input.speedKmh >= 12 && movedM >= 2.5) {
+        const flipDelta = Math.abs(headingDelta(moveBearing, resolvedHeading));
+        if (input.speedKmh >= 10 && flipDelta > 95) {
+          resolvedHeading = moveBearing;
+        }
+        const vectorWeight = input.speedKmh >= 8
+          ? clampNum(0.55 + (input.speedKmh - 8) / 140, 0.55, 0.78)
+          : clampNum((input.speedKmh - 12) / 40, 0.15, 0.45);
         const blended = lerpHeading(resolvedHeading, moveBearing, vectorWeight);
-        const maxVectorDiff = input.speedKmh >= 55 ? 34 : input.speedKmh >= 25 ? 46 : 68;
+        const maxVectorDiff = input.speedKmh >= 55 ? 28 : input.speedKmh >= 25 ? 38 : 52;
         resolvedHeading = lerpHeadingWithMaxStep(blended, moveBearing, maxVectorDiff);
       } else if (prevResolvedHeading != null && input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH) {
         // Near standstill heading noise (GPS/compass) should not rotate the camera.
@@ -592,6 +611,21 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
           resolvedHeading = prevResolvedHeading;
         }
       }
+
+      const headingIn = Math.round(target.heading);
+      const headingOut = Math.round(resolvedHeading);
+      const flipFromPrev = prevResolvedHeading != null
+        ? Math.abs(headingDelta(prevResolvedHeading, resolvedHeading))
+        : 0;
+      markerLogTick('CAMERA_HEADING', {
+        speedKmh: Math.round(input.speedKmh),
+        movedM: Number(movedM.toFixed(2)),
+        moveBearing: moveBearing != null ? Math.round(moveBearing) : null,
+        headingIn,
+        headingOut,
+        flipFromPrevDeg: Math.round(flipFromPrev),
+        usedSnapHeadingOnly: input.speedKmh >= 14,
+      }, 1100);
 
       resolvedHeading = normalizeHeading(resolvedHeading);
       lastResolvedHeadingAtRef.current = nowMs;
@@ -621,7 +655,10 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       lastTravelUpdateAtRef.current = 0;
     }
 
+    centerFromWorkletDisplayRef.current = fromWorkletDisplay && active;
+
     if (!active) {
+      centerFromWorkletDisplayRef.current = false;
       stopFollowLoop();
       if (now - lastIdleApplyRef.current < IDLE_APPLY_MS) return;
       lastIdleApplyRef.current = now;
@@ -636,6 +673,25 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }
 
     targetPoseRef.current = target;
+
+    if (fromWorkletDisplay) {
+      const prev = displayPoseRef.current;
+      const synced: CameraPose = {
+        center: target.center,
+        heading: target.heading,
+        zoom: prev ? smoothZoomTarget(prev.zoom, target.zoom) : target.zoom,
+        pitch: target.pitch,
+        padding: target.padding,
+      };
+      displayPoseRef.current = synced;
+      lastTargetZoomRef.current = synced.zoom;
+      if (now - lastFollowApplyRef.current >= FOLLOW_APPLY_INTERVAL_MS) {
+        lastFollowApplyRef.current = now;
+        applyToMap(synced, 0, 'linear');
+      }
+      startFollowLoop();
+      return;
+    }
 
     if (!displayPoseRef.current) {
       displayPoseRef.current = { ...target };

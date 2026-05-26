@@ -5,21 +5,49 @@ export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 
 const HUD_SPEED_CAP_KMH = 250;
 
-export function emitSpeedometerKmh(kmh: number | null) {
-  const raw = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : 0;
-  // Ostatnia bariera: HUD nie pokazuje absurdalnych skoków zanim pipeline je wyłapie.
-  const safe = raw > HUD_SPEED_CAP_KMH ? HUD_SPEED_CAP_KMH : raw;
-  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, { kmh: safe });
+/** Zawsze zwraca skończoną prędkość ≥ 0 — 0 km/h to poprawna wartość, nie brak sygnału. */
+export function normalizeHudSpeedKmh(value: unknown): number {
+  if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0;
+  }
+  const raw = Math.max(0, value);
+  return raw > HUD_SPEED_CAP_KMH ? HUD_SPEED_CAP_KMH : raw;
+}
+
+/**
+ * Preferuj jawny prop (w tym 0), potem strumień live — nigdy `||`, bo 0 jest falsy.
+ */
+export function resolveHudSpeedKmh(
+  explicitKmh: number | null | undefined,
+  liveKmh: number,
+): number {
+  if (explicitKmh != null && Number.isFinite(explicitKmh)) {
+    return normalizeHudSpeedKmh(explicitKmh);
+  }
+  return normalizeHudSpeedKmh(liveKmh);
+}
+
+export function emitSpeedometerKmh(kmh: number | null | undefined) {
+  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, {
+    kmh: normalizeHudSpeedKmh(kmh),
+  });
 }
 
 function useSpeedometerKmh(initialKmh = 0) {
-  const [kmh, setKmh] = useState(Number.isFinite(initialKmh) ? Math.max(0, initialKmh) : 0);
+  const safeInitial = normalizeHudSpeedKmh(initialKmh);
+  const [kmh, setKmh] = useState(safeInitial);
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(SPEEDOMETER_EVENT, (payload: { kmh?: number } | undefined) => {
-      const next = Number(payload?.kmh ?? 0);
-      setKmh(Number.isFinite(next) ? Math.max(0, next) : 0);
-    });
+    setKmh(safeInitial);
+  }, [safeInitial]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      SPEEDOMETER_EVENT,
+      (payload: { kmh?: number } | undefined) => {
+        setKmh(normalizeHudSpeedKmh(payload?.kmh));
+      },
+    );
     return () => sub.remove();
   }, []);
 
@@ -55,7 +83,7 @@ export const SpeedValueText = memo(function SpeedValueText({
   showUnit?: boolean;
 }) {
   const liveKmh = useSpeedometerKmh(initialKmh);
-  const valueKmh = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : liveKmh;
+  const valueKmh = resolveHudSpeedKmh(kmh, liveKmh);
   const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
   return (
     <Text style={[style, overLimit && { color: '#e33835' }]}>
@@ -83,7 +111,7 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
   style?: any;
 }) {
   const liveKmh = useSpeedometerKmh(initialKmh);
-  const valueKmh = Number.isFinite(kmh ?? NaN) ? Math.max(0, kmh as number) : liveKmh;
+  const valueKmh = resolveHudSpeedKmh(kmh, liveKmh);
   const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
   const smallFont = speedLimit != null && speedLimit >= smallFontAt;
 

@@ -11,7 +11,9 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
-const TRIP_MAX_PLAUSIBLE_KMH = 360;
+/** Statystyki / achievement — nie wyżej niż realistyczna jazda (log mpl5q39s: fallback + 360 = fałszywe 330 km/h). */
+const TRIP_MAX_PLAUSIBLE_KMH = 200;
+const TRIP_MAX_DERIVED_SAMPLE_KMH = 200;
 /** Dłuższe przerwy GPS (tunel, Doze) — po tym segmencie reset kotwicy zamiast wiecznego odrzucania. */
 const TRIP_MAX_FIX_GAP_SEC   = 480;
 const TRIP_FALLBACK_MAX_GAP_SEC = 900;
@@ -193,10 +195,14 @@ export function useTripStats() {
           lastPointRef.current = { latitude: lat, longitude: lng, time: now };
           return 0;
         }
+        if (!hasMotionSignal && rawKm > 0.15) {
+          lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+          return 0;
+        }
         const fallbackKm = Math.min(rawKm, cappedByTimeKm, fallbackCapKm);
         if (fallbackKm >= TRIP_MIN_SEGMENT_KM * 1.2) {
           const derivedKmh = dtSecRaw > 0 ? (fallbackKm * 3600) / dtSecRaw : 0;
-          if ((speedKmh == null || speedKmh < 2) && Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 360) {
+          if ((speedKmh == null || speedKmh < 2) && Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= TRIP_MAX_DERIVED_SAMPLE_KMH) {
             speedSamples.current.push(derivedKmh);
             if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
               speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -240,7 +246,7 @@ export function useTripStats() {
 
     const derivedKmh = dtSecRaw > 0 ? (segment.distanceKm * 3600) / dtSecRaw : 0;
     if (speedKmh == null || speedKmh < 2) {
-      if (Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= 360) {
+      if (Number.isFinite(derivedKmh) && derivedKmh >= 2 && derivedKmh <= TRIP_MAX_DERIVED_SAMPLE_KMH) {
         speedSamples.current.push(derivedKmh);
         if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
           speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);

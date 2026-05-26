@@ -118,10 +118,27 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
     const geoKmh = Math.max(sustained, derivedKmh > 0 ? derivedKmh * 0.92 : 0);
-    const stationaryEvidence = netM < 12 && sustained < 4.5;
+    const slowCrawl = (derivedKmh >= 3 || sustained >= 3) && netM >= 4;
+    const standstillNetM = slowCrawl || derivedKmh < 15 || sustained < 15 ? 4 : 12;
+    const stationaryEvidence = netM < standstillNetM && sustained < 4.5;
 
     if (stationaryEvidence) {
-      if (derivedKmh >= 4 && derivedKmh <= 24 && netM >= 6) {
+      const pathM = input.pathMoveM ?? 0;
+      const motionKmh = Math.max(geoKmh, derivedKmh);
+      // P1: brak paczek GPS, ale Doppler / skok punktów wskazuje jazdę.
+      if (gpsKmh >= 10 || motionKmh >= 15) {
+        return Math.min(Math.max(gpsKmh, motionKmh), maxKmh);
+      }
+      const frozenCoordsDriving =
+        gpsKmh >= 15
+        && netM < 22
+        && pathM >= 8
+        && geoKmh < 8
+        && sustained >= 2.5;
+      if (frozenCoordsDriving) {
+        return Math.min(gpsKmh, maxKmh);
+      }
+      if (derivedKmh >= 3 && derivedKmh <= 24 && netM >= 4 && sustained >= 2.5) {
         return Math.min(derivedKmh, maxKmh);
       }
       return 0;
@@ -129,6 +146,28 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 
     if (gpsKmh >= 1) {
       const geoCap = Math.min(maxKmh, geoKmh * 1.18 + 8);
+      // iOS/Android: lat/lng stoi, Doppler żywy (100+ km/h) — nie zeruj HUD.
+      const dopplerLiveCoordsFrozen =
+        gpsKmh >= 15
+        && netM < 22
+        && (input.pathMoveM ?? 0) < 35
+        && geoKmh < 8
+        && sustained < 8;
+      if (dopplerLiveCoordsFrozen) {
+        return Math.min(gpsKmh, maxKmh);
+      }
+      if (netM < 22 && geoKmh < 5 && sustained < 5 && !slowCrawl) {
+        const pathM = input.pathMoveM ?? 0;
+        const dopplerWithoutGeometry =
+          gpsKmh >= 15
+          && netM < 10
+          && pathM >= 8
+          && (input.pathMoveM ?? 0) / Math.max(netM, 0.5) >= 0.35;
+        if (dopplerWithoutGeometry) {
+          return Math.min(gpsKmh, maxKmh);
+        }
+        return 0;
+      }
       if (netM < 22) {
         return Math.min(gpsKmh, geoCap);
       }
@@ -208,8 +247,34 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 /** Konwersja km/h → m/s do feedSpeed / publishSpeed. */
 export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
   const kmh = sanitizeSpeedKmh(input);
-  if (kmh <= 0) return null;
-  return kmh / 3.6;
+  if (kmh > 0) return kmh / 3.6;
+  if (
+    input.isTripActive
+    && input.gpsSpeedMs != null
+    && input.gpsSpeedMs <= 0
+    && (input.sustainedKmh ?? 0) >= 3
+  ) {
+    return Math.min(input.sustainedKmh!, MAX_SPEED_HUD_KMH) / 3.6;
+  }
+  if (
+    input.isTripActive
+    && input.gpsSpeedMs != null
+    && input.gpsSpeedMs <= 0
+    && input.prevLat != null
+    && input.newLat != null
+    && (input.netMoveM ?? 0) >= 3.5
+    && (input.dtMs ?? 0) >= 400
+  ) {
+    const derived = derivedSpeedKmh(
+      input.prevLat!,
+      input.prevLng!,
+      input.newLat!,
+      input.newLng!,
+      input.dtMs!,
+    );
+    if (derived >= 3 && derived <= 25) return derived / 3.6;
+  }
+  return null;
 }
 
 /** Ostatnia linia obrony HUD — Doppler bez ruchu geometrycznego. */
@@ -223,15 +288,39 @@ export function clampSpeedKmhToGeometry(
     isTripActive?: boolean;
   },
 ): number {
-  if (!opts.isTripActive || !Number.isFinite(kmh) || kmh <= 0) return Math.max(0, kmh);
+  if (!opts.isTripActive || !Number.isFinite(kmh)) return Math.max(0, kmh);
   const netM = opts.netMoveM;
   const geo = Math.max(opts.sustainedKmh, opts.motionKmh * 0.88);
+  const parkedLike =
+    netM < 6
+    && opts.sustainedKmh < 4
+    && opts.motionKmh < 5;
+  if (
+    !parkedLike
+    && opts.rawGpsKmh >= 15
+    && netM < 22
+    && (opts.motionKmh < 8 || opts.sustainedKmh < 8)
+  ) {
+    return Math.min(
+      MAX_SPEED_HUD_KMH,
+      Math.max(kmh, opts.rawGpsKmh * 0.9),
+    );
+  }
+  if (kmh <= 0) return 0;
+  if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
+    return 0;
+  }
   if (netM < 14) {
+    if (opts.motionKmh >= 5 || opts.sustainedKmh >= 4) {
+      const motionCap = Math.max(opts.motionKmh, opts.sustainedKmh) * 1.08 + 2;
+      if (kmh > motionCap) return motionCap < 2.5 ? 0 : motionCap;
+      return kmh;
+    }
     const cap = Math.min(22, geo * 1.12 + 4);
     if (kmh > cap) return cap < 2.5 ? 0 : cap;
   }
-  if (opts.rawGpsKmh >= 35 && netM < 20 && opts.sustainedKmh < 10) {
-    return Math.min(kmh, Math.max(geo * 1.15 + 6, 0));
+  if (opts.rawGpsKmh >= 28 && netM < 22 && opts.sustainedKmh < 10) {
+    return Math.min(kmh, Math.max(opts.rawGpsKmh, geo * 1.1 + 4));
   }
   return kmh;
 }

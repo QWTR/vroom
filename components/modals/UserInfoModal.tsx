@@ -70,7 +70,7 @@ export const UserInfoModal = memo(
     }, [visible, user?.id]);
 
     useEffect(() => {
-      if (!visible || !user?.isPremium) {
+      if (!visible || !profileVisuals?.isPremiumProfile) {
         premiumPulse.stopAnimation();
         premiumPulse.setValue(0);
         return;
@@ -83,14 +83,14 @@ export const UserInfoModal = memo(
       );
       anim.start();
       return () => anim.stop();
-    }, [visible, user?.isPremium, premiumPulse]);
+    }, [visible, profileVisuals?.isPremiumProfile, premiumPulse]);
 
     useModalBackHandler(visible, onClose);
-    const accentColor = profileVisuals?.nickColor || theme.primary;
-    const premiumGradient = Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
+    const showPremiumTheme = !!profileVisuals?.isPremiumProfile;
+    const accentColor = showPremiumTheme ? (profileVisuals?.nickColor || theme.primary) : theme.primary;
+    const premiumGradient = showPremiumTheme && Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
       ? profileVisuals.profilePremiumExtras.customHeroGradient.colors.filter((c: unknown) => typeof c === 'string')
       : null;
-    const showPremiumTheme = !!user.isPremium && !!profileVisuals?.isPremiumProfile;
     const glowOpacity = premiumPulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.34] });
     return (
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -166,7 +166,7 @@ export const UserInfoModal = memo(
               <View style={styles.userInfoHeaderText}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[styles.userInfoName, showPremiumTheme && { color: accentColor }]}>{user.name}</Text>
-                  {user.isPremium && (
+                  {showPremiumTheme && (
                     <View style={{ backgroundColor: `${accentColor}18`, borderRadius: 10, borderWidth: 1, borderColor: `${accentColor}40`, paddingHorizontal: 7, paddingVertical: 2 }}>
                       <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 8 }}>PREMIUM</Text>
                     </View>

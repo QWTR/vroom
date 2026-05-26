@@ -25,6 +25,8 @@ import {
   fetchSearchRetrieveViaProxy,
   fetchSearchSuggestViaProxy,
   isMapboxProxyAbortError,
+  isSearchBoxBudgetError,
+  resetSearchSuggestBudget,
 } from '../../scripts/mapboxProxyClient';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 import { fetchPartnerPoisSearch } from '../../hooks/usePartnerPois';
@@ -39,9 +41,11 @@ interface GeocodingResult {
 }
 
 const SEARCH_SESSION_IDLE_MS = 12 * 60 * 1000;
-const SEARCH_DEBOUNCE_MS = 430;
-const SEARCH_MIN_QUERY_LEN = 4;
-const SEARCH_GEOCODE_MIN_LEN = 5;
+/** Dłuższy debounce = mniej suggest requestów Mapbox Search Box. */
+const SEARCH_DEBOUNCE_MS = 780;
+const SEARCH_MIN_QUERY_LEN = 5;
+const SEARCH_GEOCODE_MIN_LEN = 7;
+const SEARCH_CACHE_MAX_AGE_MS = 120_000;
 
 function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
   return features.map((f: any) => {
@@ -76,6 +80,29 @@ function mapSuggestResults(suggestions: any[]): GeocodingResult[] {
       needsRetrieve: true,
     }))
     .filter((r) => r.mainText.length > 0);
+}
+
+function findPrefixCachedResults(
+  normalized: string,
+  cache: Map<string, { at: number; results: GeocodingResult[] }>,
+  maxAgeMs: number,
+): GeocodingResult[] | null {
+  const now = Date.now();
+  let bestKey = '';
+  let bestEntry: { at: number; results: GeocodingResult[] } | null = null;
+  for (const [key, entry] of cache) {
+    if (now - entry.at > maxAgeMs) continue;
+    if (normalized.startsWith(key) && key.length >= 3 && key.length > bestKey.length) {
+      bestKey = key;
+      bestEntry = entry;
+    }
+  }
+  if (!bestEntry || !bestKey) return null;
+  const filtered = bestEntry.results.filter((r) => {
+    const hay = `${r.mainText} ${r.secondaryText}`.toLowerCase();
+    return hay.includes(normalized) || normalized.includes(bestKey);
+  });
+  return filtered.length >= 2 ? filtered : null;
 }
 
 interface SearchModalProps {
@@ -117,13 +144,16 @@ export const SearchModal = memo(({
   const searchSessionRef    = useRef('');
   const searchSessionLastUsedAtRef = useRef(0);
   const searchCacheRef      = useRef<Map<string, { at: number; results: GeocodingResult[] }>>(new Map());
+  const lastApiQueryRef     = useRef('');
   const searchReqSeqRef     = useRef(0);
   const searchAbortRef      = useRef<AbortController | null>(null);
+  const visibleRef          = useRef(visible);
   const userLocationRef     = useRef(userLocation);
   const fetchPlacesRef      = useRef(fetchPlaces);
   const clearPlacesRef      = useRef(clearPlaces);
   const ensureSearchSessionRef = useRef<() => string>(() => '');
 
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
   useEffect(() => { searchModeRef.current = searchMode; },    [searchMode]);
   useEffect(() => { onCloseRef.current    = onClose; },       [onClose]);
   useEffect(() => { userLocationRef.current = userLocation; }, [userLocation]);
@@ -137,6 +167,7 @@ export const SearchModal = memo(({
     setFilteredUsers([]);
     setFilteredPlaces([]);
     setDetectedBrand(null);
+    lastApiQueryRef.current = '';
     clearPlaces();
   }, [clearPlaces]);
 
@@ -148,6 +179,9 @@ export const SearchModal = memo(({
       !searchSessionRef.current
       || (searchSessionLastUsedAtRef.current > 0 && now - searchSessionLastUsedAtRef.current > SEARCH_SESSION_IDLE_MS);
     if (shouldRotate) {
+      if (searchSessionRef.current) {
+        resetSearchSuggestBudget(searchSessionRef.current);
+      }
       searchSessionRef.current = createMapboxSearchSessionToken();
     }
     searchSessionLastUsedAtRef.current = now;
@@ -214,6 +248,7 @@ export const SearchModal = memo(({
   }, [userLocation, fetchPlaces]);
 
   const runSearchQuery = useCallback(async (query: string) => {
+    if (!visibleRef.current) return;
     const trimmed = query.trim();
     const normalized = trimmed.toLowerCase();
     if (trimmed.length < SEARCH_MIN_QUERY_LEN) {
@@ -267,9 +302,29 @@ export const SearchModal = memo(({
     try {
       const cached = searchCacheRef.current.get(normalized);
       const now = Date.now();
-      if (cached && now - cached.at < 75_000) {
+      if (cached && now - cached.at < SEARCH_CACHE_MAX_AGE_MS) {
         if (reqSeq === searchReqSeqRef.current) setFilteredPlaces(cached.results);
         return;
+      }
+
+      const prefixLocal = findPrefixCachedResults(
+        normalized,
+        searchCacheRef.current,
+        SEARCH_CACHE_MAX_AGE_MS,
+      );
+      if (prefixLocal) {
+        if (reqSeq === searchReqSeqRef.current) {
+          setFilteredPlaces(prefixLocal);
+          setIsSearching(false);
+        }
+        const prevApi = lastApiQueryRef.current;
+        if (
+          prevApi
+          && normalized.startsWith(prevApi)
+          && normalized.length <= prevApi.length + 2
+        ) {
+          return;
+        }
       }
 
       const sessionToken = ensureSearchSessionRef.current();
@@ -287,15 +342,24 @@ export const SearchModal = memo(({
           signal,
         });
         results = mapSuggestResults(suggestData?.suggestions ?? []);
+        lastApiQueryRef.current = normalized;
       } catch (e) {
         if (isMapboxProxyAbortError(e)) return;
+        if (isSearchBoxBudgetError(e)) {
+          const budgetLocal = prefixLocal
+            ?? findPrefixCachedResults(normalized, searchCacheRef.current, SEARCH_CACHE_MAX_AGE_MS);
+          if (budgetLocal && reqSeq === searchReqSeqRef.current) {
+            setFilteredPlaces(budgetLocal);
+            return;
+          }
+        }
       }
 
       const shouldTryGeocodeFallback =
         results.length === 0
+        && normalized.length >= SEARCH_GEOCODE_MIN_LEN
         && (
-          normalized.length >= SEARCH_GEOCODE_MIN_LEN
-          || /\d/.test(normalized)
+          /\d/.test(normalized)
           || normalized.includes(' ')
         );
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { onProfileClubUpdated } from '../lib/profileClubSync';
 import { onProfileStatsUpdated } from '../lib/profileStatsSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -65,16 +65,46 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
 
 export function useProfile() {
   const [profile,       setProfile]       = useState<UserProfile | null>(null);
-  const [loading,       setLoading]       = useState(false);
+  const [loading,       setLoading]       = useState(true);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [activityHistory, setActivityHistory] = useState<any[]>([]);
   const [monthlyStats, setMonthlyStats] = useState<any[]>([]);
   const [monthlyCompare, setMonthlyCompare] = useState<any | null>(null);
+  const profileRef = useRef<UserProfile | null>(null);
+  profileRef.current = profile;
+
+  /** Cache z AsyncStorage — zanim pierwszy fetch, żeby uniknąć pustego/czarnego ekranu na iOS. */
+  useLayoutEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const localRaw = await AsyncStorage.getItem('user');
+        if (!localRaw || cancelled) return;
+        const avatarBustRaw = await AsyncStorage.getItem(AVATAR_BUST_STORAGE_KEY);
+        const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
+        const cached = JSON.parse(localRaw);
+        delete cached.club;
+        const mappedCached = mapToProfile(cached, {
+          avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,
+        });
+        if (cancelled) return;
+        setProfile((prev) => {
+          if (!prev) return mappedCached;
+          return { ...mappedCached, club: prev.club ?? null };
+        });
+        setLoading(false);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Własny profil ─────────────────────────────────────
   const fetchProfile = useCallback(async () => {
-    setLoading(true);
+    const hadProfile = profileRef.current != null;
+    if (!hadProfile) setLoading(true);
     setError(null);
     try {
       const token    = await getToken();

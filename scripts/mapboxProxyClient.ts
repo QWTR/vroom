@@ -17,6 +17,57 @@ type SearchCacheEntry = { at: number; data: unknown };
 const searchCache = new Map<string, SearchCacheEntry>();
 const inflightSearch = new Map<string, Promise<unknown>>();
 const MAX_SEARCH_CACHE_ENTRIES = 220;
+const SUGGEST_CACHE_TTL_MS = 10 * 60_000;
+const CATEGORY_CACHE_TTL_MS = 8 * 60_000;
+const RETRIEVE_CACHE_TTL_MS = 30 * 60_000;
+const SUGGEST_MAX_PER_SESSION = 22;
+const SUGGEST_MAX_PER_MINUTE = 5;
+
+type SuggestBudget = { total: number; windowStart: number; windowCount: number };
+const suggestBudgetBySession = new Map<string, SuggestBudget>();
+
+export function resetSearchSuggestBudget(sessionToken: string): void {
+  if (sessionToken) suggestBudgetBySession.delete(sessionToken);
+}
+
+export function isSearchBoxBudgetError(e: unknown): boolean {
+  return e instanceof Error && e.name === 'SearchBoxBudgetError';
+}
+
+function canIssueSearchSuggest(sessionToken: string): boolean {
+  const token = String(sessionToken ?? '').trim();
+  if (!token) return false;
+  const now = Date.now();
+  let b = suggestBudgetBySession.get(token);
+  if (!b) {
+    b = { total: 0, windowStart: now, windowCount: 0 };
+    suggestBudgetBySession.set(token, b);
+  }
+  if (now - b.windowStart >= 60_000) {
+    b.windowStart = now;
+    b.windowCount = 0;
+  }
+  if (b.total >= SUGGEST_MAX_PER_SESSION) return false;
+  if (b.windowCount >= SUGGEST_MAX_PER_MINUTE) return false;
+  return true;
+}
+
+function recordSearchSuggest(sessionToken: string): void {
+  const token = String(sessionToken ?? '').trim();
+  if (!token) return;
+  const now = Date.now();
+  let b = suggestBudgetBySession.get(token);
+  if (!b) {
+    b = { total: 0, windowStart: now, windowCount: 0 };
+    suggestBudgetBySession.set(token, b);
+  }
+  if (now - b.windowStart >= 60_000) {
+    b.windowStart = now;
+    b.windowCount = 0;
+  }
+  b.total += 1;
+  b.windowCount += 1;
+}
 
 function isAbortError(e: unknown): boolean {
   return e instanceof DOMException && e.name === 'AbortError';
@@ -298,10 +349,16 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
     rest.language ?? 'pl',
     rest.types ?? '',
     rest.country ?? '',
-    makeCoordBucket(rest.proximityLng, 3),
-    makeCoordBucket(rest.proximityLat, 3),
+    makeCoordBucket(rest.proximityLng, 2),
+    makeCoordBucket(rest.proximityLat, 2),
   ].join('|');
-  return withCachedSearch<T>(cacheKey, 45_000, async () => {
+  return withCachedSearch<T>(cacheKey, SUGGEST_CACHE_TTL_MS, async () => {
+    if (!canIssueSearchSuggest(rest.sessionToken)) {
+      const err = new Error('SEARCH_SUGGEST_BUDGET');
+      err.name = 'SearchBoxBudgetError';
+      throw err;
+    }
+    recordSearchSuggest(rest.sessionToken);
     const viaProxy = await callProxy<T>('/api/mapbox/search/suggest', {
       method: 'POST',
       body: JSON.stringify(rest),
@@ -332,18 +389,25 @@ export async function fetchSearchRetrieveViaProxy<T>(params: {
   sessionToken: string;
   language?: string;
 }): Promise<T> {
-  const viaProxy = await callProxy<T>('/api/mapbox/search/retrieve', {
-    method: 'POST',
-    body: JSON.stringify(params),
+  const cacheKey = [
+    'retrieve',
+    String(params.mapboxId ?? '').trim(),
+    params.language ?? 'pl',
+  ].join('|');
+  return withCachedSearch<T>(cacheKey, RETRIEVE_CACHE_TTL_MS, async () => {
+    const viaProxy = await callProxy<T>('/api/mapbox/search/retrieve', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (viaProxy != null) return viaProxy;
+    const fallbackUrl =
+      `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(params.mapboxId)}` +
+      `?session_token=${encodeURIComponent(params.sessionToken)}` +
+      `&language=${params.language ?? 'pl'}` +
+      `&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(fallbackUrl);
+    return await res.json() as T;
   });
-  if (viaProxy != null) return viaProxy;
-  const fallbackUrl =
-    `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(params.mapboxId)}` +
-    `?session_token=${encodeURIComponent(params.sessionToken)}` +
-    `&language=${params.language ?? 'pl'}` +
-    `&access_token=${MAPBOX_TOKEN}`;
-  const res = await fetch(fallbackUrl);
-  return await res.json() as T;
 }
 
 export async function fetchSearchCategoryViaProxy<T>(params: {
@@ -360,10 +424,10 @@ export async function fetchSearchCategoryViaProxy<T>(params: {
     rest.category,
     rest.limit ?? 20,
     rest.language ?? 'pl',
-    makeCoordBucket(rest.proximityLng, 3),
-    makeCoordBucket(rest.proximityLat, 3),
+    makeCoordBucket(rest.proximityLng, 2),
+    makeCoordBucket(rest.proximityLat, 2),
   ].join('|');
-  return withCachedSearch<T>(cacheKey, 90_000, async () => {
+  return withCachedSearch<T>(cacheKey, CATEGORY_CACHE_TTL_MS, async () => {
     const viaProxy = await callProxy<T>('/api/mapbox/search/category', {
       method: 'POST',
       body: JSON.stringify(rest),

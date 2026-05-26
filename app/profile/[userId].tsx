@@ -424,8 +424,14 @@ export default function PublicProfileScreen() {
     }
   }, [profile?.id, isBlocked]);
 
-  const resolvedPreset = profile?.profileThemePreset ?? 'default';
-  const resolvedPremiumUi = profile?.isPremium ? mergeProfilePremiumExtras(profile?.profilePremiumExtras) : null;
+  const premiumActive = !!profile?.isPremium;
+  const resolvedPreset = premiumActive ? (profile?.profileThemePreset ?? 'default') : 'default';
+  const resolvedNickColor = premiumActive ? (profile?.nickColor ?? null) : null;
+  const resolvedFramePreset = premiumActive ? (profile?.avatarFramePreset ?? 'vroom') : 'vroom';
+  const resolvedBannerUrl = premiumActive ? (profile?.bannerUrl ?? null) : null;
+  const resolvedPremiumUi = premiumActive
+    ? mergeProfilePremiumExtras(profile?.profilePremiumExtras)
+    : null;
 
   const palette = useMemo(
     () =>
@@ -446,7 +452,7 @@ export default function PublicProfileScreen() {
       const lin = linearGradientFromSpec(null, fallback);
       return lin ?? { colors: ['#080808', '#1A0404'], start: { x: 0.2, y: 0 }, end: { x: 1, y: 1 } };
     }
-    const noBanner = !profile.bannerUrl;
+    const noBanner = !resolvedBannerUrl;
     if (noBanner && resolvedPremiumUi?.customHeroGradient) {
       const custom = linearGradientFromSpec(resolvedPremiumUi.customHeroGradient, []);
       if (custom) return custom;
@@ -454,7 +460,7 @@ export default function PublicProfileScreen() {
     const lin = linearGradientFromSpec(null, fallback);
     if (lin) return lin;
     return linearGradientFromSpec(null, ['#080808', '#1A0404', '#0D0808'])!;
-  }, [profile, resolvedPreset, resolvedPremiumUi?.customHeroGradient]);
+  }, [profile, resolvedPreset, resolvedBannerUrl, resolvedPremiumUi?.customHeroGradient]);
 
   // ── LOADING ──────────────────────────────────────────────
   if (loading) {
@@ -552,9 +558,9 @@ export default function PublicProfileScreen() {
       >
         {/* ══ HERO HEADER ══════════════════════════════════ */}
         <View style={{ height: height * 0.36, position: 'relative', overflow: 'hidden' }}>
-          {(profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl) ? (
+          {(profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl) ? (
             <Image
-              source={{ uri: profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl! }}
+              source={{ uri: profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl! }}
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
             />
@@ -566,7 +572,7 @@ export default function PublicProfileScreen() {
               style={StyleSheet.absoluteFill}
             />
           )}
-          {!!(profile.shopCosmetics?.profileBanner?.assetUrl || profile.bannerUrl) && (
+          {!!(profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl) && (
             <LinearGradient
               colors={(heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) as any}
               start={{ x: 0, y: 0 }}
@@ -613,9 +619,9 @@ export default function PublicProfileScreen() {
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
               <View style={{ position: 'relative' }}>
-                {profile.isPremium ? (
+                {premiumActive ? (
                   <LinearGradient
-                    colors={(frameGradients[profile.avatarFramePreset || 'vroom'] || frameGradients.vroom) as any}
+                    colors={(frameGradients[resolvedFramePreset] || frameGradients.vroom) as any}
                     style={{ width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center', padding: 2 }}
                   >
                     <View style={{ width: 80, height: 80, borderRadius: 22, backgroundColor: '#1a0808', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
@@ -643,7 +649,7 @@ export default function PublicProfileScreen() {
               <View style={{ flex: 1, paddingBottom: 4 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, letterSpacing: 4, marginBottom: 4 }}>PROFIL UŻYTKOWNIKA</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: profile.nickColor || '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: resolvedNickColor || '#fff', fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
                     {profile.username}
                   </Text>
                   <UserBadges isAdmin={profile.isAdmin} isPremium={profile.isPremium} />

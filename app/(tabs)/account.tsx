@@ -200,10 +200,18 @@ export default function ProfileScreen() {
     router.push('/(tabs)/map');
   };
 
-  if (pLoad && !profile) {
+  if (!profile) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center', gap: 12 }}>
         <ActivityIndicator size="large" color={theme.primary} />
+        {!pLoad && (
+          <TouchableOpacity
+            onPress={() => void fetchProfile()}
+            style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.primary + '50' }}
+          >
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary }}>ODŚWIEŻ PROFIL</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

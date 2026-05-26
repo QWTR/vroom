@@ -1,0 +1,895 @@
+﻿{
+  "file": "C:\\Users\\olimp\\Downloads\\map-telemetry-2634-map-mpl7mp5n-ssbua37.jsonl",
+  "totalLines": 3940,
+  "platforms": {
+    "unknown": 58,
+    "ios": 3882
+  },
+  "topDriveTags": [
+    [
+      "V10_APPLY_TRIP",
+      389
+    ],
+    [
+      "MARKER_UI_PUSH",
+      386
+    ],
+    [
+      "MARKER_PIPE",
+      385
+    ],
+    [
+      "SPEED_PIPE",
+      276
+    ],
+    [
+      "MARKER_PIPELINE_GAP",
+      214
+    ],
+    [
+      "WORKLET_FEED",
+      209
+    ],
+    [
+      "WORKLET_FRAME",
+      209
+    ],
+    [
+      "CAMERA_HEADING",
+      209
+    ],
+    [
+      "DRIVE_PIPELINE_TICK",
+      153
+    ],
+    [
+      "MARKER_HEARTBEAT",
+      151
+    ],
+    [
+      "V10_PRIMARY_SNAP",
+      150
+    ],
+    [
+      "V10_APPLY_CHASE",
+      123
+    ],
+    [
+      "MATCH_add_interval_gate",
+      113
+    ],
+    [
+      "V10_PRIMARY_RAW_OVERRIDE",
+      109
+    ],
+    [
+      "WORKLET_STALL",
+      103
+    ],
+    [
+      "SNAP_snap_no_match_hard_lock",
+      82
+    ],
+    [
+      "SNAP_FAIL_HELD_ANCHOR",
+      64
+    ],
+    [
+      "MATCH_force_refresh_budget_hard_cap",
+      61
+    ],
+    [
+      "ROAD_MATCH_GEOM_REJECT",
+      59
+    ],
+    [
+      "MATCH_add_budget_exhausted",
+      50
+    ],
+    [
+      "FORCE_MATCH_SPARSE_GEOM",
+      43
+    ],
+    [
+      "DRIVE_HEALTH",
+      37
+    ],
+    [
+      "DRIVING_JUMP_CLAMP",
+      26
+    ],
+    [
+      "SPEED_UNDER_REPORT",
+      25
+    ],
+    [
+      "MATCH_force_budget_slot_denied",
+      24
+    ],
+    [
+      "SPEED_STUCK_SUSPECT",
+      20
+    ],
+    [
+      "V10_APPLY_RECONCILE",
+      18
+    ],
+    [
+      "TRIP_SEGMENT_STATS",
+      18
+    ],
+    [
+      "TRIP_SEGMENT_REJECT",
+      15
+    ],
+    [
+      "SPEED_EMIT_SPIKE_BLOCK",
+      11
+    ],
+    [
+      "MATCH_add_proxy_and_fallback_null",
+      11
+    ],
+    [
+      "WORKLET_FEED_REJECT",
+      9
+    ],
+    [
+      "WATCHER_RESTART_SKIP",
+      6
+    ],
+    [
+      "ONE_SHOT_HOLD",
+      3
+    ],
+    [
+      "SNAP_snap_last_too_far",
+      3
+    ]
+  ],
+  "speed": {
+    "speedPipeCount": 279,
+    "rawHighSanitizedZero": 3,
+    "sampleZeroWhileMoving": [
+      {
+        "at": "2026-05-25T12:57:46.039Z",
+        "rawGpsKmh": 16.2,
+        "sanitizedKmh": 0,
+        "motionKmh": 16.2,
+        "sustainedKmh": 0,
+        "netMoveM": 7,
+        "dtMs": 1000,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:48.040Z",
+        "rawGpsKmh": 20,
+        "sanitizedKmh": 0,
+        "motionKmh": 200,
+        "sustainedKmh": 0,
+        "netMoveM": 11,
+        "dtMs": 999,
+        "holdActive": true,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:02:38.038Z",
+        "rawGpsKmh": 17.8,
+        "sanitizedKmh": 0,
+        "motionKmh": 19.3,
+        "sustainedKmh": 0,
+        "netMoveM": 9,
+        "dtMs": 1000,
+        "holdActive": false,
+        "isDriving": false
+      }
+    ],
+    "speedEmitSpikeBlockCount": 11,
+    "spikeReasons": [
+      [
+        "absolute_jump",
+        11
+      ]
+    ],
+    "sampleSpikeBlocks": [
+      {
+        "at": "2026-05-25T12:57:16.035Z",
+        "dtSec": 1,
+        "reason": "absolute_jump",
+        "nextKmh": 43.2,
+        "prevKmh": 0,
+        "accelKmhPerSec": 43.1
+      },
+      {
+        "at": "2026-05-25T12:57:25.031Z",
+        "dtSec": 1,
+        "reason": "absolute_jump",
+        "nextKmh": 67.4,
+        "prevKmh": 9.6,
+        "accelKmhPerSec": 57.9
+      },
+      {
+        "at": "2026-05-25T12:57:27.030Z",
+        "dtSec": 0.99,
+        "reason": "absolute_jump",
+        "nextKmh": 47.1,
+        "prevKmh": 10.1,
+        "accelKmhPerSec": 37.2
+      },
+      {
+        "at": "2026-05-25T12:57:45.040Z",
+        "dtSec": 0.98,
+        "reason": "absolute_jump",
+        "nextKmh": 68.6,
+        "prevKmh": 0,
+        "accelKmhPerSec": 70.2
+      },
+      {
+        "at": "2026-05-25T13:01:04.037Z",
+        "dtSec": 1,
+        "reason": "absolute_jump",
+        "nextKmh": 56.2,
+        "prevKmh": 12.5,
+        "accelKmhPerSec": 43.7
+      },
+      {
+        "at": "2026-05-25T13:01:12.038Z",
+        "dtSec": 1,
+        "reason": "absolute_jump",
+        "nextKmh": 43.1,
+        "prevKmh": 4,
+        "accelKmhPerSec": 38.9
+      },
+      {
+        "at": "2026-05-25T13:01:37.033Z",
+        "dtSec": 1,
+        "reason": "absolute_jump",
+        "nextKmh": 43.2,
+        "prevKmh": 0,
+        "accelKmhPerSec": 43.3
+      },
+      {
+        "at": "2026-05-25T13:01:44.049Z",
+        "dtSec": 1.01,
+        "reason": "absolute_jump",
+        "nextKmh": 42.6,
+        "prevKmh": 0,
+        "accelKmhPerSec": 42
+      }
+    ],
+    "speedAbruptGhostCount": 0,
+    "sampleAbruptGhost": [],
+    "speedUnderReportCount": 25,
+    "holdOverrideCount": 0,
+    "dtMsOver2sCount": 17,
+    "sampleDtMsHigh": [
+      {
+        "at": "2026-05-25T12:57:10.610Z",
+        "rawGpsKmh": 0,
+        "sanitizedKmh": 0,
+        "motionKmh": 1.3,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 16578,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T12:57:15.034Z",
+        "rawGpsKmh": 7.1,
+        "sanitizedKmh": 0,
+        "motionKmh": 9.8,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 4424,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T12:58:46.038Z",
+        "rawGpsKmh": 5.2,
+        "sanitizedKmh": 0,
+        "motionKmh": 15.3,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 4004,
+        "holdActive": true,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:09.036Z",
+        "rawGpsKmh": 3.1,
+        "sanitizedKmh": 0,
+        "motionKmh": 21.5,
+        "sustainedKmh": 0,
+        "netMoveM": 8,
+        "dtMs": 2007,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:20.040Z",
+        "rawGpsKmh": 5.4,
+        "sanitizedKmh": 0,
+        "motionKmh": 8.6,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 5005,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:27.040Z",
+        "rawGpsKmh": 2.8,
+        "sanitizedKmh": 2.8,
+        "motionKmh": 10.8,
+        "sustainedKmh": 0,
+        "netMoveM": 6,
+        "dtMs": 2005,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:36.035Z",
+        "rawGpsKmh": 3.3,
+        "sanitizedKmh": 0,
+        "motionKmh": 4.8,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 8994,
+        "holdActive": false,
+        "isDriving": false
+      },
+      {
+        "at": "2026-05-25T13:01:43.035Z",
+        "rawGpsKmh": 1.5,
+        "sanitizedKmh": 0,
+        "motionKmh": 5.4,
+        "sustainedKmh": 0,
+        "netMoveM": 0,
+        "dtMs": 3995,
+        "holdActive": false,
+        "isDriving": false
+      }
+    ],
+    "holdActiveWithZero": 2
+  },
+  "worklet": {
+    "feedCount": 209,
+    "durationMsZeroCount": 65,
+    "movedFromLastM12PlusCount": 107,
+    "sourceBreakdown": [
+      [
+        "v10_direct_cruise_feed",
+        134
+      ],
+      [
+        "v10_apply_trip_instant",
+        65
+      ],
+      [
+        "v10_live_cruise",
+        9
+      ],
+      [
+        "v10_feed_instant_catchup",
+        1
+      ]
+    ],
+    "sampleBigJumps": [
+      {
+        "at": "2026-05-25T12:56:56.118Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.774233,
+        "lng": 16.936445,
+        "durationMs": 0,
+        "speedMs": 2.26,
+        "movedFromLastM": 22,
+        "dtSinceLastMs": 1516,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:15.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.774215,
+        "lng": 16.936835,
+        "durationMs": 0,
+        "speedMs": 1.98,
+        "movedFromLastM": 28.16,
+        "dtSinceLastMs": 12688,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:41.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773826,
+        "lng": 16.936446,
+        "durationMs": 0,
+        "speedMs": 7.91,
+        "movedFromLastM": 31.86,
+        "dtSinceLastMs": 998,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:49.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773512,
+        "lng": 16.936415,
+        "durationMs": 0,
+        "speedMs": 7.82,
+        "movedFromLastM": 29.29,
+        "dtSinceLastMs": 1001,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:54.036Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773319,
+        "lng": 16.936778,
+        "durationMs": 0,
+        "speedMs": 11.34,
+        "movedFromLastM": 32.17,
+        "dtSinceLastMs": 1990,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:56.037Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773094,
+        "lng": 16.937146,
+        "durationMs": 0,
+        "speedMs": 11.22,
+        "movedFromLastM": 35.55,
+        "dtSinceLastMs": 1003,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:02.041Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.772581,
+        "lng": 16.937606,
+        "durationMs": 0,
+        "speedMs": 12.58,
+        "movedFromLastM": 24.14,
+        "dtSinceLastMs": 1006,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:08.035Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.772007,
+        "lng": 16.938605,
+        "durationMs": 0,
+        "speedMs": 18.46,
+        "movedFromLastM": 42.15,
+        "dtSinceLastMs": 998,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:10.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.771775,
+        "lng": 16.939006,
+        "durationMs": 0,
+        "speedMs": 19,
+        "movedFromLastM": 35.81,
+        "dtSinceLastMs": 1001,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:12.041Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.771537,
+        "lng": 16.939415,
+        "durationMs": 0,
+        "speedMs": 19.43,
+        "movedFromLastM": 37.02,
+        "dtSinceLastMs": 1009,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:14.039Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.771289,
+        "lng": 16.939841,
+        "durationMs": 0,
+        "speedMs": 19.54,
+        "movedFromLastM": 38.63,
+        "dtSinceLastMs": 998,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:16.040Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.77105,
+        "lng": 16.940252,
+        "durationMs": 0,
+        "speedMs": 19.58,
+        "movedFromLastM": 38.83,
+        "dtSinceLastMs": 1003,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:18.036Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.770813,
+        "lng": 16.940661,
+        "durationMs": 0,
+        "speedMs": 19.45,
+        "movedFromLastM": 37.72,
+        "dtSinceLastMs": 1000,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:20.032Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.770577,
+        "lng": 16.941067,
+        "durationMs": 0,
+        "speedMs": 19.13,
+        "movedFromLastM": 37.21,
+        "dtSinceLastMs": 995,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:26.037Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.769884,
+        "lng": 16.942258,
+        "durationMs": 0,
+        "speedMs": 19.2,
+        "movedFromLastM": 36.48,
+        "dtSinceLastMs": 1001,
+        "hasHandler": true
+      }
+    ],
+    "sampleInstant": [
+      {
+        "at": "2026-05-25T12:56:56.118Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.774233,
+        "lng": 16.936445,
+        "durationMs": 0,
+        "speedMs": 2.26,
+        "movedFromLastM": 22,
+        "dtSinceLastMs": 1516,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:02.346Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.774285,
+        "lng": 16.936442,
+        "durationMs": 0,
+        "speedMs": 2.26,
+        "movedFromLastM": 5.83,
+        "dtSinceLastMs": 6228,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:15.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.774215,
+        "lng": 16.936835,
+        "durationMs": 0,
+        "speedMs": 1.98,
+        "movedFromLastM": 28.16,
+        "dtSinceLastMs": 12688,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:41.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773826,
+        "lng": 16.936446,
+        "durationMs": 0,
+        "speedMs": 7.91,
+        "movedFromLastM": 31.86,
+        "dtSinceLastMs": 998,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:47.040Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773775,
+        "lng": 16.936389,
+        "durationMs": 0,
+        "speedMs": 5.87,
+        "movedFromLastM": 0,
+        "dtSinceLastMs": 2977,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:49.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773512,
+        "lng": 16.936415,
+        "durationMs": 0,
+        "speedMs": 7.82,
+        "movedFromLastM": 29.29,
+        "dtSinceLastMs": 1001,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:54.036Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773319,
+        "lng": 16.936778,
+        "durationMs": 0,
+        "speedMs": 11.34,
+        "movedFromLastM": 32.17,
+        "dtSinceLastMs": 1990,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:57:56.037Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.773094,
+        "lng": 16.937146,
+        "durationMs": 0,
+        "speedMs": 11.22,
+        "movedFromLastM": 35.55,
+        "dtSinceLastMs": 1003,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:02.041Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.772581,
+        "lng": 16.937606,
+        "durationMs": 0,
+        "speedMs": 12.58,
+        "movedFromLastM": 24.14,
+        "dtSinceLastMs": 1006,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:08.035Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.772007,
+        "lng": 16.938605,
+        "durationMs": 0,
+        "speedMs": 18.46,
+        "movedFromLastM": 42.15,
+        "dtSinceLastMs": 998,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:10.034Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.771775,
+        "lng": 16.939006,
+        "durationMs": 0,
+        "speedMs": 19,
+        "movedFromLastM": 35.81,
+        "dtSinceLastMs": 1001,
+        "hasHandler": true
+      },
+      {
+        "at": "2026-05-25T12:58:12.041Z",
+        "source": "v10_apply_trip_instant",
+        "lat": 51.771537,
+        "lng": 16.939415,
+        "durationMs": 0,
+        "speedMs": 19.43,
+        "movedFromLastM": 37.02,
+        "dtSinceLastMs": 1009,
+        "hasHandler": true
+      }
+    ],
+    "instantSourceBreakdown": [
+      [
+        "v10_apply_trip_instant",
+        65
+      ]
+    ]
+  },
+  "snap": {
+    "snapFailHeldCount": 64,
+    "sampleSnapFail": [
+      {
+        "at": "2026-05-25T13:01:27.040Z",
+        "speedKmh": 3,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:01:43.036Z",
+        "speedKmh": 0,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:01:59.041Z",
+        "speedKmh": 45,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:02.038Z",
+        "speedKmh": 52,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:05.037Z",
+        "speedKmh": 57,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:08.042Z",
+        "speedKmh": 61,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:11.038Z",
+        "speedKmh": 66,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:13.041Z",
+        "speedKmh": 66,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:16.039Z",
+        "speedKmh": 63,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:18.042Z",
+        "speedKmh": 61,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:21.038Z",
+        "speedKmh": 50,
+        "appliedSnapped": true
+      },
+      {
+        "at": "2026-05-25T13:02:23.040Z",
+        "speedKmh": 37,
+        "appliedSnapped": true
+      }
+    ],
+    "roadPts2": 0
+  },
+  "marker": {
+    "stuckHeartbeatCount": 1,
+    "stuckSpans": [
+      {
+        "at": "2026-05-25T13:01:11.073Z",
+        "stuckMs": 3707
+      }
+    ],
+    "maxStuckMs": 3707
+  },
+  "stall": {
+    "count": 103,
+    "tags": [
+      [
+        "WORKLET_STALL",
+        103
+      ]
+    ],
+    "samples": [
+      {
+        "at": "2026-05-25T12:57:18.717Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 11.76,
+        "anchorLat": 51.774188,
+        "anchorLng": 16.936725,
+        "displayLat": 51.774188,
+        "displayLng": 16.936725,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.09,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:22.378Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 12.02,
+        "anchorLat": 51.774122,
+        "anchorLng": 16.936753,
+        "displayLat": 51.774122,
+        "displayLng": 16.936753,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.09,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:37.189Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 4.37,
+        "anchorLat": 51.774037,
+        "anchorLng": 16.936672,
+        "displayLat": 51.774037,
+        "displayLng": 16.936672,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.09,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:39.236Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 6.56,
+        "anchorLat": 51.774004,
+        "anchorLng": 16.936638,
+        "displayLat": 51.774005,
+        "displayLng": 16.936638,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.09,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:41.285Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 7.91,
+        "anchorLat": 51.773826,
+        "anchorLng": 16.936446,
+        "displayLat": 51.773825,
+        "displayLng": 16.936445,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.08,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:48.438Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 7.19,
+        "anchorLat": 51.773775,
+        "anchorLng": 16.936389,
+        "displayLat": 51.773775,
+        "displayLng": 16.936389,
+        "frameMoveM": 0.04,
+        "distAnchorM": 0.08,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:50.485Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 8.39,
+        "anchorLat": 51.773508,
+        "anchorLng": 16.936424,
+        "displayLat": 51.773508,
+        "displayLng": 16.936424,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.08,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:52.548Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 9.94,
+        "anchorLat": 51.773508,
+        "anchorLng": 16.936424,
+        "displayLat": 51.773508,
+        "displayLng": 16.936424,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.08,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:54.562Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 11.34,
+        "anchorLat": 51.773269,
+        "anchorLng": 16.936861,
+        "displayLat": 51.773268,
+        "displayLng": 16.936862,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.09,
+        "staleAnchorMs": 0
+      },
+      {
+        "at": "2026-05-25T12:57:56.608Z",
+        "tag": "WORKLET_STALL",
+        "cruiseMs": 11.22,
+        "anchorLat": 51.773057,
+        "anchorLng": 16.937204,
+        "displayLat": 51.773056,
+        "displayLng": 16.937205,
+        "frameMoveM": 0.05,
+        "distAnchorM": 0.08,
+        "staleAnchorMs": 0
+      }
+    ]
+  }
+}

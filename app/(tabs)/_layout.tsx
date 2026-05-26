@@ -162,7 +162,14 @@ export default function TabLayout() {
       />
       <Tabs.Screen name="community" options={{ tabBarIcon: (p) => <TabIcon {...p} icon="account-group-outline"     label="SPOŁECZ." iconLib="material" /> }} />
       <Tabs.Screen name="spotmap"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="map-marker-radius-outline" label="SPOTY"    iconLib="material" /> }} />
-      <Tabs.Screen name="account"   options={{ tabBarIcon: (p) => <TabIcon {...p} icon="user"                      label="PROFIL"   /> }} />
+      <Tabs.Screen
+        name="account"
+        options={{
+          lazy: false,
+          animation: Platform.OS === 'ios' ? 'shift' : undefined,
+          tabBarIcon: (p) => <TabIcon {...p} icon="user" label="PROFIL" />,
+        }}
+      />
     </Tabs>
     </View>
   );

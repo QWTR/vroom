@@ -39,6 +39,7 @@ function settingsFromMode(mode: PublicNotifMode) {
 const INPUT_MIN_HEIGHT = 40;
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE = 40;
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 const { width: SCREEN_W } = Dimensions.get('window');
 
 interface ChatUser {
@@ -62,14 +63,29 @@ interface PublicMessage {
   replyTo?: {
     id: number;
     content: string | null;
+    photos?: string[];
+    videos?: string[];
     sender: { id: number; username: string };
   } | null;
+  reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }
 
 function normalizeUri(uri: string): string {
   if (!uri) return uri;
   if (/^https?:\/\//i.test(uri) || /^file:\/\//i.test(uri) || /^content:\/\//i.test(uri)) return uri;
   return `${API_URL}${uri.startsWith('/') ? uri : `/${uri}`}`;
+}
+
+function replyPreviewLabel(reply: {
+  content: string | null;
+  photos?: string[];
+  videos?: string[];
+}): string {
+  const text = reply.content?.trim();
+  if (text) return text;
+  if (reply.photos?.length) return '📷 Zdjęcie';
+  if (reply.videos?.length) return '🎬 Film';
+  return '…';
 }
 
 export default function PublicChatScreen() {
@@ -108,6 +124,14 @@ export default function PublicChatScreen() {
   const myUsernameRef = useRef('');
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
+
+  const appendMessage = useCallback((msg: PublicMessage) => {
+    setMessages(prev => {
+      if (prev.some(m => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+  }, []);
 
   const fetchMessages = useCallback(async (token: string, cursor?: number) => {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -160,14 +184,13 @@ export default function PublicChatScreen() {
       }
 
       const socket = io(API_URL, { auth: { token }, transports: ['websocket'] });
-      socket.emit('public:join');
+
+      const joinPublicRoom = () => socket.emit('public:join');
+      socket.on('connect', joinPublicRoom);
+      if (socket.connected) joinPublicRoom();
 
       socket.on('public:message', (msg: PublicMessage) => {
-        setMessages(prev => {
-          if (prev.some(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+        appendMessage(msg);
       });
 
       socket.on('public:message_deleted', ({ id }: { id: number }) => {
@@ -176,6 +199,10 @@ export default function PublicChatScreen() {
 
       socket.on('public:message_updated', (msg: PublicMessage) => {
         setMessages(prev => prev.map(m => (m.id === msg.id ? msg : m)));
+      });
+
+      socket.on('public:reaction', ({ messageId, reactions }: { messageId: number; reactions: PublicMessage['reactions'] }) => {
+        setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, reactions } : m)));
       });
 
       socket.on('public:typing', ({ userId, username, isTyping }: { userId: number; username?: string; isTyping: boolean }) => {
@@ -194,10 +221,13 @@ export default function PublicChatScreen() {
 
     return () => {
       cancelled = true;
-      socketRef.current?.emit('public:leave');
-      socketRef.current?.disconnect();
+      const s = socketRef.current;
+      s?.removeAllListeners();
+      s?.emit('public:leave');
+      s?.disconnect();
+      socketRef.current = null;
     };
-  }, [fetchMessages, router, loadPushSettings]);
+  }, [fetchMessages, router, loadPushSettings, appendMessage]);
 
   useEffect(() => {
     if (!mentionQuery) {
@@ -333,6 +363,8 @@ export default function PublicChatScreen() {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error ?? 'Błąd edycji');
         }
+        const updated: PublicMessage = await res.json();
+        setMessages(prev => prev.map(m => (m.id === updated.id ? updated : m)));
       } catch (e: any) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie udało się edytować wiadomości.' });
         setText(t);
@@ -375,6 +407,8 @@ export default function PublicChatScreen() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? 'Błąd wysyłki');
       }
+      const msg: PublicMessage = await res.json();
+      appendMessage(msg);
     } catch (e: any) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie wysłano wiadomości.' });
       setText(t);
@@ -384,7 +418,7 @@ export default function PublicChatScreen() {
     } finally {
       setSending(false);
     }
-  }, [text, photos, video, replyTo, sending, editingMsg]);
+  }, [text, photos, video, replyTo, sending, editingMsg, appendMessage]);
 
   const emitTyping = useCallback(() => {
     socketRef.current?.emit('public:typing', { isTyping: true, username: myUsernameRef.current });
@@ -400,6 +434,34 @@ export default function PublicChatScreen() {
     const match = v.match(/(?:^|\s)@([a-zA-Z0-9_.-]{0,32})$/);
     setMentionQuery(match ? match[1] : null);
   }, [editingMsg, emitTyping]);
+
+  const handleReact = useCallback(async (msgId: number, emoji: string) => {
+    try {
+      const msg = messages.find(m => m.id === msgId);
+      const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
+      const endpoint = hasMine
+        ? `${API}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`
+        : `${API}/messages/${msgId}/reactions`;
+      const res = await fetch(endpoint, {
+        method: hasMine ? 'DELETE' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenRef.current}`,
+        },
+        ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
+      });
+      if (!res.ok) {
+        Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
+        return;
+      }
+      const data = await res.json();
+      setMessages(prev => prev.map(m => (
+        m.id === msgId ? { ...m, reactions: data.reactions ?? [] } : m
+      )));
+    } catch {
+      Toast.show({ type: 'error', text1: 'Brak połączenia' });
+    }
+  }, [messages]);
 
   const typingNames = Object.keys(typingUsers);
   const typingText = typingNames.length === 1
@@ -476,7 +538,7 @@ export default function PublicChatScreen() {
           {item.replyTo.sender.username}
         </Text>
         <Text style={{ color: isMe && !hasMedia ? '#ffffff70' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
-          {item.replyTo.content || (item.replyTo as any).photos?.length ? '📷 Zdjęcie' : '🎬 Film'}
+          {replyPreviewLabel(item.replyTo)}
         </Text>
       </View>
     ) : null;
@@ -561,10 +623,42 @@ export default function PublicChatScreen() {
               {timeRow(true)}
             </TouchableOpacity>
           )}
+
+          {item.reactions && item.reactions.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, paddingHorizontal: 2 }}>
+              {item.reactions.map(r => (
+                <TouchableOpacity
+                  key={r.emoji}
+                  onPress={() => handleReact(item.id, r.emoji)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 3,
+                    backgroundColor: r.myReaction ? '#e3383530' : theme.surface2,
+                    borderRadius: 12,
+                    paddingHorizontal: 7,
+                    paddingVertical: 3,
+                    borderWidth: 1,
+                    borderColor: r.myReaction ? '#e33835' : theme.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
+                  <Text style={{
+                    fontSize: 10,
+                    color: r.myReaction ? '#e33835' : theme.textDim,
+                    fontFamily: 'Orbitron',
+                    fontWeight: '700',
+                  }}>
+                    {r.count}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </View>
     );
-  }, [myId, messages, theme, router, isDark, handleMentionPress]);
+  }, [myId, messages, theme, router, isDark, handleMentionPress, handleReact]);
 
   if (loading) {
     return (
@@ -661,7 +755,7 @@ export default function PublicChatScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{replyTo.sender.username}</Text>
                 <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {replyTo.content || (replyTo.photos.length ? '📷 Zdjęcie' : '🎬 Film')}
+                  {replyPreviewLabel(replyTo)}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setReplyTo(null)}>
@@ -676,7 +770,7 @@ export default function PublicChatScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>EDYTUJESZ WIADOMOŚĆ</Text>
                 <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {editingMsg.content || (editingMsg.photos.length ? '📷 Zdjęcie' : editingMsg.videos.length ? '🎬 Film' : '…')}
+                  {replyPreviewLabel(editingMsg)}
                 </Text>
               </View>
               <TouchableOpacity onPress={cancelEdit}>
@@ -835,6 +929,32 @@ export default function PublicChatScreen() {
         <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setMenuMsg(null)}>
           <Pressable onPress={e => e.stopPropagation()}>
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-around',
+                paddingHorizontal: 20,
+                paddingBottom: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.border,
+                marginBottom: 4,
+              }}>
+                {REACTION_EMOJIS.map(emoji => (
+                  <TouchableOpacity
+                    key={emoji}
+                    onPress={() => { if (menuMsg) void handleReact(menuMsg.id, emoji); setMenuMsg(null); }}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: theme.surface2,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 22 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
                 onPress={() => { if (menuMsg) setReplyTo(menuMsg); setMenuMsg(null); }}

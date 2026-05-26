@@ -154,11 +154,11 @@ export function usePlacesNearby() {
     const last = lastReqRef.current;
     if (last && last.category === category) {
       const movedM = haversineM(last.lat, last.lng, lat, lng);
-      if (now - last.at < 12_000 && movedM < 250) return;
+      if (now - last.at < 90_000 && movedM < 800) return;
     }
-    const key = `${category}:${Math.round(lat * 500) / 500}:${Math.round(lng * 500) / 500}`;
+    const key = `${category}:${Math.round(lat * 100) / 100}:${Math.round(lng * 100) / 100}`;
     const cached = cacheRef.current.get(key);
-    if (cached && now - cached.at < 120_000) {
+    if (cached && now - cached.at < 300_000) {
       if (signal?.aborted) return;
       setActiveCategory(category);
       setPlaces(cached.items);

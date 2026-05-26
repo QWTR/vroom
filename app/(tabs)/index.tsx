@@ -39,6 +39,7 @@ import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { useAppPresence } from "../../hooks/useAppPresence";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width, height } = Dimensions.get("window");
 
@@ -137,6 +138,7 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
+	const insets = useSafeAreaInsets();
 	const {
 		isLoading: premiumLoading,
 		refreshPremiumStatus,
@@ -552,8 +554,11 @@ export default function HomeScreen() {
 					style={{
 						height: height * 0.52,
 						position: "relative",
-						overflow: "hidden",
 					}}>
+					{/* Tło hero — overflow tylko na dekoracjach, nie na pasku z avatarem */}
+					<View
+						pointerEvents="none"
+						style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }]}>
 					{/* BG gradient */}
 					<LinearGradient
 						colors={
@@ -632,20 +637,23 @@ export default function HomeScreen() {
 							/>
 						))}
 					</View>
+					</View>
 
 					{/* TOP BAR */}
 					<Animated.View
 						style={{
 							opacity: fadeAnim,
-							paddingTop: 58,
-							paddingHorizontal: 22,
+							zIndex: 10,
+							paddingTop: insets.top + 10,
+							paddingLeft: 16,
+							paddingRight: Math.max(16, insets.right + 6),
 							flexDirection: "row",
-							justifyContent: "space-between",
 							alignItems: "center",
+							gap: 8,
 						}}>
 						{/* Logo */}
 						<View
-							style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+							style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
 							<View
 								style={{
 									backgroundColor: "#e33835",
@@ -672,15 +680,22 @@ export default function HomeScreen() {
 
 						{/* Right side */}
 						<View
-							style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+							style={{
+								flex: 1,
+								flexDirection: "row",
+								alignItems: "center",
+								justifyContent: "flex-end",
+								gap: 8,
+								minWidth: 0,
+							}}>
 							<TouchableOpacity
 								onPress={() => router.push("/premium" as any)}
 								activeOpacity={0.85}
 								accessibilityLabel="VROOM Premium"
 								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
+									width: 36,
+									height: 36,
+									borderRadius: 18,
 									backgroundColor: effectivePremium ? "#FFD70018" : t.surface,
 									borderWidth: 1,
 									borderColor: effectivePremium ? "#FFD70055" : t.border2,
@@ -697,9 +712,9 @@ export default function HomeScreen() {
 								onPress={() => router.push("/notifications")}
 								activeOpacity={0.85}
 								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
+									width: 36,
+									height: 36,
+									borderRadius: 18,
 									backgroundColor: t.surface,
 									borderWidth: 1,
 									borderColor: t.border2,
@@ -733,10 +748,12 @@ export default function HomeScreen() {
 									flexDirection: "row",
 									alignItems: "center",
 									gap: 5,
+									flexShrink: 1,
+									minWidth: 0,
 									backgroundColor: "#4de92612",
 									borderWidth: 1,
 									borderColor: "#4de92635",
-									paddingHorizontal: 10,
+									paddingHorizontal: 8,
 									paddingVertical: 5,
 									borderRadius: 20,
 								}}>
@@ -750,22 +767,25 @@ export default function HomeScreen() {
 									}}
 								/>
 								<Text
+									numberOfLines={1}
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 8,
 										color: "#4de926",
-										letterSpacing: 2,
+										letterSpacing: 1,
+										flexShrink: 1,
 									}}>
 									{onlineCount != null ? `${onlineCount} ONLINE` : "ONLINE"}
 								</Text>
 							</View>
 							{/* Avatar */}
 							<TouchableOpacity
-								onPress={() => router.push("/account")}
+								onPress={() => router.navigate('/(tabs)/account' as any)}
 								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
+									width: 36,
+									height: 36,
+									borderRadius: 18,
+									flexShrink: 0,
 									backgroundColor: t.primaryBg,
 									borderWidth: 2,
 									borderColor: "#e33835",
@@ -776,7 +796,7 @@ export default function HomeScreen() {
 								{user.avatar ? (
 									<Image
 										source={{ uri: user.avatar }}
-										style={{ width: 40, height: 40 }}
+										style={{ width: 36, height: 36 }}
 									/>
 								) : (
 									<Text
@@ -1963,7 +1983,7 @@ export default function HomeScreen() {
 							marginBottom: 16,
 						}}>
 						<TouchableOpacity
-							onPress={() => router.push("/account")}
+							onPress={() => router.navigate('/(tabs)/account' as any)}
 							activeOpacity={0.85}>
 							<LinearGradient
 								colors={["#f5c51820", "#f5c51808", "transparent"]}
