@@ -22,10 +22,13 @@ export function useEffectivePremium(profile?: PremiumProfileSlice) {
   } = usePremium();
   const { settings, loading: settingsLoading, fetchSettings } = useSettings();
 
-  /** Backend (status + /me) oraz profil — ta sama logika co baner na serwerze. */
+  /**
+   * Wygląd profilu i limity premium — backend (/api/settings, /api/premium/status).
+   * Nie używamy profile?.isPremium (cache AsyncStorage może być nieaktualny po wygaśnięciu).
+   */
   const isPremium = useMemo(
-    () => !!(fromPremiumContext || profile?.isPremium),
-    [fromPremiumContext, profile?.isPremium],
+    () => !!(settings.isPremium || fromPremiumContext),
+    [settings.isPremium, fromPremiumContext],
   );
 
   const premiumExpiresAt =
@@ -39,8 +42,8 @@ export function useEffectivePremium(profile?: PremiumProfileSlice) {
       refreshPremiumStatus(),
       fetchSettings(),
     ]);
-    return !!(active || profile?.isPremium);
-  }, [refreshPremiumStatus, fetchSettings, profile?.isPremium]);
+    return !!active;
+  }, [refreshPremiumStatus, fetchSettings]);
 
   return {
     isPremium,

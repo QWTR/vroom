@@ -142,6 +142,7 @@ export default function ProfileView({
       : profile?.nickColor
   ) ?? null;
   const hasPremiumProfileUi = premiumActive;
+  const premiumBannerUrl = hasPremiumProfileUi ? ((profile as { bannerUrl?: string | null })?.bannerUrl ?? null) : null;
   const profileThemePreset = hasPremiumProfileUi ? rawProfileThemePreset : 'default';
   const avatarFramePreset = hasPremiumProfileUi ? rawAvatarFramePreset : 'vroom';
   const profileNickColor = hasPremiumProfileUi ? rawProfileNickColor : null;
@@ -219,18 +220,6 @@ export default function ProfileView({
     custom: isDark ? ['#12121c', '#08080c', '#080808'] : ['#e8e8f0', '#f0f0f8', theme.bg],
   }), [isDark, theme.bg]);
 
-  const heroLinResolved = React.useMemo(() => {
-    const fallback = heroPresetGradients[profileThemePreset] || heroPresetGradients.default;
-    const noBanner = !(profile as any)?.bannerUrl;
-    if (noBanner && premiumUi?.customHeroGradient) {
-      const custom = linearGradientFromSpec(premiumUi.customHeroGradient, []);
-      if (custom) return custom;
-    }
-    const lin = linearGradientFromSpec(null, fallback);
-    if (lin) return lin;
-    const emergency = linearGradientFromSpec(null, ['#080808', '#1A0404', '#0D0808']);
-    return emergency ?? { colors: ['#080808', '#1A0404'], start: { x: 0.2, y: 0 }, end: { x: 1, y: 1 } };
-  }, [profile, premiumUi?.customHeroGradient, profileThemePreset, heroPresetGradients]);
   const heroBannerOverlays: Record<string, string[]> = {
     default: ['#00000066', '#00000022'],
     midnight: ['#06132599', '#0a0f2055'],
@@ -347,6 +336,20 @@ export default function ProfileView({
 
   const shopCosmetics = (profile as { shopCosmetics?: UserShopCosmetics | null })?.shopCosmetics ?? null;
   const shopBannerUri = shopCosmetics?.profileBanner?.assetUrl ?? null;
+  const heroBannerUri = shopBannerUri || premiumBannerUrl;
+
+  const heroLinResolved = React.useMemo(() => {
+    const fallback = heroPresetGradients[profileThemePreset] || heroPresetGradients.default;
+    const noBanner = !heroBannerUri;
+    if (noBanner && premiumUi?.customHeroGradient) {
+      const custom = linearGradientFromSpec(premiumUi.customHeroGradient, []);
+      if (custom) return custom;
+    }
+    const lin = linearGradientFromSpec(null, fallback);
+    if (lin) return lin;
+    const emergency = linearGradientFromSpec(null, ['#080808', '#1A0404', '#0D0808']);
+    return emergency ?? { colors: ['#080808', '#1A0404'], start: { x: 0.2, y: 0 }, end: { x: 1, y: 1 } };
+  }, [heroBannerUri, premiumUi?.customHeroGradient, profileThemePreset, heroPresetGradients]);
 
   const [visitFx, setVisitFx] = useState(false);
   const [shopVisitFx, setShopVisitFx] = useState(false);
@@ -440,9 +443,9 @@ export default function ProfileView({
             transform:             premiumUi?.heroMotion === 'float' ? [{ translateY: heroFloatY }] : [],
           }}
         >
-          {shopBannerUri || (profile as any)?.bannerUrl ? (
+          {heroBannerUri ? (
             <Image
-              source={{ uri: shopBannerUri || (profile as any).bannerUrl }}
+              source={{ uri: heroBannerUri }}
               style={{ ...StyleSheet.absoluteFillObject }}
               resizeMode="cover"
             />
@@ -454,7 +457,7 @@ export default function ProfileView({
               style={{ ...StyleSheet.absoluteFillObject }}
             />
           )}
-          {!!(shopBannerUri || (profile as any)?.bannerUrl) && (
+          {!!heroBannerUri && (
             <LinearGradient
               colors={(heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) as any}
               start={{ x: 0, y: 0 }}
@@ -528,7 +531,7 @@ export default function ProfileView({
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 {premiumActive && onBannerChange && (
                   <>
-                    {!!profile?.bannerUrl && (
+                    {!!premiumBannerUrl && (
                       <TouchableOpacity
                         style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#ff3b3020', borderWidth: 1, borderColor: '#ff3b3040', alignItems: 'center', justifyContent: 'center' }}
                         onPress={() => onBannerChange('delete' as any)}

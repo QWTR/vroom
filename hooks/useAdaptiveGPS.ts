@@ -32,7 +32,7 @@ const MAX_ACCURACY_ACTIVE_M = 100;
 const MAX_ACCURACY_ACTIVE_HARD_M = 240;
 const MAX_SPEED_IDLE_KMH = 110;
 const MAX_SPEED_ACTIVE_KMH = 360;
-const ACTIVE_FIX_TIMEOUT_MS = 16000;
+const ACTIVE_FIX_TIMEOUT_MS = 10000;
 const IDLE_FIX_TIMEOUT_MS   = 22000;
 const WATCHDOG_CHECK_MS = 8000;
 const ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE = 1;
@@ -41,7 +41,13 @@ const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
-const ACTIVE_EMIT_MIN_INTERVAL_MS = 140;
+/** Min gap between forwarded fixes in active mode (Android batches if too high). */
+const ACTIVE_EMIT_MIN_INTERVAL_MS = 80;
+/** Highway: denser emit gate (20–50 Hz devices) — do not starve map.tsx at 90+ km/h. */
+const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 40;
+const HIGHWAY_EMIT_SPEED_KMH = 50;
+/** Po dłuższej ciszy zawsze przepuść fix — inaczej map.tsx nie dostaje ticków. */
+const ACTIVE_FORCE_EMIT_GAP_MS = 650;
 const BROWSING_EMIT_MIN_INTERVAL_MS = 700;
 const ACTIVE_EMIT_MIN_MOVE_M = 0.9;
 const BROWSING_EMIT_MIN_MOVE_M = 4.5;
@@ -61,27 +67,26 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   browsing: {
     accuracy:         Location.Accuracy.Balanced,
-    timeInterval:     2000,
-    distanceInterval: 6,
+    timeInterval:     3000,
+    distanceInterval: 10,
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    // Active driving needs live GPS; render pressure is controlled in map.tsx, not by starving GPS.
-    timeInterval:     500,
-    distanceInterval: 1,
+    // Active driving: live GPS; render pressure w map.tsx (worklet + throttled display notify).
+    timeInterval:     600,
+    distanceInterval: 2,
   },
 };
 
 function resolveGpsProfile(
-  _isMapFocused: boolean,
+  isMapFocused: boolean,
   isNavigating: boolean,
   isDriving: boolean,
   speedKmh: number,
   forceActive: boolean,
 ): GpsProfile {
-  // Map screen stays mounted (lazy:false) — keep browsing GPS alive on other tabs
-  // instead of throttling to offMap (25s), which caused stale anchors after tab switches.
   if (isNavigating || isDriving || forceActive || speedKmh > DRIVE_SPEED_KMH) return 'active';
+  if (!isMapFocused) return 'offMap';
   return 'browsing';
 }
 
@@ -203,11 +208,21 @@ export function useAdaptiveGPS({
           }, force = false) => {
             const nowMs = now;
             const lastEmit = lastEmitRef.current;
-            if (!force && lastEmit) {
-              const activeMinInterval = activeMode ? ACTIVE_EMIT_MIN_INTERVAL_MS : BROWSING_EMIT_MIN_INTERVAL_MS;
-              const dt = nowMs - lastEmit.at;
+            const emitGapMs = lastEmit ? nowMs - lastEmit.at : ACTIVE_FORCE_EMIT_GAP_MS;
+            const forceStaleGap = activeMode && emitGapMs >= ACTIVE_FORCE_EMIT_GAP_MS;
+            if (!force && !forceStaleGap && lastEmit) {
+              const emitSpeedKmh = payload.speed != null && payload.speed >= 0
+                ? payload.speed * 3.6
+                : effectiveSpeedKmh;
+              const isFast = activeMode && emitSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH;
+              const activeMinInterval = isFast
+                ? ACTIVE_EMIT_MIN_INTERVAL_FAST_MS
+                : (activeMode ? ACTIVE_EMIT_MIN_INTERVAL_MS : BROWSING_EMIT_MIN_INTERVAL_MS);
+              const dt = emitGapMs;
               const movedM = haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000;
-              const minMoveM = activeMode ? ACTIVE_EMIT_MIN_MOVE_M : BROWSING_EMIT_MIN_MOVE_M;
+              const minMoveM = isFast
+                ? 0.2
+                : (activeMode ? ACTIVE_EMIT_MIN_MOVE_M : BROWSING_EMIT_MIN_MOVE_M);
               const prevHeading = lastEmit.heading;
               const nextHeading = payload.heading;
               const headingDelta =

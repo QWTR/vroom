@@ -1,7 +1,15 @@
+import { DISPLAY_NOTIFY_MIN_MS } from '../../constants/mapPerformance';
 import { gpsTickPayload } from '../gpsTickTrace';
 import { logGpsTickLayer } from '../gpsTickTraceLog';
 import { markerLogCritical } from '../markerPipelineLog';
 import { vroomGpsLog } from '../vroomGpsLog';
+
+export { DISPLAY_NOTIFY_MIN_MS };
+import {
+  feedJumpRejectReason,
+  isAbsurdGlobeCoordinate,
+  logFeedJumpReject,
+} from './feedCoordinateGuard';
 
 export type SmoothTarget = {
   latitude: number;
@@ -11,6 +19,8 @@ export type SmoothTarget = {
   durationMs?: number;
   /** Speed in m/s — worklet forward cruise po dotarciu do kotwicy. */
   speedMs?: number;
+  /** Opcjonalna geometria drogi/route w oknie wokół kotwicy (do DR po łuku). */
+  roadPts?: { latitude: number; longitude: number }[];
   /** Diagnostyka — źródło feedu (tylko v10_* w trybie jazdy). */
   source?: string;
 };
@@ -22,8 +32,6 @@ let handler: FeedHandler | null = null;
 let handlerOwnerId: string | null = null;
 const displayListeners = new Set<DisplayListener>();
 let lastDisplayNotifyMs = 0;
-/** Marker + kamera follow z worklet display (subscribeSmoothPositionDisplay). */
-const DISPLAY_NOTIFY_MIN_MS = 16;
 
 const INSTANT_FEED_SOURCES = new Set([
   'v10_apply_trip_instant',
@@ -45,6 +53,7 @@ const DEPRECATED_SOURCES = new Set([
 function sourcePriority(source: string): number {
   if (FORCE_PRIORITY_SOURCES.has(source)) return 95;
   if (source.includes('instant') || source.includes('bootstrap')) return 100;
+  if (source === 'v10_live_follow') return 85;
   if (source === 'v10_direct_cruise_feed' || source === 'v10_live_cruise') return 80;
   if (source === 'v10_arc_stale_snap') return 88;
   if (source === 'v10_stationary_hold') return 70;
@@ -73,10 +82,18 @@ function haversineM(
 function normalizeSmoothTarget(target: SmoothTarget): SmoothTarget {
   if (target.durationMs !== 0) return target;
   const src = String(target.source ?? '');
-  if (INSTANT_FEED_SOURCES.has(src) || src.includes('bootstrap')) {
+  if (
+    INSTANT_FEED_SOURCES.has(src)
+    || src.includes('bootstrap')
+    || src === 'v10_stationary_hold'
+  ) {
     return target;
   }
-  return { ...target, durationMs: 120 };
+  markerLogCritical('FEED_INSTANT_COERCED', {
+    source: src,
+    coercedMs: 320,
+  });
+  return { ...target, durationMs: 320 };
 }
 
 function isTrueInstantBootstrap(target: SmoothTarget): boolean {
@@ -143,6 +160,11 @@ function shouldDropFeed(normalized: SmoothTarget): string | null {
     src === 'v10_live_cruise'
     || src === 'v10_direct_cruise_feed'
     || src === 'v10_apply_trip_instant';
+  if (src === 'v10_stationary_hold') {
+    if (movedM < 0.55 && dtMs < 1200) return 'stationary_duplicate';
+    return null;
+  }
+
   if (isV10TripFeed) {
     const staleBypass = markerStaleRawToSnapM > 15 || dtMs > 800;
     if (dtMs < 18 && movedM < 0.06 && !staleBypass) return 'v10_duplicate_micro';
@@ -256,6 +278,16 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
     return;
   }
 
+  if (isAbsurdGlobeCoordinate(cleaned.latitude, cleaned.longitude)) {
+    markerLogCritical('WORKLET_FEED_COORD_REJECT', {
+      reason: 'absurd_coordinate_precheck',
+      source: cleaned.source ?? 'unknown',
+      lat: cleaned.latitude,
+      lng: cleaned.longitude,
+    });
+    return;
+  }
+
   const normalized = normalizeSmoothTarget(cleaned);
   const src = String(normalized.source ?? 'unknown');
 
@@ -268,7 +300,7 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
     )
     : null;
   const dtSinceIncomingMs = lastFeedAtMs > 0 ? Date.now() - lastFeedAtMs : null;
-  logGpsTickLayer('WORKLET_FEED_INCOMING', {
+  logGpsTickLayer('FEED_WORKLET_CALL', {
     layer: 'feedSmoothPositionTarget',
     lat: Number(normalized.latitude.toFixed(6)),
     lng: Number(normalized.longitude.toFixed(6)),
@@ -280,6 +312,12 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
     instantTeleport: normalized.durationMs === 0,
     asyncSpamSuspect: dtSinceIncomingMs != null && dtSinceIncomingMs < 8 && (movedFromIncomingM ?? 0) < 0.05,
   });
+
+  const coordReject = feedJumpRejectReason(normalized, lastTarget);
+  if (coordReject) {
+    logFeedJumpReject(coordReject, normalized, lastTarget);
+    return;
+  }
 
   const dropReason = shouldDropFeed(normalized);
   if (dropReason) {

@@ -308,6 +308,7 @@ export function clampSpeedKmhToGeometry(
   }
   if (kmh <= 0) return 0;
   if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
+    // Doppler bez ruchu w oknie — nie podbijaj prędkości (częsty cache GPS + żywy speed).
     return 0;
   }
   if (netM < 14) {

@@ -12,15 +12,34 @@ import {
 } from '../lib/mapPosition/smoothPositionFeed';
 import { logGpsTickLayer } from '../lib/gpsTickTraceLog';
 import { markerLogTick } from '../lib/markerPipelineLog';
+import { isAbsurdGlobeCoordinate } from '../lib/mapPosition/feedCoordinateGuard';
 
 const DISPLAY_PUSH_MS = 16;
-const WORKLET_TRACE_MS = 1400;
 const WORKLET_STALL_MS = 2000;
-
-function logWorkletFrameTrace(payload: Record<string, unknown>): void {
-  markerLogTick('WORKLET_FRAME', payload, WORKLET_TRACE_MS);
-}
-
+/** ~2 km/h — poniżej uznajemy postój (bez LERP/DR). */
+const CRUISE_MIN_MS = 0.55;
+/** Dead reckoning tylko przy realnej jeździe (~5+ km/h). */
+const DR_MIN_SPEED_MS = 1.39;
+/** Powyżej 20 km/h heading markera musi trzymać 100% road azimuth. */
+const HEADING_LOCK_SPEED_MS = 20 / 3.6;
+const ZERO_SPEED_EPS_MS = 0.05;
+const STATIONARY_MAX_ANCHOR_DRIFT_M = 2.5;
+/** Po zablokowaniu postoju — odrzuć feed dalej niż tyle od pinu (m). */
+const STATIONARY_PIN_REJECT_M = 1.8;
+/** Wyjście z postoju: feed musi mieć speed + realny ruch od pinu. */
+const STATIONARY_RELEASE_SPEED_MS = 1.4;
+const STATIONARY_RELEASE_MOVE_M = 5;
+/** Przy postoju — odrzuć feed dalej niż tyle od display (m). */
+const STATIONARY_MAX_FEED_JUMP_M = 8;
+/** Bezwzględny limit skoku (inny kontynent / zły fix). */
+const MEGA_FEED_JUMP_M = 600;
+const STATIONARY_DRIFT_CAP_M = 45;
+/** Duży skok kotwicy — wydłuż segment, nadal liniowy LERP. */
+const BIG_CATCHUP_M = 22;
+const SEG_DURATION_MIN_MS = 200;
+const SEG_DURATION_MAX_MS = 1400;
+/** Max obrót markera [°/s]. */
+const MAX_HEADING_RATE_DPS = 20;
 function logWorkletStall(payload: Record<string, unknown>): void {
   markerLogTick('WORKLET_STALL', payload, WORKLET_STALL_MS);
 }
@@ -29,8 +48,24 @@ function logWorkletStateCheck(payload: Record<string, unknown>): void {
   logGpsTickLayer('WORKLET_STATE_CHECK', payload);
 }
 
-function lerpHeading(from: number, to: number, t: number): number {
+function logWorkletFrameDiag(payload: Record<string, unknown>): void {
+  logGpsTickLayer('WORKLET_FRAME_DIAG', payload);
+}
+
+function logWorkletMegaFeedReject(payload: Record<string, unknown>): void {
+  markerLogTick('WORKLET_ONFEED_MEGA_REJECT', payload, 0);
+}
+
+function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
   'worklet';
+  const diff = ((to - from + 540) % 360) - 180;
+  const clamped = Math.max(-maxDeltaDeg, Math.min(maxDeltaDeg, diff));
+  return ((from + clamped) + 360) % 360;
+}
+
+function lerpHeadingLinearWorklet(from: number, to: number, u: number): number {
+  'worklet';
+  const t = Math.max(0, Math.min(1, u));
   const diff = ((to - from + 540) % 360) - 180;
   return ((from + diff * t) + 360) % 360;
 }
@@ -50,13 +85,18 @@ function haversineMWorklet(
   const R = 6371000;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
   const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const s1 = Math.sin(dLat / 2) ** 2;
+  const s1 = Math.pow(Math.sin(dLat / 2), 2);
   const s2 =
     Math.cos((aLat * Math.PI) / 180)
     * Math.cos((bLat * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
+    * Math.pow(Math.sin(dLng / 2), 2);
   const a = s1 + s2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function angleDeltaWorklet(a: number, b: number): number {
+  'worklet';
+  return Math.abs((((a - b) + 540) % 360) - 180);
 }
 
 function bearingBetweenWorklet(
@@ -72,8 +112,152 @@ function bearingBetweenWorklet(
   const lat2R = toRad(lat2);
   const y = Math.sin(dLng) * Math.cos(lat2R);
   const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
-  const deg = (Math.atan2(y, x) * 180) / Math.PI;
-  return ((deg % 360) + 360) % 360;
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function isBackwardStepWorklet(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  headingDeg: number,
+): boolean {
+  'worklet';
+  const distM = haversineMWorklet(fromLat, fromLng, toLat, toLng);
+  if (distM < 1.5) return false;
+  const stepBearing = bearingBetweenWorklet(fromLat, fromLng, toLat, toLng);
+  return angleDeltaWorklet(stepBearing, headingDeg) > 110;
+}
+
+/** Przesuń punkt o distM wzdłuż bearingDeg (stopnie, 0 = N). */
+function moveAlongBearingWorklet(
+  lat: number,
+  lng: number,
+  bearingDeg: number,
+  distM: number,
+): { lat: number; lng: number } {
+  'worklet';
+  if (distM < 0.001) return { lat, lng };
+  const R = 6371000;
+  const br = (bearingDeg * Math.PI) / 180;
+  const latRad = (lat * Math.PI) / 180;
+  const dLat = ((distM * Math.cos(br)) / R) * (180 / Math.PI);
+  const cosLat = Math.cos(latRad);
+  const dLng = cosLat > 1e-6
+    ? ((distM * Math.sin(br)) / (R * cosLat)) * (180 / Math.PI)
+    : 0;
+  return { lat: lat + dLat, lng: lng + dLng };
+}
+
+function stepTowardWorklet(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  maxStepM: number,
+  headingDeg: number,
+): { lat: number; lng: number } {
+  'worklet';
+  const distM = haversineMWorklet(fromLat, fromLng, toLat, toLng);
+  if (distM < 0.015 || maxStepM < 0.008) {
+    return { lat: fromLat, lng: fromLng };
+  }
+  const t = Math.min(1, maxStepM / distM);
+  const nextLat = fromLat + (toLat - fromLat) * t;
+  const nextLng = fromLng + (toLng - fromLng) * t;
+  if (isBackwardStepWorklet(fromLat, fromLng, nextLat, nextLng, headingDeg)) {
+    return { lat: fromLat, lng: fromLng };
+  }
+  return { lat: nextLat, lng: nextLng };
+}
+
+function clampSegmentDurationMs(ms: number): number {
+  if (!Number.isFinite(ms) || ms <= 0) return 500;
+  return Math.max(SEG_DURATION_MIN_MS, Math.min(SEG_DURATION_MAX_MS, ms));
+}
+
+function roadLenWorklet(roadFlat: number[]): number {
+  'worklet';
+  return Math.floor(roadFlat.length / 2);
+}
+
+function roadGetLatWorklet(roadFlat: number[], i: number): number {
+  'worklet';
+  return roadFlat[i * 2];
+}
+
+function roadGetLngWorklet(roadFlat: number[], i: number): number {
+  'worklet';
+  return roadFlat[i * 2 + 1];
+}
+
+/** Najbliższy indeks punktu (prosty scan po oknie; okno jest małe). */
+function findNearestRoadIndexWorklet(roadFlat: number[], lat: number, lng: number): number {
+  'worklet';
+  const n = roadLenWorklet(roadFlat);
+  if (n < 2) return 0;
+  let bestI = 0;
+  let bestD = 1e18;
+  for (let i = 0; i < n; i += 1) {
+    const d = haversineMWorklet(lat, lng, roadGetLatWorklet(roadFlat, i), roadGetLngWorklet(roadFlat, i));
+    if (d < bestD) {
+      bestD = d;
+      bestI = i;
+    }
+  }
+  return bestI;
+}
+
+/**
+ * Przesuń się do przodu wzdłuż roadFlat o distM.
+ * roadFlat: [lat0,lng0,lat1,lng1,...] (okno geometrii w okolicy kotwicy).
+ */
+function advanceAlongRoadWorklet(
+  roadFlat: number[],
+  startIdx: number,
+  fromLat: number,
+  fromLng: number,
+  distM: number,
+): { lat: number; lng: number; idx: number } {
+  'worklet';
+  const n = roadLenWorklet(roadFlat);
+  if (n < 2 || distM <= 0.001) return { lat: fromLat, lng: fromLng, idx: startIdx };
+
+  let idx = Math.max(0, Math.min(n - 2, startIdx));
+  // Jeśli odlecieliśmy, złap najbliższy punkt okna.
+  const snapI = findNearestRoadIndexWorklet(roadFlat, fromLat, fromLng);
+  if (Math.abs(snapI - idx) > 6) idx = Math.max(0, Math.min(n - 2, snapI));
+
+  let curLat = fromLat;
+  let curLng = fromLng;
+  let remaining = distM;
+
+  // Przejdź segmentami; okno jest małe, więc pętla jest tania.
+  for (let guard = 0; guard < 24 && remaining > 0.001; guard += 1) {
+    const aLat = roadGetLatWorklet(roadFlat, idx);
+    const aLng = roadGetLngWorklet(roadFlat, idx);
+    const bLat = roadGetLatWorklet(roadFlat, idx + 1);
+    const bLng = roadGetLngWorklet(roadFlat, idx + 1);
+    const segM = haversineMWorklet(aLat, aLng, bLat, bLng);
+    if (segM < 0.05) {
+      idx = Math.min(n - 2, idx + 1);
+      continue;
+    }
+    if (remaining < segM) {
+      const t = remaining / segM;
+      curLat = aLat + (bLat - aLat) * t;
+      curLng = aLng + (bLng - aLng) * t;
+      remaining = 0;
+      break;
+    }
+    remaining -= segM;
+    idx = Math.min(n - 2, idx + 1);
+    curLat = bLat;
+    curLng = bLng;
+    if (idx >= n - 2) break;
+  }
+
+  return { lat: curLat, lng: curLng, idx };
 }
 
 export type SmoothMapPositionValues = {
@@ -83,7 +267,8 @@ export type SmoothMapPositionValues = {
 };
 
 /**
- * Jeden strumień: płynne dociąganie do kotwicy GPS/snap (bez skoków co tick).
+ * Worklet 60 FPS: liniowy segment A→B przez durationMs (kadencja GPS),
+ * potem dead reckoning wzdłuż anchorHdg z speedMs do następnego fixa.
  */
 export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues {
   const lat = useSharedValue(0);
@@ -94,16 +279,31 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
   const anchorLat = useSharedValue(0);
   const anchorLng = useSharedValue(0);
   const anchorHdg = useSharedValue(0);
+  const roadFlat = useSharedValue<number[]>([]);
+  const roadIdx = useSharedValue(0);
+  const segFromLat = useSharedValue(0);
+  const segFromLng = useSharedValue(0);
+  const segFromHdg = useSharedValue(0);
+  const segToLat = useSharedValue(0);
+  const segToLng = useSharedValue(0);
+  const segToHdg = useSharedValue(0);
+  const segStartMs = useSharedValue(0);
+  const segDurationMs = useSharedValue(500);
+  /** Odległość [m] między segFrom i segTo (do constraint V×dt). */
+  const segDistM = useSharedValue(0);
+  const inDeadReckoning = useSharedValue(0);
+  const stationaryLocked = useSharedValue(0);
+  const pinLat = useSharedValue(0);
+  const pinLng = useSharedValue(0);
   const bootstrapped = useSharedValue(0);
   const speedMs = useSharedValue(0);
-  const anchorPullMs = useSharedValue(400);
-  const anchorPullStartMs = useSharedValue(0);
   const lastDisplayPushMs = useSharedValue(0);
   const lastFrameMs = useSharedValue(0);
   const prevFrameLat = useSharedValue(0);
   const prevFrameLng = useSharedValue(0);
-  const staleAnchorSinceMs = useSharedValue(0);
   const lastStallLogMs = useSharedValue(0);
+  const lastFeedWallMs = useSharedValue(0);
+  const lastFrameDiagLogMs = useSharedValue(0);
 
   useEffect(() => {
     frameActive.value = enabled ? 1 : 0;
@@ -111,92 +311,255 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       return;
     }
 
+    const beginSegment = (
+      fromLat: number,
+      fromLng: number,
+      fromHdg: number,
+      toLat: number,
+      toLng: number,
+      toHdg: number,
+      durationMs: number,
+      now: number,
+    ) => {
+      segFromLat.value = fromLat;
+      segFromLng.value = fromLng;
+      segFromHdg.value = fromHdg;
+      segToLat.value = toLat;
+      segToLng.value = toLng;
+      segToHdg.value = toHdg;
+      segStartMs.value = now;
+      segDurationMs.value = clampSegmentDurationMs(durationMs);
+      segDistM.value = haversineMWorklet(fromLat, fromLng, toLat, toLng);
+      inDeadReckoning.value = 0;
+    };
+
     const onFeed = (target: SmoothTarget) => {
       if (!Number.isFinite(target.latitude) || !Number.isFinite(target.longitude)) {
         return;
       }
-      const feedHdg = Number.isFinite(target.heading) ? target.heading : 0;
+      if (isAbsurdGlobeCoordinate(target.latitude, target.longitude)) {
+        return;
+      }
+      let feedHdg = Number.isFinite(target.heading) ? target.heading : anchorHdg.value;
+      let feedLat = target.latitude;
+      let feedLng = target.longitude;
       const now = Date.now();
       const instant = target.durationMs === 0;
+      const src = String(target.source ?? '');
+      const feedSpeedMsRaw = Number.isFinite(target.speedMs as number)
+        ? (target.speedMs as number)
+        : speedMs.value;
+      const isStationaryFeed =
+        src === 'v10_stationary_hold'
+        || ((target.speedMs ?? 0) < CRUISE_MIN_MS && !instant);
+
+      // Low-pass B: gdy nowa kotwica mocno odbiega kierunkowo od aktualnego roadHdg/DR,
+      // lekko tłumimy jej pozycję, żeby uniknąć mikro-teleportów i „wjeżdżania w krawężnik”.
+      if (!instant && bootstrapped.value === 1) {
+        const feedSpeedMs =
+          Number.isFinite(target.speedMs as number) ? (target.speedMs as number) : speedMs.value;
+        const feedKmh = (feedSpeedMs ?? 0) * 3.6;
+        const distRaw = haversineMWorklet(lat.value, lng.value, feedLat, feedLng);
+        if (feedKmh >= 30 && distRaw >= 6) {
+          const brgToTarget = bearingBetweenWorklet(lat.value, lng.value, feedLat, feedLng);
+          const dev = angleDeltaWorklet(brgToTarget, anchorHdg.value);
+          if (dev >= 45) {
+            const alpha = 0.28;
+            feedLat = lat.value + (feedLat - lat.value) * alpha;
+            feedLng = lng.value + (feedLng - lng.value) * alpha;
+          }
+        }
+      }
 
       const distFromDisplayM = bootstrapped.value === 1
-        ? haversineMWorklet(lat.value, lng.value, target.latitude, target.longitude)
+        ? haversineMWorklet(lat.value, lng.value, feedLat, feedLng)
         : 0;
-      if (target.speedMs != null && Number.isFinite(target.speedMs) && target.speedMs > 0) {
-        speedMs.value = target.speedMs;
-      } else if (target.source === 'v10_stationary_hold') {
+
+      const distFromPinM = stationaryLocked.value === 1
+        ? haversineMWorklet(pinLat.value, pinLng.value, feedLat, feedLng)
+        : distFromDisplayM;
+
+      // Już zablokowany postój — odrzuć jitter snap/GPS (ghost speed bez ruchu).
+      if (stationaryLocked.value === 1 && bootstrapped.value === 1) {
         speedMs.value = 0;
-      } else if (distFromDisplayM >= 6 && (target.durationMs ?? 0) > 0) {
-        speedMs.value = Math.min(
-          22,
-          distFromDisplayM / Math.max(0.22, (target.durationMs ?? 400) / 1000),
-        );
+        inDeadReckoning.value = 0;
+        const canRelease =
+          feedSpeedMsRaw >= STATIONARY_RELEASE_SPEED_MS
+          && distFromPinM >= STATIONARY_RELEASE_MOVE_M;
+        if (!canRelease) {
+          if (distFromPinM > STATIONARY_PIN_REJECT_M) {
+            return;
+          }
+          anchorLat.value = pinLat.value;
+          anchorLng.value = pinLng.value;
+          anchorHdg.value = feedHdg;
+          lastFeedWallMs.value = now;
+          return;
+        }
+        stationaryLocked.value = 0;
       }
-      anchorLat.value = target.latitude;
-      anchorLng.value = target.longitude;
+
+      const ghostSpeedNoMove =
+        feedSpeedMsRaw < 2.8
+        && distFromDisplayM < STATIONARY_RELEASE_MOVE_M;
+      const effectivelyStopped =
+        isStationaryFeed
+        || feedSpeedMsRaw < DR_MIN_SPEED_MS
+        || ghostSpeedNoMove;
+
+      if (effectivelyStopped && bootstrapped.value === 1) {
+        if (stationaryLocked.value === 0) {
+          pinLat.value = lat.value;
+          pinLng.value = lng.value;
+        }
+        stationaryLocked.value = 1;
+        speedMs.value = 0;
+        inDeadReckoning.value = 0;
+        anchorLat.value = pinLat.value;
+        anchorLng.value = pinLng.value;
+        lat.value = pinLat.value;
+        lng.value = pinLng.value;
+        anchorHdg.value = feedHdg;
+        lastFeedWallMs.value = now;
+        beginSegment(
+          pinLat.value,
+          pinLng.value,
+          heading.value,
+          pinLat.value,
+          pinLng.value,
+          feedHdg,
+          0,
+          now,
+        );
+        return;
+      }
+
+      // Road geometry snapshot (small window) for DR along curve.
+      if (target.roadPts && Array.isArray(target.roadPts) && target.roadPts.length >= 2) {
+        const flat: number[] = [];
+        for (let i = 0; i < target.roadPts.length; i += 1) {
+          const p = target.roadPts[i];
+          if (!p) continue;
+          if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
+          flat.push(p.latitude, p.longitude);
+        }
+        if (flat.length >= 4) {
+          roadFlat.value = flat;
+          roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
+        }
+      }
+
+      if (bootstrapped.value === 1) {
+        const hdgJump = angleDeltaWorklet(anchorHdg.value, feedHdg);
+        if (hdgJump > 28 && distFromDisplayM < 15) {
+          feedHdg = anchorHdg.value;
+        }
+        if (distFromDisplayM > MEGA_FEED_JUMP_M) {
+          runOnJS(logWorkletMegaFeedReject)({
+            distM: Math.round(distFromDisplayM),
+            source: src,
+          });
+          return;
+        }
+        const slowFeed =
+          isStationaryFeed
+          || (target.speedMs ?? speedMs.value) < 0.55;
+        if (slowFeed && distFromDisplayM > STATIONARY_MAX_FEED_JUMP_M) {
+          return;
+        }
+        if (!instant && slowFeed && distFromDisplayM > STATIONARY_MAX_ANCHOR_DRIFT_M) {
+          return;
+        }
+        if (!instant && (target.speedMs ?? speedMs.value) < 1.2 && distFromDisplayM > 35) {
+          return;
+        }
+      }
+
+      if (isStationaryFeed) {
+        speedMs.value = 0;
+        if (bootstrapped.value === 1 && distFromDisplayM < STATIONARY_MAX_ANCHOR_DRIFT_M) {
+          return;
+        }
+      } else if (target.speedMs != null && Number.isFinite(target.speedMs) && target.speedMs > 0) {
+        speedMs.value = target.speedMs;
+      }
+
+      anchorLat.value = feedLat;
+      anchorLng.value = feedLng;
       anchorHdg.value = feedHdg;
-      const pullMs = target.durationMs ?? 400;
-      const pullCap = distFromDisplayM >= 25 ? 160 : distFromDisplayM >= 12 ? 220 : 300;
-      anchorPullMs.value = instant ? 0 : Math.max(120, Math.min(pullCap, pullMs));
-      anchorPullStartMs.value = now;
-      if (distFromDisplayM >= 0.35) {
-        staleAnchorSinceMs.value = 0;
-      } else if (staleAnchorSinceMs.value === 0) {
-        staleAnchorSinceMs.value = now;
+      lastFeedWallMs.value = now;
+
+      let segmentMs = target.durationMs ?? 500;
+      if (!instant && distFromDisplayM >= BIG_CATCHUP_M) {
+        const cruise = Math.max(target.speedMs ?? speedMs.value, CRUISE_MIN_MS);
+        segmentMs = Math.max(
+          segmentMs,
+          Math.min(SEG_DURATION_MAX_MS, Math.round(distFromDisplayM / Math.max(cruise, 1.5) * 1000)),
+        );
       }
 
       if (instant || bootstrapped.value === 0) {
-        lat.value = target.latitude;
-        lng.value = target.longitude;
+        lat.value = feedLat;
+        lng.value = feedLng;
         heading.value = feedHdg;
-        prevFrameLat.value = target.latitude;
-        prevFrameLng.value = target.longitude;
+        prevFrameLat.value = feedLat;
+        prevFrameLng.value = feedLng;
         bootstrapped.value = 1;
+        beginSegment(
+          feedLat,
+          feedLng,
+          feedHdg,
+          feedLat,
+          feedLng,
+          feedHdg,
+          segmentMs,
+          now,
+        );
+        inDeadReckoning.value = 0;
         if (instant) {
-          notifySmoothPositionDisplay(target.latitude, target.longitude, feedHdg);
+          notifySmoothPositionDisplay(feedLat, feedLng, feedHdg);
         }
-      } else if (distFromDisplayM > 10 && bootstrapped.value === 1) {
-        // Telemetria: displayToTargetM 15–26 m + pullMs 560 → marker „stoi” i drży.
-        const catchT = clampWorklet(distFromDisplayM / 32, 0.42, 0.78);
-        lat.value = lat.value + (target.latitude - lat.value) * catchT;
-        lng.value = lng.value + (target.longitude - lng.value) * catchT;
-        prevFrameLat.value = lat.value;
-        prevFrameLng.value = lng.value;
-        anchorPullMs.value = Math.min(anchorPullMs.value, distFromDisplayM > 22 ? 140 : 200);
+      } else if (isStationaryFeed && distFromDisplayM < STATIONARY_MAX_ANCHOR_DRIFT_M) {
+        lat.value = feedLat;
+        lng.value = feedLng;
+        heading.value = feedHdg;
+        beginSegment(
+          feedLat,
+          feedLng,
+          feedHdg,
+          feedLat,
+          feedLng,
+          feedHdg,
+          segmentMs,
+          now,
+        );
+        inDeadReckoning.value = 0;
+      } else {
+        const fromLat = lat.value;
+        const fromLng = lng.value;
+        const fromHdg = heading.value;
+        beginSegment(
+          fromLat,
+          fromLng,
+          fromHdg,
+          feedLat,
+          feedLng,
+          feedHdg,
+          segmentMs,
+          now,
+        );
       }
-      const displayNaN =
-        !Number.isFinite(lat.value)
-        || !Number.isFinite(lng.value)
-        || !Number.isFinite(anchorLat.value)
-        || !Number.isFinite(anchorLng.value);
-      if (
-        displayNaN
-        || instant
-        || distFromDisplayM > 12
-        || (target.durationMs === 0)
-      ) {
+
+      if (instant || distFromDisplayM > 28) {
         logWorkletStateCheck({
           phase: 'onFeed',
-          source: target.source ?? 'unknown',
+          source: src,
           instant,
-          displayNaN,
           distAnchorM: Number(distFromDisplayM.toFixed(2)),
-          displayLat: Number(lat.value.toFixed(6)),
-          displayLng: Number(lng.value.toFixed(6)),
-          anchorLat: Number(anchorLat.value.toFixed(6)),
-          anchorLng: Number(anchorLng.value.toFixed(6)),
-          pullMs: target.durationMs ?? null,
+          segmentMs,
           speedMs: target.speedMs ?? null,
         });
       }
-      logWorkletFrameTrace({
-        event: 'feed',
-        source: target.source ?? 'unknown',
-        instant,
-        distFromDisplayM: Number(distFromDisplayM.toFixed(2)),
-        speedMs: target.speedMs ?? null,
-        pullMs: target.durationMs ?? null,
-      });
     };
 
     registerSmoothPositionHandler(onFeed, 'trip-smooth-map-position');
@@ -204,9 +567,14 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       registerSmoothPositionHandler(null, 'trip-smooth-map-position');
       bootstrapped.value = 0;
       speedMs.value = 0;
-      anchorPullStartMs.value = 0;
+      segStartMs.value = 0;
+      inDeadReckoning.value = 0;
+      stationaryLocked.value = 0;
+      pinLat.value = 0;
+      pinLng.value = 0;
+      roadFlat.value = [];
+      roadIdx.value = 0;
       lastFrameMs.value = 0;
-      staleAnchorSinceMs.value = 0;
       lastStallLogMs.value = 0;
       clearSmoothPositionFeed();
     };
@@ -216,17 +584,31 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
     anchorHdg,
     anchorLat,
     anchorLng,
-    anchorPullMs,
-    anchorPullStartMs,
+    roadFlat,
+    roadIdx,
     bootstrapped,
     heading,
+    inDeadReckoning,
+    stationaryLocked,
+    pinLat,
+    pinLng,
     lat,
     lng,
     prevFrameLat,
     prevFrameLng,
+    segDurationMs,
+    segDistM,
+    segFromHdg,
+    segFromLat,
+    segFromLng,
+    segStartMs,
+    segToHdg,
+    segToLat,
+    segToLng,
     speedMs,
-    staleAnchorSinceMs,
     lastStallLogMs,
+    lastFeedWallMs,
+    lastFrameDiagLogMs,
   ]);
 
   useFrameCallback(
@@ -239,137 +621,183 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const frameDtSec = clampWorklet((now - prevFrame) / 1000, 0.008, 0.1);
       lastFrameMs.value = now;
 
-      const cruiseMs = speedMs.value >= 0.08 ? speedMs.value : 0;
-      const targetLat = anchorLat.value;
-      const targetLng = anchorLng.value;
-      const distAnchorM = haversineMWorklet(lat.value, lng.value, targetLat, targetLng);
+      const cruiseMs = speedMs.value >= CRUISE_MIN_MS ? speedMs.value : 0;
+      const headingLockToRoad = cruiseMs >= HEADING_LOCK_SPEED_MS;
+      const roadHdg = anchorHdg.value;
+      const maxHdgStep = MAX_HEADING_RATE_DPS * frameDtSec;
+      const frozen =
+        stationaryLocked.value === 1
+        || cruiseMs < CRUISE_MIN_MS;
 
-      const DRIVING_CHASE_MS = 4.17; // ~15 km/h — powyżej: agresywny chase bez cap 2.4 m/klatkę
-      const drivingChase = cruiseMs >= DRIVING_CHASE_MS;
-
-      if (distAnchorM > 0.08) {
-        const pullMs = Math.max(200, anchorPullMs.value > 0 ? anchorPullMs.value : 420);
-        const easeFrac = clampWorklet(
-          frameDtSec / Math.max(0.18, pullMs / 1000),
-          drivingChase ? 0.28 : 0.12,
-          drivingChase ? 0.58 : 0.34,
-        );
-        let stepM = distAnchorM * easeFrac;
-        const minChaseM = drivingChase
-          ? Math.max(0.45, cruiseMs * frameDtSec * 1.6)
-          : Math.max(0.25, cruiseMs * frameDtSec * 0.9);
-        stepM = Math.min(distAnchorM, Math.max(minChaseM, stepM));
-        if (!drivingChase && distAnchorM > 80 && cruiseMs > 0) {
-          const teleportGuardM = cruiseMs * frameDtSec * 2.2 + 2;
-          stepM = Math.min(stepM, teleportGuardM);
-        } else if (distAnchorM > 12 && cruiseMs <= 0.08) {
-          stepM = Math.max(stepM, Math.min(distAnchorM, 2.8 * frameDtSec * 60));
-        }
-        const t = clampWorklet(
-          stepM / Math.max(distAnchorM, 0.08),
-          drivingChase ? 0.2 : 0.1,
-          drivingChase ? 0.55 : 0.38,
-        );
-        lat.value = lat.value + (targetLat - lat.value) * t;
-        lng.value = lng.value + (targetLng - lng.value) * t;
-      } else if (
-        cruiseMs >= DRIVING_CHASE_MS
-        && distAnchorM <= 0.08
-      ) {
-        const staleMs = staleAnchorSinceMs.value > 0 ? now - staleAnchorSinceMs.value : 0;
-        // Forward cruise tylko gdy GPS naprawdę stoi — inaczej marker „płynie” bez kotwicy i drży.
-        if (staleMs < 1200) {
-          // skip forward projection
+      if (frozen) {
+        if (stationaryLocked.value === 1) {
+          lat.value = pinLat.value;
+          lng.value = pinLng.value;
+          anchorLat.value = pinLat.value;
+          anchorLng.value = pinLng.value;
         } else {
-        const staleDrive = staleMs > 1800;
-        const forwardMul = staleDrive ? 1.45 : 0.55;
-        const advM = cruiseMs * frameDtSec * forwardMul;
-        const hdgRad = (anchorHdg.value * Math.PI) / 180;
-        const dLat = (advM * Math.cos(hdgRad)) / 111320;
-        const cosLat = Math.max(0.2, Math.cos((lat.value * Math.PI) / 180));
-        const dLng = (advM * Math.sin(hdgRad)) / (111320 * cosLat);
-        lat.value = lat.value + dLat;
-        lng.value = lng.value + dLng;
+          lat.value = anchorLat.value;
+          lng.value = anchorLng.value;
+        }
+        speedMs.value = 0;
+        if (cruiseMs > ZERO_SPEED_EPS_MS) {
+          heading.value = lerpHeadingCappedWorklet(heading.value, roadHdg, maxHdgStep);
+        }
+        inDeadReckoning.value = 0;
+        segStartMs.value = now;
+        segFromLat.value = lat.value;
+        segFromLng.value = lng.value;
+        segToLat.value = lat.value;
+        segToLng.value = lng.value;
+        segDistM.value = 0;
+      } else if (cruiseMs < DR_MIN_SPEED_MS) {
+        const segDur = Math.max(1, segDurationMs.value);
+        const elapsed = now - segStartMs.value;
+        const elapsedSec = elapsed / 1000;
+        const distU = segDistM.value > 0.05
+          ? clampWorklet((cruiseMs * elapsedSec) / segDistM.value, 0, 1)
+          : 1;
+        const u = distU;
+        if (u < 1) {
+          inDeadReckoning.value = 0;
+          const nextLat = segFromLat.value + (segToLat.value - segFromLat.value) * u;
+          const nextLng = segFromLng.value + (segToLng.value - segFromLng.value) * u;
+          const maxStepM = Math.max(0.02, cruiseMs * frameDtSec * 1.05);
+          const candDistM = haversineMWorklet(lat.value, lng.value, nextLat, nextLng);
+          if (candDistM > maxStepM) {
+            const stepped = stepTowardWorklet(lat.value, lng.value, nextLat, nextLng, maxStepM, roadHdg);
+            lat.value = stepped.lat;
+            lng.value = stepped.lng;
+          } else if (!isBackwardStepWorklet(lat.value, lng.value, nextLat, nextLng, roadHdg)) {
+            lat.value = nextLat;
+            lng.value = nextLng;
+          }
+          if (headingLockToRoad) {
+            heading.value = roadHdg;
+          } else {
+            const segTargetHdg = lerpHeadingLinearWorklet(segFromHdg.value, segToHdg.value, u);
+            heading.value = lerpHeadingCappedWorklet(heading.value, segTargetHdg, maxHdgStep);
+          }
+        } else {
+          lat.value = segToLat.value;
+          lng.value = segToLng.value;
+          inDeadReckoning.value = 0;
+          heading.value = headingLockToRoad
+            ? roadHdg
+            : lerpHeadingCappedWorklet(heading.value, roadHdg, maxHdgStep);
+        }
+      } else {
+        const segDur = Math.max(1, segDurationMs.value);
+        const elapsed = now - segStartMs.value;
+        const elapsedSec = elapsed / 1000;
+        const distU = segDistM.value > 0.05
+          ? clampWorklet((cruiseMs * elapsedSec) / segDistM.value, 0, 1)
+          : 1;
+        const u = distU;
+
+        if (u < 1) {
+          inDeadReckoning.value = 0;
+          const nextLat = segFromLat.value + (segToLat.value - segFromLat.value) * u;
+          const nextLng = segFromLng.value + (segToLng.value - segFromLng.value) * u;
+          const maxStepM = Math.max(0.02, cruiseMs * frameDtSec * 1.05);
+          const candDistM = haversineMWorklet(lat.value, lng.value, nextLat, nextLng);
+          if (candDistM > maxStepM) {
+            const stepped = stepTowardWorklet(lat.value, lng.value, nextLat, nextLng, maxStepM, roadHdg);
+            lat.value = stepped.lat;
+            lng.value = stepped.lng;
+          } else if (!isBackwardStepWorklet(lat.value, lng.value, nextLat, nextLng, roadHdg)) {
+            lat.value = nextLat;
+            lng.value = nextLng;
+          }
+          if (headingLockToRoad) {
+            heading.value = roadHdg;
+          } else {
+            const segTargetHdg = lerpHeadingLinearWorklet(segFromHdg.value, segToHdg.value, u);
+            heading.value = lerpHeadingCappedWorklet(heading.value, segTargetHdg, maxHdgStep);
+          }
+        } else if (cruiseMs >= DR_MIN_SPEED_MS) {
+          inDeadReckoning.value = 1;
+          const drStepM = cruiseMs * frameDtSec;
+          // DR along road geometry if available; fallback to bearing only when missing.
+          if (roadFlat.value.length >= 8) {
+            const next = advanceAlongRoadWorklet(
+              roadFlat.value,
+              roadIdx.value,
+              lat.value,
+              lng.value,
+              drStepM,
+            );
+            roadIdx.value = next.idx;
+            if (!isBackwardStepWorklet(lat.value, lng.value, next.lat, next.lng, roadHdg)) {
+              lat.value = next.lat;
+              lng.value = next.lng;
+            }
+          } else {
+            const advanced = moveAlongBearingWorklet(lat.value, lng.value, roadHdg, drStepM);
+            const distToAnchorM = haversineMWorklet(
+              lat.value,
+              lng.value,
+              anchorLat.value,
+              anchorLng.value,
+            );
+            if (!isBackwardStepWorklet(lat.value, lng.value, advanced.lat, advanced.lng, roadHdg)) {
+              if (distToAnchorM > 25) {
+                lat.value = lat.value + (advanced.lat - lat.value) * 0.7;
+                lng.value = lng.value + (advanced.lng - lng.value) * 0.7;
+              } else {
+                lat.value = advanced.lat;
+                lng.value = advanced.lng;
+              }
+            }
+          }
+          heading.value = headingLockToRoad
+            ? roadHdg
+            : lerpHeadingCappedWorklet(heading.value, roadHdg, maxHdgStep);
+        } else {
+          lat.value = segToLat.value;
+          lng.value = segToLng.value;
+          inDeadReckoning.value = 0;
+          heading.value = headingLockToRoad
+            ? roadHdg
+            : lerpHeadingCappedWorklet(heading.value, roadHdg, maxHdgStep);
         }
       }
 
+      const distAnchorM = haversineMWorklet(lat.value, lng.value, anchorLat.value, anchorLng.value);
       const frameMoveM = haversineMWorklet(prevFrameLat.value, prevFrameLng.value, lat.value, lng.value);
-      if (frameMoveM >= 0.9 && cruiseMs >= DRIVING_CHASE_MS) {
-        const motionHdg = bearingBetweenWorklet(
-          prevFrameLat.value,
-          prevFrameLng.value,
-          lat.value,
-          lng.value,
-        );
-        heading.value = lerpHeading(heading.value, motionHdg, clampWorklet(frameDtSec * 3, 0.12, 0.28));
-      } else {
-        heading.value = lerpHeading(
-          heading.value,
-          anchorHdg.value,
-          clampWorklet(frameDtSec * 4, 0.14, 0.32),
-        );
-      }
-
       prevFrameLat.value = lat.value;
       prevFrameLng.value = lng.value;
 
       if (now - lastDisplayPushMs.value >= DISPLAY_PUSH_MS) {
         lastDisplayPushMs.value = now;
-        const displayHdg = distAnchorM > 2 && frameMoveM >= 0.7 && cruiseMs >= DRIVING_CHASE_MS
-          ? heading.value
-          : anchorHdg.value;
-        runOnJS(notifySmoothPositionDisplay)(lat.value, lng.value, displayHdg);
+        runOnJS(notifySmoothPositionDisplay)(lat.value, lng.value, heading.value);
       }
 
       if (
-        !Number.isFinite(lat.value)
-        || !Number.isFinite(lng.value)
-        || distAnchorM > 18
-        || (distAnchorM > 8 && frameMoveM < 0.12)
-      ) {
-        runOnJS(logWorkletStateCheck)({
-          phase: 'frame',
-          distAnchorM: Number(distAnchorM.toFixed(2)),
-          frameMoveM: Number(frameMoveM.toFixed(2)),
-          displayLat: Number(lat.value.toFixed(6)),
-          displayLng: Number(lng.value.toFixed(6)),
-          anchorLat: Number(anchorLat.value.toFixed(6)),
-          anchorLng: Number(anchorLng.value.toFixed(6)),
-          cruiseMs: Number(cruiseMs.toFixed(2)),
-          displayNaN: !Number.isFinite(lat.value) || !Number.isFinite(lng.value),
-        });
-      }
-
-      if (distAnchorM >= 1.2 || frameMoveM >= 0.6) {
-        runOnJS(logWorkletFrameTrace)({
-          event: 'frame',
-          distAnchorM: Number(distAnchorM.toFixed(2)),
-          frameMoveM: Number(frameMoveM.toFixed(2)),
-          cruiseMs: Number(cruiseMs.toFixed(2)),
-          drivingChase,
-          displayLat: Number(lat.value.toFixed(6)),
-          displayLng: Number(lng.value.toFixed(6)),
-          anchorLat: Number(targetLat.toFixed(6)),
-          anchorLng: Number(targetLng.toFixed(6)),
-        });
-      }
-
-      if (
-        cruiseMs >= DRIVING_CHASE_MS
-        && frameMoveM < 0.05
-        && distAnchorM > 1.5
+        cruiseMs >= CRUISE_MIN_MS
+        && frameMoveM < 0.03
+        && distAnchorM > 4
+        && inDeadReckoning.value === 0
         && now - lastStallLogMs.value >= WORKLET_STALL_MS
       ) {
         lastStallLogMs.value = now;
         runOnJS(logWorkletStall)({
           distAnchorM: Number(distAnchorM.toFixed(2)),
-          frameMoveM: Number(frameMoveM.toFixed(2)),
           cruiseMs: Number(cruiseMs.toFixed(2)),
-          staleAnchorMs: staleAnchorSinceMs.value > 0 ? now - staleAnchorSinceMs.value : 0,
-          displayLat: Number(lat.value.toFixed(6)),
-          displayLng: Number(lng.value.toFixed(6)),
-          anchorLat: Number(targetLat.toFixed(6)),
-          anchorLng: Number(targetLng.toFixed(6)),
+          segmentMs: segDurationMs.value,
+        });
+      }
+
+      if (distAnchorM > 18 || now - lastFrameDiagLogMs.value >= 1500) {
+        lastFrameDiagLogMs.value = now;
+        runOnJS(logWorkletFrameDiag)({
+          speedMs: Number(cruiseMs.toFixed(2)),
+          distToAnchorM: Number(distAnchorM.toFixed(2)),
+          frameMoveM: Number(frameMoveM.toFixed(2)),
+          inDeadReckoning: inDeadReckoning.value === 1,
+          segmentU: Number(
+            clampWorklet((now - segStartMs.value) / Math.max(1, segDurationMs.value), 0, 1).toFixed(3),
+          ),
         });
       }
     },

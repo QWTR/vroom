@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   Image, StatusBar, TextInput,
-  RefreshControl, ActivityIndicator,
+  RefreshControl, ActivityIndicator, Modal,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -60,9 +60,22 @@ export default function ChatsIndex() {
   const [hasMore,       setHasMore]       = useState(true);
   const [cursor,        setCursor]        = useState<number | null>(null);
   const [myId,          setMyId]          = useState<number | null>(null);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage,  setErrorMessage]  = useState('');
+  const [authError,     setAuthError]     = useState(false);
 
   const socketRef    = useRef<Socket | null>(null);
   const fetchingRef  = useRef(false); // blokada podwójnego fetcha
+
+  const getResponseBodySafe = async (response: Response) => {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  };
 
   // ── Init socket ────────────────────────────────────────
   useEffect(() => {
@@ -112,17 +125,53 @@ export default function ChatsIndex() {
 
     try {
       const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        console.error('fetchConversations: missing token');
+        setAuthError(true);
+        setErrorMessage('Sesja wygasła. Zaloguj się ponownie.');
+        setErrorModalVisible(true);
+        return;
+      }
       const url   = `${API}/conversations?limit=${PAGE}`;
       const r     = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const data  = await r.json();
-      const list  = Array.isArray(data) ? data : (data.conversations ?? []);
-      const next  = data.nextCursor ?? null;
+      const data  = await getResponseBodySafe(r);
+
+      if (!r.ok) {
+        const reason = typeof data === 'object' && data && 'message' in data
+          ? String((data as { message?: string }).message ?? '')
+          : '';
+        const finalMessage = `Nie udało się załadować czatów (${r.status}${reason ? `: ${reason}` : ''})`;
+        console.error('fetchConversations: request failed', {
+          url,
+          status: r.status,
+          statusText: r.statusText,
+          tokenPresent: true,
+          tokenLength: token.length,
+          response: data,
+        });
+        const is401 = r.status === 401;
+        setAuthError(is401);
+        setErrorMessage(is401 ? 'Sesja wygasła lub token jest nieprawidłowy. Zaloguj się ponownie.' : finalMessage);
+        setErrorModalVisible(true);
+        return;
+      }
+
+      const dataObj = (data && typeof data === 'object' && !Array.isArray(data)) ? data as any : null;
+      const list  = Array.isArray(data) ? data : (dataObj?.conversations ?? []);
+      const next  = dataObj?.nextCursor ?? null;
 
       setConversations(list);
       setFiltered(list);
       setCursor(next);
       setHasMore(!!next);
-    } catch (e) { console.error('fetchConversations:', e); }
+      setAuthError(false);
+      setErrorModalVisible(false);
+    } catch (e) {
+      console.error('fetchConversations: network/parsing error', e);
+      setAuthError(false);
+      setErrorMessage('Nie udało się załadować czatów. Sprawdź połączenie i spróbuj ponownie.');
+      setErrorModalVisible(true);
+    }
     finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -136,13 +185,32 @@ export default function ChatsIndex() {
     setLoadingMore(true);
     try {
       const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        console.error('loadMore: missing token');
+        return;
+      }
+      const url   = `${API}/conversations?limit=${PAGE}&cursor=${cursor}`;
       const r     = await fetch(
-        `${API}/conversations?limit=${PAGE}&cursor=${cursor}`,
+        url,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      const data = await r.json();
-      const list = Array.isArray(data) ? data : (data.conversations ?? []);
-      const next = data.nextCursor ?? null;
+      const data = await getResponseBodySafe(r);
+
+      if (!r.ok) {
+        console.error('loadMore: request failed', {
+          url,
+          status: r.status,
+          statusText: r.statusText,
+          tokenPresent: true,
+          tokenLength: token.length,
+          response: data,
+        });
+        return;
+      }
+
+      const dataObj = (data && typeof data === 'object' && !Array.isArray(data)) ? data as any : null;
+      const list = Array.isArray(data) ? data : (dataObj?.conversations ?? []);
+      const next = dataObj?.nextCursor ?? null;
 
       setConversations(prev => {
         const ids     = new Set(prev.map(c => c.id));
@@ -151,7 +219,7 @@ export default function ChatsIndex() {
       });
       setCursor(next);
       setHasMore(!!next);
-    } catch (e) { console.error('loadMore:', e); }
+    } catch (e) { console.error('loadMore: network/parsing error', e); }
     finally {
       setLoadingMore(false);
       fetchingRef.current = false;
@@ -317,6 +385,47 @@ export default function ChatsIndex() {
           <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 20 + AVATAR + 14 }} />
         )}
       />
+
+      <Modal
+        visible={errorModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setErrorModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#00000088', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 360, backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border2, padding: 18, gap: 14 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 0.8 }}>
+              BŁĄD ŁADOWANIA CZATÓW
+            </Text>
+            <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 18 }}>
+              {errorMessage || 'Nie udało się załadować czatów.'}
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <TouchableOpacity
+                style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.border2, backgroundColor: theme.surface2 }}
+                onPress={() => setErrorModalVisible(false)}
+              >
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ZAMKNIJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.primary }}
+                onPress={() => {
+                  setErrorModalVisible(false);
+                  if (authError) {
+                    router.replace('/login' as any);
+                  } else {
+                    fetchConversations(true);
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                  {authError ? 'ZALOGUJ PONOWNIE' : 'SPRÓBUJ PONOWNIE'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

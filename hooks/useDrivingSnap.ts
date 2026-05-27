@@ -10,22 +10,20 @@ import {
 } from '../scripts/navigationUtils';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 
-// v10 CLIENT-FIRST snap: ciasne radii zeby snap NIGDY nie przeciagal markera
-// na sasiednia ulice/budynek. Jesli najblizszy road segment dalej niz radius,
-// zwracamy snapped:false (= raw GPS). Validacja po stronie map.tsx zlapuje
-// pozostale niewiarygodne snap'y. Konsekwencja: marker zawsze blisko prawdziwej
-// pozycji GPS (max ~25-30m offset = szerokosc drogi/pasa), nigdy 90m w bok.
-const SNAP_RADIUS_M_BASE    = 22;
-const SNAP_RADIUS_M_FAST    = 35;
-const SNAP_RADIUS_M_MATCHED = 30;
+// v10 CLIENT-FIRST snap: promienie musza wybaczac miejski dryf GPS (30–40 m),
+// inaczej snap=false → raw leak → marker skacze na trawnik i wraca.
+// map.tsx dalej filtruje skrajne skoki (reconcile, lateral guard).
+const SNAP_RADIUS_M_BASE    = 48;
+const SNAP_RADIUS_M_FAST    = 58;
+const SNAP_RADIUS_M_MATCHED = 36;
 const SNAP_RADIUS_M_MATCHED_TIER2 = 45;
 const SNAP_RADIUS_M_MATCHED_TIER3 = 60;
 const SNAP_RADIUS_M_ROUTE_HARD    = 80;
 const SNAP_RADIUS_EMERGENCY_M     = 60;
 /** HARD LATERAL REJECT: snap dalej niz to od raw GPS = snapped:false (raw). */
-const DRIVING_LATERAL_REJECT_M = 25;
+const DRIVING_LATERAL_REJECT_M = 75;
 const DRIVING_LATERAL_REJECT_MIN_KMH = 25;
-const MAX_SNAP_TO_RAW_DISTANCE_M = 75;
+const MAX_SNAP_TO_RAW_DISTANCE_M = 82;
 const HARD_SNAP_DROP_M = 120;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
@@ -68,8 +66,14 @@ function angleDeltaDeg(a: number, b: number): number {
   return Math.abs((((a - b) + 540) % 360) - 180);
 }
 
-/** Tolerancja azymutu segmentu — ostre zakręty w mieście (<50 km/h) wymagają ≥90°. */
-function snapHeadingRejectDeg(speedKmh?: number): number {
+/** Tolerancja azymutu segmentu — w nawigacji bardziej liberalna, by nie blokować ruchu do przodu. */
+function snapHeadingRejectDeg(speedKmh?: number, isNavigating = false): number {
+  if (isNavigating) {
+    if (speedKmh == null || !Number.isFinite(speedKmh)) return 98;
+    if (speedKmh < 60) return 110;
+    if (speedKmh < 90) return 96;
+    return 88;
+  }
   if (speedKmh == null || !Number.isFinite(speedKmh)) return 72;
   if (speedKmh < 50) return 90;
   if (speedKmh < 75) return 78;
@@ -178,6 +182,7 @@ function snapToRouteWithInfo(
     expectedHeading?: number | null;
     expectedSegIndex?: number | null;
     speedKmh?: number;
+    isNavigating?: boolean;
   },
 ): SnapResult | null {
   if (pts.length < 2) return null;
@@ -202,8 +207,10 @@ function snapToRouteWithInfo(
   const segTo = useForwardWindow
     ? Math.min(pts.length - 2, Number(opts!.expectedSegIndex) + forwardLeap)
     : pts.length - 2;
-  const headingRejectDeg = snapHeadingRejectDeg(opts?.speedKmh);
+  const headingRejectDeg = snapHeadingRejectDeg(opts?.speedKmh, !!opts?.isNavigating);
   const headingScoreSoftDeg = snapHeadingScoreSoftDeg(opts?.speedKmh);
+  let headingRejects = 0;
+  let headingRejectMaxDelta = 0;
 
   for (let i = segFrom; i <= segTo; i++) {
     const aLat = pts[i].latitude;
@@ -215,7 +222,11 @@ function snapToRouteWithInfo(
     const segBearing = bearingBetween(aLat, aLon, bLat, bLon);
     if (opts?.expectedHeading != null && Number.isFinite(opts.expectedHeading)) {
       const delta = angleDeltaDeg(segBearing, Number(opts.expectedHeading));
-      if (delta > headingRejectDeg) continue;
+      if (delta > headingRejectDeg) {
+        headingRejects += 1;
+        if (delta > headingRejectMaxDelta) headingRejectMaxDelta = delta;
+        continue;
+      }
     }
     let score = dist;
     if (opts?.expectedHeading != null && Number.isFinite(opts.expectedHeading)) {
@@ -255,9 +266,21 @@ function snapToRouteWithInfo(
     return snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
       expectedHeading: null,
       expectedSegIndex: null,
+      speedKmh: opts?.speedKmh,
+      isNavigating: opts?.isNavigating,
     });
   }
   if (minDist > maxRadiusM) return null;
+
+  if (headingRejects > 0 && !!opts?.isNavigating && opts?.expectedHeading != null) {
+    vroomGpsLog('SNAP_HEADING_REJECTS', {
+      source: 'useDrivingSnap',
+      rejects: headingRejects,
+      maxDelta: Math.round(headingRejectMaxDelta),
+      rejectDeg: Math.round(headingRejectDeg),
+      speedKmh: opts?.speedKmh != null && Number.isFinite(opts.speedKmh) ? Math.round(Number(opts.speedKmh)) : null,
+    }, 900);
+  }
 
   if (useForwardWindow && Number.isFinite(minDist)) {
     const global = snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
@@ -341,8 +364,6 @@ export function useDrivingSnap() {
     snapped:       boolean;
     targetHeading: number;
   } => {
-    if (isNavigating) return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
-
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       logSnapReject('snap_invalid_coord');
       if (lastSnappedRef.current) {
@@ -353,20 +374,50 @@ export function useDrivingSnap() {
 
     // Wybieramy punkty. Priorytet ma roadMatchPtsRef, bo to jest aktualna GEOMETRIA drogi,
     // po której jedziesz, a nie tylko linia prosta do celu.
-    const ptsSource = roadMatchPtsRef.current.length >= 2
-      ? roadMatchPtsRef.current
-      : routePtsRef.current;
+    const ptsSource = isNavigating && routePtsRef.current.length >= 2
+      ? routePtsRef.current
+      : roadMatchPtsRef.current.length >= 2
+        ? roadMatchPtsRef.current
+        : routePtsRef.current;
     const pts = ptsSource.length >= 2
       ? densifyPolyline(ptsSource, ptsSource.length <= 4 ? 6 : 8)
       : ptsSource;
     const last = lastRawRef.current;
 
     // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
-    const effectiveSpeedKmh = Math.max(
-      speedKmh,
-      dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0,
+    const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
+    const rawMoveM = last ? haversineKm(last.lat, last.lng, lat, lng) * 1000 : 0;
+    const ghostDopplerParked =
+      dopplerKmhSafe >= 10
+      && speedKmh < 8
+      && rawMoveM < 10;
+    const frozenSnap =
+      hardRoadLock
+      && rawMoveM < 12
+      && (speedKmh < 8 || ghostDopplerParked);
+    if (frozenSnap && lastSnappedRef.current) {
+      lastRawRef.current = { lat, lng };
+      return {
+        ...lastSnappedRef.current,
+        snapped: true,
+        targetHeading: lastTargetHeadingRef.current,
+      };
+    }
+    const effectiveSpeedKmh = frozenSnap
+      ? speedKmh
+      : Math.max(speedKmh, dopplerKmhSafe);
+    const accelSnapBypass =
+      hardRoadLock
+      && !frozenSnap
+      && dopplerKmhSafe >= 15
+      && dopplerKmhSafe < 85
+      && effectiveSpeedKmh > speedKmh + 10
+      && rawMoveM >= 14;
+    const physicsStepCapM = Math.max(
+      RAW_FALLBACK_MAX_STEP_M,
+      (effectiveSpeedKmh / 3.6) * 0.5,
     );
-    const stationary = effectiveSpeedKmh < 6;
+    const stationary = (effectiveSpeedKmh < 6 || frozenSnap) && !accelSnapBypass;
 
     if (pts.length < 2) {
     logSnapReject('snap_no_geometry', {
@@ -382,8 +433,8 @@ export function useDrivingSnap() {
         const dtMs = lastSnapAtRef.current > 0 ? Math.max(0, now - lastSnapAtRef.current) : 0;
         if (last && Number.isFinite(last.lat) && Number.isFinite(last.lng)) {
           const rawMoveM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
-          const scale = rawMoveM > RAW_FALLBACK_MAX_STEP_M && rawMoveM > 0
-            ? RAW_FALLBACK_MAX_STEP_M / rawMoveM
+          const scale = rawMoveM > physicsStepCapM && rawMoveM > 0
+            ? physicsStepCapM / rawMoveM
             : 1;
           const stepped = {
             latitude: lastSnappedRef.current.latitude + (lat - last.lat) * scale,
@@ -431,7 +482,7 @@ export function useDrivingSnap() {
         lastSnappedRef.current = null;
         lastSegmentIndexRef.current = -1;
       } else {
-        if (hardRoadLock && stationary && rawMoveM < 8) {
+        if (hardRoadLock && (stationary || frozenSnap) && rawMoveM < 12) {
           return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
         }
         if (!hardRoadLock) {
@@ -452,7 +503,7 @@ export function useDrivingSnap() {
     // ta geometria jest zweryfikowana przez Mapbox i zawsze odpowiada prawdziwej drodze.
     // Dla zwykłej trasy (routePtsRef) używamy mniejszego promienia, żeby nie skakać
     // na odległe drogi gdy użytkownik jedzie po polnej drodze lub poza trasą.
-    const usingMatchedRoad = roadMatchPtsRef.current.length >= 2;
+    const usingMatchedRoad = !isNavigating && roadMatchPtsRef.current.length >= 2;
     // Matched-road radius: keep baseline strict to avoid wrong parallel roads,
     // and apply +15% only when GPS accuracy is poor or hard lock is active.
     const matchedRadiusBoost =
@@ -464,7 +515,7 @@ export function useDrivingSnap() {
         : 1;
     let matchedRoadRadius = Math.round(SNAP_RADIUS_M_MATCHED * matchedRadiusBoost);
     if (stationary && usingMatchedRoad) {
-      matchedRoadRadius = Math.max(matchedRoadRadius, 40);
+      matchedRoadRadius = Math.min(matchedRoadRadius, 28);
     }
     if (
       Platform.OS === 'ios'
@@ -472,10 +523,10 @@ export function useDrivingSnap() {
       && hardRoadLock
       && speedKmh < 18
     ) {
-      matchedRoadRadius = Math.min(matchedRoadRadius, 105);
+      matchedRoadRadius = Math.min(matchedRoadRadius, 42);
     }
     if (usingMatchedRoad && accuracyM != null && Number.isFinite(accuracyM) && accuracyM < 25) {
-      matchedRoadRadius = Math.min(matchedRoadRadius, 95);
+      matchedRoadRadius = Math.min(matchedRoadRadius, 40);
     }
     if (hardRoadLock && speedKmh >= 8 && speedKmh < 50) {
       matchedRoadRadius = Math.min(SNAP_RADIUS_M_MATCHED_TIER2, Math.round(matchedRoadRadius * 1.12));
@@ -498,6 +549,7 @@ export function useDrivingSnap() {
       expectedHeading,
       expectedSegIndex,
       speedKmh: effectiveSpeedKmh,
+      isNavigating,
     };
 
     let result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius, snapOpts);
@@ -540,8 +592,9 @@ export function useDrivingSnap() {
     const softLimitM = (() => {
       // Bazowy soft = 30m (= szerokosc drogi 2 pasy = realistyczny offset GPS)
       // Booster predkosciowy bo lepsza geometria nadaza wolniej.
-      const speedBoost =
-        speedKmh >= 95 ? 22
+      const speedBoost = speedKmh < 8
+        ? 0
+        : speedKmh >= 95 ? 22
           : speedKmh >= 75 ? 18
             : speedKmh >= 55 ? 12
               : speedKmh >= 35 ? 8
@@ -550,7 +603,7 @@ export function useDrivingSnap() {
       const accBoost = acc >= 18 ? Math.min(12, Math.round((acc - 16) * 0.5)) : 0;
       // Matched road = +6 (Mapbox sprawdzilo geometrie)
       const matchedBoost = usingHighConfidenceGeom ? 6 : 0;
-      return Math.min(70, 30 + speedBoost + accBoost + matchedBoost);
+      return Math.min(52, 22 + speedBoost + accBoost + matchedBoost);
     })();
     const hardLimitM = Math.max(120, softLimitM + 50);
     if (
@@ -629,8 +682,8 @@ export function useDrivingSnap() {
         }
         if (!result && !hardRoadLock && last) {
           const rawMoveM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
-          const scale = rawMoveM > RAW_FALLBACK_MAX_STEP_M && rawMoveM > 0
-            ? RAW_FALLBACK_MAX_STEP_M / rawMoveM
+          const scale = rawMoveM > physicsStepCapM && rawMoveM > 0
+            ? physicsStepCapM / rawMoveM
             : 1;
           const extrapolated = {
             latitude: lastSnappedRef.current.latitude + (lat - last.lat) * scale,
@@ -642,7 +695,9 @@ export function useDrivingSnap() {
         if (!result) {
           if (last && hardRoadLock) {
             const rawMoveM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
-            const maxStep = Math.min(45, Math.max(8, (Math.max(speedKmh, 0) / 3.6) * 1.05));
+            const maxStep = accelSnapBypass
+              ? Math.max(physicsStepCapM, rawMoveM)
+              : Math.min(45, Math.max(8, (effectiveSpeedKmh / 3.6) * 1.05));
             const scale = rawMoveM > maxStep && rawMoveM > 0 ? maxStep / rawMoveM : 1;
             const extrapolated = {
               latitude: lastSnappedRef.current.latitude + (lat - last.lat) * scale,
@@ -808,10 +863,17 @@ export function useDrivingSnap() {
     // Ogranicz projekcję na złą geometrię (równoległa droga) — ale NIE przeciągaj w stronę
     // surowego GPS w driving + Map Matching: wtedy GPS bywa „na polu”, a snap na osi drogi;
     // clamp szedłby dokładnie w złą stronę (typowy bug po zaostrzeniu limitów bocznych).
-    if (!(hardRoadLock && usingMatchedRoad)) {
+    const shouldSkipLateralClamp =
+      (isNavigating && !usingMatchedRoad)
+      || accelSnapBypass;
+    if (!(hardRoadLock && usingMatchedRoad) && !shouldSkipLateralClamp) {
       let lateralCap = lateralSnapCapFromAccuracy(accuracyM);
       if (accuracyM != null && Number.isFinite(accuracyM) && accuracyM < 25) {
         lateralCap = Math.min(lateralCap, 72);
+      }
+      if (isNavigating) {
+        // Nawigacja: priorytet trzymania ciągłości po aktywnej trasie, mniej bocznych odrzuceń.
+        lateralCap = Math.max(lateralCap, 120);
       }
       if (hardRoadLock) {
         lateralCap = Math.min(380, lateralCap * 1.45);
@@ -827,23 +889,37 @@ export function useDrivingSnap() {
         };
       }
     }
+    if (shouldSkipLateralClamp && result) {
+      const distFromGpsM = haversineKm(lat, lng, result.latitude, result.longitude) * 1000;
+      if (distFromGpsM >= 18) {
+        logSnapReject('nav_skip_lateral_clamp', {
+          distFromGpsM: Math.round(distFromGpsM),
+          speedKmh: Math.round(speedKmh),
+          usingMatchedRoad,
+          routePts: routePtsRef.current.length,
+          matchedPts: roadMatchPtsRef.current.length,
+        });
+      }
+    }
 
     // Snap udany — anty-jitter / anty-skok (w driving większa płynność przy niskiej prędkości).
-    const maxJumpM = hardRoadLock
-      ? stationary
-        ? 4
-        : speedKmh > 88
-          ? 78
-          : speedKmh > 55
-            ? 68
-            : speedKmh > 38
-              ? 58
-              : speedKmh > 18
-                ? 52
-                : 60
-      : speedKmh > 38
-        ? (speedKmh > 88 ? 72 : speedKmh > 55 ? 62 : 54)
-        : SNAP_MAX_JUMP_M;
+    const maxJumpM = accelSnapBypass
+      ? 999
+      : hardRoadLock
+        ? stationary
+          ? 4
+          : effectiveSpeedKmh > 88
+            ? 78
+            : effectiveSpeedKmh > 55
+              ? 68
+              : effectiveSpeedKmh > 38
+                ? 58
+                : effectiveSpeedKmh > 18
+                  ? 52
+                  : 60
+        : effectiveSpeedKmh > 38
+          ? (effectiveSpeedKmh > 88 ? 72 : effectiveSpeedKmh > 55 ? 62 : 54)
+          : SNAP_MAX_JUMP_M;
     let snappedCoord = { latitude: result.latitude, longitude: result.longitude };
     const prevSnapped = lastSnappedRef.current;
     if (prevSnapped) {
@@ -856,22 +932,24 @@ export function useDrivingSnap() {
       const segmentLeap = lastSegmentIndexRef.current >= 0
         ? Math.abs(result.segmentIndex - lastSegmentIndexRef.current)
         : 0;
-      if (jumpM > maxJumpM) {
+      if (jumpM > maxJumpM && !accelSnapBypass) {
         let pull = hardRoadLock
-          ? speedKmh > 75
-            ? 0.68
-            : speedKmh > 45
-              ? 0.58
-              : speedKmh > 15
-                ? 0.52
+          ? effectiveSpeedKmh > 75
+            ? 0.82
+            : effectiveSpeedKmh > 45
+              ? 0.72
+              : effectiveSpeedKmh > 15
+                ? 0.62
                 : 0.48
-          : speedKmh > 52
-            ? (speedKmh > 75 ? 0.62 : 0.5)
-            : (speedKmh > 70 ? 0.5 : 0.35);
+          : effectiveSpeedKmh > 52
+            ? (effectiveSpeedKmh > 75 ? 0.72 : 0.58)
+            : (effectiveSpeedKmh > 70 ? 0.5 : 0.35);
         snappedCoord = {
           latitude: prevSnapped.latitude + (result.latitude - prevSnapped.latitude) * pull,
           longitude: prevSnapped.longitude + (result.longitude - prevSnapped.longitude) * pull,
         };
+      } else if (accelSnapBypass && jumpM > 8) {
+        snappedCoord = { latitude: result.latitude, longitude: result.longitude };
       } else if (hardRoadLock && segmentLeap > MAX_SEGMENT_INDEX_LEAP && jumpM > 20) {
         // Gwałtowna zmiana segmentu po refreshu geometrii często powoduje „lane-hop”.
         const guarded = speedKmh > 60 ? 0.5 : 0.42;

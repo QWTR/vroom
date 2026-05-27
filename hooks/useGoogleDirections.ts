@@ -194,7 +194,7 @@ export function useGoogleDirections(
           url,
         );
 
-        if (!data.routes?.length) {
+        if (!data?.routes?.length) {
           setError('NO_ROUTE');
           setRoute(null);
           return;
@@ -286,7 +286,7 @@ export function useGoogleDirectionsAlternatives(
           url,
         );
 
-        if (!data.routes?.length) {
+        if (!data?.routes?.length) {
           setError('NO_ROUTE');
           setRoutes([]);
           return;

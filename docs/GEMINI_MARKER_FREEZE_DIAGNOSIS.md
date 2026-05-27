@@ -289,3 +289,28 @@ eas update --branch production --message "fix: V10 stale snap chase + arc feed +
 **Przyczyna:** chase/arc/GAP reagowały na `motionKmh>=6` mimo postoju; `TRIP_MAX_PLAUSIBLE_KMH=360` wpuszczał derived speed do achievementów.
 
 **Fix:** `canV10ProgressMarker` (postój, rawStep>42m, brak Doppler≥8); GAP/arc tylko przy `trustDopplerInTrip`; `useTripStats` cap **200** km/h; peak/achievement cap `MAX_REALISTIC_DRIVING_KMH`; `isParkedLike` przy `motionKmh>=80` bez ruchu.
+
+### V10 pięćwarstwowa telemetria (gpsTickId)
+
+Każdy tick GPS: `beginGpsTick` → `RAW_GPS_TICK` → łańcuch z tym samym `gpsTickId` / `gpsTickAgeMs`.
+
+| Warstwa | Tag | Plik | Throttle |
+|---------|-----|------|----------|
+| 1 HUD | `SPEED_HUD_DIAG` | `map.tsx` `publishSpeed` | 450 ms; 0 przy `hudFrozenSuspect` |
+| 2 Snap | `SNAP_PIPELINE_END` | `map.tsx` przed `applyTripPosition` | brak (1×/tick) |
+| 2b | `SNAP_RESULT_LIFECYCLE` | po snap | brak |
+| 3 Feed | `FEED_WORKLET_CALL` | `applyTripPosition`, `feedWorkletAnchorsAlongRoad`, `smoothPositionFeed` | brak |
+| 4 Worklet | `WORKLET_FRAME_DIAG` | `useSmoothMapPosition` frame | 1 s lub `distToPredictM>10` |
+| 5 UI | `MARKER_UI_RENDER` | `SmoothDrPositionMarker` | 1 s |
+
+Analiza JSONL: filtruj po `gpsTickId` z `RAW_GPS_TICK`, sortuj po `gpsTickAgeMs`.
+
+### P0 anti-teleport (V10 live cruise)
+
+- `forceInstantFeed = isInstant && allowInstantFeed` — **nigdy** `feedMoveM >= 20`.
+- `smoothDurationMs` clamp **180–420 ms** (worklet LERP, nie `durationMs: 0`).
+- `skipRawChase` gdy `roadPts.length > 2` — brak cięcia zakrętów za surowym GPS.
+- `normalizeSmoothTarget`: nieznane źródło z `durationMs:0` → **200 ms** + `FEED_INSTANT_COERCED`.
+- Resume / one-shot / stall: bez `instant` poza entry (`allowInstantFeed: true`).
+- Worklet: dynamic LERP `BASE_SMOOTH_FACTOR=0.35`, do **0.75** przy `distAnchorM>15`.
+- UI: trip marker tylko `drLatRef` / `lastSetLocRef` / worklet pose — nie `userLocation`.

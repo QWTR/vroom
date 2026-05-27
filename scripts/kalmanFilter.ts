@@ -62,9 +62,75 @@ export class KalmanFilter {
     this.lastTime       = null;
   }
 
+  /** Runtime tuning (driving filters) — wyższe Q / niższe R = szybsza reakcja na GPS. */
+  setNoise(processNoise: number, measurementNoise: number): void {
+    this.processNoise = Math.max(1e-6, processNoise);
+    this.measurementNoise = Math.max(1e-6, measurementNoise);
+  }
+
   getLastEstimate(): number | null {
     return this.lastEstimate;
   }
+}
+
+const DRIVING_KALMAN_Q_BASE = 0.005;
+const DRIVING_KALMAN_R_BASE = 0.005;
+const DRIVING_KALMAN_Q_FAST = 0.032;
+const DRIVING_KALMAN_R_FAST = 0.0012;
+const DRIVING_KALMAN_SPEED_ON_KMH = 20;
+const DRIVING_KALMAN_SPEED_FULL_KMH = 75;
+
+/**
+ * Przy >20 km/h podbija process noise i obniża measurement noise —
+ * filtr szybciej „dogania” surowy GPS w zakrętach i na prostej.
+ */
+function applySpeedResponsiveKalman(
+  speedKmh: number,
+  latF: KalmanFilter,
+  lngF: KalmanFilter,
+  qBase: number,
+  rBase: number,
+  qFast: number,
+  rFast: number,
+): void {
+  if (!Number.isFinite(speedKmh) || speedKmh < DRIVING_KALMAN_SPEED_ON_KMH) {
+    latF.setNoise(qBase, rBase);
+    lngF.setNoise(qBase, rBase);
+    return;
+  }
+  const t = Math.min(
+    1,
+    (speedKmh - DRIVING_KALMAN_SPEED_ON_KMH)
+      / (DRIVING_KALMAN_SPEED_FULL_KMH - DRIVING_KALMAN_SPEED_ON_KMH),
+  );
+  const q = qBase + (qFast - qBase) * t;
+  const r = rBase + (rFast - rBase) * t;
+  latF.setNoise(q, r);
+  lngF.setNoise(q, r);
+}
+
+export function configureDrivingKalmanForSpeed(speedKmh: number): void {
+  applySpeedResponsiveKalman(
+    speedKmh,
+    drivLatFilter,
+    drivLngFilter,
+    DRIVING_KALMAN_Q_BASE,
+    DRIVING_KALMAN_R_BASE,
+    DRIVING_KALMAN_Q_FAST,
+    DRIVING_KALMAN_R_FAST,
+  );
+}
+
+export function configureNavKalmanForSpeed(speedKmh: number): void {
+  applySpeedResponsiveKalman(
+    speedKmh,
+    navLatFilter,
+    navLngFilter,
+    0.001,
+    0.005,
+    0.018,
+    0.0015,
+  );
 }
 
 // ── isSaneLocation — max 200 m/s (720 km/h) między odczytami ──

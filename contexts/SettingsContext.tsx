@@ -83,9 +83,57 @@ export interface AppSettings {
   isAdmin?: boolean;
   premiumExpiresAt?: string | null;
   profilePremiumExtras?: ProfilePremiumExtras | null;
+  /** Zapis w DB — do przywrócenia po odnowieniu premium (gdy isPremium === false). */
+  savedNickColor?: string | null;
+  savedProfileThemePreset?: string;
+  savedAvatarFramePreset?: string;
+  savedAccountTheme?: any;
+  savedProfilePremiumExtras?: ProfilePremiumExtras | null;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
   /** True when server has Spotify Web API credentials (in-app search). */
   spotifySearchAvailable?: boolean;
+}
+
+function pickSavedProfileAppearance(data: Record<string, unknown>): Partial<AppSettings> {
+  const patch: Partial<AppSettings> = {};
+  if (data.savedNickColor !== undefined) patch.savedNickColor = data.savedNickColor as string | null;
+  if (data.savedProfileThemePreset != null) patch.savedProfileThemePreset = String(data.savedProfileThemePreset);
+  if (data.savedAvatarFramePreset != null) patch.savedAvatarFramePreset = String(data.savedAvatarFramePreset);
+  if (data.savedAccountTheme !== undefined) patch.savedAccountTheme = data.savedAccountTheme;
+  if (data.savedProfilePremiumExtras != null) {
+    patch.savedProfilePremiumExtras = mergeProfilePremiumExtras(data.savedProfilePremiumExtras);
+  }
+  return patch;
+}
+
+function mergeProfileAppearanceFromApi(
+  data: Record<string, unknown>,
+  prev: AppSettings,
+  premiumActive: boolean,
+): Partial<AppSettings> {
+  const saved = pickSavedProfileAppearance(data);
+  if (premiumActive) {
+    return {
+      ...saved,
+      nickColor: (data.nickColor as string | null | undefined) ?? prev.nickColor ?? null,
+      profileThemePreset: (data.profileThemePreset as string | undefined) ?? prev.profileThemePreset ?? 'default',
+      avatarFramePreset: (data.avatarFramePreset as string | undefined) ?? prev.avatarFramePreset ?? 'vroom',
+      accountTheme: data.accountTheme !== undefined ? data.accountTheme : prev.accountTheme,
+      profilePremiumExtras: data.profilePremiumExtras != null
+        ? mergeProfilePremiumExtras(data.profilePremiumExtras)
+        : prev.profilePremiumExtras,
+    };
+  }
+  return {
+    ...saved,
+    nickColor: saved.savedNickColor ?? prev.savedNickColor ?? prev.nickColor ?? null,
+    profileThemePreset: saved.savedProfileThemePreset ?? prev.savedProfileThemePreset ?? prev.profileThemePreset ?? 'default',
+    avatarFramePreset: saved.savedAvatarFramePreset ?? prev.savedAvatarFramePreset ?? prev.avatarFramePreset ?? 'vroom',
+    accountTheme: saved.savedAccountTheme !== undefined ? saved.savedAccountTheme : (prev.savedAccountTheme ?? prev.accountTheme),
+    profilePremiumExtras: saved.savedProfilePremiumExtras != null
+      ? saved.savedProfilePremiumExtras
+      : (prev.savedProfilePremiumExtras ?? prev.profilePremiumExtras),
+  };
 }
 
 const DEFAULTS: AppSettings = {
@@ -172,18 +220,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setSettings(prev => {
           const clientOnlyFromCache = readClientOnlySettings(cachedParsed);
+          const premiumActive = !!(serverPremiumActive || data.isPremium);
           const merged = {
             ...DEFAULTS,
             ...cachedParsed,
             ...prev,
             ...data,
             ...clientOnlyFromCache,
-            isPremium: !!(serverPremiumActive || data.isPremium),
+            ...mergeProfileAppearanceFromApi(data, prev, premiumActive),
+            isPremium: premiumActive,
             backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
-            // Keep last known premium config locally when premium is expired.
-            profilePremiumExtras: data.profilePremiumExtras != null
-              ? mergeProfilePremiumExtras(data.profilePremiumExtras)
-              : prev.profilePremiumExtras,
           };
           try {
             AsyncStorage.setItem('app_settings', JSON.stringify(merged));
@@ -198,15 +244,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
       if (premiumRes.ok) {
         const premiumData = await premiumRes.json();
+        const premiumActive = !!(serverPremiumActive || premiumData.isPremium);
         setSettings(prev => ({
           ...prev,
           ...premiumData,
           ...readClientOnlySettings(prev),
-          isPremium: !!(serverPremiumActive || premiumData.isPremium),
+          ...mergeProfileAppearanceFromApi(premiumData, prev, premiumActive),
+          isPremium: premiumActive,
           backgroundTracking: backgroundLocationAccepted ? prev.backgroundTracking : false,
-          profilePremiumExtras: premiumData.profilePremiumExtras != null
-            ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
-            : prev.profilePremiumExtras,
         }));
         try {
           const cached = await AsyncStorage.getItem('app_settings');
@@ -215,10 +260,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...current,
             ...premiumData,
             ...readClientOnlySettings(current),
-            isPremium: !!(serverPremiumActive || premiumData.isPremium),
-            profilePremiumExtras: premiumData.profilePremiumExtras != null
-              ? mergeProfilePremiumExtras(premiumData.profilePremiumExtras)
-              : current.profilePremiumExtras,
+            ...mergeProfileAppearanceFromApi(premiumData, current, premiumActive),
+            isPremium: premiumActive,
           };
           await AsyncStorage.setItem('app_settings', JSON.stringify(next));
         } catch { /* ignore */ }
