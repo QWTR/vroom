@@ -1,0 +1,18 @@
+/** Stałe Drive Core V2 — API budget i snap lokalny. */
+export const CACHE_HIT_MAX_CROSS_TRACK_M = 18;
+export const OFF_BUFFER_TRIGGER_M = 20;
+export const NEAR_SEGMENT_END_M = 50;
+export const NETWORK_MIN_INTERVAL_MS = 4000;
+export const GPS_BATCH_MAX_POINTS = 12;
+export const MATCH_RADIUS_M = 50;
+export const MOTION_MIN_DIST_M = 3;
+export const MOTION_MAX_ACCURACY_M = 15;
+export const MOTION_STOP_CLUSTER_M = 3;
+export const MOTION_STOP_CONSECUTIVE = 3;
+export const SPEED_EMA_SAMPLES = 3;
+export const SPEED_MIN_DT_SEC = 0.2;
+export const MARKER_TIMING_MIN_MS = 200;
+export const MARKER_TIMING_MAX_MS = 400;
+export const SNAP_MAX_RADIUS_M = 80;
+export const SNAP_WIDE_RETRY_RADIUS_M = 120;
+export const ROUTE_SNAP_MAX_RADIUS_M = 45;

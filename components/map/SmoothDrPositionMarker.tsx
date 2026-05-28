@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { type DrPositionMarkerProps } from './DrPositionMarker';
 import { useSmoothMapPosition, type SmoothMapPositionValues } from '../../hooks/useSmoothMapPosition';
+import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
 import { feedSmoothPositionTarget } from '../../lib/mapPosition/smoothPositionFeed';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { markerLogTick } from '../../lib/markerPipelineLog';
@@ -21,11 +22,11 @@ const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
 
 /** Min. zmiana współrzędnych zanim wywołamy setPose (Mapbox MarkerView wymaga JS props). */
-const COORD_EPS = 1e-7;
+const COORD_EPS = 5e-8;
 
 type Props = DrPositionMarkerProps & {
   enabled: boolean;
-  sharedPosition?: SmoothMapPositionValues | null;
+  sharedPosition?: SmoothMapPositionValues | DriveMarkerValues | null;
   /** V10: tylko SharedValue z workletu — bez fallbacku na props/userLocation. */
   workletOnly?: boolean;
 };
@@ -38,7 +39,7 @@ function isValidCoord(lat: number, lng: number): boolean {
 type CoordPose = { lat: number; lng: number };
 
 type BodyProps = Omit<Props, 'sharedPosition'> & {
-  smooth: SmoothMapPositionValues;
+  smooth: SmoothMapPositionValues | DriveMarkerValues;
 };
 
 const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
@@ -171,8 +172,9 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
 
   const markerRotateStyle = useAnimatedStyle(() => {
     const hdg = Number.isFinite(heading.value) ? heading.value : _hdg;
+    const deg = Number.isFinite(hdg) ? ((hdg % 360) + 360) % 360 : 0;
     return {
-      transform: [{ rotate: `${Number.isFinite(hdg) ? hdg : 0}deg` }],
+      transform: [{ rotate: `${deg}deg` }],
     };
   }, [_hdg]);
 

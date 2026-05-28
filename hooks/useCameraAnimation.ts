@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Dimensions } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { markerLogTick } from '../lib/markerPipelineLog';
-import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
+import {
+  headingDelta,
+  lerpHeadingWithMaxStep,
+  normalizeHeading,
+  resolveTravelHeading,
+  TRAVEL_HEADING_VECTOR_MIN_MOVE_M,
+} from '../lib/driveCore/travelHeading';
 
 type CameraFollowMode =
   | 'idleBrowse'
@@ -85,10 +91,10 @@ const NATIVE_FOLLOW_MAX_ANIM_MS = 720;
 const NATIVE_APPLY_MIN_MOVE_M = 0.25;
 const NATIVE_APPLY_MIN_HEADING_DEG = 0.45;
 
-const HEADING_VECTOR_MIN_MOVE_M = 1.8;
-const HEADING_LOW_SPEED_HOLD_KMH = 6;
+const HEADING_VECTOR_MIN_MOVE_M = TRAVEL_HEADING_VECTOR_MIN_MOVE_M;
+const HEADING_LOW_SPEED_HOLD_KMH = 5;
 const HEADING_FLIP_GUARD_DEG = 105;
-const HEADING_LOW_SPEED_MAX_STEP_DEG = 10;
+const HEADING_LOW_SPEED_MAX_STEP_DEG = 12;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -96,25 +102,6 @@ function clampNum(n: number, min: number, max: number): number {
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
-}
-
-function normalizeHeading(h: number): number {
-  return ((h % 360) + 360) % 360;
-}
-
-function headingDelta(from: number, to: number): number {
-  return ((to - from + 540) % 360) - 180;
-}
-
-function lerpHeading(from: number, to: number, t: number): number {
-  const d = headingDelta(from, to);
-  return normalizeHeading(from + d * t);
-}
-
-function lerpHeadingWithMaxStep(from: number, to: number, maxStepDeg: number): number {
-  const d = headingDelta(from, to);
-  const step = clampNum(d, -maxStepDeg, maxStepDeg);
-  return normalizeHeading(from + step);
 }
 
 /** Maks. prędkość obrotu kamery (°/s) — przy wyższej prędkości jazdy szybsze skręcanie. */
@@ -192,12 +179,17 @@ export function cameraZoomSpeedKmh(input: {
   const hud = input.hudSpeedKmh ?? input.speedKmh;
   const moveM = input.frameMoveM ?? 0;
   if (hud < 3 && moveM < 1.5) return 0;
-  if (hud < 8) return Math.min(input.speedKmh, hud + 4);
+  if (hud < 12) return hud;
   return input.speedKmh;
 }
 
-function lookaheadFromSpeed(_speedKmh: number): number {
-  return 0;
+/** Przesunięcie centrum mapy do przodu — widać drogę przed autem (Waze / Google Maps). */
+function lookaheadFromSpeed(speedKmh: number): number {
+  const s = Math.max(0, speedKmh);
+  if (s < 10) return 0;
+  if (s <= 25) return lerpNum(8, 32, (s - 10) / 15);
+  if (s <= 60) return lerpNum(32, 52, (s - 25) / 35);
+  return 52;
 }
 
 function computeFollowMode(input: {
@@ -245,7 +237,7 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
 
 function smoothZoomTarget(prev: number | null, next: number): number {
   if (prev == null || !Number.isFinite(prev)) return next;
-  const maxStep = 0.28;
+  const maxStep = 0.12;
   const d = next - prev;
   if (Math.abs(d) <= maxStep) return next;
   return prev + Math.sign(d) * maxStep;
@@ -520,38 +512,14 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
           );
         }
       }
-      const stationaryCameraFreeze = !TRIP_PIPELINE_SIMPLE
-        && input.speedKmh <= 1.0
-        && movedM < 1.2;
 
-      if (stationaryCameraFreeze && prevResolvedHeading != null) {
-        resolvedHeading = prevResolvedHeading;
-      } else if (input.speedKmh >= 6 || movedM >= 2.0) {
-        resolvedHeading = target.heading;
-      } else if (input.speedKmh >= 14) {
-        resolvedHeading = target.heading;
-      } else if (moveBearing != null && input.speedKmh >= 12 && movedM >= 2.5) {
-        const flipDelta = Math.abs(headingDelta(moveBearing, resolvedHeading));
-        if (input.speedKmh >= 10 && flipDelta > 95) {
-          resolvedHeading = moveBearing;
-        }
-        const vectorWeight = input.speedKmh >= 8
-          ? clampNum(0.55 + (input.speedKmh - 8) / 140, 0.55, 0.78)
-          : clampNum((input.speedKmh - 12) / 40, 0.15, 0.45);
-        const blended = lerpHeading(resolvedHeading, moveBearing, vectorWeight);
-        const maxVectorDiff = input.speedKmh >= 55 ? 28 : input.speedKmh >= 25 ? 38 : 52;
-        resolvedHeading = lerpHeadingWithMaxStep(blended, moveBearing, maxVectorDiff);
-      } else if (prevResolvedHeading != null && input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH) {
-        if (movedM >= 1.5) {
-          resolvedHeading = lerpHeadingWithMaxStep(
-            prevResolvedHeading,
-            target.heading,
-            Math.max(12, HEADING_LOW_SPEED_MAX_STEP_DEG),
-          );
-        } else {
-          resolvedHeading = prevResolvedHeading;
-        }
-      }
+      resolvedHeading = resolveTravelHeading({
+        snapHeading: target.heading,
+        moveBearing,
+        movedM,
+        speedKmh: input.speedKmh,
+        prevHeading: prevResolvedHeading,
+      });
 
       if (prevResolvedHeading != null) {
         const prevResolvedAt = lastResolvedHeadingAtRef.current || nowMs;
@@ -578,10 +546,10 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         speedKmh: Math.round(input.speedKmh),
         movedM: Number(movedM.toFixed(2)),
         moveBearing: moveBearing != null ? Math.round(moveBearing) : null,
-        headingIn,
+        snapHdg: headingIn,
         headingOut,
         flipFromPrevDeg: Math.round(flipFromPrev),
-        usedSnapHeadingOnly: input.speedKmh >= 14,
+        lookaheadM: Math.round(lookaheadFromSpeed(input.speedKmh)),
         nativeFollow: true,
       }, 1100);
 

@@ -5,9 +5,9 @@
 
 import { haversineKm } from '../scripts/navigationUtils';
 
-/** Globalny gate przed siecią — musi być spójny z useDrivingMapMatch (trace). */
-export const MAP_MATCH_MIN_INTERVAL_MS = 15_000;
-export const MAP_MATCH_MIN_MOVE_M = 40;
+/** Globalny gate — legacy callers; Drive Core V2 używa apiBudgetManager (4 s). */
+export const MAP_MATCH_MIN_INTERVAL_MS = 4000;
+export const MAP_MATCH_MIN_MOVE_M = 20;
 export const MAP_MATCH_MIN_SPEED_KMH = 5;
 export const MAP_MATCH_STATIONARY_MAX_ACC_M = 35;
 const STALE_SNAP_BURST_WINDOW_MS = 10 * 60_000;
