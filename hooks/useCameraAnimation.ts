@@ -51,8 +51,10 @@ export function getTripCameraPadding(isNavigating: boolean): MapCameraPadding {
   const h = Dimensions.get('window').height;
   const tabBarPx = 88;
   const hudPx = isNavigating ? 200 : 240;
-  const top = Math.round(clampNum(h * (isNavigating ? 0.50 : 0.54), 320, 520) + hudPx * 0.35);
-  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 24 : 32), 72, 120));
+  // Za duży paddingTop = wąski „pasek” mapy + wrażenie mocnego oddalenia (jak zoom 14–15).
+  // Marker na dole ekranu (Waze), bez przesady — padding tylko w setCamera (bez duplikatu w JSX).
+  const top = Math.round(clampNum(h * (isNavigating ? 0.40 : 0.36), 200, 380) + hudPx * 0.22);
+  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 20 : 28), 64, 108));
   return {
     paddingTop: top,
     paddingBottom: bottom,
@@ -170,14 +172,28 @@ function offsetCenter(
   };
 }
 
+/** Zoom jazdy: wyższa wartość = bliżej (Mapbox). Postój ≈ 19, autostrada lekko cofnięte. */
 function zoomFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  if (s <= 10) return 18.9;
-  if (s <= 30) return lerpNum(18.9, 18.45, (s - 10) / 20);
-  if (s <= 60) return lerpNum(18.45, 18.05, (s - 30) / 30);
-  if (s <= 100) return lerpNum(18.05, 17.65, (s - 60) / 40);
-  if (s <= 160) return lerpNum(17.65, 17.25, (s - 100) / 60);
-  return 17.0;
+  if (s <= 12) return 19.05;
+  if (s <= 35) return lerpNum(19.05, 18.55, (s - 12) / 23);
+  if (s <= 70) return lerpNum(18.55, 18.15, (s - 35) / 35);
+  if (s <= 110) return lerpNum(18.15, 17.75, (s - 70) / 40);
+  if (s <= 160) return lerpNum(17.75, 17.35, (s - 110) / 50);
+  return 17.2;
+}
+
+/** Prędkość do zoomu — bez szumu GPS / implied z workletu (nie cofaj kamery na postoju). */
+export function cameraZoomSpeedKmh(input: {
+  speedKmh: number;
+  hudSpeedKmh?: number;
+  frameMoveM?: number;
+}): number {
+  const hud = input.hudSpeedKmh ?? input.speedKmh;
+  const moveM = input.frameMoveM ?? 0;
+  if (hud < 3 && moveM < 1.5) return 0;
+  if (hud < 8) return Math.min(input.speedKmh, hud + 4);
+  return input.speedKmh;
 }
 
 function lookaheadFromSpeed(_speedKmh: number): number {
@@ -214,7 +230,10 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
     targetHeading,
     lookaheadM,
   );
-  const rawZoom = active ? zoomFromSpeed(input.speedKmh) : BROWSE_ZOOM;
+  const zoomSpeed = active
+    ? cameraZoomSpeedKmh({ speedKmh: input.speedKmh })
+    : 0;
+  const rawZoom = active ? zoomFromSpeed(zoomSpeed) : BROWSE_ZOOM;
   return {
     center,
     heading: targetHeading,
@@ -226,7 +245,7 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
 
 function smoothZoomTarget(prev: number | null, next: number): number {
   if (prev == null || !Number.isFinite(prev)) return next;
-  const maxStep = 0.12;
+  const maxStep = 0.28;
   const d = next - prev;
   if (Math.abs(d) <= maxStep) return next;
   return prev + Math.sign(d) * maxStep;

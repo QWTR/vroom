@@ -126,7 +126,7 @@ import {
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
 import { useSettings } from '../../hooks/useSettings';
-import { useCameraAnimation, getTripCameraPadding } from '../../hooks/useCameraAnimation';
+import { useCameraAnimation } from '../../hooks/useCameraAnimation';
 import { useDeadReckoning } from '../../hooks/useDeadReckoning';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
 import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
@@ -3655,10 +3655,6 @@ export default function MapScreen() {
     isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
-  const tripCameraPadding = useMemo(
-    () => (isTripActiveMap ? getTripCameraPadding(isNavigating) : undefined),
-    [isTripActiveMap, isNavigating],
-  );
   /** Worklet 60fps — hook na MapScreen, zeby handler byl zarejestrowany PRZED feedem z GPS. */
   const tripSmoothPosition = useSmoothMapPosition(isTripActiveMap);
 
@@ -4774,10 +4770,17 @@ export default function MapScreen() {
     };
     if (now - lastCamPushFromSmoothRef.current < 16) return;
     lastCamPushFromSmoothRef.current = now;
+    const cameraSpeedKmh =
+      speedKmhRef.current < 3 && frameMoveM < 1.5
+        ? 0
+        : Math.min(
+          followSpeedKmh,
+          speedKmhRef.current + (frameMoveM < 2 ? 6 : 18),
+        );
     updateCameraFrameRef.current?.({
       center: { latitude: lat, longitude: lng },
       heading: hdg,
-      speedKmh: followSpeedKmh,
+      speedKmh: cameraSpeedKmh,
       isNavigating: isNavigatingRef.current,
       isDriving: isDrivingRef.current,
       timestamp: now,
@@ -13915,7 +13918,6 @@ export default function MapScreen() {
         >
           <Mapbox.Camera
             ref={cameraRef}
-            padding={tripCameraPadding}
             defaultSettings={cameraDefaultSettingsRef.current}
           />
           <Mapbox.UserLocation visible={false} />
