@@ -70,7 +70,10 @@ export class DriveTrackingPipeline {
       : 1000;
 
     if (prev) {
-      const skipPhysicsGuard = !!input.rawMotionDetected || (input.microMoveGraceTicks ?? 0) > 0;
+      const rawWakeAccuracyOk = Number.isFinite(accuracyM) && accuracyM <= 15;
+      const skipPhysicsGuard =
+        (!!input.rawMotionDetected && rawWakeAccuracyOk)
+        || (input.microMoveGraceTicks ?? 0) > 0;
       const physics = checkGpsPhysics(
         prev.latitude,
         prev.longitude,
@@ -144,6 +147,7 @@ export class DriveTrackingPipeline {
       pathMoveM: number;
       isTripActive: boolean;
       rawMotionDetected?: boolean;
+      accuracyM?: number | null;
     },
     nowMs: number,
   ): number {
@@ -157,6 +161,7 @@ export class DriveTrackingPipeline {
         pathMoveM: meta.pathMoveM,
         isTripActive: meta.isTripActive,
         rawMotionDetected: meta.rawMotionDetected,
+        accuracyM: meta.accuracyM ?? null,
         previousKmh: this.lastSpeedKmh,
       },
       nowMs,

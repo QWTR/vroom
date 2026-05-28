@@ -6,13 +6,14 @@ import {
 } from 'react-native-reanimated';
 import {
   clearSmoothPositionFeed,
-  notifySmoothPositionDisplay,
   registerSmoothPositionHandler,
   type SmoothTarget,
 } from '../lib/mapPosition/smoothPositionFeed';
 import { logGpsTickLayer } from '../lib/gpsTickTraceLog';
 import { markerLogTick } from '../lib/markerPipelineLog';
 import { isAbsurdGlobeCoordinate } from '../lib/mapPosition/feedCoordinateGuard';
+import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
+import { navDriveTraceWorkletFrame } from '../lib/navDriveTrace';
 import { logTelemetry } from '../lib/telemetryLogger';
 
 const DISPLAY_PUSH_MS = 16;
@@ -30,8 +31,8 @@ const ROAD_FLAT_MIN_LEN = 4;
 const ZERO_SPEED_EPS_MS = 0.05;
 const STATIONARY_MAX_ANCHOR_DRIFT_M = 2.5;
 /** Wyjście z postoju: feed musi mieć speed + realny ruch od pinu. */
-const STATIONARY_RELEASE_SPEED_MS = 0.3;
-const STATIONARY_RELEASE_MOVE_M = 0.85;
+const STATIONARY_RELEASE_SPEED_MS = 0.35;
+const STATIONARY_RELEASE_MOVE_M = 2.2;
 /** Przy postoju — odrzuć feed dalej niż tyle od display (m). */
 const STATIONARY_MAX_FEED_JUMP_M = 8;
 /** Bezwzględny limit skoku (inny kontynent / zły fix). */
@@ -400,6 +401,27 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const distFromDisplayM = bootstrapped.value === 1
         ? haversineMWorklet(lat.value, lng.value, feedLat, feedLng)
         : 0;
+      const stationarySuspectFeed =
+        feedSpeedMsRaw < 1.5
+        && target.rawMotionDetected !== true
+        && (target.rawMotionM ?? 0) < 3;
+      const teleportGuardDistM = stationarySuspectFeed ? 16 : 120;
+      const feedLikelyTeleport =
+        bootstrapped.value === 1
+        && distFromDisplayM > teleportGuardDistM
+        && feedSpeedMsRaw < 8
+        && (target.rawMotionDetected !== true)
+        && (target.rawMotionM ?? 0) < 3;
+      if (feedLikelyTeleport) {
+        const blendAlpha = stationarySuspectFeed ? 0.04 : 0.12;
+        feedLat = lat.value + (feedLat - lat.value) * blendAlpha;
+        feedLng = lng.value + (feedLng - lng.value) * blendAlpha;
+        runOnJS(logDisplayLagClamp)({
+          distM: Math.round(distFromDisplayM),
+          source: src,
+          mode: 'teleport_guard_blend',
+        });
+      }
 
       // Road geometry snapshot (small window) for DR along curve — przed backward guard.
       if (target.roadPts && Array.isArray(target.roadPts) && target.roadPts.length >= 2) {
@@ -467,7 +489,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         : distFromDisplayM;
       const rawMotionWake =
         target.rawMotionDetected === true
-        || (target.rawMotionM ?? 0) >= 2.5;
+        || (target.rawMotionM ?? 0) >= 3.0;
       const drivingContinuityEvidence =
         isDrivingLiveFeed
         && (
@@ -485,9 +507,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           rawMotionWake
           || drivingContinuityEvidence
           || (
-          feedSpeedMsRaw >= STATIONARY_RELEASE_SPEED_MS
-          || distFromPinM >= STATIONARY_RELEASE_MOVE_M
-          || distFromDisplayM > 2.0
+            feedSpeedMsRaw >= STATIONARY_RELEASE_SPEED_MS
+            && distFromPinM >= STATIONARY_RELEASE_MOVE_M
           );
         if (!canRelease) {
           anchorLat.value = pinLat.value;
@@ -512,9 +533,18 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         });
       }
 
-      const effectivelyStopped =
-        (src === 'v10_stationary_hold' && !drivingContinuityEvidence && !rawMotionWake)
-        || (!isDrivingLiveFeed && feedSpeedMsRaw < STATIONARY_LOCK_SPEED_MS && distFromDisplayM < 0.9);
+      const effectivelyStopped = TRIP_PIPELINE_SIMPLE
+        ? (
+          src === 'v10_stationary_hold'
+          && !drivingContinuityEvidence
+          && !rawMotionWake
+          && feedSpeedMsRaw < 0.15
+          && distFromPinM < 0.6
+        )
+        : (
+          (src === 'v10_stationary_hold' && !drivingContinuityEvidence && !rawMotionWake)
+          || (!isDrivingLiveFeed && feedSpeedMsRaw < STATIONARY_LOCK_SPEED_MS && distFromDisplayM < 0.9)
+        );
 
       if (effectivelyStopped && bootstrapped.value === 1) {
         const wasLocked = stationaryLocked.value === 1;
@@ -891,7 +921,6 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
 
       if (now - lastDisplayPushMs.value >= DISPLAY_PUSH_MS) {
         lastDisplayPushMs.value = now;
-        runOnJS(notifySmoothPositionDisplay)(lat.value, lng.value, heading.value);
       }
 
       if (
@@ -906,6 +935,21 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           distAnchorM: Number(distAnchorM.toFixed(2)),
           cruiseMs: Number(cruiseMs.toFixed(2)),
           segmentMs: segDurationMs.value,
+        });
+      }
+
+      if (now - lastFrameDiagLogMs.value >= 450) {
+        lastFrameDiagLogMs.value = now;
+        runOnJS(navDriveTraceWorkletFrame)({
+          frozen: frozen ? 1 : 0,
+          locked: stationaryLocked.value,
+          cruiseKmh: Number((cruiseMs * 3.6).toFixed(1)),
+          lat: Number(lat.value.toFixed(6)),
+          lng: Number(lng.value.toFixed(6)),
+          distAnchorM: Number(distAnchorM.toFixed(2)),
+          frameMoveM: Number(frameMoveM.toFixed(3)),
+          inDr: inDeadReckoning.value,
+          segMs: segDurationMs.value,
         });
       }
 

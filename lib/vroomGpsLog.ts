@@ -15,6 +15,25 @@ export function subscribeVroomGpsLog(listener: (entry: VroomGpsLogEntry) => void
   };
 }
 
+function safePayloadJson(t: number, payload: Record<string, unknown> | undefined): string {
+  try {
+    return JSON.stringify({ t, ...(payload ?? {}) });
+  } catch {
+    return JSON.stringify({ t, serializeError: true });
+  }
+}
+
+/** Ten sam format co logTelemetry — widoczny w: adb logcat -d | findstr "[VROOM-TEL]" */
+function emitVroomTelLogcatLine(tag: string, t: number, payload: Record<string, unknown> | undefined): void {
+  const iso = new Date(t).toISOString();
+  const json = safePayloadJson(t, payload);
+  try {
+    console.log(`[VROOM-TEL] ${iso} | ${tag} | ${json}`);
+  } catch {
+    console.log(`[VROOM-TEL] ${iso} | ${tag} | {}`);
+  }
+}
+
 function emitVroomGpsLog(
   tag: string,
   payload: Record<string, unknown> | undefined,
@@ -27,11 +46,7 @@ function emitVroomGpsLog(
     lastAt[tag] = now;
   }
   const entry = { t: now, tag, payload };
-  try {
-    console.log(`[VROOM-GPS] ${tag}`, JSON.stringify({ t: now, ...(payload ?? {}) }));
-  } catch {
-    console.log(`[VROOM-GPS] ${tag}`);
-  }
+  emitVroomTelLogcatLine(tag, now, payload);
   for (const listener of listeners) {
     try {
       listener(entry);
@@ -41,7 +56,7 @@ function emitVroomGpsLog(
   }
 }
 
-/** Throttled GPS diagnostics — visible in `adb logcat` as ReactNativeJS. */
+/** Throttled — adb: logcat -d -v time | findstr /C:"[VROOM-TEL]" */
 export function vroomGpsLog(
   tag: string,
   payload?: Record<string, unknown>,

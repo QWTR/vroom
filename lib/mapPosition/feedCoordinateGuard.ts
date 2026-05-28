@@ -66,11 +66,11 @@ export function feedJumpRejectReason(
   const src = String(target.source ?? '');
   const stationary = isStationaryFeedTarget(target);
   const bootstrap = isBootstrapFeed(src, target.durationMs);
-  const startupWake = !!target.rawMotionDetected || (target.rawMotionM ?? 0) >= 2.5;
+  const startupWake = !!target.rawMotionDetected || (target.rawMotionM ?? 0) >= 3.0;
 
   if (movedM > 800) return 'mega_jump_800m';
   if (movedM > 250 && (target.speedMs ?? 0) < 2.5) return 'idle_mega_jump';
-  if (!startupWake && stationary && movedM > 10) return 'stationary_jump';
+  if (!startupWake && stationary && movedM > 6) return 'stationary_jump';
   if (!startupWake && (target.speedMs ?? 0) < 1.2 && movedM > 32) return 'low_speed_jump';
   if (target.durationMs === 0 && !bootstrap && movedM > 48) return 'instant_far_jump';
   return null;

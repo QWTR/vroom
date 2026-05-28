@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Dimensions } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { markerLogTick } from '../lib/markerPipelineLog';
+import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 
 type CameraFollowMode =
   | 'idleBrowse'
@@ -77,10 +78,10 @@ const IDLE_APPLY_MS = 120;
  * Jeden setCamera na segment GPS — Mapbox interpoluje natywnie (bez 60×/s przez RN bridge).
  */
 const NATIVE_FOLLOW_ANIM_MS = 400;
-const NATIVE_FOLLOW_MIN_INTERVAL_MS = 120;
-const NATIVE_FOLLOW_MAX_ANIM_MS = 900;
-const NATIVE_APPLY_MIN_MOVE_M = 0.4;
-const NATIVE_APPLY_MIN_HEADING_DEG = 0.8;
+const NATIVE_FOLLOW_MIN_INTERVAL_MS = 66;
+const NATIVE_FOLLOW_MAX_ANIM_MS = 720;
+const NATIVE_APPLY_MIN_MOVE_M = 0.25;
+const NATIVE_APPLY_MIN_HEADING_DEG = 0.45;
 
 const HEADING_VECTOR_MIN_MOVE_M = 1.8;
 const HEADING_LOW_SPEED_HOLD_KMH = 6;
@@ -338,7 +339,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       return;
     }
 
-    if (sinceLastApply < NATIVE_FOLLOW_MIN_INTERVAL_MS && centerDeltaM < 6) {
+    if (sinceLastApply < NATIVE_FOLLOW_MIN_INTERVAL_MS && centerDeltaM < 1.8) {
       targetPoseRef.current = target;
       return;
     }
@@ -500,8 +501,15 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
           );
         }
       }
+      const stationaryCameraFreeze = !TRIP_PIPELINE_SIMPLE
+        && input.speedKmh <= 1.0
+        && movedM < 1.2;
 
-      if (input.speedKmh >= 14) {
+      if (stationaryCameraFreeze && prevResolvedHeading != null) {
+        resolvedHeading = prevResolvedHeading;
+      } else if (input.speedKmh >= 6 || movedM >= 2.0) {
+        resolvedHeading = target.heading;
+      } else if (input.speedKmh >= 14) {
         resolvedHeading = target.heading;
       } else if (moveBearing != null && input.speedKmh >= 12 && movedM >= 2.5) {
         const flipDelta = Math.abs(headingDelta(moveBearing, resolvedHeading));
@@ -515,7 +523,15 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         const maxVectorDiff = input.speedKmh >= 55 ? 28 : input.speedKmh >= 25 ? 38 : 52;
         resolvedHeading = lerpHeadingWithMaxStep(blended, moveBearing, maxVectorDiff);
       } else if (prevResolvedHeading != null && input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH) {
-        resolvedHeading = prevResolvedHeading;
+        if (movedM >= 1.5) {
+          resolvedHeading = lerpHeadingWithMaxStep(
+            prevResolvedHeading,
+            target.heading,
+            Math.max(12, HEADING_LOW_SPEED_MAX_STEP_DEG),
+          );
+        } else {
+          resolvedHeading = prevResolvedHeading;
+        }
       }
 
       if (prevResolvedHeading != null) {

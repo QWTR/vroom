@@ -96,7 +96,7 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
         moveM: Number(moveM.toFixed(2)),
         lat: Number(next.lat.toFixed(6)),
         lng: Number(next.lng.toFixed(6)),
-        stream: 'display_notify',
+        stream: 'shared_value_bridge',
       }, 600);
     }
 
@@ -108,7 +108,7 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
         lng: Number(slng.toFixed(6)),
         hdg: Math.round(heading.value || 0),
         stuck: nowMs - heartbeatLastChangeMsRef.current > 3500,
-        stream: 'display_notify',
+        stream: 'shared_value_bridge',
       }, 0);
     }
     return true;

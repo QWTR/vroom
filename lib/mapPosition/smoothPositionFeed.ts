@@ -2,6 +2,7 @@ import { DISPLAY_NOTIFY_MIN_MS } from '../../constants/mapPerformance';
 import { gpsTickPayload } from '../gpsTickTrace';
 import { logGpsTickLayer } from '../gpsTickTraceLog';
 import { markerLogCritical } from '../markerPipelineLog';
+import { navDriveTrace } from '../navDriveTrace';
 import { vroomGpsLog } from '../vroomGpsLog';
 
 export { DISPLAY_NOTIFY_MIN_MS };
@@ -125,6 +126,13 @@ const FORCE_PRIORITY_SOURCES = new Set([
   'v10_apply_trip_instant',
   'v10_apply_chase_instant',
 ]);
+const INSTANT_RECOVERY_SOURCES = new Set([
+  'stall_recovery',
+  'v10_apply_trip_instant',
+  'v10_apply_chase_instant',
+  'v10_lag_catchup_instant',
+]);
+const INSTANT_MAX_JUMP_M = 180;
 
 function shouldDropFeed(normalized: SmoothTarget): string | null {
   const src = String(normalized.source ?? 'unknown');
@@ -153,8 +161,15 @@ function shouldDropFeed(normalized: SmoothTarget): string | null {
   );
   const dtMs = now - lastFeedAtMs;
   if (
+    normalized.durationMs === 0
+    && movedM > INSTANT_MAX_JUMP_M
+    && !INSTANT_RECOVERY_SOURCES.has(src)
+  ) {
+    return 'instant_far_teleport_guard';
+  }
+  if (
     microMoveBypassPacketsLeft > 0
-    && (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 2.5 || movedM >= 0.35)
+    && (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 3.0 || movedM >= 0.35)
   ) {
     return null;
   }
@@ -303,7 +318,7 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
 
   const normalized = normalizeSmoothTarget(cleaned);
   const src = String(normalized.source ?? 'unknown');
-  if (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 2.5) {
+  if (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 5.0) {
     microMoveBypassPacketsLeft = Math.max(microMoveBypassPacketsLeft, 3);
   }
 
@@ -353,6 +368,13 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
         speedMs: normalized.speedMs ?? null,
       }));
     } else {
+    navDriveTrace('FEED_DROP', {
+      reason: coordReject,
+      source: src,
+      lat: Number(normalized.latitude.toFixed(6)),
+      lng: Number(normalized.longitude.toFixed(6)),
+      speedMs: normalized.speedMs ?? null,
+    });
     logFeedJumpReject(coordReject, normalized, lastTarget);
     return;
     }
@@ -360,6 +382,13 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
 
   const dropReason = shouldDropFeed(normalized);
   if (dropReason) {
+    navDriveTrace('FEED_DROP', {
+      reason: dropReason,
+      source: src,
+      lat: Number(normalized.latitude.toFixed(6)),
+      lng: Number(normalized.longitude.toFixed(6)),
+      speedMs: normalized.speedMs ?? null,
+    });
     markerLogCritical('WORKLET_FEED_REJECT', gpsTickPayload({
       reason: dropReason,
       source: src,
@@ -382,6 +411,20 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
       normalized.longitude,
     )
     : null;
+  navDriveTrace('FEED', {
+    source: src,
+    lat: Number(normalized.latitude.toFixed(6)),
+    lng: Number(normalized.longitude.toFixed(6)),
+    hdg: Math.round(normalized.heading || 0),
+    durationMs: normalized.durationMs ?? null,
+    speedMs: normalized.speedMs != null ? Number(normalized.speedMs.toFixed(2)) : null,
+    movedFromLastM: movedFromLastM != null ? Number(movedFromLastM.toFixed(2)) : null,
+    dtSinceLastMs: lastFeedAtMs > 0 ? Date.now() - lastFeedAtMs : null,
+    rawMotion: !!normalized.rawMotionDetected,
+    rawMotionM: normalized.rawMotionM ?? null,
+    hasHandler: !!handler,
+    dropped: false,
+  });
   vroomGpsLog('WORKLET_FEED', {
     source: src,
     lat: Number(normalized.latitude.toFixed(6)),

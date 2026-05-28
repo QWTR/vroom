@@ -33,6 +33,7 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
 } from '../lib/backgroundLocationConsent';
 import { initMapbox } from '../lib/mapboxInit';
+import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { useAppPresence } from '../hooks/useAppPresence';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
@@ -237,6 +238,7 @@ function RootLayoutInner() {
 
   useEffect(() => {
     initMapbox().catch(() => {});
+    void initNavDriveTraceStore();
   }, []);
 
   useEffect(() => {

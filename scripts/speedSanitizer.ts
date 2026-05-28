@@ -1,3 +1,4 @@
+import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 import { haversineKm } from './navigationUtils';
 
 /** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 250. */
@@ -22,9 +23,13 @@ export type SanitizeSpeedInput = {
   pathMoveM?: number;
   /** Prędkość z całego okna (km/h), nie z jednego ticka GPS. */
   sustainedKmh?: number;
+  /** Trigger ruchu fizycznego (>3m raw delta) z pipeline'u. */
+  rawMotionDetected?: boolean;
+  /** Dokładność GPS (metry) dla noise clampu niskich prędkości. */
+  accuracyM?: number | null;
 };
 
-const TRIP_SPEED_WINDOW_MS = 1500;
+const TRIP_SPEED_WINDOW_MS = 1000;
 const TRIP_STANDSTILL_NET_M = 10;
 /** net/path — poniżej = GPS skacze tam-z powrotem bez realnego jazdy. */
 const TRIP_MIN_PATH_EFFICIENCY = 0.38;
@@ -89,6 +94,23 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     input.gpsSpeedMs != null && input.gpsSpeedMs > 0
       ? input.gpsSpeedMs * 3.6
       : 0;
+  const rawWake = !!input.rawMotionDetected;
+  const accM = input.accuracyM != null && Number.isFinite(input.accuracyM) ? input.accuracyM : null;
+
+  if (!TRIP_PIPELINE_SIMPLE) {
+    if (input.isTripActive && !rawWake) {
+      return 0;
+    }
+    if (input.isTripActive && gpsKmh < 5 && accM != null && accM > 10) {
+      return 0;
+    }
+  } else if (input.isTripActive) {
+    const netM = input.netMoveM ?? 0;
+    const sustained = input.sustainedKmh ?? 0;
+    if (gpsKmh < 2 && netM < 3 && sustained < 2) {
+      return 0;
+    }
+  }
 
   // Driving/navigation: trust Doppler quickly, but never on pure standstill jitter.
   if (input.isTripActive && gpsKmh >= 6) {
@@ -279,16 +301,19 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 
 /** Konwersja km/h → m/s do feedSpeed / publishSpeed. */
 export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
+  if (input.isTripActive && !input.rawMotionDetected) {
+    return 0;
+  }
   const kmh = sanitizeSpeedKmh(input);
   const gpsKmh = input.gpsSpeedMs != null && input.gpsSpeedMs > 0 ? input.gpsSpeedMs * 3.6 : 0;
   const accelLagDetected =
     !!input.isTripActive
-    && gpsKmh >= 12
+    && gpsKmh >= 10
     && kmh > 0
-    && gpsKmh >= kmh * 1.9
-    && ((input.netMoveM ?? 0) >= 5 || (input.pathMoveM ?? 0) >= 7 || (input.sustainedKmh ?? 0) >= 3);
+    && gpsKmh >= kmh * 1.55
+    && ((input.netMoveM ?? 0) >= 4 || (input.pathMoveM ?? 0) >= 6 || (input.sustainedKmh ?? 0) >= 2.5);
   if (accelLagDetected) {
-    const boostedKmh = Math.max(kmh, gpsKmh * 0.86, (input.sustainedKmh ?? 0) * 1.05);
+    const boostedKmh = Math.max(kmh, gpsKmh * 0.92, (input.sustainedKmh ?? 0) * 1.08);
     return Math.min(boostedKmh, MAX_SPEED_HUD_KMH) / 3.6;
   }
   if (kmh > 0) return kmh / 3.6;

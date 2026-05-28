@@ -8,6 +8,8 @@ import {
   haversineKm,
   projectOntoPolylineWithIndex,
 } from '../scripts/navigationUtils';
+import { navDriveTrace } from '../lib/navDriveTrace';
+import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 import { logTelemetry } from '../lib/telemetryLogger';
 
@@ -462,19 +464,37 @@ export function useDrivingSnap() {
     // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
     const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
     const rawMoveM = last ? haversineKm(last.lat, last.lng, lat, lng) * 1000 : 0;
-    const instantRawWake = rawMotionDetected || rawMoveM >= 2.7;
-    const hardStationaryHold =
-      hardRoadLock
+    const instantRawWake = TRIP_PIPELINE_SIMPLE
+      ? (speedKmh >= 3 || dopplerKmhSafe >= 4 || rawMoveM >= 2 || !!rawMotionDetected)
+      : (
+        !!rawMotionDetected
+        || rawMoveM >= 3.0
+        || speedKmh >= 5
+        || dopplerKmhSafe >= 6
+      );
+    if (instantRawWake) {
+      rawEscapeStreakRef.current = 0;
+      roadLockEngagedRef.current = true;
+    }
+    const hardStationaryHold = !TRIP_PIPELINE_SIMPLE
+      && hardRoadLock
       && !instantRawWake
       && rawMoveM < 2.8
       && speedKmh < 2.8
       && dopplerKmhSafe < 7.5;
+    const absoluteStationaryAnchor = !TRIP_PIPELINE_SIMPLE
+      && hardRoadLock
+      && !instantRawWake
+      && rawMoveM < 2.5
+      && speedKmh < 2.5
+      && dopplerKmhSafe < 5;
 
     let roadLockHeld = false;
     if (hardRoadLock && pts.length >= 2) {
       const rawDistM = minDistToPolylineM(lat, lng, pts);
       const allowRoadEscape =
         !hardStationaryHold
+        && !absoluteStationaryAnchor
         && (
           instantRawWake
           || speedKmh >= 4
@@ -508,15 +528,35 @@ export function useDrivingSnap() {
       instantRawWake
       || dopplerKmhSafe >= 6
       || Math.max(speedKmh, dopplerKmhSafe) >= 6
-      || rawMoveM >= 2.7;
+      || rawMoveM >= 3.0;
     const frozenSnap =
       hardRoadLock
       && !instantRawWake
       && rawMoveM < 5.5
       && !movingEvidence
       && (speedKmh < 4.5 || ghostDopplerParked);
+    if (absoluteStationaryAnchor && lastSnappedRef.current) {
+      lastRawRef.current = { lat, lng };
+      navDriveTrace('SNAP_HOLD', {
+        mode: 'absolute_anchor',
+        speedKmh: Math.round(speedKmh),
+        rawMoveM: Number(rawMoveM.toFixed(2)),
+        roadPts: pts.length,
+      });
+      return {
+        ...lastSnappedRef.current,
+        snapped: true,
+        targetHeading: lastTargetHeadingRef.current,
+      };
+    }
     if ((hardStationaryHold || frozenSnap) && lastSnappedRef.current) {
       lastRawRef.current = { lat, lng };
+      navDriveTrace('SNAP_HOLD', {
+        mode: hardStationaryHold ? 'hard_stationary' : 'frozen',
+        speedKmh: Math.round(speedKmh),
+        rawMoveM: Number(rawMoveM.toFixed(2)),
+        dopplerKmh: Math.round(dopplerKmhSafe),
+      });
       return {
         ...lastSnappedRef.current,
         snapped: true,
@@ -594,7 +634,36 @@ export function useDrivingSnap() {
         lastSnappedRef.current.longitude,
       ) * 1000;
       const lastSnapTooFar = lastSnapToRawM > MAX_SNAP_TO_RAW_DISTANCE_M;
-      if (lastSnapTooFar) {
+      if (lastSnapTooFar && !absoluteStationaryAnchor) {
+        if (TRIP_PIPELINE_SIMPLE && pts.length >= 2) {
+          const rescue = projectOntoPolylineWithIndex(lat, lng, pts, 140);
+          if (rescue) {
+            lastSnappedRef.current = {
+              latitude: rescue.latitude,
+              longitude: rescue.longitude,
+            };
+            lastSegmentIndexRef.current = rescue.segmentIndex;
+            lastRawRef.current = { lat, lng };
+            return {
+              latitude: rescue.latitude,
+              longitude: rescue.longitude,
+              snapped: true,
+              targetHeading: rescue.segmentBearing ?? lastTargetHeadingRef.current,
+            };
+          }
+        }
+        const snapDriftNotDriving =
+          speedKmh < 8
+          && rawMoveM < 8
+          && dopplerKmhSafe < 10;
+        if (snapDriftNotDriving && lastSnappedRef.current) {
+          lastRawRef.current = { lat, lng };
+          return {
+            ...lastSnappedRef.current,
+            snapped: true,
+            targetHeading: lastTargetHeadingRef.current,
+          };
+        }
         logSnapReject('snap_last_too_far', {
           lastSnapToRawM: Math.round(lastSnapToRawM),
           speedKmh: Math.round(speedKmh),

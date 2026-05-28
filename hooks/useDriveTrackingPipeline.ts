@@ -23,6 +23,7 @@ export type UseDriveTrackingPipelineResult = {
       pathMoveM: number;
       isTripActive: boolean;
       rawMotionDetected?: boolean;
+      accuracyM?: number | null;
     },
     nowMs?: number,
   ) => number;
