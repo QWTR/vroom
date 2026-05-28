@@ -24,7 +24,7 @@ export type SanitizeSpeedInput = {
   sustainedKmh?: number;
 };
 
-const TRIP_SPEED_WINDOW_MS = 3000;
+const TRIP_SPEED_WINDOW_MS = 1500;
 const TRIP_STANDSTILL_NET_M = 10;
 /** net/path — poniżej = GPS skacze tam-z powrotem bez realnego jazdy. */
 const TRIP_MIN_PATH_EFFICIENCY = 0.38;
@@ -280,6 +280,17 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
 /** Konwersja km/h → m/s do feedSpeed / publishSpeed. */
 export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
   const kmh = sanitizeSpeedKmh(input);
+  const gpsKmh = input.gpsSpeedMs != null && input.gpsSpeedMs > 0 ? input.gpsSpeedMs * 3.6 : 0;
+  const accelLagDetected =
+    !!input.isTripActive
+    && gpsKmh >= 12
+    && kmh > 0
+    && gpsKmh >= kmh * 1.9
+    && ((input.netMoveM ?? 0) >= 5 || (input.pathMoveM ?? 0) >= 7 || (input.sustainedKmh ?? 0) >= 3);
+  if (accelLagDetected) {
+    const boostedKmh = Math.max(kmh, gpsKmh * 0.86, (input.sustainedKmh ?? 0) * 1.05);
+    return Math.min(boostedKmh, MAX_SPEED_HUD_KMH) / 3.6;
+  }
   if (kmh > 0) return kmh / 3.6;
   if (
     input.isTripActive

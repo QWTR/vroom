@@ -1870,6 +1870,8 @@ export default function MapScreen() {
   const gpsForceActiveRef = useRef(false);
   const lastBumpActiveMarkerAtRef = useRef(0);
   const tripMoveSamplesRef = useRef<TripMoveSample[]>([]);
+  const rawMotionWakeUntilRef = useRef(0);
+  const startupMicroMoveGraceTicksRef = useRef(0);
   const lastSpeedRawAnchorRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
   const lastSpeedDiagRef = useRef<{ kmh: number; at: number } | null>(null);
   const lastMarkerDiagRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
@@ -2150,6 +2152,8 @@ export default function MapScreen() {
     smoothDurationMs: number,
     source: string,
     roadPtsWindow?: { latitude: number; longitude: number }[] | null,
+    rawMotionDetected = false,
+    rawMotionM = 0,
   ) => {
     clearSubAnchorTimers();
     const prev = lastWorkletFeedAnchorRef.current;
@@ -2181,7 +2185,9 @@ export default function MapScreen() {
           || speedKmhRef.current < 4.5
           || source === 'v10_stationary_hold'
         )
-        && rawGpsKmhRef.current < 15;
+        && rawGpsKmhRef.current < 15
+        && !rawMotionDetected
+        && rawMotionM < 2.7;
       const drivingMotionEvidenceFeed =
         isDrivingRef.current
         && (
@@ -2206,6 +2212,8 @@ export default function MapScreen() {
             durationMs: 0,
             speedMs: 0,
             source: 'v10_stationary_hold',
+            rawMotionDetected,
+            rawMotionM,
           });
           lastWorkletFeedAnchorRef.current = { lat: feedLat, lng: feedLng };
           lastWorkletFeedAtRef.current = Date.now();
@@ -2362,6 +2370,8 @@ export default function MapScreen() {
       speedMs: feedSpeedMs,
       source: feedSource,
       roadPts: roadPtsWindow ?? undefined,
+      rawMotionDetected,
+      rawMotionM,
     });
     lastWorkletFeedAnchorRef.current = { lat: feedLat, lng: feedLng };
     lastWorkletFeedAtRef.current = Date.now();
@@ -2392,6 +2402,7 @@ export default function MapScreen() {
       motionKmh?: number;
       netMoveM?: number;
       pathMoveM?: number;
+      rawMotionDetected?: boolean;
       /** Dynamiczne przyspieszenie — bez stationary hold, krótki glide, pełny krok. */
       accelBypass?: boolean;
     },
@@ -2507,7 +2518,9 @@ export default function MapScreen() {
       const applyPhysicalMovementEvidence =
         (opts?.speedMs ?? 0) >= 2.2
         || (opts?.motionKmh ?? 0) >= 8
-        || rawGpsKmhRef.current >= 8;
+        || rawGpsKmhRef.current >= 8
+        || !!opts?.rawMotionDetected
+        || (opts?.rawStepM ?? 0) >= 2.7;
       const fgRefreshApply =
         tripForegroundRefreshUntilRef.current > Date.now()
         && (isDrivingRef.current || isNavigatingRef.current);
@@ -2526,6 +2539,9 @@ export default function MapScreen() {
           false,
           isDrivingRef.current,
         );
+      const instantRawWakeApply =
+        !!opts?.rawMotionDetected
+        || (opts?.rawStepM ?? 0) >= 2.7;
 
       // Postój: pin do ostatniej stabilnej pozycji — bez chase/snap jitteru.
       if (
@@ -2535,6 +2551,8 @@ export default function MapScreen() {
         && !(
           isDrivingRef.current
           && (
+            instantRawWakeApply
+            ||
             (opts?.motionKmh ?? 0) > 3.5
             || (opts?.netMoveM ?? 0) >= 5
             || (opts?.pathMoveM ?? 0) >= 7
@@ -2557,6 +2575,8 @@ export default function MapScreen() {
             durationMs: 0,
             speedMs: 0,
             source: 'v10_stationary_hold',
+            rawMotionDetected: instantRawWakeApply,
+            rawMotionM: opts?.rawStepM,
           });
           lastWorkletFeedAnchorRef.current = { lat: applyLat, lng: applyLng };
           lastWorkletFeedAtRef.current = Date.now();
@@ -2994,6 +3014,8 @@ export default function MapScreen() {
             durationMs: 0,
             speedMs: feedSpeedMs,
             source: chaseM >= 1 ? 'v10_apply_chase_instant' : 'v10_apply_trip_instant',
+            rawMotionDetected: !!opts?.rawMotionDetected,
+            rawMotionM: opts?.rawStepM,
           });
           lastWorkletFeedAnchorRef.current = { lat: applyLat, lng: applyLng };
           lastWorkletFeedAtRef.current = Date.now();
@@ -3040,6 +3062,8 @@ export default function MapScreen() {
             smoothDurationMs,
             tripFeedSource,
             roadPtsWindow,
+            !!opts?.rawMotionDetected,
+            opts?.rawStepM ?? 0,
           );
         }
         {
@@ -7329,6 +7353,25 @@ export default function MapScreen() {
       // ══ 2. Kalman / driveTracking ════════════════════════════
       const tripActivePreKalman = isDrivingRef.current || isNavigatingRef.current;
       const rawKmhPreKalman = loc.speed != null && loc.speed >= 0 ? loc.speed * 3.6 : 0;
+      const rawStepWakeM = lastRawForHeadingRef.current
+        ? haversineKm(
+          lastRawForHeadingRef.current.lat,
+          lastRawForHeadingRef.current.lng,
+          rawLat,
+          rawLng,
+        ) * 1000
+        : 0;
+      const rawGpsMotionDetected = tripActivePreKalman && rawStepWakeM >= 2.7;
+      if (rawGpsMotionDetected) {
+        rawMotionWakeUntilRef.current = now + 1400;
+        startupMicroMoveGraceTicksRef.current = Math.max(startupMicroMoveGraceTicksRef.current, 3);
+      } else if (!tripActivePreKalman) {
+        rawMotionWakeUntilRef.current = 0;
+        startupMicroMoveGraceTicksRef.current = 0;
+      }
+      const rawMotionWakeActive =
+        tripActivePreKalman
+        && (rawGpsMotionDetected || now < rawMotionWakeUntilRef.current);
       const estRawToSnapPreM = lastSetLocRef.current
         ? haversineKm(lastSetLocRef.current.lat, lastSetLocRef.current.lng, rawLat, rawLng) * 1000
         : 0;
@@ -7361,9 +7404,14 @@ export default function MapScreen() {
           isDriving: isDrivingRef.current,
           isNavigating: isNavigatingRef.current,
           accelBypass: accelBypassKalman,
+          rawMotionDetected: rawMotionWakeActive,
+          microMoveGraceTicks: startupMicroMoveGraceTicksRef.current,
         });
         lat = filtered.latitude;
         lng = filtered.longitude;
+        if (startupMicroMoveGraceTicksRef.current > 0) {
+          startupMicroMoveGraceTicksRef.current -= 1;
+        }
       } else {
         if (useDrivingKalman) {
           configureDrivingKalmanForSpeed(kalmanSpeedKmh);
@@ -7894,6 +7942,7 @@ export default function MapScreen() {
             netMoveM,
             pathMoveM,
             isTripActive: true,
+            rawMotionDetected: rawMotionWakeActive,
           },
           now,
         );
@@ -10425,6 +10474,7 @@ export default function MapScreen() {
               motionKmh,
               netMoveM,
               pathMoveM,
+              rawMotionDetected: rawMotionWakeActive,
             });
             tripAccelState.prevFeedSpeedKmh = tripFeedSpeedKmh(
               kmh,
@@ -10536,6 +10586,7 @@ export default function MapScreen() {
             rawStepM: rawStepParkM,
             motionKmh,
             netMoveM,
+            rawMotionDetected: rawMotionWakeActive,
           });
         } else if (!isDrivingRef.current) {
           // ── Wolno / stoi — reset licznika (nie w aktywnej jeździe) ───────────

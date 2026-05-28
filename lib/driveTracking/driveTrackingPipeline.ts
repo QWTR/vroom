@@ -70,6 +70,7 @@ export class DriveTrackingPipeline {
       : 1000;
 
     if (prev) {
+      const skipPhysicsGuard = !!input.rawMotionDetected || (input.microMoveGraceTicks ?? 0) > 0;
       const physics = checkGpsPhysics(
         prev.latitude,
         prev.longitude,
@@ -78,7 +79,7 @@ export class DriveTrackingPipeline {
         dtMs,
         trip,
       );
-      if (!physics.accept) {
+      if (!physics.accept && !skipPhysicsGuard) {
         this.opts.onReject?.(physics.reason, { impliedSpeedKmh: physics.impliedSpeedKmh });
         return {
           latitude: prev.latitude,
@@ -142,6 +143,7 @@ export class DriveTrackingPipeline {
       netMoveM: number;
       pathMoveM: number;
       isTripActive: boolean;
+      rawMotionDetected?: boolean;
     },
     nowMs: number,
   ): number {
@@ -154,6 +156,7 @@ export class DriveTrackingPipeline {
         netMoveM: meta.netMoveM,
         pathMoveM: meta.pathMoveM,
         isTripActive: meta.isTripActive,
+        rawMotionDetected: meta.rawMotionDetected,
         previousKmh: this.lastSpeedKmh,
       },
       nowMs,

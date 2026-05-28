@@ -23,6 +23,10 @@ export type SmoothTarget = {
   roadPts?: { latitude: number; longitude: number }[];
   /** Diagnostyka — źródło feedu (tylko v10_* w trybie jazdy). */
   source?: string;
+  /** Raw GPS wake signal (>2-3m), used to instantly unlock stationary path. */
+  rawMotionDetected?: boolean;
+  /** Raw movement distance from previous GPS fix (meters). */
+  rawMotionM?: number;
 };
 
 type FeedHandler = (target: SmoothTarget) => void;
@@ -108,6 +112,7 @@ let lastFeedAtMs = 0;
 let lastFeedSource = '';
 let lastFeedWithMoveAtMs = 0;
 let markerStaleRawToSnapM = 0;
+let microMoveBypassPacketsLeft = 0;
 
 /** Ustawiane z MARKER_PIPE — poluzowanie v10_duplicate_micro przy dużym dryfie raw↔snap. */
 export function setMarkerStaleRawToSnapM(m: number): void {
@@ -147,6 +152,12 @@ function shouldDropFeed(normalized: SmoothTarget): string | null {
     normalized.longitude,
   );
   const dtMs = now - lastFeedAtMs;
+  if (
+    microMoveBypassPacketsLeft > 0
+    && (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 2.5 || movedM >= 0.35)
+  ) {
+    return null;
+  }
   const newPri = sourcePriority(src);
   const oldPri = sourcePriority(lastFeedSource);
 
@@ -227,6 +238,7 @@ export function clearSmoothPositionFeed(): void {
   lastFeedSource = '';
   lastFeedWithMoveAtMs = 0;
   markerStaleRawToSnapM = 0;
+  microMoveBypassPacketsLeft = 0;
 }
 
 export function registerSmoothPositionHandler(fn: FeedHandler | null, ownerId = 'default'): void {
@@ -291,6 +303,9 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
 
   const normalized = normalizeSmoothTarget(cleaned);
   const src = String(normalized.source ?? 'unknown');
+  if (normalized.rawMotionDetected || (normalized.rawMotionM ?? 0) >= 2.5) {
+    microMoveBypassPacketsLeft = Math.max(microMoveBypassPacketsLeft, 3);
+  }
 
   const movedFromIncomingM = lastTarget
     ? haversineM(
@@ -324,7 +339,11 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
       || src === 'v10_direct_cruise_feed';
     const bypassDrivingReject =
       drivingFeed
-      && (coordReject === 'low_speed_jump' || coordReject === 'stationary_jump');
+      && (
+        coordReject === 'low_speed_jump'
+        || coordReject === 'stationary_jump'
+        || normalized.rawMotionDetected
+      );
     if (bypassDrivingReject) {
       markerLogCritical('WORKLET_FEED_COORD_BYPASS', gpsTickPayload({
         reason: coordReject,
@@ -376,6 +395,9 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
   }, 1200);
 
   lastTarget = normalized;
+  if (microMoveBypassPacketsLeft > 0) {
+    microMoveBypassPacketsLeft -= 1;
+  }
   const feedNow = Date.now();
   lastFeedAtMs = feedNow;
   lastFeedSource = src;

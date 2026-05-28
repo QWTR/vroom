@@ -11,6 +11,10 @@ export type GpsFixInput = {
   isNavigating: boolean;
   /** Bypass filters during hard acceleration from standstill. */
   accelBypass?: boolean;
+  /** Raw GPS moved >2-3m: unblock startup micro-movement guards. */
+  rawMotionDetected?: boolean;
+  /** Grace ticks after wake to avoid dropping first movement packets. */
+  microMoveGraceTicks?: number;
 };
 
 export type FilteredGpsFix = {

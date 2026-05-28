@@ -399,6 +399,7 @@ export function useDrivingSnap() {
     hardRoadLock = false,
     accuracyM?: number | null,
     dopplerKmh?: number | null,
+    rawMotionDetected = false,
   ): {
     latitude:      number;
     longitude:     number;
@@ -461,11 +462,13 @@ export function useDrivingSnap() {
     // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
     const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
     const rawMoveM = last ? haversineKm(last.lat, last.lng, lat, lng) * 1000 : 0;
+    const instantRawWake = rawMotionDetected || rawMoveM >= 2.7;
     const hardStationaryHold =
       hardRoadLock
-      && rawMoveM < 6
-      && speedKmh < 5
-      && dopplerKmhSafe < 12;
+      && !instantRawWake
+      && rawMoveM < 2.8
+      && speedKmh < 2.8
+      && dopplerKmhSafe < 7.5;
 
     let roadLockHeld = false;
     if (hardRoadLock && pts.length >= 2) {
@@ -473,9 +476,10 @@ export function useDrivingSnap() {
       const allowRoadEscape =
         !hardStationaryHold
         && (
-          speedKmh >= 6
-          || dopplerKmhSafe >= 10
-          || rawMoveM >= 8
+          instantRawWake
+          || speedKmh >= 4
+          || dopplerKmhSafe >= 7
+          || rawMoveM >= 3
         );
       if (allowRoadEscape && rawDistM > ROAD_LOCK_ESCAPE_M) {
         rawEscapeStreakRef.current += 1;
@@ -501,14 +505,16 @@ export function useDrivingSnap() {
       && speedKmh < 8
       && rawMoveM < 4;
     const movingEvidence =
-      dopplerKmhSafe >= 8
-      || Math.max(speedKmh, dopplerKmhSafe) >= 8
-      || rawMoveM >= 3.5;
+      instantRawWake
+      || dopplerKmhSafe >= 6
+      || Math.max(speedKmh, dopplerKmhSafe) >= 6
+      || rawMoveM >= 2.7;
     const frozenSnap =
       hardRoadLock
-      && rawMoveM < 12
+      && !instantRawWake
+      && rawMoveM < 5.5
       && !movingEvidence
-      && (speedKmh < 8 || ghostDopplerParked);
+      && (speedKmh < 4.5 || ghostDopplerParked);
     if ((hardStationaryHold || frozenSnap) && lastSnappedRef.current) {
       lastRawRef.current = { lat, lng };
       return {
@@ -558,7 +564,7 @@ export function useDrivingSnap() {
           lastSnapAtRef.current = now;
           return { ...stepped, snapped: true, targetHeading: lastTargetHeadingRef.current };
         }
-        if (speedKmh < 3) {
+        if (speedKmh < 3 || instantRawWake) {
           return forceRoadProjection(lat, lng);
         }
         const stepM = dtMs > 0

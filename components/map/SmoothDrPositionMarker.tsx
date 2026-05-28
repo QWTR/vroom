@@ -3,14 +3,15 @@ import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
 import Animated, {
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { type DrPositionMarkerProps } from './DrPositionMarker';
 import { useSmoothMapPosition, type SmoothMapPositionValues } from '../../hooks/useSmoothMapPosition';
-import { feedSmoothPositionTarget, subscribeSmoothPositionDisplay } from '../../lib/mapPosition/smoothPositionFeed';
+import { feedSmoothPositionTarget } from '../../lib/mapPosition/smoothPositionFeed';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { markerLogTick } from '../../lib/markerPipelineLog';
-import { isAbsurdGlobeCoordinate } from '../../lib/mapPosition/feedCoordinateGuard';
 import { logGpsTickLayer, logGpsTickLayerThrottled } from '../../lib/gpsTickTraceLog';
 import { vroomGpsLog } from '../../lib/vroomGpsLog';
 
@@ -113,18 +114,27 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
     return true;
   }, [heading]);
 
-  /**
-   * Pozycja markera z workletu — throttlowany notify (~20 Hz), bez pętli rAF (~60 Hz setPose).
-   * Interpolacja 60 FPS zostaje na wątku UI (useSmoothMapPosition); tu tylko commit do MarkerView.
-   */
-  useEffect(() => {
-    if (!enabled) return;
-    return subscribeSmoothPositionDisplay((slat, slng) => {
-      if (!Number.isFinite(slat) || !Number.isFinite(slng)) return;
-      if (isAbsurdGlobeCoordinate(slat, slng)) return;
-      maybeCommitCoords(slat, slng);
-    });
-  }, [enabled, maybeCommitCoords]);
+  useAnimatedReaction(
+    () => {
+      if (!enabled) return null;
+      return {
+        lat: lat.value,
+        lng: lng.value,
+      };
+    },
+    (next, prev) => {
+      if (!next) return;
+      if (
+        prev
+        && Math.abs(next.lat - prev.lat) <= COORD_EPS
+        && Math.abs(next.lng - prev.lng) <= COORD_EPS
+      ) {
+        return;
+      }
+      runOnJS(maybeCommitCoords)(next.lat, next.lng);
+    },
+    [enabled, maybeCommitCoords],
+  );
 
   useEffect(() => {
     setSnapshotFailed(false);

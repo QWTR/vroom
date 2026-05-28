@@ -30,15 +30,15 @@ const ROAD_FLAT_MIN_LEN = 4;
 const ZERO_SPEED_EPS_MS = 0.05;
 const STATIONARY_MAX_ANCHOR_DRIFT_M = 2.5;
 /** Wyjście z postoju: feed musi mieć speed + realny ruch od pinu. */
-const STATIONARY_RELEASE_SPEED_MS = 0.45;
-const STATIONARY_RELEASE_MOVE_M = 1.2;
+const STATIONARY_RELEASE_SPEED_MS = 0.3;
+const STATIONARY_RELEASE_MOVE_M = 0.85;
 /** Przy postoju — odrzuć feed dalej niż tyle od display (m). */
 const STATIONARY_MAX_FEED_JUMP_M = 8;
 /** Bezwzględny limit skoku (inny kontynent / zły fix). */
 const MEGA_FEED_JUMP_M = 600;
 const STATIONARY_DRIFT_CAP_M = 45;
 /** Nie blokuj markera przy "powolnej jeździe" — lock tylko dla realnego postoju. */
-const STATIONARY_LOCK_SPEED_MS = 0.12;
+const STATIONARY_LOCK_SPEED_MS = 0.08;
 /** Duży skok kotwicy — wydłuż segment, nadal liniowy LERP. */
 const BIG_CATCHUP_M = 22;
 /** Display dalej od feedu — instant snap (live pozycja), tylko przy jeździe. */
@@ -46,6 +46,8 @@ const MAX_DISPLAY_LAG_M = 55;
 const LAG_SOFT_BLEND_ALPHA = 0.55;
 const SEG_DURATION_MIN_MS = 200;
 const SEG_DURATION_MAX_MS = 1400;
+const RELEASE_EASE_MIN_MS = 260;
+const RELEASE_EASE_MAX_MS = 900;
 /** Po zakręcie — krótki freeze dużych skoków indeksu DR na polilinii. */
 const TURN_DR_FREEZE_MS = 200;
 /** Max obrót markera [°/s]. */
@@ -326,6 +328,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
   const lastFeedWallMs = useSharedValue(0);
   const lastFrameDiagLogMs = useSharedValue(0);
   const turnDrFreezeUntil = useSharedValue(0);
+  const releaseBlendUntilMs = useSharedValue(0);
 
   useEffect(() => {
     frameActive.value = enabled ? 1 : 0;
@@ -441,25 +444,16 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         && isBackwardStepWorklet(lat.value, lng.value, feedLat, feedLng, backwardRefHdg);
 
       let forceInstantLag = instant;
-      const feedKmhForLag = (feedSpeedMsRaw > 0 ? feedSpeedMsRaw : speedMs.value) * 3.6;
       if (
         bootstrapped.value === 1
         && !instant
         && distFromDisplayM > MAX_DISPLAY_LAG_M
         && feedSpeedMsRaw >= 1.1
       ) {
-        if (feedKmhForLag >= 22 && !feedBackwardAlongRoad) {
-          lat.value = feedLat;
-          lng.value = feedLng;
-          forceInstantLag = true;
-          runOnJS(logDisplayLagClamp)({
-            distM: Math.round(distFromDisplayM),
-            source: src,
-            mode: 'instant',
-          });
-        } else if (!feedBackwardAlongRoad) {
+        if (!feedBackwardAlongRoad) {
           feedLat = lat.value + (feedLat - lat.value) * LAG_SOFT_BLEND_ALPHA;
           feedLng = lng.value + (feedLng - lng.value) * LAG_SOFT_BLEND_ALPHA;
+          forceInstantLag = false;
           runOnJS(logDisplayLagClamp)({
             distM: Math.round(distFromDisplayM),
             source: src,
@@ -471,9 +465,14 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const distFromPinM = stationaryLocked.value === 1
         ? haversineMWorklet(pinLat.value, pinLng.value, feedLat, feedLng)
         : distFromDisplayM;
+      const rawMotionWake =
+        target.rawMotionDetected === true
+        || (target.rawMotionM ?? 0) >= 2.5;
       const drivingContinuityEvidence =
         isDrivingLiveFeed
         && (
+          rawMotionWake
+          ||
           feedSpeedMsRaw >= 0.8
           || distFromDisplayM >= 1.2
         );
@@ -483,7 +482,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         speedMs.value = 0;
         inDeadReckoning.value = 0;
         const canRelease =
-          drivingContinuityEvidence
+          rawMotionWake
+          || drivingContinuityEvidence
           || (
           feedSpeedMsRaw >= STATIONARY_RELEASE_SPEED_MS
           || distFromPinM >= STATIONARY_RELEASE_MOVE_M
@@ -497,6 +497,13 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           return;
         }
         stationaryLocked.value = 0;
+        const releaseDistM = haversineMWorklet(pinLat.value, pinLng.value, feedLat, feedLng);
+        const releaseMs = clampWorklet(
+          Math.round(releaseDistM * 24),
+          RELEASE_EASE_MIN_MS,
+          RELEASE_EASE_MAX_MS,
+        );
+        releaseBlendUntilMs.value = now + releaseMs;
         runOnJS(logStationaryLockTelemetry)({
           event: 'exit',
           source: src,
@@ -506,7 +513,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       }
 
       const effectivelyStopped =
-        (src === 'v10_stationary_hold' && !drivingContinuityEvidence)
+        (src === 'v10_stationary_hold' && !drivingContinuityEvidence && !rawMotionWake)
         || (!isDrivingLiveFeed && feedSpeedMsRaw < STATIONARY_LOCK_SPEED_MS && distFromDisplayM < 0.9);
 
       if (effectivelyStopped && bootstrapped.value === 1) {
@@ -585,7 +592,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         );
       }
 
-      if (instant || forceInstantLag || bootstrapped.value === 0) {
+      if (bootstrapped.value === 0) {
         lat.value = feedLat;
         lng.value = feedLng;
         heading.value = feedHdg;
@@ -603,9 +610,6 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           now,
         );
         inDeadReckoning.value = 0;
-        if (instant || forceInstantLag) {
-          notifySmoothPositionDisplay(feedLat, feedLng, feedHdg);
-        }
       } else if (isStationaryFeed && distFromDisplayM < STATIONARY_MAX_ANCHOR_DRIFT_M) {
         lat.value = feedLat;
         lng.value = feedLng;
@@ -622,9 +626,13 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         );
         inDeadReckoning.value = 0;
       } else {
-        const fromLat = lat.value;
-        const fromLng = lng.value;
+        const fromLat = rawMotionWake ? pinLat.value : lat.value;
+        const fromLng = rawMotionWake ? pinLng.value : lng.value;
         const fromHdg = heading.value;
+        const releaseBlendActive = now < releaseBlendUntilMs.value;
+        const releaseMs = releaseBlendActive
+          ? Math.round(Math.max(RELEASE_EASE_MIN_MS, releaseBlendUntilMs.value - now))
+          : segmentMs;
         beginSegment(
           fromLat,
           fromLng,
@@ -632,7 +640,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           feedLat,
           feedLng,
           feedHdg,
-          segmentMs,
+          releaseMs,
           now,
         );
       }
@@ -663,6 +671,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       pinLng.value = 0;
       roadFlat.value = [];
       roadIdx.value = 0;
+      releaseBlendUntilMs.value = 0;
       lastFrameMs.value = 0;
       lastStallLogMs.value = 0;
       clearSmoothPositionFeed();
@@ -701,6 +710,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
     lastStallLogMs,
     lastFeedWallMs,
     lastFrameDiagLogMs,
+    releaseBlendUntilMs,
   ]);
 
   useFrameCallback(
@@ -749,11 +759,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       } else if (cruiseMs < DR_MIN_SPEED_MS) {
         const segDur = Math.max(1, segDurationMs.value);
         const elapsed = now - segStartMs.value;
-        const elapsedSec = elapsed / 1000;
-        const distU = segDistM.value > 0.05
-          ? clampWorklet((cruiseMs * elapsedSec) / segDistM.value, 0, 1)
-          : 1;
-        const u = distU;
+        const t = clampWorklet(elapsed / segDur, 0, 1);
+        const u = t * t * (3 - 2 * t);
         if (u < 1) {
           inDeadReckoning.value = 0;
           const nextLat = segFromLat.value + (segToLat.value - segFromLat.value) * u;
@@ -785,11 +792,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       } else {
         const segDur = Math.max(1, segDurationMs.value);
         const elapsed = now - segStartMs.value;
-        const elapsedSec = elapsed / 1000;
-        const distU = segDistM.value > 0.05
-          ? clampWorklet((cruiseMs * elapsedSec) / segDistM.value, 0, 1)
-          : 1;
-        const u = distU;
+        const t = clampWorklet(elapsed / segDur, 0, 1);
+        const u = t * t * (3 - 2 * t);
         const feedGapMs = lastFeedWallMs.value > 0 ? now - lastFeedWallMs.value : 0;
         const feedStale = feedGapMs > FEED_GAP_DR_MS;
         const forceGapDr = feedStale && cruiseMs >= DR_MIN_SPEED_MS;

@@ -7,6 +7,7 @@ export type SpeedStabilizerInput = {
   netMoveM: number;
   pathMoveM: number;
   isTripActive: boolean;
+  rawMotionDetected?: boolean;
   /** Previous stabilized value. */
   previousKmh: number;
 };
@@ -39,6 +40,7 @@ export class SpeedStabilizer {
       netMoveM,
       pathMoveM,
       isTripActive,
+      rawMotionDetected = false,
       previousKmh,
     } = input;
 
@@ -90,7 +92,16 @@ export class SpeedStabilizer {
     }
 
     // EMA smoothing — reduces flicker 0↔small without killing real stops.
-    const alpha = out >= 25 ? 0.55 : 0.38;
+    const accelerationLag =
+      rawGpsKmh >= 10
+      && out > 0
+      && rawGpsKmh >= out * 1.7
+      && (motionEvidence || rawMotionDetected);
+    const alpha = accelerationLag
+      ? 0.78
+      : out >= 25
+        ? 0.62
+        : 0.52;
     if (!this.hasEma) {
       this.emaKmh = out;
       this.hasEma = true;
@@ -104,6 +115,7 @@ export class SpeedStabilizer {
       return 0;
     }
 
-    return Math.max(0, Math.min(280, Math.max(out, this.emaKmh * 0.94)));
+    const emaFloor = accelerationLag ? 0.985 : 0.96;
+    return Math.max(0, Math.min(280, Math.max(out, this.emaKmh * emaFloor)));
   }
 }
