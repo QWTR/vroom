@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
-import { haversineKm, maxIdleBrowsingJumpM } from '../scripts/navigationUtils';
+import { haversineKm } from '../scripts/navigationUtils';
+import { logTelemetry } from '../lib/telemetryLogger';
 
 export type GPSMode = 'idle' | 'driving' | 'navigating';
 
@@ -25,12 +26,11 @@ interface Options {
 
 const DRIVE_SPEED_KMH  = 6;
 /** W przeglądaniu mapy telefon często podaje 50–90 m — 40 m odcinała wszystkie ticki (stojący marker). */
-const MAX_ACCURACY_BROWSING_M = 100;
+const MAX_ACCURACY_BROWSING_M = 140;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
-const MAX_ACCURACY_ACTIVE_M = 100;
+const MAX_ACCURACY_ACTIVE_M = 220;
 /** Powyżej tego fix jest zwykle bezużyteczny nawet dla active mode. */
-const MAX_ACCURACY_ACTIVE_HARD_M = 240;
-const MAX_SPEED_IDLE_KMH = 110;
+const MAX_ACCURACY_ACTIVE_HARD_M = 500;
 const MAX_SPEED_ACTIVE_KMH = 360;
 const ACTIVE_FIX_TIMEOUT_MS = 10000;
 const IDLE_FIX_TIMEOUT_MS   = 22000;
@@ -41,17 +41,14 @@ const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
-/** Min gap between forwarded fixes in active mode — 140 ms tolerates Android batch bursts in same ms. */
-const ACTIVE_EMIT_MIN_INTERVAL_MS = 140;
+/** Min gap between forwarded fixes in active mode (denser native stream at 500 ms). */
+const ACTIVE_EMIT_MIN_INTERVAL_MS = 40;
 /** Highway: denser emit gate (20–50 Hz devices) — do not starve map.tsx at 90+ km/h. */
-const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 40;
-const HIGHWAY_EMIT_SPEED_KMH = 50;
+const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 20;
+const HIGHWAY_EMIT_SPEED_KMH = 45;
 /** Po dłuższej ciszy zawsze przepuść fix — inaczej map.tsx nie dostaje ticków. */
-const ACTIVE_FORCE_EMIT_GAP_MS = 650;
-const BROWSING_EMIT_MIN_INTERVAL_MS = 700;
-const ACTIVE_EMIT_MIN_MOVE_M = 0.9;
-const BROWSING_EMIT_MIN_MOVE_M = 4.5;
-const ACTIVE_EMIT_MIN_HEADING_DELTA = 9;
+const ACTIVE_FORCE_EMIT_GAP_MS = 280;
+const ACTIVE_EMIT_MIN_HEADING_DELTA = 6;
 
 type GpsProfile = 'offMap' | 'browsing' | 'active';
 
@@ -72,9 +69,9 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    // Active driving: native distance/time gate — map.tsx throttles Mapbox; avoid 2 m / 600 ms flood.
-    timeInterval:     1200,
-    distanceInterval: 6,
+    // Denser stream in trip mode to reduce snap jumps and marker teleport.
+    timeInterval:     400,
+    distanceInterval: 1,
   },
 };
 
@@ -130,7 +127,6 @@ export function useAdaptiveGPS({
   const lastFixAtRef      = useRef<number>(0);
   const staleStrikeRef    = useRef(0);
   const opSeqRef          = useRef(0);
-  const lastPoorActiveEmitAtRef = useRef(0);
   const lastEmitRef = useRef<{
     at: number;
     lat: number;
@@ -209,34 +205,29 @@ export function useAdaptiveGPS({
             const nowMs = now;
             const lastEmit = lastEmitRef.current;
             const emitGapMs = lastEmit ? nowMs - lastEmit.at : ACTIVE_FORCE_EMIT_GAP_MS;
+            const fallbackDerivedKmh = lastEmit
+              ? (
+                (haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000)
+                / Math.max(emitGapMs / 1000, 0.05)
+              ) * 3.6
+              : 0;
+            const isFast = activeMode && (
+              effectiveSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH
+              || fallbackDerivedKmh >= HIGHWAY_EMIT_SPEED_KMH
+            );
+            const minInterval = isFast
+              ? ACTIVE_EMIT_MIN_INTERVAL_FAST_MS
+              : ACTIVE_EMIT_MIN_INTERVAL_MS;
+            const prevHeading = lastEmit?.heading ?? null;
+            const nextHeading = payload.heading;
+            const headingDelta =
+              prevHeading != null && nextHeading != null && Number.isFinite(prevHeading) && Number.isFinite(nextHeading)
+                ? Math.abs((((nextHeading - prevHeading) + 540) % 360) - 180)
+                : 0;
+            const headingWake = activeMode && headingDelta >= ACTIVE_EMIT_MIN_HEADING_DELTA;
             const forceStaleGap = activeMode && emitGapMs >= ACTIVE_FORCE_EMIT_GAP_MS;
-            if (!force && !forceStaleGap && lastEmit) {
-              const dt = emitGapMs;
-              const movedM = haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000;
-              const fallbackDerivedKmh = (movedM / (Math.max(dt, 1) / 1000)) * 3.6;
-              const isFast = activeMode && (
-                effectiveSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH
-                || fallbackDerivedKmh >= HIGHWAY_EMIT_SPEED_KMH
-              );
-              const activeMinInterval = isFast
-                ? ACTIVE_EMIT_MIN_INTERVAL_FAST_MS
-                : (activeMode ? ACTIVE_EMIT_MIN_INTERVAL_MS : BROWSING_EMIT_MIN_INTERVAL_MS);
-              const minMoveM = isFast
-                ? 0.2
-                : (activeMode ? ACTIVE_EMIT_MIN_MOVE_M : BROWSING_EMIT_MIN_MOVE_M);
-              const prevHeading = lastEmit.heading;
-              const nextHeading = payload.heading;
-              const headingDelta =
-                prevHeading != null && nextHeading != null && Number.isFinite(prevHeading) && Number.isFinite(nextHeading)
-                  ? Math.abs((((nextHeading - prevHeading) + 540) % 360) - 180)
-                  : 0;
-              const headingWake =
-                activeMode
-                && effectiveSpeedKmh >= 8
-                && headingDelta >= ACTIVE_EMIT_MIN_HEADING_DELTA;
-              if (dt < activeMinInterval && movedM < minMoveM && !headingWake) {
-                return;
-              }
+            if (!force && !forceStaleGap && !headingWake && emitGapMs < minInterval) {
+              return;
             }
             lastEmitRef.current = {
               at: nowMs,
@@ -248,97 +239,47 @@ export function useAdaptiveGPS({
           };
 
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
-          if (activeMode && acc > MAX_ACCURACY_ACTIVE_HARD_M) {
-            // Very poor active fixes are allowed only occasionally to avoid
-            // marker drift from low-quality network locations.
-            const nowMs = now;
-            if (nowMs - lastPoorActiveEmitAtRef.current < 4500) {
+          if (activeMode) {
+            if (acc > MAX_ACCURACY_ACTIVE_HARD_M) {
+              void logTelemetry('GPS_REJECT_ACCURACY_HARD', {
+                acc: Math.round(acc),
+                maxAcc: MAX_ACCURACY_ACTIVE_HARD_M,
+                lat: Number(rawLat.toFixed(6)),
+                lng: Number(rawLng.toFixed(6)),
+              });
               return;
             }
-            lastPoorActiveEmitAtRef.current = nowMs;
-            consecutiveBadRef.current += 1;
-            lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
-            speedRef.current    = effectiveSpeedKmh;
-            maybeEmitLocation({
-              latitude:  rawLat,
-              longitude: rawLng,
-              speed:     emitSpeedMs,
-              heading:   loc.coords.heading,
-              accuracy:  acc,
-              timestamp: now,
+          } else if (acc > MAX_ACCURACY_BROWSING_M && effectiveSpeedKmh < 3) {
+            void logTelemetry('GPS_REJECT_ACCURACY_BROWSING', {
+              acc: Math.round(acc),
+              maxAcc: MAX_ACCURACY_BROWSING_M,
+              speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
             });
             return;
           }
-
-          const maxAcc = activeMode ? MAX_ACCURACY_ACTIVE_M : MAX_ACCURACY_BROWSING_M;
-          if (acc > maxAcc) {
-            consecutiveBadRef.current += 1;
-            if (!activeMode && consecutiveBadRef.current >= 6) {
-              // Reset poisoned anchor so the next acceptable fix can through.
-              lastGoodRef.current = null;
-            }
-            const forwardWeakBrowsing =
-              !activeMode
-              && mapFocusedRef.current
-              && (effectiveSpeedKmh >= 4 || derivedSpeedKmh >= 4);
-            if (activeMode || forwardWeakBrowsing) {
-              lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
-              speedRef.current    = effectiveSpeedKmh;
-              maybeEmitLocation({
-                latitude:  rawLat,
-                longitude: rawLng,
-                speed:     emitSpeedMs,
-                heading:   loc.coords.heading,
-                accuracy:  acc,
-                timestamp: loc.timestamp ?? now,
-              });
-            }
-            if (!activeMode && !forwardWeakBrowsing) return;
-            if (activeMode) return;
+          if (!activeMode && acc > MAX_ACCURACY_ACTIVE_M && consecutiveBadRef.current >= 6) {
+            lastGoodRef.current = null;
           }
           consecutiveBadRef.current = 0;
 
           // ══ 2. SANITY CHECK — odrzuć teleport ════════════════
           if (lastGoodRef.current) {
             const dtMs    = now - lastGoodRef.current.time;
-            const jumpKmh = calcSpeedKmh(
-              lastGoodRef.current.lat, lastGoodRef.current.lng,
-              rawLat, rawLng, dtMs,
-            );
-            const maxJumpKmh = (navRef.current || drivingRef.current)
-              ? MAX_SPEED_ACTIVE_KMH
-              : MAX_SPEED_IDLE_KMH;
-            if (jumpKmh > maxJumpKmh) {
-              if (GPS_DEBUG_LOGS) {
-                console.warn(`[GPS] Skok odrzucony: ${Math.round(jumpKmh)} km/h`);
-              }
-              return;
-            }
-
-            // Additional absolute-distance cap: when the phone is slow or stationary
-            // a medium-sized GPS drift (e.g. 200 m over 30 s = only 24 km/h) passes
-            // the speed check but is still a bad fix. Cap allowed distance to
-            // 3× the expected travel distance + 100 m headroom (floor: 100 m).
             const distM    = haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng) * 1000;
-            // In idle mode don't trust stale/high speed carry-over for distance cap.
-            const baselineKmh = activeMode
-              ? Math.min(Math.max(speedRef.current, speedMs * 3.6), 220)
-              : Math.min(speedRef.current, 6);
-            const expectedM = (baselineKmh / 3.6) * (dtMs / 1000);
-            let maxDistM  = activeMode
-              ? Math.max(220, expectedM * 4 + 180)
-              : Math.max(70, expectedM * 2 + 70);
-            if (!activeMode) {
-              const reportedKmh = speedMs * 3.6;
-              maxDistM = Math.min(
-                maxDistM,
-                maxIdleBrowsingJumpM(dtMs, reportedKmh, acc, effectiveSpeedKmh),
-              );
-            }
-            if (distM > maxDistM) {
+            const hardTeleportM = Math.max(
+              1500,
+              ((Math.max(effectiveSpeedKmh, 20) / 3.6) * (Math.max(dtMs, 1000) / 1000)) * 8,
+            );
+            if (distM > hardTeleportM) {
               if (GPS_DEBUG_LOGS) {
-                console.warn(`[GPS] Skok dystansowy odrzucony: ${Math.round(distM)}m > ${Math.round(maxDistM)}m`);
+                console.warn(`[GPS] Hard teleport reject: ${Math.round(distM)}m > ${Math.round(hardTeleportM)}m`);
               }
+              void logTelemetry('GPS_REJECT_HARD_TELEPORT', {
+                distM: Math.round(distM),
+                hardTeleportM: Math.round(hardTeleportM),
+                dtMs,
+                acc: Math.round(acc),
+              });
               return;
             }
           }
@@ -358,6 +299,12 @@ export function useAdaptiveGPS({
             heading:   loc.coords.heading,
             accuracy:  acc,
             timestamp: loc.timestamp ?? now,
+          });
+          void logTelemetry('GPS_ACCEPT', {
+            lat: Number(rawLat.toFixed(6)),
+            lng: Number(rawLng.toFixed(6)),
+            acc: Math.round(acc),
+            speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
           });
 
           // ══ 6. Auto-upgrade browsing → active ════════════════

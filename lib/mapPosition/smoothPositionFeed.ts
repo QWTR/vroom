@@ -168,7 +168,7 @@ function shouldDropFeed(normalized: SmoothTarget): string | null {
 
   if (isV10TripFeed) {
     const staleBypass = markerStaleRawToSnapM > 15 || dtMs > 800;
-    if (dtMs < 18 && movedM < 0.06 && !staleBypass) return 'v10_duplicate_micro';
+    if (dtMs < 8 && movedM < 0.02 && !staleBypass) return 'v10_duplicate_micro';
     return null;
   }
 

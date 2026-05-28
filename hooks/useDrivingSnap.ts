@@ -9,6 +9,7 @@ import {
   projectOntoPolylineWithIndex,
 } from '../scripts/navigationUtils';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
+import { logTelemetry } from '../lib/telemetryLogger';
 
 // v10 CLIENT-FIRST snap: promienie musza wybaczac miejski dryf GPS (30–40 m),
 // inaczej snap=false → raw leak → marker skacze na trawnik i wraca.
@@ -23,8 +24,8 @@ const SNAP_RADIUS_EMERGENCY_M     = 60;
 /** HARD LATERAL REJECT: snap dalej niz to od raw GPS = snapped:false (raw). */
 const DRIVING_LATERAL_REJECT_M = 120;
 const DRIVING_LATERAL_REJECT_MIN_KMH = 25;
-const MAX_SNAP_TO_RAW_DISTANCE_M = 150;
-const HARD_SNAP_DROP_M = 120;
+const MAX_SNAP_TO_RAW_DISTANCE_M = 220;
+const HARD_SNAP_DROP_M = 220;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
 const SNAP_MAX_JUMP_M       = 45;      // guard against sudden lane/segment jumps
@@ -38,6 +39,9 @@ const IOS_WRONG_ROAD_GUARD_MAX_HEADING_DELTA = 68;
 const IOS_SEGMENT_SWITCH_CONFIRM_HITS = 2;
 const IOS_SEGMENT_SWITCH_CONFIRM_WINDOW_MS = 3000;
 const IOS_SEGMENT_SWITCH_CONFIRM_RADIUS_M = 32;
+/** Surowy GPS musi być tak daleko od zablokowanej polilinii, żeby puścić boczną drogę. */
+const ROAD_LOCK_ESCAPE_M = 70;
+const ROAD_LOCK_ESCAPE_TICKS = 2;
 
 function projectByBearingMeters(
   lat: number,
@@ -64,6 +68,22 @@ function projectByBearingMeters(
 }
 function angleDeltaDeg(a: number, b: number): number {
   return Math.abs((((a - b) + 540) % 360) - 180);
+}
+
+function minDistToPolylineM(
+  lat: number,
+  lng: number,
+  pts: { latitude: number; longitude: number }[],
+): number {
+  if (pts.length < 2) return Infinity;
+  const proj = projectOntoPolylineWithIndex(lat, lng, pts, 500);
+  if (proj && Number.isFinite(proj.distM)) return proj.distM;
+  let minD = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = haversineKm(lat, lng, pts[i].latitude, pts[i].longitude) * 1000;
+    if (d < minD) minD = d;
+  }
+  return minD;
 }
 
 /** Tolerancja azymutu segmentu — w nawigacji bardziej liberalna, by nie blokować ruchu do przodu. */
@@ -145,6 +165,20 @@ function clampSnapTowardRaw(
   };
 }
 
+function blendTowardRaw(
+  snapLat: number,
+  snapLng: number,
+  rawLat: number,
+  rawLng: number,
+  alpha: number,
+): { latitude: number; longitude: number } {
+  const t = Math.max(0, Math.min(1, alpha));
+  return {
+    latitude: snapLat + (rawLat - snapLat) * t,
+    longitude: snapLng + (rawLng - snapLng) * t,
+  };
+}
+
 /**
  * Interpolacja kątowa z uwzględnieniem przejścia przez 0°/360°.
  * @param a Start angle in degrees [0, 360)
@@ -183,6 +217,8 @@ function snapToRouteWithInfo(
     expectedSegIndex?: number | null;
     speedKmh?: number;
     isNavigating?: boolean;
+    /** Nie szukaj globalnego dopasowania na równoległej drodze (histereza hard lock). */
+    lockParallelRoad?: boolean;
   },
 ): SnapResult | null {
   if (pts.length < 2) return null;
@@ -262,13 +298,16 @@ function snapToRouteWithInfo(
     }
   }
 
-  if (minDist > maxRadiusM && useForwardWindow) {
+  if (minDist > maxRadiusM && useForwardWindow && !opts?.lockParallelRoad) {
     return snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
       expectedHeading: null,
       expectedSegIndex: null,
       speedKmh: opts?.speedKmh,
       isNavigating: opts?.isNavigating,
     });
+  }
+  if (minDist > maxRadiusM && useForwardWindow && opts?.lockParallelRoad) {
+    return null;
   }
   if (minDist > maxRadiusM) return null;
 
@@ -282,7 +321,7 @@ function snapToRouteWithInfo(
     }, 900);
   }
 
-  if (useForwardWindow && Number.isFinite(minDist)) {
+  if (useForwardWindow && Number.isFinite(minDist) && !opts?.lockParallelRoad) {
     const global = snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
       expectedHeading: null,
       expectedSegIndex: null,
@@ -336,6 +375,8 @@ export function useDrivingSnap() {
     hits: number;
     at: number;
   } | null>(null);
+  const rawEscapeStreakRef = useRef(0);
+  const roadLockEngagedRef = useRef(false);
 
   const logSnapReject = useCallback((reason: string, payload?: Record<string, unknown>) => {
     vroomGpsLog(`SNAP_${reason}`, { source: 'useDrivingSnap', ...(payload ?? {}) }, 1500);
@@ -364,12 +405,46 @@ export function useDrivingSnap() {
     snapped:       boolean;
     targetHeading: number;
   } => {
+    const forceRoadProjection = (
+      fallbackLat: number,
+      fallbackLng: number,
+      maxProjectM: number = SNAP_RADIUS_EMERGENCY_M + 24,
+    ): { latitude: number; longitude: number; snapped: boolean; targetHeading: number } => {
+      const emergencySource = isNavigating && routePtsRef.current.length >= 2
+        ? routePtsRef.current
+        : roadMatchPtsRef.current.length >= 2
+          ? roadMatchPtsRef.current
+          : routePtsRef.current;
+      const emergencyPts = emergencySource.length >= 2
+        ? densifyPolyline(emergencySource, emergencySource.length <= 4 ? 6 : 8)
+        : emergencySource;
+      if (hardRoadLock && emergencyPts.length >= 2) {
+        const proj = projectOntoPolylineWithIndex(fallbackLat, fallbackLng, emergencyPts, maxProjectM);
+        if (proj) {
+          const projected = { latitude: proj.latitude, longitude: proj.longitude };
+          lastSnappedRef.current = projected;
+          lastSegmentIndexRef.current = proj.segmentIndex;
+          lastSnapAtRef.current = Date.now();
+          return { ...projected, snapped: true, targetHeading: lastTargetHeadingRef.current };
+        }
+      }
+      if (hardRoadLock && lastSnappedRef.current) {
+        return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+      }
+      return {
+        latitude: fallbackLat,
+        longitude: fallbackLng,
+        // Driving/Navi: prefer continuity over raw unsnapped leaks.
+        snapped: hardRoadLock,
+        targetHeading: lastTargetHeadingRef.current,
+      };
+    };
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       logSnapReject('snap_invalid_coord');
       if (lastSnappedRef.current) {
         return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
       }
-      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+      return forceRoadProjection(lat, lng);
     }
 
     // Wybieramy punkty. Priorytet ma roadMatchPtsRef, bo to jest aktualna GEOMETRIA drogi,
@@ -383,6 +458,29 @@ export function useDrivingSnap() {
       ? densifyPolyline(ptsSource, ptsSource.length <= 4 ? 6 : 8)
       : ptsSource;
     const last = lastRawRef.current;
+
+    let roadLockHeld = false;
+    if (hardRoadLock && pts.length >= 2) {
+      const rawDistM = minDistToPolylineM(lat, lng, pts);
+      if (rawDistM > ROAD_LOCK_ESCAPE_M) {
+        rawEscapeStreakRef.current += 1;
+      } else {
+        rawEscapeStreakRef.current = 0;
+      }
+      roadLockEngagedRef.current = true;
+      roadLockHeld = roadLockEngagedRef.current
+        && rawEscapeStreakRef.current < ROAD_LOCK_ESCAPE_TICKS;
+      if (roadLockHeld && rawEscapeStreakRef.current > 0) {
+        vroomGpsLog('ROAD_LOCK_HELD', {
+          rawDistM: Math.round(rawDistM),
+          streak: rawEscapeStreakRef.current,
+          needTicks: ROAD_LOCK_ESCAPE_TICKS,
+        }, 2000);
+      }
+    } else if (!hardRoadLock) {
+      rawEscapeStreakRef.current = 0;
+      roadLockEngagedRef.current = false;
+    }
 
     // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
     const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
@@ -450,7 +548,7 @@ export function useDrivingSnap() {
           return { ...stepped, snapped: true, targetHeading: lastTargetHeadingRef.current };
         }
         if (speedKmh < 3) {
-          return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+          return forceRoadProjection(lat, lng);
         }
         const stepM = dtMs > 0
           ? Math.min(28, Math.max(1.2, (Math.max(0, speedKmh) / 3.6) * (dtMs / 1000)))
@@ -465,7 +563,7 @@ export function useDrivingSnap() {
         lastSnapAtRef.current = now;
         return { ...projected, snapped: true, targetHeading: lastTargetHeadingRef.current };
       }
-      return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+      return forceRoadProjection(lat, lng);
     }
 
     if (last && lastSnappedRef.current) {
@@ -555,11 +653,33 @@ export function useDrivingSnap() {
       expectedSegIndex,
       speedKmh: effectiveSpeedKmh,
       isNavigating,
+      lockParallelRoad: roadLockHeld,
     };
 
     let result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius, snapOpts);
     // Jeśli stale-matched-geometry chwilowo nie pasuje, spróbuj fallbacku
     // do routePts (często ratuje płynność po ostrych zakrętach / zmianie pasa).
+    if (!result && roadLockHeld && lastSnappedRef.current) {
+      // Soft-unlock: zamiast zamrażać marker na starym snapie, łagodnie
+      // przechodzimy w kierunku surowego GPS i tymczasowo odpuszczamy snap.
+      const pull = speedKmh >= 65 ? 0.82 : speedKmh >= 35 ? 0.66 : 0.5;
+      const blended = blendTowardRaw(
+        lastSnappedRef.current.latitude,
+        lastSnappedRef.current.longitude,
+        lat,
+        lng,
+        pull,
+      );
+      lastSnappedRef.current = blended;
+      lastSnapAtRef.current = Date.now();
+      lastRawRef.current = { lat, lng };
+      return {
+        ...blended,
+        snapped: false,
+        targetHeading: lastTargetHeadingRef.current,
+      };
+    }
+
     if (!result && usingMatchedRoad && routePtsRef.current.length >= 2) {
       result = snapToRouteWithInfo(lat, lng, routePtsRef.current, SNAP_RADIUS_M_FAST, snapOpts);
     }
@@ -677,6 +797,40 @@ export function useDrivingSnap() {
       : Infinity;
     const lastSnapUsable = lastSnappedRef.current && lastSnapToRawM <= MAX_SNAP_TO_RAW_DISTANCE_M;
 
+    if (false && !result) {
+      const prev = lastSnappedRef.current;
+      if (prev) {
+        const pull = speedKmh >= 70 ? 0.86 : speedKmh >= 35 ? 0.72 : 0.58;
+        const blended = blendTowardRaw(
+          prev.latitude,
+          prev.longitude,
+          lat,
+          lng,
+          pull,
+        );
+        lastSnappedRef.current = blended;
+        lastSnapAtRef.current = Date.now();
+        void logTelemetry('SNAP_FALLBACK_BLEND', {
+          speedKmh: Number(speedKmh.toFixed(1)),
+          pull,
+          rawLat: Number(lat.toFixed(6)),
+          rawLng: Number(lng.toFixed(6)),
+          blendLat: Number(blended.latitude.toFixed(6)),
+          blendLng: Number(blended.longitude.toFixed(6)),
+        });
+        return {
+          ...blended,
+          snapped: false,
+          targetHeading: lastTargetHeadingRef.current,
+        };
+      }
+      return {
+        latitude: lat,
+        longitude: lng,
+        snapped: false,
+        targetHeading: lastTargetHeadingRef.current,
+      };
+    }
     if (!result) {
       if (lastSnapUsable && lastSnappedRef.current) {
         if (hardRoadLock && pts.length >= 2) {
@@ -712,7 +866,17 @@ export function useDrivingSnap() {
             lastSnapAtRef.current = Date.now();
             return { ...extrapolated, snapped: true, targetHeading: lastTargetHeadingRef.current };
           }
-          return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+          const pull = speedKmh >= 65 ? 0.8 : speedKmh >= 35 ? 0.64 : 0.48;
+          const blended = blendTowardRaw(
+            lastSnappedRef.current.latitude,
+            lastSnappedRef.current.longitude,
+            lat,
+            lng,
+            pull,
+          );
+          lastSnappedRef.current = blended;
+        if (hardRoadLock) return forceRoadProjection(blended.latitude, blended.longitude);
+        return { ...blended, snapped: false, targetHeading: lastTargetHeadingRef.current };
         }
       }
       if (hardRoadLock && pts.length >= 2) {
@@ -733,7 +897,17 @@ export function useDrivingSnap() {
         // wyżej w pipeline `snapped: false` powoduje raw fallback i wymuszenie
         // map-matchingu zamiast wizualnego "stania" na martwej geometrii.
         if (hardRoadLock && lastSnapUsable && lastSnappedRef.current) {
-          return { ...lastSnappedRef.current, snapped: true, targetHeading: lastTargetHeadingRef.current };
+          const pull = speedKmh >= 65 ? 0.78 : speedKmh >= 35 ? 0.62 : 0.46;
+          const blended = blendTowardRaw(
+            lastSnappedRef.current.latitude,
+            lastSnappedRef.current.longitude,
+            lat,
+            lng,
+            pull,
+          );
+          lastSnappedRef.current = blended;
+          if (hardRoadLock) return forceRoadProjection(blended.latitude, blended.longitude);
+          return { ...blended, snapped: false, targetHeading: lastTargetHeadingRef.current };
         }
         if (lastSnappedRef.current && !lastSnapUsable) {
           lastSnappedRef.current = null;
@@ -753,7 +927,7 @@ export function useDrivingSnap() {
             };
           }
         }
-        return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
+        return forceRoadProjection(lat, lng);
       }
     }
 
@@ -1045,22 +1219,19 @@ export function useDrivingSnap() {
         distM: Math.round(finalDistFromRawM),
         speedKmh: Math.round(speedKmh),
       });
-      if (hardRoadLock && pts.length >= 2) {
-        const rescueProj = projectOntoPolylineWithIndex(lat, lng, pts, HARD_SNAP_DROP_M);
-        if (rescueProj) {
-          snappedCoord = { latitude: rescueProj.latitude, longitude: rescueProj.longitude };
-        } else {
-          lastSnappedRef.current = null;
-          lastSegmentIndexRef.current = -1;
-          lastSnapAtRef.current = Date.now();
-          return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
-        }
-      } else {
-        lastSnappedRef.current = null;
-        lastSegmentIndexRef.current = -1;
-        lastSnapAtRef.current = Date.now();
-        return { latitude: lat, longitude: lng, snapped: false, targetHeading: lastTargetHeadingRef.current };
-      }
+      void logTelemetry('SNAP_FINAL_DIST', {
+        finalDistFromRawM: Math.round(finalDistFromRawM),
+        hardDropM: HARD_SNAP_DROP_M,
+        speedKmh: Number(speedKmh.toFixed(1)),
+      });
+      const pull = speedKmh >= 60 ? 0.78 : 0.62;
+      snappedCoord = blendTowardRaw(
+        snappedCoord.latitude,
+        snappedCoord.longitude,
+        lat,
+        lng,
+        pull,
+      );
     }
 
     lastSnappedRef.current = snappedCoord;
@@ -1098,6 +1269,8 @@ export function useDrivingSnap() {
     lastSegmentIndexRef.current  = -1;
     lastSnapAtRef.current        = 0;
     iosSegmentSwitchCandidateRef.current = null;
+    rawEscapeStreakRef.current = 0;
+    roadLockEngagedRef.current = false;
   }, []);
 
   const reset = useCallback(() => {

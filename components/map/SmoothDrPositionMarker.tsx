@@ -176,7 +176,7 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
       const tickDisplayLat = smoothOkTick ? pose.lat : (propsOkTick ? _lat : NaN);
       const tickDisplayLng = smoothOkTick ? pose.lng : (propsOkTick ? _lng : NaN);
       const coordSource = workletOnly
-        ? (smoothOkTick ? 'shared_value_pose' : 'shared_value_waiting')
+        ? (smoothOkTick ? 'shared_value_pose' : 'shared_value_fallback')
         : (smoothOkTick ? 'shared_pose' : (propsOkTick ? 'props_fallback_lat' : 'none'));
       logGpsTickLayerThrottled('MARKER_UI_RENDER', {
         enabled,
@@ -210,7 +210,7 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
     ? pose.lng
     : (tripAnchorOk ? _lng : (propsOk ? _lng : NaN));
   const renderSource = workletOnly
-    ? (smoothOk ? 'worklet_pose' : 'worklet_waiting')
+    ? (smoothOk ? 'worklet_pose' : 'worklet_fallback')
     : (smoothOk ? 'worklet_pose' : (propsOk ? 'props_parent' : 'none'));
 
   if (enabled && Number.isFinite(displayLat) && Number.isFinite(displayLng)) {

@@ -9,10 +9,6 @@ import {
   recordMapMatchNetwork,
 } from '../lib/mapboxNetworkGate';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
-import {
-  isClientFirstGeometryHealthy,
-  shouldAllowNetworkMapMatch,
-} from '../lib/mapMatch/clientFirstRoadGeometry';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -23,7 +19,7 @@ import {
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
 /** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <20 s. */
-const MIN_INTERVAL_MS = 22_000;
+const MIN_INTERVAL_MS = 18_000;
 const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
 /** Suma dystansu w buforze przed wysłaniem trace (batching zamiast pojedynczych punktów). */
 const BATCH_MIN_PATH_DISTANCE_M = 20;
@@ -274,15 +270,6 @@ export function useDrivingMapMatch() {
     const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
     const noRoad = !!ctx?.noRoad;
     const staleSnap = !!ctx?.staleSnap;
-
-    if (isClientFirstGeometryHealthy() && !noRoad && !staleSnap) {
-      logSnapReject('add_client_first_healthy');
-      return;
-    }
-    if (!shouldAllowNetworkMapMatch({ noRoad, staleSnap })) {
-      logSnapReject('add_client_first_policy', { noRoad, staleSnap });
-      return;
-    }
 
     // Przy braku geometrii trace może iść na postoju; przy snapie na drodze — oszczędzamy API.
     if (speedKmh < STATIONARY_SPEED_KMH && !noRoad) {

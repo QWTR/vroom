@@ -25,6 +25,7 @@ export interface FuelStation {
   dbId:     number;
   name:     string;
   brand:    string | null;
+  brandLogoUrl?: string | null;
   lat:      number;
   lng:      number;
   address?: string;
@@ -42,6 +43,7 @@ type NearbyStationDto = {
   id: number;
   name: string;
   brand: string | null;
+  brandLogoUrl?: string | null;
   lat: number;
   lng: number;
   address?: string | null;
@@ -93,6 +95,7 @@ function mapNearbyStation(row: NearbyStationDto): FuelStation {
     dbId,
     name: row.name,
     brand: row.brand,
+    brandLogoUrl: row.brandLogoUrl ?? null,
     lat: row.lat,
     lng: row.lng,
     address: row.address ?? undefined,
