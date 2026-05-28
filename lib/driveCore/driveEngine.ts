@@ -69,8 +69,14 @@ export class DriveEngine {
   onRawGps(raw: RawGpsFix): DriveTickOutput | null {
     if (!Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) return null;
 
-    const isMoving = this.motion.update(raw);
-    const speedKmh = this.speed.update(raw, isMoving);
+    let isMoving = this.motion.update(raw);
+    const gpsWakeKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0
+        ? raw.gpsSpeedMs * 3.6
+        : 0;
+    if (!isMoving && gpsWakeKmh >= 4) {
+      isMoving = true;
+    }
     const durationMs = this.computeDurationMs(raw.timestamp);
 
     if (!isMoving) {
@@ -87,10 +93,24 @@ export class DriveEngine {
       };
     }
 
+    const maxStepM = computeSnapMaxStepM(
+      Math.max(gpsWakeKmh, this.speed.getLastKmh()),
+      durationMs,
+    );
+
     const pose = this.snap.snap(raw, this.cache, {
       isMoving: true,
       isNavigating: this.isNavigating,
+      allowRawFallback: !this.cache.hasGeometry(),
+      maxStepM,
     });
+
+    const speedKmhMoving = this.speed.update(
+      raw,
+      pose,
+      true,
+      this.isNavigating,
+    );
 
     const decision = this.budget.evaluate({
       raw,
@@ -106,7 +126,7 @@ export class DriveEngine {
 
     return {
       pose,
-      speedKmh,
+      speedKmh: speedKmhMoving,
       isMoving: true,
       durationMs,
       geometrySource: this.cache.source() ?? 'tangent_fallback',
@@ -146,10 +166,12 @@ export class DriveEngine {
         const pose = this.snap.snap(raw, this.cache, {
           isMoving: true,
           isNavigating: false,
+          allowRawFallback: false,
+          maxStepM: 22,
         });
         const out: DriveTickOutput = {
           pose,
-          speedKmh: this.speed.update(raw, true),
+          speedKmh: this.speed.update(raw, pose, true, false),
           isMoving: true,
           durationMs: MARKER_TIMING_MAX_MS,
           geometrySource: 'segment_cache',
@@ -167,4 +189,10 @@ export class DriveEngine {
       this.cache.setFromMatch(points, hint ?? undefined);
     }
   }
+}
+
+function computeSnapMaxStepM(speedKmh: number, durationMs: number): number {
+  const dtSec = Math.max(0.12, durationMs / 1000);
+  const travelM = (Math.max(0, speedKmh) / 3.6) * dtSec;
+  return Math.min(38, Math.max(4, travelM * 1.25 + 3));
 }

@@ -4,6 +4,8 @@ export type RawGpsFix = {
   lng: number;
   accuracy: number;
   timestamp: number;
+  /** Doppler z układu GPS (m/s), jeśli dostępny. */
+  gpsSpeedMs?: number | null;
 };
 
 export type RoadPoint = { latitude: number; longitude: number };

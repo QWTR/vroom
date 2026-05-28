@@ -3,7 +3,7 @@ import {
   densifyPolyline,
   distanceToSegmentMeters,
   haversineKm,
-  projectOntoPolylineWithIndex,
+  stepTowardSnapOnPolyline,
 } from '../../scripts/navigationUtils';
 import type { RoadPoint } from './types';
 
@@ -72,6 +72,9 @@ export function closestPointOnSegment(
   };
 }
 
+/**
+ * Snap tylko do segmentów >= minSegmentIndex (bez cofania + bez „skoku” na zły segment).
+ */
 export function projectOnPolylineForward(
   lat: number,
   lng: number,
@@ -86,22 +89,55 @@ export function projectOnPolylineForward(
   segmentIndex: number;
 } | null {
   if (points.length < 2) return null;
-  const proj = projectOntoPolylineWithIndex(lat, lng, points, maxRadiusM);
-  if (!proj) return null;
-  let segIdx = proj.segmentIndex;
-  if (segIdx < minSegmentIndex) {
-    segIdx = Math.min(minSegmentIndex, points.length - 2);
+  const minSeg = Math.max(0, Math.min(minSegmentIndex, points.length - 2));
+
+  let bestCross = Infinity;
+  let bestLat = lat;
+  let bestLng = lng;
+  let bestSeg = minSeg;
+
+  for (let i = minSeg; i < points.length - 1; i++) {
+    const onSeg = closestPointOnSegment(lat, lng, points[i], points[i + 1]);
+    if (onSeg.crossTrackM < bestCross) {
+      bestCross = onSeg.crossTrackM;
+      bestLat = onSeg.lat;
+      bestLng = onSeg.lng;
+      bestSeg = i;
+    }
   }
-  const a = points[segIdx];
-  const b = points[segIdx + 1];
-  const onSeg = closestPointOnSegment(lat, lng, a, b);
-  if (onSeg.crossTrackM > maxRadiusM) return null;
+
+  if (!Number.isFinite(bestCross) || bestCross > maxRadiusM) return null;
+
+  const a = points[bestSeg];
+  const b = points[bestSeg + 1];
   const heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
   return {
-    lat: onSeg.lat,
-    lng: onSeg.lng,
+    lat: bestLat,
+    lng: bestLng,
     heading,
-    crossTrackM: onSeg.crossTrackM,
-    segmentIndex: segIdx,
+    crossTrackM: bestCross,
+    segmentIndex: bestSeg,
   };
+}
+
+/** Płynny krok wzdłuż polilinii (nie po skosie mapy). */
+export function stepPoseOnPolyline(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  points: RoadPoint[],
+  maxStepM: number,
+  maxSnapM = 120,
+): { lat: number; lng: number } {
+  const stepped = stepTowardSnapOnPolyline(
+    fromLat,
+    fromLng,
+    toLat,
+    toLng,
+    points,
+    maxStepM,
+    maxSnapM,
+  );
+  return { lat: stepped.latitude, lng: stepped.longitude };
 }

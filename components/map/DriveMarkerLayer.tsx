@@ -1,59 +1,182 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useEffect, useState } from 'react';
+import { View } from 'react-native';
+import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
-import Animated, { useAnimatedProps } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
+import { normalizeMediaUri } from '../../lib/mediaUri';
 
-/**
- * Mapbox RN wymaga shape jako JSON STRING (nie obiekt) — inaczej ClassCastException.
- * Preferuj SmoothDrPositionMarker + driveMarker SV w map.tsx (stabilniejsze).
- */
-const AnimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
+const MARKER_SIZE = 40;
+const AVATAR_INNER = 34;
+const MARKER_BORDER = 2;
+const FALLBACK_DOT = 22;
 
 type Props = {
   enabled: boolean;
   marker: DriveMarkerValues;
-  iconImage?: string;
+  imageUri?: string | null;
+  avatarUrl?: string | null;
+  cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
 };
 
+/**
+ * Pozycja: rAF odczyt SharedValue (~60 FPS) → MarkerView — bez GeoJSON / stringify.
+ * Rotacja: useAnimatedStyle na dziecku (UI thread).
+ */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
   marker,
-  iconImage = 'marker-15',
+  imageUri,
+  avatarUrl,
+  cursorSkin,
 }: Props) {
-  const animatedProps = useAnimatedProps(() => {
-    'worklet';
-    const la = marker.lat.value;
-    const ln = marker.lng.value;
-    const h = Number.isFinite(marker.heading.value) ? marker.heading.value : 0;
-    if (!Number.isFinite(la) || !Number.isFinite(ln)) {
-      return {
-        shape:
-          '{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"heading":0}}',
-      };
-    }
-    return {
-      shape: `{"type":"Feature","geometry":{"type":"Point","coordinates":[${ln},${la}]},"properties":{"heading":${h}}}`,
+  const [coordinate, setCoordinate] = useState<[number, number]>([0, 0]);
+  const [hasCoord, setHasCoord] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let rafId = 0;
+    let alive = true;
+    const loop = () => {
+      if (!alive) return;
+      const la = marker.lat.value;
+      const ln = marker.lng.value;
+      if (Number.isFinite(la) && Number.isFinite(ln)) {
+        setCoordinate((prev) => {
+          const eps = 1e-8;
+          if (Math.abs(prev[0] - ln) < eps && Math.abs(prev[1] - la) < eps) {
+            return prev;
+          }
+          return [ln, la];
+        });
+        setHasCoord((v) => (v ? v : true));
+      }
+      rafId = requestAnimationFrame(loop);
     };
-  });
+    rafId = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(rafId);
+    };
+  }, [enabled, marker.lat, marker.lng]);
 
-  const layerStyle = useMemo(
-    () => ({
-      iconImage,
-      iconSize: 0.55,
-      iconAllowOverlap: true,
-      iconIgnorePlacement: true,
-      iconRotate: ['get', 'heading'],
-      iconRotationAlignment: 'map' as const,
-      iconAnchor: 'center' as const,
-    }),
-    [iconImage],
-  );
+  const rotateStyle = useAnimatedStyle(() => {
+    'worklet';
+    const h = marker.heading.value;
+    const deg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
+    return { transform: [{ rotate: `${deg}deg` }] };
+  }, [marker.heading]);
 
-  if (!enabled) return null;
+  const mediaAvatar = normalizeMediaUri(avatarUrl);
+  const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);
+  const skinBorder = cursorSkin?.borderColor ?? '#e33835';
+  const showSkin = !!skinUri;
+  const showAvatar = !!mediaAvatar && !showSkin;
+  const showSnapshot = !!imageUri && !showAvatar && !showSkin;
+
+  if (!enabled || !hasCoord) return null;
+
+  let markerBody: React.ReactNode;
+  if (showSkin) {
+    markerBody = (
+      <Animated.View
+        style={[
+          { width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' },
+          rotateStyle,
+        ]}
+      >
+        <View
+          style={{
+            width: MARKER_SIZE,
+            height: MARKER_SIZE,
+            borderRadius: MARKER_SIZE / 2,
+            backgroundColor: '#111',
+            borderWidth: MARKER_BORDER + 1,
+            borderColor: skinBorder,
+            overflow: 'hidden',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Image
+            source={{ uri: skinUri }}
+            style={{ width: AVATAR_INNER, height: AVATAR_INNER }}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
+        </View>
+      </Animated.View>
+    );
+  } else if (showAvatar) {
+    markerBody = (
+      <Animated.View
+        style={[
+          { width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' },
+          rotateStyle,
+        ]}
+      >
+        <View
+          style={{
+            width: MARKER_SIZE,
+            height: MARKER_SIZE,
+            borderRadius: MARKER_SIZE / 2,
+            backgroundColor: '#111',
+            borderWidth: MARKER_BORDER,
+            borderColor: '#e33835',
+            overflow: 'hidden',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Image
+            source={{ uri: mediaAvatar }}
+            style={{ width: AVATAR_INNER, height: AVATAR_INNER, borderRadius: AVATAR_INNER / 2 }}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
+        </View>
+      </Animated.View>
+    );
+  } else if (showSnapshot) {
+    markerBody = (
+      <Animated.View style={rotateStyle}>
+        <Image
+          source={{ uri: imageUri! }}
+          style={{ width: MARKER_SIZE, height: MARKER_SIZE }}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+          transition={0}
+        />
+      </Animated.View>
+    );
+  } else {
+    markerBody = (
+      <Animated.View
+        style={[
+          {
+            width: FALLBACK_DOT,
+            height: FALLBACK_DOT,
+            borderRadius: FALLBACK_DOT / 2,
+            backgroundColor: '#e33835',
+            borderWidth: 2,
+            borderColor: '#fff',
+          },
+          rotateStyle,
+        ]}
+      />
+    );
+  }
 
   return (
-    <AnimatedShapeSource id="drive-core-vehicle" animatedProps={animatedProps}>
-      <Mapbox.SymbolLayer id="drive-core-vehicle-symbol" style={layerStyle} />
-    </AnimatedShapeSource>
+    <Mapbox.MarkerView
+      coordinate={coordinate}
+      anchor={{ x: 0.5, y: 0.5 }}
+      allowOverlapWithPuck
+      allowOverlap
+    >
+      {markerBody}
+    </Mapbox.MarkerView>
   );
 });

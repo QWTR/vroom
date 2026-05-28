@@ -183,13 +183,26 @@ export function cameraZoomSpeedKmh(input: {
   return input.speedKmh;
 }
 
-/** Przesunięcie centrum mapy do przodu — widać drogę przed autem (Waze / Google Maps). */
+/** Martwa strefa prędkości — zoom / lookahead nie reagują na szum GPS. */
+const CAMERA_FOLLOW_SPEED_DEADZONE_KMH = 6;
+
+function applyFollowSpeedHysteresis(nextKmh: number, prevKmh: number): number {
+  const next = Math.max(0, nextKmh);
+  const prev = Math.max(0, prevKmh);
+  if (prev <= 0.5) return next;
+  if (Math.abs(next - prev) < CAMERA_FOLLOW_SPEED_DEADZONE_KMH) {
+    return prev;
+  }
+  return next;
+}
+
+/** Przesunięcie centrum mapy do przodu — łagodne przy niskich prędkościach. */
 function lookaheadFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  if (s < 10) return 0;
-  if (s <= 25) return lerpNum(8, 32, (s - 10) / 15);
-  if (s <= 60) return lerpNum(32, 52, (s - 25) / 35);
-  return 52;
+  if (s < 12) return 0;
+  if (s <= 25) return lerpNum(4, 14, (s - 12) / 13);
+  if (s <= 60) return lerpNum(14, 36, (s - 25) / 35);
+  return 36;
 }
 
 function computeFollowMode(input: {
@@ -237,7 +250,7 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
 
 function smoothZoomTarget(prev: number | null, next: number): number {
   if (prev == null || !Number.isFinite(prev)) return next;
-  const maxStep = 0.12;
+  const maxStep = 0.05;
   const d = next - prev;
   if (Math.abs(d) <= maxStep) return next;
   return prev + Math.sign(d) * maxStep;
@@ -260,6 +273,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const lastResolvedHeadingAtRef = useRef(0);
   const resolvedHeadingRef = useRef<number | null>(null);
   const lastFrameInputRef = useRef<CameraFrameInput | null>(null);
+  const stabilizedFollowSpeedRef = useRef(0);
   const tripActiveRef = useRef(false);
   const gestureResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAfterUserGestureRef = useRef<() => void>(() => {});
@@ -289,6 +303,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     lastVehicleCenterRef.current = null;
     lastTravelUpdateAtRef.current = 0;
     speedKmhRef.current = 0;
+    stabilizedFollowSpeedRef.current = 0;
   }, [clearGestureResumeTimer]);
 
   const applyToMap = useCallback((
@@ -484,10 +499,21 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       return;
     }
 
-    let target = buildTargetPose(input, nextMode);
+    const active = isActiveFollowMode(nextMode);
+    let speedForPose = input.speedKmh;
+    if (active) {
+      speedForPose = applyFollowSpeedHysteresis(
+        input.speedKmh,
+        stabilizedFollowSpeedRef.current,
+      );
+      stabilizedFollowSpeedRef.current = speedForPose;
+    } else {
+      stabilizedFollowSpeedRef.current = 0;
+    }
+
+    let target = buildTargetPose({ ...input, speedKmh: speedForPose }, nextMode);
     if (!target) return;
 
-    const active = isActiveFollowMode(nextMode);
     if (active) {
       const nowMs = now;
       const prevCenter = lastVehicleCenterRef.current;
@@ -549,7 +575,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         snapHdg: headingIn,
         headingOut,
         flipFromPrevDeg: Math.round(flipFromPrev),
-        lookaheadM: Math.round(lookaheadFromSpeed(input.speedKmh)),
+        lookaheadM: Math.round(lookaheadFromSpeed(speedForPose)),
         nativeFollow: true,
       }, 1100);
 
@@ -559,7 +585,12 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       travelHeadingRef.current = resolvedHeading;
       resolvedHeadingRef.current = resolvedHeading;
       lastVehicleCenterRef.current = { ...input.center };
-      const lookaheadM = lookaheadFromSpeed(input.speedKmh);
+      const zoomSpeed = cameraZoomSpeedKmh({
+        speedKmh: speedForPose,
+        hudSpeedKmh: speedForPose,
+        frameMoveM: movedM,
+      });
+      const lookaheadM = lookaheadFromSpeed(speedForPose);
       target = {
         ...target,
         heading: resolvedHeading,
@@ -569,7 +600,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
           resolvedHeading,
           lookaheadM,
         ),
-        zoom: smoothZoomTarget(lastTargetZoomRef.current, target.zoom),
+        zoom: smoothZoomTarget(lastTargetZoomRef.current, zoomFromSpeed(zoomSpeed)),
       };
       lastTargetZoomRef.current = target.zoom;
     } else {

@@ -1,16 +1,9 @@
 import { useCallback, useEffect } from 'react';
 import {
-  cancelAnimation,
   useFrameCallback,
   useSharedValue,
-  withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import {
-  headingDelta,
-  normalizeHeading,
-  timingHeadingTarget,
-} from '../lib/driveCore/travelHeading';
 
 export type DriveMarkerValues = {
   lat: SharedValue<number>;
@@ -26,32 +19,65 @@ export type DriveMarkerTarget = {
   speedMs?: number;
 };
 
-const DR_MAX_STEP_M = 2.5;
-const DR_GAP_MS = 120;
-const HEADING_FRAME_MIN_MOVE_M = 0.08;
+/** Minimalna prędkość DR — poniżej tylko przy świadomym postoju. */
+const MIN_DR_SPEED_MS = 0.08;
+/** Utrzymanie ruchu między tickami GPS (m/s). */
+const CRUISE_HOLD_MS = 0.22;
+const CRUISE_DECAY_PER_SEC = 0.12;
+const GPS_STALE_MS = 2800;
+/** Maks. krok DR na klatkę (~60 FPS). */
+const MAX_DR_STEP_M = 4.5;
+const GPS_BLEND_ALPHA_MIN = 0.07;
+const GPS_BLEND_ALPHA_MID = 0.14;
+const GPS_BLEND_ALPHA_MAX = 0.28;
+const GPS_CORRECT_MIN_ERR_M = 0.35;
+const MAX_CORR_PER_FRAME_M = 2.6;
+const HEADING_BLEND_PER_FRAME = 0.18;
+const MAX_PUSH_STEP_M = 26;
+
+function normalizeHeadingW(h: number): number {
+  'worklet';
+  return ((h % 360) + 360) % 360;
+}
+
+function headingDeltaW(from: number, to: number): number {
+  'worklet';
+  return ((to - from + 540) % 360) - 180;
+}
 
 function metersToLatDelta(m: number): number {
+  'worklet';
   return (m / 6371000) * (180 / Math.PI);
 }
 
 function metersToLngDelta(m: number, lat: number): number {
+  'worklet';
   const cos = Math.cos((lat * Math.PI) / 180);
   return cos > 1e-6 ? metersToLatDelta(m) / cos : 0;
 }
 
-function bearingDegWorklet(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  'worklet';
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLng = toRad(lng2 - lng1);
-  const y = Math.sin(dLng) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
-    - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
 function haversineMWorklet(aLat: number, aLng: number, bLat: number, bLng: number): number {
   'worklet';
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2) ** 2;
+  const s2 =
+    Math.cos((aLat * Math.PI) / 180)
+    * Math.cos((bLat * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  const a = s1 + s2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function gpsBlendAlphaWorklet(errM: number): number {
+  'worklet';
+  if (errM > 35) return GPS_BLEND_ALPHA_MAX;
+  if (errM > 12) return GPS_BLEND_ALPHA_MID;
+  return GPS_BLEND_ALPHA_MIN;
+}
+
+function haversineMJs(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
   const dLng = ((bLng - aLng) * Math.PI) / 180;
@@ -72,104 +98,170 @@ export function useDriveMarker(enabled: boolean): DriveMarkerValues & {
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
   const speedMsSv = useSharedValue(0);
-  const lastTargetAt = useSharedValue(0);
-  const durationMsSv = useSharedValue(320);
+  const cruiseSpeedMsSv = useSharedValue(0);
+  const lastGpsPushMsSv = useSharedValue(0);
   const enabledSv = useSharedValue(enabled ? 1 : 0);
-  const prevFrameLat = useSharedValue(NaN);
-  const prevFrameLng = useSharedValue(NaN);
+
+  const gpsLat = useSharedValue(NaN);
+  const gpsLng = useSharedValue(NaN);
+  const gpsHeading = useSharedValue(0);
+  const hasGpsFix = useSharedValue(0);
 
   const pushTarget = useCallback((t: DriveMarkerTarget) => {
     if (!Number.isFinite(t.lat) || !Number.isFinite(t.lng)) return;
-    const dur = Math.max(240, Math.min(920, t.durationMs ?? 320));
-    durationMsSv.value = dur;
-    lastTargetAt.value = Date.now();
-    const speedMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs) : 0;
-    speedMsSv.value = speedMs;
-    const tgt = Number.isFinite(t.heading) ? t.heading : 0;
+
+    const incomingMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs!) : 0;
+    lastGpsPushMsSv.value = Date.now();
+
+    if (incomingMs >= MIN_DR_SPEED_MS) {
+      speedMsSv.value = incomingMs;
+      cruiseSpeedMsSv.value = incomingMs;
+    } else if (cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
+      speedMsSv.value = cruiseSpeedMsSv.value;
+    } else {
+      speedMsSv.value = 0;
+    }
+
+    let tgtLat = t.lat;
+    let tgtLng = t.lng;
+    const tgtHdg = Number.isFinite(t.heading) ? t.heading : heading.value;
+
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
+    if (!needsBootstrap) {
+      const errM = haversineMJs(lat.value, lng.value, tgtLat, tgtLng);
+      if (errM > MAX_PUSH_STEP_M) {
+        const ratio = MAX_PUSH_STEP_M / errM;
+        tgtLat = lat.value + (tgtLat - lat.value) * ratio;
+        tgtLng = lng.value + (tgtLng - lng.value) * ratio;
+      }
+    }
+
+    gpsLat.value = tgtLat;
+    gpsLng.value = tgtLng;
+    gpsHeading.value = tgtHdg;
+    hasGpsFix.value = 1;
 
     if (needsBootstrap) {
-      cancelAnimation(lat);
-      cancelAnimation(lng);
-      cancelAnimation(heading);
-      lat.value = t.lat;
-      lng.value = t.lng;
-      heading.value = tgt;
-      prevFrameLat.value = t.lat;
-      prevFrameLng.value = t.lng;
+      lat.value = tgtLat;
+      lng.value = tgtLng;
+      heading.value = tgtHdg;
       return;
     }
 
-    lat.value = withTiming(t.lat, { duration: dur });
-    lng.value = withTiming(t.lng, { duration: dur });
-    heading.value = withTiming(timingHeadingTarget(heading.value, tgt), { duration: dur });
-  }, [durationMsSv, heading, lastTargetAt, lat, lng, prevFrameLat, prevFrameLng, speedMsSv]);
+    const errM = haversineMJs(lat.value, lng.value, tgtLat, tgtLng);
+    if (errM > 80) {
+      const snap = errM > 35 ? GPS_BLEND_ALPHA_MAX : GPS_BLEND_ALPHA_MID;
+      lat.value = lat.value + (tgtLat - lat.value) * Math.min(0.55, snap * 4);
+      lng.value = lng.value + (tgtLng - lng.value) * Math.min(0.55, snap * 4);
+    }
+  }, [
+    cruiseSpeedMsSv,
+    gpsHeading,
+    gpsLat,
+    gpsLng,
+    hasGpsFix,
+    heading,
+    lastGpsPushMsSv,
+    lat,
+    lng,
+    speedMsSv,
+  ]);
 
   const reset = useCallback((anchor?: { lat: number; lng: number; heading?: number }) => {
-    cancelAnimation(lat);
-    cancelAnimation(lng);
-    cancelAnimation(heading);
-    lastTargetAt.value = 0;
     speedMsSv.value = 0;
-    prevFrameLat.value = NaN;
-    prevFrameLng.value = NaN;
+    cruiseSpeedMsSv.value = 0;
+    lastGpsPushMsSv.value = 0;
+    hasGpsFix.value = 0;
+    gpsLat.value = NaN;
+    gpsLng.value = NaN;
+    gpsHeading.value = 0;
+
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
       lat.value = anchor.lat;
       lng.value = anchor.lng;
       heading.value = Number.isFinite(anchor.heading) ? anchor.heading! : 0;
-      prevFrameLat.value = anchor.lat;
-      prevFrameLng.value = anchor.lng;
+      gpsLat.value = anchor.lat;
+      gpsLng.value = anchor.lng;
+      gpsHeading.value = heading.value;
+      hasGpsFix.value = 1;
+      lastGpsPushMsSv.value = Date.now();
     } else {
       lat.value = NaN;
       lng.value = NaN;
       heading.value = 0;
     }
-  }, [heading, lastTargetAt, lat, lng, prevFrameLat, prevFrameLng, speedMsSv]);
+  }, [
+    cruiseSpeedMsSv,
+    gpsHeading,
+    gpsLat,
+    gpsLng,
+    hasGpsFix,
+    heading,
+    lastGpsPushMsSv,
+    lat,
+    lng,
+    speedMsSv,
+  ]);
 
   useEffect(() => {
     enabledSv.value = enabled ? 1 : 0;
   }, [enabled, enabledSv]);
 
-  useFrameCallback((frame) => {
+  const frameCallback = useFrameCallback((frame) => {
     'worklet';
     if (enabledSv.value < 0.5) return;
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
 
-    if (Number.isFinite(prevFrameLat.value) && Number.isFinite(prevFrameLng.value)) {
-      const frameMoveM = haversineMWorklet(
-        prevFrameLat.value,
-        prevFrameLng.value,
-        lat.value,
-        lng.value,
-      );
-      if (frameMoveM >= HEADING_FRAME_MIN_MOVE_M) {
-        const travel = bearingDegWorklet(
-          prevFrameLat.value,
-          prevFrameLng.value,
-          lat.value,
-          lng.value,
-        );
-        const cur = heading.value;
-        const blend = frameMoveM >= 0.8 ? 0.55 : 0.35;
-        const d = headingDelta(cur, travel);
-        heading.value = normalizeHeading(cur + d * blend);
+    const dtSec = Math.max(
+      0.001,
+      Math.min(0.05, (frame.timeSincePreviousFrame ?? 16.67) / 1000),
+    );
+
+    const sinceGpsMs = Date.now() - lastGpsPushMsSv.value;
+    let drSpeed = speedMsSv.value;
+
+    if (drSpeed < MIN_DR_SPEED_MS && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
+      if (sinceGpsMs < GPS_STALE_MS) {
+        const decay = Math.max(0.35, 1 - (sinceGpsMs / 1000) * CRUISE_DECAY_PER_SEC);
+        drSpeed = cruiseSpeedMsSv.value * decay;
       }
     }
-    prevFrameLat.value = lat.value;
-    prevFrameLng.value = lng.value;
 
-    const now = frame.timestamp;
-    const last = lastTargetAt.value;
-    const dur = durationMsSv.value;
-    if (last <= 0 || now - last <= dur + DR_GAP_MS) return;
-    const speed = speedMsSv.value;
-    if (speed < 0.35) return;
-    const dt = Math.min(0.05, (frame.timeSincePreviousFrame ?? 16) / 1000);
-    const stepM = Math.min(DR_MAX_STEP_M, speed * dt);
-    const hdgRad = (heading.value * Math.PI) / 180;
-    lat.value += metersToLatDelta(stepM * Math.cos(hdgRad));
-    lng.value += metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
-  });
+    if (drSpeed >= MIN_DR_SPEED_MS) {
+      const stepM = Math.min(MAX_DR_STEP_M, drSpeed * dtSec);
+      const drHdg =
+        hasGpsFix.value > 0.5 && Number.isFinite(gpsHeading.value)
+          ? gpsHeading.value
+          : heading.value;
+      const hdgRad = (drHdg * Math.PI) / 180;
+      lat.value += metersToLatDelta(stepM * Math.cos(hdgRad));
+      lng.value += metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
+    }
+
+    if (hasGpsFix.value > 0.5 && Number.isFinite(gpsLat.value) && Number.isFinite(gpsLng.value)) {
+      const errM = haversineMWorklet(lat.value, lng.value, gpsLat.value, gpsLng.value);
+      if (errM >= GPS_CORRECT_MIN_ERR_M) {
+        let alpha = gpsBlendAlphaWorklet(errM);
+        const capAlpha = MAX_CORR_PER_FRAME_M / Math.max(errM, 0.5);
+        if (alpha > capAlpha) alpha = capAlpha;
+        lat.value += (gpsLat.value - lat.value) * alpha;
+        lng.value += (gpsLng.value - lng.value) * alpha;
+      }
+      const hdgErr = Math.abs(headingDeltaW(heading.value, gpsHeading.value));
+      if (hdgErr > 1.5) {
+        const hdgAlpha = Math.min(HEADING_BLEND_PER_FRAME, hdgErr / 180);
+        const d = headingDeltaW(heading.value, gpsHeading.value);
+        heading.value = normalizeHeadingW(heading.value + d * hdgAlpha);
+      }
+    }
+  }, false);
+
+  useEffect(() => {
+    frameCallback.setActive(enabled);
+    return () => {
+      frameCallback.setActive(false);
+    };
+  }, [enabled, frameCallback]);
 
   return { lat, lng, heading, pushTarget, reset };
 }

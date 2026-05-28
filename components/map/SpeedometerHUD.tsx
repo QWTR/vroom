@@ -3,7 +3,8 @@ import { DeviceEventEmitter, Text, View } from 'react-native';
 
 export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 
-const HUD_SPEED_CAP_KMH = 250;
+/** Twardy sufit HUD — realna jazda max ~200; 250 tylko jako clamp resztek błędu. */
+const HUD_SPEED_CAP_KMH = 200;
 
 /** Zawsze zwraca skończoną prędkość ≥ 0 — 0 km/h to poprawna wartość, nie brak sygnału. */
 export function normalizeHudSpeedKmh(value: unknown): number {

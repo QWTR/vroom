@@ -1,4 +1,10 @@
-import { MOTION_MAX_ACCURACY_M, MOTION_MIN_DIST_M, MOTION_STOP_CLUSTER_M, MOTION_STOP_CONSECUTIVE } from './config';
+import {
+  MOTION_GPS_WAKE_KMH,
+  MOTION_MAX_ACCURACY_M,
+  MOTION_MIN_DIST_M,
+  MOTION_STOP_CLUSTER_M,
+  MOTION_STOP_CONSECUTIVE,
+} from './config';
 import { distanceM } from './geo';
 import type { RawGpsFix } from './types';
 
@@ -30,6 +36,10 @@ export class MotionStateMachine {
 
   update(raw: RawGpsFix): boolean {
     if (!Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) return this.isMoving;
+    const gpsWakeKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0
+        ? raw.gpsSpeedMs * 3.6
+        : 0;
     if (!this.initialized) {
       this.stopAnchor = { lat: raw.lat, lng: raw.lng };
       this.initialized = true;
@@ -41,7 +51,7 @@ export class MotionStateMachine {
 
     if (!this.isMoving) {
       const d = distanceM(raw.lat, raw.lng, this.stopAnchor.lat, this.stopAnchor.lng);
-      if (d >= MOTION_MIN_DIST_M) {
+      if (d >= MOTION_MIN_DIST_M || gpsWakeKmh >= MOTION_GPS_WAKE_KMH) {
         this.isMoving = true;
         this.stopCluster = [];
       }

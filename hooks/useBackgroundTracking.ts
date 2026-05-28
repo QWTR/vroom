@@ -73,6 +73,8 @@ const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 // Flag: 'true' when live-sharing is active — read by the background task
 export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
+/** Preferencja użytkownika (przełącznik na mapie). Domyślnie brak klucza = ON. */
+export const LIVE_SHARING_USER_PREF_KEY = 'vroom_live_sharing_user_pref';
 /** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
@@ -520,7 +522,10 @@ export function useBackgroundTracking(
 
   useEffect(() => {
     if (!sharingHydrated) return;
+    // BG task: tylko gdy user ma live ON i włączone śledzenie w tle.
     AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing && bgEnabled ? 'true' : 'false').catch(() => {});
+    // Preferencja przełącznika na mapie — NIE wiązać z bgEnabled (inaczej UI pokazuje OFF).
+    AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, isSharing ? 'true' : 'false').catch(() => {});
   }, [isSharing, sharingHydrated, bgEnabled]);
 
   useEffect(() => {

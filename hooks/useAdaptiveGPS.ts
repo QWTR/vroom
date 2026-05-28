@@ -41,8 +41,8 @@ const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
-/** Min gap between forwarded fixes in active mode (denser native stream at 500 ms). */
-const ACTIVE_EMIT_MIN_INTERVAL_MS = 40;
+/** Min gap between forwarded fixes in active mode (native stream ~100 ms). */
+const ACTIVE_EMIT_MIN_INTERVAL_MS = 30;
 /** Highway: denser emit gate (20–50 Hz devices) — do not starve map.tsx at 90+ km/h. */
 const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 20;
 const HIGHWAY_EMIT_SPEED_KMH = 45;
@@ -69,9 +69,9 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    // Denser stream in trip mode to reduce snap jumps and marker teleport.
-    timeInterval:     250,
-    distanceInterval: 1,
+    /** Maks. agresja — OS co ~100 ms (lub szybciej), distance 0 = każdy fix. */
+    timeInterval:     100,
+    distanceInterval: 0,
   },
 };
 
