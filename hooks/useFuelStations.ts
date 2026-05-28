@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
-import { fetchSearchCategoryViaProxy } from '../scripts/mapboxProxyClient';
 
 export interface FuelPrice {
   pb95:      number | null;
@@ -12,24 +11,26 @@ export interface FuelPrice {
   updatedBy: { id: number; username: string } | null;
 }
 
+export type FuelStationAmenities = {
+  lpg?: boolean;
+  diesel?: boolean;
+  octane95?: boolean;
+  octane98?: boolean;
+  opening_hours?: string | null;
+};
+
 export interface FuelStation {
-  /** Unique display ID — Mapbox mapbox_id or "db_{id}" for DB-only entries */
+  /** Stable UI id — db primary key */
   id:       string;
-  /** Backend DB id — set only when the station exists in the DB */
-  dbId?:    number;
+  dbId:     number;
   name:     string;
   brand:    string | null;
   lat:      number;
   lng:      number;
   address?: string;
+  distance?: number;
+  amenities?: FuelStationAmenities | null;
   prices:   FuelPrice[];
-}
-
-interface BBox {
-  minLat: number;
-  maxLat: number;
-  minLng: number;
-  maxLng: number;
 }
 
 interface LocationState {
@@ -37,15 +38,34 @@ interface LocationState {
   longitude: number;
 }
 
-const THROTTLE_MS    = 300_000; // don't re-fetch within 5 min
-const THROTTLE_M     = 2500;    // don't re-fetch unless moved 2.5 km
-const MATCH_RADIUS_M = 100;    // max distance to consider a Mapbox station == a DB station
+type NearbyStationDto = {
+  id: number;
+  name: string;
+  brand: string | null;
+  lat: number;
+  lng: number;
+  address?: string | null;
+  distance?: number;
+  amenities?: FuelStationAmenities | null;
+  prices?: Array<{
+    pb95?: number | null;
+    pb98?: number | null;
+    diesel?: number | null;
+    lpg?: number | null;
+    updatedAt?: string;
+    updatedBy?: { id: number; username: string } | null;
+  }>;
+};
+
+const THROTTLE_MS = 300_000;
+const THROTTLE_M = 2500;
+const NEARBY_RADIUS_M = 12_000;
 
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R    = 6371000;
+  const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a    =
+  const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
     Math.cos((lat2 * Math.PI) / 180) *
@@ -53,24 +73,42 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function bboxFromLocation(loc: LocationState, deltaDeg = 0.05): BBox {
-  const cosLat   = Math.cos((loc.latitude * Math.PI) / 180);
-  const lngDelta = cosLat > 0 ? deltaDeg / cosLat : deltaDeg;
+function mapPriceRow(p: NonNullable<NearbyStationDto['prices']>[number]): FuelPrice {
   return {
-    minLat: loc.latitude  - deltaDeg,
-    maxLat: loc.latitude  + deltaDeg,
-    minLng: loc.longitude - lngDelta,
-    maxLng: loc.longitude + lngDelta,
+    pb95: p.pb95 ?? null,
+    pb98: p.pb98 ?? null,
+    diesel: p.diesel ?? null,
+    lpg: p.lpg ?? null,
+    updatedAt: p.updatedAt ?? null,
+    updatedBy: p.updatedBy
+      ? { id: p.updatedBy.id, username: p.updatedBy.username }
+      : null,
+  };
+}
+
+function mapNearbyStation(row: NearbyStationDto): FuelStation {
+  const dbId = row.id;
+  return {
+    id: String(dbId),
+    dbId,
+    name: row.name,
+    brand: row.brand,
+    lat: row.lat,
+    lng: row.lng,
+    address: row.address ?? undefined,
+    distance: row.distance,
+    amenities: row.amenities ?? null,
+    prices: Array.isArray(row.prices) ? row.prices.map(mapPriceRow) : [],
   };
 }
 
 export function useFuelStations(userLocation: LocationState | null) {
   const [stations, setStations] = useState<FuelStation[]>([]);
-  const [loading,  setLoading]  = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const lastFetchTimeRef = useRef<number>(0);
-  const lastFetchLocRef  = useRef<LocationState | null>(null);
-  const fetchingRef      = useRef(false);
+  const lastFetchLocRef = useRef<LocationState | null>(null);
+  const fetchingRef = useRef(false);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -78,8 +116,8 @@ export function useFuelStations(userLocation: LocationState | null) {
   const fetchStations = useCallback(async (loc: LocationState) => {
     if (fetchingRef.current) return;
 
-    const now       = Date.now();
-    const lastLoc   = lastFetchLocRef.current;
+    const now = Date.now();
+    const lastLoc = lastFetchLocRef.current;
     const timeDelta = now - lastFetchTimeRef.current;
 
     if (timeDelta < THROTTLE_MS && lastLoc) {
@@ -92,83 +130,28 @@ export function useFuelStations(userLocation: LocationState | null) {
 
     try {
       const token = await getToken();
-      const bbox  = bboxFromLocation(loc);
-
-      // 2. Backend DB — stations that already have user-submitted prices
       const params = new URLSearchParams({
-        minLat: String(bbox.minLat),
-        maxLat: String(bbox.maxLat),
-        minLng: String(bbox.minLng),
-        maxLng: String(bbox.maxLng),
+        lat: String(loc.latitude),
+        lng: String(loc.longitude),
+        radiusM: String(NEARBY_RADIUS_M),
       });
-      const dbUrl = `${API_URL}/api/fuel-stations?${params}`;
+      const url = `${API_URL}/api/fuel-stations/nearby?${params}`;
 
-      const [mapboxData, dbRes] = await Promise.all([
-        fetchSearchCategoryViaProxy<any>({
-          category: 'gas_station',
-          proximityLng: loc.longitude,
-          proximityLat: loc.latitude,
-          limit: 25,
-          language: 'pl',
-        }),
-        fetch(dbUrl, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-
-      // Parse Mapbox results
-      let mapboxStations: FuelStation[] = [];
-      if (mapboxData?.features) {
-          mapboxStations = (mapboxData.features as any[]).map(f => ({
-            id:      String(f.properties.mapbox_id ?? f.id),
-            name:    f.properties.name ?? 'Stacja paliw',
-            brand:   f.properties.name ?? null,
-            lat:     f.geometry.coordinates[1] as number,
-            lng:     f.geometry.coordinates[0] as number,
-            address: (f.properties.full_address ?? f.properties.address ?? '') as string,
-            prices:  [] as FuelPrice[],
-          }));
-      }
-
-      // Parse DB results
-      let dbStations: any[] = [];
-      if (dbRes.ok) {
-        const dbData = await dbRes.json();
-        dbStations = Array.isArray(dbData) ? dbData : (dbData.stations ?? []);
-      }
-
-      // Merge: attach DB prices to matching Mapbox stations (proximity-based)
-      const merged: FuelStation[] = mapboxStations.map(ms => {
-        let bestMatch: any = null;
-        let bestDist       = Infinity;
-        for (const db of dbStations) {
-          const d = haversineM(ms.lat, ms.lng, db.lat, db.lng);
-          if (d < bestDist && d <= MATCH_RADIUS_M) { bestDist = d; bestMatch = db; }
-        }
-        if (bestMatch) {
-          return { ...ms, dbId: bestMatch.id as number, prices: bestMatch.prices ?? [] };
-        }
-        return ms;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
-      // Also include DB stations that didn't match any Mapbox result (edge case)
-      const matchedDbIds = new Set(merged.filter(s => s.dbId != null).map(s => s.dbId));
-      for (const db of dbStations) {
-        if (!matchedDbIds.has(db.id)) {
-          merged.push({
-            id:     `db_${db.id}`,
-            dbId:   db.id as number,
-            name:   db.name,
-            brand:  db.brand ?? null,
-            lat:    db.lat,
-            lng:    db.lng,
-            prices: db.prices ?? [],
-          });
-        }
+      if (!res.ok) {
+        throw new Error(`fuel-stations/nearby HTTP ${res.status}`);
       }
 
-      setStations(merged);
+      const data = (await res.json()) as NearbyStationDto[];
+      const mapped = Array.isArray(data) ? data.map(mapNearbyStation) : [];
+
+      setStations(mapped);
       lastFetchTimeRef.current = Date.now();
-      lastFetchLocRef.current  = loc;
-    } catch (e: any) {
+      lastFetchLocRef.current = loc;
+    } catch (e) {
       console.error('useFuelStations fetch:', e);
     } finally {
       setLoading(false);
@@ -189,43 +172,25 @@ export function useFuelStations(userLocation: LocationState | null) {
 
   const updatePrices = useCallback(async (
     station: FuelStation,
-    prices:  { pb95?: number; pb98?: number; diesel?: number; lpg?: number },
+    prices: { pb95?: number; pb98?: number; diesel?: number; lpg?: number },
   ) => {
     try {
       const token = await getToken();
-      let dbId    = station.dbId;
-
-      // Station not in DB yet — create it first (upsert pattern)
-      if (!dbId) {
-        const createRes = await fetch(`${API_URL}/api/fuel-stations`, {
-          method:  'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            name:    station.name,
-            brand:   station.brand ?? undefined,
-            lat:     station.lat,
-            lng:     station.lng,
-            address: station.address ?? undefined,
-          }),
-        });
-        if (!createRes.ok) throw new Error('Failed to create station');
-        const created = await createRes.json();
-        dbId = created.id as number;
-        // Persist the new dbId in local state
-        setStations(prev => prev.map(s => s.id === station.id ? { ...s, dbId } : s));
-      }
+      const dbId = station.dbId;
 
       const r = await fetch(`${API_URL}/api/fuel-stations/${dbId}/prices`, {
-        method:  'POST',
+        method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(prices),
+        body: JSON.stringify(prices),
       });
       if (!r.ok) throw new Error('Failed to update prices');
       const updated = await r.json();
 
-      setStations(prev => prev.map(s =>
-        s.dbId === dbId ? { ...s, prices: [updated] } : s,
-      ));
+      setStations((prev) =>
+        prev.map((s) =>
+          s.dbId === dbId ? { ...s, prices: [mapPriceRow(updated)] } : s,
+        ),
+      );
       return true;
     } catch (e) {
       console.error('updatePrices:', e);
@@ -251,16 +216,10 @@ export function useFuelStations(userLocation: LocationState | null) {
       const created = await res.json();
       setStations((prev) => [
         ...prev,
-        {
-          id: `db_${created.id}`,
-          dbId: created.id as number,
-          name: created.name,
-          brand: created.brand ?? null,
-          lat: created.lat,
-          lng: created.lng,
-          address: created.address,
+        mapNearbyStation({
+          ...created,
           prices: [],
-        },
+        }),
       ]);
       return true;
     } catch (e) {

@@ -13,17 +13,17 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 // v10 CLIENT-FIRST snap: promienie musza wybaczac miejski dryf GPS (30–40 m),
 // inaczej snap=false → raw leak → marker skacze na trawnik i wraca.
 // map.tsx dalej filtruje skrajne skoki (reconcile, lateral guard).
-const SNAP_RADIUS_M_BASE    = 48;
-const SNAP_RADIUS_M_FAST    = 58;
-const SNAP_RADIUS_M_MATCHED = 36;
+const SNAP_RADIUS_M_BASE    = 60;
+const SNAP_RADIUS_M_FAST    = 90;
+const SNAP_RADIUS_M_MATCHED = 75;
 const SNAP_RADIUS_M_MATCHED_TIER2 = 45;
 const SNAP_RADIUS_M_MATCHED_TIER3 = 60;
 const SNAP_RADIUS_M_ROUTE_HARD    = 80;
 const SNAP_RADIUS_EMERGENCY_M     = 60;
 /** HARD LATERAL REJECT: snap dalej niz to od raw GPS = snapped:false (raw). */
-const DRIVING_LATERAL_REJECT_M = 75;
+const DRIVING_LATERAL_REJECT_M = 120;
 const DRIVING_LATERAL_REJECT_MIN_KMH = 25;
-const MAX_SNAP_TO_RAW_DISTANCE_M = 82;
+const MAX_SNAP_TO_RAW_DISTANCE_M = 150;
 const HARD_SNAP_DROP_M = 120;
 const MAX_SEGMENT_INDEX_LEAP      = 25;
 const MIN_MOVE_DEG          = 0.00002; // ~2m
@@ -390,10 +390,15 @@ export function useDrivingSnap() {
     const ghostDopplerParked =
       dopplerKmhSafe >= 10
       && speedKmh < 8
-      && rawMoveM < 10;
+      && rawMoveM < 4;
+    const movingEvidence =
+      dopplerKmhSafe >= 8
+      || Math.max(speedKmh, dopplerKmhSafe) >= 8
+      || rawMoveM >= 3.5;
     const frozenSnap =
       hardRoadLock
       && rawMoveM < 12
+      && !movingEvidence
       && (speedKmh < 8 || ghostDopplerParked);
     if (frozenSnap && lastSnappedRef.current) {
       lastRawRef.current = { lat, lng };
@@ -932,7 +937,12 @@ export function useDrivingSnap() {
       const segmentLeap = lastSegmentIndexRef.current >= 0
         ? Math.abs(result.segmentIndex - lastSegmentIndexRef.current)
         : 0;
-      if (jumpM > maxJumpM && !accelSnapBypass) {
+      const segTurnDelta = angleDeltaDeg(
+        result.segmentBearing,
+        lastTargetHeadingRef.current,
+      );
+      const turnSnapBypass = segmentLeap >= 10 && segTurnDelta >= 40;
+      if (jumpM > maxJumpM && !accelSnapBypass && !turnSnapBypass) {
         let pull = hardRoadLock
           ? effectiveSpeedKmh > 75
             ? 0.82
@@ -1001,10 +1011,14 @@ export function useDrivingSnap() {
         ? angleDeltaDeg(expectedHeading, lastTargetHeadingRef.current)
         : 0;
       const likelyUTurn = expectedHeading != null && headingTurnDelta > 108 && movedRawM >= 6;
+      const travelRef = Number.isFinite(result.segmentBearing)
+        ? result.segmentBearing
+        : travelHeading;
       const backwardJump =
         speedKmh >= 8
         && stepM >= 8
-        && angleDeltaDeg(stepBearing, travelHeading) > 122;
+        && angleDeltaDeg(stepBearing, travelRef) > 122
+        && headingTurnDelta < 40;
 
       if (backwardJump && !likelyUTurn) {
         // Reject hard-lock snap behind the car; keep forward continuity.

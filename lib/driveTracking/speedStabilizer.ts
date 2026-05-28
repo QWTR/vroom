@@ -11,9 +11,10 @@ export type SpeedStabilizerInput = {
   previousKmh: number;
 };
 
-const MOVING_NET_M = 8;
-const MOVING_SUSTAINED_KMH = 5;
-const ZERO_HOLD_MS = 2200;
+const MOVING_NET_M = 5;
+const MOVING_SUSTAINED_KMH = 3;
+const ZERO_HOLD_MS = 3200;
+const CRAWL_HOLD_MS = 3500;
 
 /**
  * Prevents false 0 km/h while the vehicle is clearly moving (geometry confirms motion).
@@ -50,9 +51,10 @@ export class SpeedStabilizer {
     const motionEvidence =
       netMoveM >= MOVING_NET_M
       || sustainedKmh >= MOVING_SUSTAINED_KMH
-      || (pathMoveM >= 14 && netMoveM >= 5);
+      || (pathMoveM >= 14 && netMoveM >= 5)
+      || (pathMoveM >= 8 && netMoveM >= 3);
 
-    if (motionEvidence || displayKmh >= 4 || rawGpsKmh >= 6) {
+    if (motionEvidence || displayKmh >= 3 || rawGpsKmh >= 4) {
       this.lastMovingAtMs = nowMs;
     }
 
@@ -62,9 +64,9 @@ export class SpeedStabilizer {
     if (
       out < 2
       && motionEvidence
-      && (rawGpsKmh >= 6 || geoKmh >= 8)
+      && (rawGpsKmh >= 5 || geoKmh >= 5)
     ) {
-      out = Math.max(geoKmh, rawGpsKmh * 0.75, previousKmh * 0.85, 6);
+      out = Math.max(geoKmh, rawGpsKmh * 0.8, previousKmh * 0.88, 5);
     }
 
     // Hold last non-zero briefly through GPS cadence gaps (1–2 s).
@@ -75,6 +77,16 @@ export class SpeedStabilizer {
       && netMoveM >= 4
     ) {
       out = Math.max(previousKmh * 0.92, geoKmh, 8);
+    }
+
+    // Wolna jazda / rondo: nie spadaj do 0 przy pathMove w oknie.
+    if (
+      out < 3
+      && previousKmh >= 4
+      && pathMoveM >= 8
+      && nowMs - this.lastMovingAtMs < CRAWL_HOLD_MS
+    ) {
+      out = Math.max(previousKmh * 0.9, geoKmh, motionEvidence ? 5 : 4);
     }
 
     // EMA smoothing — reduces flicker 0↔small without killing real stops.

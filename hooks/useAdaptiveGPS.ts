@@ -41,8 +41,8 @@ const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
-/** Min gap between forwarded fixes in active mode (Android batches if too high). */
-const ACTIVE_EMIT_MIN_INTERVAL_MS = 80;
+/** Min gap between forwarded fixes in active mode — 140 ms tolerates Android batch bursts in same ms. */
+const ACTIVE_EMIT_MIN_INTERVAL_MS = 140;
 /** Highway: denser emit gate (20–50 Hz devices) — do not starve map.tsx at 90+ km/h. */
 const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 40;
 const HIGHWAY_EMIT_SPEED_KMH = 50;
@@ -72,9 +72,9 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
-    // Active driving: live GPS; render pressure w map.tsx (worklet + throttled display notify).
-    timeInterval:     600,
-    distanceInterval: 2,
+    // Active driving: native distance/time gate — map.tsx throttles Mapbox; avoid 2 m / 600 ms flood.
+    timeInterval:     1200,
+    distanceInterval: 6,
   },
 };
 
@@ -211,15 +211,16 @@ export function useAdaptiveGPS({
             const emitGapMs = lastEmit ? nowMs - lastEmit.at : ACTIVE_FORCE_EMIT_GAP_MS;
             const forceStaleGap = activeMode && emitGapMs >= ACTIVE_FORCE_EMIT_GAP_MS;
             if (!force && !forceStaleGap && lastEmit) {
-              const emitSpeedKmh = payload.speed != null && payload.speed >= 0
-                ? payload.speed * 3.6
-                : effectiveSpeedKmh;
-              const isFast = activeMode && emitSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH;
+              const dt = emitGapMs;
+              const movedM = haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000;
+              const fallbackDerivedKmh = (movedM / (Math.max(dt, 1) / 1000)) * 3.6;
+              const isFast = activeMode && (
+                effectiveSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH
+                || fallbackDerivedKmh >= HIGHWAY_EMIT_SPEED_KMH
+              );
               const activeMinInterval = isFast
                 ? ACTIVE_EMIT_MIN_INTERVAL_FAST_MS
                 : (activeMode ? ACTIVE_EMIT_MIN_INTERVAL_MS : BROWSING_EMIT_MIN_INTERVAL_MS);
-              const dt = emitGapMs;
-              const movedM = haversineKm(lastEmit.lat, lastEmit.lng, payload.latitude, payload.longitude) * 1000;
               const minMoveM = isFast
                 ? 0.2
                 : (activeMode ? ACTIVE_EMIT_MIN_MOVE_M : BROWSING_EMIT_MIN_MOVE_M);

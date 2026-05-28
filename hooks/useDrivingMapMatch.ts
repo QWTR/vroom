@@ -9,6 +9,10 @@ import {
   recordMapMatchNetwork,
 } from '../lib/mapboxNetworkGate';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
+import {
+  isClientFirstGeometryHealthy,
+  shouldAllowNetworkMapMatch,
+} from '../lib/mapMatch/clientFirstRoadGeometry';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -18,9 +22,12 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-/** Czestsze odswiezanie geometrii w jeździe (bylo 30s → lag snapu). */
-const MIN_INTERVAL_MS = 14_000;
+/** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <20 s. */
+const MIN_INTERVAL_MS = 22_000;
 const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
+/** Suma dystansu w buforze przed wysłaniem trace (batching zamiast pojedynczych punktów). */
+const BATCH_MIN_PATH_DISTANCE_M = 20;
+const BATCH_MIN_POINTS = 3;
 /** Brak trace matching API poniżej tej prędkości — płynność z lokalnego snap/DR. */
 const STATIONARY_SPEED_KMH = 6;
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
@@ -30,9 +37,9 @@ const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy przekroczone — tylko log stale; geometria zostaje do STALE_MAX_MS. */
 const EXPIRE_MS       = 120_000;
 const STALE_MAX_MS    = 15 * 60_000;
-const MIN_POINT_DIST_KM = 0.008; // ~8 m — szybciej zapełnia bufor przy wolnym ruchu
-const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów — pierwszy trace jak najwcześniej
-const MIN_FETCH_MOVE_M  = 7;
+const MIN_POINT_DIST_KM = 0.012; // ~12 m — mniej punktów w buforze, mniej zbędnych trace
+const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów
+const MIN_FETCH_MOVE_M  = 15;
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
@@ -54,6 +61,21 @@ const DIRECTIONS_STUB_MIN_MOVE_M = 260;
 const DIRECTIONS_STUB_MAX_PER_WINDOW = 5;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+interface GpsPoint {
+  lat:  number;
+  lng:  number;
+  time: number;
+}
+
+function bufferPathDistanceM(points: GpsPoint[]): number {
+  if (points.length < 2) return 0;
+  let sum = 0;
+  for (let i = 1; i < points.length; i++) {
+    sum += haversineKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng) * 1000;
+  }
+  return sum;
+}
 
 /** Gdy matching zwróci NoSegment (GPS dalej od drogi niż 50 m), fallback przez krótkie legi Directions. */
 const DIRECTIONS_STUB_OFFSET_DEG = 0.00032; // ~25–35 m zależnie od szerokości geogr.
@@ -124,12 +146,6 @@ export type AddMatchContext = {
   noRoad?: boolean;
   staleSnap?: boolean;
 };
-
-interface GpsPoint {
-  lat:  number;
-  lng:  number;
-  time: number;
-}
 
 interface MapMatchResponse {
   code:      string;
@@ -258,6 +274,16 @@ export function useDrivingMapMatch() {
     const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
     const noRoad = !!ctx?.noRoad;
     const staleSnap = !!ctx?.staleSnap;
+
+    if (isClientFirstGeometryHealthy() && !noRoad && !staleSnap) {
+      logSnapReject('add_client_first_healthy');
+      return;
+    }
+    if (!shouldAllowNetworkMapMatch({ noRoad, staleSnap })) {
+      logSnapReject('add_client_first_policy', { noRoad, staleSnap });
+      return;
+    }
+
     // Przy braku geometrii trace może iść na postoju; przy snapie na drodze — oszczędzamy API.
     if (speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
       logSnapReject('add_stationary_skip', { speedKmh: Math.round(speedKmh) });
@@ -334,6 +360,19 @@ export function useDrivingMapMatch() {
     }
     if (bufferRef.current.length < MIN_BUFFER_POINTS) {
       logSnapReject('add_buffer_too_short', { points: bufferRef.current.length });
+      return;
+    }
+    const pathM = bufferPathDistanceM(bufferRef.current);
+    const batchReady =
+      pathM >= BATCH_MIN_PATH_DISTANCE_M
+      || bufferRef.current.length >= BUFFER_SIZE
+      || (noRoad && pathM >= 12 && bufferRef.current.length >= BATCH_MIN_POINTS);
+    if (!batchReady) {
+      logSnapReject('add_batch_distance_gate', {
+        pathM: Math.round(pathM),
+        minPathM: BATCH_MIN_PATH_DISTANCE_M,
+        points: bufferRef.current.length,
+      });
       return;
     }
     if (lastFetchRef.current) {
@@ -456,7 +495,7 @@ export function useDrivingMapMatch() {
           await sleep(60);
         }
       } else if (refresh) {
-        if (getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW) {
+        if (getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW * 2.5) {
           logSnapReject('force_refresh_budget_hard_cap');
           return matchedPtsRef.current;
         }

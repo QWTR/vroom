@@ -42,6 +42,7 @@ const INSTANT_FEED_SOURCES = new Set([
   'recovery',
   'driving_nav_bootstrap',
   'stall_recovery',
+  'v10_lag_catchup_instant',
 ]);
 
 const DEPRECATED_SOURCES = new Set([

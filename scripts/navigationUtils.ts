@@ -682,11 +682,19 @@ export function stepTowardSnapOnPolyline(
   }
 
   let fromIdx = fromProj.segmentIndex;
-  let toIdx = targetProj.segmentIndex;
+  const toIdx = targetProj.segmentIndex;
   if (toIdx < fromIdx) {
-    const swap = fromIdx;
-    fromIdx = toIdx;
-    toIdx = swap;
+    const onRoad = snapStepTowardRoad(fromLat, fromLng, points, maxSnapMeters, maxStepM);
+    if (onRoad) return onRoad;
+    const distM = haversineKm(fromLat, fromLng, targetLat, targetLng) * 1000;
+    if (!Number.isFinite(distM) || distM <= maxStepM) {
+      return { latitude: targetLat, longitude: targetLng };
+    }
+    const t = maxStepM / distM;
+    return {
+      latitude: fromLat + (targetLat - fromLat) * t,
+      longitude: fromLng + (targetLng - fromLng) * t,
+    };
   }
 
   const path: { latitude: number; longitude: number }[] = [

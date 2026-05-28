@@ -5,8 +5,9 @@
 
 import { haversineKm } from '../scripts/navigationUtils';
 
-export const MAP_MATCH_MIN_INTERVAL_MS = 8_000;
-export const MAP_MATCH_MIN_MOVE_M = 20;
+/** Globalny gate przed siecią — musi być spójny z useDrivingMapMatch (trace). */
+export const MAP_MATCH_MIN_INTERVAL_MS = 15_000;
+export const MAP_MATCH_MIN_MOVE_M = 40;
 export const MAP_MATCH_MIN_SPEED_KMH = 5;
 export const MAP_MATCH_STATIONARY_MAX_ACC_M = 35;
 const STALE_SNAP_BURST_WINDOW_MS = 10 * 60_000;

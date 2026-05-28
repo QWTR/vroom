@@ -16,7 +16,7 @@ type Options = {
   userLocation: LatLng | null;
 };
 
-const DRIVE_PREFETCH_MOVE_KM = 4;
+const DRIVE_PREFETCH_MOVE_KM = 3;
 
 export function useMapTilePrefetch({
   isNavigating,

@@ -97,7 +97,7 @@ export async function prefetchDriveCorridorPack(
   await safeCreatePack({
     name: DRIVE_PACK_NAME,
     styleURL,
-    bounds: boundsAroundCenter(center.latitude, center.longitude, 0.07),
+    bounds: boundsAroundCenter(center.latitude, center.longitude, 0.09),
     minZoom: 11,
     maxZoom: 16,
     metadata: { kind: 'driving' },

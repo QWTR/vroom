@@ -50,7 +50,7 @@ export function sustainedTripSpeedFromSamples(
   const last = recent[recent.length - 1];
   const netMoveM = haversineKm(first.lat, first.lng, last.lat, last.lng) * 1000;
   const dtMs = Math.max(0, last.t - first.t);
-  if (dtMs < 2000) {
+  if (dtMs < 500) {
     return { netMoveM, pathMoveM, sustainedKmh: 0 };
   }
   const pathKmh = (pathMoveM / 1000) / (dtMs / 3_600_000);
@@ -58,7 +58,7 @@ export function sustainedTripSpeedFromSamples(
     return { netMoveM, pathMoveM, sustainedKmh: 0 };
   }
   const efficiency = netMoveM / Math.max(pathMoveM, 0.5);
-  if (efficiency < TRIP_MIN_PATH_EFFICIENCY && pathKmh > 16) {
+  if (efficiency < 0.18 && pathKmh > 16) {
     return { netMoveM, pathMoveM, sustainedKmh: 0 };
   }
   const sustainedKmh = Math.min(pathKmh, pathKmh * efficiency);
@@ -72,10 +72,12 @@ function derivedSpeedKmh(
   newLng: number,
   dtMs: number,
 ): number {
-  if (dtMs < 400) return 0;
+  if (dtMs < 40) return 0;
   const distKm = haversineKm(prevLat, prevLng, newLat, newLng);
-  const kmh = (distKm / (dtMs / 1000)) * 3600;
-  return Number.isFinite(kmh) ? kmh : 0;
+  let kmh = distKm / (dtMs / 3_600_000);
+  if (!Number.isFinite(kmh)) return 0;
+  if (dtMs < 200 && kmh > 200) return 0;
+  return kmh;
 }
 
 /**
@@ -125,6 +127,13 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     if (stationaryEvidence) {
       const pathM = input.pathMoveM ?? 0;
       const motionKmh = Math.max(geoKmh, derivedKmh);
+      // Wolna jazda / rondo: path rośnie, net w oknie mały — nie zeruj.
+      if (pathM >= 8 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
+        return Math.min(
+          maxKmh,
+          Math.max(derivedKmh, gpsKmh, motionKmh, 4),
+        );
+      }
       // P1: brak paczek GPS, ale Doppler / skok punktów wskazuje jazdę.
       if (gpsKmh >= 10 || motionKmh >= 15) {
         return Math.min(Math.max(gpsKmh, motionKmh), maxKmh);
@@ -166,6 +175,9 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
         if (dopplerWithoutGeometry) {
           return Math.min(gpsKmh, maxKmh);
         }
+        if (pathM >= 6 && (gpsKmh >= 2.5 || derivedKmh >= 2.5)) {
+          return Math.min(maxKmh, Math.max(gpsKmh, derivedKmh, sustained, 4));
+        }
         return 0;
       }
       if (netM < 22) {
@@ -193,10 +205,17 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     // 1) Brak długoterminowego ruchu (sustained < 2.5) + duża delta = jitter:
     if (sustained < 2.5) {
       if (derivedKmh > 25) {
+        if (netM > 12) {
+          return Math.min(derivedKmh, maxKmh);
+        }
         return 0;
       }
-      // Bardzo wolny ruch (start z miejsca): derivedKmh ≤ 25 i netMoveM ≥ 3.5.
-      // Wtedy ufamy derivedKmh (max 25 km/h — fizyka startu z miejsca).
+      if (derivedKmh >= 8) {
+        return Math.min(derivedKmh, maxKmh);
+      }
+      if (derivedKmh >= 4 && netM >= 6) {
+        return Math.min(derivedKmh, maxKmh);
+      }
       if (derivedKmh >= 3 && netM >= 3.5) {
         return Math.min(derivedKmh, maxKmh);
       }
@@ -308,7 +327,10 @@ export function clampSpeedKmhToGeometry(
   }
   if (kmh <= 0) return 0;
   if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
-    // Doppler bez ruchu w oknie — nie podbijaj prędkości (częsty cache GPS + żywy speed).
+    const geoFloor = Math.max(opts.motionKmh, opts.sustainedKmh, opts.rawGpsKmh * 0.9);
+    if (geoFloor >= 3) {
+      return Math.min(MAX_SPEED_HUD_KMH, Math.max(kmh, geoFloor));
+    }
     return 0;
   }
   if (netM < 14) {

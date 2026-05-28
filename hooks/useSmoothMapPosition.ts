@@ -36,8 +36,13 @@ const MEGA_FEED_JUMP_M = 600;
 const STATIONARY_DRIFT_CAP_M = 45;
 /** Duży skok kotwicy — wydłuż segment, nadal liniowy LERP. */
 const BIG_CATCHUP_M = 22;
+/** Display dalej od feedu — instant snap (live pozycja), tylko przy jeździe. */
+const MAX_DISPLAY_LAG_M = 55;
+const LAG_SOFT_BLEND_ALPHA = 0.55;
 const SEG_DURATION_MIN_MS = 200;
 const SEG_DURATION_MAX_MS = 1400;
+/** Po zakręcie — krótki freeze dużych skoków indeksu DR na polilinii. */
+const TURN_DR_FREEZE_MS = 200;
 /** Max obrót markera [°/s]. */
 const MAX_HEADING_RATE_DPS = 20;
 function logWorkletStall(payload: Record<string, unknown>): void {
@@ -54,6 +59,10 @@ function logWorkletFrameDiag(payload: Record<string, unknown>): void {
 
 function logWorkletMegaFeedReject(payload: Record<string, unknown>): void {
   markerLogTick('WORKLET_ONFEED_MEGA_REJECT', payload, 0);
+}
+
+function logDisplayLagClamp(payload: Record<string, unknown>): void {
+  markerLogTick('DISPLAY_LAG_CLAMP', payload, 800);
 }
 
 function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
@@ -304,6 +313,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
   const lastStallLogMs = useSharedValue(0);
   const lastFeedWallMs = useSharedValue(0);
   const lastFrameDiagLogMs = useSharedValue(0);
+  const turnDrFreezeUntil = useSharedValue(0);
 
   useEffect(() => {
     frameActive.value = enabled ? 1 : 0;
@@ -375,6 +385,76 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         ? haversineMWorklet(lat.value, lng.value, feedLat, feedLng)
         : 0;
 
+      // Road geometry snapshot (small window) for DR along curve — przed backward guard.
+      if (target.roadPts && Array.isArray(target.roadPts) && target.roadPts.length >= 2) {
+        const flat: number[] = [];
+        for (let i = 0; i < target.roadPts.length; i += 1) {
+          const p = target.roadPts[i];
+          if (!p) continue;
+          if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
+          flat.push(p.latitude, p.longitude);
+        }
+        if (flat.length >= 4) {
+          const hdgJumpRoad = angleDeltaWorklet(anchorHdg.value, feedHdg);
+          roadFlat.value = flat;
+          if (hdgJumpRoad > 28 || instant) {
+            roadIdx.value = findNearestRoadIndexWorklet(flat, lat.value, lng.value);
+            turnDrFreezeUntil.value = now + TURN_DR_FREEZE_MS;
+          } else {
+            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
+          }
+        }
+      }
+
+      let backwardRefHdg = anchorHdg.value;
+      if (roadFlat.value.length >= 8) {
+        const snapI = findNearestRoadIndexWorklet(roadFlat.value, lat.value, lng.value);
+        const nRoad = roadLenWorklet(roadFlat.value);
+        if (snapI >= 0 && snapI < nRoad - 1) {
+          backwardRefHdg = bearingBetweenWorklet(
+            roadGetLatWorklet(roadFlat.value, snapI),
+            roadGetLngWorklet(roadFlat.value, snapI),
+            roadGetLatWorklet(roadFlat.value, snapI + 1),
+            roadGetLngWorklet(roadFlat.value, snapI + 1),
+          );
+        }
+      }
+
+      const feedBackwardAlongRoad =
+        bootstrapped.value === 1
+        && distFromDisplayM >= 2.5
+        && distFromDisplayM <= 55
+        && feedSpeedMsRaw >= 1.0
+        && isBackwardStepWorklet(lat.value, lng.value, feedLat, feedLng, backwardRefHdg);
+
+      let forceInstantLag = instant;
+      const feedKmhForLag = (feedSpeedMsRaw > 0 ? feedSpeedMsRaw : speedMs.value) * 3.6;
+      if (
+        bootstrapped.value === 1
+        && !instant
+        && distFromDisplayM > MAX_DISPLAY_LAG_M
+        && feedSpeedMsRaw >= 1.1
+      ) {
+        if (feedKmhForLag >= 22 && !feedBackwardAlongRoad) {
+          lat.value = feedLat;
+          lng.value = feedLng;
+          forceInstantLag = true;
+          runOnJS(logDisplayLagClamp)({
+            distM: Math.round(distFromDisplayM),
+            source: src,
+            mode: 'instant',
+          });
+        } else if (!feedBackwardAlongRoad) {
+          feedLat = lat.value + (feedLat - lat.value) * LAG_SOFT_BLEND_ALPHA;
+          feedLng = lng.value + (feedLng - lng.value) * LAG_SOFT_BLEND_ALPHA;
+          runOnJS(logDisplayLagClamp)({
+            distM: Math.round(distFromDisplayM),
+            source: src,
+            mode: 'blend',
+          });
+        }
+      }
+
       const distFromPinM = stationaryLocked.value === 1
         ? haversineMWorklet(pinLat.value, pinLng.value, feedLat, feedLng)
         : distFromDisplayM;
@@ -401,7 +481,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
 
       const ghostSpeedNoMove =
         feedSpeedMsRaw < 2.8
-        && distFromDisplayM < STATIONARY_RELEASE_MOVE_M;
+        && distFromDisplayM < 4;
       const effectivelyStopped =
         isStationaryFeed
         || feedSpeedMsRaw < DR_MIN_SPEED_MS
@@ -434,19 +514,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         return;
       }
 
-      // Road geometry snapshot (small window) for DR along curve.
-      if (target.roadPts && Array.isArray(target.roadPts) && target.roadPts.length >= 2) {
-        const flat: number[] = [];
-        for (let i = 0; i < target.roadPts.length; i += 1) {
-          const p = target.roadPts[i];
-          if (!p) continue;
-          if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
-          flat.push(p.latitude, p.longitude);
-        }
-        if (flat.length >= 4) {
-          roadFlat.value = flat;
-          roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
-        }
+      if (feedBackwardAlongRoad) {
+        return;
       }
 
       if (bootstrapped.value === 1) {
@@ -489,8 +558,8 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       anchorHdg.value = feedHdg;
       lastFeedWallMs.value = now;
 
-      let segmentMs = target.durationMs ?? 500;
-      if (!instant && distFromDisplayM >= BIG_CATCHUP_M) {
+      let segmentMs = forceInstantLag ? 0 : (target.durationMs ?? 500);
+      if (!forceInstantLag && distFromDisplayM >= BIG_CATCHUP_M) {
         const cruise = Math.max(target.speedMs ?? speedMs.value, CRUISE_MIN_MS);
         segmentMs = Math.max(
           segmentMs,
@@ -498,7 +567,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         );
       }
 
-      if (instant || bootstrapped.value === 0) {
+      if (instant || forceInstantLag || bootstrapped.value === 0) {
         lat.value = feedLat;
         lng.value = feedLng;
         heading.value = feedHdg;
@@ -516,7 +585,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           now,
         );
         inDeadReckoning.value = 0;
-        if (instant) {
+        if (instant || forceInstantLag) {
           notifySmoothPositionDisplay(feedLat, feedLng, feedHdg);
         }
       } else if (isStationaryFeed && distFromDisplayM < STATIONARY_MAX_ANCHOR_DRIFT_M) {
@@ -720,6 +789,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
           const drStepM = cruiseMs * frameDtSec;
           // DR along road geometry if available; fallback to bearing only when missing.
           if (roadFlat.value.length >= 8) {
+            const prevRoadIdx = roadIdx.value;
             const next = advanceAlongRoadWorklet(
               roadFlat.value,
               roadIdx.value,
@@ -727,7 +797,12 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
               lng.value,
               drStepM,
             );
-            roadIdx.value = next.idx;
+            const turnFreeze = now < turnDrFreezeUntil.value;
+            if (turnFreeze && Math.abs(next.idx - prevRoadIdx) > 3) {
+              roadIdx.value = prevRoadIdx;
+            } else {
+              roadIdx.value = next.idx;
+            }
             if (!isBackwardStepWorklet(lat.value, lng.value, next.lat, next.lng, roadHdg)) {
               lat.value = next.lat;
               lng.value = next.lng;
