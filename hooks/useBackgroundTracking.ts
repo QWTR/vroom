@@ -510,9 +510,11 @@ export function useBackgroundTracking(
     bgStops: 0,
     forceStarts: 0,
   });
+  const bgEnabledRef = useRef(bgEnabled);
 
   // Mirror user setting + sharing flag for the BG task handler
   useEffect(() => {
+    bgEnabledRef.current = bgEnabled;
     AsyncStorage.setItem(BG_TRACKING_SETTING_KEY, bgEnabled ? 'true' : 'false').catch(() => {});
   }, [bgEnabled]);
 
@@ -764,6 +766,17 @@ export function useBackgroundTracking(
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
     try {
+      // Hard runtime guard: never run BG task when user disabled the toggle.
+      const persistedBgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
+      const bgAllowed = bgEnabledRef.current && persistedBgSetting === 'true';
+      if (!bgAllowed) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        return;
+      }
       const appIsActive = AppState.currentState === 'active';
       // Free: brak śledzenia po zminimalizowaniu — mapa/nawigacja w foreground bez limitów.
       if (!isPremium && !appIsActive) {

@@ -458,11 +458,26 @@ export function useDrivingSnap() {
       ? densifyPolyline(ptsSource, ptsSource.length <= 4 ? 6 : 8)
       : ptsSource;
     const last = lastRawRef.current;
+    // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
+    const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
+    const rawMoveM = last ? haversineKm(last.lat, last.lng, lat, lng) * 1000 : 0;
+    const hardStationaryHold =
+      hardRoadLock
+      && rawMoveM < 6
+      && speedKmh < 5
+      && dopplerKmhSafe < 12;
 
     let roadLockHeld = false;
     if (hardRoadLock && pts.length >= 2) {
       const rawDistM = minDistToPolylineM(lat, lng, pts);
-      if (rawDistM > ROAD_LOCK_ESCAPE_M) {
+      const allowRoadEscape =
+        !hardStationaryHold
+        && (
+          speedKmh >= 6
+          || dopplerKmhSafe >= 10
+          || rawMoveM >= 8
+        );
+      if (allowRoadEscape && rawDistM > ROAD_LOCK_ESCAPE_M) {
         rawEscapeStreakRef.current += 1;
       } else {
         rawEscapeStreakRef.current = 0;
@@ -481,10 +496,6 @@ export function useDrivingSnap() {
       rawEscapeStreakRef.current = 0;
       roadLockEngagedRef.current = false;
     }
-
-    // Snap whenever we have road points — loc.speed bywa 0 przy jeździe (Android/iOS).
-    const dopplerKmhSafe = dopplerKmh != null && Number.isFinite(dopplerKmh) ? dopplerKmh : 0;
-    const rawMoveM = last ? haversineKm(last.lat, last.lng, lat, lng) * 1000 : 0;
     const ghostDopplerParked =
       dopplerKmhSafe >= 10
       && speedKmh < 8
@@ -498,7 +509,7 @@ export function useDrivingSnap() {
       && rawMoveM < 12
       && !movingEvidence
       && (speedKmh < 8 || ghostDopplerParked);
-    if (frozenSnap && lastSnappedRef.current) {
+    if ((hardStationaryHold || frozenSnap) && lastSnappedRef.current) {
       lastRawRef.current = { lat, lng };
       return {
         ...lastSnappedRef.current,
@@ -1206,6 +1217,27 @@ export function useDrivingSnap() {
           travelHeading,
           projectedStepM,
         );
+      }
+    }
+
+    // Driving hard-lock invariant: final point must stay on road geometry.
+    // Even when snap scoring falls back to blended continuity, re-project the
+    // final coordinate to the currently active polyline to avoid off-road drift.
+    if (hardRoadLock && pts.length >= 2) {
+      const finalRoadProj = projectOntoPolylineWithIndex(
+        snappedCoord.latitude,
+        snappedCoord.longitude,
+        pts,
+        SNAP_RADIUS_EMERGENCY_M + 30,
+      );
+      if (finalRoadProj) {
+        snappedCoord = {
+          latitude: finalRoadProj.latitude,
+          longitude: finalRoadProj.longitude,
+        };
+        if (Number.isFinite(finalRoadProj.segmentIndex)) {
+          lastSegmentIndexRef.current = finalRoadProj.segmentIndex;
+        }
       }
     }
 

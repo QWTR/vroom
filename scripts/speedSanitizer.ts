@@ -90,6 +90,17 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
       ? input.gpsSpeedMs * 3.6
       : 0;
 
+  // Driving/navigation: trust Doppler quickly, but never on pure standstill jitter.
+  if (input.isTripActive && gpsKmh >= 6) {
+    const netM = input.netMoveM ?? 0;
+    const pathM = input.pathMoveM ?? 0;
+    const sustained = input.sustainedKmh ?? 0;
+    const hasPhysicalMotion = netM >= 6 || pathM >= 8 || sustained >= 3;
+    if (hasPhysicalMotion) {
+      return Math.min(gpsKmh, maxKmh);
+    }
+  }
+
   let derivedKmh = 0;
   const {
     prevLat,
@@ -136,6 +147,9 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
       }
       // P1: brak paczek GPS, ale Doppler / skok punktów wskazuje jazdę.
       if (gpsKmh >= 10 || motionKmh >= 15) {
+        if (netM < 6 && pathM < 10 && sustained < 3) {
+          return 0;
+        }
         return Math.min(Math.max(gpsKmh, motionKmh), maxKmh);
       }
       const frozenCoordsDriving =
@@ -314,20 +328,9 @@ export function clampSpeedKmhToGeometry(
     netM < 6
     && opts.sustainedKmh < 4
     && opts.motionKmh < 5;
-  if (
-    !parkedLike
-    && opts.rawGpsKmh >= 15
-    && netM < 22
-    && (opts.motionKmh < 8 || opts.sustainedKmh < 8)
-  ) {
-    return Math.min(
-      MAX_SPEED_HUD_KMH,
-      Math.max(kmh, opts.rawGpsKmh * 0.9),
-    );
-  }
   if (kmh <= 0) return 0;
   if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
-    const geoFloor = Math.max(opts.motionKmh, opts.sustainedKmh, opts.rawGpsKmh * 0.9);
+    const geoFloor = Math.max(opts.motionKmh, opts.sustainedKmh);
     if (geoFloor >= 3) {
       return Math.min(MAX_SPEED_HUD_KMH, Math.max(kmh, geoFloor));
     }
@@ -341,9 +344,6 @@ export function clampSpeedKmhToGeometry(
     }
     const cap = Math.min(22, geo * 1.12 + 4);
     if (kmh > cap) return cap < 2.5 ? 0 : cap;
-  }
-  if (opts.rawGpsKmh >= 28 && netM < 22 && opts.sustainedKmh < 10) {
-    return Math.min(kmh, Math.max(opts.rawGpsKmh, geo * 1.1 + 4));
   }
   return kmh;
 }

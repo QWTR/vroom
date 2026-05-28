@@ -316,8 +316,27 @@ export function feedSmoothPositionTarget(target: SmoothTarget): void {
 
   const coordReject = feedJumpRejectReason(normalized, lastTarget);
   if (coordReject) {
+    const drivingFeed =
+      src.startsWith('v10_live_')
+      || src === 'v10_apply_trip_instant'
+      || src === 'v10_apply_chase_instant'
+      || src === 'v10_live_cruise'
+      || src === 'v10_direct_cruise_feed';
+    const bypassDrivingReject =
+      drivingFeed
+      && (coordReject === 'low_speed_jump' || coordReject === 'stationary_jump');
+    if (bypassDrivingReject) {
+      markerLogCritical('WORKLET_FEED_COORD_BYPASS', gpsTickPayload({
+        reason: coordReject,
+        source: src,
+        lat: Number(normalized.latitude.toFixed(6)),
+        lng: Number(normalized.longitude.toFixed(6)),
+        speedMs: normalized.speedMs ?? null,
+      }));
+    } else {
     logFeedJumpReject(coordReject, normalized, lastTarget);
     return;
+    }
   }
 
   const dropReason = shouldDropFeed(normalized);

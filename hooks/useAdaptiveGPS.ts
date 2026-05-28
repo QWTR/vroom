@@ -47,7 +47,7 @@ const ACTIVE_EMIT_MIN_INTERVAL_MS = 40;
 const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 20;
 const HIGHWAY_EMIT_SPEED_KMH = 45;
 /** Po dłuższej ciszy zawsze przepuść fix — inaczej map.tsx nie dostaje ticków. */
-const ACTIVE_FORCE_EMIT_GAP_MS = 280;
+const ACTIVE_FORCE_EMIT_GAP_MS = 200;
 const ACTIVE_EMIT_MIN_HEADING_DELTA = 6;
 
 type GpsProfile = 'offMap' | 'browsing' | 'active';
@@ -70,7 +70,7 @@ const GPS_CONFIG: Record<GpsProfile, {
   active: {
     accuracy:         Location.Accuracy.BestForNavigation,
     // Denser stream in trip mode to reduce snap jumps and marker teleport.
-    timeInterval:     400,
+    timeInterval:     250,
     distanceInterval: 1,
   },
 };

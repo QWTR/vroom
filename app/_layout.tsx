@@ -196,6 +196,7 @@ function RootLayoutInner() {
   const {
     updateAvailable,
     downloading: updateDownloading,
+    downloadProgress,
     error: updateError,
     checkForUpdate,
     applyUpdate,
@@ -529,6 +530,7 @@ function RootLayoutInner() {
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}
         loading={updateDownloading}
+        progress={downloadProgress}
         error={updateError}
         onUpdate={applyUpdate}
         onDismiss={handleUpdateLater}

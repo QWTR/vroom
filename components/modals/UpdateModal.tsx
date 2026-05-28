@@ -9,12 +9,13 @@ import { useTheme } from '../../contexts/ThemeContext';
 interface Props {
   visible:    boolean;
   loading:    boolean;
+  progress:   number;
   error:      string | null;
   onUpdate:   () => void;
   onDismiss:  () => void;
 }
 
-export function UpdateModal({ visible, loading, error, onUpdate, onDismiss }: Props) {
+export function UpdateModal({ visible, loading, progress, error, onUpdate, onDismiss }: Props) {
   const { theme, isDark } = useTheme();
 
   if (!visible) return null;
@@ -45,9 +46,23 @@ export function UpdateModal({ visible, loading, error, onUpdate, onDismiss }: Pr
 
             <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, textAlign: 'center', lineHeight: 16, marginBottom: error ? 12 : 28, letterSpacing: 0.5 }}>
               {loading
-                ? 'Pobieranie i restart aplikacji…'
+                ? `Pobieranie aktualizacji… ${Math.round(progress)}%`
                 : 'Dostępna jest nowa wersja VROOM.\nZaktualizuj teraz, żeby korzystać z najnowszych funkcji i poprawek.'}
             </Text>
+
+            {loading && (
+              <View style={{ marginBottom: 20 }}>
+                <View style={{ height: 8, borderRadius: 999, backgroundColor: isDark ? '#ffffff22' : '#00000012', overflow: 'hidden' }}>
+                  <View
+                    style={{
+                      height: '100%',
+                      width: `${Math.max(0, Math.min(100, progress))}%`,
+                      backgroundColor: '#e33835',
+                    }}
+                  />
+                </View>
+              </View>
+            )}
 
             {!!error && (
               <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', textAlign: 'center', lineHeight: 16, marginBottom: 20, letterSpacing: 0.3 }}>

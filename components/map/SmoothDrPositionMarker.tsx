@@ -201,17 +201,14 @@ const SmoothDrPositionMarkerBody = memo(function SmoothDrPositionMarkerBody({
   if (!enabled) return null;
 
   const smoothOk = isValidCoord(pose.lat, pose.lng);
-  const propsOk = !workletOnly && isValidCoord(_lat, _lng);
-  const tripAnchorOk = workletOnly && isValidCoord(_lat, _lng);
+  const propsOk = isValidCoord(_lat, _lng);
   const displayLat = smoothOk
     ? pose.lat
-    : (tripAnchorOk ? _lat : (propsOk ? _lat : NaN));
+    : _lat;
   const displayLng = smoothOk
     ? pose.lng
-    : (tripAnchorOk ? _lng : (propsOk ? _lng : NaN));
-  const renderSource = workletOnly
-    ? (smoothOk ? 'worklet_pose' : 'worklet_fallback')
-    : (smoothOk ? 'worklet_pose' : (propsOk ? 'props_parent' : 'none'));
+    : _lng;
+  const renderSource = smoothOk ? 'worklet_pose' : 'props_fallback';
 
   if (enabled && Number.isFinite(displayLat) && Number.isFinite(displayLng)) {
     const nowRender = Date.now();

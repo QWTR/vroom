@@ -471,18 +471,28 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       const distFromPinM = stationaryLocked.value === 1
         ? haversineMWorklet(pinLat.value, pinLng.value, feedLat, feedLng)
         : distFromDisplayM;
+      const drivingContinuityEvidence =
+        isDrivingLiveFeed
+        && (
+          feedSpeedMsRaw >= 0.8
+          || distFromDisplayM >= 1.2
+        );
 
       // Już zablokowany postój — odrzuć jitter snap/GPS (ghost speed bez ruchu).
       if (stationaryLocked.value === 1 && bootstrapped.value === 1) {
+        speedMs.value = 0;
+        inDeadReckoning.value = 0;
         const canRelease =
+          drivingContinuityEvidence
+          || (
           feedSpeedMsRaw >= STATIONARY_RELEASE_SPEED_MS
           || distFromPinM >= STATIONARY_RELEASE_MOVE_M
-          || distFromDisplayM >= 1.0;
+          || distFromDisplayM > 2.0
+          );
         if (!canRelease) {
           anchorLat.value = pinLat.value;
           anchorLng.value = pinLng.value;
-          speedMs.value = 0;
-          inDeadReckoning.value = 0;
+          anchorHdg.value = feedHdg;
           lastFeedWallMs.value = now;
           return;
         }
@@ -496,7 +506,7 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
       }
 
       const effectivelyStopped =
-        src === 'v10_stationary_hold'
+        (src === 'v10_stationary_hold' && !drivingContinuityEvidence)
         || (!isDrivingLiveFeed && feedSpeedMsRaw < STATIONARY_LOCK_SPEED_MS && distFromDisplayM < 0.9);
 
       if (effectivelyStopped && bootstrapped.value === 1) {
@@ -533,25 +543,6 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         const hdgJump = angleDeltaWorklet(anchorHdg.value, feedHdg);
         if (hdgJump > 28 && distFromDisplayM < 15) {
           feedHdg = anchorHdg.value;
-        }
-        if (distFromDisplayM > MEGA_FEED_JUMP_M) {
-          runOnJS(logWorkletMegaFeedReject)({
-            distM: Math.round(distFromDisplayM),
-            source: src,
-          });
-          return;
-        }
-        const slowFeed =
-          isStationaryFeed
-          || (target.speedMs ?? speedMs.value) < 0.55;
-        if (slowFeed && distFromDisplayM > STATIONARY_MAX_FEED_JUMP_M && !isDrivingLiveFeed) {
-          return;
-        }
-        if (!instant && slowFeed && distFromDisplayM > STATIONARY_MAX_ANCHOR_DRIFT_M && !isDrivingLiveFeed) {
-          return;
-        }
-        if (!instant && (target.speedMs ?? speedMs.value) < 1.2 && distFromDisplayM > 35 && !isDrivingLiveFeed) {
-          return;
         }
       }
 

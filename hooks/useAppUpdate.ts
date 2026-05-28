@@ -56,6 +56,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 export function useAppUpdate() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const checkForUpdate = useCallback(async (opts?: { retries?: number }): Promise<boolean> => {
@@ -90,18 +91,32 @@ export function useAppUpdate() {
     if (__DEV__ || !Updates.isEnabled) return;
 
     setDownloading(true);
+    setDownloadProgress(0);
     setError(null);
+    let progressTimer: ReturnType<typeof setInterval> | null = null;
     try {
+      // expo-updates nie udostępnia natywnego % postępu dla fetchUpdateAsync,
+      // więc pokazujemy płynny progres UI podczas pobierania.
+      progressTimer = setInterval(() => {
+        setDownloadProgress((current) => (current >= 90 ? current : current + 4));
+      }, 700);
+
       // Natywny CHECK_ON_LAUNCH (AndroidManifest ALWAYS) często pobiera pakiet przed modalem.
       // fetchUpdateAsync() wtedy zwraca isNew=false — update jest już na dysku, trzeba reload.
       await withTimeout(Updates.fetchUpdateAsync(), FETCH_TIMEOUT_MS, 'Pobieranie aktualizacji');
+      if (progressTimer) clearInterval(progressTimer);
+      setDownloadProgress(100);
+      await sleep(300);
       await Updates.reloadAsync();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn('[useAppUpdate] applyUpdate error:', msg);
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = null;
 
       // Ostatnia szansa: pakiet mógł być już pobrany, a fetch/reload padł na sieci.
       try {
+        setDownloadProgress(100);
         await Updates.reloadAsync();
         return;
       } catch (reloadErr: unknown) {
@@ -115,6 +130,9 @@ export function useAppUpdate() {
           : 'Nie udało się zaktualizować. Sprawdź internet i spróbuj ponownie.';
       setError(friendly);
       setDownloading(false);
+      setDownloadProgress(0);
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
     }
   }, []);
 
@@ -122,11 +140,13 @@ export function useAppUpdate() {
     setUpdateAvailable(false);
     setError(null);
     setDownloading(false);
+    setDownloadProgress(0);
   }, []);
 
   return {
     updateAvailable,
     downloading,
+    downloadProgress,
     error,
     checkForUpdate,
     applyUpdate,
