@@ -88,7 +88,7 @@ export class RoadSnapEngine {
           return local;
         }
       }
-      if (opts.allowRawFallback === true || !hasPoly) {
+      if (opts.allowRawFallback === true || !hasPoly || !opts.isNavigating) {
         const pose = this.rawGpsPose(raw, this.frozenPose);
         this.frozenPose = pose;
         return pose;
@@ -106,7 +106,7 @@ export class RoadSnapEngine {
         this.projectWithRetry(raw, cache, minSeg, maxRadius)
         ?? this.projectWithRetry(raw, cache, minSeg, SNAP_WIDE_RETRY_RADIUS_M);
 
-      if (!pose && this.frozenPose) {
+      if (!pose && this.frozenPose && opts.isNavigating) {
         pose = this.stickForwardOnPoly(raw, poly.points, this.frozenPose, maxStepM);
       }
 
@@ -117,7 +117,7 @@ export class RoadSnapEngine {
         return pose;
       }
 
-      if (this.frozenPose) {
+      if (this.frozenPose && opts.isNavigating) {
         const held = this.stickForwardOnPoly(raw, poly.points, this.frozenPose, maxStepM);
         this.frozenPose = held;
         return held;
@@ -132,7 +132,7 @@ export class RoadSnapEngine {
       }
     }
 
-    if (opts.allowRawFallback === true) {
+    if (opts.allowRawFallback === true || !opts.isNavigating) {
       const pose = this.rawGpsPose(raw, this.frozenPose);
       this.frozenPose = pose;
       return pose;

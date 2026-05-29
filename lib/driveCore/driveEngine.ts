@@ -86,7 +86,8 @@ export class DriveEngine {
   onRawGps(raw: RawGpsFix): DriveTickOutput | null {
     if (!Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) return null;
 
-    const freeDriveNoRoute = !this.isNavigating && !this.cache.hasGeometry();
+    const isFreeDrive = !this.isNavigating;
+    const freeDriveNoRoute = isFreeDrive && !this.cache.hasGeometry();
     const motionBefore = this.motion.getSnapshot();
     const gate = this.quality.evaluate(raw, {
       isMoving: motionBefore.isMoving,
@@ -104,9 +105,9 @@ export class DriveEngine {
     }
 
     if (gate.verdict === 'REJECT') {
-      if (freeDriveNoRoute) {
+      if (isFreeDrive) {
         const out = this.buildFreeDriveTick(raw, gate, false);
-        this.maybeCommitEnvelope(raw, gate, out.isMoving, freeDriveNoRoute);
+        this.maybeCommitEnvelope(raw, gate, out.isMoving, isFreeDrive);
         return out;
       }
       const held = this.snap.getFrozenPose();
@@ -152,9 +153,9 @@ export class DriveEngine {
     };
 
     if (!isMoving) {
-      if (freeDriveNoRoute) {
+      if (isFreeDrive) {
         const out = this.buildFreeDriveTick(raw, gate, true);
-        this.maybeCommitEnvelope(raw, gate, out.isMoving, freeDriveNoRoute);
+        this.maybeCommitEnvelope(raw, gate, out.isMoving, isFreeDrive);
         return out;
       }
       const frozen = this.snap.snap(raw, this.cache, {
@@ -169,7 +170,7 @@ export class DriveEngine {
         this.isNavigating,
         qualityPick,
       );
-      this.maybeCommitEnvelope(raw, gate, false, freeDriveNoRoute);
+      this.maybeCommitEnvelope(raw, gate, false, isFreeDrive);
       return {
         pose: frozen,
         speedKmh,
@@ -189,8 +190,8 @@ export class DriveEngine {
     const pose = this.snap.snap(raw, this.cache, {
       isMoving: true,
       isNavigating: this.isNavigating,
-      allowRawFallback: !this.cache.hasGeometry(),
-      preferLocalL2: freeDriveNoRoute,
+      allowRawFallback: isFreeDrive || !this.cache.hasGeometry(),
+      preferLocalL2: isFreeDrive,
       maxStepM,
     });
 
@@ -202,7 +203,7 @@ export class DriveEngine {
       qualityPick,
     );
 
-    this.maybeCommitEnvelope(raw, gate, true, freeDriveNoRoute);
+    this.maybeCommitEnvelope(raw, gate, true, isFreeDrive);
 
     if (gate.verdict === 'FULL_ACCEPT') {
       const decision = this.budget.evaluate({
@@ -261,7 +262,8 @@ export class DriveEngine {
         const pose = this.snap.snap(raw, this.cache, {
           isMoving: true,
           isNavigating: false,
-          allowRawFallback: false,
+          allowRawFallback: true,
+          preferLocalL2: true,
           maxStepM: 22,
         });
         const fullAccept = {
@@ -297,7 +299,7 @@ export class DriveEngine {
     raw: RawGpsFix,
     gate: GpsQualityResult,
     isMoving: boolean,
-    freeDriveNoRoute: boolean,
+    isFreeDrive: boolean,
   ): void {
     if (gate.verdict === 'FULL_ACCEPT') {
       this.quality.commitAccepted(raw);
@@ -317,7 +319,7 @@ export class DriveEngine {
     const forwardEvidence =
       isMoving
       || dopplerKmh >= 3
-      || (freeDriveNoRoute && (dopplerKmh >= 2 || lastKmh >= 2 || headingForward));
+      || (isFreeDrive && (dopplerKmh >= 2 || lastKmh >= 2 || headingForward));
 
     if (forwardEvidence) {
       this.quality.commitAccepted(raw);
