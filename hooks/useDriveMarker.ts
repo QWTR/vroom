@@ -275,24 +275,28 @@ export function useDriveMarker(
       ) {
         lerpActive.value = 0;
       } else {
-        let t = lerpProgressWorklet(nowMs, lerpStartMs.value, lerpDurationMs.value);
+        const durationMs = lerpDurationMs.value;
+        let t = lerpProgressWorklet(nowMs, lerpStartMs.value, durationMs);
+
+        if (!Number.isFinite(t) || durationMs <= 0 || t >= 1) {
+          t = 1;
+        }
 
         const segM = haversineMWorklet(fromLa, fromLn, toLa, toLn);
         if (segM < 0.15) {
           t = 1;
         }
 
-        lat.value = fromLa + (toLa - fromLa) * t;
-        lng.value = fromLn + (toLn - fromLn) * t;
-
-        const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
-        heading.value = normalizeHeadingW(lerpFromHdg.value + dH * t);
-
         if (t >= 1) {
           lat.value = toLa;
           lng.value = toLn;
           heading.value = lerpToHdg.value;
           lerpActive.value = 0;
+        } else {
+          lat.value = fromLa + (toLa - fromLa) * t;
+          lng.value = fromLn + (toLn - fromLn) * t;
+          const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
+          heading.value = normalizeHeadingW(lerpFromHdg.value + dH * t);
         }
       }
     } else {

@@ -31,9 +31,9 @@ export const GATE_ACC_STOP_UPDATE_M = 35;
 
 const KIN_HARD_MIN_M = 35;
 const KIN_SOFT_MIN_M = 22;
-/** Free-drive bez cache — Android często „dogania” z opóźnieniem. */
-const KIN_HARD_MIN_FREE_DRIVE_M = 55;
-const KIN_SOFT_MIN_FREE_DRIVE_M = 35;
+/** Free-drive bez cache trasy — słabszy GPS na drogach krajowych. */
+const KIN_HARD_MIN_FREE_DRIVE_M = 60;
+const KIN_SOFT_MIN_FREE_DRIVE_M = 38;
 const KIN_HARD_FACTOR = 2.2;
 const KIN_SOFT_FACTOR = 1.6;
 const BAD_VERDICT_RESET_STREAK = 3;
@@ -67,11 +67,10 @@ export class GpsQualityGate {
   }
 
   /**
-   * 3× z rzędu DEGRADED/REJECT podczas jazdy → reset koperty + seed z bieżącego fixa.
-   * @returns true jeśli właśnie wykonano twardy reset (caller powinien commitAccepted).
+   * 3× z rzędu DEGRADED/REJECT przy isMoving → pełny reset + seed (caller: commitAccepted).
    */
-  registerBadVerdict(verdict: GpsQualityVerdict, drivingActive: boolean): boolean {
-    if (!drivingActive || verdict === 'FULL_ACCEPT') {
+  registerBadVerdict(verdict: GpsQualityVerdict, isMoving: boolean): boolean {
+    if (!isMoving || verdict === 'FULL_ACCEPT') {
       this.badVerdictStreak = 0;
       return false;
     }
@@ -84,8 +83,7 @@ export class GpsQualityGate {
       return false;
     }
     this.badVerdictStreak = 0;
-    this.lastAccepted = null;
-    this.wakeStreak = 0;
+    this.reset();
     return true;
   }
 

@@ -9,6 +9,12 @@ import {
   projectOnPolylineForward,
   stepPoseOnPolyline,
 } from './geo';
+import {
+  LOCAL_L2_HEADING_ALIGN_DEG,
+  LOCAL_L2_SNAP_RADIUS_M,
+  LOCAL_L2_SNAP_WIDE_M,
+  localRoadGeometryMirror,
+} from './localRoadSnap';
 import type { GeometryCache } from './geometryCache';
 import type { RawGpsFix, RoadPoint, SnappedPose } from './types';
 
@@ -18,6 +24,10 @@ export type SnapOptions = {
   allowRawFallback?: boolean;
   /** Maks. dystans między kolejnymi pozami (płynność markera). */
   maxStepM?: number;
+  /** Kierunek jazdy do filtra L2 (°). */
+  travelHeadingDeg?: number;
+  /** Free-drive: najpierw snap z lokalnego L2 (RoadGeometryStore mirror). */
+  preferLocalL2?: boolean;
 };
 
 export class RoadSnapEngine {
@@ -40,7 +50,13 @@ export class RoadSnapEngine {
     const pose = this.snap(
       { lat, lng, accuracy: 8, timestamp: Date.now() },
       cache,
-      { isMoving: false, isNavigating: false, allowRawFallback: true },
+      {
+        isMoving: false,
+        isNavigating: false,
+        allowRawFallback: true,
+        travelHeadingDeg: heading,
+        preferLocalL2: true,
+      },
     );
     if (!Number.isFinite(pose.heading) || pose.heading === 0) {
       pose.heading = heading;
@@ -55,6 +71,7 @@ export class RoadSnapEngine {
     const minSeg = cache.getLastSegmentIndex();
     const maxStepM = opts.maxStepM ?? 24;
     const hasPoly = !!(poly && poly.points.length >= 2);
+    const travelHdg = this.resolveTravelHeading(raw, opts.travelHeadingDeg);
 
     if (!opts.isMoving) {
       if (hasPoly) {
@@ -64,7 +81,13 @@ export class RoadSnapEngine {
           return pose;
         }
       }
-      // Free-drive bez polilinii (lub jawny RAW) — nie „betonuj” seeda, śledź GPS.
+      if (opts.preferLocalL2 || opts.allowRawFallback === true || !hasPoly) {
+        const local = this.tryLocalL2Snap(raw, travelHdg, maxStepM);
+        if (local) {
+          this.frozenPose = local;
+          return local;
+        }
+      }
       if (opts.allowRawFallback === true || !hasPoly) {
         const pose = this.rawGpsPose(raw, this.frozenPose);
         this.frozenPose = pose;
@@ -101,6 +124,14 @@ export class RoadSnapEngine {
       }
     }
 
+    if (opts.preferLocalL2) {
+      const local = this.tryLocalL2Snap(raw, travelHdg, maxStepM);
+      if (local) {
+        this.frozenPose = local;
+        return local;
+      }
+    }
+
     if (opts.allowRawFallback === true) {
       const pose = this.rawGpsPose(raw, this.frozenPose);
       this.frozenPose = pose;
@@ -116,6 +147,72 @@ export class RoadSnapEngine {
     return fallback;
   }
 
+  private resolveTravelHeading(raw: RawGpsFix, explicit?: number): number {
+    if (Number.isFinite(explicit)) return explicit!;
+    if (this.frozenPose) {
+      const movedM = distanceM(
+        this.frozenPose.lat,
+        this.frozenPose.lng,
+        raw.lat,
+        raw.lng,
+      );
+      if (movedM >= 1.2) {
+        return bearingBetween(
+          this.frozenPose.lat,
+          this.frozenPose.lng,
+          raw.lat,
+          raw.lng,
+        );
+      }
+      return this.frozenPose.heading;
+    }
+    return 0;
+  }
+
+  /** Offline snap z lustra L2 — bez czekania na Mapbox batch. */
+  private tryLocalL2Snap(
+    raw: RawGpsFix,
+    travelHeadingDeg: number,
+    maxStepM: number,
+  ): SnappedPose | null {
+    if (!localRoadGeometryMirror.hasGeometry()) return null;
+
+    let pose =
+      localRoadGeometryMirror.snapToLocalRoad(
+        raw.lat,
+        raw.lng,
+        travelHeadingDeg,
+        LOCAL_L2_SNAP_RADIUS_M,
+      )
+      ?? localRoadGeometryMirror.snapToLocalRoad(
+        raw.lat,
+        raw.lng,
+        travelHeadingDeg,
+        LOCAL_L2_SNAP_WIDE_M,
+      );
+
+    if (!pose) return null;
+
+    if (this.frozenPose && maxStepM > 0) {
+      const jumpM = distanceM(
+        this.frozenPose.lat,
+        this.frozenPose.lng,
+        pose.lat,
+        pose.lng,
+      );
+      if (jumpM > maxStepM && pose.crossTrackM > 12) {
+        const frac = maxStepM / jumpM;
+        pose = {
+          ...pose,
+          lat: this.frozenPose.lat + (pose.lat - this.frozenPose.lat) * frac,
+          lng: this.frozenPose.lng + (pose.lng - this.frozenPose.lng) * frac,
+        };
+      }
+    }
+
+    return pose;
+  }
+
   private applyStepLimit(
     prev: SnappedPose | null,
     next: SnappedPose,
@@ -125,7 +222,6 @@ export class RoadSnapEngine {
     if (!prev || maxStepM <= 0) return next;
     const jumpM = distanceM(prev.lat, prev.lng, next.lat, next.lng);
     if (jumpM <= maxStepM) return next;
-    // Blisko środka pasa — dociągnij do projekcji zamiast iść obok drogi.
     if (next.crossTrackM <= 18 && jumpM <= Math.max(maxStepM, 42)) {
       return next;
     }
@@ -152,7 +248,6 @@ export class RoadSnapEngine {
     };
   }
 
-  /** Geometria jest, ale GPS poza pasem — idź do przodu wzdłuż drogi, nie na RAW. */
   private stickForwardOnPoly(
     raw: RawGpsFix,
     points: RoadPoint[],
@@ -235,3 +330,5 @@ export class RoadSnapEngine {
     return null;
   }
 }
+
+export { LOCAL_L2_HEADING_ALIGN_DEG };

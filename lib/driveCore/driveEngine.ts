@@ -1,11 +1,14 @@
 import { ApiBudgetManager } from './apiBudgetManager';
 import { MARKER_TIMING_MAX_MS } from './config';
+import { bearingBetween, distanceM } from './geo';
 import { flushMapMatchBatch } from './mapMatchClient';
 import { GeometryCache } from './geometryCache';
 import { GpsQualityGate, type GpsQualityResult } from './gpsQualityGate';
+import { localRoadGeometryMirror } from './localRoadSnap';
 import { MotionStateMachine } from './motionState';
 import { RoadSnapEngine } from './roadSnap';
 import { SpeedMeter } from './speedMeter';
+import { roadGeometryStore } from '../roadGeometry/RoadGeometryStore';
 import type { DriveTickOutput, RawGpsFix, RoadPoint } from './types';
 
 export type DriveEngineCallbacks = {
@@ -25,6 +28,7 @@ export class DriveEngine {
   private lastTimestamp = 0;
   private isNavigating = false;
   private fetchInFlight = false;
+  private localL2RefreshInFlight = false;
   private callbacks: DriveEngineCallbacks = {};
 
   setCallbacks(cb: DriveEngineCallbacks): void {
@@ -42,8 +46,10 @@ export class DriveEngine {
     this.snap.reset();
     this.budget.reset();
     this.quality.reset();
+    localRoadGeometryMirror.clear();
     this.lastTimestamp = 0;
     this.fetchInFlight = false;
+    this.localL2RefreshInFlight = false;
 
     if (opts?.seedPolyline && opts.seedPolyline.length >= 2) {
       this.cache.setFromMatch(opts.seedPolyline);
@@ -82,12 +88,6 @@ export class DriveEngine {
 
     const freeDriveNoRoute = !this.isNavigating && !this.cache.hasGeometry();
     const motionBefore = this.motion.getSnapshot();
-    const drivingActive =
-      motionBefore.isMoving
-      || freeDriveNoRoute
-      || this.speed.getLastKmh() >= 2
-      || (raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 && raw.gpsSpeedMs * 3.6 >= 2);
-
     const gate = this.quality.evaluate(raw, {
       isMoving: motionBefore.isMoving,
       isNavigating: this.isNavigating,
@@ -95,8 +95,12 @@ export class DriveEngine {
       freeDriveNoRoute,
     });
 
-    if (this.quality.registerBadVerdict(gate.verdict, drivingActive)) {
+    if (this.quality.registerBadVerdict(gate.verdict, motionBefore.isMoving)) {
       this.quality.commitAccepted(raw);
+    }
+
+    if (freeDriveNoRoute) {
+      this.scheduleLocalL2Refresh(raw);
     }
 
     if (gate.verdict === 'REJECT') {
@@ -186,6 +190,7 @@ export class DriveEngine {
       isMoving: true,
       isNavigating: this.isNavigating,
       allowRawFallback: !this.cache.hasGeometry(),
+      preferLocalL2: freeDriveNoRoute,
       maxStepM,
     });
 
@@ -245,6 +250,7 @@ export class DriveEngine {
         this.budget.recordNetworkRequest();
         const hint = this.snap.getFrozenPose();
         this.cache.setFromMatch(points, hint ?? undefined);
+        localRoadGeometryMirror.setPolylines([points]);
         const last = batch[batch.length - 1];
         const raw: RawGpsFix = {
           lat: last.lat,
@@ -307,10 +313,11 @@ export class DriveEngine {
         ? raw.gpsSpeedMs * 3.6
         : 0;
     const lastKmh = this.speed.getLastKmh();
+    const headingForward = this.freeDriveHeadingForwardEvidence(raw);
     const forwardEvidence =
       isMoving
       || dopplerKmh >= 3
-      || (freeDriveNoRoute && (dopplerKmh >= 2 || lastKmh >= 2));
+      || (freeDriveNoRoute && (dopplerKmh >= 2 || lastKmh >= 2 || headingForward));
 
     if (forwardEvidence) {
       this.quality.commitAccepted(raw);
@@ -318,7 +325,52 @@ export class DriveEngine {
     }
   }
 
-  /** Wolna jazda bez polilinii trasy — RAW GPS + Doppler, bez blokady isMoving. */
+  /** Doppler lub zmiana heading wskazują ruch do przodu (free-drive, DEGRADED). */
+  private freeDriveHeadingForwardEvidence(raw: RawGpsFix): boolean {
+    const frozen = this.snap.getFrozenPose();
+    if (!frozen) return false;
+    const movedM = distanceM(frozen.lat, frozen.lng, raw.lat, raw.lng);
+    if (movedM < 1.5) return false;
+    const travelBearing = bearingBetween(frozen.lat, frozen.lng, raw.lat, raw.lng);
+    const err = Math.abs(((travelBearing - frozen.heading + 540) % 360) - 180);
+    return err <= 45;
+  }
+
+  /** Asynchroniczne dociągnięcie L2 → synchroniczny mirror dla roadSnap. */
+  private scheduleLocalL2Refresh(raw: RawGpsFix): void {
+    if (this.localL2RefreshInFlight) return;
+    this.localL2RefreshInFlight = true;
+    const lat = raw.lat;
+    const lng = raw.lng;
+    const radiusM = 70;
+    const dLat = radiusM / 111_320;
+    const cos = Math.cos((lat * Math.PI) / 180);
+    const dLng = radiusM / (111_320 * Math.max(0.25, Math.abs(cos)));
+
+    void (async () => {
+      try {
+        const segments = await roadGeometryStore.findInBbox(
+          lat - dLat,
+          lat + dLat,
+          lng - dLng,
+          lng + dLng,
+          32,
+        );
+        if (segments.length > 0) {
+          localRoadGeometryMirror.setPolylines(segments);
+          return;
+        }
+        const nearest = await roadGeometryStore.findNearest(lat, lng, 80);
+        if (nearest?.points.length >= 2) {
+          localRoadGeometryMirror.setPolylines([nearest.points]);
+        }
+      } finally {
+        this.localL2RefreshInFlight = false;
+      }
+    })();
+  }
+
+  /** Wolna jazda bez polilinii trasy — L2 snap + Doppler. */
   private buildFreeDriveTick(
     raw: RawGpsFix,
     gate: { verdict: 'FULL_ACCEPT' | 'DEGRADED' | 'REJECT'; allowSpeedDelta: boolean; allowDoppler: boolean },
@@ -330,10 +382,13 @@ export class DriveEngine {
       allowSpeedDelta: gate.allowSpeedDelta,
       allowDoppler: gate.allowDoppler,
     };
+    const frozen = this.snap.getFrozenPose();
     const pose = this.snap.snap(raw, this.cache, {
       isMoving: motionSaysMoving,
       isNavigating: false,
       allowRawFallback: true,
+      preferLocalL2: true,
+      travelHeadingDeg: frozen?.heading,
       maxStepM: 28,
     });
     const speedKmh = this.speed.update(
@@ -348,12 +403,15 @@ export class DriveEngine {
       raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
     const effectiveKmh = Math.max(speedKmh, dopplerKmh > 0 ? dopplerKmh : 0);
     const outputMoving = motionSaysMoving || effectiveKmh >= 2.5;
+    const geometrySource =
+      pose.crossTrackM < 200 ? 'segment_cache' : 'tangent_fallback';
+
     return {
       pose,
       speedKmh: effectiveKmh,
       isMoving: outputMoving,
       durationMs,
-      geometrySource: 'tangent_fallback',
+      geometrySource,
     };
   }
 }
