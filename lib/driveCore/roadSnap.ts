@@ -64,6 +64,12 @@ export class RoadSnapEngine {
           return pose;
         }
       }
+      // Free-drive bez polilinii (lub jawny RAW) — nie „betonuj” seeda, śledź GPS.
+      if (opts.allowRawFallback === true || !hasPoly) {
+        const pose = this.rawGpsPose(raw, this.frozenPose);
+        this.frozenPose = pose;
+        return pose;
+      }
       if (this.frozenPose) {
         return { ...this.frozenPose };
       }
@@ -119,6 +125,10 @@ export class RoadSnapEngine {
     if (!prev || maxStepM <= 0) return next;
     const jumpM = distanceM(prev.lat, prev.lng, next.lat, next.lng);
     if (jumpM <= maxStepM) return next;
+    // Blisko środka pasa — dociągnij do projekcji zamiast iść obok drogi.
+    if (next.crossTrackM <= 18 && jumpM <= Math.max(maxStepM, 42)) {
+      return next;
+    }
 
     const stepped = stepPoseOnPolyline(
       prev.lat,

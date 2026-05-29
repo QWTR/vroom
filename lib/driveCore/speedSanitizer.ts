@@ -3,7 +3,7 @@ export const MAX_DRIVING_SPEED_KMH = 200;
 /** Maks. HUD — nawigacja (autostrada). */
 export const MAX_NAV_SPEED_KMH = 250;
 /** Odrzuć pojedynczy pomiar snapped > tego progu. */
-export const MAX_SNAPPED_INSTANT_KMH = 220;
+export const MAX_SNAPPED_INSTANT_KMH = 120;
 /** Limit przyrostu km/h na sekundę (anty-skok GPS). */
 export const MAX_SPEED_DELTA_KMH_PER_SEC = 28;
 

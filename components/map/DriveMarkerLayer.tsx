@@ -1,8 +1,12 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, {
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
@@ -10,6 +14,7 @@ const MARKER_SIZE = 40;
 const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
+const COORD_EPS = 1e-7;
 
 type Props = {
   enabled: boolean;
@@ -20,8 +25,8 @@ type Props = {
 };
 
 /**
- * Pozycja: rAF odczyt SharedValue (~60 FPS) → MarkerView — bez GeoJSON / stringify.
- * Rotacja: useAnimatedStyle na dziecku (UI thread).
+ * MarkerView 40px — stabilny wygląd (avatar / skin / snapshot).
+ * Pozycja: useAnimatedReaction + COORD_EPS; rotacja: useAnimatedStyle.
  */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
@@ -32,33 +37,51 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 }: Props) {
   const [coordinate, setCoordinate] = useState<[number, number]>([0, 0]);
   const [hasCoord, setHasCoord] = useState(false);
+  const lastRef = useRef({ lat: 0, lng: 0 });
 
-  useEffect(() => {
-    if (!enabled) return;
-    let rafId = 0;
-    let alive = true;
-    const loop = () => {
-      if (!alive) return;
+  const commitCoordinate = useCallback((la: number, ln: number) => {
+    const prev = lastRef.current;
+    if (Math.abs(la - prev.lat) <= COORD_EPS && Math.abs(ln - prev.lng) <= COORD_EPS) {
+      return;
+    }
+    lastRef.current = { lat: la, lng: ln };
+    setCoordinate([ln, la]);
+    setHasCoord(true);
+  }, []);
+
+  useAnimatedReaction(
+    () => {
+      if (!enabled) return null;
       const la = marker.lat.value;
       const ln = marker.lng.value;
-      if (Number.isFinite(la) && Number.isFinite(ln)) {
-        setCoordinate((prev) => {
-          const eps = 1e-8;
-          if (Math.abs(prev[0] - ln) < eps && Math.abs(prev[1] - la) < eps) {
-            return prev;
-          }
-          return [ln, la];
-        });
-        setHasCoord((v) => (v ? v : true));
+      if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+      return { lat: la, lng: ln };
+    },
+    (next, prev) => {
+      if (!next) return;
+      if (
+        prev
+        && Math.abs(next.lat - prev.lat) <= COORD_EPS
+        && Math.abs(next.lng - prev.lng) <= COORD_EPS
+      ) {
+        return;
       }
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(rafId);
-    };
-  }, [enabled, marker.lat, marker.lng]);
+      runOnJS(commitCoordinate)(next.lat, next.lng);
+    },
+    [enabled, commitCoordinate],
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      setHasCoord(false);
+      return;
+    }
+    const la = marker.lat.value;
+    const ln = marker.lng.value;
+    if (Number.isFinite(la) && Number.isFinite(ln)) {
+      commitCoordinate(la, ln);
+    }
+  }, [enabled, marker.lat, marker.lng, commitCoordinate]);
 
   const rotateStyle = useAnimatedStyle(() => {
     'worklet';

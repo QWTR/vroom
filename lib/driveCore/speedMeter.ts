@@ -1,10 +1,24 @@
 import { SPEED_EMA_SAMPLES, SPEED_MIN_DT_SEC } from './config';
+import { GATE_ACC_FULL_M } from './gpsQualityGate';
 import { distanceM } from './geo';
 import {
   MAX_SNAPPED_INSTANT_KMH,
   sanitizeTripSpeedKmh,
 } from './speedSanitizer';
+import type { GpsQualityResult } from './gpsQualityGate';
 import type { RawGpsFix, SnappedPose } from './types';
+
+const SPEED_MIN_DT_DEGRADED_ACC_SEC = 0.5;
+
+export type SpeedMeterQuality = Pick<
+  GpsQualityResult,
+  'verdict' | 'allowSpeedDelta' | 'allowDoppler'
+>;
+
+export type SpeedMeterUpdateOpts = {
+  /** Wolna jazda bez trasy — HUD z Dopplera nawet gdy motion.isMoving === false. */
+  freeDriveDoppler?: boolean;
+};
 
 export class SpeedMeter {
   private lastSnapped: { lat: number; lng: number; ts: number } | null = null;
@@ -28,36 +42,82 @@ export class SpeedMeter {
     pose: SnappedPose,
     isMoving: boolean,
     isNavigating: boolean,
+    quality: SpeedMeterQuality,
+    opts?: SpeedMeterUpdateOpts,
   ): number {
     const now = raw.timestamp;
-    const dtSec = this.lastTs > 0
-      ? Math.max(SPEED_MIN_DT_SEC, (now - this.lastTs) / 1000)
-      : SPEED_MIN_DT_SEC;
-    this.lastTs = now;
 
     if (!isMoving) {
+      const gpsMs = raw.gpsSpeedMs;
+      const freeDriveDoppler =
+        !!opts?.freeDriveDoppler
+        && !isNavigating
+        && gpsMs != null
+        && Number.isFinite(gpsMs)
+        && gpsMs >= 0;
+
+      if (freeDriveDoppler) {
+        const gpsKmh = gpsMs * 3.6;
+        const instant = sanitizeTripSpeedKmh(
+          gpsKmh,
+          this.lastOutputKmh,
+          SPEED_MIN_DT_SEC,
+          false,
+        );
+        this.lastTs = now;
+        if (quality.verdict === 'FULL_ACCEPT') {
+          this.lastSnapped = { lat: pose.lat, lng: pose.lng, ts: now };
+        }
+        this.samples.push(instant);
+        if (this.samples.length > SPEED_EMA_SAMPLES) {
+          this.samples.shift();
+        }
+        const sum = this.samples.reduce((a, b) => a + b, 0);
+        const ema = this.samples.length > 0 ? sum / this.samples.length : 0;
+        this.lastOutputKmh = Math.round(Math.max(0, ema) * 10) / 10;
+        return this.lastOutputKmh;
+      }
+
       this.samples = [];
-      this.lastSnapped = { lat: pose.lat, lng: pose.lng, ts: now };
+      if (quality.verdict === 'FULL_ACCEPT') {
+        this.lastSnapped = { lat: pose.lat, lng: pose.lng, ts: now };
+      }
       this.lastOutputKmh = 0;
+      this.lastTs = now;
       return 0;
     }
+
+    if (quality.verdict !== 'FULL_ACCEPT') {
+      return this.lastOutputKmh;
+    }
+
+    let dtSec = this.lastTs > 0
+      ? Math.max(SPEED_MIN_DT_SEC, (now - this.lastTs) / 1000)
+      : SPEED_MIN_DT_SEC;
+    if (raw.accuracy > GATE_ACC_FULL_M - 10) {
+      dtSec = Math.max(SPEED_MIN_DT_DEGRADED_ACC_SEC, dtSec);
+    }
+    this.lastTs = now;
 
     const candidates: number[] = [];
 
     const gpsMs = raw.gpsSpeedMs;
-    if (gpsMs != null && Number.isFinite(gpsMs) && gpsMs >= 0) {
+    if (quality.allowDoppler && gpsMs != null && Number.isFinite(gpsMs) && gpsMs >= 0) {
       candidates.push(gpsMs * 3.6);
     }
 
-    if (this.lastSnapped) {
+    if (quality.allowSpeedDelta && this.lastSnapped) {
       const snapDt = Math.max(SPEED_MIN_DT_SEC, (now - this.lastSnapped.ts) / 1000);
+      const effectiveSnapDt = raw.accuracy > 20
+        ? Math.max(SPEED_MIN_DT_DEGRADED_ACC_SEC, snapDt)
+        : snapDt;
       const distM = distanceM(
         this.lastSnapped.lat,
         this.lastSnapped.lng,
         pose.lat,
         pose.lng,
       );
-      const snapKmh = (distM / snapDt) * 3.6;
+      const snapKmh = (distM / effectiveSnapDt) * 3.6;
       if (Number.isFinite(snapKmh) && snapKmh <= MAX_SNAPPED_INSTANT_KMH) {
         candidates.push(snapKmh);
       }
@@ -74,7 +134,8 @@ export class SpeedMeter {
       const gpsKmh = gpsMs != null && gpsMs >= 0 ? gpsMs * 3.6 : NaN;
       const snappedKmh = candidates.find((c) => c !== gpsKmh) ?? candidates[0];
       if (
-        Number.isFinite(gpsKmh)
+        quality.allowDoppler
+        && Number.isFinite(gpsKmh)
         && gpsKmh >= 3
         && Math.abs(gpsKmh - snappedKmh) <= 22
       ) {

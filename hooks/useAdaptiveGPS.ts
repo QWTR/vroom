@@ -2,6 +2,10 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
 import { haversineKm } from '../scripts/navigationUtils';
 import { logTelemetry } from '../lib/telemetryLogger';
+import {
+  GPS_LAYER_A_ACTIVE_REJECT_ACC_M,
+  isActiveLayerATeleport,
+} from '../lib/driveCore/gpsQualityGate';
 
 export type GPSMode = 'idle' | 'driving' | 'navigating';
 
@@ -29,8 +33,8 @@ const DRIVE_SPEED_KMH  = 6;
 const MAX_ACCURACY_BROWSING_M = 140;
 /** W nawigacji / jeździe słabszy fix jest lepszy niż brak ticka (Android). */
 const MAX_ACCURACY_ACTIVE_M = 220;
-/** Powyżej tego fix jest zwykle bezużyteczny nawet dla active mode. */
-const MAX_ACCURACY_ACTIVE_HARD_M = 500;
+/** Powyżej tego fix jest odrzucany w active mode (warstwa A). */
+const MAX_ACCURACY_ACTIVE_HARD_M = GPS_LAYER_A_ACTIVE_REJECT_ACC_M;
 const MAX_SPEED_ACTIVE_KMH = 360;
 const ACTIVE_FIX_TIMEOUT_MS = 10000;
 const IDLE_FIX_TIMEOUT_MS   = 22000;
@@ -241,13 +245,27 @@ export function useAdaptiveGPS({
           // ══ 1. ODRZUĆ skrajnie słaby sygnał GPS ═══════════════
           if (activeMode) {
             if (acc > MAX_ACCURACY_ACTIVE_HARD_M) {
-              void logTelemetry('GPS_REJECT_ACCURACY_HARD', {
+              void logTelemetry('GPS_REJECT_ACCURACY_ACTIVE', {
                 acc: Math.round(acc),
                 maxAcc: MAX_ACCURACY_ACTIVE_HARD_M,
                 lat: Number(rawLat.toFixed(6)),
                 lng: Number(rawLng.toFixed(6)),
               });
               return;
+            }
+            if (lastGoodRef.current) {
+              const dtMs = now - lastGoodRef.current.time;
+              const distM =
+                haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng)
+                * 1000;
+              if (isActiveLayerATeleport(distM, dtMs)) {
+                void logTelemetry('GPS_REJECT_ACTIVE_TELEPORT', {
+                  distM: Math.round(distM),
+                  dtMs,
+                  acc: Math.round(acc),
+                });
+                return;
+              }
             }
           } else if (acc > MAX_ACCURACY_BROWSING_M && effectiveSpeedKmh < 3) {
             void logTelemetry('GPS_REJECT_ACCURACY_BROWSING', {
