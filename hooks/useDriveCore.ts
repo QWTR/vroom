@@ -59,6 +59,14 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
     engine.applyMatchGeometry(points);
   }, [engine]);
 
+  const seedLocalMirror = useCallback((points: RoadPoint[]) => {
+    engine.seedLocalMirror(points);
+  }, [engine]);
+
+  const primeLocalGeometry = useCallback((lat: number, lng: number) => {
+    return engine.primeLocalGeometry(lat, lng);
+  }, [engine]);
+
   const getTripActiveRef = useRef(opts.getTripActive);
   getTripActiveRef.current = opts.getTripActive;
 
@@ -81,6 +89,8 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
     reset,
     setRoutePolyline,
     applyMatchGeometry,
+    seedLocalMirror,
+    primeLocalGeometry,
     getApiMetrics,
     engine,
   };

@@ -183,7 +183,8 @@ export class ApiBudgetManager {
       this.metrics.throttleBlocked += 1;
     }
 
-    const allowNetwork = !throttleBlocked && this.buffer.length >= 1;
+    const minBatch = this.bypassThrottleOnce ? 1 : 2;
+    const allowNetwork = !throttleBlocked && this.buffer.length >= minBatch;
     if (allowNetwork && this.bypassThrottleOnce) {
       this.bypassThrottleOnce = false;
     }

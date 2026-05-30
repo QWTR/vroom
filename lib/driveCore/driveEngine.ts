@@ -53,6 +53,7 @@ export class DriveEngine {
 
     if (opts?.seedPolyline && opts.seedPolyline.length >= 2) {
       this.cache.setFromMatch(opts.seedPolyline);
+      localRoadGeometryMirror.setPolylines([opts.seedPolyline]);
     }
     if (opts?.anchor) {
       this.snap.seedPose(
@@ -70,6 +71,45 @@ export class DriveEngine {
     }
     if (!this.cache.hasGeometry()) {
       this.budget.armImmediateNetworkIfNoCache();
+      if (opts?.anchor) {
+        void this.primeLocalGeometry(opts.anchor.lat, opts.anchor.lng);
+      }
+    }
+  }
+
+  /** Sync seed L2 mirror (np. przy wejściu w tryb jazdy). */
+  seedLocalMirror(points: RoadPoint[]): void {
+    if (points.length >= 2) {
+      localRoadGeometryMirror.setPolylines([points]);
+    }
+  }
+
+  /** Natychmiastowe dociągnięcie geometrii drogi z SQLite (free-drive). */
+  async primeLocalGeometry(lat: number, lng: number): Promise<void> {
+    if (this.localL2RefreshInFlight) return;
+    this.localL2RefreshInFlight = true;
+    const radiusM = 80;
+    const dLat = radiusM / 111_320;
+    const cos = Math.cos((lat * Math.PI) / 180);
+    const dLng = radiusM / (111_320 * Math.max(0.25, Math.abs(cos)));
+    try {
+      const segments = await roadGeometryStore.findInBbox(
+        lat - dLat,
+        lat + dLat,
+        lng - dLng,
+        lng + dLng,
+        32,
+      );
+      if (segments.length > 0) {
+        localRoadGeometryMirror.setPolylines(segments);
+        return;
+      }
+      const nearest = await roadGeometryStore.findNearest(lat, lng, 80);
+      if (nearest?.points.length >= 2) {
+        localRoadGeometryMirror.setPolylines([nearest.points]);
+      }
+    } finally {
+      this.localL2RefreshInFlight = false;
     }
   }
 
@@ -289,6 +329,7 @@ export class DriveEngine {
     if (points.length >= 2) {
       const hint = this.snap.getFrozenPose();
       this.cache.setFromMatch(points, hint ?? undefined);
+      localRoadGeometryMirror.setPolylines([points]);
     }
   }
 
@@ -340,36 +381,7 @@ export class DriveEngine {
 
   /** Asynchroniczne dociągnięcie L2 → synchroniczny mirror dla roadSnap. */
   private scheduleLocalL2Refresh(raw: RawGpsFix): void {
-    if (this.localL2RefreshInFlight) return;
-    this.localL2RefreshInFlight = true;
-    const lat = raw.lat;
-    const lng = raw.lng;
-    const radiusM = 70;
-    const dLat = radiusM / 111_320;
-    const cos = Math.cos((lat * Math.PI) / 180);
-    const dLng = radiusM / (111_320 * Math.max(0.25, Math.abs(cos)));
-
-    void (async () => {
-      try {
-        const segments = await roadGeometryStore.findInBbox(
-          lat - dLat,
-          lat + dLat,
-          lng - dLng,
-          lng + dLng,
-          32,
-        );
-        if (segments.length > 0) {
-          localRoadGeometryMirror.setPolylines(segments);
-          return;
-        }
-        const nearest = await roadGeometryStore.findNearest(lat, lng, 80);
-        if (nearest?.points.length >= 2) {
-          localRoadGeometryMirror.setPolylines([nearest.points]);
-        }
-      } finally {
-        this.localL2RefreshInFlight = false;
-      }
-    })();
+    void this.primeLocalGeometry(raw.lat, raw.lng);
   }
 
   /** Wolna jazda bez polilinii trasy — L2 snap + Doppler. */
