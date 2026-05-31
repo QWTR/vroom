@@ -76,7 +76,7 @@ export function UgcTermsGate({ visible, onAccepted }: Props) {
             onPress={handleAccept}
             disabled={!checked || loading}
             style={{
-              backgroundColor: '#e33835',
+              backgroundColor: theme.primary,
               borderRadius: 14,
               paddingVertical: 14,
               alignItems: 'center',
@@ -84,9 +84,9 @@ export function UgcTermsGate({ visible, onAccepted }: Props) {
             }}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={theme.onPrimary} />
             ) : (
-              <Text style={{ fontFamily: 'OrbitronBold', color: '#fff', fontSize: 13 }}>
+              <Text style={{ fontFamily: 'OrbitronBold', color: theme.onPrimary, fontSize: 13 }}>
                 AKCEPTUJĘ I KONTYNUUJĘ
               </Text>
             )}

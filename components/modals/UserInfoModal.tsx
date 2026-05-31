@@ -25,7 +25,7 @@ interface UserInfoModalProps {
 export const UserInfoModal = memo(
   ({ visible, user, distance, onNavigate, onClose, onViewProfile, onMessage }: UserInfoModalProps) => {
     const { theme, isDark } = useTheme();
-    const styles = makeMapStyles(theme);
+    const styles = makeMapStyles(theme, isDark);
 
     if (!user) return null;
 

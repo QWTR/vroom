@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -13,6 +13,8 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
+import { useTheme } from '../contexts/ThemeContext';
+import type { AppTheme } from '../constants/theme';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
@@ -40,6 +42,8 @@ type ResetStep = 'email' | 'code' | 'password';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { theme, isDark } = useTheme();
+  const s = useMemo(() => makeLoginStyles(theme), [theme]);
   const params = useLocalSearchParams<{ ref?: string }>();
 
   const [screen,       setScreen]       = useState<Screen>('login');
@@ -258,17 +262,17 @@ export default function LoginScreen() {
   const renderHero = (title: string, sub: string) => (
     <View style={{ height: height * 0.30, position: 'relative', overflow: 'hidden', marginBottom: -24 }}>
       <LinearGradient
-        colors={['#1a0404', '#0e0202', '#090909']}
+        colors={isDark ? ['#1a0404', '#0e0202', theme.bg] : [theme.bgAlt, theme.bg, theme.surface]}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
       {/* Dekoracje */}
-      <View style={{ position: 'absolute', top: -60, right: -60, width: 240, height: 240, borderRadius: 120, backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383520' }} />
-      <View style={{ position: 'absolute', top: -20, right: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: '#e3383518' }} />
-      <View style={{ position: 'absolute', bottom: -40, left: -40, width: 180, height: 180, borderRadius: 90, backgroundColor: '#e3383506' }} />
+      <View style={{ position: 'absolute', top: -60, right: -60, width: 240, height: 240, borderRadius: 120, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }} />
+      <View style={{ position: 'absolute', top: -20, right: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: theme.primaryBg }} />
+      <View style={{ position: 'absolute', bottom: -40, left: -40, width: 180, height: 180, borderRadius: 90, backgroundColor: theme.primaryBg }} />
       {/* Scan lines */}
       {Array.from({ length: 8 }).map((_, i) => (
-        <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.3 / 8), height: 1, backgroundColor: '#ffffff04' }} />
+        <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.3 / 8), height: 1, backgroundColor: theme.border }} />
       ))}
       {/* Narożniki HUD */}
       <View style={[s.hudCorner, { top: 20, left: 20 }]}><View style={s.cH} /><View style={s.cV} /></View>
@@ -566,6 +570,8 @@ function ActionButton({ label, icon, onPress, loading, disabled }: {
   label: string; icon: string; onPress: () => void;
   loading?: boolean; disabled?: boolean;
 }) {
+  const { theme } = useTheme();
+  const s = useMemo(() => makeLoginStyles(theme), [theme]);
   return (
     <TouchableOpacity
       style={[s.mainBtn, (disabled || loading) && { opacity: 0.5 }]}
@@ -581,9 +587,9 @@ function ActionButton({ label, icon, onPress, loading, disabled }: {
         {/* Shimmer dekoracja */}
         <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 80, backgroundColor: '#ffffff10' }} />
         {loading
-          ? <ActivityIndicator color="#fff" />
+          ? <ActivityIndicator color={theme.onPrimary} />
           : <>
-              <MaterialIcons name={icon as any} size={18} color="#fff" />
+              <MaterialIcons name={icon as any} size={18} color={theme.onPrimary} />
               <Text style={s.mainBtnText}>{label}</Text>
             </>
         }
@@ -594,14 +600,15 @@ function ActionButton({ label, icon, onPress, loading, disabled }: {
 
 // ── StrengthBar ───────────────────────────────────────────
 function StrengthBar({ value }: { value: string }) {
+  const { theme } = useTheme();
   const len   = value.length;
-  const color = len >= 10 ? '#4de926' : len >= 6 ? '#ff922b' : RED;
+  const color = len >= 10 ? theme.online : len >= 6 ? theme.warning : RED;
   const label = len < 6 ? 'Za krótkie' : len < 10 ? 'Słabe' : 'Silne';
   const pct   = Math.min((len / 12) * 100, 100);
 
   return (
     <View style={{ marginBottom: 16, gap: 5 }}>
-      <View style={{ height: 3, backgroundColor: '#ffffff0a', borderRadius: 2, overflow: 'hidden' }}>
+      <View style={{ height: 3, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
         <View style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: 2 }} />
       </View>
       <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: color + 'aa' }}>{label}</Text>
@@ -610,16 +617,17 @@ function StrengthBar({ value }: { value: string }) {
 }
 
 // ── STYLES ────────────────────────────────────────────────
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#090909' },
+function makeLoginStyles(t: AppTheme) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: t.bg },
 
   // Sheet
   sheet: {
     flex: 1,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: t.surface,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 24, paddingTop: 32,
-    borderWidth: 1, borderColor: '#ffffff08',
+    borderWidth: 1, borderColor: t.border,
     minHeight: height * 0.72,
   },
 
@@ -628,32 +636,32 @@ const s = StyleSheet.create({
 
   // Steps
   stepsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
-  stepDot:  { width: 34, height: 34, borderRadius: 17, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#ffffff15', justifyContent: 'center', alignItems: 'center' },
+  stepDot:  { width: 34, height: 34, borderRadius: 17, backgroundColor: t.surface3, borderWidth: 1, borderColor: t.border2, justifyContent: 'center', alignItems: 'center' },
   stepDotActive: { borderColor: RED, backgroundColor: RED + '18' },
-  stepDotDone:   { borderColor: '#4de92660', backgroundColor: '#4de92615' },
-  stepNum:  { fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff30' },
-  stepLine: { flex: 1, height: 1, backgroundColor: '#ffffff10', marginHorizontal: 10 },
+  stepDotDone:   { borderColor: t.online + '60', backgroundColor: t.online + '15' },
+  stepNum:  { fontFamily: 'Orbitron', fontSize: 11, color: t.textFaint },
+  stepLine: { flex: 1, height: 1, backgroundColor: t.border2, marginHorizontal: 10 },
 
-  sectionTitle: { fontFamily: 'Orbitron', fontSize: 16, color: '#fff', fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
-  sectionSub:   { fontFamily: 'Orbitron', fontSize: 9, color: '#ffffff40', marginBottom: 22, lineHeight: 15 },
+  sectionTitle: { fontFamily: 'Orbitron', fontSize: 16, color: t.text, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
+  sectionSub:   { fontFamily: 'Orbitron', fontSize: 9, color: t.textDim, marginBottom: 22, lineHeight: 15 },
 
   // Toggle
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: t.surface3,
     borderRadius: 14, padding: 4,
     marginBottom: 24,
-    borderWidth: 1, borderColor: '#ffffff08',
+    borderWidth: 1, borderColor: t.border,
   },
   toggleBtn: { flex: 1, paddingVertical: 12, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
   toggleBtnActive: { backgroundColor: RED },
-  toggleText: { fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 9, letterSpacing: 1 },
+  toggleText: { fontFamily: 'Orbitron', color: t.textDim, fontSize: 9, letterSpacing: 1 },
 
   // Field
-  fieldLabel: { fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff35', letterSpacing: 2, marginBottom: 8 },
-  inputRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 14, borderWidth: 1, borderColor: '#ffffff0a', marginBottom: 0 },
+  fieldLabel: { fontFamily: 'Orbitron', fontSize: 8, color: t.textFaint, letterSpacing: 2, marginBottom: 8 },
+  inputRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: t.surface3, borderRadius: 14, borderWidth: 1, borderColor: t.border, marginBottom: 0 },
   inputIconWrap: { width: 44, alignItems: 'center', justifyContent: 'center' },
-  input:      { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 12, paddingVertical: 15, paddingRight: 14 },
+  input:      { flex: 1, color: t.text, fontFamily: 'Orbitron', fontSize: 12, paddingVertical: 15, paddingRight: 14 },
   eyeBtn:     { padding: 14 },
 
   // Forgot
@@ -665,28 +673,28 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, height: 58, overflow: 'hidden',
   },
-  mainBtnText: { fontFamily: 'Orbitron', color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  mainBtnText: { fontFamily: 'Orbitron', color: t.onPrimary, fontSize: 14, fontWeight: '900', letterSpacing: 1 },
 
   // Divider
   divider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  divLine: { flex: 1, height: 1, backgroundColor: '#ffffff08' },
-  divText: { fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff20', marginHorizontal: 14 },
+  divLine: { flex: 1, height: 1, backgroundColor: t.border },
+  divText: { fontFamily: 'Orbitron', fontSize: 8, color: t.textFaint, marginHorizontal: 14 },
 
   // Google
   googleBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-    height: 54, borderRadius: 16, borderWidth: 1, borderColor: '#ffffff10',
-    backgroundColor: '#1a1a1a', marginBottom: 12,
+    height: 54, borderRadius: 16, borderWidth: 1, borderColor: t.border2,
+    backgroundColor: t.surface3, marginBottom: 12,
   },
   googleIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#EA4335', alignItems: 'center', justifyContent: 'center' },
-  googleTxt:  { fontFamily: 'Orbitron', color: '#ffffffcc', fontSize: 12 },
+  googleTxt:  { fontFamily: 'Orbitron', color: t.textMuted, fontSize: 12 },
 
   appleBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-    height: 54, borderRadius: 16, borderWidth: 1, borderColor: '#000',
-    backgroundColor: '#fff', marginBottom: 12,
+    height: 54, borderRadius: 16, borderWidth: 1, borderColor: t.border3,
+    backgroundColor: t.surface, marginBottom: 12,
   },
-  appleTxt: { fontFamily: 'Orbitron', color: '#000', fontSize: 12, fontWeight: '700' },
+  appleTxt: { fontFamily: 'Orbitron', color: t.text, fontSize: 12, fontWeight: '700' },
 
   iosLoginHint: {
     marginTop: 4,
@@ -695,7 +703,7 @@ const s = StyleSheet.create({
     fontFamily: 'Orbitron',
     fontSize: 8,
     lineHeight: 14,
-    color: '#ffffff45',
+    color: t.textDim,
     textAlign: 'center',
     letterSpacing: 0.3,
   },
@@ -712,11 +720,11 @@ const s = StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: '#ffffff35',
+    borderColor: t.border3,
     marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: t.surface3,
   },
   termsCheckBoxOn: {
     borderColor: RED,
@@ -725,7 +733,7 @@ const s = StyleSheet.create({
   termsLegal: {
     flex: 1,
     fontFamily: 'Orbitron',
-    color: '#ffffff55',
+    color: t.textMuted,
     fontSize: 8,
     lineHeight: 14,
     letterSpacing: 0.2,
@@ -745,10 +753,11 @@ const s = StyleSheet.create({
   },
 
   // Terms (legacy small line — unused)
-  terms: { fontFamily: 'Orbitron', color: '#ffffff25', fontSize: 9, textAlign: 'center', lineHeight: 16 },
+  terms: { fontFamily: 'Orbitron', color: t.textFaint, fontSize: 9, textAlign: 'center', lineHeight: 16 },
 
   // HUD corners
   hudCorner: { position: 'absolute' },
   cH: { width: 18, height: 2, backgroundColor: RED, opacity: 0.6 },
   cV: { position: 'absolute', top: 0, left: 0, width: 2, height: 18, backgroundColor: RED, opacity: 0.6 },
 });
+}

@@ -4,6 +4,7 @@ import { captureRef } from 'react-native-view-shot';
 import { MaterialIcons } from '@expo/vector-icons';
 import { CATEGORY_COLORS, CATEGORY_ICONS } from '../../constants/spotTypes';
 import type { Spot } from '../../constants/spotTypes';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   spot: Spot;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function SpotPinRenderer({ spot, zoom, onCapture }: Props) {
+  const { theme } = useTheme();
   const viewRef = useRef<View>(null);
   const color = CATEGORY_COLORS[spot.category] ?? '#e33835';
 
@@ -39,7 +41,7 @@ export function SpotPinRenderer({ spot, zoom, onCapture }: Props) {
         <View style={{
           width: 14, height: 14, borderRadius: 7,
           backgroundColor: color,
-          borderWidth: 2.5, borderColor: '#fff',
+          borderWidth: 2.5, borderColor: theme.surface,
         }} />
       </View>
     );
@@ -59,7 +61,7 @@ export function SpotPinRenderer({ spot, zoom, onCapture }: Props) {
     >
       {/* Nazwa */}
       <View style={{
-        backgroundColor: '#111111ee',
+        backgroundColor: theme.mapLabelBg,
         borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
         marginBottom: 5,
         borderWidth: 1, borderColor: color + '60',
@@ -71,7 +73,7 @@ export function SpotPinRenderer({ spot, zoom, onCapture }: Props) {
           style={{
             fontFamily: 'Orbitron',
             fontSize: 9,
-            color: '#fff',
+            color: theme.mapLabelText,
             fontWeight: '700',
             letterSpacing: 0.5,
           }}

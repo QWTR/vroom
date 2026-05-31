@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT } from '../../constants/mapConfig';
+import { resolveStandardMapStyle } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { TripStats } from '../../hooks/useTripStats';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
@@ -121,7 +121,7 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
               }}>
                 <Mapbox.MapView
                   style={{ flex: 1 }}
-                  styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
+                  styleURL={resolveStandardMapStyle(isDark)}
                   logoEnabled={false}
                   attributionEnabled={false}
                   scrollEnabled={false}

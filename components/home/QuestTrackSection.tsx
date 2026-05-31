@@ -16,9 +16,10 @@ type TaskRow = { key: string; label: string; points: number; premiumPoints?: num
 interface Props {
   theme: any;
   fadeAnim: Animated.Value;
+  onSynced?: () => void;
 }
 
-export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
+export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
   const router = useRouter();
   const { theme: themeObj } = useTheme();
   const primary = themeObj.primary;
@@ -67,12 +68,13 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
       setPointsMultiplier(Number.isFinite(j?.pointsMultiplier) ? Number(j.pointsMultiplier) : 1);
       const mr = j.monthlyRankPoints ?? j.monthlyPointsSelf;
       setMonthly(typeof mr === 'number' ? mr : 0);
+      onSynced?.();
     } catch {
       /* ignore */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onSynced]);
 
   useFocusEffect(
     useCallback(() => {
@@ -130,7 +132,7 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
           <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: primary, fontWeight: '900' }}>{weeklyPoints} pkt</Text>
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>Twój miesiąc (ranking pkt)</Text>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>Punkty w tym miesiącu</Text>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: t.text, fontWeight: '700' }}>{monthlySelf} pkt</Text>
         </View>
 
@@ -159,8 +161,15 @@ export function QuestTrackSection({ theme: t, fadeAnim }: Props) {
                   {task.label}
                 </Text>
               </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: primary, fontWeight: '800' }}>
-                +{Math.round(isPremium ? (task.premiumPoints ?? task.points) : task.points)}
+              <Text style={{
+                fontFamily: 'Orbitron',
+                fontSize: 10,
+                color: task.done ? '#4de926' : primary,
+                fontWeight: '800',
+              }}>
+                {task.done
+                  ? `+${task.earned}`
+                  : `+${Math.round(isPremium ? (task.premiumPoints ?? task.points) : task.points)}`}
               </Text>
             </View>
           ))

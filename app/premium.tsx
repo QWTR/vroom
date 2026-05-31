@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Dimensions, ActivityIndicator, Modal, Share, Linking, Platform,
@@ -12,6 +12,8 @@ import { usePremium }     from '../contexts/PremiumContext';
 import { useSettings }    from '../hooks/useSettings';
 import type { PremiumProduct } from '../types/premiumProduct';
 import { isIosPremiumStoreReady } from '../lib/iosStoreKitPremium';
+import { useTheme } from '../contexts/ThemeContext';
+import type { AppTheme } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
 const isTabletLayout = width >= 900;
@@ -55,6 +57,8 @@ const BENEFITS = [
 // ─── Ekran ────────────────────────────────────────────────────────────────────
 export default function PremiumScreen() {
   const router = useRouter();
+  const { theme, isDark } = useTheme();
+  const s = useMemo(() => makePremiumStyles(theme), [theme]);
   const { fetchSettings } = useSettings();
   const {
     getPremiumProducts,
@@ -291,7 +295,7 @@ export default function PremiumScreen() {
   return (
     <View style={{ flex: 1 }}>
       <LinearGradient
-        colors={['#160303', '#0e0202', '#080808']}
+        colors={isDark ? ['#160303', '#0e0202', theme.bg] : [theme.bgAlt, theme.bg, theme.surface]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -303,7 +307,7 @@ export default function PremiumScreen() {
         {/* ─── Header ─── */}
         <View style={s.header}>
           <TouchableOpacity onPress={() => router.back()} style={s.closeBtn}>
-            <MaterialIcons name="close" size={22} color="#fff" />
+            <MaterialIcons name="close" size={22} color={theme.icon} />
           </TouchableOpacity>
         </View>
 
@@ -315,7 +319,7 @@ export default function PremiumScreen() {
           {/* ─── Ikona Premium ─── */}
           <View style={s.iconWrap}>
             <LinearGradient
-              colors={['#2a2000', '#1a1500', '#0a0a0a']}
+              colors={isDark ? ['#2a2000', '#1a1500', theme.bg] : [theme.gold + '30', theme.surface2, theme.surface]}
               style={s.iconBox}
             >
               <MaterialIcons name="workspace-premium" size={52} color={GOLD} />
@@ -369,7 +373,7 @@ export default function PremiumScreen() {
           {/* ─── Benefity ─── */}
           <View style={s.benefitsCard}>
             <LinearGradient
-              colors={['#1a0808', '#100404', '#0a0a0a']}
+              colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.primaryBg, theme.surface2, theme.surface]}
               style={StyleSheet.absoluteFill}
             />
             <View style={s.cardDeco} />
@@ -559,7 +563,8 @@ export default function PremiumScreen() {
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const s = StyleSheet.create({
+function makePremiumStyles(t: AppTheme) {
+  return StyleSheet.create({
   contentWrap: {
     width: '100%',
     maxWidth: isTabletLayout ? 760 : 560,
@@ -583,7 +588,7 @@ const s = StyleSheet.create({
   },
   closeBtn: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#ffffff12',
+    backgroundColor: t.border,
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -606,13 +611,13 @@ const s = StyleSheet.create({
 
   title: {
     fontFamily: 'OrbitronBold',
-    fontSize: 28, color: '#fff',
+    fontSize: 28, color: t.text,
     textAlign: 'center', letterSpacing: 6,
     marginBottom: 8,
   },
   subtitle: {
     fontFamily: 'Orbitron',
-    fontSize: 11, color: '#ffffff60',
+    fontSize: 11, color: t.textDim,
     textAlign: 'center', letterSpacing: 2,
     marginBottom: 16,
   },
@@ -631,7 +636,7 @@ const s = StyleSheet.create({
     flex: 1,
     fontFamily: 'Orbitron',
     fontSize: 9,
-    color: '#ffffffcc',
+    color: t.textMuted,
     lineHeight: 15,
   },
   optionalBold: {
@@ -660,7 +665,7 @@ const s = StyleSheet.create({
   activeBannerText: {
     fontFamily: 'Orbitron',
     fontSize: 8,
-    color: '#ffffffc0',
+    color: t.textMuted,
     lineHeight: 13,
   },
   expiredBanner: {
@@ -718,17 +723,17 @@ const s = StyleSheet.create({
     gap: 12,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: '#ffffff08',
+    borderBottomColor: t.border,
   },
   benefitIcon: { fontSize: 20, width: 28, textAlign: 'center' },
   benefitText: {
     fontFamily: 'Orbitron',
-    fontSize: 11, color: '#fff',
+    fontSize: 11, color: t.text,
     fontWeight: '700', flex: 1,
   },
   benefitSub: {
     fontFamily: 'Orbitron',
-    fontSize: 8, color: '#ffffff50',
+    fontSize: 8, color: t.textDim,
     marginTop: 2,
   },
 
@@ -740,7 +745,7 @@ const s = StyleSheet.create({
   },
   storeKitHint: {
     fontSize: 11,
-    color: '#ffffff70',
+    color: t.textMuted,
     textAlign: 'center',
     marginBottom: 12,
     paddingHorizontal: 8,
@@ -749,8 +754,8 @@ const s = StyleSheet.create({
   termsCard: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#ffffff18',
-    backgroundColor: '#ffffff08',
+    borderColor: t.border2,
+    backgroundColor: t.border,
     padding: 16,
     marginBottom: 18,
     gap: 6,
@@ -758,7 +763,7 @@ const s = StyleSheet.create({
   termsCardTitle: {
     fontFamily: 'Orbitron',
     fontSize: 10,
-    color: '#fff',
+    color: t.text,
     fontWeight: '800',
     letterSpacing: 1,
     marginBottom: 4,
@@ -766,7 +771,7 @@ const s = StyleSheet.create({
   termsBullet: {
     fontFamily: 'Orbitron',
     fontSize: 8,
-    color: '#ffffffb0',
+    color: t.textMuted,
     lineHeight: 14,
   },
   termsLinksRow: {
@@ -784,7 +789,7 @@ const s = StyleSheet.create({
   termsLinkSep: {
     fontFamily: 'Orbitron',
     fontSize: 9,
-    color: '#ffffff50',
+    color: t.textDim,
   },
 
   offerBtn: {
@@ -813,7 +818,7 @@ const s = StyleSheet.create({
   offerCtaTxt: {
     fontFamily: 'Orbitron',
     fontSize: 10,
-    color: '#fff',
+    color: t.onPrimary,
     letterSpacing: 1.5,
     fontWeight: '900',
   },
@@ -828,7 +833,7 @@ const s = StyleSheet.create({
   },
   offerName: {
     fontFamily: 'Orbitron',
-    fontSize: 12, color: '#fff',
+    fontSize: 12, color: t.text,
     fontWeight: '900', letterSpacing: 1,
     marginBottom: 3,
   },
@@ -841,20 +846,20 @@ const s = StyleSheet.create({
   },
   offerPricePeriod: {
     fontSize: 11,
-    color: '#ffffff90',
+    color: t.textMuted,
     fontWeight: '700',
   },
   offerPriceSub: {
     fontFamily: 'Orbitron',
     fontSize: 8,
-    color: '#ffffff65',
+    color: t.textDim,
     marginTop: 5,
     lineHeight: 12,
   },
   footerLegal: {
     fontFamily: 'Orbitron',
     fontSize: 8,
-    color: '#ffffff45',
+    color: t.textDim,
     textAlign: 'center',
     lineHeight: 13,
     marginTop: 8,
@@ -873,15 +878,15 @@ const s = StyleSheet.create({
   noOffersWrap: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#ffffff18',
+    borderColor: t.border2,
     padding: 18,
     marginBottom: 8,
-    backgroundColor: '#ffffff06',
+    backgroundColor: t.border,
   },
   noOffersTitle: {
     fontFamily: 'Orbitron',
     fontSize: 12,
-    color: '#fff',
+    color: t.text,
     fontWeight: '800',
     marginBottom: 10,
     textAlign: 'center',
@@ -889,7 +894,7 @@ const s = StyleSheet.create({
   noOffersBody: {
     fontFamily: 'Orbitron',
     fontSize: 9,
-    color: '#ffffff70',
+    color: t.textMuted,
     lineHeight: 15,
     textAlign: 'center',
   },
@@ -918,12 +923,12 @@ const s = StyleSheet.create({
   },
   restoreTxt: {
     fontFamily: 'Orbitron',
-    fontSize: 10, color: '#ffffff40',
+    fontSize: 10, color: t.textFaint,
     letterSpacing: 2,
   },
   debugBackdrop: {
     flex: 1,
-    backgroundColor: '#000000cc',
+    backgroundColor: t.overlay,
     justifyContent: 'center',
     padding: 16,
   },
@@ -931,8 +936,8 @@ const s = StyleSheet.create({
     maxHeight: '80%',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#ffffff20',
-    backgroundColor: '#111',
+    borderColor: t.border2,
+    backgroundColor: t.surface,
     overflow: 'hidden',
   },
   debugHeader: {
@@ -942,10 +947,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#ffffff18',
+    borderBottomColor: t.border2,
   },
   debugTitle: {
-    color: '#fff',
+    color: t.text,
     fontFamily: 'OrbitronBold',
     fontSize: 12,
     letterSpacing: 1,
@@ -956,7 +961,7 @@ const s = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff14',
+    backgroundColor: t.border2,
   },
   debugHeaderActions: {
     flexDirection: 'row',
@@ -969,15 +974,16 @@ const s = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff14',
+    backgroundColor: t.border2,
   },
   debugScroll: {
     maxHeight: '100%',
   },
   debugText: {
-    color: '#e6e6e6',
+    color: t.textMuted,
     fontSize: 11,
     lineHeight: 16,
     padding: 12,
   },
 });
+}

@@ -3,6 +3,7 @@ import Mapbox from '@rnmapbox/maps';
 import type { Spot } from '../../constants/spotTypes';
 import { CATEGORY_COLORS, CATEGORY_IMAGE_KEYS } from '../../constants/spotTypes';
 import { spotPinIconSize } from './SpotCategorySpriteGenerator';
+import { useTheme } from '../../contexts/ThemeContext';
 
 function isValidSpotCoord(spot: Spot): boolean {
   const { latitude, longitude } = spot;
@@ -32,6 +33,7 @@ type Props = {
  * Wydajne przy setkach punktów; każdy pin widoczny (allowOverlap).
  */
 export function SpotMapLayers({ spots, categorySprites, onSelectSpot }: Props) {
+  const { theme, isDark } = useTheme();
   const mapboxImages = useMemo(() => {
     if (!categorySprites) return null;
     const images: Record<string, { uri: string }> = {};
@@ -133,8 +135,8 @@ export function SpotMapLayers({ spots, categorySprites, onSelectSpot }: Props) {
           style={{
             textField: ['get', 'name'],
             textSize: 9,
-            textColor: '#ffffff',
-            textHaloColor: '#0a0a0a',
+            textColor: isDark ? theme.mapLabelText : theme.text,
+            textHaloColor: isDark ? theme.bg : theme.surface,
             textHaloWidth: 1.2,
             textOffset: hasSprites ? [0, -2.1] : [0, -1.4],
             textAnchor: 'bottom',

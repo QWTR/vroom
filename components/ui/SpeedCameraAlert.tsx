@@ -2,6 +2,7 @@ import React, { useEffect, useRef, memo } from 'react';
 import { View, Text, Animated, Platform } from 'react-native';
 import { MaterialCommunityIcons }         from '@expo/vector-icons';
 import type { SpeedCamera }               from '../../hooks/useSpeedCameras';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   camera:    SpeedCamera | null;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }: Props) => {
+  const { theme } = useTheme();
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -28,7 +30,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
   const limit      = camera.maxspeed;
   const isSpeeding = limit !== null && userSpeed > limit + 3;
   const dist       = Math.round(camera.distanceM);
-  const color      = isSpeeding ? '#e33835' : '#ff922b';
+  const color      = isSpeeding ? theme.danger : theme.warning;
 
   const top = topOffset ?? (Platform.OS === 'ios' ? 155 : 140);
 
@@ -51,7 +53,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
       <View style={{
         flexDirection:   'row',
         alignItems:      'center',
-        backgroundColor: '#111111f0',
+        backgroundColor: theme.mapOverlay,
         borderRadius:    16,
         borderWidth:     1,
         borderColor:     color + '50',
@@ -65,7 +67,6 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
         elevation:       10,
       }}>
 
-        {/* Ikona kamery */}
         <View style={{
           width:           40,
           height:          40,
@@ -79,7 +80,6 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
           <MaterialCommunityIcons name={isBump ? 'speedometer-slow' : 'camera-outline'} size={22} color={color} />
         </View>
 
-        {/* Teksty */}
         <View style={{ flex: 1 }}>
           <Text style={{
             fontFamily:    'Orbitron',
@@ -93,7 +93,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
           <Text style={{
             fontFamily: 'Orbitron',
             fontSize:   9,
-            color:      '#ffffff60',
+            color:      theme.textDim,
             marginTop:  3,
           }}>
             {dist < 1000 ? `za ${dist} m` : `za ${(dist / 1000).toFixed(1)} km`}
@@ -101,7 +101,6 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
           </Text>
         </View>
 
-        {/* Kółko z limitem — jak znak drogowy */}
         {limit !== null && (
           <View style={{
             width:           46,
@@ -109,10 +108,10 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
             borderRadius:    23,
             backgroundColor: '#fff',
             borderWidth:     4,
-            borderColor:     isSpeeding ? '#e33835' : '#cc0000',
+            borderColor:     isSpeeding ? theme.danger : '#cc0000',
             alignItems:      'center',
             justifyContent:  'center',
-            shadowColor:     isSpeeding ? '#e33835' : '#cc0000',
+            shadowColor:     isSpeeding ? theme.danger : '#cc0000',
             shadowOpacity:   isSpeeding ? 0.5 : 0.2,
             shadowOffset:    { width: 0, height: 0 },
             shadowRadius:    isSpeeding ? 8 : 4,
@@ -121,7 +120,7 @@ export const SpeedCameraAlert = memo(({ camera, userSpeed, visible, topOffset }:
             <Text style={{
               fontFamily: 'Orbitron',
               fontSize:   limit >= 100 ? 11 : 13,
-              color:      '#111',
+              color:      theme.text,
               fontWeight: '900',
               lineHeight: 16,
             }}>

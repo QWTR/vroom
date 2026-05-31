@@ -45,6 +45,7 @@ import {
   normalizeHudSpeedKmh,
 } from '../../components/map/SpeedometerHUD';
 import { MapTerrainLayers } from '../../components/map/MapTerrainLayers';
+import { MapVividLayers } from '../../components/map/MapVividLayers';
 import { MapCanvas } from '../../components/map/MapCanvas';
 import { MapActiveRouteLayers, MapBuilderRouteLayers } from '../../components/map/MapRouteLayers';
 import { makeMapStyles } from '../../styles/mapstyle';
@@ -80,10 +81,8 @@ import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
 ensureMapboxToken();
 
 import {
-  MAPBOX_STYLE_DARK,
-  MAPBOX_STYLE_LIGHT,
-  MAPBOX_STYLE_SATELLITE,
-  MAPBOX_STYLE_HYBRID,
+  resolveMapStyle,
+  shouldApplyVividMapLayers,
   MAX_NEARBY_USERS_DISTANCE
 } from '../../constants/mapConfig';
 import { LocationState, RouteInfo, User } from '../../constants/types';
@@ -233,7 +232,7 @@ const USE_DRIVE_TRACKING_PIPELINE = !DRIVE_CORE_V2;
 const REROUTE_THRESHOLD_M = 80;
 const NAV_PITCH           = 62;
 const BROWSE_3D_PITCH     = 52;
-const BUILDINGS_3D_MIN_ZOOM = 14;
+const BUILDINGS_3D_MIN_ZOOM = 13;
 // Keep heavy map diagnostics opt-in. Verbose logs at GPS/DR camera rates can
 // saturate the JS bridge on physical devices and cause apparent map freezes.
 const MAP_RENDER_DEBUG = false;
@@ -1828,6 +1827,17 @@ export default function MapScreen() {
     pose: { heading: number; crossTrackM: number },
     speedKmh: number,
   ): number => {
+    if (drivingEntryJustStartedRef.current) {
+      const entryH = drivingEntryHeadingRef.current;
+      const spd = speedKmhRef.current;
+      const anchor = lastDrivingPosRef.current;
+      const movedM = anchor
+        ? haversineKm(anchor.lat, anchor.lng, lat, lng) * 1000
+        : 0;
+      if (spd < 5 && movedM < 3 && Number.isFinite(entryH)) {
+        return normalizeHeading(entryH);
+      }
+    }
     if (Number.isFinite(pose.crossTrackM) && pose.crossTrackM <= 32) {
       const roadHdg = normalizeHeading(pose.heading);
       travelHeadingStateRef.current = { lat, lng, hdg: roadHdg, initialized: true };
@@ -2019,6 +2029,7 @@ export default function MapScreen() {
   const lastTripTargetUpdateAtRef = useRef(0);
   const lastDriveMarkerPushAtRef = useRef(Date.now());
   const drivingEntryJustStartedRef = useRef(false);
+  const drivingEntryHeadingRef = useRef<number>(0);
   const lastGoodTimeRef       = useRef<number>(Date.now());
   /** Rzeczywisty czas ostatniego zaakceptowanego fixu — bez cofania przy resume (walidacja one-shot). */
   const lastAcceptedFixWallClockRef = useRef<number>(Date.now());
@@ -3743,10 +3754,7 @@ export default function MapScreen() {
         name: settings.homeLabel || 'Dom',
       }
     : null;
-  const mapStyle =
-    mapType === 'satellite' ? MAPBOX_STYLE_SATELLITE :
-    mapType === 'hybrid'    ? MAPBOX_STYLE_HYBRID :
-    isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
+  const mapStyle = resolveMapStyle(mapType, isDark);
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
   const getTripActive = useCallback(
@@ -3893,7 +3901,8 @@ export default function MapScreen() {
   }, [isTripActiveMap]);
 
   const showThreeDBuildings = enableThreeDScene && currentZoom >= BUILDINGS_3D_MIN_ZOOM && !isTripActiveMap;
-  const showTerrainLayers = showThreeDBuildings;
+  const showTerrainLayers = enableThreeDScene && !isTripActiveMap;
+  const showVividMapLayers = shouldApplyVividMapLayers(mapType) && !isTripActiveMap;
 
   const routePrefetchKey = useMemo(() => {
     if (!isNavigating || remainingRoutePoints.length < 2) return null;
@@ -4989,8 +4998,8 @@ export default function MapScreen() {
       });
       pushTripCameraFromApply(out.pose.lat, out.pose.lng, travelHdg);
       publishUserLocation({ latitude: out.pose.lat, longitude: out.pose.lng });
-      const tripSpeedMs = Math.max(0, hudKmh / 3.6);
-      feedSpeed(hudKmh);
+      const tripSpeedMs = Math.max(0, engineKmh / 3.6);
+      feedSpeed(engineKmh > 0 ? engineKmh / 3.6 : null);
       if (isDrivingRef.current || isNavigatingRef.current) {
         const segKm = feedPosition(
           out.pose.lat,
@@ -6569,40 +6578,24 @@ export default function MapScreen() {
       drivingNoSnapStreakRef.current = 0;
       lastDrivingNoSnapForceRef.current = 0;
 
+      const previewPts = routePointsRef.current;
       let instantRoad = getMatchedPoints();
       if (!instantRoad || instantRoad.length < 2) {
         try {
-          const sqliteHit = await roadGeometryStore.findNearest(
-            startLat,
-            startLng,
-            DRIVING_ENTRY_SQLITE_RADIUS_M,
-          );
-          if (sqliteHit?.points.length >= 2) instantRoad = sqliteHit.points;
+          const sqliteHit = await Promise.race([
+            roadGeometryStore.findNearest(
+              startLat,
+              startLng,
+              DRIVING_ENTRY_SQLITE_RADIUS_M,
+            ),
+            new Promise<Awaited<ReturnType<typeof roadGeometryStore.findNearest>>>((resolve) => {
+              setTimeout(() => resolve(null), 800);
+            }),
+          ]);
+          if (sqliteHit?.points && sqliteHit.points.length >= 2) instantRoad = sqliteHit.points;
         } catch {
           /* ignore */
         }
-      }
-
-      const previewPts = routePointsRef.current;
-      const entryReqId = mapMatchCoord.allocRequestId();
-      try {
-        const apiRoad = await Promise.race([
-          mapMatchCoord.requestRecovery({
-            reason: 'MANUAL',
-            lat: startLat,
-            lng: startLng,
-            speedKmh: speedKmhRef.current,
-            forceImmediate: true,
-          }),
-          new Promise<{ latitude: number; longitude: number }[] | null>((resolve) => {
-            setTimeout(() => resolve(null), 4500);
-          }),
-        ]);
-        if (!mapMatchCoord.isStaleRequest(entryReqId) && apiRoad && apiRoad.length >= 2) {
-          instantRoad = apiRoad;
-        }
-      } catch {
-        /* keep sqlite / cache */
       }
 
       resetSnapState();
@@ -6627,10 +6620,32 @@ export default function MapScreen() {
       let entryLng = holdAnchor?.longitude ?? startLng;
       let entryHeading = Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0;
 
+      const localSnap = drivingSnap(
+        startLat,
+        startLng,
+        Math.max(0, speedKmhRef.current),
+        isNavigatingRef.current,
+        true,
+        rawFix?.accuracy ?? null,
+      );
+      if (localSnap.snapped && Number.isFinite(localSnap.latitude) && Number.isFinite(localSnap.longitude)) {
+        const snapDistM = haversineKm(startLat, startLng, localSnap.latitude, localSnap.longitude) * 1000;
+        const maxSnapM = stationaryEntry
+          ? DRIVING_ENTRY_INITIAL_SNAP_M
+          : DRIVING_ENTRY_MAX_SNAP_M;
+        if (snapDistM <= maxSnapM) {
+          entryLat = localSnap.latitude;
+          entryLng = localSnap.longitude;
+          if (Number.isFinite(localSnap.targetHeading)) {
+            entryHeading = localSnap.targetHeading;
+          }
+        }
+      }
+
       const seedPolyline =
         (instantRoad && instantRoad.length >= 2 ? instantRoad : null)
-        ?? (previewPts.length >= 2 ? previewPts : null)
-        ?? (drivingSnapGeometryRef.current.length >= 2
+        ?? (isNavigatingRef.current && previewPts.length >= 2 ? previewPts : null)
+        ?? (isNavigatingRef.current && drivingSnapGeometryRef.current.length >= 2
           ? drivingSnapGeometryRef.current
           : undefined);
 
@@ -6639,30 +6654,16 @@ export default function MapScreen() {
           { lat: entryLat, lng: entryLng },
           { heading: entryHeading, seedPolyline: seedPolyline ?? undefined },
         );
+        const seeded = driveCore.engine.snap.getFrozenPose();
+        if (seeded) {
+          entryLat = seeded.lat;
+          entryLng = seeded.lng;
+          if (Number.isFinite(seeded.heading) && seeded.heading !== 0) {
+            entryHeading = seeded.heading;
+          }
+        }
         if (!seedPolyline) {
           void driveCore.primeLocalGeometry(entryLat, entryLng);
-        }
-      } else {
-        const localSnap = drivingSnap(
-          startLat,
-          startLng,
-          Math.max(0, speedKmhRef.current),
-          isNavigatingRef.current,
-          true,
-          rawFix?.accuracy ?? null,
-        );
-        if (localSnap.snapped && Number.isFinite(localSnap.latitude) && Number.isFinite(localSnap.longitude)) {
-          const snapDistM = haversineKm(startLat, startLng, localSnap.latitude, localSnap.longitude) * 1000;
-          const maxSnapM = stationaryEntry
-            ? DRIVING_ENTRY_INITIAL_SNAP_M
-            : DRIVING_ENTRY_MAX_SNAP_M;
-          if (snapDistM <= maxSnapM) {
-            entryLat = localSnap.latitude;
-            entryLng = localSnap.longitude;
-            if (Number.isFinite(localSnap.targetHeading)) {
-              entryHeading = localSnap.targetHeading;
-            }
-          }
         }
       }
       vroomGpsLog('ENTRY_SNAP', {
@@ -6677,9 +6678,10 @@ export default function MapScreen() {
       isDrivingRef.current = true;
       drivingSinceRef.current = Date.now();
       drivingEntryJustStartedRef.current = true;
+      drivingEntryHeadingRef.current = entryHeading;
       setTimeout(() => {
         drivingEntryJustStartedRef.current = false;
-      }, 600);
+      }, 800);
       tripSpeedWarmupUntilRef.current = Date.now() + 10_000;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
       startTrip(Number(routeInfoRef.current?.duration) || 0);
@@ -6721,7 +6723,9 @@ export default function MapScreen() {
         stationaryEntry,
       });
       speedKmhRef.current = normalizeHudSpeedKmh(speedKmhRef.current);
-      emitSpeedometerKmh(0);
+      if (stationaryEntry) {
+        emitSpeedometerKmh(0);
+      }
       pendingDrivingEntryOneShotRef.current = false;
       drLatRef.current = entryLat;
       drLngRef.current = entryLng;
@@ -6739,14 +6743,16 @@ export default function MapScreen() {
       const entrySpeedMs = stationaryEntry
         ? 0
         : Math.max(0, speedKmhRef.current / 3.6);
-      applyTripPosition(entryLat, entryLng, {
-        heading: entryHeading,
-        speedMs: entrySpeedMs,
-        forcePublish: true,
-        instant: true,
-        allowInstantFeed: true,
-        commitGood: true,
-      });
+      if (!DRIVE_CORE_V2) {
+        applyTripPosition(entryLat, entryLng, {
+          heading: entryHeading,
+          speedMs: entrySpeedMs,
+          forcePublish: true,
+          instant: true,
+          allowInstantFeed: true,
+          commitGood: true,
+        });
+      }
       recenterTo({
         center: { latitude: entryLat, longitude: entryLng },
         heading: entryHeading,
@@ -6757,6 +6763,65 @@ export default function MapScreen() {
       setFollowMode('drivingFollow');
       recordDrivingTracePoint(entryLat, entryLng, { speedKmh: speedKmhRef.current }).catch(() => {});
       drivingManualEntryBusyRef.current = false;
+
+      const entryReqId = mapMatchCoord.allocRequestId();
+      void (async () => {
+        try {
+          const apiRoad = await mapMatchCoord.requestRecovery({
+            reason: 'MANUAL',
+            lat: startLat,
+            lng: startLng,
+            speedKmh: speedKmhRef.current,
+            forceImmediate: true,
+          });
+          if (mapMatchCoord.isStaleRequest(entryReqId)) return;
+          if (!apiRoad || apiRoad.length < 2) return;
+          applyRoadMatchPoints(apiRoad, { skipResync: true });
+          bumpMatchedFreshness();
+          if (DRIVE_CORE_V2) {
+            driveCore.applyMatchGeometry(apiRoad);
+            driveCore.seedLocalMirror(apiRoad);
+          } else {
+            resyncSnapAfterRoadGeometry();
+          }
+          if (!isDrivingRef.current || isNavigatingRef.current) return;
+          const curLat = drLatRef.current;
+          const curLng = drLngRef.current;
+          const asyncSnap = drivingSnap(
+            curLat,
+            curLng,
+            Math.max(0, speedKmhRef.current),
+            false,
+            true,
+            null,
+          );
+          if (
+            !asyncSnap.snapped
+            || !Number.isFinite(asyncSnap.latitude)
+            || !Number.isFinite(asyncSnap.longitude)
+          ) {
+            return;
+          }
+          const corrM = haversineKm(curLat, curLng, asyncSnap.latitude, asyncSnap.longitude) * 1000;
+          if (corrM > DRIVING_ENTRY_ASYNC_MAX_CORRECTION_M || corrM < 0.4) return;
+          const corrHdg = Number.isFinite(asyncSnap.targetHeading)
+            ? asyncSnap.targetHeading
+            : drHdgRef.current;
+          drLatRef.current = asyncSnap.latitude;
+          drLngRef.current = asyncSnap.longitude;
+          drHdgRef.current = corrHdg;
+          lastSetLocRef.current = { lat: asyncSnap.latitude, lng: asyncSnap.longitude };
+          driveMarker.pushTarget({
+            lat: asyncSnap.latitude,
+            lng: asyncSnap.longitude,
+            heading: corrHdg,
+            durationMs: 320,
+            speedMs: Math.max(0, speedKmhRef.current / 3.6),
+          });
+        } catch {
+          /* background entry match optional */
+        }
+      })();
 
       console.log('[DrivingMode] Manually entered — snap-first entry');
     }
@@ -12400,26 +12465,6 @@ export default function MapScreen() {
     }
     if (__DEV__) console.log('[GPSDBG] RESUME_FLOW', JSON.stringify({ at: now, source }));
 
-    // Szybki powrót na zakładkę Mapa: nie restartuj GPS, tylko przywróć kamerę i marker.
-    if (
-      source === 'focus'
-      && !isDrivingRef.current
-      && !isNavigatingRef.current
-      && locationReadyRef.current
-      && lastGoodLocRef.current
-      && now - lastAcceptedFixWallClockRef.current < GPS_WATCHER_STALE_MS * 4
-    ) {
-      const loc = currentLocRef.current ?? {
-        latitude: lastGoodLocRef.current.lat,
-        longitude: lastGoodLocRef.current.lng,
-      };
-      resetBrowseCamera(loc);
-      bumpActiveMarker(loc.latitude, loc.longitude, { forcePublish: true });
-      setGpsAcquiring(false);
-      if (__DEV__) console.log('[GPSDBG] RESUME_SOFT_FOCUS', JSON.stringify({ at: now }));
-      return;
-    }
-
     ensureRegionBootstrapped(source);
     void loadMapLastLocation().then((cached) => {
       if (!cached) return;
@@ -12444,7 +12489,10 @@ export default function MapScreen() {
     lastResumeHandledAtRef.current = now;
     setGpsAcquiring(false);
     console.log(`[GPS] Resume flow (${source})`);
-    restartGPSWatcher('resume');
+    restartGPSWatcher(source === 'focus' ? 'focus' : 'resume');
+    if (source === 'focus') {
+      refreshLocationOneShot({ force: true });
+    }
     if (isNavigatingRef.current || isDrivingRef.current) {
       tripForegroundRefreshUntilRef.current = now + TRIP_FOREGROUND_REFRESH_MS;
       resumeForegroundTickCountRef.current = 0;
@@ -14110,8 +14158,8 @@ export default function MapScreen() {
 
   if (Platform.OS === 'web') {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0a0a' }}>
-        <Text style={{ color: '#fff', fontFamily: 'Orbitron' }}>Tylko mobilne</Text>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg }}>
+        <Text style={{ color: theme.text, fontFamily: 'Orbitron' }}>Tylko mobilne</Text>
       </View>
     );
   }
@@ -14183,10 +14231,10 @@ export default function MapScreen() {
 
   return (
     <>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+      <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
         {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
-        <View style={{ paddingTop: insets.top, backgroundColor: '#0a0a0a' }}>
+        <View style={{ paddingTop: insets.top, backgroundColor: theme.bg }}>
           <AdBanner BANNERID="ca-app-pub-1660420496578702/3363343740" />
         </View>
 
@@ -14203,16 +14251,16 @@ export default function MapScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: 6,
-              backgroundColor: '#111111dc',
+              backgroundColor: theme.mapOverlay,
               paddingHorizontal: 12,
               paddingVertical: 6,
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: '#e3383540',
+              borderColor: theme.primaryBorder,
             }}
           >
-            <ActivityIndicator size="small" color="#e33835" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffffcc', letterSpacing: 0.5 }}>
+            <ActivityIndicator size="small" color={theme.primary} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.mapOverlayText, letterSpacing: 0.5 }}>
               SZUKAM GPS…
             </Text>
           </View>
@@ -14225,19 +14273,19 @@ export default function MapScreen() {
             bottom: Platform.OS === 'ios' ? 110 : 90,
             alignSelf: 'center',
             flexDirection: 'row', alignItems: 'center', gap: 10,
-            backgroundColor: '#111',
+            backgroundColor: theme.mapOverlay,
             borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10,
-            borderWidth: 1, borderColor: '#e3383540',
-            shadowColor: '#e33835', shadowOpacity: 0.3,
+            borderWidth: 1, borderColor: theme.primaryBorder,
+            shadowColor: theme.primary, shadowOpacity: 0.3,
             shadowOffset: { width: 0, height: 0 }, shadowRadius: 10,
             elevation: 8, zIndex: 25,
           }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#e33835' }} />
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary }} />
             <View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ffffff50', letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, letterSpacing: 2 }}>
                 {timerRouteName.toUpperCase()}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '700', letterSpacing: 2 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.mapOverlayText, fontWeight: '700', letterSpacing: 2 }}>
                 {formatElapsed(elapsedSec)}
               </Text>
             </View>
@@ -14436,13 +14484,14 @@ export default function MapScreen() {
             isDark={isDark}
             minZoom={BUILDINGS_3D_MIN_ZOOM}
           />
+          <MapVividLayers enabled={showVividMapLayers} isDark={isDark} />
 
           {endLocation && !arrived && (
             <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
-                backgroundColor: '#111111', padding: 8, borderRadius: 12,
-                borderWidth: 2, borderColor: '#e33835', alignItems: 'center',
-                shadowColor: '#e33835', shadowOffset: { width: 0, height: 0 },
+                backgroundColor: theme.surface, padding: 8, borderRadius: 12,
+                borderWidth: 2, borderColor: theme.primary, alignItems: 'center',
+                shadowColor: theme.primary, shadowOffset: { width: 0, height: 0 },
                 shadowOpacity: 0.6, shadowRadius: 6, elevation: 8,
               }}>
                 <MaterialIcons name="flag" size={20} color="#e33835" />
@@ -14453,8 +14502,8 @@ export default function MapScreen() {
           {startLocation && !isNavigating && !isBuilding && (
             <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
-                backgroundColor: '#111111', padding: 8, borderRadius: 12,
-                borderWidth: 2, borderColor: '#4de926', alignItems: 'center',
+                backgroundColor: theme.surface, padding: 8, borderRadius: 12,
+                borderWidth: 2, borderColor: theme.online, alignItems: 'center',
               }}>
                 <MaterialIcons name="radio-button-on" size={18} color="#4de926" />
               </View>
@@ -14651,15 +14700,15 @@ export default function MapScreen() {
               style={{
                 marginTop:     48,
                 alignSelf:     'center',
-                backgroundColor: isDark ? '#141414e8' : '#111111dc',
+                backgroundColor: theme.mapOverlay,
                 paddingHorizontal: 14,
                 paddingVertical: 8,
                 borderRadius:    12,
                 borderWidth:     1,
-                borderColor:     isDark ? '#ffffff28' : '#ffffff35',
+                borderColor:     theme.border2,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', textAlign: 'center', letterSpacing: 0.5 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.mapOverlayText, textAlign: 'center', letterSpacing: 0.5 }}>
                 PRZESUŃ MAPĘ · ŚRODEK = MIEJSCE FOTORADARU
               </Text>
             </View>
@@ -14667,7 +14716,7 @@ export default function MapScreen() {
               pointerEvents="none"
               style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}
             >
-              <MaterialCommunityIcons name="crosshairs-gps" size={58} color="#ffffffaa" style={{ marginTop: -28 }} />
+              <MaterialCommunityIcons name="crosshairs-gps" size={58} color={isDark ? '#ffffffaa' : theme.textDim} style={{ marginTop: -28 }} />
             </View>
             <View style={{
               position:        'absolute',
@@ -14684,7 +14733,7 @@ export default function MapScreen() {
                   flex: 1,
                   paddingVertical: 14,
                   borderRadius:    14,
-                  backgroundColor: isDark ? '#2a2a2a' : '#e8e8e8',
+                  backgroundColor: isDark ? theme.surface3 : theme.surface2,
                   borderWidth:     1,
                   borderColor:     theme.border,
                   alignItems:      'center',
@@ -14702,7 +14751,7 @@ export default function MapScreen() {
                   alignItems:      'center',
                 }}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>DODAJ</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.onPrimary, fontWeight: '700' }}>DODAJ</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -14715,15 +14764,15 @@ export default function MapScreen() {
               style={{
                 marginTop: 48,
                 alignSelf: 'center',
-                backgroundColor: isDark ? '#141414e8' : '#111111dc',
+                backgroundColor: theme.mapOverlay,
                 paddingHorizontal: 14,
                 paddingVertical: 8,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: isDark ? '#ffffff28' : '#ffffff35',
+                borderColor: theme.border2,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#fff', textAlign: 'center', letterSpacing: 0.5 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.mapOverlayText, textAlign: 'center', letterSpacing: 0.5 }}>
                 PRZYTRZYMAJ MAPĘ W MIEJSCU DOCELOWYM
               </Text>
             </View>
@@ -14733,7 +14782,7 @@ export default function MapScreen() {
                 style={{
                   paddingVertical: 14,
                   borderRadius: 14,
-                  backgroundColor: isDark ? '#2a2a2a' : '#e8e8e8',
+                  backgroundColor: isDark ? theme.surface3 : theme.surface2,
                   borderWidth: 1,
                   borderColor: theme.border,
                   alignItems: 'center',
@@ -14753,7 +14802,7 @@ export default function MapScreen() {
               <View style={styles.instructionBox}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={{
-                    width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
+                    width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
                     borderWidth: 1.5, borderColor: '#ff922b45',
                     alignItems: 'center', justifyContent: 'center',
                   }}>
@@ -14763,7 +14812,7 @@ export default function MapScreen() {
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#ff922b', fontWeight: '900', letterSpacing: 2 }}>
                       TRYB OFFROAD
                     </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffffcc', marginTop: 2 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted, marginTop: 2 }}>
                       Nawigacja w linii prostej
                     </Text>
                     {routeInfo && (
@@ -14775,7 +14824,7 @@ export default function MapScreen() {
                 </View>
               </View>
               <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                <MaterialIcons name="close" size={18} color="#ffffff70" />
+                <MaterialIcons name="close" size={18} color={theme.textDim} />
               </TouchableOpacity>
             </View>
           ) : (
@@ -14785,22 +14834,22 @@ export default function MapScreen() {
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                     <View style={{
-                      width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
+                      width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
                       borderWidth: 1.5, borderColor: '#e3383545',
                       alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color="#fff" />
+                      <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color={theme.text} />
                     </View>
                     <View style={{ flex: 1 }}>
                       {/* Live dystans do następnego skrętu */}
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>
                         {distToTurnM !== null
                           ? distToTurnM < 1000
                             ? `${Math.round(distToTurnM / 10) * 10} m`
                             : `${(distToTurnM / 1000).toFixed(1)} km`
                           : currentStepData.distance?.text}
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffffcc', marginTop: 2 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textMuted, marginTop: 2 }} numberOfLines={1}>
                         {cleanInstruction(currentStepData.html_instructions)}
                       </Text>
                     </View>
@@ -14809,26 +14858,26 @@ export default function MapScreen() {
                   {activeSteps[currentStep + 1] && (
                     <View style={{
                       flexDirection: 'row', alignItems: 'center', gap: 8,
-                      backgroundColor: '#ffffff08', borderRadius: 10,
+                      backgroundColor: theme.border, borderRadius: 10,
                       paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6,
                     }}>
-                      <MaterialIcons name="subdirectory-arrow-right" size={14} color="#ffffff50" />
-                      <Text style={{ color: '#ffffff60', fontFamily: 'Orbitron', fontSize: 9 }}>Potem: </Text>
-                      <MaterialIcons name={getManeuverIcon(activeSteps[currentStep + 1].maneuver) as any} size={14} color="#ffffff80" />
-                      <Text style={{ color: '#ffffff80', fontFamily: 'Orbitron', fontSize: 9, flex: 1 }} numberOfLines={1}>
+                      <MaterialIcons name="subdirectory-arrow-right" size={14} color={theme.textDim} />
+                      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Potem: </Text>
+                      <MaterialIcons name={getManeuverIcon(activeSteps[currentStep + 1].maneuver) as any} size={14} color={theme.textMuted} />
+                      <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 9, flex: 1 }} numberOfLines={1}>
                         {cleanInstruction(activeSteps[currentStep + 1].html_instructions)}
                       </Text>
                     </View>
                   )}
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50', letterSpacing: 1 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1 }}>
                       Krok {currentStep + 1}/{activeSteps.length}
                     </Text>
                     {/* Live pozostały dystans do celu */}
                     {remainingDistKm !== null && (
                       <>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
                         <MaterialIcons name="straighten" size={10} color="#00bfff" />
                         <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>
                           {remainingDistKm < 1
@@ -14839,13 +14888,13 @@ export default function MapScreen() {
                     )}
                     {routeInfo && (
                       <>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
                         <MaterialIcons name="schedule" size={10} color="#e33835" />
                         <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>
                           {formatDuration(routeInfo.duration)}
                         </Text>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#ffffff30' }} />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff50' }}>
+                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
                           cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </>
@@ -14853,7 +14902,7 @@ export default function MapScreen() {
                   </View>
                 </View>
                 <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                  <MaterialIcons name="close" size={18} color="#ffffff70" />
+                  <MaterialIcons name="close" size={18} color={theme.textDim} />
                 </TouchableOpacity>
               </View>
             ) : (
@@ -14861,17 +14910,17 @@ export default function MapScreen() {
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                     <View style={{
-                      width: 56, height: 56, backgroundColor: '#1a1a1a', borderRadius: 14,
+                      width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
                       borderWidth: 1.5, borderColor: '#e3383545',
                       alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={theme.text} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#fff', fontWeight: '800', letterSpacing: 1 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '800', letterSpacing: 1 }}>
                         ŁADOWANIE MANEWRÓW...
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ffffffaa', marginTop: 3 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted, marginTop: 3 }}>
                         Trwa pobieranie szczegółów trasy
                       </Text>
                       {routeInfo && (
@@ -14883,7 +14932,7 @@ export default function MapScreen() {
                   </View>
                 </View>
                 <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                  <MaterialIcons name="close" size={18} color="#ffffff70" />
+                  <MaterialIcons name="close" size={18} color={theme.textDim} />
                 </TouchableOpacity>
               </View>
             )
@@ -14952,24 +15001,24 @@ export default function MapScreen() {
                   left: 6,
                   right: 6,
                   zIndex: 96,
-                  backgroundColor: 'rgba(12, 12, 14, 0.96)',
+                  backgroundColor: theme.mapOverlay,
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: 'rgba(227, 56, 53, 0.35)',
+                  borderColor: theme.primaryBorder,
                   paddingVertical: 12,
                   paddingHorizontal: 14,
                   shadowColor: '#000',
                   shadowOffset: { width: 0, height: 3 },
-                  shadowOpacity: 0.4,
+                  shadowOpacity: isDark ? 0.4 : 0.15,
                   shadowRadius: 10,
                   elevation: 12,
                 }}
               >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                <MaterialCommunityIcons name="car-sports" size={22} color="#e33835" />
+                <MaterialCommunityIcons name="car-sports" size={22} color={theme.primary} />
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', letterSpacing: 2, fontWeight: '800' }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary, letterSpacing: 2, fontWeight: '800' }}>
                     TRYB JAZDY
                   </Text>
                   <SpeedValueText
@@ -14982,11 +15031,11 @@ export default function MapScreen() {
                       fontFamily: 'Orbitron',
                       fontSize: 30,
                       fontWeight: '900',
-                      color: '#fff',
+                      color: theme.text,
                       letterSpacing: -1,
                       marginTop: 2,
                     }}
-                    unitStyle={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff55', fontWeight: '700' }}
+                    unitStyle={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, fontWeight: '700' }}
                   />
                 </View>
               </View>
@@ -15000,8 +15049,8 @@ export default function MapScreen() {
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff45', letterSpacing: 1 }}>PRZEJECHANE (SILNIK TRASY)</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '800', color: '#e33835' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1 }}>PRZEJECHANE (SILNIK TRASY)</Text>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '800', color: theme.primary }}>
                 {(Number.isFinite(liveDistanceKm) ? liveDistanceKm : 0).toFixed(2)} km
               </Text>
             </View>
@@ -15010,7 +15059,7 @@ export default function MapScreen() {
               marginTop: 10,
               paddingTop: 10,
               borderTopWidth: 1,
-              borderTopColor: 'rgba(255,255,255,0.08)',
+              borderTopColor: theme.border,
               flexDirection: 'row',
               alignItems: 'center',
               gap: 8,
@@ -15019,7 +15068,7 @@ export default function MapScreen() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 {endLocation ? (
                   <>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }} numberOfLines={1}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
                       {endLocation.name ?? 'Cel trasy'}
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
@@ -15033,9 +15082,9 @@ export default function MapScreen() {
                             : '—'}
                         </Text>
                       </View>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff45' }}>do celu (linia prosta)</Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>do celu (linia prosta)</Text>
                       {routeInfo?.distance != null && (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#ffffff55' }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textMuted }}>
                           · trasa ~{routeInfo.distance} km
                         </Text>
                       )}

@@ -29,6 +29,7 @@ export class DriveEngine {
   private isNavigating = false;
   private fetchInFlight = false;
   private localL2RefreshInFlight = false;
+  private lastLocalL2RefreshAt = 0;
   private callbacks: DriveEngineCallbacks = {};
 
   setCallbacks(cb: DriveEngineCallbacks): void {
@@ -140,7 +141,7 @@ export class DriveEngine {
       this.quality.commitAccepted(raw);
     }
 
-    if (freeDriveNoRoute) {
+    if (isFreeDrive) {
       this.scheduleLocalL2Refresh(raw);
     }
 
@@ -226,14 +227,32 @@ export class DriveEngine {
     );
     const snapStepMs = Math.max(200, Math.min(2000, rawDtMs));
     const maxStepM = computeSnapMaxStepM(speedForStep, snapStepMs);
+    const hasLocalGeom = localRoadGeometryMirror.hasGeometry()
+      || (this.isNavigating && this.cache.hasGeometry());
+    const frozenMove = this.snap.getFrozenPose();
+    let travelHeadingDeg = frozenMove?.heading;
+    if (isFreeDrive && frozenMove) {
+      const movedM = distanceM(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng);
+      if (movedM >= 1.2) {
+        travelHeadingDeg = bearingBetween(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng);
+      }
+    }
+    const lateralM = frozenMove
+      ? distanceM(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng)
+      : 0;
+    const freeDriveMaxStep = lateralM > 12 ? Math.min(lateralM * 0.6, 45) : maxStepM;
 
-    const pose = this.snap.snap(raw, this.cache, {
+    let pose = this.snap.snap(raw, this.cache, {
       isMoving: true,
       isNavigating: this.isNavigating,
-      allowRawFallback: isFreeDrive || !this.cache.hasGeometry(),
+      allowRawFallback: this.isNavigating ? false : !hasLocalGeom,
       preferLocalL2: isFreeDrive,
-      maxStepM,
+      travelHeadingDeg,
+      maxStepM: isFreeDrive ? freeDriveMaxStep : maxStepM,
     });
+    if (isFreeDrive) {
+      pose = this.snap.finalizeSnapPose(pose, this.cache);
+    }
 
     const speedKmhMoving = this.speed.update(
       raw,
@@ -381,6 +400,9 @@ export class DriveEngine {
 
   /** Asynchroniczne dociągnięcie L2 → synchroniczny mirror dla roadSnap. */
   private scheduleLocalL2Refresh(raw: RawGpsFix): void {
+    const now = Date.now();
+    if (now - this.lastLocalL2RefreshAt < 4000) return;
+    this.lastLocalL2RefreshAt = now;
     void this.primeLocalGeometry(raw.lat, raw.lng);
   }
 
@@ -397,14 +419,33 @@ export class DriveEngine {
       allowDoppler: gate.allowDoppler,
     };
     const frozen = this.snap.getFrozenPose();
-    const pose = this.snap.snap(raw, this.cache, {
+    const hasLocalGeom = localRoadGeometryMirror.hasGeometry()
+      || (this.isNavigating && this.cache.hasGeometry());
+    let travelHeadingDeg = frozen?.heading;
+    if (frozen && frozen.crossTrackM > 15) {
+      const movedM = distanceM(frozen.lat, frozen.lng, raw.lat, raw.lng);
+      if (movedM >= 1.2) {
+        travelHeadingDeg = bearingBetween(frozen.lat, frozen.lng, raw.lat, raw.lng);
+      }
+    } else if (motionSaysMoving && frozen) {
+      const movedM = distanceM(frozen.lat, frozen.lng, raw.lat, raw.lng);
+      if (movedM >= 1.2) {
+        travelHeadingDeg = bearingBetween(frozen.lat, frozen.lng, raw.lat, raw.lng);
+      }
+    }
+    const lateralM = frozen
+      ? distanceM(frozen.lat, frozen.lng, raw.lat, raw.lng)
+      : 0;
+    const maxStepM = lateralM > 12 ? Math.min(lateralM * 0.6, 45) : 28;
+    let pose = this.snap.snap(raw, this.cache, {
       isMoving: motionSaysMoving,
       isNavigating: false,
-      allowRawFallback: true,
+      allowRawFallback: !hasLocalGeom,
       preferLocalL2: true,
-      travelHeadingDeg: frozen?.heading,
-      maxStepM: 28,
+      travelHeadingDeg,
+      maxStepM,
     });
+    pose = this.snap.finalizeSnapPose(pose, this.cache);
     const speedKmh = this.speed.update(
       raw,
       pose,

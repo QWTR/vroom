@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/mapConfig';
 import {
   darkTheme, lightTheme, AppTheme, ThemeMode,
-  THEME_MODE_KEY, CUSTOM_THEME_KEY, buildCustomTheme,
+  THEME_MODE_KEY, CUSTOM_THEME_KEY, buildCustomTheme, isThemeDark,
 } from '../constants/theme';
 
 interface ThemeContextType {
@@ -93,7 +93,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setCustomColor = useCallback(async (key: keyof AppTheme, color: string) => {
     setCustomTheme(prev => {
       const updated = { ...prev, [key]: color };
-      // Zapisz do AsyncStorage
       AsyncStorage.setItem(CUSTOM_THEME_KEY, JSON.stringify(updated)).catch(() => {});
       syncThemeToBackend(mode, updated);
       return updated;
@@ -101,18 +100,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [mode, syncThemeToBackend]);
 
   const resetCustomTheme = useCallback(async () => {
-    setCustomTheme({ ...darkTheme });
+    const base = mode === 'light' ? { ...lightTheme } : { ...darkTheme };
+    setCustomTheme(base);
     await AsyncStorage.removeItem(CUSTOM_THEME_KEY);
-    await syncThemeToBackend(mode, { ...darkTheme });
+    await syncThemeToBackend(mode, base);
   }, [mode, syncThemeToBackend]);
 
   const theme = mode === 'dark' ? darkTheme : mode === 'light' ? lightTheme : customTheme;
+  const isDark = mode === 'dark' || (mode === 'custom' && isThemeDark(customTheme));
+
+  const value = useMemo(() => ({
+    theme, mode, isDark, customTheme, toggleTheme, setMode, setCustomColor, resetCustomTheme,
+  }), [theme, mode, isDark, customTheme, toggleTheme, setMode, setCustomColor, resetCustomTheme]);
 
   return (
-    <ThemeContext.Provider value={{
-      theme, mode, isDark: mode === 'dark',
-      customTheme, toggleTheme, setMode, setCustomColor, resetCustomTheme,
-    }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

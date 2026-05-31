@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LiveWarning, getWarningColor, getWarningIcon } from '../../hooks/useLiveMap';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface WarningMarkerRendererProps {
   warning:   LiveWarning;
@@ -10,6 +11,7 @@ interface WarningMarkerRendererProps {
 }
 
 export const WarningMarkerRenderer = ({ warning, onCapture }: WarningMarkerRendererProps) => {
+  const { theme } = useTheme();
   const color    = getWarningColor(warning.type);
   const icon     = getWarningIcon(warning.type);
   const timeLeft = Math.max(0, Math.round(
@@ -53,7 +55,7 @@ export const WarningMarkerRenderer = ({ warning, onCapture }: WarningMarkerRende
             <MaterialCommunityIcons name={icon as any} size={24} color={color} />
           </View>
           <View style={{
-            backgroundColor: '#0a0a0aee', borderRadius: 6,
+            backgroundColor: theme.mapLabelBg, borderRadius: 6,
             paddingHorizontal: 6, paddingVertical: 2, marginTop: 4,
           }}>
             <Text style={{ color, fontSize: 9, fontWeight: '700' }}>

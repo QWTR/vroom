@@ -191,7 +191,7 @@ function StatusLine() {
 
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
-  const { isDark }     = useTheme();
+  const { isDark, theme } = useTheme();
   const { updateSetting } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
   const {
@@ -527,7 +527,7 @@ function RootLayoutInner() {
         <Stack.Screen name="notifications" />
       </Stack>
       <AppPresenceHeartbeat />
-      <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={isDark ? '#0a0a0a' : '#efefef'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
       <Toast config={toastConfig} />
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}
@@ -550,12 +550,12 @@ function RootLayoutInner() {
 
       {phase !== 'done' && (
         <Animated.View
-          style={[s.splash, { opacity: splashOpacity }]}
+          style={[s.splash, { opacity: splashOpacity, backgroundColor: theme.bg }]}
           pointerEvents="none"
         >
           {/* ── Tło ── */}
           <LinearGradient
-            colors={['#160303', '#0e0202', '#080808', '#050505']}
+            colors={isDark ? ['#160303', '#0e0202', theme.bg, '#050505'] : [theme.bgAlt, theme.bg, theme.surface, theme.surface2]}
             start={{ x: 0.15, y: 0 }} end={{ x: 0.85, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
@@ -584,7 +584,7 @@ function RootLayoutInner() {
               {/* Ikona — styl identyczny z HomeScreen logo box */}
               <Animated.View style={[s.iconBox, { transform: [{ scale: pulseAnim }] }]}>
                 <LinearGradient
-                  colors={['#2a0707', '#160303', '#0a0a0a']}
+                  colors={isDark ? ['#2a0707', '#160303', theme.bg] : [theme.primaryBg, theme.surface2, theme.surface]}
                   style={StyleSheet.absoluteFill}
                 />
                 <Image
@@ -597,10 +597,10 @@ function RootLayoutInner() {
             </Animated.View>
 
             {/* ── TYTUŁ ── */}
-            <Animated.Text style={[s.title, { opacity: logoFade }]}>
+            <Animated.Text style={[s.title, { opacity: logoFade, color: theme.text }]}>
               VROOM
             </Animated.Text>
-            <Animated.Text style={[s.subtitle, { opacity: logoFade }]}>
+            <Animated.Text style={[s.subtitle, { opacity: logoFade, color: theme.textDim }]}>
               AUTOMOTIVE OS
             </Animated.Text>
 
@@ -610,7 +610,7 @@ function RootLayoutInner() {
               transform: [{ translateY: cardSlide }],
             }]}>
               <LinearGradient
-                colors={['#1a0808', '#100404', '#0a0a0a']}
+                colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.surface2, theme.bgAlt, theme.bg]}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
@@ -661,7 +661,6 @@ function RootLayoutInner() {
 const s = StyleSheet.create({
   splash: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#080808',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 9999,

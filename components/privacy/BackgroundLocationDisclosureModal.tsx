@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Modal,
   Pressable,
@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useTheme } from '../../contexts/ThemeContext';
+import type { AppTheme } from '../../constants/theme';
 
 type Props = {
   visible: boolean;
@@ -17,9 +19,9 @@ type Props = {
   onAccept: () => void;
 };
 
-const RED = '#e33835';
-
 export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept }: Props) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const [checked, setChecked] = useState(false);
 
   if (!visible) return null;
@@ -41,7 +43,7 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
         <SafeAreaView style={styles.safe}>
           <View style={styles.card}>
             <View style={styles.iconWrap}>
-              <MaterialIcons name="location-on" size={34} color={RED} />
+              <MaterialIcons name="location-on" size={34} color={theme.primary} />
             </View>
 
             <Text style={styles.title}>Zgoda na lokalizację w tle</Text>
@@ -63,7 +65,7 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
 
             <Pressable style={styles.checkRow} onPress={() => setChecked(v => !v)}>
               <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                {checked && <MaterialIcons name="check" size={16} color="#fff" />}
+                {checked && <MaterialIcons name="check" size={16} color={theme.onPrimary} />}
               </View>
               <Text style={styles.checkText}>
                 Rozumiem i zgadzam się na używanie lokalizacji w tle przez VROOM.
@@ -90,108 +92,110 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.78)',
-    justifyContent: 'center',
-    padding: 18,
-  },
-  safe: {
-    width: '100%',
-  },
-  card: {
-    backgroundColor: '#101010',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#e3383540',
-    padding: 20,
-    maxHeight: '92%',
-  },
-  iconWrap: {
-    width: 62,
-    height: 62,
-    borderRadius: 20,
-    backgroundColor: '#e3383515',
-    borderWidth: 1,
-    borderColor: '#e3383545',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    color: '#fff',
-    fontFamily: 'OrbitronBold',
-    fontSize: 20,
-    marginBottom: 14,
-  },
-  body: {
-    maxHeight: 270,
-  },
-  text: {
-    color: '#ffffffcc',
-    fontFamily: 'Orbitron',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  checkRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#ffffff55',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: RED,
-    borderColor: RED,
-  },
-  checkText: {
-    flex: 1,
-    color: '#fff',
-    fontFamily: 'Orbitron',
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  actions: {
-    gap: 10,
-  },
-  primaryBtn: {
-    minHeight: 48,
-    borderRadius: 14,
-    backgroundColor: RED,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  primaryBtnDisabled: {
-    opacity: 0.45,
-  },
-  primaryText: {
-    color: '#fff',
-    fontFamily: 'OrbitronBold',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  secondaryBtn: {
-    minHeight: 46,
-    borderRadius: 14,
-    backgroundColor: '#ffffff10',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  secondaryText: {
-    color: '#ffffffcc',
-    fontFamily: 'OrbitronBold',
-    fontSize: 12,
-  },
-});
+function makeStyles(t: AppTheme) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: t.overlay,
+      justifyContent: 'center',
+      padding: 18,
+    },
+    safe: {
+      width: '100%',
+    },
+    card: {
+      backgroundColor: t.surface,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: t.primaryBorder,
+      padding: 20,
+      maxHeight: '92%',
+    },
+    iconWrap: {
+      width: 62,
+      height: 62,
+      borderRadius: 20,
+      backgroundColor: t.primaryBg,
+      borderWidth: 1,
+      borderColor: t.primaryBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    title: {
+      color: t.text,
+      fontFamily: 'OrbitronBold',
+      fontSize: 20,
+      marginBottom: 14,
+    },
+    body: {
+      maxHeight: 270,
+    },
+    text: {
+      color: t.textMuted,
+      fontFamily: 'Orbitron',
+      fontSize: 13,
+      lineHeight: 20,
+      marginBottom: 12,
+    },
+    checkRow: {
+      flexDirection: 'row',
+      gap: 12,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    checkbox: {
+      width: 24,
+      height: 24,
+      borderRadius: 7,
+      borderWidth: 1,
+      borderColor: t.border3,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkboxChecked: {
+      backgroundColor: t.primary,
+      borderColor: t.primary,
+    },
+    checkText: {
+      flex: 1,
+      color: t.text,
+      fontFamily: 'Orbitron',
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    actions: {
+      gap: 10,
+    },
+    primaryBtn: {
+      minHeight: 48,
+      borderRadius: 14,
+      backgroundColor: t.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 14,
+    },
+    primaryBtnDisabled: {
+      opacity: 0.45,
+    },
+    primaryText: {
+      color: t.onPrimary,
+      fontFamily: 'OrbitronBold',
+      fontSize: 12,
+      textAlign: 'center',
+    },
+    secondaryBtn: {
+      minHeight: 46,
+      borderRadius: 14,
+      backgroundColor: t.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 14,
+    },
+    secondaryText: {
+      color: t.textMuted,
+      fontFamily: 'OrbitronBold',
+      fontSize: 12,
+    },
+  });
+}

@@ -9,6 +9,7 @@ import {
 } from '../../constants/shopCosmetics';
 import { ShopAvatarDecoration } from './ShopAvatarDecoration';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { useTheme } from '../../contexts/ThemeContext';
 
 type Props = {
   item: CatalogItem;
@@ -25,6 +26,7 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
   isDark,
   onPress,
 }: Props) {
+  const { theme } = useTheme();
   const preview = normalizeMediaUri(item.previewUrl ?? item.assetUrl);
   const meta = SHOP_CATEGORY_META[item.category as ShopItemCategory];
   const accent = meta?.accent ?? '#e33835';
@@ -37,8 +39,8 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
         styles.card,
         {
           width,
-          backgroundColor: isDark ? '#141414' : '#fff',
-          borderColor: equipped ? accent : isDark ? '#ffffff14' : '#00000010',
+          backgroundColor: isDark ? theme.surface2 : theme.surface,
+          borderColor: equipped ? accent : theme.border2,
           shadowColor: equipped ? accent : '#000',
         },
       ]}
@@ -55,10 +57,10 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
         </View>
       ) : null}
 
-      <View style={[styles.preview, { backgroundColor: isDark ? '#0a0a0a' : '#f4f4f6' }]}>
+      <View style={[styles.preview, { backgroundColor: isDark ? theme.bg : theme.surface2 }]}>
         {item.category === 'avatar_frame' ? (
           <View style={styles.framePreview}>
-            <View style={[styles.fakeAvatar, { backgroundColor: isDark ? '#333' : '#ddd' }]} />
+            <View style={[styles.fakeAvatar, { backgroundColor: isDark ? theme.surface4 : theme.surface3 }]} />
             <ShopAvatarDecoration item={item} size={72} />
           </View>
         ) : preview ? (
@@ -70,7 +72,7 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
 
       <View style={styles.body}>
         <Text
-          style={[styles.name, { color: isDark ? '#fff' : '#111' }]}
+          style={[styles.name, { color: theme.text }]}
           numberOfLines={2}
         >
           {item.name}

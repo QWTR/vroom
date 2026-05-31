@@ -76,6 +76,16 @@ const GROUPS: { title: string; keys: ColorKey[] }[] = [
       { key: 'tabBg',     label: 'Tło tab baru' },
       { key: 'tabBorder', label: 'Border tabów' },
       { key: 'overlay',   label: 'Overlay'      },
+      { key: 'onPrimary', label: 'Tekst na CTA' },
+    ],
+  },
+  {
+    title: 'MAPA',
+    keys: [
+      { key: 'mapOverlay',     label: 'HUD / banery'     },
+      { key: 'mapOverlayText', label: 'Tekst HUD'        },
+      { key: 'mapLabelBg',     label: 'Tło etykiet'      },
+      { key: 'mapLabelText',   label: 'Tekst etykiet'    },
     ],
   },
   {

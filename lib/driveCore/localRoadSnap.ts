@@ -49,6 +49,10 @@ export class LocalRoadGeometryMirror {
     );
   }
 
+  getPolylines(): RoadPoint[][] {
+    return this.hasGeometry() ? this.polylines : [];
+  }
+
   /**
    * Rzut prostopadły na najbliższy segment z lokalnej bazy, z filtrem heading.
    */
@@ -76,6 +80,53 @@ export class LocalRoadGeometryMirror {
         const onSeg = closestPointOnSegment(lat, lng, a, b);
         const centerDistM = distanceM(lat, lng, onSeg.lat, onSeg.lng);
         if (centerDistM > LOCAL_L2_SNAP_WIDE_M + 15) continue;
+        if (onSeg.crossTrackM > radiusM) continue;
+
+        if (onSeg.crossTrackM < bestCross) {
+          bestCross = onSeg.crossTrackM;
+          bestLat = onSeg.lat;
+          bestLng = onSeg.lng;
+          bestHeading = segH;
+          bestSegIdx = i;
+        }
+      }
+    }
+
+    if (!Number.isFinite(bestCross) || bestCross > radiusM) {
+      return null;
+    }
+
+    return {
+      lat: bestLat,
+      lng: bestLng,
+      heading: bestHeading,
+      crossTrackM: bestCross,
+      segmentIndex: bestSegIdx,
+    };
+  }
+
+  /**
+   * Najbliższy segment bez filtra heading — fallback przy ruchu gdy filtr odrzuca wszystko.
+   */
+  snapToLocalRoadNearest(
+    lat: number,
+    lng: number,
+    radiusM: number = LOCAL_L2_SNAP_WIDE_M,
+  ): SnappedPose | null {
+    if (!this.hasGeometry()) return null;
+
+    let bestCross = Infinity;
+    let bestLat = lat;
+    let bestLng = lng;
+    let bestHeading = 0;
+    let bestSegIdx = 0;
+
+    for (const poly of this.polylines) {
+      for (let i = 0; i < poly.length - 1; i++) {
+        const a = poly[i];
+        const b = poly[i + 1];
+        const segH = segmentBearing(a, b);
+        const onSeg = closestPointOnSegment(lat, lng, a, b);
         if (onSeg.crossTrackM > radiusM) continue;
 
         if (onSeg.crossTrackM < bestCross) {

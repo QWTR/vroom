@@ -22,10 +22,10 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <View style={{ width: '100%', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#e3383540' }}>
+      <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{ width: '100%', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: theme.primaryBorder }}>
           <LinearGradient
-            colors={isDark ? ['#1a0808', '#100404', '#0a0a0a'] : ['#fff5f5', '#fff0f0', '#fafafa']}
+            colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.surface2, theme.surface, theme.bgAlt]}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={{ padding: 28 }}
           >
@@ -52,7 +52,7 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
 
             {loading && (
               <View style={{ marginBottom: 20 }}>
-                <View style={{ height: 8, borderRadius: 999, backgroundColor: isDark ? '#ffffff22' : '#00000012', overflow: 'hidden' }}>
+                <View style={{ height: 8, borderRadius: 999, backgroundColor: theme.border2, overflow: 'hidden' }}>
                   <View
                     style={{
                       height: '100%',
@@ -77,10 +77,10 @@ export function UpdateModal({ visible, loading, progress, error, onUpdate, onDis
                 style={{ borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10 }}
               >
                 {loading
-                  ? <ActivityIndicator color="#fff" size="small" />
+                  ? <ActivityIndicator color={theme.onPrimary} size="small" />
                   : <>
-                      <MaterialIcons name="system-update" size={18} color="#fff" />
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: '#fff', fontWeight: '900', letterSpacing: 1 }}>
+                      <MaterialIcons name="system-update" size={18} color={theme.onPrimary} />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.onPrimary, fontWeight: '900', letterSpacing: 1 }}>
                         {error ? 'SPRÓBUJ PONOWNIE' : 'AKTUALIZUJ TERAZ'}
                       </Text>
                     </>

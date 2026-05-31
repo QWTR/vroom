@@ -5,6 +5,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import { ShopAvatarDecoration } from './ShopAvatarDecoration';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useMemo } from 'react';
 
 type Props = {
   username: string;
@@ -20,6 +22,8 @@ export const ProfileShopPreviewCard = memo(function ProfileShopPreviewCard({
   cosmetics,
   compact = false,
 }: Props) {
+  const { theme, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const bannerUri = normalizeMediaUri(cosmetics?.profileBanner?.assetUrl);
   const avatarSize = compact ? 56 : 72;
 
@@ -29,7 +33,7 @@ export const ProfileShopPreviewCard = memo(function ProfileShopPreviewCard({
         {bannerUri ? (
           <Image source={{ uri: bannerUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
-          <LinearGradient colors={['#1a1a1a', '#e3383544']} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={isDark ? ['#1a1a1a', theme.primary + '44'] : [theme.surface2, theme.primaryBg]} style={StyleSheet.absoluteFill} />
         )}
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
       </View>
@@ -50,13 +54,13 @@ export const ProfileShopPreviewCard = memo(function ProfileShopPreviewCard({
   );
 });
 
-const styles = StyleSheet.create({
+const makeStyles = (t: typeof import('../../constants/theme').darkTheme) => StyleSheet.create({
   card: {
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#111',
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: '#ffffff18',
+    borderColor: t.border2,
   },
   banner: { height: 88, width: '100%' },
   row: {
@@ -69,13 +73,13 @@ const styles = StyleSheet.create({
   },
   avatar: {
     borderWidth: 2,
-    borderColor: '#e33835',
+    borderColor: t.primary,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: t.bg,
     margin: 3,
   },
-  initials: { color: '#e33835', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 18 },
-  name: { flex: 1, color: '#fff', fontFamily: 'Orbitron', fontSize: 14, fontWeight: '800', marginTop: 24 },
+  initials: { color: t.primary, fontFamily: 'Orbitron', fontWeight: '900', fontSize: 18 },
+  name: { flex: 1, color: t.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '800', marginTop: 24 },
 });

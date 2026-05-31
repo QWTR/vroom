@@ -8,7 +8,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker         from '@react-native-community/datetimepicker';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_TOKEN } from '../../../constants/mapConfig';
+import { resolveStandardMapStyle, MAPBOX_TOKEN } from '../../../constants/mapConfig';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 import * as ImagePicker       from 'expo-image-picker';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
@@ -445,7 +445,7 @@ export default function EditMeet() {
           <Mapbox.MapView
             ref={mapRef}
             style={{ flex: 1 }}
-            styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
+            styleURL={resolveStandardMapStyle(isDark)}
             logoEnabled={false}
             attributionEnabled={false}
             onPress={handleMapPress}

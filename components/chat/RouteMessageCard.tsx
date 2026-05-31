@@ -39,12 +39,12 @@ export function RouteMessageCard({ data, isMe, onNavigate }: Props) {
       </View>
 
       {/* Minimap */}
-      <View style={{ marginHorizontal: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: theme.border }}>
+      <View style={{ marginHorizontal: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: isMe ? '#00000040' : theme.bg, borderWidth: 1, borderColor: theme.border }}>
         <RouteMiniMap points={data.points} width={200} height={90} />
       </View>
 
       {/* Info */}
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700', marginHorizontal: 10, marginTop: 8 }} numberOfLines={1}>{data.name}</Text>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: isMe ? theme.onPrimary : theme.text, fontWeight: '700', marginHorizontal: 10, marginTop: 8 }} numberOfLines={1}>{data.name}</Text>
       <View style={{ flexDirection: 'row', gap: 12, marginHorizontal: 10, marginTop: 4, marginBottom: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
           <MaterialIcons name="straighten" size={11} color={theme.primary} />
@@ -61,8 +61,8 @@ export function RouteMessageCard({ data, isMe, onNavigate }: Props) {
         style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.primary, margin: 8, marginTop: 0, borderRadius: 10, paddingVertical: 9 }}
         onPress={() => onNavigate(data)} activeOpacity={0.8}
       >
-        <MaterialIcons name="navigation" size={13} color="#fff" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700', letterSpacing: 0.5 }}>NAWIGUJ PO TEJ TRASIE</Text>
+        <MaterialIcons name="navigation" size={13} color={theme.onPrimary} />
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>NAWIGUJ PO TEJ TRASIE</Text>
       </TouchableOpacity>
     </View>
   );

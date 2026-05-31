@@ -1117,11 +1117,11 @@ export default function ProfileView({
                 <MaterialIcons name="bar-chart" size={18} color="#e33835" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: isDark ? '#fff' : '#000', fontWeight: '900', letterSpacing: 1 }}>STATYSTYKI</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>STATYSTYKI</Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 2, marginTop: 2 }}>{profile?.username ?? ''}</Text>
               </View>
-              <TouchableOpacity onPress={closeStats} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? '#ffffff10' : '#00000010', alignItems: 'center', justifyContent: 'center' }}>
-                <MaterialIcons name="close" size={18} color={isDark ? '#fff' : '#000'} />
+              <TouchableOpacity onPress={closeStats} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialIcons name="close" size={18} color={theme.text} />
               </TouchableOpacity>
             </View>
 
@@ -1140,14 +1140,14 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
                   <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#268bff35' : '#268bff25' }}>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#268bff', letterSpacing: 2 }}>TYDZIEŃ</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: isDark ? '#fff' : '#111', marginTop: 6 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
                       {Number((profile as any)?.weeklyDistance ?? 0).toFixed(1)}
                     </Text>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: isDark ? '#ffffff08' : '#00000006', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: isDark ? '#ffffff15' : '#00000012' }}>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 2 }}>ŁĄCZNIE</Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: isDark ? '#fff' : '#111', marginTop: 6 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, fontWeight: '900', color: theme.text, marginTop: 6 }}>
                       {Number(profile?.totalDistance ?? 0).toFixed(1)}
                     </Text>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>km</Text>

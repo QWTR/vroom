@@ -20,7 +20,7 @@ export const WarningDetailModal = memo(({
   visible, warning, onClose, onConfirm, onCancel, currentUserId,
 }: Props) => {
   const { theme, isDark } = useTheme();
-  const styles = makeMapStyles(theme);
+  const styles = makeMapStyles(theme, isDark);
   const [cancelling, setCancelling] = useState(false);
 
   useModalBackHandler(visible, onClose);

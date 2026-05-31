@@ -38,7 +38,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private const val MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
-private const val MAPBOX_STYLE = "mapbox://styles/mapbox/dark-v11"
+private const val MAPBOX_STYLE = "mapbox://styles/mapbox/navigation-night-v1"
 private const val MAPBOX_STYLE_SAT = "mapbox://styles/mapbox/satellite-v9"
 private const val MAPBOX_STYLE_HYBRID = "mapbox://styles/mapbox/satellite-streets-v12"
 private const val NAV_LOOKAHEAD_METERS = 80.0

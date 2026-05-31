@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_STYLE_SATELLITE } from '../../constants/mapConfig';
+import { resolveStandardMapStyle, MAPBOX_STYLE_SATELLITE } from '../../constants/mapConfig';
 import { ensureMapboxToken } from '../../lib/mapboxInit';
 
 ensureMapboxToken();
@@ -30,7 +30,7 @@ export default function SpotMap() {
   // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
   const cameraRef = useRef<Mapbox.Camera>(null);
   const { theme, isDark } = useTheme();
-  const mapStyle       = isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
+  const mapStyle       = resolveStandardMapStyle(isDark);
 
   const {
     region, visibleSpots, maxDistance, setMaxDistance,

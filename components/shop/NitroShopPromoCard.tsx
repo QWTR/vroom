@@ -17,7 +17,7 @@ export const NitroShopPromoCard = memo(function NitroShopPromoCard({
   onPress,
   compact = false,
 }: Props) {
-  const { isDark } = useTheme();
+  const { theme, isDark } = useTheme();
 
   return (
     <TouchableOpacity activeOpacity={0.88} onPress={onPress} style={styles.wrap}>
@@ -36,11 +36,11 @@ export const NitroShopPromoCard = memo(function NitroShopPromoCard({
             <Text style={[styles.kicker, { color: isDark ? '#FFD70099' : '#b8860b' }]}>
               SKLEP NITRO
             </Text>
-            <Text style={[styles.title, { color: isDark ? '#fff' : '#1a1a1a' }]}>
+            <Text style={[styles.title, { color: theme.text }]}>
               Ozdoby {MONETIZATION.nitroLabel}
             </Text>
             {!compact && (
-              <Text style={[styles.sub, { color: isDark ? '#ffffff88' : '#666' }]}>
+              <Text style={[styles.sub, { color: theme.textDim }]}>
                 {MONETIZATION.shopSubtitle}
               </Text>
             )}

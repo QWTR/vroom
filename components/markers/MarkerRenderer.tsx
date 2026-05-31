@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface MarkerRendererProps {
   user:      User;
@@ -13,6 +14,7 @@ interface MarkerRendererProps {
 }
 
 export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProps) => {
+  const { theme } = useTheme();
   const shotRef = useRef<ViewShot>(null);
   const capturedOnceRef = useRef(false);
   const color       = user.isFriend ? '#4de926' : '#00bfff';
@@ -63,12 +65,12 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
 
           {/* Dymek */}
           <View style={{
-            backgroundColor: '#0a0a0af0', borderRadius: 10,
+            backgroundColor: theme.mapLabelBg, borderRadius: 10,
             paddingHorizontal: 10, paddingVertical: 6, marginBottom: 3,
             borderWidth: 1.5, borderColor, minWidth: 88, alignItems: 'center',
           }}>
             <Text numberOfLines={1} style={{
-              color: '#ffffff', fontSize: 10, fontWeight: '700',
+              color: theme.mapLabelText, fontSize: 10, fontWeight: '700',
               textAlign: 'center', letterSpacing: 0.3,
             }}>
               {user.name}
@@ -76,7 +78,7 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
               <View style={{
                 width: 5, height: 5, borderRadius: 3,
-                backgroundColor: user.status === 'Online' ? '#4de926' : '#ffffff40',
+                backgroundColor: user.status === 'Online' ? theme.online : theme.textDim,
               }} />
               <Text style={{
                 color, fontSize: 8, fontWeight: '700',

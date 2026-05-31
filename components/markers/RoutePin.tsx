@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface RoutePinProps {
   id:        string;
@@ -13,6 +14,7 @@ interface RoutePinProps {
 }
 
 export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemove }: RoutePinProps) => {
+  const { theme } = useTheme();
   const isFirst = index === 0;
   const isLast  = index === total - 1 && total > 1;
   const color   = isFirst ? '#4de926' : isLast ? '#e33835' : '#ff922b';
@@ -23,7 +25,7 @@ export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemov
         <View style={{ alignItems: 'center' }}>
         {/* Etykieta */}
         <View style={{
-          backgroundColor: '#0a0a0af5',
+          backgroundColor: theme.mapLabelBg,
           borderRadius: 7,
           paddingHorizontal: 8, paddingVertical: 4,
           marginBottom: 3,
@@ -36,7 +38,7 @@ export const RoutePin = ({ id, index, total, label, latitude, longitude, onRemov
           }}>
             {label.toUpperCase()}
           </Text>
-          <Text style={{ color: '#ffffff55', fontSize: 6, marginTop: 1 }}>
+          <Text style={{ color: theme.textDim, fontSize: 6, marginTop: 1 }}>
             TAP TO REMOVE
           </Text>
         </View>

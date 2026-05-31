@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { SpeedCamera } from '../../hooks/useSpeedCameras';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   camera:    SpeedCamera;
@@ -18,6 +19,7 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
 };
 
 export function SpeedCameraRenderer({ camera, userSpeed, onCapture }: Props) {
+  const { theme } = useTheme();
   const { distanceM, maxspeed, type } = camera;
   const cfg     = TYPE_CONFIG[type] ?? TYPE_CONFIG.fixed;
   const isBump  = type === 'bump';
@@ -78,7 +80,7 @@ export function SpeedCameraRenderer({ camera, userSpeed, onCapture }: Props) {
             }}>
               <Text style={{
                 fontSize:   maxspeed >= 100 ? 11 : 14,
-                color:      '#111',
+                color:      theme.text,
                 fontWeight: '900',
               }}>
                 {maxspeed}
@@ -106,7 +108,7 @@ export function SpeedCameraRenderer({ camera, userSpeed, onCapture }: Props) {
 
           {/* Odległość pod markerem */}
           <View style={{
-            backgroundColor:   '#0a0a0aee',
+            backgroundColor:   theme.mapLabelBg,
             borderRadius:      6,
             paddingHorizontal: 6,
             paddingVertical:   2,

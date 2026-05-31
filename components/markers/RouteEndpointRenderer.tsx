@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   type:      'start' | 'end';
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export const RouteEndpointRenderer = ({ type, label, onCapture }: Props) => {
+  const { theme } = useTheme();
   const color = type === 'start' ? '#4de926' : '#e33835';
 
   return (
@@ -17,14 +19,14 @@ export const RouteEndpointRenderer = ({ type, label, onCapture }: Props) => {
         <View style={{ alignItems: 'center', padding: 4 }}>
           {/* Etykieta */}
           <View style={{
-            backgroundColor: '#0a0a0af5', borderRadius: 8,
+            backgroundColor: theme.mapLabelBg, borderRadius: 8,
             paddingHorizontal: 10, paddingVertical: 5, marginBottom: 4,
             borderWidth: 1.5, borderColor: color, minWidth: 70, alignItems: 'center',
           }}>
             <Text style={{ color, fontSize: 9, fontWeight: '800', letterSpacing: 1 }}>
               {type === 'start' ? 'START' : 'KONIEC'}
             </Text>
-            <Text style={{ color: '#ffffffaa', fontSize: 8, marginTop: 1 }} numberOfLines={1}>
+            <Text style={{ color: theme.textMuted, fontSize: 8, marginTop: 1 }} numberOfLines={1}>
               {label}
             </Text>
           </View>

@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { View, Text, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface CarMarkerRendererProps {
   avatarUrl: string | null;
@@ -12,6 +13,7 @@ interface CarMarkerRendererProps {
 const CAPTURE_FALLBACK_MS = 800;
 
 export const CarMarkerRenderer = ({ avatarUrl, username, onCapture }: CarMarkerRendererProps) => {
+  const { theme } = useTheme();
   const shotRef       = useRef<ViewShot>(null);
   const capturedRef   = useRef(false);
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,11 +85,11 @@ export const CarMarkerRenderer = ({ avatarUrl, username, onCapture }: CarMarkerR
             width: 50,
             height: 50,
             borderRadius: 24,
-            backgroundColor: '#111111',
+            backgroundColor: theme.surface,
             justifyContent: 'center',
             alignItems: 'center',
             borderWidth: 2.5,
-            borderColor: '#e33835',
+            borderColor: theme.primary,
             overflow: 'hidden',
           }}>
             <View style={{

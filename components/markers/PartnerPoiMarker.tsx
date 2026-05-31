@@ -5,6 +5,7 @@ import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { PartnerPoi } from '../../hooks/usePartnerPois';
 import { normalizeMediaUri } from '../../lib/mediaUri';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   poi: PartnerPoi;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export const PartnerPoiMarker = memo(({ poi, onPress }: Props) => {
+  const { theme } = useTheme();
   const { lat, lng, logoUrl, name } = poi;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
@@ -22,7 +24,7 @@ export const PartnerPoiMarker = memo(({ poi, onPress }: Props) => {
       <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
         <View style={{ alignItems: 'center', maxWidth: 88 }}>
           <View style={{
-            backgroundColor: '#0a0a0a',
+            backgroundColor: theme.mapLabelBg,
             paddingHorizontal: 6,
             paddingVertical: 5,
             borderRadius: 10,

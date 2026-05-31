@@ -4,6 +4,7 @@ import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
 import { User } from '../../constants/types';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface UserCarMarkerProps {
   user:     User;
@@ -33,6 +34,7 @@ const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
 });
 
 const FallbackMarker = memo(({ user, distance }: { user: User; distance: number }) => {
+  const { theme } = useTheme();
   const color       = user.isPremium ? '#FFD700' : user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isPremium ? '#FFD70020' : user.isFriend ? '#4de92620' : '#00bfff20';
   const borderColor = user.isPremium ? '#FFD70045' : user.isFriend ? '#4de92645' : '#00bfff45';
@@ -48,12 +50,12 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
   return (
     <View style={{ alignItems: 'center' }}>
       <View style={{
-        backgroundColor: '#111111ee', borderRadius: 10,
+        backgroundColor: theme.mapLabelBg, borderRadius: 10,
         paddingHorizontal: 8, paddingVertical: 5, marginBottom: 3,
         borderWidth: 1, borderColor, minWidth: 72, alignItems: 'center',
       }}>
         <Text style={{
-          color: '#fff', fontSize: 9, fontFamily: 'Orbitron',
+          color: theme.mapLabelText, fontSize: 9, fontFamily: 'Orbitron',
           letterSpacing: 0.3, textAlign: 'center',
         }} numberOfLines={1}>
           {user.name}

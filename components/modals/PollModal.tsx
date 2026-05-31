@@ -122,7 +122,7 @@ export function PollModal({ visible, poll, onVote, onClose }: Props) {
 
                         <Text style={{
                         flex: 1, fontFamily: 'Orbitron', fontSize: 10,
-                        color: isMyVote ? (isDark ? '#fff' : '#111') : t.textMuted,
+                        color: isMyVote ? t.text : t.textMuted,
                         fontWeight: isMyVote ? '700' : '400',
                         }}>
                         {option}

@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuelStation } from '../../hooks/useFuelStations';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   station:   FuelStation;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function FuelStationRenderer({ station, onCapture }: Props) {
+  const { theme } = useTheme();
   const pb95 = station.prices?.[0]?.pb95;
 
   return (
@@ -46,7 +48,7 @@ export function FuelStationRenderer({ station, onCapture }: Props) {
           {/* PB95 price label */}
           {pb95 != null && (
             <View style={{
-              backgroundColor: '#0a0a0aee',
+              backgroundColor: theme.mapLabelBg,
               borderRadius: 6,
               paddingHorizontal: 6,
               paddingVertical: 2,

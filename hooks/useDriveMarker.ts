@@ -186,7 +186,19 @@ export function useDriveMarker(
     if (errM < 0.2) {
       lat.value = t.lat;
       lng.value = t.lng;
-      heading.value = tgtHdg;
+      const incomingMs = t.speedMs != null && t.speedMs >= MIN_DR_SPEED_MS ? t.speedMs : speedMsSv.value;
+      if (incomingMs < 0.5) {
+        const curH = heading.value;
+        const delta = ((tgtHdg - curH + 540) % 360) - 180;
+        if (Math.abs(delta) < 5) {
+          lerpActive.value = 0;
+          return;
+        }
+        const step = Math.sign(delta) * Math.min(Math.abs(delta), 12);
+        heading.value = ((curH + step) % 360 + 360) % 360;
+      } else {
+        heading.value = tgtHdg;
+      }
       lerpActive.value = 0;
       return;
     }

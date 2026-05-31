@@ -1970,7 +1970,15 @@ export default function HomeScreen() {
 
 				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
 
-				<QuestTrackSection theme={t} fadeAnim={fadeAnim} />
+				<QuestTrackSection
+					theme={t}
+					fadeAnim={fadeAnim}
+					onSynced={() => {
+						void fetchFreshUser().then((fresh) => {
+							if (fresh) setUser(fresh);
+						});
+					}}
+				/>
 
 				{/* ══════════════════════════════════════════════ */}
 				{/* ACHIEVEMENT BANNER                             */}

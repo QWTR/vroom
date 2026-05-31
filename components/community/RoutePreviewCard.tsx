@@ -141,7 +141,7 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
         marginHorizontal: 8,
         borderRadius: 10,
         overflow: 'hidden',
-        backgroundColor: '#0a0a0a',
+        backgroundColor: theme.surface3,
         borderWidth: 1,
         borderColor: theme.border,
         minHeight: 100,
@@ -190,8 +190,8 @@ export function RoutePreviewCard({ data, onNavigate, fullWidth = true }: Props) 
         onPress={() => void handleNavigate()}
         activeOpacity={0.85}
       >
-        <MaterialIcons name="navigation" size={13} color="#fff" />
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700', letterSpacing: 0.5 }}>
+        <MaterialIcons name="navigation" size={13} color={theme.onPrimary} />
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.onPrimary, fontWeight: '700', letterSpacing: 0.5 }}>
           NAWIGUJ PO TEJ TRASIE
         </Text>
       </TouchableOpacity>

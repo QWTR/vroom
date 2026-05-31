@@ -21,7 +21,7 @@ import { clearTelemetry, logTelemetry } from './telemetryLogger';
 /** Zapis + eksport logów jazdy (wyłącz po diagnozie). */
 import { TRIP_PIPELINE_SIMPLE } from './tripPipelineConfig';
 
-export const NAV_DRIVE_TRACE_ENABLED = true;
+export const NAV_DRIVE_TRACE_ENABLED = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
 const DB_NAME = 'vroom_nav_trace.db';
 const MAX_ROWS = 15_000;

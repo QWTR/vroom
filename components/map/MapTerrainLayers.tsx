@@ -8,7 +8,7 @@ type Props = {
   minZoom: number;
 };
 
-/** DEM + 3D buildings — mount only when needed to limit tile fetches. */
+/** DEM + niebo + opcjonalne 3D budynki. */
 export const MapTerrainLayers = memo(function MapTerrainLayers({
   enabled,
   showBuildings,
@@ -25,13 +25,15 @@ export const MapTerrainLayers = memo(function MapTerrainLayers({
         tileSize={512}
         maxZoomLevel={14}
       />
-      <Mapbox.Terrain id="mapboxTerrain3d" sourceID="mapboxTerrainDem" style={{ exaggeration: 1.15 }} />
+      <Mapbox.Terrain id="mapboxTerrain3d" sourceID="mapboxTerrainDem" style={{ exaggeration: 1.12 }} />
       <Mapbox.SkyLayer
         id="mapboxSkyAtmosphere"
         style={{
           skyType: 'atmosphere',
-          skyAtmosphereSun: [0.0, 90.0],
-          skyAtmosphereSunIntensity: 12,
+          skyAtmosphereSun: isDark ? [0.0, 90.0] : [180.0, 55.0],
+          skyAtmosphereSunIntensity: isDark ? 10 : 18,
+          skyAtmosphereColor: isDark ? '#1a2030' : '#c8dff5',
+          skyAtmosphereHaloColor: isDark ? '#2a3550' : '#ffffff',
         }}
       />
       {showBuildings ? (
@@ -42,8 +44,10 @@ export const MapTerrainLayers = memo(function MapTerrainLayers({
           filter={['==', ['get', 'extrude'], 'true']}
           minZoomLevel={minZoom}
           style={{
-            fillExtrusionColor: isDark ? '#2f2f35' : '#d6d8de',
-            fillExtrusionOpacity: 0.88,
+            fillExtrusionColor: isDark
+              ? ['interpolate', ['linear'], ['get', 'height'], 0, '#3a3f52', 80, '#565d78', 200, '#6e7694']
+              : ['interpolate', ['linear'], ['get', 'height'], 0, '#c4b5a0', 60, '#b8a690', 150, '#a8927a'],
+            fillExtrusionOpacity: isDark ? 0.9 : 0.92,
             fillExtrusionHeight: ['coalesce', ['get', 'height'], 18],
             fillExtrusionBase: ['coalesce', ['get', 'min_height'], 0],
             fillExtrusionVerticalGradient: true,

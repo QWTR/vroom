@@ -28,7 +28,7 @@ const REPORT_ITEMS: { type: LiveWarning['type']; label: string; sub: string }[] 
 
 export const ReportModal = memo(({ visible, onClose, onReport, isSubmitting }: ReportModalProps) => {
   const { theme, isDark } = useTheme();
-  const styles    = makeMapStyles(theme);
+  const styles    = makeMapStyles(theme, isDark);
   useModalBackHandler(visible, onClose);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

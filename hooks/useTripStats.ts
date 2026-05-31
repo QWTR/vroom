@@ -44,6 +44,13 @@ function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   return compacted;
 }
 
+function percentile95(samples: number[]): number {
+  if (!samples.length) return 0;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  return sorted[idx];
+}
+
 export function useTripStats() {
   const speedSamples = useRef<number[]>([]);
   const trackedPts   = useRef<{ latitude: number; longitude: number }[]>([]);
@@ -328,7 +335,7 @@ export function useTripStats() {
       ? Math.round((Date.now() - startTimeRef.current) / 1000)
       : 0;
     const samples  = speedSamples.current.filter((s: number) => s > 2);
-    const maxSpeed = samples.length ? Math.max(...samples) : 0;
+    const maxSpeed = samples.length ? percentile95(samples) : 0;
     const avgSpeed = samples.length
       ? samples.reduce((a: number, b: number) => a + b, 0) / samples.length
       : 0;

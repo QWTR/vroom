@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
-import { MAPBOX_STYLE_DARK, MAPBOX_STYLE_LIGHT, MAPBOX_TOKEN } from '../../constants/mapConfig';
+import { resolveStandardMapStyle, MAPBOX_TOKEN } from '../../constants/mapConfig';
 import { useProfile } from '../../hooks/useProfile';
 import { snapHistoryRouteToRoad } from '../../scripts/snapHistoryRoute';
 
@@ -245,7 +245,7 @@ export default function HistoryRidesScreen() {
           {historyMapEnabled && historyShapeGeoJson && historyInitialCenter ? (
             <Mapbox.MapView
               style={{ flex: 1 }}
-              styleURL={isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT}
+              styleURL={resolveStandardMapStyle(isDark)}
               logoEnabled={false}
               attributionEnabled={false}
               pitchEnabled={false}

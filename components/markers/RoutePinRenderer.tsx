@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   index:     number;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export const RoutePinRenderer = ({ index, total, label, onCapture }: Props) => {
+  const { theme } = useTheme();
   const isFirst = index === 0;
   const isLast  = index === total - 1 && total > 1;
   const color   = isFirst ? '#4de926' : isLast ? '#e33835' : '#ff922b';
@@ -27,7 +29,7 @@ export const RoutePinRenderer = ({ index, total, label, onCapture }: Props) => {
         <View style={{ alignItems: 'center', backgroundColor: 'transparent', padding: 4 }}>
           {/* Etykieta */}
           <View style={{
-            backgroundColor: '#0a0a0af5', borderRadius: 7,
+            backgroundColor: theme.mapLabelBg, borderRadius: 7,
             paddingHorizontal: 9, paddingVertical: 4, marginBottom: 3,
             borderWidth: 1.5, borderColor: color,
             minWidth: 60, alignItems: 'center',
@@ -35,7 +37,7 @@ export const RoutePinRenderer = ({ index, total, label, onCapture }: Props) => {
             <Text style={{ color, fontSize: 8, fontWeight: '800', letterSpacing: 1 }}>
               {label.toUpperCase()}
             </Text>
-            <Text style={{ color: '#ffffff55', fontSize: 6, marginTop: 1 }}>
+            <Text style={{ color: theme.textDim, fontSize: 6, marginTop: 1 }}>
               DOTKNIJ ABY USUNĄĆ
             </Text>
           </View>
