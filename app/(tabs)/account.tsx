@@ -17,6 +17,7 @@ import type { MyRoute }    from '../../hooks/useMyRoutes';
 import { ShareRouteModal } from '../../components/modals/ShareRouteModal';
 import { useParticipatedRoutes } from '../../hooks/useParticipatedRoutes';
 import type { ParticipatedRoute } from '../../hooks/useParticipatedRoutes';
+import { useSettings } from '../../contexts/SettingsContext';
 
 const FREE_CAR_LIMIT = 3;
 
@@ -35,6 +36,7 @@ export default function ProfileScreen() {
     fetchMonthlyStats,
   } = useProfile();
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
+  const { settings, updateSetting, fetchSettings } = useSettings();
   const { cars,    loading: cLoad, fetchCars }                   = useCars();
   const { achievements, fetchMyAchievements }                    = useAchievements();
   const { spots,   loading: sLoad, fetchUserSpots }              = useProfileSpots();
@@ -43,21 +45,23 @@ export default function ProfileScreen() {
 
   const [shareRoute,          setShareRoute]          = useState<MyRoute | null>(null);
   const [myId,                setMyId]                = useState<number | null>(null);
-  const [locationFriendsOnly, setLocationFriendsOnly] = useState(false);
-  const [bannerLoading,       setBannerLoading]       = useState(false);
+  const [bannerLoading, setBannerLoading] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
       if (raw) setMyId(JSON.parse(raw).userId ?? null);
     });
-    AsyncStorage.getItem('locationFriendsOnly').then(v => {
-      setLocationFriendsOnly(v === 'true');
-    });
   }, []);
 
   const handleLocationFriendsOnly = async (v: boolean) => {
-    setLocationFriendsOnly(v);
-    await AsyncStorage.setItem('locationFriendsOnly', String(v));
+    if (!effectivePremium) {
+      router.push('/premium' as any);
+      return;
+    }
+    const ok = await updateSetting('locationFriendsOnly', v);
+    if (!ok) {
+      Toast.show({ type: 'error', text1: 'Nie udało się zapisać ustawienia' });
+    }
   };
 
   const handleBannerChange = async (mode?: 'delete') => {
@@ -136,6 +140,7 @@ export default function ProfileScreen() {
       if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       focusRefreshTimer.current = setTimeout(() => {
         void refreshPremiumAccess();
+        void fetchSettings();
         void fetchProfile();
         void fetchActivityHistory({ includeRoute: true });
         void fetchMonthlyStats();
@@ -143,7 +148,7 @@ export default function ProfileScreen() {
       return () => {
         if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       };
-    }, [refreshPremiumAccess, fetchProfile, fetchActivityHistory, fetchMonthlyStats]),
+    }, [refreshPremiumAccess, fetchSettings, fetchProfile, fetchActivityHistory, fetchMonthlyStats]),
   );
 
   const onRefresh = async () => {
@@ -248,7 +253,7 @@ export default function ProfileScreen() {
         activityHistory={activityHistory}
         monthlyStats={monthlyStats}
         monthlyCompare={monthlyCompare}
-        locationFriendsOnly={locationFriendsOnly}
+        locationFriendsOnly={effectivePremium ? !!settings.locationFriendsOnly : false}
         onLocationFriendsOnlyChange={handleLocationFriendsOnly}
         onBannerChange={(arg: any) => handleBannerChange(arg)}
         bannerUploading={bannerLoading}

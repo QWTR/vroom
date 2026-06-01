@@ -5,7 +5,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
+import { Image } from 'expo-image';
 import { API_URL } from '../constants/mapConfig';
+import { normalizeMediaUri } from '../lib/mediaUri';
 import { snapToRoute } from '../scripts/navigationUtils';
 
 export interface LiveUser {
@@ -51,8 +53,8 @@ const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
 const LIVE_USERS_RADIUS_KM = 35;
 const LIVE_USERS_TAKE = 220;
-/** Zgodne z backendem (lastSeen 5 min) — nie usuwaj markera wcześniej. */
-const LIVE_USER_STALE_MS = 5 * 60 * 1000;
+/** Zgodne z backendem (~2 min lastSeen) + bufor na opóźnione odświeżenie. */
+const LIVE_USER_STALE_MS = 3 * 60 * 1000;
 /** Opóźnienie przed usunięciem po user:offline (chroni przed miganiem). */
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
@@ -224,7 +226,13 @@ export function useLiveMap(
         const prevU = prevById.get(u.id);
         const lat = prevU?.lat ?? u.lat;
         const lng = prevU?.lng ?? u.lng;
-        merged.push({ ...u, lat, lng });
+        const avatarUrl = u.avatarUrl ?? prevU?.avatarUrl ?? null;
+        const avatarFrameUrl = u.avatarFrameUrl ?? prevU?.avatarFrameUrl ?? null;
+        merged.push({ ...u, lat, lng, avatarUrl, avatarFrameUrl });
+        const avatarUri = normalizeMediaUri(avatarUrl);
+        if (avatarUri) {
+          Image.prefetch(avatarUri).catch(() => {});
+        }
         if (!smoothedPosRef.current.has(u.id)) {
           smoothedPosRef.current.set(u.id, { lat: u.lat, lng: u.lng });
         }
@@ -400,7 +408,7 @@ export function useLiveMap(
       socket.on('connect', async () => {
         setConnected(true);
         joinLiveMapRoom();
-        fetchInitialData(token);
+        await fetchInitialData(token);
       });
 
       socket.on('disconnect', (reason) => {
@@ -526,6 +534,7 @@ export function useLiveMap(
             && Number.isFinite(u.lng),
           );
         mergeLiveUsersFromApi(users);
+        void fetchInitialData(tokenRef.current ?? token);
       });
 
       socket.on('user:offline', (data) => {

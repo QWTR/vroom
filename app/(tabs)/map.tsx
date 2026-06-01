@@ -3637,6 +3637,8 @@ export default function MapScreen() {
   const [mapFabModalVisible, setMapFabModalVisible] = useState(false);
   const isMapFocusedRef = useRef(true);
   const [isMapFocused, setIsMapFocused] = useState(true);
+  /** Opóźnione wyłączenie live — unika mrugania socketu przy szybkim przełączeniu tabów. */
+  const [liveMapEnabled, setLiveMapEnabled] = useState(true);
   const navProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cameraSpeedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveSendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -4775,10 +4777,39 @@ export default function MapScreen() {
     isSharing,
     userLocation,
     isSpeechEnabled,
-    settings.backgroundTracking,
-    isMapFocused,
+    settings.backgroundTracking || isSharing,
+    liveMapEnabled,
     isTripActiveMap,
   );
+
+  useEffect(() => {
+    if (isMapFocused) {
+      setLiveMapEnabled(true);
+      return;
+    }
+    const t = setTimeout(() => setLiveMapEnabled(false), 800);
+    return () => clearTimeout(t);
+  }, [isMapFocused]);
+
+  const liveResumeOnLocRef = useRef(false);
+  useEffect(() => {
+    if (!isSharing || !sharingHydrated || !liveMapEnabled) return;
+    if (!userLocation?.latitude || !userLocation?.longitude) return;
+    if (liveResumeOnLocRef.current) return;
+    liveResumeOnLocRef.current = true;
+    void resumeLiveSession();
+  }, [
+    isSharing,
+    sharingHydrated,
+    liveMapEnabled,
+    userLocation?.latitude,
+    userLocation?.longitude,
+    resumeLiveSession,
+  ]);
+
+  useEffect(() => {
+    if (!isSharing) liveResumeOnLocRef.current = false;
+  }, [isSharing]);
 
   useEffect(() => {
     let cancelled = false;

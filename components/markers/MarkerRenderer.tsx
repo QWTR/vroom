@@ -13,10 +13,13 @@ interface MarkerRendererProps {
   onCapture: (uri: string) => void;
 }
 
+const CAPTURE_DELAYS_MS = [80, 400, 1200];
+
 export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProps) => {
   const { theme } = useTheme();
   const shotRef = useRef<ViewShot>(null);
-  const capturedOnceRef = useRef(false);
+  const captureGenRef = useRef(0);
+  const retryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const color       = user.isFriend ? '#4de926' : '#00bfff';
   const bgColor     = user.isFriend ? '#4de92622' : '#00bfff22';
   const borderColor = user.isPremium ? '#FFD700' : (user.isFriend ? '#4de92650' : '#00bfff50');
@@ -32,22 +35,38 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
     : null;
   const isUrl       = !!avatarUri;
 
+  const clearRetryTimers = useCallback(() => {
+    retryTimersRef.current.forEach((t) => clearTimeout(t));
+    retryTimersRef.current = [];
+  }, []);
+
   const captureMarker = useCallback((delayMs = 0) => {
-    setTimeout(() => {
+    const gen = captureGenRef.current;
+    const timer = setTimeout(() => {
       shotRef.current?.capture?.()
         .then((uri) => {
-          capturedOnceRef.current = true;
+          if (gen !== captureGenRef.current) return;
+          if (!uri) return;
           onCapture(uri);
         })
         .catch(() => {});
     }, delayMs);
+    retryTimersRef.current.push(timer);
   }, [onCapture]);
 
+  const scheduleCaptureRetries = useCallback(() => {
+    clearRetryTimers();
+    CAPTURE_DELAYS_MS.forEach((ms) => captureMarker(ms));
+  }, [clearRetryTimers, captureMarker]);
+
   useEffect(() => {
-    capturedOnceRef.current = false;
-    // Give RN time to mount text/layout before first snapshot.
-    captureMarker(80);
-  }, [captureMarker, user.id, user.name, user.avatar, user.isFriend, user.isPremium]);
+    captureGenRef.current += 1;
+    scheduleCaptureRetries();
+    return () => {
+      captureGenRef.current += 1;
+      clearRetryTimers();
+    };
+  }, [scheduleCaptureRetries, user.id, user.name, user.avatar, user.isFriend, user.isPremium, clearRetryTimers]);
 
   return (
     <View style={{
@@ -63,7 +82,6 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
           paddingHorizontal: 2, paddingTop: 2,
         }}>
 
-          {/* Dymek */}
           <View style={{
             backgroundColor: theme.mapLabelBg, borderRadius: 10,
             paddingHorizontal: 10, paddingVertical: 6, marginBottom: 3,
@@ -89,7 +107,6 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
             </View>
           </View>
 
-          {/* Avatar lub inicjały */}
           <View style={{ position: 'relative' }}>
             <View style={{
               width: 40, height: 40, borderRadius: 20,
@@ -101,8 +118,10 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
                   source={{ uri: avatarUri! }}
                   style={{ width: 40, height: 40, borderRadius: 20 }}
                   resizeMode="cover"
-                  // Ensure the snapshot captures the loaded avatar (not blank placeholder).
-                  onLoadEnd={() => captureMarker(capturedOnceRef.current ? 0 : 60)}
+                  onLoadEnd={() => captureMarker(60)}
+                  onError={() => {
+                    captureMarker(0);
+                  }}
                 />
               ) : (
                 <Text style={{ color, fontSize: 14, fontWeight: '700' }}>
@@ -124,7 +143,6 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
             )}
           </View>
 
-          {/* Nóżka */}
           <View style={{
             width: 0, height: 0,
             borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 7,

@@ -60,6 +60,7 @@ function readClientOnlySettings(source: Partial<AppSettings> | null | undefined)
 export interface AppSettings {
   privateProfile:      boolean;
   hideLocation:        boolean;
+  locationFriendsOnly: boolean;
   backgroundTracking:  boolean;
   notifMeets:          boolean;
   notifLikes:          boolean;
@@ -139,6 +140,7 @@ function mergeProfileAppearanceFromApi(
 const DEFAULTS: AppSettings = {
   privateProfile:      false,
   hideLocation:        false,
+  locationFriendsOnly: false,
   backgroundTracking:  false,
   notifMeets:          true,
   notifLikes:          true,
@@ -229,6 +231,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...clientOnlyFromCache,
             ...mergeProfileAppearanceFromApi(data, prev, premiumActive),
             isPremium: premiumActive,
+            locationFriendsOnly: premiumActive ? !!(data.locationFriendsOnly ?? prev.locationFriendsOnly) : false,
             backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
           };
           try {

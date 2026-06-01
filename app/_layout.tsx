@@ -26,7 +26,9 @@ import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesC
 import { API_URL } from '../constants/config';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
+import { MaintenanceGate } from '../components/maintenance/MaintenanceGate';
 import { UpdateModal } from '../components/modals/UpdateModal';
+import { fetchMaintenanceStatus, shouldBlockApp } from '../lib/maintenance';
 import { useAppUpdate } from '../hooks/useAppUpdate';
 import {
   hasAcceptedBackgroundLocationDisclosure,
@@ -207,6 +209,8 @@ function RootLayoutInner() {
   const pathname       = usePathname();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
   const [updatePromptVisible, setUpdatePromptVisible] = useState(false);
+  const [maintenanceVisible, setMaintenanceVisible] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
   const [ugcTermsVisible, setUgcTermsVisible] = useState(false);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const bgDisclosureDismissedRef = useRef(false);
@@ -387,16 +391,17 @@ function RootLayoutInner() {
   }, [loaded, error]);
 
   useEffect(() => {
-    setLayoutGateOpen(updatePromptVisible || ugcTermsVisible || bgDisclosureVisible);
-  }, [updatePromptVisible, ugcTermsVisible, bgDisclosureVisible, setLayoutGateOpen]);
+    setLayoutGateOpen(
+      updatePromptVisible || maintenanceVisible || ugcTermsVisible || bgDisclosureVisible,
+    );
+  }, [updatePromptVisible, maintenanceVisible, ugcTermsVisible, bgDisclosureVisible, setLayoutGateOpen]);
 
-  const continueAppBootstrap = useCallback(async () => {
+  const continueAfterMaintenance = useCallback(async () => {
     const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
     if (!token) {
       setGatesSettled(true);
       return;
     }
-
     const needsUgc = await AsyncStorage.getItem('needsUgcTerms');
     if (needsUgc === '1') {
       setUgcTermsVisible(true);
@@ -404,6 +409,26 @@ function RootLayoutInner() {
     }
     setGatesSettled(true);
   }, [setGatesSettled]);
+
+  const continueAppBootstrap = useCallback(async () => {
+    try {
+      const status = await fetchMaintenanceStatus();
+      if (shouldBlockApp(status)) {
+        setMaintenanceMessage(status.message);
+        setMaintenanceVisible(true);
+        return;
+      }
+      setMaintenanceVisible(false);
+    } catch {
+      setMaintenanceVisible(false);
+    }
+    await continueAfterMaintenance();
+  }, [continueAfterMaintenance]);
+
+  const handleMaintenanceCleared = useCallback(() => {
+    setMaintenanceVisible(false);
+    void continueAfterMaintenance();
+  }, [continueAfterMaintenance]);
 
   useEffect(() => {
     bootstrapAfterUpdateRef.current = continueAppBootstrap;
@@ -442,6 +467,20 @@ function RootLayoutInner() {
       if (now - lastForegroundUpdateCheckRef.current < 45_000) return;
       lastForegroundUpdateCheckRef.current = now;
       void (async () => {
+        if (maintenanceVisible) {
+          const status = await fetchMaintenanceStatus();
+          if (!shouldBlockApp(status)) {
+            handleMaintenanceCleared();
+          }
+          return;
+        }
+        const status = await fetchMaintenanceStatus();
+        if (shouldBlockApp(status)) {
+          setMaintenanceMessage(status.message);
+          setMaintenanceVisible(true);
+          setGatesSettled(false);
+          return;
+        }
         const available = await checkForUpdate({ retries: 2 });
         if (available && !updateDismissedRef.current) {
           setUpdatePromptVisible(true);
@@ -449,7 +488,15 @@ function RootLayoutInner() {
       })();
     });
     return () => sub.remove();
-  }, [phase, checkForUpdate, updatePromptVisible, updateDownloading]);
+  }, [
+    phase,
+    checkForUpdate,
+    updatePromptVisible,
+    updateDownloading,
+    maintenanceVisible,
+    handleMaintenanceCleared,
+    setGatesSettled,
+  ]);
 
   const handleUpdateLater = () => {
     updateDismissedRef.current = true;
@@ -469,6 +516,7 @@ function RootLayoutInner() {
     if (phase !== 'done') return;
     if (!gatesSettled) return;
     if (pathname === '/login') return;
+    if (maintenanceVisible) return;
     if (ugcTermsVisible) return;
     if (homeOverlayOpen) return;
 
@@ -487,7 +535,7 @@ function RootLayoutInner() {
     return () => {
       if (bgDisclosureTimerRef.current) clearTimeout(bgDisclosureTimerRef.current);
     };
-  }, [loaded, error, pathname, phase, ugcTermsVisible, gatesSettled, homeOverlayOpen]);
+  }, [loaded, error, pathname, phase, maintenanceVisible, ugcTermsVisible, gatesSettled, homeOverlayOpen]);
 
   const closeBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
@@ -536,6 +584,12 @@ function RootLayoutInner() {
         error={updateError}
         onUpdate={applyUpdate}
         onDismiss={handleUpdateLater}
+      />
+
+      <MaintenanceGate
+        visible={maintenanceVisible}
+        message={maintenanceMessage}
+        onCleared={handleMaintenanceCleared}
       />
 
       <UgcTermsGate visible={ugcTermsVisible} onAccepted={finishUgcTerms} />

@@ -418,8 +418,9 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         )
         : { accepted: false, distanceKm: 0 };
       const segmentMeters = segment.distanceKm * 1000;
+      const highwayRelax = hasReliableSpeed && speedKmh! >= 15;
       const accGateM = Math.max(
-        BG_MIN_MOVE_ABS_M,
+        highwayRelax ? BG_MIN_MOVE_ABS_M * 0.65 : BG_MIN_MOVE_ABS_M,
         (Number.isFinite(accuracy) ? Number(accuracy) : 0) * 0.9
           + (Number.isFinite(lastAcc) ? Number(lastAcc) : 0) * 0.9,
       );
@@ -438,7 +439,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
         isAccurateFix &&
         segment.accepted &&
         !lowConfidenceShortJump &&
-        segmentMeters >= accGateM
+        segmentMeters >= (highwayRelax ? accGateM * 0.85 : accGateM)
       ) {
         const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const newPending = pending + segment.distanceKm;
@@ -795,7 +796,7 @@ export function useBackgroundTracking(
       // Hard rule: jeśli użytkownik wyłączył „Śledzenie w tle" w ustawieniach,
       // NIE startujemy BG location task w tle. forceEnabled (jazda/nawigacja)
       // może podtrzymać task w foreground (do live share), ale NIE w tle.
-      const shouldTrack = sharingHydrated && bgEnabled && (isSharing || forceEnabled);
+      const shouldTrack = sharingHydrated && bgEnabled;
       if (!shouldTrack) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
@@ -823,8 +824,8 @@ export function useBackgroundTracking(
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         // BestForNavigation + tight intervals caused native instability on some devices.
         accuracy:         highCadence ? Location.Accuracy.High : Location.Accuracy.Balanced,
-        distanceInterval: highCadence ? 15 : 140,
-        timeInterval:     highCadence ? 5000 : 45000,
+        distanceInterval: highCadence ? 10 : 35,
+        timeInterval:     highCadence ? 5000 : 20000,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: '🚗 VROOM aktywne',
@@ -909,7 +910,9 @@ export function useBackgroundTracking(
         activeHeartbeat = null;
       }
       if (s === 'background' || s === 'inactive') {
-        if (sharingHydrated && bgEnabled && (isSharing || forceEnabled)) {
+        void flushTracePendingKmToStorage();
+        persistAppActive(false);
+        if (sharingHydrated && bgEnabled) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
@@ -917,10 +920,7 @@ export function useBackgroundTracking(
         return;
       }
       if (s === 'active') {
-        // W foreground task może być potrzebny do live share — ale tylko gdy
-        // user faktycznie zgodził się na BG (bgEnabled). Inaczej share location
-        // chodzi przez foreground GPS w map.tsx.
-        if (sharingHydrated && bgEnabled && (isSharing || forceEnabled)) {
+        if (sharingHydrated && bgEnabled) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
