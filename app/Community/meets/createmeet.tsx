@@ -18,6 +18,7 @@ import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../../hooks/useKeyboardInset';
 import { API_URL }            from '../../../constants/config';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const USER_MAX    = 10;
 const PRESET_TAGS = ['NIGHT', 'CRUISE', 'TRACK', 'JDM', 'DRIFT', 'STATIC', 'SHOW', 'EURO', 'TURBO', 'STANCE'];
@@ -151,21 +152,8 @@ export default function CreateMeet() {
       enabled={Platform.OS === 'ios'}
       style={{ flex: 1, backgroundColor: theme.bg }}
     >
+      <CommunityScreenHeader title="NOWY MEET" subtitle="NIEOFICJALNY" />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: scrollPaddingBottom }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-
-        {/* HEADER */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 56, marginBottom: 28, gap: 14 }}>
-          <TouchableOpacity
-            style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => router.back()}
-          >
-            <MaterialIcons name="arrow-back" size={20} color={theme.text} />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 3 }}>NIEOFICJALNY</Text>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', letterSpacing: 1 }}>NOWY MEET</Text>
-          </View>
-        </View>
 
         {/* ZDJĘCIE OKŁADKI */}
         <Field label="ZDJĘCIE OKŁADKI (opcjonalnie)">

@@ -15,6 +15,7 @@ import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSh
 import { useEffectivePremium } from '../../../hooks/useEffectivePremium';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader, CommunitySearchBar } from '../../../components/community';
 
 const PAGE               = 20;
 const SEARCH_DEBOUNCE_MS = 400;
@@ -350,70 +351,48 @@ export default function MarketScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={theme.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 4 }}>VROOM</Text>
-              <Text style={{ color: theme.text, fontSize: 22, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>GIEŁDA</Text>
+      <CommunityScreenHeader
+        title="GIEŁDA"
+        right={myListingsCount !== null ? (
+          <TouchableOpacity
+            onPress={() => !effectivePremium && marketMeta && !marketMeta.canCreateListing ? router.push('/premium' as any) : undefined}
+            activeOpacity={effectivePremium ? 1 : 0.7}
+          >
+            <View style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
+              <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
+                {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
+              </Text>
+              {!effectivePremium && marketMeta && !marketMeta.canCreateListing && (
+                <Text style={{ color: theme.gold, fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>UPGRADE</Text>
+              )}
             </View>
-          </View>
-          {myListingsCount !== null && (
-            <TouchableOpacity
-              onPress={() => !effectivePremium && marketMeta && !marketMeta.canCreateListing ? router.push('/premium' as any) : undefined}
-              activeOpacity={effectivePremium ? 1 : 0.7}
-            >
-              <View style={{ backgroundColor: theme.surface, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
-                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
-                <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? '#e33835' : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
-                  {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
-                </Text>
-                {!effectivePremium && marketMeta && !marketMeta.canCreateListing && (
-                  <Text style={{ color: '#FFD700', fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>UPGRADE</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          )}
-        </View>
+          </TouchableOpacity>
+        ) : undefined}
+      />
 
-        {/* Search + filter */}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 14, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, gap: 10 }}>
-            <MaterialIcons name="search" size={16} color={theme.textDim} />
-            <TextInput
-              style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, padding: 0 }}
-              placeholder="Szukaj ogłoszeń..."
-              placeholderTextColor={theme.textDim}
+          <View style={{ flex: 1 }}>
+            <CommunitySearchBar
               value={search}
               onChangeText={handleSearch}
+              placeholder="Szukaj ogłoszeń..."
             />
-            {search.length > 0 && (
-              <TouchableOpacity onPress={() => handleSearch('')}>
-                <MaterialIcons name="close" size={16} color={theme.textDim} />
-              </TouchableOpacity>
-            )}
           </View>
 
           <TouchableOpacity
             style={{
               width: 46, height: 46, borderRadius: 12,
-              backgroundColor: activeFilterCount > 0 ? theme.primary : theme.surface,
+              backgroundColor: activeFilterCount > 0 ? theme.primary : theme.surface2,
               borderWidth: 1, borderColor: activeFilterCount > 0 ? theme.primary : theme.border,
               alignItems: 'center', justifyContent: 'center',
             }}
             onPress={() => { setPendingFilters(filters); setFilterVisible(true); }}
           >
-            <MaterialCommunityIcons name="tune" size={20} color={activeFilterCount > 0 ? '#fff' : theme.textDim} />
+            <MaterialCommunityIcons name="tune" size={20} color={activeFilterCount > 0 ? theme.onPrimary : theme.textDim} />
             {activeFilterCount > 0 && (
-              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: theme.surface, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '900' }}>{activeFilterCount}</Text>
               </View>
             )}

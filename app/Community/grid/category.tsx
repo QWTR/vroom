@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -58,27 +59,13 @@ export default function GridCategoryScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16 }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 }}
-        >
-          <MaterialIcons name="arrow-back" size={20} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2 }}>THE GRID</Text>
-        </TouchableOpacity>
-
-        <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 22, fontWeight: '900', letterSpacing: 2 }}>
-          {category?.icon} {category?.name?.toUpperCase()}
-        </Text>
-        {category?.description && (
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 4 }}>
-            {category.description}
-          </Text>
-        )}
-      </View>
+      <CommunityScreenHeader
+        breadcrumb="THE GRID"
+        title={`${category?.icon ?? ''} ${category?.name?.toUpperCase() ?? 'KATEGORIA'}`.trim()}
+        subtitle={category?.description ?? 'KATEGORIA GRIDU'}
+      />
 
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110 }}

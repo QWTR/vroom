@@ -24,6 +24,7 @@ import EditClubModal              from '../../../components/clubs/EditClubModal'
 import { renderDiscussionBody }   from '../community/communityShared';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const WS_URL   = SOCKET_URL;
 const getToken = async () => (
@@ -622,7 +623,7 @@ export default function ClubChatScreen() {
   const canDeleteMenu = menuMsg ? (menuMsg.senderId === myId || canKick) : false;
 
   // ── Render ────────────────────────────────────────────────
-  const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
+  const HEADER_HEIGHT = insets.top + 132;
   const SCREEN_W = Dimensions.get('window').width;
   const TAB_SEG_W = SCREEN_W / 3;
   const sidebarBg = isDark ? '#1b1c1f' : theme.surface2;
@@ -752,98 +753,87 @@ export default function ClubChatScreen() {
     }
   };
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={[]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
         enabled={Platform.OS === 'ios'}
       >
-        {/* HEADER */}
-        <LinearGradient
-          colors={isDark ? ['#180707', '#0f1013', theme.surface] : ['#faecec', '#f4f5f8', theme.surface]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{ borderBottomWidth: 1, borderBottomColor: theme.border, paddingBottom: 8 }}
-        >
-          <View style={{ position: 'absolute', right: -30, top: -22, width: 120, height: 120, borderRadius: 60, backgroundColor: '#e3383520' }} />
-          <View style={{ position: 'absolute', left: -40, bottom: -40, width: 140, height: 140, borderRadius: 70, backgroundColor: isDark ? '#ffffff08' : '#00000005' }} />
-
-          <View style={{
-            flexDirection: 'row', alignItems: 'center',
-            paddingHorizontal: 12, paddingVertical: 10, gap: 10,
-          }}>
-            <TouchableOpacity
-              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018', alignItems: 'center', justifyContent: 'center' }}
-              onPress={() => router.back()}
-            >
-              <Feather name="arrow-left" size={20} color={theme.text} />
-            </TouchableOpacity>
-
+        <CommunityScreenHeader
+          breadcrumb="KLUBY"
+          accentDot={false}
+          title=""
+          center={
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialCommunityIcons name="shield-crown" size={14} color="#e33835" />
+                <MaterialCommunityIcons name="shield-crown" size={14} color={theme.primary} />
                 <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                   {clubName}
                 </Text>
               </View>
-              <Text style={{ color: theme.textDim, fontSize: 9, fontFamily: 'Orbitron', marginTop: 2 }}>
+              <Text style={{ color: theme.textDim, fontSize: 9, fontFamily: 'Orbitron', marginTop: 3 }}>
                 {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRank ? myRank.name.toUpperCase() : 'CZAT KLUBU'}
               </Text>
             </View>
+          }
+          right={
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {clubData?.isMember && (
+                <TouchableOpacity
+                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
+                  onPress={toggleClubPushMute}
+                  disabled={pushMuteBusy}
+                >
+                  <MaterialIcons
+                    name={clubData.myClubPushMuted ? 'notifications-off' : 'notifications-active'}
+                    size={18}
+                    color={clubData.myClubPushMuted ? theme.textDim : theme.primary}
+                  />
+                </TouchableOpacity>
+              )}
 
-            {clubData?.isMember && (
               <TouchableOpacity
-                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
-                onPress={toggleClubPushMute}
-                disabled={pushMuteBusy}
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
+                onPress={() => setThemePickerOpen(true)}
               >
-                <MaterialIcons
-                  name={clubData.myClubPushMuted ? 'notifications-off' : 'notifications-active'}
-                  size={18}
-                  color={clubData.myClubPushMuted ? theme.textDim : theme.primary}
-                />
+                <MaterialCommunityIcons name="palette" size={18} color={theme.textDim} />
               </TouchableOpacity>
-            )}
 
-            <TouchableOpacity
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
-              onPress={() => setThemePickerOpen(true)}
-            >
-              <MaterialCommunityIcons name="palette" size={18} color={theme.textDim} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
-              onPress={() => setShareVisible(true)}
-            >
-              <MaterialIcons name="share" size={17} color={theme.textDim} />
-            </TouchableOpacity>
-
-            {myRole === 'owner' && (
               <TouchableOpacity
-                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#ffffff14' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' }}
-                onPress={() => setEditVisible(true)}
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
+                onPress={() => setShareVisible(true)}
               >
-                <MaterialIcons name="settings" size={18} color={theme.textDim} />
+                <MaterialIcons name="share" size={17} color={theme.textDim} />
               </TouchableOpacity>
-            )}
 
-            {pinned.length > 0 && (
-              <TouchableOpacity
-                style={[
-                  { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: isDark ? '#ffffff22' : '#00000018' },
-                  showPinned ? { backgroundColor: '#FFD70020' } : { backgroundColor: isDark ? '#ffffff14' : '#00000010' },
-                ]}
-                onPress={() => setShowPinned(v => !v)}
-              >
-                <MaterialIcons name="push-pin" size={18} color={showPinned ? '#FFD700' : theme.textDim} />
-              </TouchableOpacity>
-            )}
-          </View>
+              {myRole === 'owner' && (
+                <TouchableOpacity
+                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
+                  onPress={() => setEditVisible(true)}
+                >
+                  <MaterialIcons name="settings" size={18} color={theme.textDim} />
+                </TouchableOpacity>
+              )}
 
-          <View style={{ paddingHorizontal: 8 }}>
-            <View style={{ flexDirection: 'row', paddingTop: 8, borderWidth: 1, borderColor: theme.border2, borderRadius: 14, backgroundColor: isDark ? '#141519' : theme.surface2 }}>
+              {pinned.length > 0 && (
+                <TouchableOpacity
+                  style={[
+                    { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border },
+                    showPinned ? { backgroundColor: theme.gold + '20' } : { backgroundColor: theme.surface2 },
+                  ]}
+                  onPress={() => setShowPinned(v => !v)}
+                >
+                  <MaterialIcons name="push-pin" size={18} color={showPinned ? theme.gold : theme.textDim} />
+                </TouchableOpacity>
+              )}
+            </View>
+          }
+        />
+
+        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingHorizontal: 8, paddingBottom: 8 }}>
+          <View style={{ paddingHorizontal: 0 }}>
+            <View style={{ flexDirection: 'row', paddingTop: 8, borderWidth: 1, borderColor: theme.border2, borderRadius: 14, backgroundColor: theme.surface2 }}>
             <TouchableOpacity
               style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
               onPress={() => { setActivePane('channels'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}
@@ -891,7 +881,7 @@ export default function ClubChatScreen() {
               />
             </View>
           </View>
-        </LinearGradient>
+        </View>
 
         <ScrollView
           ref={paneRef}

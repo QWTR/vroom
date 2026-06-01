@@ -11,7 +11,6 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { io, Socket } from 'socket.io-client';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -22,6 +21,7 @@ import { LinkPreviewCard } from '../../../components/chat/LinkPreviewCard';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 import { UserBadges } from '../../../components/user/UserBadges';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const API = 'https://v-room.app/api/chat';
 const WS  = 'https://v-room.app';
@@ -474,62 +474,50 @@ export default function ChatScreen() {
     ? `${typingNames.slice(0, 2).join(', ')} piszą...`
     : null;
 
-  const HEADER_HEIGHT = (Platform.OS === 'ios' ? 56 : 44) + 12 + insets.top;
+  const HEADER_HEIGHT = insets.top + 88;
+
+  const headerIconBtn = {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.surface2,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
-      {/* ══════════════════════ HEADER ══════════════════════ */}
-      <View style={{
-        paddingTop: insets.top + 10,
-        paddingBottom: 0,
-        backgroundColor: theme.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.border,
-      }}>
-        {/* Subtelny gradient na górze headera */}
-        <LinearGradient
-          colors={isDark ? ['#1a0404', theme.surface] : ['#fce8e8', theme.surface]}
-          style={{ ...StyleSheet_absoluteFill_hack, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
-          pointerEvents="none"
-        />
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 12, gap: 10 }}>
-          {/* Przycisk wstecz */}
-          <TouchableOpacity
-            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => router.back()}
-          >
-            <Feather name="arrow-left" size={18} color={theme.text} />
-          </TouchableOpacity>
-
-          {/* Avatar + nazwa */}
+      <CommunityScreenHeader
+        breadcrumb="WIADOMOŚCI"
+        accentDot={false}
+        title=""
+        center={
           <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => setInfoVisible(true)} activeOpacity={0.75}>
-            {/* Avatar */}
             <View style={{ position: 'relative' }}>
               {convAvatar
-                ? <Image source={{ uri: convAvatar }} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#e3383540' }} />
+                ? <Image source={{ uri: convAvatar }} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: theme.primaryBorder }} />
                 : (
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#e3383515', borderWidth: 2, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }}>
                       {convName?.slice(0, 2).toUpperCase() ?? '??'}
                     </Text>
                   </View>
                 )
               }
-              {/* Online dot na avatarze */}
               {!conv?.isGroup && (
                 <View style={{
                   position: 'absolute', bottom: 0, right: 0,
                   width: 11, height: 11, borderRadius: 6,
-                  backgroundColor: convOnline ? '#4de926' : (isDark ? '#444' : '#ccc'),
+                  backgroundColor: convOnline ? '#4de926' : theme.textDim,
                   borderWidth: 2, borderColor: theme.surface,
                 }} />
               )}
             </View>
 
-            {/* Tekst */}
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                 {convName}
@@ -537,12 +525,12 @@ export default function ChatScreen() {
               {typingText
                 ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <MaterialCommunityIcons name="dots-horizontal" size={14} color="#e33835" />
-                    <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' }}>{typingText}</Text>
+                    <MaterialCommunityIcons name="dots-horizontal" size={14} color={theme.primary} />
+                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' }}>{typingText}</Text>
                   </View>
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: convOnline ? '#4de926' : (isDark ? '#444' : '#ccc') }} />
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: convOnline ? '#4de926' : theme.textDim }} />
                     <Text style={{ color: convOnline ? '#4de926' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
                       {convOnline ? 'ONLINE' : 'OFFLINE'}
                     </Text>
@@ -551,22 +539,24 @@ export default function ChatScreen() {
               }
             </View>
           </TouchableOpacity>
-
-          {/* Info button */}
-          <TouchableOpacity
-            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => setThemePickerOpen(true)}
-          >
-            <MaterialCommunityIcons name="palette" size={17} color={theme.textDim} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => setInfoVisible(true)}
-          >
-            <Feather name="info" size={17} color={theme.textDim} />
-          </TouchableOpacity>
-        </View>
-      </View>
+        }
+        right={
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              style={headerIconBtn}
+              onPress={() => setThemePickerOpen(true)}
+            >
+              <MaterialCommunityIcons name="palette" size={17} color={theme.textDim} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={headerIconBtn}
+              onPress={() => setInfoVisible(true)}
+            >
+              <Feather name="info" size={17} color={theme.textDim} />
+            </TouchableOpacity>
+          </View>
+        }
+      />
 
       {/* ══════════════════ LISTA + INPUT ═══════════════════ */}
       <KeyboardAvoidingView
@@ -883,9 +873,3 @@ export default function ChatScreen() {
     </View>
   );
 }
-
-// helper zamiast StyleSheet.absoluteFill (działa inline)
-const StyleSheet_absoluteFill_hack = {
-  position: 'absolute' as const,
-  top: 0, left: 0, right: 0, bottom: 0,
-};

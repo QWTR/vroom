@@ -10,6 +10,7 @@ import AsyncStorage           from '@react-native-async-storage/async-storage';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
+import { CommunityScreenHeader } from '../../../components/community';
 
 interface MeetUser {
   id:        number;
@@ -235,11 +236,17 @@ export default function MeetDetailScreen() {
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: 16, paddingTop: 20, gap: 20 }}>
+        <CommunityScreenHeader
+          title={meet.title}
+          subtitle={meet.category === 'official' ? 'OFICJALNY MEET' : 'NIEOFICJALNY MEET'}
+          showBack={false}
+          breadcrumb=""
+        />
 
-          {/* TYTUŁ + ORGANIZATOR */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 20 }}>
+
+          {/* ORGANIZATOR */}
           <View style={{ gap: 14 }}>
-            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 22, fontWeight: '700', lineHeight: 30 }}>{meet.title}</Text>
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.surface, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.border }}
               onPress={() => router.push(`/profile/${meet.creator.id}` as any)} activeOpacity={0.8}

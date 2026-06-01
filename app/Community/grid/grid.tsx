@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
 
 const { width } = Dimensions.get('window');
 
@@ -65,31 +66,12 @@ export default function GridCategoriesScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16 }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 }}
-        >
-          <MaterialIcons name="arrow-back" size={20} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2 }}>
-            SPOŁECZNOŚĆ
-          </Text>
-        </TouchableOpacity>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <MaterialCommunityIcons name="flag-checkered" size={32} color={theme.gold} />
-          <View>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 26, fontWeight: '900', letterSpacing: 4 }}>
-              THE GRID
-            </Text>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3 }}>
-              ARENA STARĆ 1V1
-            </Text>
-          </View>
-        </View>
-
-        <View style={{ backgroundColor: theme.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border2, marginTop: 14 }}>
+      <CommunityScreenHeader
+        title="THE GRID"
+        subtitle="ARENA STARĆ 1V1"
+      />
+      <View style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
+        <View style={{ backgroundColor: theme.surface2, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border2 }}>
           <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, lineHeight: 15 }}>
             Wystaw swoje auto do walki. System losuje rywala, społeczność głosuje 24h.{' '}
             <Text style={{ color: theme.gold }}>Zwycięzca otrzymuje odznakę LEGENDARY 🏆</Text>
@@ -112,12 +94,10 @@ export default function GridCategoriesScreen() {
           </Text>
 
           {categories.length === 0 ? (
-            <View style={{ alignItems: 'center', paddingVertical: 60 }}>
-              <MaterialCommunityIcons name="flag-checkered" size={56} color={theme.border3} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 12, marginTop: 16 }}>
-                Brak aktywnych kategorii
-              </Text>
-            </View>
+            <CommunityEmptyState
+              icon="flag-checkered"
+              title="Brak aktywnych kategorii"
+            />
           ) : (
             categories.map(cat => {
               const badge = getEventBadge(cat);

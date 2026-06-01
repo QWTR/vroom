@@ -13,6 +13,7 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const CATEGORIES   = ['auto', 'moto', 'części', 'inne'];
 const DRIVE_OPTS   = ['FWD', 'RWD', 'AWD', '4x4'];
@@ -198,21 +199,11 @@ export default function AddListingScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* Header */}
-      <View style={{ paddingTop: Platform.OS === 'ios' ? 56 : 40, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        <TouchableOpacity
-          style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-          onPress={() => router.back()}
-        >
-          <Feather name="arrow-left" size={18} color={theme.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 4 }}>VROOM GIEŁDA</Text>
-          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', letterSpacing: 1 }}>
-            {isEdit ? 'EDYTUJ' : 'DODAJ OGŁOSZENIE'}
-          </Text>
-        </View>
-      </View>
+      <CommunityScreenHeader
+        breadcrumb="GIEŁDA"
+        title={isEdit ? 'EDYTUJ OGŁOSZENIE' : 'DODAJ OGŁOSZENIE'}
+        subtitle="VROOM GIEŁDA"
+      />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}

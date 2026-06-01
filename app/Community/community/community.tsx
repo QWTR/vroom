@@ -19,6 +19,12 @@ import { formatDistanceToNow } from 'date-fns';
 import { pl }                  from 'date-fns/locale';
 import { RouteMiniMap }          from '../../../components/profile/RouteMiniMap';
 import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '../../../components/community/RoutePreviewCard';
+import {
+  CommunityScreenHeader,
+  CommunitySearchBar,
+  CommunitySearchBarInline,
+  CommunitySegmentTabs,
+} from '../../../components/community';
 import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboardModal';
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
@@ -727,46 +733,29 @@ export default function CommunityScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['left', 'right', 'bottom']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
-      {/* ── HEADER ─────────────────────────────────────────── */}
-      <View style={{
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingTop: Platform.OS === 'ios'
-          ? insets.top + 8
-          : Math.max((StatusBar.currentHeight ?? 0) + 8, 12),
-        paddingBottom: 12,
-        borderBottomWidth: 1, borderBottomColor: theme.border,
-        backgroundColor: theme.surface,
-      }}>
-        {searchActive ? (
-          <View style={{
-            flex: 1, flexDirection: 'row', alignItems: 'center',
-            backgroundColor: theme.surface2, borderRadius: 14,
-            paddingHorizontal: 12, paddingVertical: 10,
-            gap: 8, borderWidth: 1, borderColor: '#e3383530',
-          }}>
-            <MaterialIcons name="search" size={16} color="#e33835" />
-            <TextInput
-              style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: 'Orbitron' }}
-              value={search} onChangeText={setSearch}
-              placeholder="Szukaj, @nick lub #tag..." placeholderTextColor={theme.textDim}
-              autoFocus
-            />
-            <TouchableOpacity onPress={() => { setSearch(''); setSearchActive(false); }}>
-              <MaterialIcons name="close" size={16} color={theme.textDim} />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
-              <MaterialIcons name="arrow-back" size={22} color={theme.text} />
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#e33835' }} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14, letterSpacing: 3, fontWeight: '700' }}>
-                SPOŁECZNOŚĆ
-              </Text>
-            </View>
+      {searchActive ? (
+        <View style={{
+          paddingHorizontal: 16,
+          paddingTop: Platform.OS === 'ios'
+            ? insets.top + 8
+            : Math.max((StatusBar.currentHeight ?? 0) + 8, 12),
+          paddingBottom: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: theme.border,
+          backgroundColor: theme.surface,
+        }}>
+          <CommunitySearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Szukaj, @nick lub #tag..."
+            autoFocus
+            onClear={() => { setSearch(''); setSearchActive(false); }}
+          />
+        </View>
+      ) : (
+        <CommunityScreenHeader
+          title="DYSKUSJE"
+          right={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <TouchableOpacity
                 onPress={async () => {
@@ -782,46 +771,31 @@ export default function CommunityScreen() {
                 <MaterialIcons
                   name={settings.notifDiscussionPosts ? 'notifications-active' : 'notifications-off'}
                   size={22}
-                  color={settings.notifDiscussionPosts ? '#e33835' : theme.textDim}
+                  color={settings.notifDiscussionPosts ? theme.primary : theme.textDim}
                 />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setSearchActive(true)} style={{ padding: 4 }}>
-                <MaterialIcons name="search" size={22} color={theme.textDim} />
-              </TouchableOpacity>
+              <CommunitySearchBarInline
+                expanded={false}
+                onExpand={() => setSearchActive(true)}
+                onCollapse={() => { setSearch(''); setSearchActive(false); }}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Szukaj, @nick lub #tag..."
+              />
             </View>
-          </>
-        )}
-      </View>
+          }
+        />
+      )}
 
-      {/* ── ZAKŁADKI ───────────────────────────────────────── */}
-      <View style={{
-        flexDirection: 'row', marginHorizontal: 12,
-        marginTop: 10, marginBottom: 6,
-        backgroundColor: theme.surface2, borderRadius: 16, padding: 4,
-        borderWidth: 1, borderColor: theme.border,
-      }}>
-        {([
+      <CommunitySegmentTabs
+        tabs={[
           { key: 'dyskusje', label: 'DYSKUSJE', icon: 'forum' },
           { key: 'trasy',    label: 'TRASY',    icon: 'map' },
           { key: 'auta',     label: 'AUTA',     icon: 'directions-car' },
-        ] as { key: Tab; label: string; icon: string }[]).map(tab => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[{
-              flex: 1, flexDirection: 'row', alignItems: 'center',
-              justifyContent: 'center', gap: 5,
-              paddingVertical: 10, borderRadius: 12,
-            }, activeTab === tab.key && { backgroundColor: '#e33835' }]}
-            onPress={() => setActiveTab(tab.key)}
-            activeOpacity={0.8}
-          >
-            <MaterialIcons name={tab.icon as any} size={14} color={activeTab === tab.key ? '#fff' : theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', color: activeTab === tab.key ? '#fff' : theme.textDim }}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        ]}
+        activeKey={activeTab}
+        onChange={key => setActiveTab(key as Tab)}
+      />
 
       {/* ══ DYSKUSJE ══════════════════════════════════════════ */}
       {activeTab === 'dyskusje' && (

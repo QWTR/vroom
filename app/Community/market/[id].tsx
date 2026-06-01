@@ -13,6 +13,7 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { getMarketViewerKey } from '../../../utils/marketViewerKey';
+import { CommunityScreenHeader } from '../../../components/community';
 
 interface Seller {
   id: number;
@@ -277,19 +278,11 @@ export default function ListingDetailScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
-      {/* Back button (floating) */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute', top: Platform.OS === 'ios' ? 56 : 40, left: 16, zIndex: 10,
-          width: 40, height: 40, borderRadius: 20,
-          backgroundColor: isDark ? '#000000cc' : '#ffffffcc',
-          alignItems: 'center', justifyContent: 'center',
-          borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015',
-        }}
-        onPress={() => router.back()}
-      >
-        <Feather name="arrow-left" size={20} color={theme.text} />
-      </TouchableOpacity>
+      <CommunityScreenHeader
+        breadcrumb="GIEŁDA"
+        title={listing.title}
+        subtitle={`${listing.price?.toLocaleString('pl-PL') ?? '—'} PLN`}
+      />
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Photo gallery */}

@@ -14,10 +14,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { normalizeMediaUri, normalizePhotoList } from '../../../lib/mediaUri';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const { width, height } = Dimensions.get('window');
 const DIVIDER_H = 60;
 const BUTTONS_H_BASE = 120;
+const VOTE_HEADER_H = 76;
 const PREFETCH_MAX_PER_BATTLE = 8;
 const PLACEHOLDER_IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88P/BfwAJngP9fH2Z5QAAAABJRU5ErkJggg==';
 
@@ -438,7 +440,7 @@ export default function GridVoteScreen() {
   const barB      = useRef(new Animated.Value(0.5)).current;
   const prefetchActiveRef = useRef(true);
 
-  const topInset = Math.max(insets.top, Platform.OS === 'ios' ? 44 : 24);
+  const topInset = 8;
 
   const load = useCallback(async () => {
     try {
@@ -593,7 +595,7 @@ export default function GridVoteScreen() {
   const buttonsHeight = BUTTONS_H_BASE + Math.max(insets.bottom, 10);
   const cardHeight = Math.max(
     180,
-    Math.floor((height - topInset - DIVIDER_H - buttonsHeight) / 2),
+    Math.floor((height - VOTE_HEADER_H - DIVIDER_H - buttonsHeight) / 2),
   );
 
   const barWidthA = barA.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
@@ -602,6 +604,23 @@ export default function GridVoteScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
+
+      <CommunityScreenHeader
+        breadcrumb="THE GRID"
+        title="GŁOSOWANIE"
+        subtitle={`${idx + 1}/${battles.length} · ${timeLeft(battle.endsAt)}`}
+        right={
+          <View style={{ backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: theme.border }}>
+            {voting
+              ? <ActivityIndicator size="small" color={theme.gold} />
+              : <MaterialCommunityIcons name="flag-checkered" size={12} color={theme.gold} />
+            }
+            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, fontWeight: '700' }}>
+              {Object.keys(votedMap).length}/{battles.length}
+            </Text>
+          </View>
+        }
+      />
 
       {gallery && (
         <GalleryModal
@@ -808,26 +827,6 @@ export default function GridVoteScreen() {
         </View>
 
       </Animated.View>
-
-      {/* ── HEADER OVERLAY ── */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: topInset + 8, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'box-none' }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ backgroundColor: '#00000090', borderRadius: 22, padding: 9 }}
-        >
-          <MaterialIcons name="close" size={18} color="#fff" />
-        </TouchableOpacity>
-
-        <View style={{ backgroundColor: '#00000090', borderRadius: 22, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-          {voting
-            ? <ActivityIndicator size="small" color={theme.gold} />
-            : <MaterialCommunityIcons name="flag-checkered" size={12} color={theme.gold} />
-          }
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9, fontWeight: '700' }}>
-            {Object.keys(votedMap).length}/{battles.length}
-          </Text>
-        </View>
-      </View>
 
     </View>
   );

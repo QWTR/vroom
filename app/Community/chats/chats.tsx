@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  Image, StatusBar, TextInput,
+  Image, StatusBar,
   RefreshControl, ActivityIndicator, Modal,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -9,6 +9,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { CommunityScreenHeader, CommunitySearchBar, CommunityEmptyState } from '../../../components/community';
 
 const API      = 'https://v-room.app/api/chat';
 const WS       = 'https://v-room.app';
@@ -294,22 +295,9 @@ export default function ChatsIndex() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 12, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border2, alignItems: 'center', justifyContent: 'center' }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="arrow-left" size={20} color={theme.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: theme.primary, fontSize: 10, fontFamily: 'Orbitron', letterSpacing: 4, marginBottom: 2 }}>VROOM</Text>
-              <Text style={{ color: theme.text, fontSize: 24, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>WIADOMOŚCI</Text>
-            </View>
-          </View>
+      <CommunityScreenHeader
+        title="WIADOMOŚCI"
+        right={
           <TouchableOpacity
             style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
             onPress={() => router.push('/Community/chats/new' as any)}
@@ -317,24 +305,14 @@ export default function ChatsIndex() {
           >
             <Feather name="edit" size={18} color={theme.primary} />
           </TouchableOpacity>
-        </View>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 14, paddingVertical: 11, gap: 10 }}>
-          <Feather name="search" size={15} color={theme.textDim} />
-          <TextInput
-            style={{ flex: 1, color: theme.text, fontSize: 13, padding: 0 }}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Szukaj konwersacji..."
-            placeholderTextColor={theme.textDim}
-            returnKeyType="search"
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Feather name="x" size={15} color={theme.textDim} />
-            </TouchableOpacity>
-          )}
-        </View>
+        }
+      />
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+        <CommunitySearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Szukaj konwersacji..."
+        />
       </View>
 
       <FlatList
@@ -360,24 +338,13 @@ export default function ChatsIndex() {
           loading ? (
             <ActivityIndicator color={theme.primary} style={{ marginTop: 60 }} />
           ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 80, paddingTop: 60 }}>
-              <MaterialCommunityIcons name="chat-outline" size={52} color={theme.border3} />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>
-                {search ? 'Brak wyników' : 'Brak wiadomości'}
-              </Text>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10, textAlign: 'center', lineHeight: 16 }}>
-                {search ? `Nie znaleziono "${search}"` : 'Kliknij ikonę edycji żeby\nrozpocząć rozmowę'}
-              </Text>
-              {!search && (
-                <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, backgroundColor: theme.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 20 }}
-                  onPress={() => router.push('/Community/chats/new' as any)}
-                >
-                  <Feather name="edit" size={14} color="#fff" />
-                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>NOWA ROZMOWA</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <CommunityEmptyState
+              icon="chat-outline"
+              title={search ? 'Brak wyników' : 'Brak wiadomości'}
+              subtitle={search ? `Nie znaleziono "${search}"` : 'Kliknij ikonę edycji żeby rozpocząć rozmowę'}
+              actionLabel={search ? undefined : 'NOWA ROZMOWA'}
+              onAction={search ? undefined : () => router.push('/Community/chats/new' as any)}
+            />
           )
         }
         contentContainerStyle={filtered.length === 0 ? { flex: 1 } : { paddingBottom: 100 }}

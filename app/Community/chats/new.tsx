@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useChat, ChatUser } from '../../../hooks/useChats';
+import { CommunityScreenHeader } from '../../../components/community';
 
 export default function NewChatScreen() {
   const router = useRouter();
@@ -98,16 +99,10 @@ export default function NewChatScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 60, paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
-        <TouchableOpacity
-          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}
-          onPress={() => router.back()}
-        >
-          <Feather name="arrow-left" size={20} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', letterSpacing: 2 }}>NOWY CZAT</Text>
-        {selected.length > 0 && (
+      <CommunityScreenHeader
+        breadcrumb="WIADOMOŚCI"
+        title="NOWY CZAT"
+        right={selected.length > 0 ? (
           <TouchableOpacity
             style={[{
               flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -127,8 +122,8 @@ export default function NewChatScreen() {
                 </>
             }
           </TouchableOpacity>
-        )}
-      </View>
+        ) : undefined}
+      />
 
       {/* WYBRANI */}
       {selected.length > 0 && (

@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader, CommunitySegmentTabs } from '../../../components/community';
 
 const { width } = Dimensions.get('window');
 
@@ -223,56 +224,15 @@ export default function StatsScreen() {
   const listHeader = useMemo(() => {
     const podiumOrder = [topThree[1], topThree[0], topThree[2]].filter(Boolean) as RankUser[];
     return (
-      <View style={{ paddingHorizontal: '5%', paddingTop: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 52, marginBottom: 20, gap: 8 }}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              backgroundColor: theme.surface,
-              borderWidth: 1,
-              borderColor: theme.border2,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="arrow-back" size={22} color={theme.text} />
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: theme.text, letterSpacing: 2 }}>RANKING</Text>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, marginTop: 4 }}>NAJLEPSI KIEROWCY</Text>
-          </View>
-          <View style={{ width: 40 }} />
-        </View>
-
-        <View style={{ flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 12, padding: 4, marginBottom: 16, gap: 4 }}>
-          {(['points', 'distance'] as const).map(cat => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                {
-                  flex: 1,
-                  flexDirection: 'row',
-                  paddingVertical: 11,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 10,
-                  gap: 6,
-                },
-                category === cat && { backgroundColor: '#e33835' },
-              ]}
-              onPress={() => setCategory(cat)}
-            >
-              <MaterialIcons name={cat === 'points' ? 'star' : 'speed'} size={14} color={category === cat ? '#fff' : theme.textDim} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: category === cat ? '#fff' : theme.textDim }}>
-                {cat === 'points' ? 'PUNKTY' : 'DYSTANS'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+      <View style={{ paddingTop: 8 }}>
+        <CommunitySegmentTabs
+          tabs={[
+            { key: 'points', label: 'PUNKTY', icon: 'star' },
+            { key: 'distance', label: 'DYSTANS', icon: 'speed' },
+          ]}
+          activeKey={category}
+          onChange={key => setCategory(key as 'points' | 'distance')}
+        />
 
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
           {PERIODS.map(p => (
@@ -429,15 +389,19 @@ export default function StatsScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, paddingHorizontal: '5%' }}>
-        {listHeader}
-        <ActivityIndicator size="large" color="#e33835" style={{ marginTop: 40 }} />
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <CommunityScreenHeader title="RANKING" subtitle="NAJLEPSI KIEROWCY" />
+        <View style={{ flex: 1, paddingHorizontal: '5%' }}>
+          {listHeader}
+          <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
+        </View>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <CommunityScreenHeader title="RANKING" subtitle="NAJLEPSI KIEROWCY" />
       <FlatList
         data={restUsers}
         keyExtractor={keyExtractor}

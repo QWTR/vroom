@@ -9,6 +9,12 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
+import {
+  CommunityScreenHeader,
+  CommunitySearchBar,
+  CommunitySegmentTabs,
+  CommunityEmptyState,
+} from '../../../components/community';
 
 const PAGE = 20;
 
@@ -284,65 +290,35 @@ export default function EventsScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
-      {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <MaterialIcons name="arrow-back" size={22} color={theme.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron', letterSpacing: 4 }}>VROOM</Text>
-              <Text style={{ color: theme.text, fontSize: 22, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2 }}>MEETY</Text>
-            </View>
-          </View>
+      <CommunityScreenHeader
+        title="MEETY"
+        subtitle="Zloty i wydarzenia"
+        right={
           <TouchableOpacity
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
             onPress={() => router.push('/Community/meets/createmeet' as any)}
-            activeOpacity={0.8}
           >
             <MaterialIcons name="add" size={24} color={theme.primary} />
           </TouchableOpacity>
-        </View>
+        }
+      />
 
-        {/* Category toggle */}
-        <View style={{ flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 12, padding: 3, borderWidth: 1, borderColor: theme.border }}>
-          {(['unofficial', 'official'] as const).map(cat => (
-            <TouchableOpacity
-              key={cat}
-              onPress={() => setCategory(cat)}
-              style={[{
-                flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
-              }, category === cat && { backgroundColor: theme.primary }]}
-              activeOpacity={0.8}
-            >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700', color: category === cat ? '#fff' : theme.textDim }}>
-                {cat === 'unofficial' ? '🏁 NIEOFICJALNE' : '⭐ OFICJALNE'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+      <CommunitySegmentTabs
+        tabs={[
+          { key: 'unofficial', label: 'NIEOFICJALNE' },
+          { key: 'official', label: 'OFICJALNE' },
+        ]}
+        activeKey={category}
+        onChange={(k) => setCategory(k as 'unofficial' | 'official')}
+      />
 
-        {/* Search */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, gap: 10 }}>
-          <MaterialIcons name="search" size={16} color={theme.textDim} />
-          <TextInput
-            style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, padding: 0 }}
-            placeholder="Szukaj meetów..."
-            placeholderTextColor={theme.textDim}
-            value={search}
-            onChangeText={handleSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => handleSearch('')}>
-              <MaterialIcons name="close" size={16} color={theme.textDim} />
-            </TouchableOpacity>
-          )}
-        </View>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+        <CommunitySearchBar
+          value={search}
+          onChangeText={handleSearch}
+          placeholder="Szukaj meetów..."
+          onClear={() => handleSearch('')}
+        />
       </View>
 
       <FlatList

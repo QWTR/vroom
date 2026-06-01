@@ -38,6 +38,7 @@ import { useEffectivePremium } from "../../hooks/useEffectivePremium";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
+import { LiveCountdownText } from "../../components/home/LiveCountdownText";
 import { useAppPresence } from "../../hooks/useAppPresence";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -91,24 +92,6 @@ type ActiveGridVote = {
 	resetKind: "round" | "registration" | null;
 };
 
-function formatGridCountdown(targetIso: string | null, nowMs: number): string | null {
-	if (!targetIso) return null;
-	const targetMs = new Date(targetIso).getTime();
-	if (!Number.isFinite(targetMs)) return null;
-	let leftSec = Math.floor((targetMs - nowMs) / 1000);
-	if (leftSec <= 0) return "za chwilę";
-	const days = Math.floor(leftSec / 86400);
-	leftSec -= days * 86400;
-	const hours = Math.floor(leftSec / 3600);
-	leftSec -= hours * 3600;
-	const minutes = Math.floor(leftSec / 60);
-	const seconds = leftSec - minutes * 60;
-	const hh = String(hours).padStart(2, "0");
-	const mm = String(minutes).padStart(2, "0");
-	const ss = String(seconds).padStart(2, "0");
-	return days > 0 ? `${days}d ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
-}
-
 async function fetchFreshUser(): Promise<User | null> {
 	try {
 		const token = await getToken();
@@ -154,7 +137,12 @@ export default function HomeScreen() {
 
 	const [activeGridVotes, setActiveGridVotes] = useState<ActiveGridVote[]>([]);
 	const [gridCarouselIndex, setGridCarouselIndex] = useState(0);
-	const [nowMs, setNowMs] = useState(() => Date.now());
+
+	const handleQuestTrackSynced = useCallback(() => {
+		void fetchFreshUser().then((fresh) => {
+			if (fresh) setUser(fresh);
+		});
+	}, []);
 
 	const [pollVisible, setPollVisible] = useState(false);
 	const [giftVisible, setGiftVisible] = useState(false);
@@ -359,12 +347,6 @@ export default function HomeScreen() {
 	useEffect(() => {
 		setGridCarouselIndex(0);
 	}, [activeGridVotes.length]);
-
-	useEffect(() => {
-		if (!isFocused || activeGridVotes.length === 0) return;
-		const id = setInterval(() => setNowMs(Date.now()), 1000);
-		return () => clearInterval(id);
-	}, [isFocused, activeGridVotes.length]);
 
 	useEffect(() => {
 		pollRef.current = poll;
@@ -1222,21 +1204,21 @@ export default function HomeScreen() {
 												? "1v1 Arena · oddaj głos teraz"
 												: "Są aktywne zgłoszenia · sprawdź kategorię"}
 										</Text>
-										<Text
+										<LiveCountdownText
+											targetIso={activeGridVotes[0].resetAt}
 											style={{
 												fontFamily: "Orbitron",
 												fontSize: 8,
 												color: t.textDim,
 												marginTop: 3,
-											}}>
-											{(() => {
-												const countdown = formatGridCountdown(activeGridVotes[0].resetAt, nowMs);
+											}}
+											formatLabel={(countdown) => {
 												if (!countdown) return "Brak danych o resecie";
 												return activeGridVotes[0].resetKind === "round"
 													? `Reset rundy za: ${countdown}`
 													: `Koniec zapisów za: ${countdown}`;
-											})()}
-										</Text>
+											}}
+										/>
 									</View>
 									<View
 										style={{
@@ -1376,21 +1358,21 @@ export default function HomeScreen() {
 															? "Przesuń palcem · zagłosuj"
 															: "Przesuń palcem · zobacz zgłoszenia"}
 													</Text>
-													<Text
+													<LiveCountdownText
+														targetIso={item.resetAt}
 														style={{
 															fontFamily: "Orbitron",
 															fontSize: 8,
 															color: t.textDim,
 															marginTop: 3,
-														}}>
-														{(() => {
-															const countdown = formatGridCountdown(item.resetAt, nowMs);
+														}}
+														formatLabel={(countdown) => {
 															if (!countdown) return "Brak danych o resecie";
 															return item.resetKind === "round"
 																? `Reset rundy za: ${countdown}`
 																: `Koniec zapisów za: ${countdown}`;
-														})()}
-													</Text>
+														}}
+													/>
 												</View>
 												<View
 													style={{
@@ -1973,11 +1955,7 @@ export default function HomeScreen() {
 				<QuestTrackSection
 					theme={t}
 					fadeAnim={fadeAnim}
-					onSynced={() => {
-						void fetchFreshUser().then((fresh) => {
-							if (fresh) setUser(fresh);
-						});
-					}}
+					onSynced={handleQuestTrackSynced}
 				/>
 
 				{/* ══════════════════════════════════════════════ */}

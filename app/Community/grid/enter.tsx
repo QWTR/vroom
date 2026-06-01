@@ -12,6 +12,7 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { useCars } from '../../../hooks/useCars';
+import { CommunityScreenHeader } from '../../../components/community';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -114,28 +115,18 @@ export default function EnterGridScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
+
+      <CommunityScreenHeader
+        breadcrumb="THE GRID"
+        title="DOŁĄCZ DO GRIDU"
+        subtitle="ZAPISZ SIĘ DO EVENTU"
+      />
+
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingTop: 56, paddingBottom: 110 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Wróć */}
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 24 }}
-        >
-          <MaterialIcons name="arrow-back" size={20} color={theme.textDim} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2 }}>WRÓĆ</Text>
-        </TouchableOpacity>
-
-        {/* Tytuł */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-          <MaterialCommunityIcons name="flag-checkered" size={24} color={theme.gold} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 18, fontWeight: '900', letterSpacing: 2 }}>
-            DOŁĄCZ DO GRIDU
-          </Text>
-        </View>
-
         {/* Wybór auta */}
         <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, letterSpacing: 3, marginBottom: 12 }}>
           WYBIERZ AUTO Z GARAŻU

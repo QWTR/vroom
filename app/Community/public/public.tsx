@@ -15,6 +15,7 @@ import { io, Socket } from 'socket.io-client';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
+import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 import { UserBadges } from '../../../components/user/UserBadges';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
@@ -672,42 +673,25 @@ export default function PublicChatScreen() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
 
-      <View style={{
-        paddingTop: insets.top + 10,
-        paddingBottom: 12,
-        paddingHorizontal: 12,
-        backgroundColor: theme.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-      }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Feather name="arrow-left" size={18} color={theme.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', color: theme.text }}>CZAT OGÓLNY</Text>
-          {typingText
-            ? <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', marginTop: 2 }}>{typingText}</Text>
-            : <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2, letterSpacing: 1 }}>LIVE · CAŁA SPOŁECZNOŚĆ</Text>
-          }
-        </View>
-        <TouchableOpacity
-          onPress={() => setNotifModalOpen(true)}
-          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <MaterialIcons
-            name={notifMode === 'muted' ? 'notifications-off' : notifMode === 'mentions_only' ? 'notifications' : 'notifications-active'}
-            size={18}
-            color={notifMode === 'all' ? '#4de926' : theme.textDim}
-          />
-        </TouchableOpacity>
-        <MaterialCommunityIcons name="earth" size={22} color="#4de926" />
-      </View>
+      <CommunityScreenHeader
+        title="CZAT OGÓLNY"
+        subtitle={typingText || 'LIVE · CAŁA SPOŁECZNOŚĆ'}
+        right={
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setNotifModalOpen(true)}
+              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <MaterialIcons
+                name={notifMode === 'muted' ? 'notifications-off' : notifMode === 'mentions_only' ? 'notifications' : 'notifications-active'}
+                size={18}
+                color={notifMode === 'all' ? theme.success : theme.textDim}
+              />
+            </TouchableOpacity>
+            <MaterialCommunityIcons name="earth" size={22} color={theme.success} />
+          </View>
+        }
+      />
 
       <View style={{ flex: 1 }}>
         <FlatList
@@ -727,10 +711,10 @@ export default function PublicChatScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingTop: 80, gap: 10 }}>
-              <MaterialCommunityIcons name="earth" size={40} color="#4de92660" />
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 11 }}>Napisz pierwszą wiadomość!</Text>
-            </View>
+            <CommunityEmptyState
+              icon="earth"
+              title="Napisz pierwszą wiadomość!"
+            />
           }
           contentContainerStyle={{ paddingTop: 8, paddingBottom: chatListPad, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
