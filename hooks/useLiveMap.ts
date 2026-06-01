@@ -9,6 +9,12 @@ import { Image } from 'expo-image';
 import { API_URL } from '../constants/mapConfig';
 import { normalizeMediaUri } from '../lib/mediaUri';
 import { snapToRoute } from '../scripts/navigationUtils';
+import {
+  createLiveMapStore,
+  useLiveMapUserIds,
+  type LiveMapStore,
+  type LiveUserMeta,
+} from './liveMapStore';
 
 export interface LiveUser {
   id:        number;
@@ -61,6 +67,8 @@ const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
 const LIVE_USER_MAX_STEP_M = 180;
 const LIVE_USER_EVENT_STALE_MS = 2 * 60 * 1000;
+const SOCKET_USERS_FALLBACK_MS = 1_500;
+const LIVE_USERS_REST_FRESH_MS = 40_000;
 
 async function fetchWithTimeout(
   url: string,
@@ -87,7 +95,11 @@ export function useLiveMap(
 ) {
   const tripActiveRef = useRef(tripActive);
   useEffect(() => { tripActiveRef.current = tripActive; }, [tripActive]);
-  const [liveUsers,       setLiveUsers]       = useState<LiveUser[]>([]);
+  const storeRef = useRef<LiveMapStore | null>(null);
+  if (!storeRef.current) storeRef.current = createLiveMapStore();
+  const store = storeRef.current;
+  const liveUserIds = useLiveMapUserIds(store);
+
   const [warnings,        setWarnings]        = useState<LiveWarning[]>([]);
   const [visibleWarnings, setVisibleWarnings] = useState<LiveWarning[]>([]);
   const [connected,       setConnected]       = useState(false);
@@ -107,6 +119,9 @@ export function useLiveMap(
   const allowBgRef         = useRef(allowBackgroundWork);
   const enabledRef         = useRef(enabled);
   const appStateRef        = useRef<AppStateStatus>(AppState.currentState);
+  const lastSnapshotAtRef  = useRef(0);
+  const hasUsersFromSocketRef = useRef(false);
+  const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     allowBgRef.current = allowBackgroundWork;
@@ -157,6 +172,37 @@ export function useLiveMap(
     }
   }, []);
 
+  const isIncomingNewer = useCallback((
+    id: number,
+    serverAt?: number | null,
+    seq?: number | null,
+  ): boolean => {
+    const prevSeq = liveUserLastSeqRef.current.get(id);
+    const prevAt = liveUserLastServerAtRef.current.get(id);
+    if (Number.isFinite(seq) && prevSeq != null) {
+      return Number(seq) > prevSeq;
+    }
+    if (Number.isFinite(serverAt) && prevAt != null) {
+      return Number(serverAt) >= prevAt;
+    }
+    return prevSeq == null && prevAt == null;
+  }, []);
+
+  const pickCoords = useCallback((
+    id: number,
+    incoming: { lat: number; lng: number; serverAt?: number | null; seq?: number | null },
+    prevLat?: number,
+    prevLng?: number,
+  ) => {
+    const pos = store.getPosition(id);
+    const baseLat = prevLat ?? pos?.lat ?? incoming.lat;
+    const baseLng = prevLng ?? pos?.lng ?? incoming.lng;
+    if (isIncomingNewer(id, incoming.serverAt, incoming.seq)) {
+      return { lat: incoming.lat, lng: incoming.lng };
+    }
+    return { lat: baseLat, lng: baseLng };
+  }, [isIncomingNewer, store]);
+
   const removeLiveUser = useCallback((id: number) => {
     if (!Number.isFinite(id)) return;
     liveUserLastSeenRef.current.delete(id);
@@ -169,8 +215,8 @@ export function useLiveMap(
       clearTimeout(pending);
       pendingOfflineRef.current.delete(id);
     }
-    setLiveUsers((prev) => prev.filter((u) => u.id !== id));
-  }, []);
+    store.removeUser(id);
+  }, [store]);
 
   const scheduleLiveUserOffline = useCallback((id: number) => {
     if (!Number.isFinite(id)) return;
@@ -185,78 +231,81 @@ export function useLiveMap(
 
   const pruneStaleLiveUsers = useCallback(() => {
     const now = Date.now();
-    setLiveUsers((prev) => {
-      const next = prev.filter((u) => {
-        const last = liveUserLastSeenRef.current.get(u.id) ?? 0;
-        return now - last < LIVE_USER_STALE_MS;
-      });
-      if (next.length === prev.length) return prev;
-      const activeIds = new Set(next.map((u) => u.id));
-      Array.from(smoothedPosRef.current.keys()).forEach((id) => {
-        if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
-      });
-      Array.from(interpRef.current.keys()).forEach((id) => {
-        if (!activeIds.has(id)) interpRef.current.delete(id);
-      });
-      return next;
-    });
-  }, []);
+    for (const id of store.getUserIdsSnapshot()) {
+      const last = liveUserLastSeenRef.current.get(id) ?? 0;
+      if (now - last >= LIVE_USER_STALE_MS) {
+        removeLiveUser(id);
+      }
+    }
+  }, [store, removeLiveUser]);
 
-  /** Scal API z socketem — nigdy nie kasuj świeżych użytkowników tylko dlatego, że nie ma ich w jednym fetchu. */
+  /** Scal listę użytkowników — nie kasuj świeżych spoza incoming (grace). */
   const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
     const now = Date.now();
-    incoming.forEach((u) => {
-      if (Number.isFinite(u?.id)) touchLiveUser(u.id);
-    });
+    const incomingById = new Set<number>();
 
-    setLiveUsers((prev) => {
-      const prevById = new Map(prev.map((u) => [u.id, u]));
-      const incomingById = new Map<number, LiveUser>();
-      const merged: LiveUser[] = [];
+    for (const u of incoming) {
+      if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
+      incomingById.add(u.id);
+      touchLiveUser(u.id);
 
-      for (const u of incoming) {
-        if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
-        if (Number.isFinite(Number(u?.seq))) {
-          liveUserLastSeqRef.current.set(u.id, Number(u.seq));
+      const prevMeta = store.getMeta(u.id);
+      const prevPos = store.getPosition(u.id);
+      const coords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
+
+      if (Number.isFinite(Number(u?.seq))) {
+        const seq = Number(u.seq);
+        const prevSeq = liveUserLastSeqRef.current.get(u.id);
+        if (prevSeq == null || seq >= prevSeq) {
+          liveUserLastSeqRef.current.set(u.id, seq);
         }
-        if (Number.isFinite(Number(u?.serverAt))) {
-          liveUserLastServerAtRef.current.set(u.id, Number(u.serverAt));
-        }
-        incomingById.set(u.id, u);
-        const prevU = prevById.get(u.id);
-        const lat = prevU?.lat ?? u.lat;
-        const lng = prevU?.lng ?? u.lng;
-        const avatarUrl = u.avatarUrl ?? prevU?.avatarUrl ?? null;
-        const avatarFrameUrl = u.avatarFrameUrl ?? prevU?.avatarFrameUrl ?? null;
-        merged.push({ ...u, lat, lng, avatarUrl, avatarFrameUrl });
-        const avatarUri = normalizeMediaUri(avatarUrl);
-        if (avatarUri) {
-          Image.prefetch(avatarUri).catch(() => {});
-        }
-        if (!smoothedPosRef.current.has(u.id)) {
-          smoothedPosRef.current.set(u.id, { lat: u.lat, lng: u.lng });
+      }
+      if (Number.isFinite(Number(u?.serverAt))) {
+        const at = Number(u.serverAt);
+        const prevAt = liveUserLastServerAtRef.current.get(u.id);
+        if (prevAt == null || at >= prevAt) {
+          liveUserLastServerAtRef.current.set(u.id, at);
         }
       }
 
-      for (const u of prev) {
-        if (incomingById.has(u.id)) continue;
-        const last = liveUserLastSeenRef.current.get(u.id) ?? 0;
-        if (now - last < LIVE_USER_STALE_MS) {
-          merged.push(u);
-        }
+      const meta: LiveUserMeta = {
+        id: u.id,
+        username: u.username,
+        avatarUrl: u.avatarUrl ?? prevMeta?.avatarUrl ?? null,
+        avatarFrameUrl: u.avatarFrameUrl ?? prevMeta?.avatarFrameUrl ?? null,
+        online: u.online,
+        isFriend: u.isFriend ?? prevMeta?.isFriend,
+        isPremium: u.isPremium ?? prevMeta?.isPremium,
+        serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
+        seq: u.seq ?? prevMeta?.seq ?? null,
+      };
+      store.setMeta(meta);
+      store.setPosition(u.id, coords.lat, coords.lng, true);
+
+      const avatarUri = normalizeMediaUri(meta.avatarUrl);
+      if (avatarUri) Image.prefetch(avatarUri).catch(() => {});
+      if (!smoothedPosRef.current.has(u.id)) {
+        smoothedPosRef.current.set(u.id, { lat: coords.lat, lng: coords.lng });
       }
+    }
 
-      const activeIds = new Set(merged.map((u) => u.id));
-      Array.from(smoothedPosRef.current.keys()).forEach((id) => {
-        if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
-      });
-      Array.from(interpRef.current.keys()).forEach((id) => {
-        if (!activeIds.has(id)) interpRef.current.delete(id);
-      });
+    for (const id of store.getUserIdsSnapshot()) {
+      if (incomingById.has(id)) continue;
+      const last = liveUserLastSeenRef.current.get(id) ?? 0;
+      if (now - last >= LIVE_USER_STALE_MS) {
+        removeLiveUser(id);
+      }
+    }
 
-      return merged;
+    const activeIds = new Set(store.getUserIdsSnapshot());
+    Array.from(smoothedPosRef.current.keys()).forEach((id) => {
+      if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
     });
-  }, [touchLiveUser]);
+    Array.from(interpRef.current.keys()).forEach((id) => {
+      if (!activeIds.has(id)) interpRef.current.delete(id);
+    });
+    store.syncUserIdsArray();
+  }, [touchLiveUser, store, pickCoords, removeLiveUser]);
 
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -302,16 +351,6 @@ export function useLiveMap(
     joinLiveMapRoom();
   }, [enabled, connected, joinLiveMapRoom]);
 
-  useEffect(() => {
-    if (enabled) return;
-    socketRef.current?.disconnect();
-    setConnected(false);
-    setSharingStatus('off');
-    interpRef.current.clear();
-    liveUserLastSeqRef.current.clear();
-    liveUserLastServerAtRef.current.clear();
-  }, [enabled]);
-
   // ── Filtruj warnings do 25 km gdy zmienia się pozycja lub lista ──
   useEffect(() => {
     const src = warnings ?? [];
@@ -329,8 +368,15 @@ export function useLiveMap(
     setVisibleWarnings(filtered);
   }, [userLocation?.latitude, userLocation?.longitude, warnings]);
 
-  // ── Pobierz dane startowe ─────────────────────────────
-  const fetchInitialData = useCallback(async (token: string) => {
+  const clearUsersFallbackTimer = useCallback(() => {
+    if (usersFallbackTimerRef.current) {
+      clearTimeout(usersFallbackTimerRef.current);
+      usersFallbackTimerRef.current = null;
+    }
+  }, []);
+
+
+  const fetchWarnings = useCallback(async (token: string) => {
     try {
       const loc = userLocationRef.current;
       const warningsQs = new URLSearchParams();
@@ -340,36 +386,85 @@ export function useLiveMap(
         warningsQs.set('radiusKm', String(WARNING_VISIBLE_RADIUS_KM));
       }
       const warningsUrl = `${API_URL}/api/live/warnings${warningsQs.toString() ? `?${warningsQs}` : ''}`;
-      const [warningsRes, usersRes] = await Promise.all([
-        fetchWithTimeout(warningsUrl, { headers: { Authorization: `Bearer ${token}` } }),
-        fetchWithTimeout(buildLiveUsersUrl(),    { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+      const warningsRes = await fetchWithTimeout(
+        warningsUrl,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (warningsRes.ok) {
         const data = await warningsRes.json();
         setWarnings(Array.isArray(data) ? data : []);
       }
+    } catch (e) {
+      console.log('fetchWarnings error:', e);
+    }
+  }, []);
+
+  const fetchLiveUsersRest = useCallback(async (token: string) => {
+    if (!enabledRef.current) return;
+    if (
+      socketRef.current?.connected
+      && hasUsersFromSocketRef.current
+      && Date.now() - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
+    ) {
+      return;
+    }
+    try {
+      const usersRes = await fetchWithTimeout(
+        buildLiveUsersUrl(),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (usersRes.ok && enabledRef.current) {
         const data = await usersRes.json();
         const users: LiveUser[] = Array.isArray(data) ? data : [];
         mergeLiveUsersFromApi(users);
       }
     } catch (e) {
-      console.log('fetchInitialData error:', e);
+      console.log('fetchLiveUsersRest error:', e);
     }
   }, [buildLiveUsersUrl, mergeLiveUsersFromApi]);
 
-  // Odśwież listę po połączeniu socketu (widoczność innych — niezależnie od własnego share).
+  const scheduleUsersRestFallback = useCallback((token: string) => {
+    clearUsersFallbackTimer();
+    usersFallbackTimerRef.current = setTimeout(() => {
+      usersFallbackTimerRef.current = null;
+      if (!enabledRef.current) return;
+      if (hasUsersFromSocketRef.current) return;
+      void fetchLiveUsersRest(token);
+    }, SOCKET_USERS_FALLBACK_MS);
+  }, [clearUsersFallbackTimer, fetchLiveUsersRest]);
+
+  const fetchInitialData = useCallback(async (token: string) => {
+    await fetchWarnings(token);
+    scheduleUsersRestFallback(token);
+  }, [fetchWarnings, scheduleUsersRestFallback]);
+
+  useEffect(() => {
+    if (enabled) return;
+    clearUsersFallbackTimer();
+    socketRef.current?.disconnect();
+    setConnected(false);
+    setSharingStatus('off');
+    hasUsersFromSocketRef.current = false;
+    lastSnapshotAtRef.current = 0;
+    interpRef.current.clear();
+    liveUserLastSeqRef.current.clear();
+    liveUserLastServerAtRef.current.clear();
+    store.clear();
+  }, [enabled, store, clearUsersFallbackTimer]);
+
+  // Po połączeniu — tylko ostrzeżenia + fallback użytkowników gdy brak snapshotu.
   useEffect(() => {
     if (!enabled || !connected) return;
     const tok = tokenRef.current;
     if (!tok) return;
-    void fetchInitialData(tok);
-  }, [enabled, connected, fetchInitialData]);
+    void fetchWarnings(tok);
+    scheduleUsersRestFallback(tok);
+  }, [enabled, connected, fetchWarnings, scheduleUsersRestFallback]);
 
-  // Gdy użytkownik się przesuwa, odśwież zasięg listy live (throttle).
+  // Geo refresh REST tylko gdy socket martwy lub dawno bez snapshotu.
   const lastUsersGeoRefreshRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
   useEffect(() => {
-    if (!enabled || !connected) return;
+    if (!enabled) return;
     if (!userLocation) return;
     const tok = tokenRef.current;
     if (!tok) return;
@@ -384,8 +479,12 @@ export function useLiveMap(
       lng: userLocation.longitude,
       at: now,
     };
-    void fetchInitialData(tok);
-  }, [userLocation?.latitude, userLocation?.longitude, enabled, connected, fetchInitialData]);
+    if (
+      socketRef.current?.connected
+      && now - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
+    ) return;
+    void fetchLiveUsersRest(tok);
+  }, [userLocation?.latitude, userLocation?.longitude, enabled, fetchLiveUsersRest]);
 
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
@@ -407,8 +506,10 @@ export function useLiveMap(
 
       socket.on('connect', async () => {
         setConnected(true);
+        hasUsersFromSocketRef.current = false;
         joinLiveMapRoom();
-        await fetchInitialData(token);
+        await fetchWarnings(token);
+        scheduleUsersRestFallback(token);
       });
 
       socket.on('disconnect', (reason) => {
@@ -438,79 +539,73 @@ export function useLiveMap(
         liveUserLastServerAtRef.current.set(id, serverAt);
         touchLiveUser(id);
 
-        setLiveUsers((prev) => {
-          const now = Date.now();
-          const existingUser = prev.find((u) => u.id === id);
-          const prevSmoothed = smoothedPosRef.current.get(id)
-            ?? (existingUser ? { lat: existingUser.lat, lng: existingUser.lng } : null);
+        const now = Date.now();
+        const existingMeta = store.getMeta(id);
+        const existingPos = store.getPosition(id);
+        const prevSmoothed = smoothedPosRef.current.get(id)
+          ?? (existingPos ? { lat: existingPos.lat, lng: existingPos.lng } : null);
 
-          // EWMA smoothing on incoming targets (filters GPS spikes)
-          let targetLat = rawLat;
-          let targetLng = rawLng;
-          if (prevSmoothed) {
-            const distM = distanceKm(prevSmoothed.lat, prevSmoothed.lng, targetLat, targetLng) * 1000;
-            if (distM < MIN_MOVE_M) {
-              targetLat = prevSmoothed.lat;
-              targetLng = prevSmoothed.lng;
-            } else {
-              if (distM > LIVE_USER_MAX_STEP_M) {
-                const ratio = LIVE_USER_MAX_STEP_M / distM;
-                targetLat = prevSmoothed.lat + (targetLat - prevSmoothed.lat) * ratio;
-                targetLng = prevSmoothed.lng + (targetLng - prevSmoothed.lng) * ratio;
-              }
-              targetLat = prevSmoothed.lat + SMOOTH_ALPHA * (targetLat - prevSmoothed.lat);
-              targetLng = prevSmoothed.lng + SMOOTH_ALPHA * (targetLng - prevSmoothed.lng);
+        let targetLat = rawLat;
+        let targetLng = rawLng;
+        if (prevSmoothed) {
+          const distM = distanceKm(prevSmoothed.lat, prevSmoothed.lng, targetLat, targetLng) * 1000;
+          if (distM < MIN_MOVE_M) {
+            targetLat = prevSmoothed.lat;
+            targetLng = prevSmoothed.lng;
+          } else {
+            if (distM > LIVE_USER_MAX_STEP_M) {
+              const ratio = LIVE_USER_MAX_STEP_M / distM;
+              targetLat = prevSmoothed.lat + (targetLat - prevSmoothed.lat) * ratio;
+              targetLng = prevSmoothed.lng + (targetLng - prevSmoothed.lng) * ratio;
             }
+            targetLat = prevSmoothed.lat + SMOOTH_ALPHA * (targetLat - prevSmoothed.lat);
+            targetLng = prevSmoothed.lng + SMOOTH_ALPHA * (targetLng - prevSmoothed.lng);
           }
-          smoothedPosRef.current.set(id, { lat: targetLat, lng: targetLng });
+        }
+        smoothedPosRef.current.set(id, { lat: targetLat, lng: targetLng });
 
-          // Build interpolation from *currently displayed* position to new target.
-          const interp = interpRef.current.get(id);
-          let fromLat = existingUser?.lat ?? targetLat;
-          let fromLng = existingUser?.lng ?? targetLng;
-          if (interp) {
-            const t = Math.min((now - interp.startMs) / Math.max(interp.durationMs, MIN_INTERP_DUR_MS), 1);
-            const te = easeInOut(t);
-            fromLat = interp.fromLat + (interp.toLat - interp.fromLat) * te;
-            fromLng = interp.fromLng + (interp.toLng - interp.fromLng) * te;
-          }
-          const lastMs = interp?.lastUpdateMs ?? now;
-          const durationMs = Math.min(Math.max(now - lastMs, 220), MAX_INTERP_DUR_MS);
-          interpRef.current.set(id, {
-            fromLat,
-            fromLng,
-            toLat: targetLat,
-            toLng: targetLng,
-            startMs: now,
-            durationMs,
-            lastUpdateMs: now,
-          });
-
-          const merged: LiveUser = {
-            id,
-            username: typeof data?.username === 'string'
-              ? data.username
-              : (existingUser?.username ?? ''),
-            avatarUrl: data?.avatarUrl !== undefined
-              ? data.avatarUrl
-              : (existingUser?.avatarUrl ?? null),
-            avatarFrameUrl: data?.avatarFrameUrl !== undefined
-              ? data.avatarFrameUrl
-              : (existingUser?.avatarFrameUrl ?? null),
-            lat: fromLat,
-            lng: fromLng,
-            online: data?.online ?? existingUser?.online ?? true,
-            isFriend: data?.isFriend ?? existingUser?.isFriend,
-            isPremium: data?.isPremium ?? existingUser?.isPremium,
-            serverAt,
-            seq: Number.isFinite(seq) ? seq : null,
-          };
-
-          if (existingUser) {
-            return prev.map((u) => (u.id === id ? { ...u, ...merged } : u));
-          }
-          return [...prev, merged];
+        const interp = interpRef.current.get(id);
+        let fromLat = existingPos?.lat ?? targetLat;
+        let fromLng = existingPos?.lng ?? targetLng;
+        if (interp) {
+          const t = Math.min((now - interp.startMs) / Math.max(interp.durationMs, MIN_INTERP_DUR_MS), 1);
+          const te = easeInOut(t);
+          fromLat = interp.fromLat + (interp.toLat - interp.fromLat) * te;
+          fromLng = interp.fromLng + (interp.toLng - interp.fromLng) * te;
+        }
+        const lastMs = interp?.lastUpdateMs ?? now;
+        const durationMs = Math.min(Math.max(now - lastMs, 220), MAX_INTERP_DUR_MS);
+        interpRef.current.set(id, {
+          fromLat,
+          fromLng,
+          toLat: targetLat,
+          toLng: targetLng,
+          startMs: now,
+          durationMs,
+          lastUpdateMs: now,
         });
+
+        const meta: LiveUserMeta = {
+          id,
+          username: typeof data?.username === 'string'
+            ? data.username
+            : (existingMeta?.username ?? ''),
+          avatarUrl: data?.avatarUrl !== undefined
+            ? data.avatarUrl
+            : (existingMeta?.avatarUrl ?? null),
+          avatarFrameUrl: data?.avatarFrameUrl !== undefined
+            ? data.avatarFrameUrl
+            : (existingMeta?.avatarFrameUrl ?? null),
+          online: data?.online ?? existingMeta?.online ?? true,
+          isFriend: data?.isFriend ?? existingMeta?.isFriend,
+          isPremium: data?.isPremium ?? existingMeta?.isPremium,
+          serverAt,
+          seq: Number.isFinite(seq) ? seq : null,
+        };
+        store.setMeta(meta);
+        store.setPosition(id, fromLat, fromLng, true);
+        store.syncUserIdsArray();
+        lastSnapshotAtRef.current = Date.now();
       });
 
       socket.on('live:users:snapshot', (data: any) => {
@@ -533,8 +628,10 @@ export function useLiveMap(
             && Number.isFinite(u.lat)
             && Number.isFinite(u.lng),
           );
+        hasUsersFromSocketRef.current = true;
+        lastSnapshotAtRef.current = Date.now();
+        clearUsersFallbackTimer();
         mergeLiveUsersFromApi(users);
-        void fetchInitialData(tokenRef.current ?? token);
       });
 
       socket.on('user:offline', (data) => {
@@ -578,13 +675,28 @@ export function useLiveMap(
       await fetchInitialData(token);
     })();
     return () => {
+      clearUsersFallbackTimer();
       const s = socketRef.current;
       if (s) {
         s.emit('live:leave');
         s.disconnect();
       }
     };
-  }, [fetchInitialData, enabled, touchLiveUser, scheduleLiveUserOffline, removeLiveUser]);
+  }, [
+    fetchInitialData,
+    enabled,
+    touchLiveUser,
+    scheduleLiveUserOffline,
+    removeLiveUser,
+    clearUsersFallbackTimer,
+    fetchWarnings,
+    scheduleUsersRestFallback,
+    joinLiveMapRoom,
+    mergeLiveUsersFromApi,
+    store,
+    pickCoords,
+    isIncomingNewer,
+  ]);
 
   // Pause socket/interp when app is backgrounded without background permission
   useEffect(() => {
@@ -603,7 +715,8 @@ export function useLiveMap(
           s.connect();
         } else if (s?.connected) {
           joinLiveMapRoom();
-          void fetchInitialData(tokenRef.current);
+          void fetchWarnings(tokenRef.current!);
+          scheduleUsersRestFallback(tokenRef.current!);
         }
         if (isSharingRef.current) {
           const loc = userLocationRef.current;
@@ -626,7 +739,7 @@ export function useLiveMap(
       }
     });
     return () => sub.remove();
-  }, [fetchInitialData, joinLiveMapRoom]);
+  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, clearUsersFallbackTimer, mergeLiveUsersFromApi, store]);
 
   // ── Time-based interpolation ticker — smoothly moves live-user markers ──
   useEffect(() => {
@@ -651,12 +764,9 @@ export function useLiveMap(
         }
       });
       if (updates.size === 0) return;
-      setLiveUsers(prev =>
-        prev.map(u => {
-          const update = updates.get(u.id);
-          return update ? { ...u, lat: update.lat, lng: update.lng } : u;
-        }),
-      );
+      updates.forEach((pos, userId) => {
+        store.setPosition(userId, pos.lat, pos.lng, true);
+      });
     };
 
     const arm = () => {
@@ -676,30 +786,25 @@ export function useLiveMap(
       if (interval) clearInterval(interval);
       clearInterval(rescheduler);
     };
-  }, [isForegroundActive, enabled, tripActive]);
+  }, [isForegroundActive, enabled, tripActive, store]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
     if (!enabled) return;
     const interval = setInterval(async () => {
       if (!allowBgRef.current && !isForegroundActive()) return;
-      if (!connected) return;
       const token = tokenRef.current;
       if (!token) return;
-      try {
-        const res = await fetchWithTimeout(
-          buildLiveUsersUrl(),
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok || !enabledRef.current) return;
-        const data = await res.json();
-        const users: LiveUser[] = Array.isArray(data) ? data : [];
-        mergeLiveUsersFromApi(users);
-      } catch {
+      if (
+        socketRef.current?.connected
+        && Date.now() - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
+      ) {
+        return;
       }
+      await fetchLiveUsersRest(token);
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [enabled, connected, buildLiveUsersUrl, mergeLiveUsersFromApi]);
+  }, [enabled, fetchLiveUsersRest]);
 
   // Usuń tylko naprawdę przestarzałych (brak socket/API przez STALE_MS).
   useEffect(() => {
@@ -847,7 +952,7 @@ export function useLiveMap(
         interpRef.current.clear();
         liveUserLastSeqRef.current.clear();
         liveUserLastServerAtRef.current.clear();
-        setLiveUsers([]);
+        store.clear();
       }
       return nextShare;
     } catch {
@@ -857,7 +962,7 @@ export function useLiveMap(
     } finally {
       toggleInFlightRef.current = false;
     }
-  }, [fetchInitialData, joinLiveMapRoom, leaveLiveMapRoom]);
+  }, [fetchInitialData, joinLiveMapRoom, leaveLiveMapRoom, store]);
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (
@@ -998,7 +1103,8 @@ export function useLiveMap(
       socket?.connect();
     } else {
       joinLiveMapRoom();
-      await fetchInitialData(token);
+      await fetchWarnings(token);
+      scheduleUsersRestFallback(token);
     }
     if (!isSharingRef.current) return;
     const loc = userLocationRef.current;
@@ -1021,11 +1127,15 @@ export function useLiveMap(
     } catch {
       /* ignore */
     }
-  }, [fetchInitialData, joinLiveMapRoom]);
+  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom]);
+
+  const liveUsers = store.getLiveUsersArray();
 
   return {
     liveUsers,
-    warnings: visibleWarnings,  // ← zawsze przefiltrowane do 25km
+    liveUserIds,
+    liveMapStore: store,
+    warnings: visibleWarnings,
     connected,
     sharingStatus,
     sendLocation,

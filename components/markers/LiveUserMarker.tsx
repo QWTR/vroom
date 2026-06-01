@@ -2,16 +2,18 @@ import React, { memo, useEffect, useState } from 'react';
 import { View, Text, Image, TouchableOpacity } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialIcons } from '@expo/vector-icons';
-import { User } from '../../constants/types';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 import { useTheme } from '../../contexts/ThemeContext';
+import type { LiveMapStore } from '../../hooks/liveMapStore';
+import { useLiveUserMeta, useLiveUserPosition } from '../../hooks/liveMapStore';
 
-interface UserCarMarkerProps {
-  user:     User;
-  distance: number;
-  onPress:  () => void;
+type Props = {
+  userId: number;
+  store: LiveMapStore;
   imageUri: string | null;
-}
+  distanceKm: number;
+  onPress: () => void;
+};
 
 const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
   avatar: string; name: string; color: string; size?: number;
@@ -33,17 +35,31 @@ const AvatarOrInitials = memo(({ avatar, name, color, size = 22 }: {
   );
 });
 
-const FallbackMarker = memo(({ user, distance }: { user: User; distance: number }) => {
+const FallbackBody = memo(({
+  name,
+  avatar,
+  avatarFrameUrl,
+  isFriend,
+  isPremium,
+  distanceKm,
+}: {
+  name: string;
+  avatar: string;
+  avatarFrameUrl?: string | null;
+  isFriend: boolean;
+  isPremium: boolean;
+  distanceKm: number;
+}) => {
   const { theme } = useTheme();
-  const color       = user.isPremium ? '#FFD700' : user.isFriend ? '#4de926' : '#00bfff';
-  const bgColor     = user.isPremium ? '#FFD70020' : user.isFriend ? '#4de92620' : '#00bfff20';
-  const borderColor = user.isPremium ? '#FFD70045' : user.isFriend ? '#4de92645' : '#00bfff45';
-  const frameItem = user.avatarFrameUrl
+  const color = isPremium ? '#FFD700' : isFriend ? '#4de926' : '#00bfff';
+  const bgColor = isPremium ? '#FFD70020' : isFriend ? '#4de92620' : '#00bfff20';
+  const borderColor = isPremium ? '#FFD70045' : isFriend ? '#4de92645' : '#00bfff45';
+  const frameItem = avatarFrameUrl
     ? {
-        id: `live_${user.id}`,
+        id: 'live_frame',
         name: 'Live frame',
         category: 'avatar_frame' as const,
-        assetUrl: user.avatarFrameUrl,
+        assetUrl: avatarFrameUrl,
       }
     : null;
 
@@ -58,25 +74,25 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
           color: theme.mapLabelText, fontSize: 9, fontFamily: 'Orbitron',
           letterSpacing: 0.3, textAlign: 'center',
         }} numberOfLines={1}>
-          {user.name}
+          {name}
         </Text>
         <Text style={{
           color, fontSize: 8, fontFamily: 'Orbitron',
           textAlign: 'center', marginTop: 1,
         }}>
-          {distance.toFixed(1)} km
+          {distanceKm.toFixed(1)} km
         </Text>
       </View>
       <View style={{ position: 'relative' }}>
         <View style={{
           width: 36, height: 36, borderRadius: 18,
-          backgroundColor: bgColor, borderWidth: user.isPremium ? 3 : 1.5, borderColor,
+          backgroundColor: bgColor, borderWidth: isPremium ? 3 : 1.5, borderColor,
           alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
         }}>
-          <AvatarOrInitials avatar={user.avatar ?? ''} name={user.name} color={color} size={22} />
+          <AvatarOrInitials avatar={avatar} name={name} color={color} size={22} />
         </View>
         <ShopAvatarDecoration item={frameItem} size={36} />
-        {user.isPremium && (
+        {isPremium && (
           <View style={{
             position: 'absolute', top: -6, right: -6,
             backgroundColor: '#FFD700', borderRadius: 8,
@@ -92,7 +108,7 @@ const FallbackMarker = memo(({ user, distance }: { user: User; distance: number 
         width: 0, height: 0,
         borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
         borderStyle: 'solid', borderLeftColor: 'transparent',
-        borderRightColor: 'transparent', borderTopColor: user.isPremium ? '#FFD700' : color, marginTop: -1,
+        borderRightColor: 'transparent', borderTopColor: isPremium ? '#FFD700' : color, marginTop: -1,
       }} />
     </View>
   );
@@ -102,40 +118,44 @@ function quantizeCoord(n: number): number {
   return Math.round(n * 1e4) / 1e4;
 }
 
-function userCarMarkerPropsEqual(prev: UserCarMarkerProps, next: UserCarMarkerProps): boolean {
-  if (prev.user.id !== next.user.id) return false;
-  if (prev.imageUri !== next.imageUri) return false;
-  if (prev.onPress !== next.onPress) return false;
-  if (!prev.imageUri && !next.imageUri) {
-    if (Math.abs(prev.distance - next.distance) >= 0.15) return false;
-  }
-  return (
-    quantizeCoord(prev.user.latitude) === quantizeCoord(next.user.latitude)
-    && quantizeCoord(prev.user.longitude) === quantizeCoord(next.user.longitude)
-  );
-}
-
-export const UserCarMarker = memo(({
-  user, distance, onPress, imageUri,
-}: UserCarMarkerProps) => {
+function LiveUserMarkerInner({
+  userId, store, imageUri, distanceKm, onPress,
+}: Props) {
+  const meta = useLiveUserMeta(store, userId);
+  const position = useLiveUserPosition(store, userId);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     setImageFailed(false);
   }, [imageUri]);
 
+  if (!meta || !position) return null;
+  if (!Number.isFinite(position.lat) || !Number.isFinite(position.lng)) return null;
+
+  const coordinate: [number, number] = [
+    quantizeCoord(position.lng),
+    quantizeCoord(position.lat),
+  ];
+
   if (!imageUri || imageFailed) {
     return (
-      <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
+      <Mapbox.MarkerView coordinate={coordinate} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
         <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
-          <FallbackMarker user={user} distance={distance} />
+          <FallbackBody
+            name={meta.username}
+            avatar={meta.avatarUrl ?? ''}
+            avatarFrameUrl={meta.avatarFrameUrl}
+            isFriend={!!meta.isFriend}
+            isPremium={!!meta.isPremium}
+            distanceKm={distanceKm}
+          />
         </TouchableOpacity>
       </Mapbox.MarkerView>
     );
   }
 
   return (
-    <Mapbox.MarkerView coordinate={[user.longitude, user.latitude]} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
+    <Mapbox.MarkerView coordinate={coordinate} anchor={{ x: 0.5, y: 1 }} allowOverlapWithPuck allowOverlap>
       <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
         <Image
           source={{ uri: imageUri }}
@@ -146,4 +166,12 @@ export const UserCarMarker = memo(({
       </TouchableOpacity>
     </Mapbox.MarkerView>
   );
-}, userCarMarkerPropsEqual);
+}
+
+export const LiveUserMarker = memo(LiveUserMarkerInner, (prev, next) => (
+  prev.userId === next.userId
+  && prev.store === next.store
+  && prev.imageUri === next.imageUri
+  && Math.abs(prev.distanceKm - next.distanceKm) < 0.15
+  && prev.onPress === next.onPress
+));

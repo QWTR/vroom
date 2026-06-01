@@ -15,7 +15,7 @@ interface MarkerRendererProps {
 
 const CAPTURE_DELAYS_MS = [80, 400, 1200];
 
-export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProps) => {
+const MarkerRendererInner = ({ user, distance, onCapture }: MarkerRendererProps) => {
   const { theme } = useTheme();
   const shotRef = useRef<ViewShot>(null);
   const captureGenRef = useRef(0);
@@ -154,3 +154,14 @@ export const MarkerRenderer = ({ user, distance, onCapture }: MarkerRendererProp
     </View>
   );
 };
+
+export const MarkerRenderer = React.memo(
+  MarkerRendererInner,
+  (prev, next) =>
+    prev.user.id === next.user.id
+    && prev.user.name === next.user.name
+    && prev.user.avatar === next.user.avatar
+    && prev.user.avatarFrameUrl === next.user.avatarFrameUrl
+    && prev.user.isFriend === next.user.isFriend
+    && prev.user.isPremium === next.user.isPremium,
+);

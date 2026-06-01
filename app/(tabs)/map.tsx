@@ -195,7 +195,7 @@ import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
 import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
 import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
 import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
-import { UserCarMarker } from '../../components/markers/UserCarMarker';
+import { LiveUserMarker } from '../../components/markers/LiveUserMarker';
 import { AddSpeedCameraModal, type CameraType } from '../../components/modals/AddSpeedCameraModal';
 import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
@@ -3668,7 +3668,6 @@ export default function MapScreen() {
   const [isSpeechEnabled,    setIsSpeechEnabled]    = useState(true);
   const mapSpeechHydratedRef = useRef(false);
   const [saveRouteVisible,   setSaveRouteVisible]   = useState(false);
-  const [nearbyUsers,        setNearbyUsers]        = useState<User[]>([]);
   const [remainingRoutePoints, setRemainingRoutePoints] = useState<
     { latitude: number; longitude: number }[]
   >([]);
@@ -4771,7 +4770,7 @@ export default function MapScreen() {
   }, [isDriving, isNavigating, rerouteOrigin]);
 
   const {
-    liveUsers, warnings, connected,
+    liveUserIds, liveMapStore, warnings, connected,
     sendLocation, toggleSharing, resumeLiveSession, addWarning, confirmWarning, cancelWarning,
   } = useLiveMap(
     isSharing,
@@ -13313,31 +13312,28 @@ export default function MapScreen() {
     showNavigationNotification(stepData, routeInfo?.distance ?? '', routeInfo?.durationText ?? '');
   }, [currentStep, isNavigating, effectiveNavRoute]);
 
-  const nearbyUsersFromLive = useMemo(() => {
+  const nearbyUsers = useMemo(() => {
     if (!isMapFocused) return [];
-    return liveUsers
-      .filter((u) => String(u.id) !== String(currentUserId))
-      .filter((u) => Number.isFinite(u.lat) && Number.isFinite(u.lng))
-      .map((u) => ({
-        id: String(u.id),
-        name: u.username,
-        latitude: u.lat,
-        longitude: u.lng,
-        avatar: u.avatarUrl ?? '',
-        avatarFrameUrl: u.avatarFrameUrl ?? '',
-        status: 'Online' as const,
-        isFriend: u.isFriend ?? false,
-        isPremium: u.isPremium ?? false,
-      }));
-  }, [liveUsers, currentUserId, isMapFocused]);
-
-  useEffect(() => {
-    if (!isMapFocused) {
-      setNearbyUsers([]);
-      return;
-    }
-    setNearbyUsers(nearbyUsersFromLive);
-  }, [nearbyUsersFromLive, isMapFocused]);
+    return liveUserIds
+      .filter((id) => String(id) !== String(currentUserId))
+      .map((id) => {
+        const meta = liveMapStore.getMeta(id);
+        const pos = liveMapStore.getPosition(id);
+        if (!meta || !pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return null;
+        return {
+          id: String(id),
+          name: meta.username,
+          latitude: pos.lat,
+          longitude: pos.lng,
+          avatar: meta.avatarUrl ?? '',
+          avatarFrameUrl: meta.avatarFrameUrl ?? '',
+          status: 'Online' as const,
+          isFriend: meta.isFriend ?? false,
+          isPremium: meta.isPremium ?? false,
+        } as User;
+      })
+      .filter((u): u is User => u != null);
+  }, [liveUserIds, liveMapStore, currentUserId, isMapFocused]);
 
   // Bez live — zero cudzych markerów (demo wyłączone).
   useDemoUsers(
@@ -13349,8 +13345,8 @@ export default function MapScreen() {
   );
 
   // ─────────────────────────────────────────────────────────
-  const visibleUsers = useMemo(() => {
-    if (!isMapFocused || nearbyUsers.length === 0) return [];
+  const visibleLiveUserIds = useMemo(() => {
+    if (!isMapFocused || liveUserIds.length === 0) return [];
     const anchor =
       userLocation
       ?? (
@@ -13359,18 +13355,30 @@ export default function MapScreen() {
           ? { latitude: drLatRef.current, longitude: drLngRef.current }
           : null
       );
-    if (!anchor) return nearbyUsers.slice(0, 48);
-    // Live API już filtruje promień (~35 km); tu tylko twardy limit bezpieczeństwa.
-    return nearbyUsers
-      .filter((u) =>
-        u.isFriend
-        || calculateDistance(
-          anchor.latitude, anchor.longitude,
-          u.latitude, u.longitude,
-        ) <= MAX_NEARBY_USERS_DISTANCE,
-      )
+    const candidates = liveUserIds.filter((id) => String(id) !== String(currentUserId));
+    if (!anchor) return candidates.slice(0, 48);
+    return candidates
+      .filter((id) => {
+        const meta = liveMapStore.getMeta(id);
+        const pos = liveMapStore.getPosition(id);
+        if (!meta || !pos) return false;
+        if (meta.isFriend) return true;
+        return calculateDistance(
+          anchor.latitude,
+          anchor.longitude,
+          pos.lat,
+          pos.lng,
+        ) <= MAX_NEARBY_USERS_DISTANCE;
+      })
+      .sort((a, b) => a - b)
       .slice(0, 48);
-  }, [userLocation, nearbyUsers, isMapFocused]);
+  }, [userLocation, liveUserIds, liveMapStore, currentUserId, isMapFocused]);
+
+  const visibleUsers = useMemo(() => {
+    return visibleLiveUserIds
+      .map((id) => nearbyUsers.find((u) => u.id === String(id)))
+      .filter((u): u is User => u != null);
+  }, [visibleLiveUserIds, nearbyUsers]);
 
   const getUserMarkerSignature = useCallback((u: User): string => (
     `${u.avatar ?? ''}|${u.avatarFrameUrl ?? ''}|${u.name}|${u.isFriend ? '1' : '0'}|${u.isPremium ? '1' : '0'}`
@@ -14606,19 +14614,26 @@ export default function MapScreen() {
             />
           ) : null}
 
-          {effectiveVisibleUsers.map(user => (
-            <UserCarMarker
-              key={`user_${user.id}`}
-              user={user}
-              distance={calculateDistance(
-                (userLocation?.latitude ?? drLatRef.current),
-                (userLocation?.longitude ?? drLngRef.current),
-                user.latitude, user.longitude,
-              )}
-              onPress={() => handleUserMarkerPress(user)}
-              imageUri={markerImages[user.id] ?? null}
-            />
-          ))}
+          {visibleLiveUserIds.map((userId) => {
+            const user = nearbyUsers.find((u) => u.id === String(userId));
+            if (!user) return null;
+            const dist = calculateDistance(
+              (userLocation?.latitude ?? drLatRef.current),
+              (userLocation?.longitude ?? drLngRef.current),
+              user.latitude,
+              user.longitude,
+            );
+            return (
+              <LiveUserMarker
+                key={`user_${userId}`}
+                userId={userId}
+                store={liveMapStore}
+                distanceKm={dist}
+                imageUri={markerImages[user.id] ?? null}
+                onPress={() => handleUserMarkerPress(user)}
+              />
+            );
+          })}
 
           {remainingRoutePoints.length > 1 && !arrived ? (
             <MapActiveRouteLayers
