@@ -10,7 +10,7 @@ import { pl }                  from 'date-fns/locale';
 import { useTheme }            from '../../../contexts/ThemeContext';
 import { API_URL }             from '../../../constants/config';
 import { syncProfileClubFromServer } from '../../../lib/profileClubSync';
-import { AdNativePost }         from '../../../components/ads/AdNativePost';
+import { AdSlot }               from '../../../components/ads/AdSlot';
 import { AdPostBoundary }       from '../../../components/ads/AdPostBoundary';
 import { LinkPreviewCard }     from '@/components/chat/LinkPreviewCard';
 import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '../../../components/community/RoutePreviewCard';
@@ -468,7 +468,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         scrollEventThrottle={16}
         renderItem={({ item }) => '_adType' in item ? (
           <AdPostBoundary>
-            <AdNativePost />
+            <AdSlot placement="feed_native" variant="native" />
           </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}

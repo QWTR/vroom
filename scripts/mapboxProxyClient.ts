@@ -20,8 +20,8 @@ const MAX_SEARCH_CACHE_ENTRIES = 220;
 const SUGGEST_CACHE_TTL_MS = 10 * 60_000;
 const CATEGORY_CACHE_TTL_MS = 8 * 60_000;
 const RETRIEVE_CACHE_TTL_MS = 30 * 60_000;
-const SUGGEST_MAX_PER_SESSION = 22;
-const SUGGEST_MAX_PER_MINUTE = 5;
+const SUGGEST_MAX_PER_SESSION = 60;
+const SUGGEST_MAX_PER_MINUTE = 12;
 
 type SuggestBudget = { total: number; windowStart: number; windowCount: number };
 const suggestBudgetBySession = new Map<string, SuggestBudget>();
@@ -316,7 +316,9 @@ export async function fetchGeocodingViaProxy<T>(params: {
       Number.isFinite(rest.proximityLng) && Number.isFinite(rest.proximityLat)
         ? `&proximity=${rest.proximityLng},${rest.proximityLat}`
         : '';
-    const country = rest.country ? `&country=${encodeURIComponent(rest.country)}` : '';
+    const country = rest.country
+      ? `&country=${encodeURIComponent(rest.country)}`
+      : '&country=pl';
     const types = rest.types
       ? `&types=${encodeURIComponent(rest.types)}`
       : '&types=address,poi,place,locality,neighborhood';
@@ -369,7 +371,9 @@ export async function fetchSearchSuggestViaProxy<T>(params: {
       Number.isFinite(rest.proximityLng) && Number.isFinite(rest.proximityLat)
         ? `&proximity=${rest.proximityLng},${rest.proximityLat}`
         : '';
-    const country = rest.country ? `&country=${encodeURIComponent(rest.country)}` : '';
+    const country = rest.country
+      ? `&country=${encodeURIComponent(rest.country)}`
+      : '&country=pl';
     const types = rest.types ? `&types=${encodeURIComponent(rest.types)}` : '';
     const fallbackUrl =
       `https://api.mapbox.com/search/searchbox/v1/suggest` +

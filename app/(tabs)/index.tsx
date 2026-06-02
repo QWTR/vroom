@@ -32,7 +32,7 @@ import { PollModal } from "../../components/modals/PollModal";
 import { GiftModal } from "../../components/modals/GiftModal";
 import { CampaignFlowModal } from "../../components/modals/CampaignFlowModal";
 import { useEntryCampaign } from "../../hooks/useEntryCampaign";
-import { AdBanner } from "../../components/ads/AdBanner";
+import { AdSlot } from "../../components/ads/AdSlot";
 import { usePremium } from "../../contexts/PremiumContext";
 import { useEffectivePremium } from "../../hooks/useEffectivePremium";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
@@ -1706,7 +1706,7 @@ export default function HomeScreen() {
 				{/* AD BANNER                                      */}
 				{/* ══════════════════════════════════════════════ */}
 				<Animated.View style={{ opacity: fadeAnim }}>
-					<AdBanner BANNERID="ca-app-pub-1660420496578702/5609918502" enabled={isFocused} />
+					<AdSlot placement="home_banner" variant="banner" enabled={isFocused} />
 				</Animated.View>
 
 				{/* ══════════════════════════════════════════════ */}

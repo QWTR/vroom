@@ -10,6 +10,11 @@ export interface PartnerPoi {
   lng: number;
   logoUrl: string | null;
   websiteUrl: string | null;
+  category?: string | null;
+  description?: string | null;
+  markerAccentColor?: string | null;
+  address?: string | null;
+  businessLocationId?: number | null;
   priorityRank: number;
   source: 'partner';
 }

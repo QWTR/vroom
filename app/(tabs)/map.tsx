@@ -206,11 +206,12 @@ import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetai
 import { TripStatsModal } from '../../components/modals/TripStatsModal';
 import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
-import { AdBanner }           from '../../components/ads/AdBanner';
+import { AdSlot }               from '../../components/ads/AdSlot';
 import { useFuelStations }      from '../../hooks/useFuelStations';
 import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
 import { PartnerPoiMarker }     from '../../components/markers/PartnerPoiMarker';
-import { usePartnerPois }       from '../../hooks/usePartnerPois';
+import { PartnerPoiModal }      from '../../components/modals/PartnerPoiModal';
+import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
@@ -3692,6 +3693,8 @@ export default function MapScreen() {
   // ── State – fuel stations ─────────────────────────────────
   const [selectedFuelStation,     setSelectedFuelStation]     = useState<any>(null);
   const [fuelStationModalVisible, setFuelStationModalVisible] = useState(false);
+  const [selectedPartnerPoi, setSelectedPartnerPoi] = useState<PartnerPoi | null>(null);
+  const [partnerPoiModalVisible, setPartnerPoiModalVisible] = useState(false);
   const [fuelAddMode, setFuelAddMode] = useState(false);
   const [addFuelStationVisible, setAddFuelStationVisible] = useState(false);
   const [addFuelStationCoords, setAddFuelStationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -14134,7 +14137,24 @@ export default function MapScreen() {
     }
     return fuelStations.slice(0, zoomCap);
   }, [currentZoom, fuelStations, userLocation]);
-  const effectivePartnerPois = partnerPois;
+  const effectivePartnerPois = useMemo(() => {
+    if (currentZoom < 12.8) return [];
+    const zoomCap =
+      currentZoom >= 16 ? 24
+      : currentZoom >= 15.5 ? 16
+      : currentZoom >= 15 ? 10
+      : 6;
+    if (!Array.isArray(partnerPois) || partnerPois.length <= zoomCap) return partnerPois;
+    if (userLocation) {
+      const sorted = [...partnerPois].sort((a, b) => {
+        const da = haversineKm(userLocation.latitude, userLocation.longitude, a.lat, a.lng);
+        const db = haversineKm(userLocation.latitude, userLocation.longitude, b.lat, b.lng);
+        return da - db;
+      });
+      return sorted.slice(0, zoomCap);
+    }
+    return partnerPois.slice(0, zoomCap);
+  }, [currentZoom, partnerPois, userLocation]);
 
   useAutoNavigationBridge({
     isNavigating,
@@ -14274,7 +14294,7 @@ export default function MapScreen() {
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
         <View style={{ paddingTop: insets.top, backgroundColor: theme.bg }}>
-          <AdBanner BANNERID="ca-app-pub-1660420496578702/3363343740" />
+          <AdSlot placement="map_banner" variant="banner" />
         </View>
 
         <View style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -14599,8 +14619,10 @@ export default function MapScreen() {
             <PartnerPoiMarker
               key={`partner_${poi.id}`}
               poi={poi}
+              compact={currentZoom < 15.2}
               onPress={() => {
-                Toast.show({ type: 'info', text1: poi.name, text2: poi.brandSlug ?? 'Partner VROOM' });
+                setSelectedPartnerPoi(poi);
+                setPartnerPoiModalVisible(true);
               }}
             />
           ))}
@@ -15747,6 +15769,22 @@ export default function MapScreen() {
           }}
           onPricesUpdated={refetchFuelStations}
           updatePrices={updateFuelPrices}
+        />
+
+        <PartnerPoiModal
+          visible={partnerPoiModalVisible}
+          poi={selectedPartnerPoi}
+          onClose={() => setPartnerPoiModalVisible(false)}
+          onNavigate={(lat, lng, name) => {
+            if (!userLocation || !Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude)) {
+              Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na lokalizację, potem ponów Nawiguj.' });
+              return;
+            }
+            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            setEndLocation({ latitude: lat, longitude: lng, name: name || 'Partner' });
+            setPartnerPoiModalVisible(false);
+            Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: name || 'Partner' });
+          }}
         />
 
         
