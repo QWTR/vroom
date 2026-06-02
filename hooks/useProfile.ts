@@ -28,6 +28,7 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     id:            u.userId        ?? u.id,
     username:      u.username,
     location:      u.location      ?? null,
+    province:      u.province      ?? null,
     bio:           u.bio           ?? null,
     avatarUrl,
     createdAt:     u.createdAt     ?? new Date().toISOString(),
@@ -190,7 +191,7 @@ export function useProfile() {
 
   // ── Aktualizacja profilu ──────────────────────────────
   const updateProfile = useCallback(async (
-    fields: Partial<Pick<UserProfile, 'username' | 'location' | 'bio'>>
+    fields: Partial<Pick<UserProfile, 'username' | 'location' | 'bio' | 'province'>>
   ) => {
     setLoading(true);
     setError(null);

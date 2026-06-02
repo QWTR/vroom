@@ -124,6 +124,7 @@ export function useDriveMarker(
   pushTarget: (t: DriveMarkerTarget) => void;
   setCruiseSpeed: (speedMs: number) => void;
   reset: (anchor?: { lat: number; lng: number; heading?: number }) => void;
+  resetTo: (lat: number, lng: number, heading: number) => void;
 } {
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
@@ -176,18 +177,26 @@ export function useDriveMarker(
 
     lerpFromLat.value = fromLa;
     lerpFromLng.value = fromLn;
-    lerpFromHdg.value = heading.value;
     lerpToLat.value = t.lat;
     lerpToLng.value = t.lng;
     lerpToHdg.value = tgtHdg;
     lerpDurationMs.value = dur;
     lerpStartMs.value = Date.now();
+    lerpFromHdg.value = heading.value;
 
+    const moving = incomingMs >= MIN_DR_SPEED_MS;
+
+    // Snap zwraca tę samą pozycję przy zmieniającym się heading — nie resetuj markera
+    // (DR między tickami GPS), tylko łagodnie dopasuj kierunek w worklecie.
     if (errM < 0.2) {
+      if (moving) {
+        lerpActive.value = 0;
+        return;
+      }
       lat.value = t.lat;
       lng.value = t.lng;
-      const incomingMs = t.speedMs != null && t.speedMs >= MIN_DR_SPEED_MS ? t.speedMs : speedMsSv.value;
-      if (incomingMs < 0.5) {
+      const cruiseMs = t.speedMs != null && t.speedMs >= MIN_DR_SPEED_MS ? t.speedMs : speedMsSv.value;
+      if (cruiseMs < 0.5) {
         const curH = heading.value;
         const delta = ((tgtHdg - curH + 540) % 360) - 180;
         if (Math.abs(delta) < 5) {
@@ -254,6 +263,42 @@ export function useDriveMarker(
     lat,
     lerpActive,
     lng,
+    speedMsSv,
+  ]);
+
+  const resetTo = useCallback((targetLat: number, targetLng: number, hdg: number) => {
+    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) return;
+    const normHdg = Number.isFinite(hdg) ? ((hdg % 360) + 360) % 360 : 0;
+    lat.value = targetLat;
+    lng.value = targetLng;
+    heading.value = normHdg;
+    speedMsSv.value = 0;
+    cruiseSpeedMsSv.value = 0;
+    lastGpsPushMsSv.value = Date.now();
+    lerpActive.value = 0;
+    lerpFromLat.value = targetLat;
+    lerpFromLng.value = targetLng;
+    lerpToLat.value = targetLat;
+    lerpToLng.value = targetLng;
+    lerpFromHdg.value = normHdg;
+    lerpToHdg.value = normHdg;
+    lerpStartMs.value = Date.now();
+    lerpDurationMs.value = LERP_MIN_MS;
+  }, [
+    cruiseSpeedMsSv,
+    heading,
+    lastGpsPushMsSv,
+    lat,
+    lng,
+    lerpActive,
+    lerpDurationMs,
+    lerpFromHdg,
+    lerpFromLat,
+    lerpFromLng,
+    lerpStartMs,
+    lerpToHdg,
+    lerpToLat,
+    lerpToLng,
     speedMsSv,
   ]);
 
@@ -327,6 +372,12 @@ export function useDriveMarker(
         const hdgRad = (heading.value * Math.PI) / 180;
         lat.value += metersToLatDelta(stepM * Math.cos(hdgRad));
         lng.value += metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
+        const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
+        if (hdgErr > 0.5) {
+          const hdgAlpha = Math.min(HEADING_BLEND_PER_FRAME, hdgErr / 90);
+          const d = headingDeltaW(heading.value, lerpToHdg.value);
+          heading.value = normalizeHeadingW(heading.value + d * hdgAlpha);
+        }
       } else {
         const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
         if (hdgErr > 1.5) {
@@ -352,5 +403,5 @@ export function useDriveMarker(
     };
   }, [tripActive, frameCallback, enabledSv]);
 
-  return { lat, lng, heading, pushTarget, setCruiseSpeed, reset };
+  return { lat, lng, heading, pushTarget, setCruiseSpeed, reset, resetTo };
 }

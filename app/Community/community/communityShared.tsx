@@ -13,6 +13,7 @@ import AsyncStorage           from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets }  from 'react-native-safe-area-context';
 import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
+import { filterProvinceSuggestions, getProvinceByMention } from '../../../constants/provinces';
 import { useKeyboardInset }   from '../../../hooks/useKeyboardInset';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -122,6 +123,7 @@ export function renderDiscussionBody(
   opts?: {
     textColor?: string;
     mentionColor?: string;
+    provinceMentionColor?: string;
     hashtagColor?: string;
     linkColor?: string;
     onMentionPress?: (username: string) => void;
@@ -134,12 +136,26 @@ export function renderDiscussionBody(
     lineHeight: 22,
   };
   const mentionColor = opts?.mentionColor ?? '#4a9eff';
+  const provinceMentionColor = opts?.provinceMentionColor ?? '#7cb342';
   const hashtagColor = opts?.hashtagColor ?? '#e8a838';
   const linkColor = opts?.linkColor ?? '#4a9eff';
   const parts = content.split(DISCUSSION_TOKEN_SPLIT_RE);
   return parts.map((part, index) => {
     if (/^@[a-zA-Z0-9_.-]+$/.test(part)) {
-      const username = part.slice(1);
+      const token = part.slice(1);
+      const prov = getProvinceByMention(token);
+      if (prov) {
+        return (
+          <Text
+            key={index}
+            style={[baseStyle, { color: provinceMentionColor, fontWeight: '700' }]}
+            suppressHighlighting={false}
+          >
+            @{prov.mention}
+          </Text>
+        );
+      }
+      const username = token;
       return (
         <Text
           key={index}
@@ -171,21 +187,47 @@ export function renderDiscussionBody(
 const getAuthToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
-export async function searchMentionUsers(query: string): Promise<{ id: number; username: string; avatarUrl: string | null }[]> {
+export type MentionSuggestion =
+  | { type: 'user'; id: number; username: string; avatarUrl: string | null }
+  | { type: 'province'; slug: string; mention: string; label: string };
+
+export async function searchMentionSuggestions(query: string): Promise<MentionSuggestion[]> {
   const q = query.trim();
   if (q.length < 1) return [];
+  const localProvinces = filterProvinceSuggestions(q, 5).map(p => ({
+    type: 'province' as const,
+    slug: p.slug,
+    mention: p.mention,
+    label: p.label,
+  }));
   const token = await getAuthToken();
-  if (!token) return [];
+  if (!token) return localProvinces;
   try {
     const res = await fetch(`${API_URL}/api/profile/mentions/search?q=${encodeURIComponent(q)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return [];
+    if (!res.ok) return localProvinces;
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return localProvinces;
+    if (data.length > 0 && data[0]?.type) return data as MentionSuggestion[];
+    return [
+      ...localProvinces,
+      ...data.map((u: { id: number; username: string; avatarUrl: string | null }) => ({
+        type: 'user' as const,
+        id: u.id,
+        username: u.username,
+        avatarUrl: u.avatarUrl,
+      })),
+    ];
   } catch {
-    return [];
+    return localProvinces;
   }
+}
+
+/** @deprecated — użyj searchMentionSuggestions */
+export async function searchMentionUsers(query: string): Promise<{ id: number; username: string; avatarUrl: string | null }[]> {
+  const items = await searchMentionSuggestions(query);
+  return items.filter((i): i is Extract<MentionSuggestion, { type: 'user' }> => i.type === 'user');
 }
 
 export async function resolveMentionUserId(username: string): Promise<number | null> {
@@ -760,7 +802,7 @@ export const ComposeBox = ({
   const [focused, setFocused] = useState(false);
   const [photoViewer, setPhotoViewer] = useState(false);
   const [photoIdx,    setPhotoIdx]    = useState(0);
-  const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
   const [pollModal, setPollModal] = useState(false);
   const [pollDraft, setPollDraft] = useState<PostPollInput | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<DiscussionCategoryId | null>(defaultCategory ?? null);
@@ -865,13 +907,14 @@ export const ComposeBox = ({
       return;
     }
     mentionTimer.current = setTimeout(async () => {
-      const list = await searchMentionUsers(q);
+      const list = await searchMentionSuggestions(q);
       setMentionUsers(list);
     }, 220);
   };
 
-  const insertMention = (username: string) => {
-    setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${username} `));
+  const insertMention = (item: MentionSuggestion) => {
+    const tag = item.type === 'province' ? item.mention : item.username;
+    setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${tag} `));
     setMentionUsers([]);
   };
 
@@ -969,12 +1012,28 @@ export const ComposeBox = ({
           <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
             {mentionUsers.map(u => (
               <TouchableOpacity
-                key={u.id}
-                onPress={() => insertMention(u.username)}
+                key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
+                onPress={() => insertMention(u)}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
               >
-                <Avatar user={u} size={30} />
-                <Text style={{ color: theme.text, fontSize: 13 }}>{u.username}</Text>
+                {u.type === 'user' ? (
+                  <Avatar user={u} size={30} />
+                ) : (
+                  <View style={{
+                    width: 30, height: 30, borderRadius: 15, backgroundColor: '#7cb34222',
+                    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7cb34255',
+                  }}>
+                    <MaterialIcons name="map" size={16} color="#7cb342" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 13 }}>
+                    {u.type === 'province' ? `@${u.mention}` : u.username}
+                  </Text>
+                  {u.type === 'province' && (
+                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>{u.label}</Text>
+                  )}
+                </View>
               </TouchableOpacity>
             ))}
           </ScrollView>

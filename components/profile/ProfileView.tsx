@@ -11,6 +11,7 @@ import { useRouter }                from 'expo-router';
 import { useTheme }                 from '../../contexts/ThemeContext';
 
 import { UserBadges }               from '../user/UserBadges';
+import { ProvinceBadge }            from '../user/ProvinceBadge';
 import AvatarCircle                 from './AvatarCircle';
 import StatBox                      from './StatBox';
 import CarCard                      from './CarCard';
@@ -644,6 +645,11 @@ export default function ProfileView({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                   <MaterialIcons name="location-on" size={11} color={theme.textDim} />
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>{profile.location}</Text>
+                </View>
+              )}
+              {!!profile?.province && (
+                <View style={{ marginTop: 5 }}>
+                  <ProvinceBadge province={profile.province} compact theme={theme} />
                 </View>
               )}
             </View>

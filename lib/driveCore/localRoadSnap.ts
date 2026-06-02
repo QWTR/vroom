@@ -2,10 +2,10 @@ import { bearingBetween, closestPointOnSegment, distanceM } from './geo';
 import type { RoadPoint, SnappedPose } from './types';
 
 /** Promień wyszukiwania segmentów L2 wokół GPS (m). */
-export const LOCAL_L2_SNAP_RADIUS_M = 70;
-export const LOCAL_L2_SNAP_WIDE_M = 80;
-/** Segment musi być zgodny z kierunkiem jazdy ±45°. */
-export const LOCAL_L2_HEADING_ALIGN_DEG = 45;
+export const LOCAL_L2_SNAP_RADIUS_M = 55;
+export const LOCAL_L2_SNAP_WIDE_M = 95;
+/** Segment zgodny z kierunkiem jazdy; przy braku trafień — nearest w promieniu. */
+export const LOCAL_L2_HEADING_ALIGN_DEG = 58;
 const MIRROR_TTL_MS = 180_000;
 const MAX_STORED_POLYLINES = 36;
 
@@ -51,6 +51,24 @@ export class LocalRoadGeometryMirror {
 
   getPolylines(): RoadPoint[][] {
     return this.hasGeometry() ? this.polylines : [];
+  }
+
+  /**
+   * Heading-filter, potem nearest — zawsze wybierz segment bliżej osi drogi.
+   */
+  snapToLocalRoadBest(
+    lat: number,
+    lng: number,
+    travelHeadingDeg: number,
+    radiusM: number = LOCAL_L2_SNAP_RADIUS_M,
+  ): SnappedPose | null {
+    const withHeading = this.snapToLocalRoad(lat, lng, travelHeadingDeg, radiusM);
+    const nearest = this.snapToLocalRoadNearest(lat, lng, Math.max(radiusM, LOCAL_L2_SNAP_WIDE_M));
+    if (!withHeading) return nearest;
+    if (!nearest) return withHeading;
+    return withHeading.crossTrackM <= nearest.crossTrackM + 2
+      ? withHeading
+      : nearest;
   }
 
   /**

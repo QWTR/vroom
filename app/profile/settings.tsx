@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -75,6 +75,8 @@ const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { openBug } = useLocalSearchParams<{ openBug?: string }>();
+  const openBugHandledRef = React.useRef(false);
   const { theme, isDark, mode, setMode } = useTheme();
   const { profile, fetchProfile } = useProfile();
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
@@ -114,6 +116,14 @@ export default function SettingsScreen() {
   const deleteKeyboardInset = useKeyboardInset(deleteModal);
   const [logoutModal,        setLogoutModal]        = useState(false);
   const [bugModal,           setBugModal]           = useState(false);
+
+  useEffect(() => {
+    if (openBugHandledRef.current) return;
+    if (openBug === '1' || openBug === 'true') {
+      openBugHandledRef.current = true;
+      setBugModal(true);
+    }
+  }, [openBug]);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
   const [deleteConfirm,      setDeleteConfirm]      = useState('');

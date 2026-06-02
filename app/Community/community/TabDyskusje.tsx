@@ -178,83 +178,100 @@ const PostCard = React.memo(({
         borderWidth: 1, borderColor: theme.border2,
         overflow: 'hidden',
       }}>
-        {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, paddingBottom: 10 }}>
-          <TouchableOpacity onPress={() => onProfile(post.author.id)}>
+        {/* Header — nick w osobnej linii; odznaki + akcje nie ściskają się w jednym rzędzie */}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: 14, paddingBottom: 10, gap: 10 }}>
+          <TouchableOpacity onPress={() => onProfile(post.author.id)} style={{ flexShrink: 0 }}>
             <Avatar user={post.author} size={42} />
           </TouchableOpacity>
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <TouchableOpacity onPress={() => onProfile(post.author.id)}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', color: post.author.nickColor || theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
-                  {post.author.username}
-                </Text>
-                <UserBadges isAdmin={post.author.isAdmin} isPremium={post.author.isPremium} compact />
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#e3383515', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <MaterialIcons name="bolt" size={10} color="#e33835" />
-                  <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{post.author.points}</Text>
-                </View>
-              </View>
+
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <TouchableOpacity onPress={() => onProfile(post.author.id)} activeOpacity={0.7}>
+              <Text
+                style={{
+                  fontFamily: 'Orbitron',
+                  color: post.author.nickColor || theme.text,
+                  fontSize: 13,
+                  fontWeight: '700',
+                  letterSpacing: 0.3,
+                }}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {post.author.username}
+              </Text>
             </TouchableOpacity>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2, letterSpacing: 1 }}>{time}</Text>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 5 }}>
+              <UserBadges isAdmin={post.author.isAdmin} isPremium={post.author.isPremium} compact />
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 2,
+                backgroundColor: '#e3383515', borderRadius: 8,
+                paddingHorizontal: 6, paddingVertical: 2, flexShrink: 0,
+              }}>
+                <MaterialIcons name="bolt" size={10} color="#e33835" />
+                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{post.author.points}</Text>
+              </View>
+            </View>
+
+            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 6, letterSpacing: 1 }}>
+              {time}
+            </Text>
+
             <View style={{ flexDirection: 'row', marginTop: 5 }}>
               <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 4,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: '#e3383535',
-                backgroundColor: '#e3383518',
-                paddingHorizontal: 7,
-                paddingVertical: 2,
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                borderRadius: 8, borderWidth: 1, borderColor: '#e3383535',
+                backgroundColor: '#e3383518', paddingHorizontal: 7, paddingVertical: 2,
               }}>
                 <MaterialIcons name={categoryMeta.icon as any} size={10} color="#e33835" />
                 <Text style={{ color: '#e33835', fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
               </View>
             </View>
           </View>
-          {!isOwn && myId != null && (
-            <TouchableOpacity
-              onPress={handleFollowToggle}
-              disabled={followLoading}
-              style={{
-                paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, marginRight: 6,
-                backgroundColor: isFollowing ? theme.surface2 : '#e33835',
-                borderWidth: 1,
-                borderColor: isFollowing ? theme.border : '#e33835',
-              }}
-            >
-              {followLoading
-                ? <ActivityIndicator size="small" color={isFollowing ? theme.textDim : '#fff'} />
-                : (
-                  <Text style={{
-                    fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700',
-                    color: isFollowing ? theme.textDim : '#fff',
-                  }}>
-                    {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
-                  </Text>
-                )
-              }
-            </TouchableOpacity>
-          )}
-          {isOwn ? (
-            <TouchableOpacity
-              onPress={() => setShowDelete(true)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
-            >
-              <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
-            </TouchableOpacity>
-          ) : myId != null ? (
-            <TouchableOpacity
-              onPress={handleModerationPress}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
-            >
-              <MaterialIcons name="flag" size={16} color={theme.textDim} />
-            </TouchableOpacity>
-          ) : null}
+
+          <View style={{ flexShrink: 0, alignItems: 'flex-end', gap: 6, paddingTop: 2 }}>
+            {!isOwn && myId != null && (
+              <TouchableOpacity
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+                style={{
+                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10,
+                  backgroundColor: isFollowing ? theme.surface2 : '#e33835',
+                  borderWidth: 1,
+                  borderColor: isFollowing ? theme.border : '#e33835',
+                }}
+              >
+                {followLoading
+                  ? <ActivityIndicator size="small" color={isFollowing ? theme.textDim : '#fff'} />
+                  : (
+                    <Text style={{
+                      fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700',
+                      color: isFollowing ? theme.textDim : '#fff',
+                    }}>
+                      {isFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                    </Text>
+                  )
+                }
+              </TouchableOpacity>
+            )}
+            {isOwn ? (
+              <TouchableOpacity
+                onPress={() => setShowDelete(true)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
+              </TouchableOpacity>
+            ) : myId != null ? (
+              <TouchableOpacity
+                onPress={handleModerationPress}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <MaterialIcons name="flag" size={16} color={theme.textDim} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
         {/* Treść */}

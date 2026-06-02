@@ -1,5 +1,10 @@
 import React, { memo, useEffect, useState, type ReactNode } from 'react';
 import { DeviceEventEmitter, Text, View } from 'react-native';
+import {
+  markSpeedometerEmitted,
+  resetDriveSpeedometerThrottle,
+  shouldEmitSpeedometerKmh,
+} from '../../lib/driveUi/driveUiScheduler';
 
 export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 
@@ -29,9 +34,15 @@ export function resolveHudSpeedKmh(
 }
 
 export function emitSpeedometerKmh(kmh: number | null | undefined) {
-  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, {
-    kmh: normalizeHudSpeedKmh(kmh),
-  });
+  const normalized = normalizeHudSpeedKmh(kmh);
+  if (!shouldEmitSpeedometerKmh(normalized)) return;
+  markSpeedometerEmitted(normalized);
+  DeviceEventEmitter.emit(SPEEDOMETER_EVENT, { kmh: normalized });
+}
+
+/** Po wyjściu z trybu jazdy — następny tick może od razu zaktualizować HUD. */
+export function resetSpeedometerEmitterThrottle(): void {
+  resetDriveSpeedometerThrottle();
 }
 
 function useSpeedometerKmh(initialKmh = 0) {
@@ -46,7 +57,8 @@ function useSpeedometerKmh(initialKmh = 0) {
     const sub = DeviceEventEmitter.addListener(
       SPEEDOMETER_EVENT,
       (payload: { kmh?: number } | undefined) => {
-        setKmh(normalizeHudSpeedKmh(payload?.kmh));
+        const next = normalizeHudSpeedKmh(payload?.kmh);
+        setKmh((prev) => (Math.round(prev) === Math.round(next) ? prev : next));
       },
     );
     return () => sub.remove();

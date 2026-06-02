@@ -38,6 +38,8 @@ export const MapCanvas = memo(
         attributionEnabled={false}
         compassEnabled={false}
         surfaceView={Platform.OS === 'android' ? false : undefined}
+        scrollEnabled
+        zoomEnabled
         pitchEnabled
         rotateEnabled
         onPress={onPress}

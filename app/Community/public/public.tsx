@@ -18,8 +18,14 @@ import { API_URL } from '../../../constants/config';
 import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 import { UserBadges } from '../../../components/user/UserBadges';
+import { ProvinceBadge } from '../../../components/user/ProvinceBadge';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
-import { renderDiscussionBody, searchMentionUsers, resolveMentionUserId } from '../community/communityShared';
+import {
+  renderDiscussionBody,
+  searchMentionSuggestions,
+  resolveMentionUserId,
+  type MentionSuggestion,
+} from '../community/communityShared';
 
 const API = `${API_URL}/api/public-chat`;
 
@@ -47,6 +53,7 @@ interface ChatUser {
   id: number;
   username: string;
   avatarUrl: string | null;
+  province?: string | null;
   isPremium?: boolean;
   isAdmin?: boolean;
   nickColor?: string | null;
@@ -112,7 +119,7 @@ export default function PublicChatScreen() {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionUsers, setMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
+  const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
   const [notifMode, setNotifMode] = useState<PublicNotifMode>('all');
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
@@ -237,7 +244,7 @@ export default function PublicChatScreen() {
     }
     if (mentionTimer.current) clearTimeout(mentionTimer.current);
     mentionTimer.current = setTimeout(() => {
-      void searchMentionUsers(mentionQuery).then(setMentionUsers);
+      void searchMentionSuggestions(mentionQuery).then(setMentionUsers);
     }, 180);
     return () => {
       if (mentionTimer.current) clearTimeout(mentionTimer.current);
@@ -276,8 +283,9 @@ export default function PublicChatScreen() {
     if (id) router.push(`/profile/${id}` as any);
   }, [router]);
 
-  const insertMention = useCallback((username: string) => {
-    setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${username} `));
+  const insertMention = useCallback((item: MentionSuggestion) => {
+    const tag = item.type === 'province' ? item.mention : item.username;
+    setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${tag} `));
     setMentionQuery(null);
     setMentionUsers([]);
   }, []);
@@ -570,6 +578,9 @@ export default function PublicChatScreen() {
                   {item.sender.username}
                 </Text>
               </TouchableOpacity>
+              {!!item.sender.province && (
+                <ProvinceBadge province={item.sender.province} compact theme={theme} />
+              )}
               <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
             </View>
           )}
@@ -845,18 +856,31 @@ export default function PublicChatScreen() {
               }}>
                 {mentionUsers.map(u => (
                   <TouchableOpacity
-                    key={u.id}
-                    onPress={() => insertMention(u.username)}
+                    key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
+                    onPress={() => insertMention(u)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
                   >
-                    {u.avatarUrl
-                      ? <Image source={{ uri: u.avatarUrl }} style={{ width: 26, height: 26, borderRadius: 13 }} />
-                      : (
-                        <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{u.username.slice(0, 1).toUpperCase()}</Text>
-                        </View>
+                    {u.type === 'user' ? (
+                      u.avatarUrl
+                        ? <Image source={{ uri: u.avatarUrl }} style={{ width: 26, height: 26, borderRadius: 13 }} />
+                        : (
+                          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{u.username.slice(0, 1).toUpperCase()}</Text>
+                          </View>
+                        )
+                    ) : (
+                      <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#7cb34222', alignItems: 'center', justifyContent: 'center' }}>
+                        <MaterialIcons name="map" size={14} color="#7cb342" />
+                      </View>
+                    )}
+                    <View>
+                      <Text style={{ color: theme.text, fontSize: 13 }}>
+                        {u.type === 'province' ? `@${u.mention}` : `@${u.username}`}
+                      </Text>
+                      {u.type === 'province' && (
+                        <Text style={{ color: theme.textDim, fontSize: 10 }}>{u.label}</Text>
                       )}
-                    <Text style={{ color: theme.text, fontSize: 13 }}>@{u.username}</Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>

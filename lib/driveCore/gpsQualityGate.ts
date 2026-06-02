@@ -263,7 +263,7 @@ function reject(reason: string): GpsQualityResult {
 }
 
 /** Warstwa A — progi współdzielone z useAdaptiveGPS. */
-export const GPS_LAYER_A_ACTIVE_REJECT_ACC_M = 50;
+export const GPS_LAYER_A_ACTIVE_REJECT_ACC_M = 20;
 export const GPS_LAYER_A_ACTIVE_TELEPORT_M = 80;
 export const GPS_LAYER_A_ACTIVE_TELEPORT_MAX_DT_MS = 1500;
 

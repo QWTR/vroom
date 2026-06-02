@@ -11,6 +11,7 @@ import Toast             from 'react-native-toast-message';
 import { useProfile }    from '../../hooks/useProfile';
 import { useTheme }      from '../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
+import { POLISH_PROVINCES } from '../../constants/provinces';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -19,12 +20,18 @@ export default function EditProfileScreen() {
 
   const [username,    setUsername]    = useState('');
   const [location,    setLocation]    = useState('');
+  const [province,    setProvince]    = useState<string | null>(null);
   const [bio,         setBio]         = useState('');
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
 
   useEffect(() => { if (!profile) fetchProfile(); }, []);
   useEffect(() => {
-    if (profile) { setUsername(profile.username ?? ''); setLocation(profile.location ?? ''); setBio(profile.bio ?? ''); }
+    if (profile) {
+      setUsername(profile.username ?? '');
+      setLocation(profile.location ?? '');
+      setProvince(profile.province ?? null);
+      setBio(profile.bio ?? '');
+    }
   }, [profile]);
 
   const handlePickAvatar = async (useCamera: boolean) => {
@@ -59,7 +66,12 @@ export default function EditProfileScreen() {
       }
       setLocalAvatar(null);
     }
-    const ok = await updateProfile({ username: username.trim(), location: location.trim(), bio: bio.trim() });
+    const ok = await updateProfile({
+      username: username.trim(),
+      location: location.trim(),
+      province: province ?? '',
+      bio: bio.trim(),
+    });
     if (ok) {
       await fetchProfile();
       Toast.show({ type: 'success', text1: '✅ ZAPISANO', text2: 'Profil zaktualizowany!' });
@@ -128,6 +140,45 @@ export default function EditProfileScreen() {
 
       <Text style={labelStyle}>LOKALIZACJA</Text>
       <TextInput style={inputStyle} value={location} onChangeText={setLocation} placeholder="Np. Warszawa, Polska" placeholderTextColor={theme.textDim} />
+
+      <Text style={labelStyle}>WOJEWÓDZTWO</Text>
+      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 10, lineHeight: 14 }}>
+        Wyświetlane w profilu, klubach i czacie. Napisz np. @slask, by dotrzeć do użytkowników z regionu.
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+        <TouchableOpacity
+          onPress={() => setProvince(null)}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 7,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: province == null ? theme.primary : theme.border2,
+            backgroundColor: province == null ? `${theme.primary}22` : theme.surface3,
+          }}
+        >
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: province == null ? theme.primary : theme.textDim }}>Brak</Text>
+        </TouchableOpacity>
+        {POLISH_PROVINCES.map(p => {
+          const active = province === p.slug;
+          return (
+            <TouchableOpacity
+              key={p.slug}
+              onPress={() => setProvince(p.slug)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 7,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: active ? '#7cb342' : theme.border2,
+                backgroundColor: active ? '#7cb34222' : theme.surface3,
+              }}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? '#7cb342' : theme.textDim }}>{p.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <Text style={labelStyle}>BIO</Text>
       <TextInput style={[inputStyle, { height: 90, textAlignVertical: 'top' }]} value={bio} onChangeText={setBio} placeholder="Kilka słów o sobie..." placeholderTextColor={theme.textDim} multiline />

@@ -135,17 +135,24 @@ export class RoadSnapEngine {
 
     if (opts.preferLocalL2) {
       let local = this.tryLocalL2Snap(raw, travelHdg, maxStepM);
-      if (!local) {
-        local = this.tryLocalL2SnapNearest(raw, maxStepM);
-      }
       if (local) {
+        if (this.frozenPose && opts.isMoving) {
+          const movedM = distanceM(
+            this.frozenPose.lat,
+            this.frozenPose.lng,
+            local.lat,
+            local.lng,
+          );
+          if (movedM < 0.35) {
+            local = this.advanceOnRoadTowardRaw(this.frozenPose, raw, maxStepM);
+          }
+        }
         this.frozenPose = local;
         return local;
       }
       if (localRoadGeometryMirror.hasGeometry() && this.frozenPose) {
         if (opts.isMoving) {
-          const advanced = this.stickForwardOnLocalL2(raw, this.frozenPose, maxStepM)
-            ?? this.stepTowardRaw(this.frozenPose, raw, maxStepM);
+          const advanced = this.advanceOnRoadTowardRaw(this.frozenPose, raw, maxStepM);
           this.frozenPose = advanced;
           return advanced;
         }
@@ -166,7 +173,9 @@ export class RoadSnapEngine {
         }
       }
       if (opts.isMoving && this.frozenPose && opts.preferLocalL2) {
-        const stepped = this.stepTowardRaw(this.frozenPose, raw, maxStepM);
+        const stepped = localRoadGeometryMirror.hasGeometry()
+          ? this.advanceOnRoadTowardRaw(this.frozenPose, raw, maxStepM)
+          : this.stepTowardRaw(this.frozenPose, raw, maxStepM);
         this.frozenPose = stepped;
         return stepped;
       }
@@ -210,18 +219,28 @@ export class RoadSnapEngine {
   finalizeSnapPose(
     pose: SnappedPose,
     cache: GeometryCache,
-    maxCrossTrackM = 5,
+    raw?: RawGpsFix,
+    maxCrossTrackM = 6,
   ): SnappedPose {
     if (pose.crossTrackM <= maxCrossTrackM) return pose;
 
+    const snapLat = raw?.lat ?? pose.lat;
+    const snapLng = raw?.lng ?? pose.lng;
+    const travelHdg = pose.heading;
+
     if (localRoadGeometryMirror.hasGeometry()) {
-      const local = localRoadGeometryMirror.snapToLocalRoad(
-        pose.lat,
-        pose.lng,
-        pose.heading,
-        LOCAL_L2_SNAP_WIDE_M,
-      );
-      if (local) return local;
+      const local = localRoadGeometryMirror.snapToLocalRoadBest(
+        snapLat,
+        snapLng,
+        travelHdg,
+        LOCAL_L2_SNAP_RADIUS_M,
+      )
+        ?? localRoadGeometryMirror.snapToLocalRoadNearest(
+          snapLat,
+          snapLng,
+          LOCAL_L2_SNAP_WIDE_M,
+        );
+      if (local && local.crossTrackM <= LOCAL_L2_SNAP_WIDE_M) return local;
     }
 
     const poly = cache.getPolyline();
@@ -256,16 +275,15 @@ export class RoadSnapEngine {
     if (!localRoadGeometryMirror.hasGeometry()) return null;
 
     let pose =
-      localRoadGeometryMirror.snapToLocalRoad(
+      localRoadGeometryMirror.snapToLocalRoadBest(
         raw.lat,
         raw.lng,
         travelHeadingDeg,
         LOCAL_L2_SNAP_RADIUS_M,
       )
-      ?? localRoadGeometryMirror.snapToLocalRoad(
+      ?? localRoadGeometryMirror.snapToLocalRoadNearest(
         raw.lat,
         raw.lng,
-        travelHeadingDeg,
         LOCAL_L2_SNAP_WIDE_M,
       );
 
@@ -400,7 +418,114 @@ export class RoadSnapEngine {
     return target;
   }
 
-  /** Ograniczony krok w stronę surowego GPS — ostatnia deska ratunku przy ruchu. */
+  /**
+   * Ruch do przodu wzdłuż L2 w stronę rzutu GPS — bez ściągania markera na surowy fix.
+   */
+  private advanceOnRoadTowardRaw(
+    frozen: SnappedPose,
+    raw: RawGpsFix,
+    maxStepM: number,
+  ): SnappedPose {
+    const forward = this.stickForwardOnLocalL2(raw, frozen, maxStepM);
+    if (forward) return forward;
+
+    const target = localRoadGeometryMirror.snapToLocalRoadBest(
+      raw.lat,
+      raw.lng,
+      frozen.heading,
+      LOCAL_L2_SNAP_RADIUS_M,
+    )
+      ?? localRoadGeometryMirror.snapToLocalRoadNearest(
+        raw.lat,
+        raw.lng,
+        LOCAL_L2_SNAP_WIDE_M,
+      );
+
+    if (!target) {
+      return this.stepForwardOnLocalRoad(frozen, maxStepM);
+    }
+
+    const polys = localRoadGeometryMirror.getPolylines();
+    for (const poly of polys) {
+      if (poly.length < 2) continue;
+      const stepped = stepPoseOnPolyline(
+        frozen.lat,
+        frozen.lng,
+        target.lat,
+        target.lng,
+        poly,
+        Math.max(4, maxStepM),
+        LOCAL_L2_SNAP_WIDE_M,
+      );
+      return {
+        lat: stepped.lat,
+        lng: stepped.lng,
+        heading: target.heading,
+        crossTrackM: distanceM(stepped.lat, stepped.lng, raw.lat, raw.lng),
+        segmentIndex: target.segmentIndex,
+      };
+    }
+
+    return target;
+  }
+
+  /** Krok do przodu wzdłuż drogi gdy snap nie znalazł celu — unika zamrożenia pozycji. */
+  private stepForwardOnLocalRoad(
+    frozen: SnappedPose,
+    maxStepM: number,
+  ): SnappedPose {
+    const stepM = Math.max(4, maxStepM);
+    const rad = (frozen.heading * Math.PI) / 180;
+    const R = 6371000;
+    const aheadM = Math.max(stepM * 3, 40);
+    const dLat = (aheadM * Math.cos(rad) * 180) / (Math.PI * R);
+    const cosLat = Math.cos((frozen.lat * Math.PI) / 180);
+    const dLng = cosLat > 1e-6
+      ? (aheadM * Math.sin(rad) * 180) / (Math.PI * R * cosLat)
+      : 0;
+    const aheadLat = frozen.lat + dLat;
+    const aheadLng = frozen.lng + dLng;
+
+    const polys = localRoadGeometryMirror.getPolylines();
+    for (const poly of polys) {
+      if (poly.length < 2) continue;
+      const stepped = stepPoseOnPolyline(
+        frozen.lat,
+        frozen.lng,
+        aheadLat,
+        aheadLng,
+        poly,
+        stepM,
+        LOCAL_L2_SNAP_WIDE_M,
+      );
+      const movedM = distanceM(frozen.lat, frozen.lng, stepped.lat, stepped.lng);
+      if (movedM < 0.5) continue;
+      const proj = projectOnPolylineForward(
+        stepped.lat,
+        stepped.lng,
+        poly,
+        Math.max(0, frozen.segmentIndex - 1),
+        LOCAL_L2_SNAP_WIDE_M,
+      );
+      if (proj) {
+        return {
+          lat: proj.lat,
+          lng: proj.lng,
+          heading: proj.heading,
+          crossTrackM: proj.crossTrackM,
+          segmentIndex: proj.segmentIndex,
+        };
+      }
+      return {
+        ...frozen,
+        lat: stepped.lat,
+        lng: stepped.lng,
+      };
+    }
+    return { ...frozen };
+  }
+
+  /** Ograniczony krok w stronę surowego GPS — tylko bez geometrii L2. */
   private stepTowardRaw(
     prev: SnappedPose,
     raw: RawGpsFix,
@@ -431,7 +556,7 @@ export class RoadSnapEngine {
     if (!prev || maxStepM <= 0) return next;
     const jumpM = distanceM(prev.lat, prev.lng, next.lat, next.lng);
     if (jumpM <= maxStepM) return next;
-    if (next.crossTrackM <= 18 && jumpM <= Math.max(maxStepM, 42)) {
+    if (next.crossTrackM <= 10 && jumpM <= Math.max(maxStepM, 42)) {
       return next;
     }
 

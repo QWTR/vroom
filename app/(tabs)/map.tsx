@@ -43,7 +43,9 @@ import {
   SpeedValueText,
   emitSpeedometerKmh,
   normalizeHudSpeedKmh,
+  resetSpeedometerEmitterThrottle,
 } from '../../components/map/SpeedometerHUD';
+import { createTripCameraScheduler } from '../../lib/driveUi/driveUiScheduler';
 import { MapTerrainLayers } from '../../components/map/MapTerrainLayers';
 import { MapVividLayers } from '../../components/map/MapVividLayers';
 import { MapCanvas } from '../../components/map/MapCanvas';
@@ -77,6 +79,11 @@ import { vroomGpsLog, vroomGpsLogNow } from '../../lib/vroomGpsLog';
 import { beginGpsTick } from '../../lib/gpsTickTrace';
 import { logGpsTickLayer, logGpsTickLayerThrottled } from '../../lib/gpsTickTraceLog';
 import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
+import {
+  buildRerouteOrigin,
+  quantizeHeading,
+  resolveRerouteTravelHeadingDeg,
+} from '../../lib/navigation/reroute';
 
 ensureMapboxToken();
 
@@ -113,7 +120,11 @@ import {
   type TripMoveSample,
 } from '../../scripts/speedSanitizer';
 
-import { useAdaptiveGPS } from '../../hooks/useAdaptiveGPS';
+import { useDriveLocationWatch } from '../../hooks/useDriveLocationWatch';
+import {
+  useGpsForegroundLifecycle,
+  shouldSkipResumeDedupe,
+} from '../../hooks/useGpsForegroundLifecycle';
 import {
   BG_IS_SHARING_KEY,
   LIVE_SHARING_USER_PREF_KEY,
@@ -302,10 +313,10 @@ const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
 const CAMERA_SPEED_LIMIT_GATE_NAV_M = 10; // meters in driving/navigation
 
 // Reroute cooldown — avoids hammering Directions API while continuously off-route
-const REROUTE_COOLDOWN_MS = 120_000; // min. odstęp między requestami Directions przy reroute
-const REROUTE_MIN_MOVED_M = 700;     // wcześniejszy reroute tylko po dużym zejściu z trasy
-/** ~4× NAV_PROGRESS_UI_MS — potwierdzenie off-route na snapped pozycji. */
-const OFF_ROUTE_CONFIRM_STREAK = 4;
+const REROUTE_COOLDOWN_MS = 45_000; // min. odstęp między requestami Directions przy reroute
+const REROUTE_MIN_MOVED_M = 220;    // wcześniejszy reroute po zejściu z trasy (bez czekania 700 m)
+/** ~3× NAV_PROGRESS_UI_MS — szybsze potwierdzenie zjazdu z trasy. */
+const OFF_ROUTE_CONFIRM_STREAK = 3;
 // v10: route polyline snap radius zwiekszony z 48 do 80 — w nawigacji ufamy
 // route polyline jako PRIMARY snap source (L1 w client snap hierarchy). Wieksza
 // tolerancja = marker zawsze plynnie na trasie nawet gdy GPS dryfuje +-30m.
@@ -1014,7 +1025,8 @@ const PASSIVE_DISTANCE_MIN_KMH   = 7;
 /** Throttle publikacji markera na UI (Hz) poza nawigacją/jazdą. */
 const UI_LOCATION_THROTTLE_MS    = 400;
 /** Podczas jazdy: userLocation state tylko dla fuel/socket — marker/kamera z workletu. */
-const ACTIVE_UI_LOCATION_THROTTLE_MS = 1200;
+/** Rzadsze setUserLocation w jazdzie — mniej re-renderow MapScreen (marker = worklet). */
+const ACTIVE_UI_LOCATION_THROTTLE_MS = 2000;
 /** Podczas jazdy/nawigacji userLocation state jest tylko dla secondary/live state. */
 const SECONDARY_LOC_PUBLISH_MS   = 2500;
 const NAV_PROGRESS_UI_MS         = 650;
@@ -1719,6 +1731,31 @@ export default function MapScreen() {
     timestamp?: number;
   }) => void) | null>(null);
 
+  /** Throttle native setCamera — max ~4 Hz; marker/worklet bez zmian. */
+  const tripCameraSchedulerRef = useRef<ReturnType<typeof createTripCameraScheduler> | null>(null);
+  /** Sync z useCameraAnimation — wcześniej niż scheduler (hook jest niżej w pliku). */
+  const isUserExploringMapRef = useRef<() => boolean>(() => false);
+  const ensureTripCameraScheduler = useCallback(() => {
+    if (!tripCameraSchedulerRef.current) {
+      tripCameraSchedulerRef.current = createTripCameraScheduler((frame) => {
+        if (!isDrivingRef.current && !isNavigatingRef.current) return;
+        updateCameraFrameRef.current?.({
+          center: { latitude: frame.lat, longitude: frame.lng },
+          heading: frame.heading,
+          speedKmh: speedKmhRef.current,
+          isNavigating: isNavigatingRef.current,
+          isDriving: isDrivingRef.current,
+          timestamp: Date.now(),
+          headingFromTripPipeline: true,
+        });
+      });
+    }
+    return tripCameraSchedulerRef.current;
+  }, []);
+  const disposeTripCameraScheduler = useCallback(() => {
+    tripCameraSchedulerRef.current?.dispose();
+    tripCameraSchedulerRef.current = null;
+  }, []);
   /** Kamera: jeden native setCamera na tick applyTripPosition (nie 60 FPS z workletu). */
   const pushTripCameraFromApply = useCallback((
     lat: number,
@@ -1726,15 +1763,8 @@ export default function MapScreen() {
     heading: number,
   ) => {
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
-    updateCameraFrameRef.current?.({
-      center: { latitude: lat, longitude: lng },
-      heading,
-      speedKmh: speedKmhRef.current,
-      isNavigating: isNavigatingRef.current,
-      isDriving: isDrivingRef.current,
-      timestamp: Date.now(),
-    });
-  }, []);
+    ensureTripCameraScheduler().push(lat, lng, heading);
+  }, [ensureTripCameraScheduler]);
   /** V10: bump/resume bez feedDR — jeden applyTripPosition. */
   const applyTripPositionRef = useRef<
     ((lat: number, lng: number, opts?: {
@@ -1839,11 +1869,6 @@ export default function MapScreen() {
         return normalizeHeading(entryH);
       }
     }
-    if (Number.isFinite(pose.crossTrackM) && pose.crossTrackM <= 32) {
-      const roadHdg = normalizeHeading(pose.heading);
-      travelHeadingStateRef.current = { lat, lng, hdg: roadHdg, initialized: true };
-      return roadHdg;
-    }
     return resolveTripTravelHeading(lat, lng, pose.heading, speedKmh);
   }, [resolveTripTravelHeading]);
   const feedDRRef   = useRef<(pos: { latitude: number; longitude: number }, speedMs: number, heading: number) => void>(() => {});
@@ -1906,6 +1931,7 @@ export default function MapScreen() {
   // reroute cooldown: limit reroute trigger frequency
   const lastRerouteTimeRef  = useRef<number>(0);
   const lastRerouteLocRef   = useRef<{ lat: number; lng: number } | null>(null);
+  const lastRerouteMotionAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
   const offRouteSinceRef    = useRef<number>(0);
   const offRouteStreakRef   = useRef(0);
   const lastDrivingNoSnapForceRef = useRef<number>(0);
@@ -1981,6 +2007,7 @@ export default function MapScreen() {
   const drivingManualDisabledAtRef = useRef(0);
   const kmSinceManualOffRef = useRef(0);
   const gpsForceActiveRef = useRef(false);
+  const gpsLockEstablishedRef = useRef(false);
   const lastBumpActiveMarkerAtRef = useRef(0);
   const tripMoveSamplesRef = useRef<TripMoveSample[]>([]);
   const rawMotionWakeUntilRef = useRef(0);
@@ -3613,6 +3640,7 @@ export default function MapScreen() {
   // Using a dedicated state instead of `userLocation` prevents the
   // reroute Directions hook from re-firing on every GPS tick while off-route.
   const [rerouteOrigin, setRerouteOrigin] = useState<LocationState | null>(null);
+  const [rerouteHeadingForApi, setRerouteHeadingForApi] = useState<number | undefined>(undefined);
   /** Trasa po reroute — bez zmiany navStartLoc (unika drugiego Directions przy tym samym reroute). */
   const [navRouteOverride, setNavRouteOverride] = useState<DirectionsResult | null>(null);
   const [arrived,      setArrived]      = useState(false);
@@ -3805,6 +3833,7 @@ export default function MapScreen() {
         durationMs: feedDur,
         speedMs: feedSpeedMs,
       });
+      pushTripCameraFromApply(out.pose.lat, out.pose.lng, travelHdg);
     },
   });
   const driveCoreProcessRef = useRef<
@@ -4908,7 +4937,22 @@ export default function MapScreen() {
     resetBrowseCamera,
     releaseTripCameraState,
     setFollowMode,
+    setTripCameraActive,
+    getLastProgrammaticCameraApplyMs,
+    isUserExploringMap,
+    resumeTripCameraFollow,
+    syncUserExploreView,
+    notifyUserMapInteraction,
+    getLastAppliedCameraZoom,
   } = useCameraAnimation(cameraRef);
+
+  useEffect(() => {
+    isUserExploringMapRef.current = isUserExploringMap;
+  }, [isUserExploringMap]);
+
+  useEffect(() => {
+    setTripCameraActive(isDriving || isNavigating);
+  }, [isDriving, isNavigating, setTripCameraActive]);
 
   const resetBrowseCameraRef = useRef<
     ((center: { latitude: number; longitude: number }, opts?: { animate?: boolean }) => void) | null
@@ -4971,6 +5015,11 @@ export default function MapScreen() {
   useEffect(() => {
     updateCameraFrameRef.current = updateCameraFrame;
   }, [updateCameraFrame]);
+
+  useEffect(() => () => {
+    disposeTripCameraScheduler();
+    resetSpeedometerEmitterThrottle();
+  }, [disposeTripCameraScheduler]);
 
   useEffect(() => {
     if (!DRIVE_CORE_V2) return;
@@ -5060,6 +5109,7 @@ export default function MapScreen() {
   const pushCameraFromSmooth = useCallback((lat: number, lng: number, hdg: number) => {
     if (!V10_CLIENT_FIRST && !DRIVE_CORE_V2) return;
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
+    if (isUserExploringMapRef.current()) return;
     const now = Date.now();
     const prevDisp = markerDisplayRef.current;
     const frameMoveM = prevDisp.at > 0
@@ -5101,6 +5151,7 @@ export default function MapScreen() {
       isNavigating: isNavigatingRef.current,
       isDriving: isDrivingRef.current,
       timestamp: now,
+      headingFromTripPipeline: DRIVE_CORE_V2,
     });
   }, []);
 
@@ -5147,19 +5198,18 @@ export default function MapScreen() {
     pushCameraFromSmooth(lat, lng, Number.isFinite(hdg) ? hdg : 0);
   }, [isDriving, isNavigating, isTripActiveMap, pushCameraFromSmooth, tripSmoothPosition]);
 
-  /** V2: cruise + kamera ~5 Hz (bez useAnimatedReaction 60 FPS). */
+  /** V2: cruise DR + kamera max ~4 Hz (scheduler) — bez 10 Hz setCamera na bridge. */
   useEffect(() => {
     if (!DRIVE_CORE_V2 || !isTripActiveMap) return;
     const id = setInterval(() => {
-      const now = Date.now();
-      if (now - lastCamPushFromSmoothRef.current >= 180) {
-        const la = driveMarker.lat.value;
-        const ln = driveMarker.lng.value;
-        const hdg = driveMarker.heading.value;
-        if (Number.isFinite(la) && Number.isFinite(ln)) {
-          lastCamPushFromSmoothRef.current = now;
-          pushTripCameraFromApply(la, ln, Number.isFinite(hdg) ? hdg : 0);
-        }
+      const la = driveMarker.lat.value;
+      const ln = driveMarker.lng.value;
+      const markerHdg = driveMarker.heading.value;
+      const hdg = Number.isFinite(markerHdg)
+        ? markerHdg
+        : lastHeadingRef.current;
+      if (Number.isFinite(la) && Number.isFinite(ln) && Number.isFinite(hdg)) {
+        pushTripCameraFromApply(la, ln, hdg);
       }
       const gpsAge = Date.now() - lastGpsTickAtRef.current;
       if (gpsAge < 180 || gpsAge > 5000) return;
@@ -5167,27 +5217,9 @@ export default function MapScreen() {
       if (kmh >= 2.5) {
         driveMarker.setCruiseSpeed(Math.max(0.12, Math.min(52, kmh / 3.6)));
       }
-    }, 100);
+    }, 250);
     return () => clearInterval(id);
   }, [isTripActiveMap, driveMarker, pushTripCameraFromApply]);
-
-  // Android: między tickami GPS utrzymuj HUD prędkości (bez czekania na publishSpeed).
-  useEffect(() => {
-    if (!isTripActiveMap) return;
-    const id = setInterval(() => {
-      const gpsAgeMs = lastGpsTickAtRef.current > 0
-        ? Date.now() - lastGpsTickAtRef.current
-        : 0;
-      if (gpsAgeMs < 700 || gpsAgeMs > 45_000) return;
-      const hudKmh = speedKmhRef.current;
-      if (hudKmh >= 2) {
-        emitSpeedometerKmh(hudKmh);
-      } else if (hudKmh <= 0.5) {
-        emitSpeedometerKmh(0);
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [isTripActiveMap]);
 
   /** Wejście w jazdę: padding HUD + marker na dole ekranu (recenter wymusza setCamera padding). */
   useEffect(() => {
@@ -5796,7 +5828,7 @@ export default function MapScreen() {
         // siedział w paśmie 40-49 m (poniżej starego progu >50). Obniżamy
         // próg na 40 m, streak na 2 s, cooldown na 3 s. Plus po recenter
         // czyścimy markerStuckStreakRef bo recovery i watchdog często idą razem.
-        if (isDrivingRef.current && cameraLagM > 40) {
+        if (isDrivingRef.current && cameraLagM > 40 && !isUserExploringMapRef.current()) {
           const streak = cameraLagStreakRef.current;
           if (!streak) {
             cameraLagStreakRef.current = { startAt: uiNow, lastLagM: cameraLagM };
@@ -5948,7 +5980,9 @@ export default function MapScreen() {
   const { route: rerouteResult, loading: rerouteLoading, error: rerouteError } = useGoogleDirections(
     rerouteOrigin,
     rerouteOrigin ? endLocation : null,
-    rerouteOrigin ? (lastHeadingRef.current as any) : undefined,
+    undefined,
+    rerouteHeadingForApi,
+    { isReroute: true, continueStraight: true },
   );
 
   const clusteredWarnings = useMemo(
@@ -6553,6 +6587,9 @@ export default function MapScreen() {
     setSpeed(null);
     clearStats();
     tripPeakSpeedRef.current = 0;
+    disposeTripCameraScheduler();
+    resetSpeedometerEmitterThrottle();
+    emitSpeedometerKmh(0);
     if (DRIVE_CORE_V2) {
       driveCore.reset();
       driveMarker.reset();
@@ -6566,7 +6603,7 @@ export default function MapScreen() {
       reason: opts?.reason ?? 'unspecified',
       skipFlush: !!opts?.skipFlush,
     }));
-  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, driveCore, driveMarker]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, driveCore, driveMarker, disposeTripCameraScheduler]);
 
   const exportNavDriveTrace = useCallback(() => {
     void shareNavTraceLog();
@@ -6696,7 +6733,15 @@ export default function MapScreen() {
           }
         }
         if (!seedPolyline) {
-          void driveCore.primeLocalGeometry(entryLat, entryLng);
+          void driveCore.primeLocalGeometry(entryLat, entryLng).then(() => {
+            const re = driveCore.engine.snap.getFrozenPose();
+            if (!re || !isDrivingRef.current) return;
+            driveMarker.resetTo(re.lat, re.lng, re.heading);
+            pushTripCameraFromApply(re.lat, re.lng, re.heading);
+            drLatRef.current = re.lat;
+            drLngRef.current = re.lng;
+            lastHeadingRef.current = re.heading;
+          });
         }
       }
       vroomGpsLog('ENTRY_SNAP', {
@@ -6747,7 +6792,7 @@ export default function MapScreen() {
       }
       if (!gpsForceActiveRef.current) {
         gpsForceActiveRef.current = true;
-        setGpsForceActive(true);
+        applyGpsForceActive(true);
       }
       startGPS();
       navDriveTraceSession('driving_start', {
@@ -6864,13 +6909,24 @@ export default function MapScreen() {
   // Adaptive GPS
   // ─────────────────────────────────────────────────────────
   const [gpsForceActive, setGpsForceActive] = useState(false);
+  const applyGpsForceActive = useCallback((active: boolean) => {
+    if (gpsForceActiveRef.current === active) return;
+    gpsForceActiveRef.current = active;
+    setGpsForceActive(active);
+  }, []);
 
-  const { start: startGPS, stop: stopGPS } = useAdaptiveGPS({
+  const { start: startGPS, stop: stopGPS, hardRestart: hardRestartGPS } = useDriveLocationWatch({
     isNavigating,
     isDriving,
     isMapFocused,
     speedKmh: speedKmhRef.current,
     forceActive: gpsForceActive,
+    onGpsLockChange: useCallback((locked: boolean) => {
+      gpsLockEstablishedRef.current = locked;
+      if (isDrivingRef.current || isNavigatingRef.current) {
+        setGpsAcquiring(!locked);
+      }
+    }, []),
     onLocation: useCallback((loc) => {
       gpsResumeSoftHoldSkipRef.current = false;
       gpsTickCountRef.current += 1;
@@ -6987,11 +7043,10 @@ export default function MapScreen() {
           lastAcceptedFixWallClockRef.current = now;
           return;
         }
-        // Bramka V2 odrzuciła fix — NIE kończ całego onLocation (inaczej free-drive =
-        // brak HUD, brak gpsForceActive, marker stoi). Lekki fallback bez legacy.
+        // Bramka V2 odrzuciła fix — HUD może żyć, marker/kamera tylko przy lock + sensownej accuracy.
         if (!gpsForceActiveRef.current) {
           gpsForceActiveRef.current = true;
-          setGpsForceActive(true);
+          applyGpsForceActive(true);
         }
         const fallbackKmh = gpsSpeedMs != null && gpsSpeedMs >= 0
           ? normalizeHudSpeedKmh(gpsSpeedMs * 3.6)
@@ -7000,15 +7055,30 @@ export default function MapScreen() {
           speedKmhRef.current = fallbackKmh;
           emitSpeedometerKmh(fallbackKmh);
         }
-        const fbLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
-          ? drLatRef.current
-          : rawLat0;
-        const fbLng = Number.isFinite(drLngRef.current) && drLngRef.current !== 0
-          ? drLngRef.current
-          : rawLng0;
-        const fbHdg = Number.isFinite(lastHeadingRef.current)
-          ? lastHeadingRef.current
-          : (loc.heading != null && Number.isFinite(loc.heading) ? loc.heading : 0);
+        const allowMapFallback =
+          gpsLockEstablishedRef.current
+          && acc <= 30;
+        if (!allowMapFallback) {
+          lastAcceptedFixWallClockRef.current = now;
+          return;
+        }
+        const frozenSnap = driveCore.engine.snap.getFrozenPose();
+        const fbLat = frozenSnap
+          ? frozenSnap.lat
+          : Number.isFinite(drLatRef.current) && drLatRef.current !== 0
+            ? drLatRef.current
+            : rawLat0;
+        const fbLng = frozenSnap
+          ? frozenSnap.lng
+          : Number.isFinite(drLngRef.current) && drLngRef.current !== 0
+            ? drLngRef.current
+            : rawLng0;
+        const rawHdg = loc.heading != null && Number.isFinite(loc.heading) ? loc.heading : 0;
+        const fbHdg = frozenSnap && Number.isFinite(frozenSnap.heading)
+          ? frozenSnap.heading
+          : Number.isFinite(lastHeadingRef.current)
+            ? lastHeadingRef.current
+            : (fallbackKmh < 5 && acc > 20 ? lastHeadingRef.current || 0 : rawHdg);
         drLatRef.current = fbLat;
         drLngRef.current = fbLng;
         driveMarker.pushTarget({
@@ -7067,7 +7137,7 @@ export default function MapScreen() {
         && !gpsForceActiveRef.current
       ) {
         gpsForceActiveRef.current = true;
-        setGpsForceActive(true);
+        applyGpsForceActive(true);
       }
       const drivingLowSpeedJumpCapM = (kmh: number, accuracyM: number) => {
         if (kmh >= 12) return Infinity;
@@ -9258,7 +9328,7 @@ export default function MapScreen() {
         if (movingForDriving || drivingConsecutiveRef.current >= 1) {
           if (!gpsForceActiveRef.current) {
             gpsForceActiveRef.current = true;
-            setGpsForceActive(true);
+            applyGpsForceActive(true);
           }
         } else if (
           !isDrivingRef.current
@@ -9267,7 +9337,7 @@ export default function MapScreen() {
           && gpsForceActiveRef.current
         ) {
           gpsForceActiveRef.current = false;
-          setGpsForceActive(false);
+          applyGpsForceActive(false);
         }
 
         const matchedPts = getMatchedPoints();
@@ -11709,20 +11779,19 @@ export default function MapScreen() {
     );
   }, [isMapFocused, userLocation, feedDR]);
 
-  const restartGPSWatcher = useCallback((reason: 'foreground' | 'focus' | 'resume') => {
+  const restartGPSWatcher = useCallback((reason: 'foreground' | 'focus' | 'resume', opts?: { force?: boolean }) => {
     const now = Date.now();
-    if (now - lastGpsRestartAtRef.current < GPS_RESTART_COOLDOWN_MS) return;
+    if (now - lastGpsRestartAtRef.current < GPS_RESTART_COOLDOWN_MS && !opts?.force) return;
     const fixAge = now - lastAcceptedFixWallClockRef.current;
     const bgPause = lastBackgroundAtRef.current > 0 ? now - lastBackgroundAtRef.current : 0;
     const tripActive = isDrivingRef.current || isNavigatingRef.current;
-    // Watcher zostaje przy życiu w tle TYLKO gdy user włączył BG tracking.
-    // Wcześniej tripActive sam podtrzymywał watcher mimo wyłączonego BG —
-    // co kłóciło się z zachowaniem oczekiwanym przez użytkownika (stop w tle).
+    const forceRestart = opts?.force === true || (tripActive && bgPause >= GPS_BACKGROUND_STALE_MS);
     const watcherLikelyAlive =
       backgroundTrackingRef.current
       || (tripActive && appStateRef.current === 'active');
     if (
-      (reason === 'focus' || reason === 'resume')
+      !forceRestart
+      && (reason === 'focus' || reason === 'resume')
       && watcherLikelyAlive
       && !foregroundGpsIntentionallyStoppedRef.current
       && fixAge < GPS_WATCHER_STALE_MS
@@ -11739,19 +11808,23 @@ export default function MapScreen() {
       console.log('[GPSDBG] WATCHER_RESTART', JSON.stringify({
         at: now,
         reason,
+        force: forceRestart,
         fixAgeMs: Math.max(0, now - lastAcceptedFixWallClockRef.current),
         bgPauseMs: bgPause,
       }));
     }
     if (__DEV__) console.log(`[GPS] Restart watcher (${reason})`);
-    // Allow a slightly larger first jump after watcher re-subscribe.
     lastGoodTimeRef.current = now - GPS_RESUME_GRACE_PERIOD_MS;
-    // Avoid counting a stale pre-background anchor as the first segment after resume.
     lastNavLocRef.current = null;
     drivingLastLocRef.current = null;
     idleJumpCandidateRef.current = null;
     idleUiJumpCandidateRef.current = null;
     stillLockCandidateRef.current = null;
+    if (forceRestart && tripActive) {
+      void hardRestartGPS(`restart_${reason}`);
+      foregroundGpsIntentionallyStoppedRef.current = false;
+      return;
+    }
     stopGPS();
     foregroundGpsIntentionallyStoppedRef.current = true;
     startGPS();
@@ -11762,7 +11835,7 @@ export default function MapScreen() {
         lastGoodLocRef.current = { lat: u.latitude, lng: u.longitude };
       }
     }
-  }, [startGPS, stopGPS]);
+  }, [startGPS, stopGPS, hardRestartGPS]);
 
   // One-shot location refresh: immediately snaps the marker to the current
   // position before the watch subscription has had a chance to emit updates.
@@ -12078,7 +12151,7 @@ export default function MapScreen() {
       console.log('[GPSDBG] HEALTH_RECOVERY', JSON.stringify({ at: now, reason, gpsAgeMs: Math.round(gpsAgeMs) }));
     }
 
-    restartGPSWatcher('resume');
+    restartGPSWatcher('resume', { force: true });
     refreshLocationOneShot({ force: true });
 
     const cached = peekMapLastLocation();
@@ -12478,7 +12551,40 @@ export default function MapScreen() {
     }
   }, [region, userLocation]);
 
-  const handleGpsResume = useCallback((source: 'foreground' | 'focus') => {
+  const syncTripCameraAfterResume = useCallback((lat: number, lng: number, heading: number) => {
+    if (!isDrivingRef.current && !isNavigatingRef.current) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const hdg = Number.isFinite(heading) ? heading : 0;
+    driveMarker.resetTo(lat, lng, hdg);
+    setFollowMode(isNavigatingRef.current ? 'navigationFollow' : 'drivingFollow');
+    recenterTo({
+      center: { latitude: lat, longitude: lng },
+      heading: hdg,
+      speedKmh: speedKmhRef.current,
+      active: true,
+      isNavigating: isNavigatingRef.current,
+      instant: true,
+    });
+    pushTripCameraFromApply(lat, lng, hdg);
+    ensureTripCameraScheduler().flush();
+    lastCamPushFromSmoothRef.current = Date.now();
+    if (__DEV__) {
+      console.log('[GPSDBG] CAMERA_RESYNC', JSON.stringify({
+        at: Date.now(),
+        lat: Number(lat.toFixed(5)),
+        lng: Number(lng.toFixed(5)),
+      }));
+    }
+    void logTelemetry('CAMERA_RESYNC', {
+      lat: Number(lat.toFixed(5)),
+      lng: Number(lng.toFixed(5)),
+    });
+  }, [driveMarker, setFollowMode, recenterTo, pushTripCameraFromApply, ensureTripCameraScheduler]);
+
+  const handleGpsResume = useCallback((
+    source: 'foreground' | 'focus',
+    opts?: { forceWatcherRestart?: boolean; bgPauseMs?: number },
+  ) => {
     const now = Date.now();
     if (
       source === 'focus'
@@ -12497,6 +12603,17 @@ export default function MapScreen() {
       lastForegroundResumeAtRef.current = now;
     }
     if (__DEV__) console.log('[GPSDBG] RESUME_FLOW', JSON.stringify({ at: now, source }));
+
+    const bgPauseMs = opts?.bgPauseMs ?? (
+      lastBackgroundAtRef.current > 0 ? now - lastBackgroundAtRef.current : 0
+    );
+    if (bgPauseMs >= GPS_BACKGROUND_STALE_MS && (isDrivingRef.current || isNavigatingRef.current)) {
+      tripResumeFreezeUntilRef.current = 0;
+      tripResumeAnchorRef.current = null;
+      tripResumeConfirmRef.current = null;
+      tripResumeMotionWakeHitsRef.current = 0;
+      driveCore.engine.quality.reset();
+    }
 
     ensureRegionBootstrapped(source);
     void loadMapLastLocation().then((cached) => {
@@ -12518,11 +12635,18 @@ export default function MapScreen() {
       if (__DEV__) console.log('[GPSDBG] RESUME_FORCE_REACQUIRE', JSON.stringify({ at: Date.now(), source }));
       return;
     }
-    if (now - lastResumeHandledAtRef.current < GPS_RESUME_DEDUPE_MS) return;
+    if (now - lastResumeHandledAtRef.current < GPS_RESUME_DEDUPE_MS) {
+      if (!shouldSkipResumeDedupe(bgPauseMs)) return;
+    }
     lastResumeHandledAtRef.current = now;
     setGpsAcquiring(false);
     console.log(`[GPS] Resume flow (${source})`);
-    restartGPSWatcher(source === 'focus' ? 'focus' : 'resume');
+    if (!opts?.forceWatcherRestart) {
+      restartGPSWatcher(
+        source === 'focus' ? 'focus' : 'resume',
+        { force: bgPauseMs >= GPS_BACKGROUND_STALE_MS },
+      );
+    }
     if (source === 'focus') {
       refreshLocationOneShot({ force: true });
     }
@@ -12687,9 +12811,11 @@ export default function MapScreen() {
             motionKmh: Math.max(speedKmhRef.current, 12),
           });
           publishUserLocation({ latitude: syncLat, longitude: syncLng }, true);
+          syncTripCameraAfterResume(syncLat, syncLng, hdg);
         } else {
           bumpActiveMarker(syncLat, syncLng, { heading: hdg, forcePublish: true, instant: true });
           feedDR({ latitude: syncLat, longitude: syncLng }, 0, hdg);
+          syncTripCameraAfterResume(syncLat, syncLng, hdg);
         }
         vroomGpsLog('RESUME_PROTOCOL', {
           bgPauseMs: Math.round(bgPauseMs),
@@ -12747,6 +12873,7 @@ export default function MapScreen() {
     restartGPSWatcher,
     refreshLocationOneShot,
     startGPS,
+    hardRestartGPS,
     ensureRegionBootstrapped,
     applyBootstrapLocation,
     feedDR,
@@ -12759,6 +12886,8 @@ export default function MapScreen() {
     resetBrowseCamera,
     publishUserLocation,
     applyTripPosition,
+    syncTripCameraAfterResume,
+    driveCore,
   ]);
   const handleGpsResumeRef = useRef(handleGpsResume);
   useEffect(() => {
@@ -12871,7 +13000,6 @@ export default function MapScreen() {
           return;
         }
         drivingManualEntryBusyRef.current = false;
-        handleGpsResumeRef.current('foreground');
         void (async () => {
           const optedOut = await AsyncStorage.getItem(LIVE_SHARING_USER_PREF_KEY);
           if (optedOut === 'false') return;
@@ -12882,6 +13010,62 @@ export default function MapScreen() {
     });
     return () => sub.remove();
   }, [resumeLiveSession]);
+
+  useGpsForegroundLifecycle({
+    getTripActive: () => isDrivingRef.current || isNavigatingRef.current,
+    getLastBackgroundAt: () => lastBackgroundAtRef.current,
+    getFixAgeMs: () => {
+      const t = lastAcceptedFixWallClockRef.current;
+      return t > 0 ? Date.now() - t : Number.POSITIVE_INFINITY;
+    },
+    getTickAgeMs: () => {
+      const t = lastGpsTickAtRef.current;
+      return t > 0 ? Date.now() - t : Number.POSITIVE_INFINITY;
+    },
+    hardRestart: hardRestartGPS,
+    onResume: (ctx) => {
+      if (ctx.source !== 'foreground') return;
+      const now = Date.now();
+      const fixAgeMs = lastAcceptedFixWallClockRef.current > 0
+        ? now - lastAcceptedFixWallClockRef.current
+        : Number.POSITIVE_INFINITY;
+      const tickAgeMs = lastGpsTickAtRef.current > 0
+        ? now - lastGpsTickAtRef.current
+        : Number.POSITIVE_INFINITY;
+      const transientStateBounce =
+        !ctx.tripActive
+        && !foregroundGpsIntentionallyStoppedRef.current
+        && ctx.bgPauseMs > 0
+        && ctx.bgPauseMs < GPS_RESUME_MIN_BG_PAUSE_MS
+        && fixAgeMs < GPS_WATCHER_STALE_MS
+        && tickAgeMs < GPS_WATCHER_STALE_MS
+        && !gpsAcquiringRef.current;
+      if (transientStateBounce) {
+        if (__DEV__) {
+          console.log('[GPSDBG] RESUME_SKIP_BOUNCE', JSON.stringify({
+            at: now,
+            bgPauseMs: Math.round(ctx.bgPauseMs),
+            fixAgeMs: Math.round(fixAgeMs),
+          }));
+        }
+        return;
+      }
+      drivingManualEntryBusyRef.current = false;
+      handleGpsResumeRef.current('foreground', {
+        forceWatcherRestart: ctx.forceWatcherRestart,
+        bgPauseMs: ctx.bgPauseMs,
+      });
+      const camStaleMs = now - lastCamPushFromSmoothRef.current;
+      if (
+        ctx.tripActive
+        && camStaleMs > 2000
+        && lastSetLocRef.current
+      ) {
+        const { lat, lng } = lastSetLocRef.current;
+        syncTripCameraAfterResume(lat, lng, lastHeadingRef.current || 0);
+      }
+    },
+  });
 
   // ── Map tab focus: start/stop GPS (battery — no watch on other tabs) ─────
   const refreshMyProfile = useCallback(async () => {
@@ -13040,6 +13224,23 @@ export default function MapScreen() {
     setNavRouteOverride(rerouteResult);
     if (rerouteResult.points?.length) {
       routePointsRef.current = rerouteResult.points;
+      if (DRIVE_CORE_V2) {
+        driveCore.setRoutePolyline(rerouteResult.points);
+        driveCore.applyMatchGeometry(rerouteResult.points);
+      }
+      const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
+        ? drLatRef.current
+        : userLocation.latitude;
+      const curLng = Number.isFinite(drLngRef.current) && drLngRef.current !== 0
+        ? drLngRef.current
+        : userLocation.longitude;
+      const idx = findClosestPointIndex(curLat, curLng, rerouteResult.points);
+      navRouteIdxRef.current = idx;
+      setRemainingRoutePoints([
+        { latitude: curLat, longitude: curLng },
+        ...rerouteResult.points.slice(idx + 1),
+      ]);
+      lastRerouteMotionAnchorRef.current = { lat: curLat, lng: curLng };
     }
     setCurrentStep(0);
     announcedPhasesRef.current = new Set();
@@ -13048,7 +13249,12 @@ export default function MapScreen() {
     offRouteStreakRef.current = 0;
     setOffRoute(false);
     setRerouteOrigin(null);
-  }, [rerouteResult, offRoute, userLocation]);
+    setRerouteHeadingForApi(undefined);
+    Toast.show({
+      type: 'info',
+      text2: 'Nowa trasa od Twojej pozycji (w kierunku jazdy).',
+    });
+  }, [rerouteResult, offRoute, userLocation, driveCore]);
 
   useEffect(() => {
     if (!offRoute || !reroutePendingRef.current) return;
@@ -13059,13 +13265,17 @@ export default function MapScreen() {
     reroutePendingSinceRef.current = 0;
     rerouteBlockedUntilRef.current = Date.now() + REROUTE_RETRY_AFTER_FAIL_MS;
     setRerouteOrigin(null);
+    setRerouteHeadingForApi(undefined);
   }, [offRoute, rerouteLoading, rerouteError]);
 
   // ── Reroute origin management (cooldown gate) ─────────────────────────────
   // Uruchamiane po potwierdzonym zejściu z trasy (OFF_ROUTE_CONFIRM_STREAK × NAV_PROGRESS_UI_MS).
   useEffect(() => {
     if (!offRoute) {
-      if (!reroutePendingRef.current) setRerouteOrigin(null);
+      if (!reroutePendingRef.current) {
+        setRerouteOrigin(null);
+        setRerouteHeadingForApi(undefined);
+      }
       return;
     }
     if (!endLocation) return;
@@ -13078,23 +13288,19 @@ export default function MapScreen() {
       && drLngRef.current !== 0
       && Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
     const fallbackLoc = currentLocRef.current ?? userLocation;
-    const rawLat = drFresh ? drLatRef.current : fallbackLoc?.latitude;
-    const rawLng = drFresh ? drLngRef.current : fallbackLoc?.longitude;
-    if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
-
-    const navPts = navRouteRef.current?.points;
-    const routePts = navPts?.length ? navPts : routePointsRef.current;
-    const snapped = routePts.length
-      ? snapToRoute(rawLat, rawLng, routePts, NAV_ROUTE_SNAP_M)
-      : { latitude: rawLat, longitude: rawLng };
+    const vehicleLat = drFresh ? drLatRef.current : fallbackLoc?.latitude;
+    const vehicleLng = drFresh ? drLngRef.current : fallbackLoc?.longitude;
+    if (!Number.isFinite(vehicleLat) || !Number.isFinite(vehicleLng)) return;
 
     const now   = Date.now();
     const since = now - lastRerouteTimeRef.current;
 
     if (since < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
       const movedM = haversineKm(
-        snapped.latitude, snapped.longitude,
-        lastRerouteLocRef.current.lat, lastRerouteLocRef.current.lng,
+        vehicleLat,
+        vehicleLng,
+        lastRerouteLocRef.current.lat,
+        lastRerouteLocRef.current.lng,
       ) * 1000;
       if (movedM < REROUTE_MIN_MOVED_M) {
         if (DEBUG_NETWORK) console.log('[reroute] cooldown — moved', movedM.toFixed(0), 'm, since last', since, 'ms');
@@ -13102,16 +13308,20 @@ export default function MapScreen() {
       }
     }
 
-    if (DEBUG_NETWORK) console.log('[reroute] triggering new reroute request');
+    const travelHdg = resolveRerouteTravelHeadingDeg(
+      vehicleLat,
+      vehicleLng,
+      lastHeadingRef.current,
+      lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
+    );
+
+    if (DEBUG_NETWORK) console.log('[reroute] triggering new reroute request', { travelHdg });
     reroutePendingRef.current = true;
     reroutePendingSinceRef.current = now;
     lastRerouteTimeRef.current = now;
-    lastRerouteLocRef.current  = { lat: snapped.latitude, lng: snapped.longitude };
-    setRerouteOrigin({
-      latitude: snapped.latitude,
-      longitude: snapped.longitude,
-      name: 'Moja pozycja',
-    });
+    lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
+    setRerouteHeadingForApi(quantizeHeading(travelHdg));
+    setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
   }, [offRoute, userLocation, endLocation]);
 
   useEffect(() => {
@@ -13564,16 +13774,18 @@ export default function MapScreen() {
       return;
     }
     if (isNavigating || isDriving) {
+      setFollowMode(isNavigating ? 'navigationFollow' : 'drivingFollow');
       recenterTo({
         center: liveCenter,
         heading: lastHeadingRef.current,
         speedKmh: speedKmhRef.current,
         active: true,
+        isNavigating,
       });
       return;
     }
     resetBrowseCamera(liveCenter);
-  }, [userLocation, isNavigating, isDriving, recenterTo, resetBrowseCamera, refreshLocationOneShot]);
+  }, [userLocation, isNavigating, isDriving, recenterTo, resetBrowseCamera, refreshLocationOneShot, setFollowMode]);
 
   // ── transitionFromApproachToRouteRun ─────────────────────
   const transitionFromApproachToRouteRun = useCallback(() => {
@@ -13780,7 +13992,7 @@ export default function MapScreen() {
         const thresholdM = inRerouteGrace
           ? Math.max(REROUTE_THRESHOLD_M, REROUTE_THRESHOLD_RECOVERY_M)
           : REROUTE_THRESHOLD_M;
-        const onRoad = isOnRoute(lat, lng, points, thresholdM);
+        const onRoad = isOnRoute(currentLat, currentLng, points, thresholdM);
         const nowOff = Date.now();
         if (onRoad) {
           offRouteSinceRef.current = 0;
@@ -13934,7 +14146,7 @@ export default function MapScreen() {
     }
     if (!gpsForceActiveRef.current) {
       gpsForceActiveRef.current = true;
-      setGpsForceActive(true);
+      applyGpsForceActive(true);
     }
     startGPS();
 
@@ -14518,18 +14730,24 @@ export default function MapScreen() {
                 pickCenterRef.current = { lat, lng };
               }
             }
-            // Prevent false "user pan" triggers from programmatic camera frames.
             const gestureActive = Boolean(e?.gestures?.isGestureActive);
             const isUserInteraction = e?.properties?.isUserInteraction === true;
-            // Android potrafi raportowac gestureActive rowniez dla programmatic
-            // camera updates, co falszywie przełącza follow->userPanning i marker
-            // "ucieka" poza ekran. W active trip wymagamy twardego sygnalu
-            // isUserInteraction=true; poza trip zostawiamy dotychczasowy fallback.
             const tripActive = isDrivingRef.current || isNavigatingRef.current;
-            const shouldMarkGesture = tripActive
-              ? isUserInteraction
-              : (gestureActive && (Platform.OS === 'ios' ? (e?.properties?.isUserInteraction !== false) : true));
-            if (shouldMarkGesture) markUserGesture();
+            const pitchRaw = e?.properties?.pitch;
+            const pitchLive = Number.isFinite(pitchRaw) ? Number(pitchRaw) : undefined;
+            if (tripActive) {
+              if (isUserInteraction || gestureActive) {
+                notifyUserMapInteraction(
+                  zoomLive ?? undefined,
+                  pitchLive,
+                );
+              }
+            } else if (
+              gestureActive
+              && (Platform.OS === 'ios' ? (e?.properties?.isUserInteraction !== false) : true)
+            ) {
+              markUserGesture();
+            }
           }}
         >
           <Mapbox.Camera

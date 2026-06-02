@@ -22,6 +22,8 @@ import { UAv }                    from '../../../components/clubs/ClubCard';
 import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
 import { renderDiscussionBody }   from '../community/communityShared';
+import { filterProvinceSuggestions } from '../../../constants/provinces';
+import { ProvinceBadge } from '../../../components/user/ProvinceBadge';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 import { CommunityScreenHeader } from '../../../components/community';
@@ -60,7 +62,7 @@ interface ClubMessage {
   createdAt: string;
   isPinned:  boolean;
   pinnedAt:  string | null;
-  sender:  { id: number; username: string; avatarUrl: string | null };
+  sender:  { id: number; username: string; avatarUrl: string | null; province?: string | null };
   replyTo: { id: number; content: string | null; sender: { id: number; username: string } } | null;
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }
@@ -470,9 +472,26 @@ export default function ClubChatScreen() {
   const canPin    = myRole === 'owner' || !!myRank?.canPin;
   const canKick   = myRole === 'owner' || !!myRank?.canKick;
   const canManage = myRole === 'owner' || !!myRank?.canManage;
-  const mentionSuggestions = (clubData?.members ?? [])
-    .filter((m: any) => mentionQuery && m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
-    .slice(0, 6);
+  const mentionSuggestions = (() => {
+    if (!mentionQuery) return [];
+    const provinces = filterProvinceSuggestions(mentionQuery, 3).map(p => ({
+      kind: 'province' as const,
+      key: `p-${p.slug}`,
+      tag: p.mention,
+      label: p.label,
+    }));
+    const members = (clubData?.members ?? [])
+      .filter((m: any) => m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
+      .slice(0, 6)
+      .map((m: any) => ({
+        kind: 'member' as const,
+        key: `m-${m.id}`,
+        tag: m.username,
+        label: m.username,
+        avatarUrl: m.avatarUrl,
+      }));
+    return [...provinces, ...members];
+  })();
 
   const activeChatTheme = CHAT_THEMES.find(t => t.id === chatThemeId) ?? CHAT_THEMES[0];
 
@@ -516,9 +535,14 @@ export default function ClubChatScreen() {
             activeOpacity={0.85}
           >
             {!isMe && isFirst && (
-              <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
-                {item.sender.username}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                  {item.sender.username}
+                </Text>
+                {!!item.sender.province && (
+                  <ProvinceBadge province={item.sender.province} compact theme={theme} />
+                )}
+              </View>
             )}
             {item.isPinned && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 }}>
@@ -1092,6 +1116,11 @@ export default function ClubChatScreen() {
                     <UAv uri={m.avatarUrl} name={m.username} size={30} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>{m.username}</Text>
+                      {!!m.province && (
+                        <View style={{ marginTop: 3 }}>
+                          <ProvinceBadge province={m.province} compact theme={theme} />
+                        </View>
+                      )}
                       {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10, marginTop: 1 }}>{m.rank.name}</Text>}
                     </View>
                     <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
@@ -1183,17 +1212,28 @@ export default function ClubChatScreen() {
             />
             {!!mentionQuery && mentionSuggestions.length > 0 && (
               <View style={{ position: 'absolute', left: 48, right: 56, bottom: 52, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 10, maxHeight: 140 }}>
-                {mentionSuggestions.map((u: any) => (
+                {mentionSuggestions.map((u) => (
                   <TouchableOpacity
-                    key={u.id}
+                    key={u.key}
                     onPress={() => {
-                      setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${u.username} `));
+                      setText(prev => prev.replace(/@([a-zA-Z0-9_.-]*)$/, `@${u.tag} `));
                       setMentionQuery(null);
                     }}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}
                   >
-                    <UAv uri={u.avatarUrl} name={u.username} size={22} />
-                    <Text style={{ color: theme.text, fontSize: 12 }}>{u.username}</Text>
+                    {u.kind === 'member' ? (
+                      <UAv uri={u.avatarUrl} name={u.label} size={22} />
+                    ) : (
+                      <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#7cb34222', alignItems: 'center', justifyContent: 'center' }}>
+                        <MaterialIcons name="map" size={12} color="#7cb342" />
+                      </View>
+                    )}
+                    <View>
+                      <Text style={{ color: theme.text, fontSize: 12 }}>@{u.tag}</Text>
+                      {u.kind === 'province' && (
+                        <Text style={{ color: theme.textDim, fontSize: 9 }}>{u.label}</Text>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>

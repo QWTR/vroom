@@ -103,15 +103,28 @@ export class DriveEngine {
       );
       if (segments.length > 0) {
         localRoadGeometryMirror.setPolylines(segments);
+        this.resnapFrozenOntoLocalRoad(lat, lng);
         return;
       }
       const nearest = await roadGeometryStore.findNearest(lat, lng, 80);
       if (nearest?.points.length >= 2) {
         localRoadGeometryMirror.setPolylines([nearest.points]);
+        this.resnapFrozenOntoLocalRoad(lat, lng);
       }
     } finally {
       this.localL2RefreshInFlight = false;
     }
+  }
+
+  /** Po załadowaniu L2 — dociągnij zamrożoną pozę na oś drogi (bez czekania na kolejny GPS). */
+  private resnapFrozenOntoLocalRoad(lat: number, lng: number): void {
+    const frozen = this.snap.getFrozenPose();
+    if (!frozen || !localRoadGeometryMirror.hasGeometry()) return;
+    const hdg = frozen.heading;
+    const onRoad = localRoadGeometryMirror.snapToLocalRoadBest(lat, lng, hdg)
+      ?? localRoadGeometryMirror.snapToLocalRoadNearest(lat, lng);
+    if (!onRoad || onRoad.crossTrackM > 95) return;
+    this.snap.seedPose(onRoad.lat, onRoad.lng, this.cache, onRoad.heading);
   }
 
   setNavigating(active: boolean): void {
@@ -221,9 +234,11 @@ export class DriveEngine {
       };
     }
 
+    const dopplerKmhForStep =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
     const speedForStep = Math.min(
       KINEMATIC_SPEED_CAP_KMH,
-      Math.max(0, this.speed.getLastKmh()),
+      Math.max(this.speed.getLastKmh(), dopplerKmhForStep),
     );
     const snapStepMs = Math.max(200, Math.min(2000, rawDtMs));
     const maxStepM = computeSnapMaxStepM(speedForStep, snapStepMs);
@@ -250,9 +265,7 @@ export class DriveEngine {
       travelHeadingDeg,
       maxStepM: isFreeDrive ? freeDriveMaxStep : maxStepM,
     });
-    if (isFreeDrive) {
-      pose = this.snap.finalizeSnapPose(pose, this.cache);
-    }
+    pose = this.snap.finalizeSnapPose(pose, this.cache, raw);
 
     const speedKmhMoving = this.speed.update(
       raw,
@@ -401,7 +414,8 @@ export class DriveEngine {
   /** Asynchroniczne dociągnięcie L2 → synchroniczny mirror dla roadSnap. */
   private scheduleLocalL2Refresh(raw: RawGpsFix): void {
     const now = Date.now();
-    if (now - this.lastLocalL2RefreshAt < 4000) return;
+    const minGapMs = localRoadGeometryMirror.hasGeometry() ? 4000 : 1200;
+    if (now - this.lastLocalL2RefreshAt < minGapMs) return;
     this.lastLocalL2RefreshAt = now;
     void this.primeLocalGeometry(raw.lat, raw.lng);
   }
@@ -445,7 +459,7 @@ export class DriveEngine {
       travelHeadingDeg,
       maxStepM,
     });
-    pose = this.snap.finalizeSnapPose(pose, this.cache);
+    pose = this.snap.finalizeSnapPose(pose, this.cache, raw);
     const speedKmh = this.speed.update(
       raw,
       pose,

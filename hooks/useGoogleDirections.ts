@@ -68,13 +68,23 @@ interface CacheEntry {
 const directionsCache = new Map<string, CacheEntry>();
 
 
+export type DirectionsFetchOpts = {
+  /** Reroute w trakcie jazdy — szerszy bearings, continue_straight. */
+  isReroute?: boolean;
+  headingRangeDeg?: number;
+  headingQuantizeDeg?: number;
+  continueStraight?: boolean;
+};
+
 function makeCacheKey(
   oLat: number, oLng: number,
   dLat: number, dLng: number,
   hdgBucket: number | null,
   alternatives: boolean,
+  headingRangeDeg: number,
+  continueStraight: boolean,
 ): string {
-  return `${oLat}:${oLng}:${dLat}:${dLng}:${hdgBucket ?? ''}:${alternatives}`;
+  return `${oLat}:${oLng}:${dLat}:${dLng}:${hdgBucket ?? ''}:${alternatives}:r${headingRangeDeg}:cs${continueStraight ? 1 : 0}`;
 }
 
 function parseMapboxRoute(route: any, index: number, includeSteps = true): DirectionsResult {
@@ -124,6 +134,7 @@ export function useGoogleDirections(
   destination: LocationState | null,
   _apiKey?:    string,
   heading?:    number,
+  fetchOpts?:  DirectionsFetchOpts,
 ) {
   const [route,   setRoute]   = useState<DirectionsResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -135,8 +146,14 @@ export function useGoogleDirections(
   const destLat   = destination ? round4(destination.latitude) : null;
   const destLng   = destination ? round4(destination.longitude): null;
 
-  // Grubsze kubełki kierunku = mniej reroute'ów przy lekkiej zmianie heading GPS.
-  const roundedHeading = heading != null ? Math.round(heading / 45) * 45 : null;
+  const isReroute = !!fetchOpts?.isReroute;
+  const headingRangeDeg = fetchOpts?.headingRangeDeg ?? (isReroute ? 85 : 45);
+  const headingQuantizeDeg = fetchOpts?.headingQuantizeDeg ?? (isReroute ? 12 : 45);
+  const continueStraight = fetchOpts?.continueStraight !== false;
+
+  const roundedHeading = heading != null && Number.isFinite(heading)
+    ? (Math.round((((heading % 360) + 360) % 360) / headingQuantizeDeg) * headingQuantizeDeg) % 360
+    : null;
 
   useEffect(() => {
     if (originLat == null || originLng == null || destLat == null || destLng == null) {
@@ -146,7 +163,16 @@ export function useGoogleDirections(
       return;
     }
 
-    const cacheKey = makeCacheKey(originLat, originLng, destLat, destLng, roundedHeading, false);
+    const cacheKey = makeCacheKey(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      roundedHeading,
+      false,
+      headingRangeDeg,
+      continueStraight,
+    );
 
     // ── Cache hit: serve immediately without a network call ──────────────────
     const cached = directionsCache.get(cacheKey);
@@ -169,13 +195,17 @@ export function useGoogleDirections(
 
     (async () => {
       try {
-        const bearingParam = roundedHeading != null ? `&bearings=${roundedHeading},45;` : '';
+        const bearingParam = roundedHeading != null
+          ? `&bearings=${roundedHeading},${headingRangeDeg};`
+          : '';
+        const continueParam = continueStraight ? '&continue_straight=true' : '';
 
         const url =
           `https://api.mapbox.com/directions/v5/mapbox/driving/` +
           `${originLng},${originLat};${destLng},${destLat}` +
           `?alternatives=false&geometries=polyline&steps=true&language=pl` +
           bearingParam +
+          continueParam +
           `&access_token=${MAPBOX_TOKEN}`;
 
         const data = await fetchDirectionsViaProxy<any>(
@@ -189,7 +219,10 @@ export function useGoogleDirections(
             geometries: 'polyline',
             steps: true,
             language: 'pl',
-            bearings: roundedHeading != null ? [`${roundedHeading},45`, ''] : undefined,
+            continue_straight: continueStraight,
+            bearings: roundedHeading != null
+              ? [`${roundedHeading},${headingRangeDeg}`, '']
+              : undefined,
           },
           url,
         );
@@ -213,7 +246,7 @@ export function useGoogleDirections(
     return () => {
       controller.abort();
     };
-  }, [originLat, originLng, destLat, destLng, roundedHeading]);
+  }, [originLat, originLng, destLat, destLng, roundedHeading, headingRangeDeg, continueStraight]);
 
   return { route, loading, error };
 }

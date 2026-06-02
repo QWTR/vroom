@@ -19,6 +19,7 @@ export interface UserProfile {
   id: number;
   username: string;
   location?: string;
+  province?: string | null;
   bio?: string;
   avatarUrl?: string;
   bannerUrl?: string | null;

@@ -30,8 +30,8 @@ export function UserBadges({ isPremium, isAdmin, compact }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
-  pill: { borderRadius: 8, borderWidth: 1, paddingVertical: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
+  pill: { borderRadius: 8, borderWidth: 1, paddingVertical: 2, flexShrink: 0 },
   adminPill: { backgroundColor: '#7C3AED20', borderColor: '#7C3AED50' },
   adminText: { fontFamily: 'Orbitron', color: '#A78BFA', fontWeight: '700' },
   premiumPill: { backgroundColor: '#FFD70020', borderColor: '#FFD70040' },

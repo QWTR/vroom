@@ -24,6 +24,8 @@ type CameraFrameInput = {
   isDriving: boolean;
   isNavigating: boolean;
   timestamp?: number;
+  /** Heading już z trip pipeline (marker + resolveTripTravelHeading) — bez drugiego resolveTravelHeading. */
+  headingFromTripPipeline?: boolean;
 };
 
 type MapCameraPadding = {
@@ -75,6 +77,10 @@ function activeCameraPadding(isNavigating: boolean): MapCameraPadding {
 
 /** Po tym czasie bez gestu użytkownika kamera wraca do follow (jazda/nawigacja). */
 const RETURN_TO_USER_MS = 4000;
+/** Ignoruj echo programmatic setCamera przy wykrywaniu gestu (ms). */
+const PROGRAMMATIC_GESTURE_GUARD_MS = 380;
+/** Łagodny powrót po rozglądaniu się mapą — bez szarpnięcia zoomu. */
+const SOFT_RETURN_ANIM_MS = 1400;
 const BROWSE_PITCH = 52;
 const ACTIVE_PITCH = 68;
 const BROWSE_ZOOM = 15;
@@ -86,7 +92,8 @@ const IDLE_APPLY_MS = 120;
  * Jeden setCamera na segment GPS — Mapbox interpoluje natywnie (bez 60×/s przez RN bridge).
  */
 const NATIVE_FOLLOW_ANIM_MS = 400;
-const NATIVE_FOLLOW_MIN_INTERVAL_MS = 66;
+/** Min. odstęp setCamera — zsynchronizowany z trip camera scheduler (~4 Hz). */
+const NATIVE_FOLLOW_MIN_INTERVAL_MS = 100;
 const NATIVE_FOLLOW_MAX_ANIM_MS = 720;
 const NATIVE_APPLY_MIN_MOVE_M = 0.25;
 const NATIVE_APPLY_MIN_HEADING_DEG = 0.45;
@@ -277,6 +284,9 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const tripActiveRef = useRef(false);
   const gestureResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAfterUserGestureRef = useRef<() => void>(() => {});
+  const userExploreViewRef = useRef<{ zoom: number; pitch: number } | null>(null);
+  /** Zoom ustawiony przez użytkownika (oddalenie) — bez auto-dociągania do zoomFromSpeed. */
+  const userZoomOverrideRef = useRef<number | null>(null);
 
   const clearGestureResumeTimer = useCallback(() => {
     if (gestureResumeTimerRef.current != null) {
@@ -290,6 +300,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     tripActiveRef.current = false;
     lastFrameInputRef.current = null;
     userPanUntilRef.current = 0;
+    userExploreViewRef.current = null;
+    userZoomOverrideRef.current = null;
     recenterLockUntilRef.current = 0;
     lastNativeFollowApplyAtRef.current = 0;
     clearGestureResumeTimer();
@@ -311,31 +323,47 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     duration: number,
     animationMode: 'linear' | 'easeTo' = 'linear',
   ) => {
+    if (
+      tripActiveRef.current
+      && (Date.now() < userPanUntilRef.current || modeRef.current === 'userPanning')
+    ) {
+      return;
+    }
+    const effectivePose = userZoomOverrideRef.current != null
+      ? { ...pose, zoom: userZoomOverrideRef.current }
+      : pose;
     const prev = lastMapApplyRef.current;
     if (prev && duration === 0) {
       const dm = haversineMeters(
         prev.center.latitude, prev.center.longitude,
-        pose.center.latitude, pose.center.longitude,
+        effectivePose.center.latitude, effectivePose.center.longitude,
       );
-      const hdgD = Math.abs(headingDelta(prev.heading, pose.heading));
-      if (dm < 0.12 && hdgD < 0.35 && Math.abs(prev.zoom - pose.zoom) < 0.002 && Math.abs(prev.pitch - pose.pitch) < 0.08) {
+      const hdgD = Math.abs(headingDelta(prev.heading, effectivePose.heading));
+      if (dm < 0.12 && hdgD < 0.35 && Math.abs(prev.zoom - effectivePose.zoom) < 0.002 && Math.abs(prev.pitch - effectivePose.pitch) < 0.08) {
         return;
       }
     }
     (cameraRef.current as any)?.setCamera({
-      centerCoordinate: [pose.center.longitude, pose.center.latitude],
-      heading: pose.heading,
-      zoomLevel: pose.zoom,
-      pitch: pose.pitch,
-      padding: pose.padding,
+      centerCoordinate: [effectivePose.center.longitude, effectivePose.center.latitude],
+      heading: effectivePose.heading,
+      zoomLevel: effectivePose.zoom,
+      pitch: effectivePose.pitch,
+      padding: effectivePose.padding,
       animationMode,
       animationDuration: duration,
     });
-    lastMapApplyRef.current = pose;
-    displayPoseRef.current = pose;
+    lastMapApplyRef.current = effectivePose;
+    displayPoseRef.current = effectivePose;
   }, [cameraRef]);
 
   const applyNativeFollow = useCallback((target: CameraPose, now: number) => {
+    if (
+      tripActiveRef.current
+      && (Date.now() < userPanUntilRef.current || modeRef.current === 'userPanning')
+    ) {
+      targetPoseRef.current = target;
+      return;
+    }
     const prev = lastMapApplyRef.current;
     const sinceLastApply = lastNativeFollowApplyAtRef.current > 0
       ? now - lastNativeFollowApplyAtRef.current
@@ -387,9 +415,20 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     clearGestureResumeTimer();
   }, [clearGestureResumeTimer]);
 
-  const markUserGesture = useCallback(() => {
-    if (!tripActiveRef.current) return;
-    userPanUntilRef.current = Date.now() + RETURN_TO_USER_MS;
+  const setTripCameraActive = useCallback((active: boolean) => {
+    tripActiveRef.current = active;
+  }, []);
+
+  const getLastProgrammaticCameraApplyMs = useCallback(() => {
+    return lastNativeFollowApplyAtRef.current;
+  }, []);
+
+  const isUserExploringMap = useCallback(() => {
+    return modeRef.current === 'userPanning' || Date.now() < userPanUntilRef.current;
+  }, []);
+
+  const extendUserExploreSession = useCallback((now: number) => {
+    userPanUntilRef.current = now + RETURN_TO_USER_MS;
     modeRef.current = 'userPanning';
     clearGestureResumeTimer();
     gestureResumeTimerRef.current = setTimeout(() => {
@@ -397,6 +436,49 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       if (!tripActiveRef.current) return;
       resumeAfterUserGestureRef.current();
     }, RETURN_TO_USER_MS);
+  }, [clearGestureResumeTimer]);
+
+  /** Pan/zoom w trybie jazdy — blokuje follow i zapamiętuje zoom użytkownika. */
+  const notifyUserMapInteraction = useCallback((zoom?: number, pitch?: number) => {
+    if (!tripActiveRef.current) return;
+    const now = Date.now();
+    if (Number.isFinite(zoom)) {
+      userExploreViewRef.current = {
+        zoom: zoom!,
+        pitch: Number.isFinite(pitch) ? pitch! : (userExploreViewRef.current?.pitch ?? ACTIVE_PITCH),
+      };
+      userZoomOverrideRef.current = zoom!;
+    } else {
+      const display = displayPoseRef.current;
+      if (display) {
+        userExploreViewRef.current = {
+          zoom: display.zoom,
+          pitch: display.pitch,
+        };
+        userZoomOverrideRef.current = display.zoom;
+      }
+    }
+    extendUserExploreSession(now);
+  }, [extendUserExploreSession]);
+
+  const syncUserExploreView = useCallback((zoom: number, pitch?: number) => {
+    notifyUserMapInteraction(zoom, pitch);
+  }, [notifyUserMapInteraction]);
+
+  const markUserGesture = useCallback((_opts?: { force?: boolean }) => {
+    notifyUserMapInteraction();
+  }, [notifyUserMapInteraction]);
+
+  const getLastAppliedCameraZoom = useCallback((): number | null => {
+    const z = lastMapApplyRef.current?.zoom;
+    return Number.isFinite(z) ? z! : null;
+  }, []);
+
+  const resumeTripCameraFollow = useCallback(() => {
+    if (!tripActiveRef.current) return;
+    userPanUntilRef.current = 0;
+    clearGestureResumeTimer();
+    resumeAfterUserGestureRef.current();
   }, [clearGestureResumeTimer]);
 
   const recenterTo = useCallback((params: {
@@ -407,9 +489,15 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     isNavigating?: boolean;
     instant?: boolean;
     entryAnim?: boolean;
+    /** Powrót po pan/zoom — łagodna animacja (zoom zawsze jak w trybie jazdy). */
+    softReturn?: boolean;
   }) => {
     if (!Number.isFinite(params.center.latitude) || !Number.isFinite(params.center.longitude)) return;
 
+    userZoomOverrideRef.current = null;
+    if (params.softReturn) {
+      userExploreViewRef.current = null;
+    }
     userPanUntilRef.current = 0;
     speedKmhRef.current = params.speedKmh;
 
@@ -422,10 +510,11 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const lookaheadM = params.active ? lookaheadFromSpeed(entrySpeedKmh) : 0;
     const center = offsetCenter(params.center.latitude, params.center.longitude, heading, lookaheadM);
     const tripNav = !!params.isNavigating || modeRef.current === 'navigationFollow';
+    const targetZoom = params.active ? zoomFromSpeed(entrySpeedKmh) : BROWSE_ZOOM;
     const pose: CameraPose = {
       center,
       heading,
-      zoom: params.active ? zoomFromSpeed(entrySpeedKmh) : BROWSE_ZOOM,
+      zoom: targetZoom,
       pitch: params.active ? ACTIVE_PITCH : BROWSE_PITCH,
       padding: params.active ? activeCameraPadding(tripNav) : ZERO_PADDING,
     };
@@ -442,9 +531,11 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     const animMs = params.instant
       ? 0
-      : params.entryAnim
-        ? DRIVING_ENTRY_RECENTER_MS
-        : RECENTER_ANIM_MS;
+      : params.softReturn
+        ? SOFT_RETURN_ANIM_MS
+        : params.entryAnim
+          ? DRIVING_ENTRY_RECENTER_MS
+          : RECENTER_ANIM_MS;
 
     if (params.instant) {
       modeRef.current = params.active ? 'drivingFollow' : 'idleBrowse';
@@ -496,6 +587,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     modeRef.current = nextMode;
 
     if (nextMode === 'userPanning') {
+      lastVehicleCenterRef.current = { ...input.center };
       return;
     }
 
@@ -539,23 +631,28 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         }
       }
 
-      resolvedHeading = resolveTravelHeading({
-        snapHeading: target.heading,
-        moveBearing,
-        movedM,
-        speedKmh: input.speedKmh,
-        prevHeading: prevResolvedHeading,
-      });
+      if (input.headingFromTripPipeline) {
+        resolvedHeading = normalizeHeading(input.heading);
+      } else {
+        resolvedHeading = resolveTravelHeading({
+          snapHeading: target.heading,
+          moveBearing,
+          movedM,
+          speedKmh: input.speedKmh,
+          prevHeading: prevResolvedHeading,
+        });
+      }
 
       if (prevResolvedHeading != null) {
         const prevResolvedAt = lastResolvedHeadingAtRef.current || nowMs;
         const dtSec = clampNum((nowMs - prevResolvedAt) / 1000, 0.016, 0.55);
         const impliedKmh = dtSec > 0 ? (movedM / dtSec) * 3.6 : 0;
         const turnRate = maxHeadingRateDegPerSec(Math.max(input.speedKmh, impliedKmh));
-        const maxStep = turnRate * dtSec * 1.8 + 7;
+        const pipelineBlend = input.headingFromTripPipeline ? 1.35 : 1.8;
+        const maxStep = turnRate * dtSec * pipelineBlend + (input.headingFromTripPipeline ? 5 : 7);
         resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, resolvedHeading, maxStep);
         const flipDelta = Math.abs(headingDelta(prevResolvedHeading, resolvedHeading));
-        if (input.speedKmh < 18 && flipDelta > HEADING_FLIP_GUARD_DEG) {
+        if (!input.headingFromTripPipeline && input.speedKmh < 18 && flipDelta > HEADING_FLIP_GUARD_DEG) {
           resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, resolvedHeading, HEADING_LOW_SPEED_MAX_STEP_DEG);
         }
         if (input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH && movedM < 1.2) {
@@ -590,6 +687,10 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         hudSpeedKmh: speedForPose,
         frameMoveM: movedM,
       });
+      const followZoom = zoomFromSpeed(zoomSpeed);
+      const zoomTarget = userZoomOverrideRef.current != null
+        ? userZoomOverrideRef.current
+        : smoothZoomTarget(lastTargetZoomRef.current, followZoom);
       const lookaheadM = lookaheadFromSpeed(speedForPose);
       target = {
         ...target,
@@ -600,7 +701,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
           resolvedHeading,
           lookaheadM,
         ),
-        zoom: smoothZoomTarget(lastTargetZoomRef.current, zoomFromSpeed(zoomSpeed)),
+        zoom: zoomTarget,
       };
       lastTargetZoomRef.current = target.zoom;
     } else {
@@ -631,20 +732,40 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   resumeAfterUserGestureRef.current = () => {
     if (!tripActiveRef.current) return;
     const now = Date.now();
-    if (now < userPanUntilRef.current) return;
+    if (now < userPanUntilRef.current - 32) return;
 
     const input = lastFrameInputRef.current;
-    if (!input || (!input.isDriving && !input.isNavigating)) return;
+    const vehicle = lastVehicleCenterRef.current;
+    if (!input && !vehicle) return;
+
+    const center = input?.center ?? vehicle!;
+    const heading = input?.heading
+      ?? resolvedHeadingRef.current
+      ?? travelHeadingRef.current
+      ?? 0;
+    const speedKmh = input?.speedKmh ?? speedKmhRef.current;
+    const isNavigating = input?.isNavigating ?? (modeRef.current === 'navigationFollow');
+    const isDriving = input?.isDriving ?? (tripActiveRef.current && !isNavigating);
 
     userPanUntilRef.current = 0;
+    modeRef.current = isNavigating ? 'navigationFollow' : 'drivingFollow';
     recenterTo({
-      center: input.center,
-      heading: input.heading,
-      speedKmh: input.speedKmh,
+      center,
+      heading,
+      speedKmh,
       active: true,
-      isNavigating: input.isNavigating,
+      isNavigating,
+      softReturn: true,
     });
-    updateCameraFrame({ ...input, timestamp: now });
+    updateCameraFrame({
+      center,
+      heading,
+      speedKmh,
+      isNavigating,
+      isDriving,
+      timestamp: now,
+      headingFromTripPipeline: true,
+    });
   };
 
   const setFollowMode = useCallback((mode: 'idleBrowse' | 'drivingFollow' | 'navigationFollow') => {
@@ -663,5 +784,12 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     resetBrowseCamera,
     releaseTripCameraState,
     setFollowMode,
+    setTripCameraActive,
+    getLastProgrammaticCameraApplyMs,
+    isUserExploringMap,
+    resumeTripCameraFollow,
+    syncUserExploreView,
+    notifyUserMapInteraction,
+    getLastAppliedCameraZoom,
   };
 }

@@ -1903,7 +1903,7 @@ export default function HomeScreen() {
 						marginBottom: 12,
 					}}>
 					<TouchableOpacity
-						onPress={() => router.push("/profile/settings")}
+						onPress={() => router.push({ pathname: "/profile/settings", params: { openBug: "1" } })}
 						activeOpacity={0.85}>
 						<LinearGradient
 							colors={isDark ? ["#2a1208", "#160b06"] : ["#fff4ef", "#ffe9df"]}
