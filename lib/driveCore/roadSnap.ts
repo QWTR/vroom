@@ -185,6 +185,17 @@ export class RoadSnapEngine {
     }
 
     if (this.frozenPose) {
+      const rawMovedM = distanceM(
+        this.frozenPose.lat,
+        this.frozenPose.lng,
+        raw.lat,
+        raw.lng,
+      );
+      if (opts.isMoving && rawMovedM >= 1.5) {
+        const stepped = this.stepTowardRaw(this.frozenPose, raw, maxStepM);
+        this.frozenPose = stepped;
+        return stepped;
+      }
       return { ...this.frozenPose };
     }
 

@@ -41,7 +41,15 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 - Verify no long periods of frozen distance while marker visibly moves.
 - Verify summary distance remains close to reference trip distance (target drift <= 5% on 10-20 km run).
 
-## Test Run 4: Stop-Go Speed Stability
+## Test Run 4: Marker Rotation SSOT (Driving / Nav)
+
+- Drive 50-120 km/h on straight highway for 2+ minutes.
+- Verify marker does not spin or flip 90/180 deg while road is straight.
+- Enter a roundabout at ~40-60 km/h; verify rotation follows curve without jitter.
+- Verify marker stays in camera viewport (no drift to edge then snap back).
+- At crawl speed below 10 km/h, verify marker can use compass without violent spins.
+
+## Test Run 5: Stop-Go Speed Stability
 
 - Run 2-3 minutes in stop-go traffic or repeated starts from standstill.
 - Verify speed wakes quickly after launch (no long zero hold while car already moves).

@@ -4,11 +4,17 @@ import {
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
+import {
+  guardMarkerHeadingPush,
+  TRAVEL_VECTOR_LOCK_SPEED_KMH,
+} from '../lib/driveCore/travelHeading';
 
 export type DriveMarkerValues = {
   lat: SharedValue<number>;
   lng: SharedValue<number>;
   heading: SharedValue<number>;
+  /** Ostatni segment GPS (ms) — synchronizacja kamery Mapbox. */
+  segmentDurationMs: SharedValue<number>;
 };
 
 export type DriveMarkerTarget = {
@@ -24,7 +30,11 @@ const CRUISE_HOLD_MS = 0.22;
 const CRUISE_DECAY_PER_SEC = 0.12;
 const GPS_STALE_MS = 2800;
 const MAX_DR_STEP_M = 4.5;
-const HEADING_BLEND_PER_FRAME = 0.22;
+/** Liniowy krok obrotu (°/klatka @60fps) — zsynchronizowany z kamerą. */
+const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
+const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
+const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
+const HEADING_FLIP_REJECT_DEG = 92;
 const LERP_MIN_MS = 280;
 const LERP_MAX_MS = 1200;
 
@@ -90,6 +100,30 @@ function haversineMWorklet(aLat: number, aLng: number, bLat: number, bLng: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function bearingBetweenWorklet(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  'worklet';
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const lat1R = (lat1 * Math.PI) / 180;
+  const lat2R = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x =
+    Math.cos(lat1R) * Math.sin(lat2R)
+    - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return normalizeHeadingW((Math.atan2(y, x) * 180) / Math.PI);
+}
+
+function stepHeadingLinearWorklet(current: number, target: number, maxStepDeg: number): number {
+  'worklet';
+  const d = headingDeltaW(current, target);
+  const step = Math.max(-maxStepDeg, Math.min(maxStepDeg, d));
+  return normalizeHeadingW(current + step);
+}
+
 function lerpProgressWorklet(
   nowMs: number,
   startMs: number,
@@ -143,6 +177,9 @@ export function useDriveMarker(
   const lerpToHdg = useSharedValue(0);
   const lerpStartMs = useSharedValue(0);
   const lerpDurationMs = useSharedValue(650);
+  const segmentDurationMs = useSharedValue(650);
+  const lastFrameLat = useSharedValue(NaN);
+  const lastFrameLng = useSharedValue(NaN);
 
   const pushTarget = useCallback((t: DriveMarkerTarget) => {
     if (!Number.isFinite(t.lat) || !Number.isFinite(t.lng)) return;
@@ -159,14 +196,21 @@ export function useDriveMarker(
       speedMsSv.value = 0;
     }
 
-    const tgtHdg = Number.isFinite(t.heading) ? t.heading : heading.value;
+    const speedKmh = (t.speedMs ?? speedMsSv.value) * 3.6;
+    let tgtHdg = Number.isFinite(t.heading) ? t.heading : heading.value;
+    if (Number.isFinite(heading.value)) {
+      tgtHdg = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
+    }
     const dur = safeDurationMsJs(t.durationMs);
+    segmentDurationMs.value = dur;
 
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
     if (needsBootstrap) {
       lat.value = t.lat;
       lng.value = t.lng;
       heading.value = tgtHdg;
+      lastFrameLat.value = t.lat;
+      lastFrameLng.value = t.lng;
       lerpActive.value = 0;
       return;
     }
@@ -186,28 +230,15 @@ export function useDriveMarker(
 
     const moving = incomingMs >= MIN_DR_SPEED_MS;
 
-    // Snap zwraca tę samą pozycję przy zmieniającym się heading — nie resetuj markera
-    // (DR między tickami GPS), tylko łagodnie dopasuj kierunek w worklecie.
-    if (errM < 0.2) {
-      if (moving) {
-        lerpActive.value = 0;
-        return;
-      }
+    if (errM < 0.2 && !moving) {
+      lerpToLat.value = t.lat;
+      lerpToLng.value = t.lng;
+      lerpToHdg.value = tgtHdg;
       lat.value = t.lat;
       lng.value = t.lng;
-      const cruiseMs = t.speedMs != null && t.speedMs >= MIN_DR_SPEED_MS ? t.speedMs : speedMsSv.value;
-      if (cruiseMs < 0.5) {
-        const curH = heading.value;
-        const delta = ((tgtHdg - curH + 540) % 360) - 180;
-        if (Math.abs(delta) < 5) {
-          lerpActive.value = 0;
-          return;
-        }
-        const step = Math.sign(delta) * Math.min(Math.abs(delta), 12);
-        heading.value = ((curH + step) % 360 + 360) % 360;
-      } else {
-        heading.value = tgtHdg;
-      }
+      heading.value = tgtHdg;
+      lastFrameLat.value = t.lat;
+      lastFrameLng.value = t.lng;
       lerpActive.value = 0;
       return;
     }
@@ -250,6 +281,8 @@ export function useDriveMarker(
       lat.value = anchor.lat;
       lng.value = anchor.lng;
       heading.value = Number.isFinite(anchor.heading) ? anchor.heading! : 0;
+      lastFrameLat.value = anchor.lat;
+      lastFrameLng.value = anchor.lng;
       lastGpsPushMsSv.value = Date.now();
     } else {
       lat.value = NaN;
@@ -272,6 +305,8 @@ export function useDriveMarker(
     lat.value = targetLat;
     lng.value = targetLng;
     heading.value = normHdg;
+    lastFrameLat.value = targetLat;
+    lastFrameLng.value = targetLng;
     speedMsSv.value = 0;
     cruiseSpeedMsSv.value = 0;
     lastGpsPushMsSv.value = Date.now();
@@ -284,6 +319,7 @@ export function useDriveMarker(
     lerpToHdg.value = normHdg;
     lerpStartMs.value = Date.now();
     lerpDurationMs.value = LERP_MIN_MS;
+    segmentDurationMs.value = LERP_MIN_MS;
   }, [
     cruiseSpeedMsSv,
     heading,
@@ -344,16 +380,33 @@ export function useDriveMarker(
           t = 1;
         }
 
+        const speedKmh = speedMsSv.value * 3.6;
         if (t >= 1) {
           lat.value = toLa;
           lng.value = toLn;
-          heading.value = lerpToHdg.value;
+          if (speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH && segM >= MOVEMENT_HEADING_MIN_SEG_M) {
+            heading.value = bearingBetweenWorklet(fromLa, fromLn, toLa, toLn);
+          } else {
+            const flip = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
+            heading.value = flip >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8
+              ? heading.value
+              : lerpToHdg.value;
+          }
           lerpActive.value = 0;
         } else {
           lat.value = fromLa + (toLa - fromLa) * t;
           lng.value = fromLn + (toLn - fromLn) * t;
-          const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
-          heading.value = normalizeHeadingW(lerpFromHdg.value + dH * t);
+          if (speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH && segM >= MOVEMENT_HEADING_MIN_SEG_M) {
+            const moveHdg = bearingBetweenWorklet(fromLa, fromLn, lat.value, lng.value);
+            heading.value = stepHeadingLinearWorklet(
+              heading.value,
+              moveHdg,
+              HEADING_MAX_STEP_PER_FRAME_DEG,
+            );
+          } else {
+            const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
+            heading.value = normalizeHeadingW(lerpFromHdg.value + dH * t);
+          }
         }
       }
     } else {
@@ -367,25 +420,49 @@ export function useDriveMarker(
         }
       }
 
+      const prevLa = lastFrameLat.value;
+      const prevLn = lastFrameLng.value;
+      const curLa = lat.value;
+      const curLn = lng.value;
+      const speedKmh = drSpeed * 3.6;
+
       if (drSpeed >= MIN_DR_SPEED_MS) {
         const stepM = Math.min(MAX_DR_STEP_M, drSpeed * dtSec);
         const hdgRad = (heading.value * Math.PI) / 180;
         lat.value += metersToLatDelta(stepM * Math.cos(hdgRad));
         lng.value += metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
-        const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
-        if (hdgErr > 0.5) {
-          const hdgAlpha = Math.min(HEADING_BLEND_PER_FRAME, hdgErr / 90);
-          const d = headingDeltaW(heading.value, lerpToHdg.value);
-          heading.value = normalizeHeadingW(heading.value + d * hdgAlpha);
+      }
+
+      if (
+        Number.isFinite(prevLa)
+        && Number.isFinite(prevLn)
+        && speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH
+      ) {
+        const frameM = haversineMWorklet(prevLa, prevLn, lat.value, lng.value);
+        if (frameM >= 0.12) {
+          const moveHdg = bearingBetweenWorklet(prevLa, prevLn, lat.value, lng.value);
+          heading.value = stepHeadingLinearWorklet(
+            heading.value,
+            moveHdg,
+            HEADING_MAX_STEP_PER_FRAME_DEG,
+          );
         }
       } else {
         const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
         if (hdgErr > 1.5) {
-          const hdgAlpha = Math.min(HEADING_BLEND_PER_FRAME, hdgErr / 180);
-          const d = headingDeltaW(heading.value, lerpToHdg.value);
-          heading.value = normalizeHeadingW(heading.value + d * hdgAlpha);
+          const flip = hdgErr >= HEADING_FLIP_REJECT_DEG;
+          if (!flip || speedKmh < 8) {
+            heading.value = stepHeadingLinearWorklet(
+              heading.value,
+              lerpToHdg.value,
+              HEADING_MAX_STEP_PER_FRAME_DEG * 0.85,
+            );
+          }
         }
       }
+
+      lastFrameLat.value = lat.value;
+      lastFrameLng.value = lng.value;
     }
   }, false);
 
@@ -396,12 +473,21 @@ export function useDriveMarker(
       frameCallback.setActive(on);
     };
     syncActive();
-    const id = setInterval(syncActive, 500);
+    const id = setInterval(syncActive, 250);
     return () => {
       clearInterval(id);
       frameCallback.setActive(false);
     };
   }, [tripActive, frameCallback, enabledSv]);
 
-  return { lat, lng, heading, pushTarget, setCruiseSpeed, reset, resetTo };
+  return {
+    lat,
+    lng,
+    heading,
+    segmentDurationMs,
+    pushTarget,
+    setCruiseSpeed,
+    reset,
+    resetTo,
+  };
 }

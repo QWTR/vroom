@@ -159,16 +159,20 @@ export class DriveEngine {
     }
 
     if (gate.verdict === 'REJECT') {
+      const rejectDopplerKmh =
+        raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
       if (isFreeDrive) {
-        const out = this.buildFreeDriveTick(raw, gate, false);
+        const rejectMoving =
+          motionBefore.isMoving || rejectDopplerKmh >= 4;
+        const out = this.buildFreeDriveTick(raw, gate, rejectMoving);
         this.maybeCommitEnvelope(raw, gate, out.isMoving, isFreeDrive);
         return out;
       }
       const held = this.snap.getFrozenPose();
-      if (held && motionBefore.isMoving) {
+      if (held && (motionBefore.isMoving || rejectDopplerKmh >= 5)) {
         return {
           pose: { ...held },
-          speedKmh: this.speed.getLastKmh(),
+          speedKmh: Math.max(this.speed.getLastKmh(), rejectDopplerKmh),
           isMoving: true,
           durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
           geometrySource: this.cache.source() ?? 'tangent_fallback',
@@ -177,8 +181,8 @@ export class DriveEngine {
       if (held) {
         return {
           pose: { ...held },
-          speedKmh: 0,
-          isMoving: false,
+          speedKmh: rejectDopplerKmh,
+          isMoving: rejectDopplerKmh >= 5,
           durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
           geometrySource: this.cache.source() ?? 'tangent_fallback',
         };
@@ -190,6 +194,13 @@ export class DriveEngine {
       positionTrusted: gate.allowPositionUpdate,
       qualityVerdict: gate.verdict,
     });
+
+    const dopplerWakeKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
+    if (!isMoving && dopplerWakeKmh >= 8) {
+      this.motion.wakeFromGps();
+      isMoving = true;
+    }
 
     if (!isMoving && gate.verdict !== 'REJECT' && this.quality.registerWakeSample(raw, gate.verdict)) {
       this.motion.wakeFromGps();
@@ -246,7 +257,7 @@ export class DriveEngine {
       || (this.isNavigating && this.cache.hasGeometry());
     const frozenMove = this.snap.getFrozenPose();
     let travelHeadingDeg = frozenMove?.heading;
-    if (isFreeDrive && frozenMove) {
+    if (frozenMove) {
       const movedM = distanceM(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng);
       if (movedM >= 1.2) {
         travelHeadingDeg = bearingBetween(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng);

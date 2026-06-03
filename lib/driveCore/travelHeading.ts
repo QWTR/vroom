@@ -1,8 +1,32 @@
 import { bearingBetween } from '../../scripts/navigationUtils';
+import {
+  computeTripBearing,
+  HeadingRingBuffer,
+  TRAVEL_COMPASS_MAX_KMH,
+  TRAVEL_HEADING_FLIP_REJECT_DEG,
+  TRAVEL_HEADING_LOW_SPEED_HOLD_KMH,
+  TRAVEL_HEADING_ROAD_MAX_DIFF_DEG,
+  TRAVEL_HEADING_VECTOR_MIN_MOVE_M,
+  TRAVEL_VECTOR_LOCK_SPEED_KMH,
+  TRAVEL_VECTOR_LOCK_SPEED_MS,
+  TRAVEL_VECTOR_ONLY_MIN_KMH,
+  TripHeadingFilter,
+  type TripBearingInput,
+} from './headingFilter';
 
-export const TRAVEL_HEADING_VECTOR_MIN_MOVE_M = 1.2;
-export const TRAVEL_HEADING_LOW_SPEED_HOLD_KMH = 5;
-export const TRAVEL_HEADING_ROAD_MAX_DIFF_DEG = 38;
+export {
+  TRAVEL_HEADING_VECTOR_MIN_MOVE_M,
+  TRAVEL_HEADING_LOW_SPEED_HOLD_KMH,
+  TRAVEL_COMPASS_MAX_KMH,
+  TRAVEL_VECTOR_ONLY_MIN_KMH,
+  TRAVEL_HEADING_ROAD_MAX_DIFF_DEG,
+  TRAVEL_HEADING_FLIP_REJECT_DEG,
+  TRAVEL_VECTOR_LOCK_SPEED_KMH,
+  TRAVEL_VECTOR_LOCK_SPEED_MS,
+  TripHeadingFilter,
+  computeTripBearing,
+  HeadingRingBuffer,
+};
 
 export function normalizeHeading(h: number): number {
   'worklet';
@@ -39,41 +63,72 @@ export type TravelHeadingInput = {
   movedM: number;
   speedKmh: number;
   prevHeading: number | null;
+  /** Surowe Pₙ₋₁ — preferowane dla filtra MA + wektor ruchu. */
+  rawPrevLat?: number;
+  rawPrevLng?: number;
+  rawLat?: number;
+  rawLng?: number;
+  speedMs?: number;
+  compassDeg?: number | null;
 };
 
 /**
- * Kierunek jazdy: wektor ruchu + stabilizacja tangensem drogi (marker i kamera).
+ * Kierunek jazdy (SSOT): surowy wektor + MA(4) gdy podane raw coords + ring;
+ * w przeciwnym razie bearing z moveBearing / snap (legacy).
  */
-export function resolveTravelHeading(input: TravelHeadingInput): number {
+export function resolveTravelHeading(
+  input: TravelHeadingInput,
+  ring?: HeadingRingBuffer,
+): number {
+  const hasRaw =
+    input.rawPrevLat != null
+    && input.rawPrevLng != null
+    && input.rawLat != null
+    && input.rawLng != null
+    && Number.isFinite(input.rawPrevLat)
+    && Number.isFinite(input.rawPrevLng)
+    && Number.isFinite(input.rawLat)
+    && Number.isFinite(input.rawLng);
+
+  if (hasRaw && ring) {
+    const tripInput: TripBearingInput = {
+      prevLat: input.rawPrevLat!,
+      prevLng: input.rawPrevLng!,
+      lat: input.rawLat!,
+      lng: input.rawLng!,
+      movedM: input.movedM,
+      speedMs: input.speedMs ?? Math.max(0, input.speedKmh / 3.6),
+      speedKmh: input.speedKmh,
+      snapHeading: input.snapHeading,
+      compassDeg: input.compassDeg,
+      prevHeading: input.prevHeading,
+    };
+    return computeTripBearing(tripInput, ring);
+  }
+
   const road = normalizeHeading(input.snapHeading);
-  const prev = input.prevHeading;
+  const prev = input.prevHeading != null ? normalizeHeading(input.prevHeading) : null;
+  const vectorOnly = input.speedKmh >= TRAVEL_VECTOR_ONLY_MIN_KMH;
+  const moving =
+    input.speedKmh >= 3.5
+    || input.movedM >= TRAVEL_HEADING_VECTOR_MIN_MOVE_M;
 
-  if (input.moveBearing != null) {
-    const travel = normalizeHeading(input.moveBearing);
-    const moving =
-      input.speedKmh >= 3.5
-      || input.movedM >= TRAVEL_HEADING_VECTOR_MIN_MOVE_M;
-
-    if (moving) {
-      const diff = Math.abs(headingDelta(road, travel));
+  if (input.moveBearing != null && moving) {
+    let candidate = normalizeHeading(input.moveBearing);
+    if (!vectorOnly) {
+      const diff = Math.abs(headingDelta(road, candidate));
       if (diff <= TRAVEL_HEADING_ROAD_MAX_DIFF_DEG) {
-        const roadWeight = input.speedKmh >= 55
-          ? 0.5
-          : input.speedKmh >= 25
-            ? 0.4
-            : input.speedKmh >= 10
-              ? 0.32
-              : 0.22;
-        return lerpHeading(travel, road, roadWeight);
+        const w = input.speedKmh >= 8 ? 0.2 : 0.12;
+        candidate = lerpHeading(candidate, road, w);
       }
-      if (input.speedKmh >= 8 || input.movedM >= 2.5) {
-        return travel;
-      }
-      if (prev != null) {
-        return lerpHeadingWithMaxStep(prev, travel, 18);
-      }
-      return travel;
     }
+    if (prev != null) {
+      const flip = Math.abs(headingDelta(prev, candidate));
+      if (vectorOnly && flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) return prev;
+      const maxStep = input.speedKmh < 8 ? 14 : input.speedKmh < 25 ? 20 : 28;
+      return lerpHeadingWithMaxStep(prev, candidate, maxStep);
+    }
+    return candidate;
   }
 
   if (
@@ -82,6 +137,16 @@ export function resolveTravelHeading(input: TravelHeadingInput): number {
     && input.movedM < 1
   ) {
     return prev;
+  }
+
+  if (vectorOnly && prev != null) {
+    return prev;
+  }
+
+  if (prev != null) {
+    const flip = Math.abs(headingDelta(prev, road));
+    if (flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) return prev;
+    return lerpHeadingWithMaxStep(prev, road, 12);
   }
 
   return road;
@@ -96,4 +161,22 @@ export function moveBearingBetween(
 ): number | null {
   if (movedM < TRAVEL_HEADING_VECTOR_MIN_MOVE_M) return null;
   return bearingBetween(fromLat, fromLng, toLat, toLng);
+}
+
+/** Odrzuca nagły flip heading przy pushu do workletu markera. */
+export function guardMarkerHeadingPush(
+  prevHeading: number,
+  nextHeading: number,
+  speedKmh: number,
+): number {
+  const prev = normalizeHeading(prevHeading);
+  const next = normalizeHeading(nextHeading);
+  const flip = Math.abs(headingDelta(prev, next));
+  if (speedKmh >= TRAVEL_VECTOR_ONLY_MIN_KMH && flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) {
+    return prev;
+  }
+  if (speedKmh >= 6 && flip >= 125) {
+    return prev;
+  }
+  return next;
 }
