@@ -1,12 +1,13 @@
+import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
 import { gpsTickPayload } from './gpsTickTrace';
 import { vroomGpsLogNow } from './vroomGpsLog';
 
-/** Warstwa 1–5: dev-only — w produkcji sync console.log na każdym ticku GPS zatykał UI. */
+/** Warstwa GPS pipeline — logcat [VROOM-TEL] gdy __DEV__ lub DRIVE_SESSION_TRACE. */
 export function logGpsTickLayer(
   tag: string,
   payload: Record<string, unknown>,
 ): void {
-  if (!__DEV__) return;
+  if (!__DEV__ && !DRIVE_SESSION_TRACE_ENABLED) return;
   vroomGpsLogNow(tag, gpsTickPayload(payload));
 }
 

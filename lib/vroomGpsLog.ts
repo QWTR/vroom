@@ -1,3 +1,7 @@
+import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
+import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
+
 const lastAt: Record<string, number> = {};
 
 export type VroomGpsLogEntry = {
@@ -7,6 +11,44 @@ export type VroomGpsLogEntry = {
 };
 
 const listeners = new Set<(entry: VroomGpsLogEntry) => void>();
+
+const DRIVE_SESSION_LOG = 'vroom_drive_session.log';
+const DRIVE_SESSION_DOC = `${FileSystem.documentDirectory}${DRIVE_SESSION_LOG}`;
+const DRIVE_SESSION_DOWNLOAD = `file:///storage/emulated/0/Download/${DRIVE_SESSION_LOG}`;
+const DRIVE_SESSION_MEDIA =
+  `file:///storage/emulated/0/Android/media/com.lexuuw.vroom.app/${DRIVE_SESSION_LOG}`;
+
+let fileWriteQueue: Promise<void> = Promise.resolve();
+
+function shouldMirrorDriveSessionFile(tag: string): boolean {
+  if (!DRIVE_SESSION_TRACE_ENABLED) return false;
+  if (tag.startsWith('DRIVE_TRACE_')) return true;
+  if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
+  if (tag.startsWith('NAV_TRACE_') || tag.startsWith('GPS_')) return true;
+  if (tag === 'BUILD_FINGERPRINT') return true;
+  return false;
+}
+
+function queueDriveSessionFileLine(line: string): void {
+  fileWriteQueue = fileWriteQueue
+    .then(async () => {
+      const paths = [DRIVE_SESSION_DOC];
+      if (Platform.OS === 'android') {
+        paths.push(DRIVE_SESSION_DOWNLOAD, DRIVE_SESSION_MEDIA);
+      }
+      for (const path of paths) {
+        try {
+          await FileSystem.writeAsStringAsync(path, line, {
+            encoding: FileSystem.EncodingType.UTF8,
+            append: true,
+          });
+        } catch {
+          // Best-effort — Download może wymagać uprawnień.
+        }
+      }
+    })
+    .catch(() => {});
+}
 
 export function subscribeVroomGpsLog(listener: (entry: VroomGpsLogEntry) => void): () => void {
   listeners.add(listener);
@@ -23,14 +65,18 @@ function safePayloadJson(t: number, payload: Record<string, unknown> | undefined
   }
 }
 
-/** Ten sam format co logTelemetry — widoczny w: adb logcat -d | findstr "[VROOM-TEL]" */
+/** Logcat: adb logcat -d | findstr "VROOM-TEL"  (NIE używaj nawiasów [ ] w findstr!) */
 function emitVroomTelLogcatLine(tag: string, t: number, payload: Record<string, unknown> | undefined): void {
   const iso = new Date(t).toISOString();
   const json = safePayloadJson(t, payload);
+  const line = `[VROOM-TEL] ${iso} | ${tag} | ${json}`;
   try {
-    console.log(`[VROOM-TEL] ${iso} | ${tag} | ${json}`);
+    console.log(line);
   } catch {
     console.log(`[VROOM-TEL] ${iso} | ${tag} | {}`);
+  }
+  if (shouldMirrorDriveSessionFile(tag)) {
+    queueDriveSessionFileLine(`${line}\n`);
   }
 }
 
@@ -56,7 +102,6 @@ function emitVroomGpsLog(
   }
 }
 
-/** Throttled — adb: logcat -d -v time | findstr /C:"[VROOM-TEL]" */
 export function vroomGpsLog(
   tag: string,
   payload?: Record<string, unknown>,
@@ -65,10 +110,23 @@ export function vroomGpsLog(
   emitVroomGpsLog(tag, payload, throttleMs);
 }
 
-/** Bez throttlingu — resume, feed reject, nagłe skoki (nie gubi zdarzeń). */
 export function vroomGpsLogNow(
   tag: string,
   payload?: Record<string, unknown>,
 ): void {
   emitVroomGpsLog(tag, payload, 0);
 }
+
+/** Ping przy starcie — sprawdź: adb logcat -d | findstr DRIVE_TRACE_PING */
+export function vroomGpsLogPing(source: string): void {
+  vroomGpsLogNow('DRIVE_TRACE_PING', {
+    source,
+    traceEnabled: DRIVE_SESSION_TRACE_ENABLED,
+    platform: Platform.OS,
+  });
+}
+
+export const DRIVE_SESSION_LOG_ADB_PATHS = [
+  `/sdcard/Download/${DRIVE_SESSION_LOG}`,
+  `/sdcard/Android/media/com.lexuuw.vroom.app/${DRIVE_SESSION_LOG}`,
+] as const;

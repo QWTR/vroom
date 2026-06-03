@@ -8,6 +8,7 @@ import Animated, {
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
+import { driveTraceMarkerUi } from '../../lib/driveSessionTrace';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
 const MARKER_SIZE = 40;
@@ -49,10 +50,21 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     if (Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
       return;
     }
+    const prevCommitAt = lastCommitAtRef.current;
     lastCommitAtRef.current = now;
+    const moveM = Math.sqrt(
+      ((la - prev.lat) * 111320) ** 2
+      + ((ln - prev.lng) * 111320 * Math.cos((la * Math.PI) / 180)) ** 2,
+    );
     lastRef.current = { lat: la, lng: ln };
     setCoordinate([ln, la]);
     setHasCoord(true);
+    driveTraceMarkerUi({
+      lat: la,
+      lng: ln,
+      moveM,
+      msSinceLast: prevCommitAt > 0 ? now - prevCommitAt : null,
+    });
   }, []);
 
   useAnimatedReaction(

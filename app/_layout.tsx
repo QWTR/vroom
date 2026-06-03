@@ -36,6 +36,7 @@ import {
 } from '../lib/backgroundLocationConsent';
 import { initMapbox } from '../lib/mapboxInit';
 import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
+import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
@@ -243,6 +244,7 @@ function RootLayoutInner() {
   useEffect(() => {
     initMapbox().catch(() => {});
     void initNavDriveTraceStore();
+    vroomGpsLogPing('app_layout_mount');
   }, []);
 
   useEffect(() => {

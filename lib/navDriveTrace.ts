@@ -9,6 +9,7 @@
 import { markNavTraceDrivingSession } from './navDriveTraceStore';
 import { TRIP_PIPELINE_SIMPLE } from './tripPipelineConfig';
 import { vroomGpsLogNow } from './vroomGpsLog';
+import { driveTraceSession } from './driveSessionTrace';
 
 export { NAV_DRIVE_TRACE_ENABLED } from './navDriveTraceStore';
 import { NAV_DRIVE_TRACE_ENABLED } from './navDriveTraceStore';
@@ -55,12 +56,14 @@ export function navDriveTraceSession(
   event: 'driving_start' | 'driving_end' | 'nav_start' | 'nav_end',
   extra?: Record<string, unknown>,
 ): void {
-  if (!NAV_DRIVE_TRACE_ENABLED) return;
-  void markNavTraceDrivingSession(event, { ...extra, tripPipelineSimple: TRIP_PIPELINE_SIMPLE });
-  vroomGpsLogNow('NAV_TRACE_PIPELINE_MODE', {
-    simple: TRIP_PIPELINE_SIMPLE,
-    event,
-  });
+  if (NAV_DRIVE_TRACE_ENABLED) {
+    void markNavTraceDrivingSession(event, { ...extra, tripPipelineSimple: TRIP_PIPELINE_SIMPLE });
+    vroomGpsLogNow('NAV_TRACE_PIPELINE_MODE', {
+      simple: TRIP_PIPELINE_SIMPLE,
+      event,
+    });
+  }
+  driveTraceSession(event, extra);
 }
 
 export function navDriveTraceWorkletFrame(data: Record<string, unknown>): void {

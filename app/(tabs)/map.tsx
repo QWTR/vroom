@@ -78,6 +78,15 @@ import { shareNavTraceLog } from '../../lib/navDriveTraceStore';
 import { vroomGpsLog, vroomGpsLogNow } from '../../lib/vroomGpsLog';
 import { beginGpsTick } from '../../lib/gpsTickTrace';
 import { logGpsTickLayer, logGpsTickLayerThrottled } from '../../lib/gpsTickTraceLog';
+import {
+  driveTraceCamera,
+  driveTraceFallback,
+  driveTraceRaw,
+  driveTraceReject,
+  driveTraceSession,
+  driveTraceTick,
+  driveSessionLog,
+} from '../../lib/driveSessionTrace';
 import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
 import {
   buildRerouteOrigin,
@@ -984,6 +993,14 @@ function pushDriveMarkerV2(
       speedMs,
     });
     commitMarkerFeedState(lat, lng, heading);
+    driveSessionLog('DRIVE_TRACE_FEED', {
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+      hdg: Math.round(heading),
+      skipFeedGate: true,
+      durationMs: opts?.durationMs ?? markerSegmentDurationMs(intervalMs, speedKmh, isNav),
+      speedKmh: round1(speedKmh),
+    });
     return;
   }
 
@@ -992,7 +1009,16 @@ function pushDriveMarkerV2(
     isNavigating: isNav,
     isFreeDrive: isFree,
   });
-  if (!decision.acceptPosition && !decision.headingOnly) return;
+  if (!decision.acceptPosition && !decision.headingOnly) {
+    driveTraceReject('marker_feed_gate', {
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+      hdg: Math.round(heading),
+      speedKmh: round1(speedKmh),
+      durationMs: decision.durationMs,
+    });
+    return;
+  }
 
   driveMarker.pushTarget({
     lat: decision.lat,
@@ -1004,6 +1030,19 @@ function pushDriveMarkerV2(
   if (decision.acceptPosition) {
     commitMarkerFeedState(decision.lat, decision.lng, decision.heading);
   }
+  driveSessionLog('DRIVE_TRACE_FEED', {
+    lat: Number(decision.lat.toFixed(6)),
+    lng: Number(decision.lng.toFixed(6)),
+    hdg: Math.round(decision.heading),
+    acceptPosition: decision.acceptPosition,
+    headingOnly: decision.headingOnly,
+    durationMs: decision.durationMs,
+    speedKmh: round1(speedKmh),
+  });
+}
+
+function round1(n: number): number {
+  return Number.isFinite(n) ? Number(n.toFixed(1)) : n;
 }
 
 function computeDriveFeedSpeedMs(
@@ -5262,6 +5301,29 @@ export default function MapScreen() {
         lastDrivingPosRef.current = { lat: out.pose.lat, lng: out.pose.lng };
       }
       void recordDrivingTracePoint(out.pose.lat, out.pose.lng, { speedKmh: out.speedKmh });
+      driveTraceTick({
+        rawLat: lat,
+        rawLng: lng,
+        snapLat: out.pose.lat,
+        snapLng: out.pose.lng,
+        markerLat: markerPose.lat,
+        markerLng: markerPose.lng,
+        markerHdg: travelHdg,
+        markerSvLat: driveMarker.lat.value,
+        markerSvLng: driveMarker.lng.value,
+        markerSvHdg: driveMarker.heading.value,
+        accM: accuracy,
+        hudKmh,
+        engineKmh,
+        dopplerKmh: dopplerKmhTick,
+        feedDurMs: feedDur,
+        cadenceMs: cadenceSafe,
+        feedSpeedMs,
+        isNavigating: !isFreeDriveTick,
+        isFreeDrive: isFreeDriveTick,
+        isMoving: out.isMoving,
+        source: 'drive_core_v2',
+      });
       return true;
     };
   }, [driveCore, driveMarker, publishUserLocation, recordDrivingTracePoint, headingForDriveMarker, pushTripCameraFromApply, feedPosition, feedSpeed, maybeClearDrivingManualDisable]);
@@ -5277,12 +5339,23 @@ export default function MapScreen() {
   const pushCameraFromSmooth = useCallback((lat: number, lng: number, hdg: number) => {
     if (!V10_CLIENT_FIRST && !DRIVE_CORE_V2) return;
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
-    if (isUserExploringMapRef.current()) return;
+    const exploring = isUserExploringMapRef.current();
     const now = Date.now();
     const prevDisp = markerDisplayRef.current;
     const frameMoveM = prevDisp.at > 0
       ? haversineKm(prevDisp.lat, prevDisp.lng, lat, lng) * 1000
       : 0;
+    if (exploring) {
+      driveTraceCamera({
+        lat,
+        lng,
+        hdg,
+        speedKmh: speedKmhRef.current,
+        exploring: true,
+        frameMoveM,
+      });
+      return;
+    }
     const frameDtSec = prevDisp.at > 0
       ? Math.max(0.016, Math.min(0.2, (now - prevDisp.at) / 1000))
       : 0.016;
@@ -5327,8 +5400,16 @@ export default function MapScreen() {
       lng: Number(lng.toFixed(6)),
       hdg: Math.round(hdg),
       speedKmh: Math.round(cameraSpeedKmh),
-      exploring: isUserExploringMapRef.current(),
+      exploring: false,
     }, 800);
+    driveTraceCamera({
+      lat,
+      lng,
+      hdg,
+      speedKmh: cameraSpeedKmh,
+      exploring: false,
+      frameMoveM,
+    });
   }, []);
 
   useEffect(() => {
@@ -7200,7 +7281,19 @@ export default function MapScreen() {
               speedKmhRef.current = normalizeHudSpeedKmh(speedKmhRaw);
               emitSpeedometerKmh(speedKmhRef.current);
             }
+            driveTraceReject('hard_jump_clamp', {
+              movedM: Math.round(movedM),
+              hardJumpM: Math.round(hardJumpM),
+              rawLat: Number(rawLat0.toFixed(6)),
+              rawLng: Number(rawLng0.toFixed(6)),
+              clampLat: Number(rawLat.toFixed(6)),
+              clampLng: Number(rawLng.toFixed(6)),
+            });
           } else {
+            driveTraceReject('hard_jump_reject', {
+              movedM: Math.round(movedM),
+              hardJumpM: Math.round(hardJumpM),
+            });
             return;
           }
         }
@@ -7223,6 +7316,20 @@ export default function MapScreen() {
         tripActive: isDrivingRef.current || isNavigatingRef.current,
         appState: appStateRef.current,
       });
+      if (tripActiveEarly) {
+        driveTraceRaw({
+          lat: rawLat,
+          lng: rawLng,
+          acc,
+          speedKmh: speedKmhRaw,
+          speedMs: loc.speed != null && loc.speed >= 0 ? loc.speed : null,
+          heading: loc.heading != null && Number.isFinite(loc.heading) ? loc.heading : null,
+          tripActive: true,
+          driving: isDrivingRef.current,
+          navigating: isNavigatingRef.current,
+          osTimestamp: loc.timestamp ?? null,
+        });
+      }
 
       const rollbackGoodLoc = lastGoodLocRef.current
         ? { ...lastGoodLocRef.current }
@@ -7254,6 +7361,12 @@ export default function MapScreen() {
           lastAcceptedFixWallClockRef.current = now;
           return;
         }
+        driveTraceReject('v2_core_reject', {
+          rawLat: Number(rawLat.toFixed(6)),
+          rawLng: Number(rawLng.toFixed(6)),
+          accM: Math.round(acc),
+          speedKmh: round1(speedKmhRaw),
+        });
         // Bramka V2 odrzuciła fix — HUD może żyć, marker/kamera tylko przy lock + sensownej accuracy.
         if (!gpsForceActiveRef.current) {
           gpsForceActiveRef.current = true;
@@ -7270,6 +7383,11 @@ export default function MapScreen() {
           gpsLockEstablishedRef.current
           && acc <= 30;
         if (!allowMapFallback) {
+          driveTraceReject('v2_no_fallback', {
+            accM: Math.round(acc),
+            gpsLock: gpsLockEstablishedRef.current,
+            speedKmh: round1(fallbackKmh),
+          });
           lastAcceptedFixWallClockRef.current = now;
           return;
         }
@@ -7330,6 +7448,38 @@ export default function MapScreen() {
           isFreeDrive: !isNavigatingRef.current,
         });
         pushCameraFromSmoothRef.current(fbLat, fbLng, fbHdg);
+        driveTraceFallback({
+          fbLat: Number(fbLat.toFixed(6)),
+          fbLng: Number(fbLng.toFixed(6)),
+          fbHdg: Math.round(fbHdg),
+          rawLat: Number(rawLat.toFixed(6)),
+          rawLng: Number(rawLng.toFixed(6)),
+          speedKmh: round1(fallbackKmh),
+          accM: Math.round(acc),
+        });
+        driveTraceTick({
+          rawLat,
+          rawLng,
+          snapLat: frozenSnap?.lat ?? fbLat,
+          snapLng: frozenSnap?.lng ?? fbLng,
+          markerLat: fbLat,
+          markerLng: fbLng,
+          markerHdg: fbHdg,
+          markerSvLat: driveMarker.lat.value,
+          markerSvLng: driveMarker.lng.value,
+          markerSvHdg: driveMarker.heading.value,
+          accM: acc,
+          hudKmh: fallbackKmh,
+          engineKmh: fallbackKmh,
+          dopplerKmh: fallbackKmh,
+          feedDurMs: fbDur,
+          cadenceMs: fbCadence,
+          feedSpeedMs: Math.max(0, fallbackKmh / 3.6),
+          isNavigating: isNavigatingRef.current,
+          isFreeDrive: !isNavigatingRef.current,
+          isMoving: fallbackKmh >= 3,
+          source: 'v2_fallback',
+        });
         lastRawForHeadingRef.current = { lat: rawLat, lng: rawLng, at: now };
         lastAcceptedFixWallClockRef.current = now;
         return;

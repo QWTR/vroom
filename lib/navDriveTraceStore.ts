@@ -20,8 +20,11 @@ import {
 import { clearTelemetry, logTelemetry } from './telemetryLogger';
 /** Zapis + eksport logów jazdy (wyłącz po diagnozie). */
 import { TRIP_PIPELINE_SIMPLE } from './tripPipelineConfig';
+import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
 
-export const NAV_DRIVE_TRACE_ENABLED = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+/** Zapis + eksport logów jazdy (włączone gdy DRIVE_SESSION_TRACE lub __DEV__). */
+export const NAV_DRIVE_TRACE_ENABLED =
+  DRIVE_SESSION_TRACE_ENABLED || (typeof __DEV__ !== 'undefined' ? __DEV__ : false);
 
 const DB_NAME = 'vroom_nav_trace.db';
 const MAX_ROWS = 15_000;
@@ -37,7 +40,9 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 
 function shouldPersistTag(tag: string): boolean {
+  if (tag.startsWith('DRIVE_TRACE_')) return true;
   if (tag.startsWith('NAV_TRACE_')) return true;
+  if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
   if (tag.startsWith('SNAP_')) return true;
   if (tag.includes('TELEPORT')) return true;
   if (tag.includes('WORKLET_FEED')) return true;
