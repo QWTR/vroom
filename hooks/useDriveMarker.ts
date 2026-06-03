@@ -27,9 +27,8 @@ export type DriveMarkerTarget = {
 
 const MIN_DR_SPEED_MS = 0.08;
 const CRUISE_HOLD_MS = 0.22;
-const CRUISE_DECAY_PER_SEC = 0.12;
-const GPS_STALE_MS = 2800;
-const MAX_DR_STEP_M = 4.5;
+const CRUISE_EXTRAP_MAX_MS = 1500;
+const MAX_DR_STEP_M = 3;
 /** Liniowy krok obrotu (°/klatka @60fps) — zsynchronizowany z kamerą. */
 const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
 const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
@@ -37,6 +36,9 @@ const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
 const HEADING_FLIP_REJECT_DEG = 92;
 const LERP_MIN_MS = 16;
 const LERP_MAX_MS = 1200;
+/** Min. czas LERP przy ruchu — pokrywa typowy interval GPS 150–250 ms. */
+const MOVEMENT_LERP_MIN_MS = 120;
+const INSTANT_SNAP_MAX_ERR_M = 0.25;
 
 function normalizeHeadingW(h: number): number {
   'worklet';
@@ -180,7 +182,7 @@ function lerpProgressWorklet(
 }
 
 /**
- * Marker V2 — LERP w worklecie (durationMs) + DR po zakończeniu segmentu.
+ * Marker V2 — LERP w worklecie (durationMs) + lekka ekstrapolacja między segmentami GPS.
  */
 export function useDriveMarker(
   enabled: boolean,
@@ -232,13 +234,9 @@ export function useDriveMarker(
     if (Number.isFinite(heading.value)) {
       tgtHdg = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
     }
+
+    const moving = incomingMs >= MIN_DR_SPEED_MS;
     let segDur = safeDurationMsJs(t.durationMs);
-    if (speedKmh >= 60) {
-      segDur = Math.min(segDur, 48);
-    } else if (speedKmh >= 35) {
-      segDur = Math.min(segDur, 72);
-    }
-    segmentDurationMs.value = segDur;
 
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
     if (needsBootstrap) {
@@ -268,9 +266,8 @@ export function useDriveMarker(
       return;
     }
 
-    const moving = incomingMs >= MIN_DR_SPEED_MS;
-
-    if (errM < 1.2 || segDur <= 96) {
+    const forceInstant = t.durationMs === 0;
+    if (forceInstant || (errM < INSTANT_SNAP_MAX_ERR_M && !moving)) {
       lat.value = t.lat;
       lng.value = t.lng;
       heading.value = tgtHdg;
@@ -293,9 +290,15 @@ export function useDriveMarker(
         lerpToLng.value = t.lng;
         lerpToHdg.value = tgtHdg;
         lerpDurationMs.value = segDur;
+        segmentDurationMs.value = segDur;
         return;
       }
     }
+
+    if (moving || errM >= INSTANT_SNAP_MAX_ERR_M) {
+      segDur = Math.max(segDur, MOVEMENT_LERP_MIN_MS);
+    }
+    segmentDurationMs.value = segDur;
 
     lerpDurationMs.value = segDur;
     lerpFromLat.value = fromLa;
@@ -305,20 +308,6 @@ export function useDriveMarker(
     lerpToHdg.value = tgtHdg;
     lerpStartMs.value = Date.now();
     lerpFromHdg.value = heading.value;
-
-    if (errM < 0.2 && !moving) {
-      lerpToLat.value = t.lat;
-      lerpToLng.value = t.lng;
-      lerpToHdg.value = tgtHdg;
-      lat.value = t.lat;
-      lng.value = t.lng;
-      heading.value = tgtHdg;
-      lastFrameLat.value = t.lat;
-      lastFrameLng.value = t.lng;
-      lerpActive.value = 0;
-      return;
-    }
-
     lerpActive.value = 1;
   }, [
     cruiseSpeedMsSv,
@@ -482,7 +471,24 @@ export function useDriveMarker(
         }
       }
     } else {
-      // Bez ekstrapolacji DR — tylko GPS/lerp (DR przesuwał marker do przodu, GPS cofał → yo-yo).
+      const speedMs = speedMsSv.value;
+      const staleMs = nowMs - lastGpsPushMsSv.value;
+      if (
+        speedMs >= 0.5
+        && staleMs > 0
+        && staleMs <= CRUISE_EXTRAP_MAX_MS
+      ) {
+        const dtSec = Math.min(
+          0.05,
+          Math.max(0.001, (frame.timeSincePreviousFrame ?? 16) / 1000),
+        );
+        const stepM = Math.min(MAX_DR_STEP_M, speedMs * dtSec);
+        if (stepM > 0.008) {
+          const hdgRad = (heading.value * Math.PI) / 180;
+          lat.value = lat.value + metersToLatDelta(stepM * Math.cos(hdgRad));
+          lng.value = lng.value + metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
+        }
+      }
       lastFrameLat.value = lat.value;
       lastFrameLng.value = lng.value;
       const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));

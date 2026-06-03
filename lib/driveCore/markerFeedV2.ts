@@ -33,23 +33,18 @@ function headingDeltaDeg(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
-/** Czas segmentu = rzeczywisty odstęp GPS (nie 650 ms przy tickach co 50 ms). */
+/** Czas segmentu LERP = rzeczywisty odstęp GPS (zsynchronizowany z cadence, nie z prędkością). */
 export function markerSegmentDurationMs(
   intervalMs: number,
-  speedKmh: number,
+  _speedKmh: number,
   isNavigating: boolean,
 ): number {
   const interval = Number.isFinite(intervalMs) && intervalMs > 0 ? intervalMs : 500;
-  if (speedKmh >= 70) {
-    return Math.max(16, Math.min(72, Math.round(interval * 0.88)));
-  }
-  if (speedKmh >= 45) {
-    return Math.max(20, Math.min(96, Math.round(interval * 0.9)));
-  }
+  const scaled = Math.round(interval * 0.85);
   if (isNavigating) {
-    return Math.max(28, Math.min(380, Math.round(interval * 0.92)));
+    return Math.max(150, Math.min(800, scaled));
   }
-  return Math.max(16, Math.min(110, Math.round(interval * 0.9)));
+  return Math.max(120, Math.min(800, scaled));
 }
 
 /** Odetnij szum GPS prostopadły / w tył względem kierunku jazdy. */
