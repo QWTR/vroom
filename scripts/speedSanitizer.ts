@@ -160,8 +160,8 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     if (stationaryEvidence) {
       const pathM = input.pathMoveM ?? 0;
       const motionKmh = Math.max(geoKmh, derivedKmh);
-      // Wolna jazda / rondo: path rośnie, net w oknie mały — nie zeruj.
-      if (pathM >= 8 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
+      // Wolna jazda / rondo: path rośnie, net w oknie mały — nie zeruj (wymaga net ≥ 6 m).
+      if (netM >= 6 && pathM >= 8 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
         return Math.min(
           maxKmh,
           Math.max(derivedKmh, gpsKmh, motionKmh, 4),
@@ -366,10 +366,6 @@ export function clampSpeedKmhToGeometry(
     && opts.motionKmh < 5;
   if (kmh <= 0) return 0;
   if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
-    const geoFloor = Math.max(opts.motionKmh, opts.sustainedKmh);
-    if (geoFloor >= 3) {
-      return Math.min(MAX_SPEED_HUD_KMH, Math.max(kmh, geoFloor));
-    }
     return 0;
   }
   if (netM < 14) {

@@ -48,6 +48,7 @@ interface Listing {
   views?: number;
   isPromoted?: boolean;
   promotedUntil?: string | null;
+  location?: string | null;
 }
 
 interface MarketMeta {
@@ -297,6 +298,15 @@ export default function MarketScreen() {
             {formatPrice(item.price)}
           </Text>
         </View>
+
+        {!!item.location && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <MaterialCommunityIcons name="map-marker-outline" size={12} color={theme.textDim} />
+            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }} numberOfLines={1}>
+              {item.location}
+            </Text>
+          </View>
+        )}
 
         {/* Specs row */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

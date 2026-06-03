@@ -8,6 +8,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -40,6 +41,10 @@ export default function AddListingScreen() {
   const [fuel,         setFuel]         = useState('');
   const [description,  setDescription]  = useState('');
   const [price,        setPrice]        = useState('');
+  const [locationText, setLocationText] = useState('');
+  const [listingLat,   setListingLat]   = useState<number | null>(null);
+  const [listingLng,   setListingLng]   = useState<number | null>(null);
+  const [locLoading,   setLocLoading]   = useState(false);
   const [photos,       setPhotos]       = useState<string[]>([]);
   const originalPhotosRef = React.useRef<string[]>([]);
   const [submitting,   setSubmitting]   = useState(false);
@@ -78,6 +83,9 @@ export default function AddListingScreen() {
         setFuel(data.fuel ?? '');
         setDescription(data.description ?? '');
         setPrice(data.price?.toString() ?? '');
+        setLocationText(data.location ?? '');
+        setListingLat(data.lat ?? null);
+        setListingLng(data.lng ?? null);
         setPhotos(data.photos ?? []);
         originalPhotosRef.current = data.photos ?? [];
       } catch (e) {
@@ -116,6 +124,32 @@ export default function AddListingScreen() {
     return null;
   };
 
+  const useMyLocation = async () => {
+    setLocLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Toast.show({ type: 'error', text1: 'Brak dostępu do lokalizacji' });
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setListingLat(pos.coords.latitude);
+      setListingLng(pos.coords.longitude);
+      const places = await Location.reverseGeocodeAsync({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      });
+      const p = places[0];
+      const city = p?.city || p?.subregion || p?.region;
+      if (city) setLocationText(city);
+      else Toast.show({ type: 'info', text1: 'Lokalizacja zapisana', text2: 'Uzupełnij miasto ręcznie jeśli trzeba' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Nie udało się pobrać lokalizacji' });
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     const err = validate();
     if (err) { Toast.show({ type: 'error', text1: 'Błąd walidacji', text2: err }); return; }
@@ -138,6 +172,9 @@ export default function AddListingScreen() {
       if (color)        formData.append('color',        color);
       if (fuel)         formData.append('fuel',         fuel);
       if (description)  formData.append('description',  description.trim());
+      if (locationText.trim()) formData.append('location', locationText.trim());
+      if (listingLat != null) formData.append('lat', String(listingLat));
+      if (listingLng != null) formData.append('lng', String(listingLng));
 
       // Only append new (local) photos — photos already in originalPhotosRef are server-side
       const originalSet = new Set(originalPhotosRef.current);
@@ -364,6 +401,28 @@ export default function AddListingScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </FormSection>
+
+        {/* Location */}
+        <FormSection label="MIASTO / LOKALIZACJA">
+          <FieldInput value={locationText} onChangeText={setLocationText} placeholder="np. Katowice" theme={theme} />
+          <TouchableOpacity
+            onPress={() => void useMyLocation()}
+            disabled={locLoading}
+            style={{
+              marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder,
+              backgroundColor: theme.primaryBg, opacity: locLoading ? 0.6 : 1,
+            }}
+          >
+            {locLoading
+              ? <ActivityIndicator size="small" color={theme.primary} />
+              : <MaterialCommunityIcons name="crosshairs-gps" size={16} color={theme.primary} />
+            }
+            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+              UŻYJ MOJEJ LOKALIZACJI
+            </Text>
+          </TouchableOpacity>
         </FormSection>
 
         {/* Description */}

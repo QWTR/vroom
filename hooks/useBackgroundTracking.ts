@@ -22,10 +22,13 @@ async function getAuthToken(): Promise<string | null> {
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
 
-export function feedSpeedSample(speedMs: number | null) {
-  if (speedMs == null || speedMs < 0) return;
+const MAX_FEED_SPEED_KMH = 200;
+
+/** trusted=true: ten sam gate co trip peak (ruch potwierdzony, cap 200 km/h). */
+export function feedSpeedSample(speedMs: number | null, trusted = false) {
+  if (!trusted || speedMs == null || speedMs < 0) return;
   const kmh = speedMs * 3.6;
-  if (kmh < 1 || kmh > 360) return;
+  if (kmh < 1 || kmh > MAX_FEED_SPEED_KMH) return;
   _speedSamples.push(kmh);
   if (kmh > _speedMax) _speedMax = kmh;
 }
@@ -606,7 +609,7 @@ export function useBackgroundTracking(
         const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
           ? distanceToSaveRaw
           : 0;
-        const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, maxSpeed ?? 0);
+        const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, 0);
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null && navPayload.avgSpeedKmh > 0
           ? navPayload.avgSpeedKmh
           : avgSpeed;

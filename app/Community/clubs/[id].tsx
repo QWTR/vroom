@@ -707,16 +707,36 @@ export default function ClubChatScreen() {
     await refreshClub();
   };
 
-  const kickMember = async () => {
+  const kickMember = () => {
     if (!memberModal) return;
-    const token = await getToken() ?? '';
-    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/kick`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ reason: 'Moderacja klubu' }),
-    });
-    setMemberModal(null);
-    await refreshClub();
+    const username = memberModal.username ?? 'użytkownika';
+    Alert.alert(
+      `Wyrzuć ${username}`,
+      'Na pewno wyrzucić tego użytkownika z klubu?',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        {
+          text: 'Wyrzuć',
+          style: 'destructive',
+          onPress: async () => {
+            const token = await getToken() ?? '';
+            const res = await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/kick`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ reason: 'Moderacja klubu' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              Toast.show({ type: 'error', text1: data.error ?? 'Nie udało się wyrzucić' });
+              return;
+            }
+            Toast.show({ type: 'success', text1: `${username} wyrzucony` });
+            setMemberModal(null);
+            await refreshClub();
+          },
+        },
+      ],
+    );
   };
 
   const toggleClubPushMute = async () => {

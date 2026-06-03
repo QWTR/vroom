@@ -396,7 +396,7 @@ export function useDriveMarker(
       frameCallback.setActive(on);
     };
     syncActive();
-    const id = setInterval(syncActive, 200);
+    const id = setInterval(syncActive, 500);
     return () => {
       clearInterval(id);
       frameCallback.setActive(false);

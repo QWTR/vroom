@@ -57,7 +57,11 @@ const ACTIVE_FORCE_EMIT_GAP_MS = 200;
 const ACTIVE_EMIT_MIN_HEADING_DELTA = 6;
 const ACTIVE_DISTANCE_INTERVAL_M = 3;
 
-type GpsProfile = 'offMap' | 'browsing' | 'active';
+type GpsProfile = 'offMap' | 'browsing' | 'activeDrive' | 'activeNav';
+
+function isActiveGpsProfile(profile: GpsProfile): boolean {
+  return profile === 'activeDrive' || profile === 'activeNav';
+}
 
 const GPS_CONFIG: Record<GpsProfile, {
   accuracy: Location.Accuracy;
@@ -74,10 +78,15 @@ const GPS_CONFIG: Record<GpsProfile, {
     timeInterval: 3000,
     distanceInterval: 10,
   },
-  active: {
+  activeDrive: {
     accuracy: Location.Accuracy.BestForNavigation,
-    timeInterval: 100,
-    distanceInterval: ACTIVE_DISTANCE_INTERVAL_M,
+    timeInterval: 250,
+    distanceInterval: 5,
+  },
+  activeNav: {
+    accuracy: Location.Accuracy.BestForNavigation,
+    timeInterval: 150,
+    distanceInterval: 4,
   },
 };
 
@@ -88,7 +97,7 @@ function buildWatchOptions(profile: GpsProfile): Location.LocationOptions {
     timeInterval: cfg.timeInterval,
     distanceInterval: cfg.distanceInterval,
   };
-  if (profile === 'active' && Platform.OS === 'ios') {
+  if ((profile === 'activeDrive' || profile === 'activeNav') && Platform.OS === 'ios') {
     opts.activityType = Location.ActivityType.AutomotiveNavigation;
     opts.pausesUpdatesAutomatically = false;
   }
@@ -102,7 +111,8 @@ function resolveGpsProfile(
   speedKmh: number,
   forceActive: boolean,
 ): GpsProfile {
-  if (isNavigating || isDriving || forceActive || speedKmh > DRIVE_SPEED_KMH) return 'active';
+  if (isNavigating || forceActive) return 'activeNav';
+  if (isDriving || speedKmh > DRIVE_SPEED_KMH) return 'activeDrive';
   if (!isMapFocused) return 'offMap';
   return 'browsing';
 }
@@ -207,7 +217,7 @@ export function useDriveLocationWatch({
               return;
             }
 
-            const activeMode = profileRef.current === 'active';
+            const activeMode = isActiveGpsProfile(profileRef.current);
             if (activeMode) {
               const justLocked = updateGpsLock(lockRef.current, acc, now);
               if (justLocked) applyLockState(true);
@@ -373,9 +383,9 @@ export function useDriveLocationWatch({
               effectiveSpeedKmh,
               forceActiveRef.current,
             );
-            if (nextProfile === 'active' && profileRef.current !== 'active') {
+            if (isActiveGpsProfile(nextProfile) && !isActiveGpsProfile(profileRef.current)) {
               setTimeout(() => {
-                void subscribe('active', true);
+                void subscribe(nextProfile, true);
               }, 0);
             }
           } catch (e) {
@@ -414,17 +424,17 @@ export function useDriveLocationWatch({
       forceActive,
     );
     if (next !== profileRef.current) {
-      const resetLock = next === 'active' && profileRef.current !== 'active';
+      const resetLock = isActiveGpsProfile(next) && !isActiveGpsProfile(profileRef.current);
       void subscribe(next, resetLock);
     }
   }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, subscribe]);
 
   const start = useCallback(async () => {
     const profile =
-      navRef.current || drivingRef.current || forceActiveRef.current
-        ? 'active'
-        : currentProfile();
-    await subscribe(profile, profile === 'active');
+      navRef.current
+        ? 'activeNav'
+        : (drivingRef.current || forceActiveRef.current ? 'activeDrive' : currentProfile());
+    await subscribe(profile, isActiveGpsProfile(profile));
   }, [currentProfile, subscribe]);
 
   const stop = useCallback(() => {
@@ -445,13 +455,13 @@ export function useDriveLocationWatch({
     applyLockState(false);
     lastEmitRef.current = null;
     speedRef.current = 0;
-    await subscribe('active', true);
+    await subscribe(navRef.current ? 'activeNav' : 'activeDrive', true);
   }, [stop, subscribe, applyLockState]);
 
   useEffect(() => {
     const id = setInterval(() => {
       if (!subRef.current) return;
-      const timeoutMs = profileRef.current === 'active'
+      const timeoutMs = isActiveGpsProfile(profileRef.current)
         ? ACTIVE_FIX_TIMEOUT_MS
         : IDLE_FIX_TIMEOUT_MS;
       const staleForMs = Date.now() - lastFixAtRef.current;
@@ -459,14 +469,14 @@ export function useDriveLocationWatch({
         staleStrikeRef.current = 0;
         return;
       }
-      const requiredStrikes = profileRef.current === 'active'
+      const requiredStrikes = isActiveGpsProfile(profileRef.current)
         ? ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE
         : 1;
       staleStrikeRef.current += 1;
       if (staleStrikeRef.current < requiredStrikes) return;
       staleStrikeRef.current = 0;
       lastFixAtRef.current = Date.now();
-      void subscribe(currentProfile(), profileRef.current === 'active');
+      void subscribe(currentProfile(), isActiveGpsProfile(profileRef.current));
     }, WATCHDOG_CHECK_MS);
     return () => clearInterval(id);
   }, [currentProfile, subscribe]);

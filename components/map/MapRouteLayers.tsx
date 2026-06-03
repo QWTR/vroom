@@ -37,17 +37,36 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
 
   if (coords.length < 2) return null;
 
+  const navRoute = isNavigating;
+  const routeCoreColor = navRoute ? '#FFF200' : '#00bfff';
+  const routeHaloColor = navRoute ? '#FFFFFF' : '#ffffff55';
+
   return (
     <>
-      <Mapbox.ShapeSource id="routeShadowSource" shape={shadowShape}>
-        <Mapbox.LineLayer id="routeShadowLayer" style={{ lineColor: '#00000055', lineWidth: 11, lineCap: 'round', lineJoin: 'round' }} />
-      </Mapbox.ShapeSource>
+      {navRoute ? (
+        <Mapbox.ShapeSource id="routeNavHaloSource" shape={shadowShape}>
+          <Mapbox.LineLayer
+            id="routeNavHaloLayer"
+            style={{
+              lineColor: routeHaloColor,
+              lineWidth: 14,
+              lineOpacity: 0.92,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
+        </Mapbox.ShapeSource>
+      ) : (
+        <Mapbox.ShapeSource id="routeShadowSource" shape={shadowShape}>
+          <Mapbox.LineLayer id="routeShadowLayer" style={{ lineColor: '#00000055', lineWidth: 11, lineCap: 'round', lineJoin: 'round' }} />
+        </Mapbox.ShapeSource>
+      )}
       <Mapbox.ShapeSource id="routeMainSource" shape={mainShape}>
         <Mapbox.LineLayer
           id="routeMainLayer"
           style={{
-            lineColor: isNavigating ? '#e33835dd' : '#00bfff',
-            lineWidth: 6,
+            lineColor: routeCoreColor,
+            lineWidth: navRoute ? 9 : 6,
             lineCap: 'round',
             lineJoin: 'round',
           }}
@@ -55,7 +74,15 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
       </Mapbox.ShapeSource>
       {(isNavigating || isDriving) ? (
         <Mapbox.ShapeSource id="routeGlowSource" shape={glowShape}>
-          <Mapbox.LineLayer id="routeGlowLayer" style={{ lineColor: '#ffffff15', lineWidth: 8, lineCap: 'round', lineJoin: 'round' }} />
+          <Mapbox.LineLayer
+            id="routeGlowLayer"
+            style={{
+              lineColor: navRoute ? '#FFF20055' : '#ffffff15',
+              lineWidth: navRoute ? 12 : 8,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
         </Mapbox.ShapeSource>
       ) : null}
     </>
@@ -95,7 +122,7 @@ export const MapBuilderRouteLayers = memo(function MapBuilderRouteLayers({
             <Mapbox.LineLayer id="snappedShadowLayer" style={{ lineColor: '#00000070', lineWidth: 10, lineCap: 'round', lineJoin: 'round' }} />
           </Mapbox.ShapeSource>
           <Mapbox.ShapeSource id="snappedRouteSource" shape={snappedMain}>
-            <Mapbox.LineLayer id="snappedRouteLayer" style={{ lineColor: '#e33835', lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
+            <Mapbox.LineLayer id="snappedRouteLayer" style={{ lineColor: '#FFF200', lineWidth: 9, lineCap: 'round', lineJoin: 'round' }} />
           </Mapbox.ShapeSource>
           <Mapbox.ShapeSource id="snappedGlowSource" shape={snappedGlow}>
             <Mapbox.LineLayer id="snappedGlowLayer" style={{ lineColor: '#ffffff20', lineWidth: 3, lineCap: 'round', lineJoin: 'round' }} />

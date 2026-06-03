@@ -50,6 +50,7 @@ interface Listing {
   views?: number;
   isPromoted?: boolean;
   promotedUntil?: string | null;
+  location?: string | null;
 }
 
 function formatPrice(price: number) {
@@ -351,6 +352,14 @@ export default function ListingDetailScreen() {
             <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 24, fontWeight: '900' }}>
               {formatPrice(listing.price)}
             </Text>
+            {!!listing.location && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <MaterialCommunityIcons name="map-marker" size={16} color={theme.primary} />
+                <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 11 }}>
+                  {listing.location}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Specs */}

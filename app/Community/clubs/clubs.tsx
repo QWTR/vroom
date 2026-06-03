@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
-import { SafeAreaView }       from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -43,6 +43,7 @@ type ClubDetailResult = {
 
 export default function ClubsScreen() {
   const router    = useRouter();
+  const insets    = useSafeAreaInsets();
   const { theme } = useTheme();
   const { isPremium, refresh: refreshPremiumAccess } = useEffectivePremium();
 
@@ -384,7 +385,8 @@ export default function ClubsScreen() {
       {searchActive ? (
         <View style={{
           flexDirection: 'row', alignItems: 'center',
-          paddingHorizontal: 14, paddingVertical: 11,
+          paddingTop: insets.top + 8,
+          paddingHorizontal: 14, paddingBottom: 11,
           borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10,
         }}>
           <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>

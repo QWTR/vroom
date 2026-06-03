@@ -1192,7 +1192,7 @@ export function getWarningLabel(type: string): string {
 
 export function getWarningColor(type: string): string {
   switch (type) {
-    case 'traffic':       return '#ff6b6b';
+    case 'traffic':       return '#FF9500';
     case 'weather':       return '#ffd43b';
     case 'accident':      return '#ff922b';
     case 'car_breakdown': return '#748ffc';

@@ -7,6 +7,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { useTheme } from '../contexts/ThemeContext';
 import { API_URL } from '../constants/config';
 
@@ -135,6 +136,7 @@ export default function NotificationsScreen() {
       if (!r.ok) throw new Error();
       if (!item.read) await markRead(item.id);
       setRows(prev => prev.filter(x => x.id !== item.id));
+      emitFriendInviteHandled(friendshipId);
       Toast.show({
         type: 'success',
         text1: action === 'accept' ? '✅ Zaakceptowano zaproszenie' : 'Odrzucono zaproszenie',

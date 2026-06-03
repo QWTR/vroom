@@ -3,6 +3,8 @@ import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
+import { DeviceEventEmitter } from "react-native";
+import { FRIEND_INVITE_HANDLED } from "../../lib/friendInviteEvents";
 import {
 	ActivityIndicator,
 	Dimensions,
@@ -173,6 +175,13 @@ export default function HomeScreen() {
 			fetchNotifUnread();
 		}, [fetchNotifUnread]),
 	);
+
+	useEffect(() => {
+		const sub = DeviceEventEmitter.addListener(FRIEND_INVITE_HANDLED, () => {
+			void fetchNotifUnread();
+		});
+		return () => sub.remove();
+	}, [fetchNotifUnread]);
 
 	// Animacje
 	const fadeAnim = useRef(new Animated.Value(0)).current;

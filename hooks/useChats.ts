@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { io, Socket } from 'socket.io-client';
 
 const API = 'https://v-room.app/api/chat';
@@ -272,6 +273,7 @@ export function useChat() {
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
+    emitFriendInviteHandled(friendshipId);
     fetchFriends();
   }, [headers, fetchFriends]);
 
@@ -286,6 +288,7 @@ export function useChat() {
     setRequests(prev =>
       Array.isArray(prev) ? prev.filter(r => r.id !== friendshipId) : [],
     );
+    emitFriendInviteHandled(friendshipId);
   }, [headers]);
 
   // ── Remove friend ────────────────────────────────────────
