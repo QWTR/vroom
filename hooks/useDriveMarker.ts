@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   useFrameCallback,
   useSharedValue,
@@ -35,7 +35,7 @@ const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
 const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
 const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
 const HEADING_FLIP_REJECT_DEG = 92;
-const LERP_MIN_MS = 280;
+const LERP_MIN_MS = 16;
 const LERP_MAX_MS = 1200;
 
 function normalizeHeadingW(h: number): number {
@@ -71,6 +71,37 @@ function safeDurationMsJs(ms: number | undefined): number {
   const v = ms ?? 650;
   if (!Number.isFinite(v) || v <= 0) return 650;
   return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, v));
+}
+
+function bearingBetweenJs(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const lat1R = (lat1 * Math.PI) / 180;
+  const lat2R = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x =
+    Math.cos(lat1R) * Math.sin(lat2R)
+    - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function isBackwardStepJs(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  headingDeg: number,
+  minBackM: number,
+): boolean {
+  const stepM = haversineMJs(fromLat, fromLng, toLat, toLng);
+  if (stepM < minBackM) return false;
+  const stepBearing = bearingBetweenJs(fromLat, fromLng, toLat, toLng);
+  const err = Math.abs(((stepBearing - headingDeg + 540) % 360) - 180);
+  return err > 88;
 }
 
 function haversineMJs(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -201,8 +232,13 @@ export function useDriveMarker(
     if (Number.isFinite(heading.value)) {
       tgtHdg = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
     }
-    const dur = safeDurationMsJs(t.durationMs);
-    segmentDurationMs.value = dur;
+    let segDur = safeDurationMsJs(t.durationMs);
+    if (speedKmh >= 60) {
+      segDur = Math.min(segDur, 48);
+    } else if (speedKmh >= 35) {
+      segDur = Math.min(segDur, 72);
+    }
+    segmentDurationMs.value = segDur;
 
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
     if (needsBootstrap) {
@@ -219,16 +255,56 @@ export function useDriveMarker(
     const fromLn = lng.value;
     const errM = haversineMJs(fromLa, fromLn, t.lat, t.lng);
 
+    if (
+      speedKmh >= 5
+      && errM >= 1.2
+      && isBackwardStepJs(fromLa, fromLn, t.lat, t.lng, heading.value, speedKmh >= 35 ? 1.2 : 2)
+    ) {
+      const hOnly = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
+      if (Math.abs(((hOnly - heading.value + 540) % 360) - 180) >= 4) {
+        heading.value = hOnly;
+        lerpToHdg.value = hOnly;
+      }
+      return;
+    }
+
+    const moving = incomingMs >= MIN_DR_SPEED_MS;
+
+    if (errM < 1.2 || segDur <= 96) {
+      lat.value = t.lat;
+      lng.value = t.lng;
+      heading.value = tgtHdg;
+      lastFrameLat.value = t.lat;
+      lastFrameLng.value = t.lng;
+      lerpFromLat.value = t.lat;
+      lerpFromLng.value = t.lng;
+      lerpToLat.value = t.lat;
+      lerpToLng.value = t.lng;
+      lerpToHdg.value = tgtHdg;
+      lerpFromHdg.value = tgtHdg;
+      lerpActive.value = 0;
+      return;
+    }
+
+    if (lerpActive.value > 0.5) {
+      const toDistM = haversineMJs(lerpToLat.value, lerpToLng.value, t.lat, t.lng);
+      if (toDistM < 1.5) {
+        lerpToLat.value = t.lat;
+        lerpToLng.value = t.lng;
+        lerpToHdg.value = tgtHdg;
+        lerpDurationMs.value = segDur;
+        return;
+      }
+    }
+
+    lerpDurationMs.value = segDur;
     lerpFromLat.value = fromLa;
     lerpFromLng.value = fromLn;
     lerpToLat.value = t.lat;
     lerpToLng.value = t.lng;
     lerpToHdg.value = tgtHdg;
-    lerpDurationMs.value = dur;
     lerpStartMs.value = Date.now();
     lerpFromHdg.value = heading.value;
-
-    const moving = incomingMs >= MIN_DR_SPEED_MS;
 
     if (errM < 0.2 && !moving) {
       lerpToLat.value = t.lat;
@@ -348,10 +424,6 @@ export function useDriveMarker(
     if (enabledSv.value < 0.5) return;
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
 
-    const dtSec = Math.max(
-      0.001,
-      Math.min(0.05, (frame.timeSincePreviousFrame ?? 16.67) / 1000),
-    );
     const nowMs = Date.now();
 
     if (lerpActive.value > 0.5) {
@@ -410,59 +482,17 @@ export function useDriveMarker(
         }
       }
     } else {
-      const sinceGpsMs = nowMs - lastGpsPushMsSv.value;
-      let drSpeed = speedMsSv.value;
-
-      if (drSpeed < MIN_DR_SPEED_MS && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
-        if (sinceGpsMs < GPS_STALE_MS) {
-          const decay = Math.max(0.35, 1 - (sinceGpsMs / 1000) * CRUISE_DECAY_PER_SEC);
-          drSpeed = cruiseSpeedMsSv.value * decay;
-        }
-      }
-
-      const prevLa = lastFrameLat.value;
-      const prevLn = lastFrameLng.value;
-      const curLa = lat.value;
-      const curLn = lng.value;
-      const speedKmh = drSpeed * 3.6;
-
-      if (drSpeed >= MIN_DR_SPEED_MS) {
-        const stepM = Math.min(MAX_DR_STEP_M, drSpeed * dtSec);
-        const hdgRad = (heading.value * Math.PI) / 180;
-        lat.value += metersToLatDelta(stepM * Math.cos(hdgRad));
-        lng.value += metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
-      }
-
-      if (
-        Number.isFinite(prevLa)
-        && Number.isFinite(prevLn)
-        && speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH
-      ) {
-        const frameM = haversineMWorklet(prevLa, prevLn, lat.value, lng.value);
-        if (frameM >= 0.12) {
-          const moveHdg = bearingBetweenWorklet(prevLa, prevLn, lat.value, lng.value);
-          heading.value = stepHeadingLinearWorklet(
-            heading.value,
-            moveHdg,
-            HEADING_MAX_STEP_PER_FRAME_DEG,
-          );
-        }
-      } else {
-        const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
-        if (hdgErr > 1.5) {
-          const flip = hdgErr >= HEADING_FLIP_REJECT_DEG;
-          if (!flip || speedKmh < 8) {
-            heading.value = stepHeadingLinearWorklet(
-              heading.value,
-              lerpToHdg.value,
-              HEADING_MAX_STEP_PER_FRAME_DEG * 0.85,
-            );
-          }
-        }
-      }
-
+      // Bez ekstrapolacji DR — tylko GPS/lerp (DR przesuwał marker do przodu, GPS cofał → yo-yo).
       lastFrameLat.value = lat.value;
       lastFrameLng.value = lng.value;
+      const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
+      if (hdgErr > 1.5) {
+        heading.value = stepHeadingLinearWorklet(
+          heading.value,
+          lerpToHdg.value,
+          HEADING_MAX_STEP_PER_FRAME_DEG * 0.85,
+        );
+      }
     }
   }, false);
 
@@ -480,14 +510,26 @@ export function useDriveMarker(
     };
   }, [tripActive, frameCallback, enabledSv]);
 
-  return {
-    lat,
-    lng,
-    heading,
-    segmentDurationMs,
-    pushTarget,
-    setCruiseSpeed,
-    reset,
-    resetTo,
-  };
+  return useMemo(
+    () => ({
+      lat,
+      lng,
+      heading,
+      segmentDurationMs,
+      pushTarget,
+      setCruiseSpeed,
+      reset,
+      resetTo,
+    }),
+    [
+      heading,
+      lat,
+      lng,
+      pushTarget,
+      reset,
+      resetTo,
+      segmentDurationMs,
+      setCruiseSpeed,
+    ],
+  );
 }

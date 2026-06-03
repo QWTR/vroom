@@ -172,11 +172,20 @@ export function guardMarkerHeadingPush(
   const prev = normalizeHeading(prevHeading);
   const next = normalizeHeading(nextHeading);
   const flip = Math.abs(headingDelta(prev, next));
+  if (speedKmh >= 10 && flip < 8) {
+    return prev;
+  }
+  if (speedKmh >= 6 && flip < 5) {
+    return prev;
+  }
   if (speedKmh >= TRAVEL_VECTOR_ONLY_MIN_KMH && flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) {
     return prev;
   }
   if (speedKmh >= 6 && flip >= 125) {
     return prev;
+  }
+  if (speedKmh >= 3 && flip >= 45) {
+    return lerpHeadingWithMaxStep(prev, next, 8);
   }
   return next;
 }
