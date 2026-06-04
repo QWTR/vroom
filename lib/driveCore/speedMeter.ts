@@ -18,6 +18,8 @@ export type SpeedMeterQuality = Pick<
 export type SpeedMeterUpdateOpts = {
   /** Wolna jazda bez trasy — HUD z Dopplera nawet gdy motion.isMoving === false. */
   freeDriveDoppler?: boolean;
+  /** Nawigacja — Doppler gdy silnik uważa postój (off-route / Android speed=0). */
+  navDopplerHud?: boolean;
 };
 
 export class SpeedMeter {
@@ -49,14 +51,18 @@ export class SpeedMeter {
 
     if (!isMoving) {
       const gpsMs = raw.gpsSpeedMs;
+      const hasGpsMs = gpsMs != null && Number.isFinite(gpsMs) && gpsMs >= 0;
       const freeDriveDoppler =
         !!opts?.freeDriveDoppler
         && !isNavigating
-        && gpsMs != null
-        && Number.isFinite(gpsMs)
-        && gpsMs >= 0;
+        && hasGpsMs;
+      const navDopplerHud =
+        !!opts?.navDopplerHud
+        && isNavigating
+        && hasGpsMs
+        && gpsMs >= 0.5;
 
-      if (freeDriveDoppler) {
+      if (freeDriveDoppler || navDopplerHud) {
         const gpsKmh = gpsMs * 3.6;
         const instant = sanitizeTripSpeedKmh(
           gpsKmh,

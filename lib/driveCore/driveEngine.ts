@@ -187,6 +187,22 @@ export class DriveEngine {
           geometrySource: this.cache.source() ?? 'tangent_fallback',
         };
       }
+      if (rejectDopplerKmh >= 3) {
+        const hdg = this.snap.getFrozenPose()?.heading ?? 0;
+        return {
+          pose: {
+            lat: raw.lat,
+            lng: raw.lng,
+            heading: hdg,
+            crossTrackM: 999,
+            segmentIndex: 0,
+          },
+          speedKmh: Math.max(this.speed.getLastKmh(), rejectDopplerKmh),
+          isMoving: rejectDopplerKmh >= 5,
+          durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
+          geometrySource: this.cache.source() ?? 'tangent_fallback',
+        };
+      }
       return null;
     }
 
@@ -234,6 +250,7 @@ export class DriveEngine {
         false,
         this.isNavigating,
         qualityPick,
+        { navDopplerHud: this.isNavigating },
       );
       this.maybeCommitEnvelope(raw, gate, false, isFreeDrive);
       return {

@@ -1045,6 +1045,14 @@ function round1(n: number): number {
   return Number.isFinite(n) ? Number(n.toFixed(1)) : n;
 }
 
+/** HUD: nawigacja i free-drive — Doppler gdy silnik=0 (Android / off-route). */
+function mergeTripHudKmh(engineKmh: number, dopplerKmh: number): number {
+  const engine = normalizeHudSpeedKmh(engineKmh);
+  const doppler = normalizeHudSpeedKmh(dopplerKmh);
+  if (engine < 3 && doppler >= 8) return doppler;
+  return Math.max(engine, doppler);
+}
+
 function computeDriveFeedSpeedMs(
   hudKmh: number,
   dopplerKmh: number,
@@ -2286,6 +2294,7 @@ export default function MapScreen() {
   const reroutePendingSinceRef = useRef<number>(0);
   const rerouteBlockedUntilRef = useRef<number>(0);
   const rerouteGraceUntilRef = useRef<number>(0);
+  const lastAppliedRerouteSigRef = useRef<string>('');
   const lastBackgroundAtRef   = useRef<number>(0);
   const gpsTickCountRef       = useRef(0);
   const drTickCountRef        = useRef(0);
@@ -3696,7 +3705,7 @@ export default function MapScreen() {
   // zadziałają, bo telefon ich nie widzi.
   useEffect(() => {
     vroomGpsLog('BUILD_FINGERPRINT', {
-      version: 'v10.27.2-marker-view-no-symbol-layer',
+      version: 'v10.28-nav-speed-offroute-freeze',
       platform: Platform.OS,
       mountedAt: new Date().toISOString(),
       features: {
@@ -3785,6 +3794,10 @@ export default function MapScreen() {
         v10_27_2_noMapboxImagesSymbolLayer: DRIVE_CORE_V2,
         v10_27_cameraFromDriveMarkerSv60fps: DRIVE_CORE_V2,
         v10_27_noGpsTickCameraPush: DRIVE_CORE_V2,
+        v10_28_navHudDopplerMerge: DRIVE_CORE_V2,
+        v10_28_navV2RejectRawGlide: DRIVE_CORE_V2,
+        v10_28_offrouteCamThrottle: true,
+        v10_28_navRemainingRouteHysteresis: true,
       },
     }, 0);
   }, []);
@@ -5299,9 +5312,7 @@ export default function MapScreen() {
         : 0;
       const engineKmh = normalizeHudSpeedKmh(out.speedKmh);
       const isFreeDriveTick = !isNavigatingRef.current;
-      const hudKmh = isFreeDriveTick
-        ? Math.max(engineKmh, dopplerKmhTick)
-        : engineKmh;
+      const hudKmh = mergeTripHudKmh(engineKmh, dopplerKmhTick);
       speedKmhRef.current = hudKmh;
       rawGpsKmhRef.current = dopplerKmhTick > 0 ? dopplerKmhTick : hudKmh;
       emitSpeedometerKmh(hudKmh);
@@ -5402,9 +5413,10 @@ export default function MapScreen() {
         hudKmh,
         speedMs: hudKmh >= 1.5 ? hudKmh / 3.6 : 0,
       });
+      drLastFrameAtRef.current = Date.now();
       publishUserLocation({ latitude: displayLat, longitude: displayLng });
-      const tripSpeedMs = Math.max(0, engineKmh / 3.6);
-      feedSpeed(engineKmh > 0 ? engineKmh / 3.6 : null);
+      const tripSpeedMs = hudKmh >= 1.5 ? hudKmh / 3.6 : 0;
+      feedSpeed(tripSpeedMs > 0 ? tripSpeedMs : null);
       if (isDrivingRef.current || isNavigatingRef.current) {
         const segKm = feedPosition(
           displayLat,
@@ -5456,6 +5468,7 @@ export default function MapScreen() {
   }, [isNavigating, driveCore, remainingRoutePoints]);
 
   const TRIP_CAM_MARKER_FRAME_MIN_MS = 14;
+  const TRIP_CAM_OFFROUTE_MIN_MS = 120;
 
   const pushCameraFromDriveMarkerFrame = useCallback((
     lat: number,
@@ -5479,7 +5492,10 @@ export default function MapScreen() {
       });
       return;
     }
-    if (now - lastCamPushFromMarkerFrameRef.current < TRIP_CAM_MARKER_FRAME_MIN_MS) return;
+    const camMinGapMs = (offRouteRef.current || reroutePendingRef.current)
+      ? TRIP_CAM_OFFROUTE_MIN_MS
+      : TRIP_CAM_MARKER_FRAME_MIN_MS;
+    if (now - lastCamPushFromMarkerFrameRef.current < camMinGapMs) return;
     lastCamPushFromMarkerFrameRef.current = now;
     const cameraSpeedKmh = speedKmhRef.current < 3 ? 0 : speedKmhRef.current;
     updateCameraFrameRef.current?.({
@@ -7569,35 +7585,45 @@ export default function MapScreen() {
           accM: Math.round(acc),
           speedKmh: round1(speedKmhRaw),
         });
-        // Bramka V2 odrzuciła fix — HUD może żyć, marker/kamera tylko przy lock + sensownej accuracy.
+        // Bramka V2 odrzuciła fix — HUD zawsze; marker: nawigacja = raw glide, jazda = snap lock.
         if (!gpsForceActiveRef.current) {
           gpsForceActiveRef.current = true;
           applyGpsForceActive(true);
         }
-        const fallbackKmh = gpsSpeedMs != null && gpsSpeedMs >= 0
+        const dopplerKmhReject = gpsSpeedMs != null && gpsSpeedMs >= 0
           ? normalizeHudSpeedKmh(gpsSpeedMs * 3.6)
-          : speedKmhRef.current;
-        if (fallbackKmh >= 1) {
-          speedKmhRef.current = fallbackKmh;
-          emitSpeedometerKmh(fallbackKmh);
-        }
+          : 0;
+        const fallbackKmh = mergeTripHudKmh(speedKmhRef.current, dopplerKmhReject);
+        speedKmhRef.current = fallbackKmh;
+        emitSpeedometerKmh(fallbackKmh);
+
+        const isNavTick = isNavigatingRef.current;
         const allowMapFallback =
-          gpsLockEstablishedRef.current
-          && acc <= 30;
+          isNavTick
+          || (gpsLockEstablishedRef.current && acc <= 30);
         if (!allowMapFallback) {
           driveTraceReject('v2_no_fallback', {
             accM: Math.round(acc),
             gpsLock: gpsLockEstablishedRef.current,
             speedKmh: round1(fallbackKmh),
+            isNavigating: false,
           });
           lastAcceptedFixWallClockRef.current = now;
           return;
         }
+
         const frozenSnap = driveCore.engine.snap.getFrozenPose();
-        const fbLat = frozenSnap?.lat
-          ?? (Number.isFinite(drLatRef.current) && drLatRef.current !== 0 ? drLatRef.current : rawLat);
-        const fbLng = frozenSnap?.lng
-          ?? (Number.isFinite(drLngRef.current) && drLngRef.current !== 0 ? drLngRef.current : rawLng);
+        let fbLat: number;
+        let fbLng: number;
+        if (isNavTick) {
+          fbLat = rawLat;
+          fbLng = rawLng;
+        } else {
+          fbLat = frozenSnap?.lat
+            ?? (Number.isFinite(drLatRef.current) && drLatRef.current !== 0 ? drLatRef.current : rawLat);
+          fbLng = frozenSnap?.lng
+            ?? (Number.isFinite(drLngRef.current) && drLngRef.current !== 0 ? drLngRef.current : rawLng);
+        }
         const snapHint = frozenSnap?.heading ?? lastHeadingRef.current ?? 0;
         const fbHdg = headingForDriveMarker(
           fbLat,
@@ -7622,7 +7648,10 @@ export default function MapScreen() {
           speedMs: fallbackKmh >= 1.5 ? fallbackKmh / 3.6 : 0,
           hudKmh: fallbackKmh,
         });
-        pushTripCameraFromApply(fbLat, fbLng, fbHdg, { instant: true });
+        drLastFrameAtRef.current = Date.now();
+        if (!isNavTick) {
+          pushTripCameraFromApply(fbLat, fbLng, fbHdg, { instant: true });
+        }
         driveTraceFallback({
           fbLat: Number(fbLat.toFixed(6)),
           fbLng: Number(fbLng.toFixed(6)),
@@ -13812,6 +13841,13 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (!offRoute || !rerouteResult || !userLocation) return;
+    const pts = rerouteResult.points ?? [];
+    const rerouteSig = pts.length >= 2
+      ? `${pts.length}:${pts[0].latitude.toFixed(5)},${pts[0].longitude.toFixed(5)}:${pts[pts.length - 1].latitude.toFixed(5)},${pts[pts.length - 1].longitude.toFixed(5)}`
+      : '';
+    if (rerouteSig && lastAppliedRerouteSigRef.current === rerouteSig) return;
+    lastAppliedRerouteSigRef.current = rerouteSig;
+
     const now = Date.now();
     reroutePendingRef.current = false;
     reroutePendingSinceRef.current = 0;
@@ -13823,6 +13859,10 @@ export default function MapScreen() {
       if (DRIVE_CORE_V2) {
         driveCore.setRoutePolyline(rerouteResult.points);
         driveCore.applyMatchGeometry(rerouteResult.points);
+        vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
+          pts: rerouteResult.points.length,
+          at: now,
+        }, 0);
       }
       const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
         ? drLatRef.current
@@ -14615,9 +14655,11 @@ export default function MapScreen() {
         }
       }
 
-      if (points.length > 1) {
+      if (points.length > 1 && !offRouteRef.current) {
         const idx = findClosestPointIndex(lat, lng, points);
-        if (idx !== navRouteIdxRef.current) {
+        const prevIdx = navRouteIdxRef.current;
+        const idxDelta = prevIdx >= 0 ? Math.abs(idx - prevIdx) : 0;
+        if (idx !== prevIdx && (prevIdx < 0 || idxDelta <= 8)) {
           navRouteIdxRef.current = idx;
           setRemainingRoutePoints([
             { latitude: lat, longitude: lng },
@@ -14686,6 +14728,7 @@ export default function MapScreen() {
     setFollowMode('navigationFollow');
     isNavigatingRef.current = true;
     tripSpeedWarmupUntilRef.current = Date.now() + 10_000;
+    lastAppliedRerouteSigRef.current = '';
 
     lastNavLocRef.current = null;
     resetSpeedStats();
