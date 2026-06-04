@@ -29,6 +29,8 @@ export type DriveMarkerTarget = {
   allowExtrapolation?: boolean;
   /** Jawny instant snap (bootstrap/resume) — inaczej durationMs=0 jest traktowane jako min LERP. */
   allowInstant?: boolean;
+  /** Pozycja z map-match / polilinii — nie odrzucaj jako „krok w tył” względem surowego GPS. */
+  roadLock?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
@@ -41,12 +43,12 @@ const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
 const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
 const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
 const HEADING_FLIP_REJECT_DEG = 92;
-const LERP_MIN_MS = 16;
+const LERP_MIN_MS = 280;
 const LERP_MAX_MS = 1200;
 /** Min. czas LERP przy ruchu — pokrywa typowy interval GPS 150–250 ms. */
-const MOVEMENT_LERP_MIN_MS = 120;
+const MOVEMENT_LERP_MIN_MS = 280;
 /** Aktywna jazda: nigdy 0 ms między fixami GPS (chyba że allowInstant). */
-const TRIP_ACTIVE_MIN_LERP_MS = 100;
+const TRIP_ACTIVE_MIN_LERP_MS = 280;
 const INSTANT_SNAP_MAX_ERR_M = 0.25;
 
 function normalizeHeadingW(h: number): number {
@@ -82,9 +84,9 @@ function safeDurationMsJs(ms: number | undefined, allowInstant = false): number 
   if (allowInstant && ms === 0) return 0;
   const v = ms ?? 650;
   if (!Number.isFinite(v) || v <= 0) {
-    return Math.max(TRIP_ACTIVE_MIN_LERP_MS, MOVEMENT_LERP_MIN_MS);
+    return 650;
   }
-  return Math.max(TRIP_ACTIVE_MIN_LERP_MS, Math.min(LERP_MAX_MS, v));
+  return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, v));
 }
 
 function bearingBetweenJs(
@@ -275,10 +277,29 @@ export function useDriveMarker(
     const fromLn = lng.value;
     const errM = haversineMJs(fromLa, fromLn, t.lat, t.lng);
 
+    if (t.roadLock) {
+      lat.value = t.lat;
+      lng.value = t.lng;
+      heading.value = tgtHdg;
+      lastFrameLat.value = t.lat;
+      lastFrameLng.value = t.lng;
+      lerpFromLat.value = t.lat;
+      lerpFromLng.value = t.lng;
+      lerpToLat.value = t.lat;
+      lerpToLng.value = t.lng;
+      lerpFromHdg.value = tgtHdg;
+      lerpToHdg.value = tgtHdg;
+      lerpActive.value = 0;
+      segmentDurationMs.value = segDur;
+      return;
+    }
+
     if (
       allowExtrap
+      && !t.roadLock
       && speedKmh >= 5
       && errM >= 1.2
+      && errM < 85
       && isBackwardStepJs(fromLa, fromLn, t.lat, t.lng, heading.value, speedKmh >= 35 ? 1.2 : 2)
     ) {
       const hOnly = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
