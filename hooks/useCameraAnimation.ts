@@ -28,6 +28,8 @@ type CameraFrameInput = {
   headingFromTripPipeline?: boolean;
   /** Czas segmentu GPS (ms) — liniowa animacja kamery jak marker. */
   segmentDurationMs?: number;
+  /** V2: kamera z 60fps driveMarker SV — animationDuration ~0, bez GPS-segment anim. */
+  followFromWorkletFrame?: boolean;
 };
 
 type MapCameraPadding = {
@@ -101,6 +103,9 @@ const NATIVE_FOLLOW_ANIM_MS = 400;
 const TRIP_MARKER_SYNC_MIN_MS = 320;
 /** Min. odstęp setCamera — nie krótszy niż animacja, żeby nie przerywać interpolacji Mapbox. */
 const NATIVE_FOLLOW_MIN_INTERVAL_MS = 66;
+/** V2 worklet-frame follow: ~60fps setCamera, bez 400ms segment anim. */
+const WORKLET_FRAME_MIN_INTERVAL_MS = 14;
+const WORKLET_FRAME_ANIM_MS = 0;
 const NATIVE_FOLLOW_MAX_ANIM_MS = 520;
 const NATIVE_APPLY_MIN_MOVE_M = 0.08;
 const NATIVE_APPLY_MIN_HEADING_DEG = 0.2;
@@ -393,6 +398,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     target: CameraPose,
     now: number,
     segmentDurationMs?: number,
+    followFromWorkletFrame?: boolean,
   ) => {
     if (
       tripActiveRef.current
@@ -404,7 +410,14 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     const prev = lastMapApplyRef.current;
     const sinceLastApply = lastNativeFollowApplyAtRef.current > 0
       ? now - lastNativeFollowApplyAtRef.current
-      : NATIVE_FOLLOW_ANIM_MS;
+      : followFromWorkletFrame
+        ? WORKLET_FRAME_ANIM_MS
+        : NATIVE_FOLLOW_ANIM_MS;
+    const minIntervalMs = followFromWorkletFrame
+      ? WORKLET_FRAME_MIN_INTERVAL_MS
+      : NATIVE_FOLLOW_MIN_INTERVAL_MS;
+    const minMoveM = followFromWorkletFrame ? 0.02 : NATIVE_APPLY_MIN_MOVE_M;
+    const minHeadingDeg = followFromWorkletFrame ? 0.08 : NATIVE_APPLY_MIN_HEADING_DEG;
 
     let centerDeltaM = 999;
     let headingDeltaDeg = 999;
@@ -420,33 +433,42 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     const significant =
       !prev
-      || centerDeltaM >= NATIVE_APPLY_MIN_MOVE_M
-      || headingDeltaDeg >= NATIVE_APPLY_MIN_HEADING_DEG
+      || centerDeltaM >= minMoveM
+      || headingDeltaDeg >= minHeadingDeg
       || Math.abs((prev?.zoom ?? 0) - target.zoom) > 0.06
       || Math.abs((prev?.pitch ?? 0) - target.pitch) > 0.5;
 
-    if (!significant && sinceLastApply < NATIVE_FOLLOW_MIN_INTERVAL_MS) {
+    if (!significant && sinceLastApply < minIntervalMs) {
       targetPoseRef.current = target;
       return;
     }
 
-    if (sinceLastApply < NATIVE_FOLLOW_MIN_INTERVAL_MS && centerDeltaM < 1.2) {
+    if (sinceLastApply < minIntervalMs && centerDeltaM < (followFromWorkletFrame ? 0.4 : 1.2)) {
       targetPoseRef.current = target;
       return;
     }
 
-    const segDur = segmentDurationMs != null && segmentDurationMs > 0
-      ? clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200)
-      : null;
-    const animMs = segDur != null
-      ? clampNum(Math.min(segDur, NATIVE_FOLLOW_MAX_ANIM_MS), NATIVE_FOLLOW_ANIM_MS, NATIVE_FOLLOW_MAX_ANIM_MS)
-      : clampNum(
+    let animMs: number;
+    if (followFromWorkletFrame) {
+      animMs = WORKLET_FRAME_ANIM_MS;
+    } else if (segmentDurationMs === 0) {
+      animMs = 0;
+    } else if (segmentDurationMs != null && segmentDurationMs > 0) {
+      const segDur = clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200);
+      animMs = clampNum(
+        Math.min(segDur, NATIVE_FOLLOW_MAX_ANIM_MS),
+        NATIVE_FOLLOW_ANIM_MS,
+        NATIVE_FOLLOW_MAX_ANIM_MS,
+      );
+    } else {
+      animMs = clampNum(
         sinceLastApply >= 40
           ? Math.min(sinceLastApply + 32, NATIVE_FOLLOW_MAX_ANIM_MS)
           : NATIVE_FOLLOW_ANIM_MS,
         NATIVE_FOLLOW_ANIM_MS,
         NATIVE_FOLLOW_MAX_ANIM_MS,
       );
+    }
 
     lastNativeFollowApplyAtRef.current = now;
     targetPoseRef.current = target;
@@ -675,7 +697,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
       if (input.headingFromTripPipeline) {
         resolvedHeading = normalizeHeading(input.heading);
-        if (prevResolvedHeading != null) {
+        if (!input.followFromWorkletFrame && prevResolvedHeading != null) {
           const flip = Math.abs(headingDelta(prevResolvedHeading, resolvedHeading));
           if (flip >= HEADING_FLIP_GUARD_DEG) {
             resolvedHeading = lerpHeadingWithMaxStep(
@@ -788,7 +810,12 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       return;
     }
 
-    applyNativeFollow(target, now, input.segmentDurationMs);
+    applyNativeFollow(
+      target,
+      now,
+      input.segmentDurationMs,
+      input.followFromWorkletFrame,
+    );
   }, [applyNativeFollow, applyToMap]);
 
   resumeAfterUserGestureRef.current = () => {

@@ -1,22 +1,22 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
-import Animated, {
-  runOnJS,
-  useAnimatedReaction,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
-import { driveTraceMarkerUi } from '../../lib/driveSessionTrace';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
 const MARKER_SIZE = 40;
 const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
-/** W trybie jazdy — aktualizuj współrzędne co ~16 ms (bez COORD_EPS). */
-const COORD_COMMIT_MIN_MS = 16;
+/** rAF → MarkerView: bez SymbolLayer/Images (ViewShot file:// = gigantyczny splash przy pitch). */
+const POSE_COMMIT_MIN_MS = 32;
+
+function isValidMarkerCoord(la: number, ln: number): boolean {
+  return Number.isFinite(la)
+    && Number.isFinite(ln)
+    && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
+}
 
 type Props = {
   enabled: boolean;
@@ -26,14 +26,8 @@ type Props = {
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
 };
 
-function isValidMarkerCoord(la: number, ln: number): boolean {
-  return Number.isFinite(la)
-    && Number.isFinite(ln)
-    && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
-}
-
 /**
- * MarkerView 40px — pozycja z Reanimated SharedValues (jedyna ścieżka V2).
+ * Trip marker — MarkerView + rAF odczyt SharedValues (bez Mapbox.Images / SymbolLayer).
  */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
@@ -42,73 +36,56 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   avatarUrl,
   cursorSkin,
 }: Props) {
-  const [coordinate, setCoordinate] = useState<[number, number] | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [pose, setPose] = useState({ lat: 0, lng: 0, hdg: 0 });
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [snapshotFailed, setSnapshotFailed] = useState(false);
-  const lastRef = useRef<{ lat: number; lng: number } | null>(null);
-  const lastCommitAtRef = useRef(0);
-
-  const commitCoordinate = useCallback((la: number, ln: number, force = false) => {
-    if (!isValidMarkerCoord(la, ln)) return;
-    const now = Date.now();
-    if (!force && now - lastCommitAtRef.current < COORD_COMMIT_MIN_MS) return;
-    const prev = lastRef.current;
-    if (!force && prev && Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
-      return;
-    }
-    const prevCommitAt = lastCommitAtRef.current;
-    lastCommitAtRef.current = now;
-    const moveM = prev
-      ? Math.sqrt(
-        ((la - prev.lat) * 111320) ** 2
-        + ((ln - prev.lng) * 111320 * Math.cos((la * Math.PI) / 180)) ** 2,
-      )
-      : 0;
-    lastRef.current = { lat: la, lng: ln };
-    setCoordinate([ln, la]);
-    driveTraceMarkerUi({
-      lat: la,
-      lng: ln,
-      moveM,
-      msSinceLast: prevCommitAt > 0 ? now - prevCommitAt : undefined,
-    });
-  }, []);
-
-  const pushCoordFromWorklet = useCallback((la: number, ln: number) => {
-    commitCoordinate(la, ln);
-  }, [commitCoordinate]);
-
-  useAnimatedReaction(
-    () => {
-      'worklet';
-      const la = marker.lat.value;
-      const ln = marker.lng.value;
-      if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
-      if (Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6) return null;
-      return { lat: la, lng: ln };
-    },
-    (next) => {
-      'worklet';
-      if (!next) return;
-      runOnJS(pushCoordFromWorklet)(next.lat, next.lng);
-    },
-    [pushCoordFromWorklet, marker.lat, marker.lng],
-  );
 
   useEffect(() => {
     if (!enabled) {
-      setCoordinate(null);
-      lastRef.current = null;
-      lastCommitAtRef.current = 0;
+      setVisible(false);
       return;
     }
-    const la = marker.lat.value;
-    const ln = marker.lng.value;
-    if (isValidMarkerCoord(la, ln)) {
-      lastCommitAtRef.current = 0;
-      commitCoordinate(la, ln, true);
+    let rafId = 0;
+    let alive = true;
+    let lastCommitAt = 0;
+    const loop = () => {
+      if (!alive) return;
+      const la = marker.lat.value;
+      const ln = marker.lng.value;
+      const h = marker.heading.value;
+      if (isValidMarkerCoord(la, ln)) {
+        const now = Date.now();
+        if (now - lastCommitAt >= POSE_COMMIT_MIN_MS) {
+          lastCommitAt = now;
+          setPose({
+            lat: la,
+            lng: ln,
+            hdg: Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0,
+          });
+          setVisible(true);
+        }
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    const la0 = marker.lat.value;
+    const ln0 = marker.lng.value;
+    const h0 = marker.heading.value;
+    if (isValidMarkerCoord(la0, ln0)) {
+      setPose({
+        lat: la0,
+        lng: ln0,
+        hdg: Number.isFinite(h0) ? ((h0 % 360) + 360) % 360 : 0,
+      });
+      setVisible(true);
+      lastCommitAt = Date.now();
     }
-  }, [enabled, marker.lat, marker.lng, commitCoordinate]);
+    rafId = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(rafId);
+    };
+  }, [enabled, marker.lat, marker.lng, marker.heading]);
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -118,12 +95,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     setSnapshotFailed(false);
   }, [imageUri]);
 
-  const rotateStyle = useAnimatedStyle(() => {
-    'worklet';
-    const h = marker.heading.value;
-    const deg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
-    return { transform: [{ rotate: `${deg}deg` }] };
-  }, [marker.heading]);
+  if (!enabled || !visible) return null;
 
   const mediaAvatar = normalizeMediaUri(avatarUrl);
   const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);
@@ -131,112 +103,86 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const showSkin = !!skinUri;
   const showAvatar = !!mediaAvatar && !avatarFailed && !showSkin;
   const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar && !showSkin;
+  const markerTransform = { transform: [{ rotate: `${pose.hdg}deg` }] as const };
 
-  if (!enabled || !coordinate) return null;
-
-  let markerBody: React.ReactNode;
-  if (showSkin) {
-    markerBody = (
-      <Animated.View
-        style={[
-          { width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' },
-          rotateStyle,
-        ]}
-      >
-        <View
-          style={{
-            width: MARKER_SIZE,
-            height: MARKER_SIZE,
-            borderRadius: MARKER_SIZE / 2,
-            backgroundColor: '#111',
-            borderWidth: MARKER_BORDER + 1,
-            borderColor: skinBorder,
-            overflow: 'hidden',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Image
-            source={{ uri: skinUri }}
-            style={{ width: AVATAR_INNER, height: AVATAR_INNER }}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-            transition={0}
-          />
+  return (
+    <Mapbox.MarkerView
+      coordinate={[pose.lng, pose.lat]}
+      anchor={{ x: 0.5, y: 0.5 }}
+      allowOverlapWithPuck
+      allowOverlap
+    >
+      {showSkin ? (
+        <View style={[{ width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' }, markerTransform]}>
+          <View
+            style={{
+              width: MARKER_SIZE,
+              height: MARKER_SIZE,
+              borderRadius: MARKER_SIZE / 2,
+              backgroundColor: '#111',
+              borderWidth: MARKER_BORDER + 1,
+              borderColor: skinBorder,
+              overflow: 'hidden',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Image
+              source={{ uri: skinUri }}
+              style={{ width: AVATAR_INNER, height: AVATAR_INNER }}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              transition={0}
+            />
+          </View>
         </View>
-      </Animated.View>
-    );
-  } else if (showAvatar) {
-    markerBody = (
-      <Animated.View
-        style={[
-          { width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' },
-          rotateStyle,
-        ]}
-      >
-        <View
-          style={{
-            width: MARKER_SIZE,
-            height: MARKER_SIZE,
-            borderRadius: MARKER_SIZE / 2,
-            backgroundColor: '#111',
-            borderWidth: MARKER_BORDER,
-            borderColor: '#e33835',
-            overflow: 'hidden',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Image
-            source={{ uri: mediaAvatar }}
-            style={{ width: AVATAR_INNER, height: AVATAR_INNER, borderRadius: AVATAR_INNER / 2 }}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={0}
-            onError={() => setAvatarFailed(true)}
-          />
+      ) : showAvatar ? (
+        <View style={[{ width: MARKER_SIZE, height: MARKER_SIZE, alignItems: 'center', justifyContent: 'center' }, markerTransform]}>
+          <View
+            style={{
+              width: MARKER_SIZE,
+              height: MARKER_SIZE,
+              borderRadius: MARKER_SIZE / 2,
+              backgroundColor: '#111',
+              borderWidth: MARKER_BORDER,
+              borderColor: '#e33835',
+              overflow: 'hidden',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Image
+              source={{ uri: mediaAvatar }}
+              style={{ width: AVATAR_INNER, height: AVATAR_INNER, borderRadius: AVATAR_INNER / 2 }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={0}
+              onError={() => setAvatarFailed(true)}
+            />
+          </View>
         </View>
-      </Animated.View>
-    );
-  } else if (showSnapshot) {
-    markerBody = (
-      <Animated.View style={rotateStyle}>
+      ) : showSnapshot ? (
         <Image
           source={{ uri: imageUri! }}
-          style={{ width: MARKER_SIZE, height: MARKER_SIZE }}
+          style={{ width: MARKER_SIZE, height: MARKER_SIZE, ...markerTransform }}
           contentFit="contain"
           cachePolicy="memory-disk"
           transition={0}
           onError={() => setSnapshotFailed(true)}
         />
-      </Animated.View>
-    );
-  } else {
-    markerBody = (
-      <Animated.View
-        style={[
-          {
+      ) : (
+        <View
+          style={{
             width: FALLBACK_DOT,
             height: FALLBACK_DOT,
             borderRadius: FALLBACK_DOT / 2,
             backgroundColor: '#e33835',
             borderWidth: 2,
             borderColor: '#fff',
-          },
-          rotateStyle,
-        ]}
-      />
-    );
-  }
-
-  return (
-    <Mapbox.MarkerView
-      coordinate={coordinate}
-      anchor={{ x: 0.5, y: 0.5 }}
-      allowOverlapWithPuck
-      allowOverlap
-    >
-      {markerBody}
+            ...markerTransform,
+          }}
+        />
+      )}
     </Mapbox.MarkerView>
   );
 });
