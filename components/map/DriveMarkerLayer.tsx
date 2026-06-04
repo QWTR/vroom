@@ -43,22 +43,24 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const [hasCoord, setHasCoord] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [snapshotFailed, setSnapshotFailed] = useState(false);
-  const lastRef = useRef({ lat: 0, lng: 0 });
+  const lastRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastCommitAtRef = useRef(0);
 
   const commitCoordinate = useCallback((la: number, ln: number, force = false) => {
     const now = Date.now();
     if (!force && now - lastCommitAtRef.current < COORD_COMMIT_MIN_MS) return;
     const prev = lastRef.current;
-    if (!force && Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
+    if (!force && prev && Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
       return;
     }
     const prevCommitAt = lastCommitAtRef.current;
     lastCommitAtRef.current = now;
-    const moveM = Math.sqrt(
-      ((la - prev.lat) * 111320) ** 2
-      + ((ln - prev.lng) * 111320 * Math.cos((la * Math.PI) / 180)) ** 2,
-    );
+    const moveM = prev
+      ? Math.sqrt(
+        ((la - prev.lat) * 111320) ** 2
+        + ((ln - prev.lng) * 111320 * Math.cos((la * Math.PI) / 180)) ** 2,
+      )
+      : 0;
     lastRef.current = { lat: la, lng: ln };
     setCoordinate([ln, la]);
     setHasCoord(true);
@@ -79,9 +81,21 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     );
   }, [position?.lat, position?.lng]);
 
+  /** Stabilna referencja — inline lambda w runOnJS powoduje SIGSEGV w libworklets (crash przy driving_start). */
+  const pushCoordFromWorklet = useCallback((la: number, ln: number) => {
+    if (positionDrivenRef.current) return;
+    commitCoordinate(la, ln);
+  }, [commitCoordinate]);
+
+  const bridgeSharedMarker = !(
+    position
+    && Number.isFinite(position.lat)
+    && Number.isFinite(position.lng)
+  );
+
   useAnimatedReaction(
     () => {
-      if (!enabled) return null;
+      if (!enabled || !bridgeSharedMarker) return null;
       const la = marker.lat.value;
       const ln = marker.lng.value;
       if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
@@ -89,12 +103,9 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     },
     (next) => {
       if (!next) return;
-      runOnJS((la: number, ln: number) => {
-        if (positionDrivenRef.current) return;
-        commitCoordinate(la, ln);
-      })(next.lat, next.lng);
+      runOnJS(pushCoordFromWorklet)(next.lat, next.lng);
     },
-    [enabled, commitCoordinate],
+    [enabled, bridgeSharedMarker, pushCoordFromWorklet, marker.lat, marker.lng],
   );
 
   useEffect(() => {

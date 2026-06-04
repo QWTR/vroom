@@ -19,15 +19,7 @@ const DRIVE_SESSION_MEDIA =
   `file:///storage/emulated/0/Android/media/com.lexuuw.vroom.app/${DRIVE_SESSION_LOG}`;
 
 let fileWriteQueue: Promise<void> = Promise.resolve();
-
-function shouldMirrorDriveSessionFile(tag: string): boolean {
-  if (!DRIVE_SESSION_TRACE_ENABLED) return false;
-  if (tag.startsWith('DRIVE_TRACE_')) return true;
-  if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
-  if (tag.startsWith('NAV_TRACE_') || tag.startsWith('GPS_')) return true;
-  if (tag === 'BUILD_FINGERPRINT') return true;
-  return false;
-}
+let fileMirrorErrLogged = false;
 
 function queueDriveSessionFileLine(line: string): void {
   fileWriteQueue = fileWriteQueue
@@ -38,16 +30,40 @@ function queueDriveSessionFileLine(line: string): void {
       }
       for (const path of paths) {
         try {
+          const info = await FileSystem.getInfoAsync(path);
+          if (!info.exists && path !== DRIVE_SESSION_DOC) {
+            const parent = path.slice(0, path.lastIndexOf('/'));
+            try {
+              await FileSystem.makeDirectoryAsync(parent, { intermediates: true });
+            } catch {
+              // parent may exist
+            }
+          }
           await FileSystem.writeAsStringAsync(path, line, {
             encoding: FileSystem.EncodingType.UTF8,
-            append: true,
+            append: info.exists,
           });
-        } catch {
-          // Best-effort — Download może wymagać uprawnień.
+        } catch (err) {
+          if (!fileMirrorErrLogged && path === DRIVE_SESSION_DOC) {
+            fileMirrorErrLogged = true;
+            emitVroomTelLogcatLine('DRIVE_TRACE_FILE_ERR', Date.now(), {
+              path,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
     })
     .catch(() => {});
+}
+
+function shouldMirrorDriveSessionFile(tag: string): boolean {
+  if (!DRIVE_SESSION_TRACE_ENABLED) return false;
+  if (tag.startsWith('DRIVE_TRACE_')) return true;
+  if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
+  if (tag.startsWith('NAV_TRACE_') || tag.startsWith('GPS_')) return true;
+  if (tag === 'BUILD_FINGERPRINT') return true;
+  return false;
 }
 
 export function subscribeVroomGpsLog(listener: (entry: VroomGpsLogEntry) => void): () => void {

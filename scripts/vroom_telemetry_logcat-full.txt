@@ -1,0 +1,234 @@
+﻿
+06-04 13:58:18.925 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:18.925Z | RAW_GPS_TICK | {"t":1780574298925,"gp
+sTickId":1780574297146,"gpsTickAgeMs":0,"lat":51.20749,"lng":19.004103,"speed":0,"speedKmh":0,"accuracy":15,"osTimestam
+p":1780574297146,"tripActive":false,"appState":"active"}
+06-04 13:58:18.925 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:18.925Z | ANCHOR_STALE_REBASE | {"t":1780574298
+925,"anchorAgeMs":8799118,"accM":15}
+06-04 13:58:18.926 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:18.926Z | NAV_TRACE_RAW | {"t":1780574298926,"r
+awLat":51.20749,"rawLng":19.004103,"accM":15,"speedKmhRaw":0,"rawStepWakeM":7.03,"motionKmh":0,"motionStreak":0,"rawMot
+ion":false,"rawWake":false,"snapWake":false,"ts":1780574298926}
+06-04 13:58:18.926 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:18.926Z | GPS_ACCEPT | {"lat":51.20749,"lng":19
+.004103,"acc":15,"speedKmh":0,"gpsLock":true}
+06-04 13:58:22.362 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:22.362Z | DRIVE_TRACE_PING | {"t":1780574302362
+,"source":"app_layout_mount","traceEnabled":true,"platform":"android"}
+06-04 13:58:22.427 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:22.427Z | BUILD_FINGERPRINT | {"t":178057430242
+7,"version":"v10.24-marker-live-from-apply-trip-2026-05-23","platform":"android","mountedAt":"2026-06-04T11:58:22.427Z"
+,"features":{"clientSnapHierarchy":true,"snapRadiusMatched30m":true,"snapRadiusBase22m":true,"snapLateralReject25m":tru
+e,"snapMaxToRawGuard60m":true,"snapHardDrop120m":true,"validateGeometryAgainstRaw":true,"navRouteSnap80m":true,"reroute
+Threshold100m":true,"queryRenderedFeaturesSnap":true,"prefetchAroundRoute":true,"simpleMarkerInDriving":true,"lightWork
+letPosition":true,"noDrInDriving":true,"gpsPipelineSimplified":true,"rescueMechanismsDisabled":true,"apiMapMatchCooldow
+n60s":true,"v10_1_markerInHoldPath":true,"v10_1_cameraFollowFromApplyTripPosition":true,"v10_1_rawGpsAsPrimary":true,"v
+10_2_tripPublishesUserLocation":true,"v10_2_iosGhostHighSpeedReject":true,"v10_3_androidGestureGuard":true,"v10_3_marke
+rFallbackToDrRef":true,"v10_3_abruptGhostSpeedReject":true,"v10_4_primaryFromAppliedSnap":true,"v10_4_holdPinsSnappedAn
+chor":true,"v10_4_localRefineOnlyWhenNoReliableSnap":true,"v10_5_tripUiThrottle120ms":true,"v10_5_speedEmitSpikeBlock":
+true,"v10_6_speedometerHudSingleSubscriber":true,"v10_6_speedometerNotDrivenByMapState":true,"v10_7_adaptiveLateralReje
+ct":true,"v10_7_bridgeOnlyWhenReallyFrozen":true,"v10_8_lateralClampInsteadOfReject":true,"v10_8_rawFallbackUsesRawNotA
+nchor":true,"v10_8_fastSnapRecoveryStreak2":true,"v10_9_smoothMarkerWorkletRestored":true,"v10_9_workletFedFromApplyTri
+pPosition":true,"v10_9_adaptiveGpsCadenceInterpolation":true,"v10_10_cameraAutoReturnAfter4sInactivity":true,"v10_11_na
+vCameraBottomPadding":true,"v10_11_increasedLookahead":true,"v10_12_workletDeadReckoningBetweenFixes":true,"v10_12_noRa
+wGpsOnSnapFail":true,"v10_12_bridgeDisabledInV10":true,"v10_12_maxSnapJump20m":true,"v10_12_localRefineOnlyWhenUnsnappe
+d":true,"v10_13_liveCruiseWorklet60fps":true,"v10_13_continuousForwardFromSpeed":true,"v10_14_workletHookOnMapScreen":t
+rue,"v10_14_geomValidateBeforeRoadMatch":true,"v10_14_cameraFollowsSmoothMarker30fps":true,"v10_14_lateralHardClampNotR
+eject":true,"v10_14_mapMatchInterval14s":true,"v10_15_anchorForwardNotIntegrate":true,"v10_15_lowCameraLookaheadMeters"
+:true,"v10_15_fasterCameraCenterTau":true,"v10_16_drivingHudPaddingTop":true,"v10_16_zeroGeoLookahead":true,"v10_16_mar
+kerJsLerpRender":true,"v10_18_mapboxPaddingTopHeavy":true,"v10_18_cameraPaddingPropOnMapboxCamera":true,"v10_19_useAnim
+atedReactionMarker":true,"v10_19_useAnimatedReactionCamera":true,"v10_20_displayListenerSync":true,"v10_20_noUseAnimate
+dReaction":true,"v10_21_cameraFromApplyTripPositionOnly":true,"v10_22_workletFeedGateDeprecatedSources":true,"v10_23_bu
+mpInstantViaApplyTripPosition":true,"v10_22_feedAlwaysNotifyDisplay":true,"v10_23_markerOnlyFrameCallbackNotify":true,"
+v10_23_hudSpeedCap250":true,"v10_23_workletLastNonZeroSpeed":true,"v10_25_ssot_noTripMarkerDisplay":true,"v10_25_ssot_n
+oFrameSnapLoop":true,"v10_25_ssot_cameraFromWorkletOnly":true,"v10_25_workletLerpToAnchor":true,"v10_25_notifyThrottle4
+0ms":true}}
+06-04 13:58:22.428 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:22.427Z | TELEMETRY_BOOT | {"scope":"map_screen
+"}
+06-04 13:58:26.057 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:26.057Z | RAW_GPS_TICK | {"t":1780574306057,"gp
+sTickId":1780574305965,"gpsTickAgeMs":0,"lat":51.207493,"lng":19.004105,"speed":0.03,"speedKmh":0.1,"accuracy":25,"osTi
+mestamp":1780574305965,"tripActive":false,"appState":"active"}
+06-04 13:58:26.057 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:26.057Z | NAV_TRACE_RAW | {"t":1780574306057,"r
+awLat":51.207493,"rawLng":19.004105,"accM":25,"speedKmhRaw":0.1,"rawStepWakeM":0,"motionKmh":0.2,"motionStreak":0,"rawM
+otion":false,"rawWake":false,"snapWake":false,"ts":1780574306057}
+06-04 13:58:26.057 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:26.057Z | GPS_ACCEPT | {"lat":51.207493,"lng":1
+9.004105,"acc":25,"speedKmh":0.1,"gpsLock":false}
+06-04 13:58:27.277 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:27.277Z | RAW_GPS_TICK | {"t":1780574307277,"gp
+sTickId":1780574305965,"gpsTickAgeMs":0,"lat":51.207493,"lng":19.004105,"speed":0.03,"speedKmh":0.1,"accuracy":25,"osTi
+mestamp":1780574305965,"tripActive":false,"appState":"active"}
+06-04 13:58:27.277 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:27.277Z | NAV_TRACE_RAW | {"t":1780574307277,"r
+awLat":51.207493,"rawLng":19.004105,"accM":25,"speedKmhRaw":0.1,"rawStepWakeM":0,"motionKmh":0.1,"motionStreak":0,"rawM
+otion":false,"rawWake":false,"snapWake":false,"ts":1780574307277}
+06-04 13:58:27.278 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:27.278Z | GPS_ACCEPT | {"lat":51.207493,"lng":1
+9.004105,"acc":25,"speedKmh":0.1,"gpsLock":false}
+06-04 13:58:28.416 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.415Z | SNAP_snap_no_geometry | {"t":17805743
+08415,"source":"useDrivingSnap","hardRoadLock":true,"matchedPts":0,"routePts":0}
+06-04 13:58:28.416 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.416Z | ENTRY_SNAP | {"t":1780574308416,"cach
+edRoadPts":0,"previewPts":0,"localSnapped":true,"stationaryEntry":true,"entryLat":51.20749,"entryLng":19.00411}
+06-04 13:58:28.417 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.417Z | DRIVE_TRACE_FEED | {"t":1780574308417
+,"seq":1,"gpsTickId":1780574305965,"gpsTickAgeMs":1140,"lat":51.207493,"lng":19.004105,"hdg":0,"skipFeedGate":true,"roa
+dLock":true,"durationMs":0,"speedKmh":0.1}
+06-04 13:58:28.418 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.418Z | NAV_TRACE_PIPELINE_MODE | {"t":178057
+4308418,"simple":true,"event":"driving_start"}
+06-04 13:58:28.418 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.418Z | DRIVE_TRACE_SESSION | {"t":1780574308
+418,"seq":2,"gpsTickId":1780574305965,"gpsTickAgeMs":1141,"event":"driving_start","lat":51.207493,"lng":19.004105,"stat
+ionaryEntry":true}
+06-04 13:58:28.418 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.418Z | CAMERA_HEADING | {"t":1780574308418,"
+speedKmh":0,"movedM":0,"moveBearing":null,"snapHdg":0,"headingOut":0,"flipFromPrevDeg":0,"lookaheadM":0,"nativeFollow":
+true}
+06-04 13:58:28.418 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.418Z | CAM_FOLLOW_PUSH | {"t":1780574308418,
+"lat":51.207493,"lng":19.004105,"hdg":0,"speedKmh":0,"exploring":false}
+06-04 13:58:28.418 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.418Z | DRIVE_TRACE_CAMERA | {"t":17805743084
+18,"seq":3,"gpsTickId":1780574305965,"gpsTickAgeMs":1141,"lat":51.207493,"lng":19.004105,"hdg":0,"speedKmh":0,"explorin
+g":false,"frameMoveM":0}
+06-04 13:58:28.430 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.430Z | RAW_GPS_TICK | {"t":1780574308430,"gp
+sTickId":1780574305965,"gpsTickAgeMs":0,"lat":51.207493,"lng":19.004105,"speed":0.03,"speedKmh":0.1,"accuracy":25,"osTi
+mestamp":1780574305965,"tripActive":true,"appState":"active"}
+06-04 13:58:28.430 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.430Z | DRIVE_TRACE_RAW | {"t":1780574308430,
+"seq":4,"gpsTickId":1780574305965,"gpsTickAgeMs":0,"rawLat":51.207493,"rawLng":19.004105,"accM":25,"speedKmh":0.1,"spee
+dMs":0,"heading":0,"tripActive":true,"driving":true,"navigating":false,"osTimestamp":1780574305965}
+06-04 13:58:28.430 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.430Z | DRIVE_TRACE_FEED | {"t":1780574308430
+,"seq":5,"gpsTickId":1780574305965,"gpsTickAgeMs":0,"lat":51.207493,"lng":19.004105,"hdg":0,"skipFeedGate":true,"roadLo
+ck":false,"durationMs":0,"speedKmh":0.1}
+06-04 13:58:28.430 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.430Z | DRIVE_TRACE_TICK | {"t":1780574308430
+,"seq":6,"gpsTickId":1780574305965,"gpsTickAgeMs":0,"rawLat":51.207493,"rawLng":19.004105,"snapLat":51.207493,"snapLng"
+:19.004105,"markerLat":51.207493,"markerLng":19.004105,"markerHdg":0,"markerSvLat":51.207493,"markerSvLng":19.004105,"m
+arkerSvHdg":0,"accM":25,"hudKmh":0.1,"engineKmh":0.1,"dopplerKmh":0.1,"feedDurMs":800,"cadenceMs":1188,"feedSpeedMs":0,
+"isNavigating":false,"isFreeDrive":true,"isMoving":true,"feedSkipGate":false,"feedAccepted":true,"feedHeadingOnly":fals
+e,"source":"drive_core_v2"}
+06-04 13:58:28.430 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.430Z | GPS_ACCEPT | {"lat":51.207493,"lng":1
+9.004105,"acc":25,"speedKmh":0.1,"gpsLock":false}
+06-04 13:58:28.431 I/ReactNativeJS(11701): [VROOM-TEL] 2026-06-04T11:58:28.431Z | DRIVE_TRACE_MARKER_UI | {"t":17805743
+08431,"seq":7,"gpsTickId":1780574305965,"gpsTickAgeMs":1,"lat":51.207493,"lng":19.004105,"moveM":5852471.3,"msSinceLast
+":null}
+06-04 13:58:30.126 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:30.126Z | DRIVE_TRACE_PING | {"t":1780574310126
+,"source":"app_layout_mount","traceEnabled":true,"platform":"android"}
+06-04 13:58:30.193 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:30.193Z | BUILD_FINGERPRINT | {"t":178057431019
+3,"version":"v10.24-marker-live-from-apply-trip-2026-05-23","platform":"android","mountedAt":"2026-06-04T11:58:30.193Z"
+,"features":{"clientSnapHierarchy":true,"snapRadiusMatched30m":true,"snapRadiusBase22m":true,"snapLateralReject25m":tru
+e,"snapMaxToRawGuard60m":true,"snapHardDrop120m":true,"validateGeometryAgainstRaw":true,"navRouteSnap80m":true,"reroute
+Threshold100m":true,"queryRenderedFeaturesSnap":true,"prefetchAroundRoute":true,"simpleMarkerInDriving":true,"lightWork
+letPosition":true,"noDrInDriving":true,"gpsPipelineSimplified":true,"rescueMechanismsDisabled":true,"apiMapMatchCooldow
+n60s":true,"v10_1_markerInHoldPath":true,"v10_1_cameraFollowFromApplyTripPosition":true,"v10_1_rawGpsAsPrimary":true,"v
+10_2_tripPublishesUserLocation":true,"v10_2_iosGhostHighSpeedReject":true,"v10_3_androidGestureGuard":true,"v10_3_marke
+rFallbackToDrRef":true,"v10_3_abruptGhostSpeedReject":true,"v10_4_primaryFromAppliedSnap":true,"v10_4_holdPinsSnappedAn
+chor":true,"v10_4_localRefineOnlyWhenNoReliableSnap":true,"v10_5_tripUiThrottle120ms":true,"v10_5_speedEmitSpikeBlock":
+true,"v10_6_speedometerHudSingleSubscriber":true,"v10_6_speedometerNotDrivenByMapState":true,"v10_7_adaptiveLateralReje
+ct":true,"v10_7_bridgeOnlyWhenReallyFrozen":true,"v10_8_lateralClampInsteadOfReject":true,"v10_8_rawFallbackUsesRawNotA
+nchor":true,"v10_8_fastSnapRecoveryStreak2":true,"v10_9_smoothMarkerWorkletRestored":true,"v10_9_workletFedFromApplyTri
+pPosition":true,"v10_9_adaptiveGpsCadenceInterpolation":true,"v10_10_cameraAutoReturnAfter4sInactivity":true,"v10_11_na
+vCameraBottomPadding":true,"v10_11_increasedLookahead":true,"v10_12_workletDeadReckoningBetweenFixes":true,"v10_12_noRa
+wGpsOnSnapFail":true,"v10_12_bridgeDisabledInV10":true,"v10_12_maxSnapJump20m":true,"v10_12_localRefineOnlyWhenUnsnappe
+d":true,"v10_13_liveCruiseWorklet60fps":true,"v10_13_continuousForwardFromSpeed":true,"v10_14_workletHookOnMapScreen":t
+rue,"v10_14_geomValidateBeforeRoadMatch":true,"v10_14_cameraFollowsSmoothMarker30fps":true,"v10_14_lateralHardClampNotR
+eject":true,"v10_14_mapMatchInterval14s":true,"v10_15_anchorForwardNotIntegrate":true,"v10_15_lowCameraLookaheadMeters"
+:true,"v10_15_fasterCameraCenterTau":true,"v10_16_drivingHudPaddingTop":true,"v10_16_zeroGeoLookahead":true,"v10_16_mar
+kerJsLerpRender":true,"v10_18_mapboxPaddingTopHeavy":true,"v10_18_cameraPaddingPropOnMapboxCamera":true,"v10_19_useAnim
+atedReactionMarker":true,"v10_19_useAnimatedReactionCamera":true,"v10_20_displayListenerSync":true,"v10_20_noUseAnimate
+dReaction":true,"v10_21_cameraFromApplyTripPositionOnly":true,"v10_22_workletFeedGateDeprecatedSources":true,"v10_23_bu
+mpInstantViaApplyTripPosition":true,"v10_22_feedAlwaysNotifyDisplay":true,"v10_23_markerOnlyFrameCallbackNotify":true,"
+v10_23_hudSpeedCap250":true,"v10_23_workletLastNonZeroSpeed":true,"v10_25_ssot_noTripMarkerDisplay":true,"v10_25_ssot_n
+oFrameSnapLoop":true,"v10_25_ssot_cameraFromWorkletOnly":true,"v10_25_workletLerpToAnchor":true,"v10_25_notifyThrottle4
+0ms":true}}
+06-04 13:58:30.193 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:30.193Z | TELEMETRY_BOOT | {"scope":"map_screen
+"}
+06-04 13:58:32.362 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:32.362Z | RAW_GPS_TICK | {"t":1780574312362,"gp
+sTickId":1780574312244,"gpsTickAgeMs":0,"lat":51.207489,"lng":19.004099,"speed":0.08,"speedKmh":0.3,"accuracy":11,"osTi
+mestamp":1780574312244,"tripActive":false,"appState":"active"}
+06-04 13:58:32.362 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:32.362Z | NAV_TRACE_RAW | {"t":1780574312362,"r
+awLat":51.207489,"rawLng":19.004099,"accM":11,"speedKmhRaw":0.3,"rawStepWakeM":0,"motionKmh":0.5,"motionStreak":0,"rawM
+otion":false,"rawWake":false,"snapWake":false,"ts":1780574312362}
+06-04 13:58:32.362 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:32.362Z | GPS_ACCEPT | {"lat":51.207489,"lng":1
+9.004099,"acc":11,"speedKmh":0.3,"gpsLock":false}
+06-04 13:58:33.207 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.207Z | RAW_GPS_TICK | {"t":1780574313207,"gp
+sTickId":1780574312244,"gpsTickAgeMs":0,"lat":51.207489,"lng":19.004099,"speed":0.08,"speedKmh":0.3,"accuracy":11,"osTi
+mestamp":1780574312244,"tripActive":false,"appState":"active"}
+06-04 13:58:33.207 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.207Z | NAV_TRACE_RAW | {"t":1780574313207,"r
+awLat":51.207489,"rawLng":19.004099,"accM":11,"speedKmhRaw":0.3,"rawStepWakeM":0,"motionKmh":0.3,"motionStreak":0,"rawM
+otion":false,"rawWake":false,"snapWake":false,"ts":1780574313207}
+06-04 13:58:33.207 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.207Z | GPS_ACCEPT | {"lat":51.207489,"lng":1
+9.004099,"acc":11,"speedKmh":0.3,"gpsLock":false}
+06-04 13:58:33.927 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.927Z | SNAP_snap_no_geometry | {"t":17805743
+13927,"source":"useDrivingSnap","hardRoadLock":true,"matchedPts":0,"routePts":0}
+06-04 13:58:33.927 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.927Z | ENTRY_SNAP | {"t":1780574313927,"cach
+edRoadPts":0,"previewPts":0,"localSnapped":true,"stationaryEntry":true,"entryLat":51.20749,"entryLng":19.0041}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | DRIVE_TRACE_FEED | {"t":1780574313928
+,"seq":1,"gpsTickId":1780574312244,"gpsTickAgeMs":721,"lat":51.207489,"lng":19.004099,"hdg":0,"skipFeedGate":true,"road
+Lock":true,"durationMs":0,"speedKmh":0.3}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | NAV_TRACE_PIPELINE_MODE | {"t":178057
+4313928,"simple":true,"event":"driving_start"}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | DRIVE_TRACE_SESSION | {"t":1780574313
+928,"seq":2,"gpsTickId":1780574312244,"gpsTickAgeMs":721,"event":"driving_start","lat":51.207489,"lng":19.004099,"stati
+onaryEntry":true}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | CAMERA_HEADING | {"t":1780574313928,"
+speedKmh":0,"movedM":0,"moveBearing":null,"snapHdg":0,"headingOut":0,"flipFromPrevDeg":0,"lookaheadM":0,"nativeFollow":
+true}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | CAM_FOLLOW_PUSH | {"t":1780574313928,
+"lat":51.207489,"lng":19.004099,"hdg":0,"speedKmh":0,"exploring":false}
+06-04 13:58:33.928 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.928Z | DRIVE_TRACE_CAMERA | {"t":17805743139
+28,"seq":3,"gpsTickId":1780574312244,"gpsTickAgeMs":721,"lat":51.207489,"lng":19.004099,"hdg":0,"speedKmh":0,"exploring
+":false,"frameMoveM":0}
+06-04 13:58:33.948 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.948Z | RAW_GPS_TICK | {"t":1780574313948,"gp
+sTickId":1780574312244,"gpsTickAgeMs":0,"lat":51.207489,"lng":19.004099,"speed":0.08,"speedKmh":0.3,"accuracy":11,"osTi
+mestamp":1780574312244,"tripActive":true,"appState":"active"}
+06-04 13:58:33.948 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.948Z | DRIVE_TRACE_RAW | {"t":1780574313948,
+"seq":4,"gpsTickId":1780574312244,"gpsTickAgeMs":0,"rawLat":51.207489,"rawLng":19.004099,"accM":11,"speedKmh":0.3,"spee
+dMs":0.1,"heading":0,"tripActive":true,"driving":true,"navigating":false,"osTimestamp":1780574312244}
+06-04 13:58:33.948 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.948Z | DRIVE_TRACE_FEED | {"t":1780574313948
+,"seq":5,"gpsTickId":1780574312244,"gpsTickAgeMs":0,"lat":51.207489,"lng":19.004099,"hdg":0,"skipFeedGate":true,"roadLo
+ck":false,"durationMs":0,"speedKmh":0.3}
+06-04 13:58:33.948 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.948Z | DRIVE_TRACE_TICK | {"t":1780574313948
+,"seq":6,"gpsTickId":1780574312244,"gpsTickAgeMs":0,"rawLat":51.207489,"rawLng":19.004099,"snapLat":51.207489,"snapLng"
+:19.004099,"markerLat":51.207489,"markerLng":19.004099,"markerHdg":0,"markerSvLat":51.207489,"markerSvLng":19.004099,"m
+arkerSvHdg":0,"accM":11,"hudKmh":0.3,"engineKmh":0.3,"dopplerKmh":0.3,"feedDurMs":800,"cadenceMs":959,"feedSpeedMs":0,"
+isNavigating":false,"isFreeDrive":true,"isMoving":true,"feedSkipGate":false,"feedAccepted":true,"feedHeadingOnly":false
+,"source":"drive_core_v2"}
+06-04 13:58:33.948 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.948Z | GPS_ACCEPT | {"lat":51.207489,"lng":1
+9.004099,"acc":11,"speedKmh":0.3,"gpsLock":false}
+06-04 13:58:33.949 I/ReactNativeJS(21656): [VROOM-TEL] 2026-06-04T11:58:33.949Z | DRIVE_TRACE_MARKER_UI | {"t":17805743
+13949,"seq":7,"gpsTickId":1780574312244,"gpsTickAgeMs":1,"lat":51.207489,"lng":19.004099,"moveM":5852470.8,"msSinceLast
+":null}
+06-04 13:58:40.436 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:40.436Z | DRIVE_TRACE_PING | {"t":1780574320436
+,"source":"app_layout_mount","traceEnabled":true,"platform":"android"}
+06-04 13:58:40.502 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:40.502Z | BUILD_FINGERPRINT | {"t":178057432050
+2,"version":"v10.24-marker-live-from-apply-trip-2026-05-23","platform":"android","mountedAt":"2026-06-04T11:58:40.502Z"
+,"features":{"clientSnapHierarchy":true,"snapRadiusMatched30m":true,"snapRadiusBase22m":true,"snapLateralReject25m":tru
+e,"snapMaxToRawGuard60m":true,"snapHardDrop120m":true,"validateGeometryAgainstRaw":true,"navRouteSnap80m":true,"reroute
+Threshold100m":true,"queryRenderedFeaturesSnap":true,"prefetchAroundRoute":true,"simpleMarkerInDriving":true,"lightWork
+letPosition":true,"noDrInDriving":true,"gpsPipelineSimplified":true,"rescueMechanismsDisabled":true,"apiMapMatchCooldow
+n60s":true,"v10_1_markerInHoldPath":true,"v10_1_cameraFollowFromApplyTripPosition":true,"v10_1_rawGpsAsPrimary":true,"v
+10_2_tripPublishesUserLocation":true,"v10_2_iosGhostHighSpeedReject":true,"v10_3_androidGestureGuard":true,"v10_3_marke
+rFallbackToDrRef":true,"v10_3_abruptGhostSpeedReject":true,"v10_4_primaryFromAppliedSnap":true,"v10_4_holdPinsSnappedAn
+chor":true,"v10_4_localRefineOnlyWhenNoReliableSnap":true,"v10_5_tripUiThrottle120ms":true,"v10_5_speedEmitSpikeBlock":
+true,"v10_6_speedometerHudSingleSubscriber":true,"v10_6_speedometerNotDrivenByMapState":true,"v10_7_adaptiveLateralReje
+ct":true,"v10_7_bridgeOnlyWhenReallyFrozen":true,"v10_8_lateralClampInsteadOfReject":true,"v10_8_rawFallbackUsesRawNotA
+nchor":true,"v10_8_fastSnapRecoveryStreak2":true,"v10_9_smoothMarkerWorkletRestored":true,"v10_9_workletFedFromApplyTri
+pPosition":true,"v10_9_adaptiveGpsCadenceInterpolation":true,"v10_10_cameraAutoReturnAfter4sInactivity":true,"v10_11_na
+vCameraBottomPadding":true,"v10_11_increasedLookahead":true,"v10_12_workletDeadReckoningBetweenFixes":true,"v10_12_noRa
+wGpsOnSnapFail":true,"v10_12_bridgeDisabledInV10":true,"v10_12_maxSnapJump20m":true,"v10_12_localRefineOnlyWhenUnsnappe
+d":true,"v10_13_liveCruiseWorklet60fps":true,"v10_13_continuousForwardFromSpeed":true,"v10_14_workletHookOnMapScreen":t
+rue,"v10_14_geomValidateBeforeRoadMatch":true,"v10_14_cameraFollowsSmoothMarker30fps":true,"v10_14_lateralHardClampNotR
+eject":true,"v10_14_mapMatchInterval14s":true,"v10_15_anchorForwardNotIntegrate":true,"v10_15_lowCameraLookaheadMeters"
+:true,"v10_15_fasterCameraCenterTau":true,"v10_16_drivingHudPaddingTop":true,"v10_16_zeroGeoLookahead":true,"v10_16_mar
+kerJsLerpRender":true,"v10_18_mapboxPaddingTopHeavy":true,"v10_18_cameraPaddingPropOnMapboxCamera":true,"v10_19_useAnim
+atedReactionMarker":true,"v10_19_useAnimatedReactionCamera":true,"v10_20_displayListenerSync":true,"v10_20_noUseAnimate
+dReaction":true,"v10_21_cameraFromApplyTripPositionOnly":true,"v10_22_workletFeedGateDeprecatedSources":true,"v10_23_bu
+mpInstantViaApplyTripPosition":true,"v10_22_feedAlwaysNotifyDisplay":true,"v10_23_markerOnlyFrameCallbackNotify":true,"
+v10_23_hudSpeedCap250":true,"v10_23_workletLastNonZeroSpeed":true,"v10_25_ssot_noTripMarkerDisplay":true,"v10_25_ssot_n
+oFrameSnapLoop":true,"v10_25_ssot_cameraFromWorkletOnly":true,"v10_25_workletLerpToAnchor":true,"v10_25_notifyThrottle4
+0ms":true}}
+06-04 13:58:40.502 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:40.502Z | TELEMETRY_BOOT | {"scope":"map_screen
+"}
+06-04 13:58:42.797 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:42.797Z | RAW_GPS_TICK | {"t":1780574322797,"gp
+sTickId":1780574322746,"gpsTickAgeMs":0,"lat":51.20749,"lng":19.0041,"speed":0.01,"speedKmh":0,"accuracy":9,"osTimestam
+p":1780574322746,"tripActive":false,"appState":"active"}
+06-04 13:58:42.797 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:42.797Z | NAV_TRACE_RAW | {"t":1780574322797,"r
+awLat":51.20749,"rawLng":19.0041,"accM":9,"speedKmhRaw":0,"rawStepWakeM":0,"motionKmh":0.1,"motionStreak":0,"rawMotion"
+:false,"rawWake":false,"snapWake":false,"ts":1780574322797}
+06-04 13:58:42.797 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:42.797Z | GPS_ACCEPT | {"lat":51.20749,"lng":19
+.0041,"acc":9,"speedKmh":0,"gpsLock":false}
+06-04 13:58:44.846 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:44.846Z | RAW_GPS_TICK | {"t":1780574324846,"gp
+sTickId":1780574322746,"gpsTickAgeMs":0,"lat":51.20749,"lng":19.0041,"speed":0.01,"speedKmh":0,"accuracy":9,"osTimestam
+p":1780574322746,"tripActive":false,"appState":"active"}
+06-04 13:58:44.846 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:44.846Z | NAV_TRACE_RAW | {"t":1780574324846,"r
+awLat":51.20749,"rawLng":19.0041,"accM":9,"speedKmhRaw":0,"rawStepWakeM":0,"motionKmh":0,"motionStreak":0,"rawMotion":f
+alse,"rawWake":false,"snapWake":false,"ts":1780574324846}
+06-04 13:58:44.846 I/ReactNativeJS(22144): [VROOM-TEL] 2026-06-04T11:58:44.846Z | GPS_ACCEPT | {"lat":51.20749,"lng":19
+.0041,"acc":9,"speedKmh":0,"gpsLock":false}
+
+

@@ -27,6 +27,8 @@ export type DriveMarkerTarget = {
   hudKmh?: number;
   /** Między tickami GPS: lekki ruch wzdłuż headingu (domyślnie wł.). */
   allowExtrapolation?: boolean;
+  /** Jawny instant snap (bootstrap/resume) — inaczej durationMs=0 jest traktowane jako min LERP. */
+  allowInstant?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
@@ -43,6 +45,8 @@ const LERP_MIN_MS = 16;
 const LERP_MAX_MS = 1200;
 /** Min. czas LERP przy ruchu — pokrywa typowy interval GPS 150–250 ms. */
 const MOVEMENT_LERP_MIN_MS = 120;
+/** Aktywna jazda: nigdy 0 ms między fixami GPS (chyba że allowInstant). */
+const TRIP_ACTIVE_MIN_LERP_MS = 100;
 const INSTANT_SNAP_MAX_ERR_M = 0.25;
 
 function normalizeHeadingW(h: number): number {
@@ -74,10 +78,13 @@ function clampMs(ms: number): number {
   return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, ms));
 }
 
-function safeDurationMsJs(ms: number | undefined): number {
+function safeDurationMsJs(ms: number | undefined, allowInstant = false): number {
+  if (allowInstant && ms === 0) return 0;
   const v = ms ?? 650;
-  if (!Number.isFinite(v) || v <= 0) return 650;
-  return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, v));
+  if (!Number.isFinite(v) || v <= 0) {
+    return Math.max(TRIP_ACTIVE_MIN_LERP_MS, MOVEMENT_LERP_MIN_MS);
+  }
+  return Math.max(TRIP_ACTIVE_MIN_LERP_MS, Math.min(LERP_MAX_MS, v));
 }
 
 function bearingBetweenJs(
@@ -250,7 +257,8 @@ export function useDriveMarker(
     }
 
     const moving = incomingMs >= MIN_DR_SPEED_MS || hudKmh >= 2.5;
-    let segDur = safeDurationMsJs(t.durationMs);
+    const allowInstant = t.allowInstant === true;
+    let segDur = safeDurationMsJs(t.durationMs, allowInstant);
 
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
     if (needsBootstrap) {
@@ -281,8 +289,8 @@ export function useDriveMarker(
       return;
     }
 
-    const forceInstant = t.durationMs === 0;
-    if (forceInstant || (errM < INSTANT_SNAP_MAX_ERR_M && hudKmh < 2.5)) {
+    const forceInstant = allowInstant && t.durationMs === 0;
+    if (forceInstant || (errM < INSTANT_SNAP_MAX_ERR_M && hudKmh < 2.5 && !moving)) {
       lat.value = t.lat;
       lng.value = t.lng;
       heading.value = tgtHdg;

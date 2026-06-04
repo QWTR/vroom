@@ -54,6 +54,10 @@ export function driveSessionLogThrottled(
   driveSessionLog(tag, payload);
 }
 
+export function driveTraceHeartbeat(payload: Record<string, unknown>): void {
+  driveSessionLogThrottled('DRIVE_TRACE_HEARTBEAT', payload, 5000);
+}
+
 export function driveTraceSession(
   event: 'driving_start' | 'driving_end' | 'nav_start' | 'nav_end' | 'trip_sync',
   extra?: Record<string, unknown>,

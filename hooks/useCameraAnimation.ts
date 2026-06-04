@@ -95,10 +95,12 @@ const IDLE_APPLY_MS = 120;
 /**
  * Jeden setCamera na segment GPS — Mapbox interpoluje natywnie (bez 60×/s przez RN bridge).
  */
-/** Czas animacji Mapbox między klatkami follow (~14–20 Hz z workletu markera). */
-const NATIVE_FOLLOW_ANIM_MS = 95;
-/** Min. odstęp setCamera — krótki, żeby łańcuchować płynne animacje bez „skoków”. */
-const NATIVE_FOLLOW_MIN_INTERVAL_MS = 52;
+/** Czas animacji Mapbox między klatkami follow — zsynchronizowany z segmentem markera (~GPS cadence). */
+const NATIVE_FOLLOW_ANIM_MS = 140;
+/** Min. duration z markera — dolna granica animacji kamery (zsynchronizowane z TRIP_MARKER_LERP_MIN_MS). */
+const TRIP_MARKER_SYNC_MIN_MS = 100;
+/** Min. odstęp setCamera — nie krótszy niż animacja, żeby nie przerywać interpolacji Mapbox. */
+const NATIVE_FOLLOW_MIN_INTERVAL_MS = 72;
 const NATIVE_FOLLOW_MAX_ANIM_MS = 520;
 const NATIVE_APPLY_MIN_MOVE_M = 0.08;
 const NATIVE_APPLY_MIN_HEADING_DEG = 0.2;
@@ -434,15 +436,15 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }
 
     const segDur = segmentDurationMs != null && segmentDurationMs > 0
-      ? clampNum(segmentDurationMs, 220, 1200)
+      ? clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200)
       : null;
     const animMs = segDur != null
-      ? Math.min(segDur, NATIVE_FOLLOW_MAX_ANIM_MS)
+      ? clampNum(Math.min(segDur, NATIVE_FOLLOW_MAX_ANIM_MS), NATIVE_FOLLOW_ANIM_MS, NATIVE_FOLLOW_MAX_ANIM_MS)
       : clampNum(
         sinceLastApply >= 40
           ? Math.min(sinceLastApply + 32, NATIVE_FOLLOW_MAX_ANIM_MS)
           : NATIVE_FOLLOW_ANIM_MS,
-        72,
+        NATIVE_FOLLOW_ANIM_MS,
         NATIVE_FOLLOW_MAX_ANIM_MS,
       );
 
