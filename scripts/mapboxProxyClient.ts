@@ -69,13 +69,22 @@ function recordSearchSuggest(sessionToken: string): void {
   b.windowCount += 1;
 }
 
+/** RN/Hermes nie ma globalnego DOMException — używamy Error z name AbortError. */
+function createAbortError(): Error {
+  const err = new Error('Aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
 function isAbortError(e: unknown): boolean {
-  return e instanceof DOMException && e.name === 'AbortError';
+  if (!e || typeof e !== 'object') return false;
+  const name = (e as { name?: string }).name;
+  return name === 'AbortError';
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new DOMException('Aborted', 'AbortError');
+    throw createAbortError();
   }
 }
 

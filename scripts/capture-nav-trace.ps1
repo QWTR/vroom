@@ -2,9 +2,23 @@
 # Po jeździe: .\adb-dump-vroom-logs.ps1  (findstr [VROOM-TEL])
 # ADB: D:\Android\Sdk\platform-tools\adb.exe
 
-$adb = "D:\Android\Sdk\platform-tools\adb.exe"
-if (-not (Test-Path $adb)) {
-  Write-Host "Brak: $adb"
+function Resolve-Adb {
+  $candidates = @(
+    $env:ADB,
+    "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe",
+    "$env:ANDROID_HOME\platform-tools\adb.exe",
+    "D:\Android\Sdk\platform-tools\adb.exe",
+    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Google.PlatformTools_Microsoft.Winget.Source_8wekyb3d8bbwe\platform-tools\adb.exe"
+  ) | Where-Object { $_ -and (Test-Path $_) }
+  if ($candidates.Count -gt 0) { return $candidates[0] }
+  $cmd = Get-Command adb -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  return $null
+}
+
+$adb = Resolve-Adb
+if (-not $adb) {
+  Write-Host "Brak adb. winget install Google.PlatformTools"
   exit 1
 }
 

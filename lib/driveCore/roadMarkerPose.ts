@@ -91,23 +91,52 @@ function collectPolylines(explicit: RoadPoint[][]): RoadPoint[][] {
   return out;
 }
 
-function pickBestPolyline(
+function pickBestPolylineAt(
   polylines: RoadPoint[][],
   refLat: number,
   refLng: number,
-  maxRadiusM: number,
-): RoadPoint[] | null {
+  searchRadiusM: number,
+): { poly: RoadPoint[] | null; crossTrackM: number } {
   let best: RoadPoint[] | null = null;
   let bestCross = Infinity;
   for (const poly of polylines) {
-    const proj = projectOnPolylineForward(refLat, refLng, poly, 0, maxRadiusM + 25);
+    const proj = projectOnPolylineForward(refLat, refLng, poly, 0, searchRadiusM);
     if (!proj) continue;
     if (proj.crossTrackM < bestCross) {
       bestCross = proj.crossTrackM;
       best = poly;
     }
   }
-  return best;
+  return { poly: best, crossTrackM: bestCross };
+}
+
+/** Priorytet: bieżący GPS — nie poprzedni marker (unika „kotwicy startu”). */
+function pickBestPolyline(
+  polylines: RoadPoint[][],
+  rawLat: number,
+  rawLng: number,
+  maxRadiusM: number,
+  prev: { lat: number; lng: number } | null,
+): RoadPoint[] | null {
+  const pickRadiusM = Math.min(3000, maxRadiusM + 120);
+  const rawPick = pickBestPolylineAt(polylines, rawLat, rawLng, pickRadiusM);
+  if (rawPick.poly && rawPick.crossTrackM <= maxRadiusM + 30) return rawPick.poly;
+
+  const prevToRawM = prev ? distanceM(prev.lat, prev.lng, rawLat, rawLng) : 0;
+  if (prevToRawM > 55 && rawPick.poly) {
+    return rawPick.poly;
+  }
+
+  if (prev) {
+    const prevPick = pickBestPolylineAt(polylines, prev.lat, prev.lng, pickRadiusM);
+    if (
+      prevPick.poly
+      && (!rawPick.poly || prevPick.crossTrackM + 8 < rawPick.crossTrackM)
+    ) {
+      return prevPick.poly;
+    }
+  }
+  return rawPick.poly;
 }
 
 function projectForward(
@@ -116,8 +145,9 @@ function projectForward(
   poly: RoadPoint[],
   minSeg: number,
   maxRadiusM: number,
+  travelHeadingDeg?: number,
 ): RoadProjection | null {
-  return projectOnPolylineForward(lat, lng, poly, minSeg, maxRadiusM);
+  return projectOnPolylineForward(lat, lng, poly, minSeg, maxRadiusM, travelHeadingDeg);
 }
 
 function isForwardOf(
@@ -186,16 +216,23 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
   } = input;
 
   const maxRadiusM = isNavigating ? 50 : 100;
-  const maxStepM = computeMaxStepM(speedKmh);
+  const prevRawGapM = prev ? distanceM(prev.lat, prev.lng, rawLat, rawLng) : 0;
+  let maxStepM = computeMaxStepM(speedKmh);
+  if (prevRawGapM > 70) {
+    maxStepM = Math.min(55, Math.max(maxStepM, prevRawGapM * 0.34));
+  }
   const polylines = collectPolylines(roadPolylines);
 
-  const refLat = prev?.lat ?? (isRawGpsPose(enginePose) ? rawLat : enginePose.lat);
-  const refLng = prev?.lng ?? (isRawGpsPose(enginePose) ? rawLng : enginePose.lng);
-  const poly = pickBestPolyline(polylines, refLat, refLng, maxRadiusM);
+  if (prevRawGapM > 120) {
+    lastSegmentIndex = 0;
+  }
+
+  const poly = pickBestPolyline(polylines, rawLat, rawLng, maxRadiusM, prev);
 
   if (!poly) {
-    const tgtLat = isRawGpsPose(enginePose) ? rawLat : enginePose.lat;
-    const tgtLng = isRawGpsPose(enginePose) ? rawLng : enginePose.lng;
+    const chaseRaw = prevRawGapM > 50 || isRawGpsPose(enginePose);
+    const tgtLat = chaseRaw ? rawLat : enginePose.lat;
+    const tgtLng = chaseRaw ? rawLng : enginePose.lng;
     if (prev) {
       const distM = distanceM(prev.lat, prev.lng, tgtLat, tgtLng);
       if (distM > 0.05) {
@@ -221,7 +258,9 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     };
   }
 
-  const minSeg = Math.max(0, (input.lastSegmentIndex ?? lastSegmentIndex) - 1);
+  const minSeg = prevRawGapM > 90
+    ? 0
+    : Math.max(0, (input.lastSegmentIndex ?? lastSegmentIndex) - 1);
 
   let prevProj: RoadProjection | null = null;
   if (prev) {
@@ -231,11 +270,15 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     }
   }
 
-  const rawProj = projectForward(rawLat, rawLng, poly, minSeg, maxRadiusM + 30)
-    ?? projectForward(rawLat, rawLng, poly, 0, maxRadiusM + 50);
+  const rawProjRadiusM = prevRawGapM > 45
+    ? Math.min(2500, prevRawGapM + 150)
+    : maxRadiusM + 30;
+  const rawProjMinSeg = prevRawGapM > 90 ? 0 : minSeg;
+  const rawProj = projectForward(rawLat, rawLng, poly, rawProjMinSeg, rawProjRadiusM, travelHeadingDeg)
+    ?? projectForward(rawLat, rawLng, poly, 0, rawProjRadiusM, travelHeadingDeg);
   const engineProj = isRawGpsPose(enginePose)
     ? null
-    : projectForward(enginePose.lat, enginePose.lng, poly, minSeg, maxRadiusM + 20);
+    : projectForward(enginePose.lat, enginePose.lng, poly, minSeg, maxRadiusM + 20, travelHeadingDeg);
 
   let localProj: RoadProjection | null = null;
   if (!isNavigating) {
@@ -255,19 +298,45 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     }
   }
 
+  const rawOnPolyStale =
+    !!rawProj
+    && rawProj.crossTrackM > maxRadiusM + 18
+    && prevRawGapM > 45;
+
+  if (rawOnPolyStale || (prevRawGapM > 50 && !rawProj)) {
+    if (prev) {
+      const stepM = Math.min(maxStepM, prevRawGapM);
+      const frac = stepM / Math.max(prevRawGapM, 0.05);
+      return {
+        lat: prev.lat + (rawLat - prev.lat) * frac,
+        lng: prev.lng + (rawLng - prev.lng) * frac,
+        onRoad: false,
+        crossTrackM: rawProj?.crossTrackM ?? prevRawGapM,
+        segmentIndex: lastSegmentIndex,
+        heading: Number.isFinite(travelHeadingDeg) ? travelHeadingDeg : enginePose.heading,
+      };
+    }
+  }
+
   // SSOT target: GPS rzutowany na drogę → lokalny L2 → silnik (tylko gdy nie raw fallback).
-  let target = pickTargetProjection(poly, prevProj, [rawProj, localProj, engineProj])
-    ?? prevProj
-    ?? rawProj
-    ?? localProj
-    ?? engineProj;
+  let target: RoadProjection | null = null;
+  if (prevRawGapM > 40 && rawProj && rawProj.crossTrackM < maxRadiusM + 50) {
+    target = rawProj;
+  } else {
+    target = pickTargetProjection(poly, prevProj, [rawProj, localProj, engineProj])
+      ?? prevProj
+      ?? rawProj
+      ?? localProj
+      ?? engineProj;
+  }
 
   if (
     prevProj
     && target
     && rawProj
-    && distanceM(prevProj.lat, prevProj.lng, target.lat, target.lng) < 0.6
-    && isForwardOf(poly, prevProj, rawProj)
+    && (distanceM(prevProj.lat, prevProj.lng, target.lat, target.lng) < 0.6
+      || prevRawGapM > 35)
+    && (prevRawGapM > 35 || isForwardOf(poly, prevProj, rawProj))
   ) {
     target = rawProj;
   }
@@ -323,8 +392,8 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
   const finalMinSeg = prevProj
     ? Math.max(minSeg, prevProj.segmentIndex - 1)
     : minSeg;
-  const finalProj = projectForward(outLat, outLng, poly, finalMinSeg, maxRadiusM + 35)
-    ?? projectForward(outLat, outLng, poly, 0, maxRadiusM + 45);
+  const finalProj = projectForward(outLat, outLng, poly, finalMinSeg, maxRadiusM + 35, travelHeadingDeg)
+    ?? projectForward(outLat, outLng, poly, 0, maxRadiusM + 45, travelHeadingDeg);
 
   if (finalProj) {
     lastSegmentIndex = Math.max(lastSegmentIndex, finalProj.segmentIndex);

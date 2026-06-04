@@ -29,6 +29,8 @@ export type DriveMarkerTarget = {
   allowExtrapolation?: boolean;
   /** Jawny instant snap (bootstrap/resume) — durationMs=0 + allowInstant. */
   allowInstant?: boolean;
+  /** Wyrównaj SV heading do snapu (kamera + MarkerView — bez LERP 275°). */
+  syncHeading?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
@@ -243,32 +245,34 @@ export function useDriveMarker(
         }
 
         const speedKmh = speedMsSv.value * 3.6;
+        const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
+        let targetHdg = normalizeHeadingW(lerpFromHdg.value + dH * (t >= 1 ? 1 : t));
+        if (speedKmh >= 5 && segM >= MOVEMENT_HEADING_MIN_SEG_M) {
+          const segHdg = bearingBetweenWorklet(fromLa, fromLn, toLa, toLn);
+          if (Math.abs(headingDeltaW(segHdg, lerpToHdg.value)) <= 28) {
+            targetHdg = segHdg;
+          }
+        }
         if (t >= 1) {
           lat.value = toLa;
           lng.value = toLn;
-          if (speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH && segM >= MOVEMENT_HEADING_MIN_SEG_M) {
-            heading.value = bearingBetweenWorklet(fromLa, fromLn, toLa, toLn);
-          } else {
-            const flip = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
-            heading.value = flip >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8
-              ? heading.value
-              : lerpToHdg.value;
-          }
+          const flip = Math.abs(headingDeltaW(heading.value, targetHdg));
+          heading.value = flip >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8
+            ? stepHeadingLinearWorklet(heading.value, lerpToHdg.value, HEADING_MAX_STEP_PER_FRAME_DEG)
+            : stepHeadingLinearWorklet(
+              heading.value,
+              targetHdg,
+              HEADING_MAX_STEP_PER_FRAME_DEG * (t >= 1 ? 1.4 : 1),
+            );
           lerpActive.value = 0;
         } else {
           lat.value = fromLa + (toLa - fromLa) * t;
           lng.value = fromLn + (toLn - fromLn) * t;
-          if (speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH && segM >= MOVEMENT_HEADING_MIN_SEG_M) {
-            const moveHdg = bearingBetweenWorklet(fromLa, fromLn, lat.value, lng.value);
-            heading.value = stepHeadingLinearWorklet(
-              heading.value,
-              moveHdg,
-              HEADING_MAX_STEP_PER_FRAME_DEG,
-            );
-          } else {
-            const dH = headingDeltaW(lerpFromHdg.value, lerpToHdg.value);
-            heading.value = normalizeHeadingW(lerpFromHdg.value + dH * t);
-          }
+          heading.value = stepHeadingLinearWorklet(
+            heading.value,
+            targetHdg,
+            HEADING_MAX_STEP_PER_FRAME_DEG,
+          );
         }
       }
     } else {
@@ -277,6 +281,7 @@ export function useDriveMarker(
       if (
         allowExtrapolationSv.value > 0.5
         && speedMs >= 0.5
+        && speedMsSv.value * 3.6 >= 4.5
         && staleMs > 0
         && staleMs <= CRUISE_EXTRAP_MAX_MS
       ) {
@@ -313,16 +318,17 @@ export function useDriveMarker(
     allowExtrapolationSv.value = allowExtrap ? 1 : 0;
     lastGpsPushMsSv.value = Date.now();
 
-    if (incomingMs >= MIN_DR_SPEED_MS) {
+    if (incomingMs >= MIN_DR_SPEED_MS && hudKmh >= 4.5) {
       speedMsSv.value = incomingMs;
       if (allowExtrap) {
         cruiseSpeedMsSv.value = incomingMs;
       }
-    } else if (allowExtrap && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
+    } else if (allowExtrap && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS && hudKmh >= 5.5) {
       speedMsSv.value = cruiseSpeedMsSv.value;
     } else {
       speedMsSv.value = incomingMs;
-      if (!allowExtrap) {
+      cruiseSpeedMsSv.value = incomingMs >= MIN_DR_SPEED_MS ? incomingMs : 0;
+      if (!allowExtrap || hudKmh < 4) {
         cruiseSpeedMsSv.value = 0;
       }
     }
@@ -334,6 +340,12 @@ export function useDriveMarker(
     }
 
     const allowInstant = t.allowInstant === true;
+    const headingFlipDeg = Number.isFinite(heading.value)
+      ? Math.abs(headingDeltaW(heading.value, tgtHdg))
+      : 0;
+    const snapHeadingOnly = t.syncHeading === true
+      && speedKmh >= 8
+      && headingFlipDeg >= 38;
     const segDur = clampSegmentDurationMs(t.durationMs, allowInstant);
     const poseSv = {
       lat,
@@ -372,6 +384,10 @@ export function useDriveMarker(
     lerpToLng.value = t.lng;
     lerpToHdg.value = tgtHdg;
     lerpFromHdg.value = heading.value;
+    if (snapHeadingOnly) {
+      heading.value = tgtHdg;
+      lerpFromHdg.value = tgtHdg;
+    }
     lerpStartMs.value = Date.now();
     lerpActive.value = 1;
   }, [

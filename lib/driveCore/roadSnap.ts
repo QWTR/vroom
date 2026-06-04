@@ -3,6 +3,7 @@ import {
   SNAP_MAX_RADIUS_M,
   SNAP_WIDE_RETRY_RADIUS_M,
 } from './config';
+import { alignBearingToReference } from '../../scripts/navigationUtils';
 import {
   bearingBetween,
   distanceM,
@@ -75,7 +76,7 @@ export class RoadSnapEngine {
 
     if (!opts.isMoving) {
       if (hasPoly) {
-        const pose = this.projectWithRetry(raw, cache, minSeg, maxRadius);
+        const pose = this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg);
         if (pose) {
           this.frozenPose = pose;
           return pose;
@@ -110,17 +111,44 @@ export class RoadSnapEngine {
       return pose;
     }
 
+    if (this.frozenPose) {
+      const rawGapM = distanceM(
+        this.frozenPose.lat,
+        this.frozenPose.lng,
+        raw.lat,
+        raw.lng,
+      );
+      if (rawGapM > 22) {
+        const stepCap = Math.min(
+          58,
+          Math.max(maxStepM, rawGapM * (rawGapM > 80 ? 0.42 : 0.38)),
+        );
+        const stepped = this.stepTowardRaw(this.frozenPose, raw, stepCap);
+        this.frozenPose = stepped;
+        return stepped;
+      }
+    }
+
     if (hasPoly) {
       let pose =
-        this.projectWithRetry(raw, cache, minSeg, maxRadius)
-        ?? this.projectWithRetry(raw, cache, minSeg, SNAP_WIDE_RETRY_RADIUS_M);
+        this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg)
+        ?? this.projectWithRetry(raw, cache, minSeg, SNAP_WIDE_RETRY_RADIUS_M, travelHdg);
+
+      // Stary segment_cache (np. po teleportacji GPS) — nie trzymaj markera na martwej polilinii.
+      if (pose && pose.crossTrackM > 45) {
+        const distRawM = distanceM(pose.lat, pose.lng, raw.lat, raw.lng);
+        if (distRawM > 35) {
+          pose = null;
+        }
+      }
 
       if (!pose && this.frozenPose && opts.isNavigating) {
         pose = this.stickForwardOnPoly(raw, poly.points, this.frozenPose, maxStepM);
       }
 
       if (pose) {
-        pose = this.applyStepLimit(this.frozenPose, pose, poly.points, maxStepM);
+        pose = this.applyStepLimit(this.frozenPose, pose, poly.points, maxStepM, travelHdg);
+        pose = this.alignPoseHeading(pose, travelHdg);
         cache.setLastSegmentIndex(pose.segmentIndex);
         this.frozenPose = pose;
         return pose;
@@ -202,6 +230,14 @@ export class RoadSnapEngine {
     const fallback = this.rawGpsPose(raw, null);
     this.frozenPose = fallback;
     return fallback;
+  }
+
+  private alignPoseHeading(pose: SnappedPose, travelHdg: number): SnappedPose {
+    if (!Number.isFinite(travelHdg) || travelHdg === 0) return pose;
+    return {
+      ...pose,
+      heading: alignBearingToReference(pose.heading, travelHdg),
+    };
   }
 
   private resolveTravelHeading(raw: RawGpsFix, explicit?: number): number {
@@ -563,6 +599,7 @@ export class RoadSnapEngine {
     next: SnappedPose,
     points: RoadPoint[],
     maxStepM: number,
+    travelHdg = 0,
   ): SnappedPose {
     if (!prev || maxStepM <= 0) return next;
     const jumpM = distanceM(prev.lat, prev.lng, next.lat, next.lng);
@@ -583,7 +620,10 @@ export class RoadSnapEngine {
     const segIdx = next.segmentIndex;
     const a = points[Math.max(0, Math.min(segIdx, points.length - 2))];
     const b = points[Math.min(segIdx + 1, points.length - 1)];
-    const heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+    let heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+    if (Number.isFinite(travelHdg) && travelHdg !== 0) {
+      heading = alignBearingToReference(heading, travelHdg);
+    }
     return {
       lat: stepped.lat,
       lng: stepped.lng,
@@ -599,12 +639,14 @@ export class RoadSnapEngine {
     frozen: SnappedPose,
     maxStepM: number,
   ): SnappedPose {
+    const travelHdg = this.resolveTravelHeading(raw);
     const proj = projectOnPolylineForward(
       raw.lat,
       raw.lng,
       points,
       frozen.segmentIndex,
       SNAP_WIDE_RETRY_RADIUS_M,
+      travelHdg,
     );
     const target = proj ?? frozen;
     const stepped = stepPoseOnPolyline(
@@ -619,8 +661,9 @@ export class RoadSnapEngine {
     const segIdx = proj?.segmentIndex ?? frozen.segmentIndex;
     const a = points[Math.max(0, Math.min(segIdx, points.length - 2))];
     const b = points[Math.min(segIdx + 1, points.length - 1)];
-    const heading = proj?.heading
+    let heading = proj?.heading
       ?? bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+    heading = alignBearingToReference(heading, travelHdg);
     return {
       lat: stepped.lat,
       lng: stepped.lng,
@@ -652,6 +695,7 @@ export class RoadSnapEngine {
     cache: GeometryCache,
     minSeg: number,
     maxRadius: number,
+    travelHdg = 0,
   ): SnappedPose | null {
     const poly = cache.getPolyline();
     if (!poly) return null;
@@ -662,6 +706,7 @@ export class RoadSnapEngine {
       poly.points,
       Math.max(0, minSeg - 1),
       maxRadius,
+      travelHdg,
     );
     if (proj) {
       return {

@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
 
@@ -60,6 +60,8 @@ function queueDriveSessionFileLine(line: string): void {
 function shouldMirrorDriveSessionFile(tag: string): boolean {
   if (!DRIVE_SESSION_TRACE_ENABLED) return false;
   if (tag.startsWith('DRIVE_TRACE_')) return true;
+  if (tag.startsWith('MARKER_')) return true;
+  if (tag.startsWith('CAMERA_')) return true;
   if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
   if (tag.startsWith('NAV_TRACE_') || tag.startsWith('GPS_')) return true;
   if (tag === 'BUILD_FINGERPRINT') return true;

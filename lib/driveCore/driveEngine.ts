@@ -285,6 +285,15 @@ export class DriveEngine {
       : 0;
     const freeDriveMaxStep = lateralM > 12 ? Math.min(lateralM * 0.6, 45) : maxStepM;
 
+    if (
+      isFreeDrive
+      && frozenMove
+      && (lateralM > 45 || frozenMove.crossTrackM > 50)
+      && this.cache.hasGeometry()
+    ) {
+      this.cache.reset();
+    }
+
     let pose = this.snap.snap(raw, this.cache, {
       isMoving: true,
       isNavigating: this.isNavigating,

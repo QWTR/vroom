@@ -51,7 +51,7 @@ export async function flushMapMatchBatch(
       geometries: 'geojson',
     },
     fallbackUrl,
-    { allowFallback: false, proxyTimeoutMs: 4500 },
+    { allowFallback: true, proxyTimeoutMs: 4500 },
   );
 
   const line = data?.matchings?.[0]?.geometry?.coordinates;

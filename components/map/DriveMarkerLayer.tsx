@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
+import { driveTraceMarkerUiSmooth } from '../../lib/driveSessionTrace';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
 const MARKER_SIZE = 40;
@@ -49,6 +50,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     let rafId = 0;
     let alive = true;
     let lastCommitAt = 0;
+    let lastPose = { lat: 0, lng: 0, hdg: 0 };
     const loop = () => {
       if (!alive) return;
       const la = marker.lat.value;
@@ -57,13 +59,28 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       if (isValidMarkerCoord(la, ln)) {
         const now = Date.now();
         if (now - lastCommitAt >= POSE_COMMIT_MIN_MS) {
+          const uiMoveM = lastCommitAt > 0
+            ? Math.hypot((la - lastPose.lat) * 111320, (ln - lastPose.lng) * 111320 * Math.cos((la * Math.PI) / 180))
+            : 0;
+          const uiHdgDeltaDeg = lastCommitAt > 0
+            ? Math.abs(((h - lastPose.hdg + 540) % 360) - 180)
+            : 0;
           lastCommitAt = now;
+          lastPose = { lat: la, lng: ln, hdg: Number.isFinite(h) ? h : 0 };
           setPose({
             lat: la,
             lng: ln,
             hdg: Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0,
           });
           setVisible(true);
+          driveTraceMarkerUiSmooth({
+            lat: la,
+            lng: ln,
+            hdg: Number.isFinite(h) ? h : 0,
+            uiMoveM,
+            uiHdgDeltaDeg,
+            msSinceCommit: POSE_COMMIT_MIN_MS,
+          });
         }
       }
       rafId = requestAnimationFrame(loop);

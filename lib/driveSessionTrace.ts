@@ -120,6 +120,16 @@ export function driveTraceTick(payload: {
   feedAccepted?: boolean;
   feedHeadingOnly?: boolean;
   source?: string;
+  markerRawGapM?: number;
+  svGapM?: number;
+  hdgFlipDeg?: number;
+  pushSegM?: number;
+  catchupSoft?: boolean;
+  onRoad?: boolean;
+  chaseM?: number;
+  engineSnapLat?: number;
+  engineSnapLng?: number;
+  crossTrackM?: number;
 }): void {
   driveSessionLog('DRIVE_TRACE_TICK', {
     rawLat: round6(payload.rawLat),
@@ -146,7 +156,48 @@ export function driveTraceTick(payload: {
     feedAccepted: payload.feedAccepted ?? true,
     feedHeadingOnly: payload.feedHeadingOnly ?? false,
     source: payload.source ?? 'drive_core_v2',
+    markerRawGapM: payload.markerRawGapM != null ? round1(payload.markerRawGapM) : null,
+    svGapM: payload.svGapM != null ? round1(payload.svGapM) : null,
+    hdgFlipDeg: payload.hdgFlipDeg != null ? Math.round(payload.hdgFlipDeg) : null,
+    pushSegM: payload.pushSegM != null ? round1(payload.pushSegM) : null,
+    catchupSoft: payload.catchupSoft ?? false,
+    onRoad: payload.onRoad ?? null,
+    chaseM: payload.chaseM != null ? round1(payload.chaseM) : null,
+    engineSnapLat: payload.engineSnapLat != null ? round6(payload.engineSnapLat) : null,
+    engineSnapLng: payload.engineSnapLng != null ? round6(payload.engineSnapLng) : null,
+    crossTrackM: payload.crossTrackM != null ? round1(payload.crossTrackM) : null,
   });
+}
+
+/** Szczegółowy pipeline markera — każdy tick GPS (grep: MARKER_PIPELINE). */
+export function driveTraceMarkerPipeline(payload: Record<string, unknown>): void {
+  driveSessionLog('MARKER_PIPELINE', payload);
+}
+
+/** Push kamery z markera SV — throttle ~120 ms (grep: CAMERA_PIPELINE). */
+export function driveTraceCameraPipeline(payload: Record<string, unknown>): void {
+  driveSessionLogThrottled('CAMERA_PIPELINE', payload, 120);
+}
+
+/** rAF MarkerView — ruch/heading UI vs worklet (grep: MARKER_UI_SMOOTH). */
+export function driveTraceMarkerUiSmooth(payload: {
+  lat: number;
+  lng: number;
+  hdg: number;
+  uiMoveM: number;
+  uiHdgDeltaDeg: number;
+  msSinceCommit: number;
+  svGapM?: number;
+}): void {
+  driveSessionLogThrottled('MARKER_UI_SMOOTH', {
+    lat: round6(payload.lat),
+    lng: round6(payload.lng),
+    hdg: Math.round(payload.hdg),
+    uiMoveM: round1(payload.uiMoveM),
+    uiHdgDeltaDeg: Math.round(payload.uiHdgDeltaDeg),
+    msSinceCommit: Math.round(payload.msSinceCommit),
+    svGapM: payload.svGapM != null ? round1(payload.svGapM) : null,
+  }, 100);
 }
 
 export function driveTraceReject(
@@ -189,7 +240,7 @@ export function driveTraceCamera(payload: {
     speedKmh: round1(payload.speedKmh),
     exploring: payload.exploring,
     frameMoveM: payload.frameMoveM != null ? round1(payload.frameMoveM) : null,
-  }, 300);
+  }, 150);
 }
 
 export { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';

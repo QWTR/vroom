@@ -1,4 +1,5 @@
 import {
+  alignBearingToReference,
   bearingBetween,
   densifyPolyline,
   distanceToSegmentMeters,
@@ -81,6 +82,7 @@ export function projectOnPolylineForward(
   points: RoadPoint[],
   minSegmentIndex: number,
   maxRadiusM: number,
+  travelHeadingDeg?: number,
 ): {
   lat: number;
   lng: number;
@@ -110,7 +112,10 @@ export function projectOnPolylineForward(
 
   const a = points[bestSeg];
   const b = points[bestSeg + 1];
-  const heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+  let heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+  if (Number.isFinite(travelHeadingDeg)) {
+    heading = alignBearingToReference(heading, travelHeadingDeg!);
+  }
   return {
     lat: bestLat,
     lng: bestLng,

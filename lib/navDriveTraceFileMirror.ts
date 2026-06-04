@@ -6,7 +6,7 @@
  *   /sdcard/Download/vroom_nav_drive.log
  *   /sdcard/Android/media/com.lexuuw.vroom.app/vroom_nav_drive.log
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import type { VroomGpsLogEntry } from './vroomGpsLog';
 

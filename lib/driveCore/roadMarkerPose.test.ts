@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { distanceM } from './geo';
 import { localRoadGeometryMirror } from './localRoadSnap';
 import {
   resetRoadMarkerPoseState,
@@ -59,6 +60,32 @@ describe('resolveRoadMarkerPose', () => {
     });
     expect(result.lat).toBeGreaterThan(prev.lat);
     expect(result.onRoad).toBe(false);
+  });
+
+  it('advances when prev is far behind raw (stale entry poly)', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const entryRoad: RoadPoint[] = [
+      { latitude: 52.0, longitude: 21.0 },
+      { latitude: 52.0005, longitude: 21.0 },
+    ];
+    const prev = { lat: 52.00025, lng: 21.0 };
+    const rawLat = 52.02;
+    const rawLng = 21.0004;
+    const result = resolveRoadMarkerPose({
+      prev,
+      enginePose: snappedPose(52.00025, 21.0, 4),
+      roadPolylines: [entryRoad],
+      speedKmh: 60,
+      travelHeadingDeg: 0,
+      rawLat,
+      rawLng,
+      isNavigating: false,
+    });
+    expect(result.lat).toBeGreaterThan(prev.lat);
+    expect(distanceM(result.lat, result.lng, rawLat, rawLng)).toBeLessThan(
+      distanceM(prev.lat, prev.lng, rawLat, rawLng),
+    );
   });
 
   it('steps forward along polyline without jumping to raw', () => {
