@@ -21,32 +21,35 @@ const COORD_COMMIT_MIN_MS = 16;
 type Props = {
   enabled: boolean;
   marker: DriveMarkerValues;
-  /** Bezpośrednia pozycja z ticku GPS — Mapbox MarkerView wymaga React state. */
-  position?: { lat: number; lng: number } | null;
   imageUri?: string | null;
   avatarUrl?: string | null;
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
 };
 
+function isValidMarkerCoord(la: number, ln: number): boolean {
+  return Number.isFinite(la)
+    && Number.isFinite(ln)
+    && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
+}
+
 /**
- * MarkerView 40px — pozycja + rotacja z Reanimated SharedValues (SSOT V2).
+ * MarkerView 40px — pozycja z Reanimated SharedValues (jedyna ścieżka V2).
  */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
   marker,
-  position,
   imageUri,
   avatarUrl,
   cursorSkin,
 }: Props) {
-  const [coordinate, setCoordinate] = useState<[number, number]>([0, 0]);
-  const [hasCoord, setHasCoord] = useState(false);
+  const [coordinate, setCoordinate] = useState<[number, number] | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [snapshotFailed, setSnapshotFailed] = useState(false);
   const lastRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastCommitAtRef = useRef(0);
 
   const commitCoordinate = useCallback((la: number, ln: number, force = false) => {
+    if (!isValidMarkerCoord(la, ln)) return;
     const now = Date.now();
     if (!force && now - lastCommitAtRef.current < COORD_COMMIT_MIN_MS) return;
     const prev = lastRef.current;
@@ -63,7 +66,6 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       : 0;
     lastRef.current = { lat: la, lng: ln };
     setCoordinate([ln, la]);
-    setHasCoord(true);
     driveTraceMarkerUi({
       lat: la,
       lng: ln,
@@ -72,60 +74,41 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     });
   }, []);
 
-  const positionDrivenRef = useRef(false);
-  useEffect(() => {
-    positionDrivenRef.current = !!(
-      position
-      && Number.isFinite(position.lat)
-      && Number.isFinite(position.lng)
-    );
-  }, [position?.lat, position?.lng]);
-
-  /** Stabilna referencja — inline lambda w runOnJS powoduje SIGSEGV w libworklets (crash przy driving_start). */
   const pushCoordFromWorklet = useCallback((la: number, ln: number) => {
-    if (positionDrivenRef.current) return;
     commitCoordinate(la, ln);
   }, [commitCoordinate]);
 
-  const bridgeSharedMarker = !(
-    position
-    && Number.isFinite(position.lat)
-    && Number.isFinite(position.lng)
-  );
-
   useAnimatedReaction(
     () => {
-      if (!enabled || !bridgeSharedMarker) return null;
+      'worklet';
       const la = marker.lat.value;
       const ln = marker.lng.value;
       if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+      if (Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6) return null;
       return { lat: la, lng: ln };
     },
     (next) => {
+      'worklet';
       if (!next) return;
       runOnJS(pushCoordFromWorklet)(next.lat, next.lng);
     },
-    [enabled, bridgeSharedMarker, pushCoordFromWorklet, marker.lat, marker.lng],
+    [pushCoordFromWorklet, marker.lat, marker.lng],
   );
 
   useEffect(() => {
     if (!enabled) {
-      setHasCoord(false);
+      setCoordinate(null);
+      lastRef.current = null;
       lastCommitAtRef.current = 0;
-      return;
-    }
-    if (position && Number.isFinite(position.lat) && Number.isFinite(position.lng)) {
-      lastCommitAtRef.current = 0;
-      commitCoordinate(position.lat, position.lng, true);
       return;
     }
     const la = marker.lat.value;
     const ln = marker.lng.value;
-    if (Number.isFinite(la) && Number.isFinite(ln)) {
+    if (isValidMarkerCoord(la, ln)) {
       lastCommitAtRef.current = 0;
-      commitCoordinate(la, ln);
+      commitCoordinate(la, ln, true);
     }
-  }, [enabled, position?.lat, position?.lng, marker.lat, marker.lng, commitCoordinate]);
+  }, [enabled, marker.lat, marker.lng, commitCoordinate]);
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -149,15 +132,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const showAvatar = !!mediaAvatar && !avatarFailed && !showSkin;
   const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar && !showSkin;
 
-  const reactPosition =
-    position
-    && Number.isFinite(position.lat)
-    && Number.isFinite(position.lng)
-      ? ([position.lng, position.lat] as [number, number])
-      : null;
-  const markerCoord = reactPosition ?? (hasCoord ? coordinate : null);
-
-  if (!enabled || !markerCoord) return null;
+  if (!enabled || !coordinate) return null;
 
   let markerBody: React.ReactNode;
   if (showSkin) {
@@ -256,7 +231,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 
   return (
     <Mapbox.MarkerView
-      coordinate={markerCoord}
+      coordinate={coordinate}
       anchor={{ x: 0.5, y: 0.5 }}
       allowOverlapWithPuck
       allowOverlap
