@@ -36,7 +36,6 @@ import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate
 import { useChat } from '../../hooks/useChats';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import { SmoothDrPositionMarker } from '../../components/map/SmoothDrPositionMarker';
-import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import {
   SpeedometerHUD,
   SpeedLimitBadge,
@@ -86,6 +85,7 @@ import {
   driveTraceSession,
   driveTraceTick,
   driveTraceHeartbeat,
+  driveTraceMarkerUi,
   driveSessionLog,
 } from '../../lib/driveSessionTrace';
 import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
@@ -2319,15 +2319,39 @@ export default function MapScreen() {
   const lastTripMarkerPoseRef = useRef<{ lat: number; lng: number } | null>(null);
   /** V2: bootstrap markera tylko raz na wejście w trip (nie przy każdym re-renderze). */
   const tripMarkerV2BootstrappedRef = useRef(false);
-  /** V2: bezpośrednia pozycja markera dla Mapbox MarkerView (SV z JS bywa martwe). */
-  const [driveMarkerPosition, setDriveMarkerPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const syncDriveMarkerDisplay = useCallback((lat: number, lng: number) => {
+  /** V2: React state → DrPositionMarker (Mapbox MarkerView nie aktualizuje coord z SV/reaction). */
+  const [driveMarkerDisplay, setDriveMarkerDisplay] = useState<{
+    lat: number;
+    lng: number;
+    hdg: number;
+    seq: number;
+  } | null>(null);
+  const driveMarkerDisplaySeqRef = useRef(0);
+  const syncDriveMarkerDisplay = useCallback((lat: number, lng: number, hdg: number) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    setDriveMarkerPosition((prev) => {
-      if (prev && Math.abs(prev.lat - lat) < 1e-9 && Math.abs(prev.lng - lng) < 1e-9) {
+    const normHdg = Number.isFinite(hdg) ? normalizeHeading(hdg) : 0;
+    setDriveMarkerDisplay((prev) => {
+      if (
+        prev
+        && Math.abs(prev.lat - lat) < 1e-9
+        && Math.abs(prev.lng - lng) < 1e-9
+        && Math.abs(prev.hdg - normHdg) < 0.5
+      ) {
         return prev;
       }
-      return { lat, lng };
+      const next = { lat, lng, hdg: normHdg, seq: (prev?.seq ?? 0) + 1 };
+      driveMarkerDisplaySeqRef.current = next.seq;
+      driveTraceMarkerUi({
+        lat,
+        lng,
+        moveM: prev
+          ? Math.sqrt(
+            ((lat - prev.lat) * 111320) ** 2
+            + ((lng - prev.lng) * 111320 * Math.cos((lat * Math.PI) / 180)) ** 2,
+          )
+          : 0,
+      });
+      return next;
     });
   }, []);
   const lastGoodTimeRef       = useRef<number>(Date.now());
@@ -3796,7 +3820,7 @@ export default function MapScreen() {
   // zadziałają, bo telefon ich nie widzi.
   useEffect(() => {
     vroomGpsLog('BUILD_FINGERPRINT', {
-      version: 'v10.24-marker-live-from-apply-trip-2026-05-23',
+      version: 'v10.25-drive-marker-dr-position-react-state',
       platform: Platform.OS,
       mountedAt: new Date().toISOString(),
       features: {
@@ -3879,6 +3903,7 @@ export default function MapScreen() {
         v10_25_ssot_cameraFromWorkletOnly: true,
         v10_25_workletLerpToAnchor: true,
         v10_25_notifyThrottle40ms: true,
+        v10_25_driveMarkerDrPositionState: DRIVE_CORE_V2,
       },
     }, 0);
   }, []);
@@ -5360,7 +5385,8 @@ export default function MapScreen() {
     prevTripActiveMapRef.current = isTripActiveMap;
     if (isTripActiveMap) return;
     clearSmoothPositionFeed();
-    setDriveMarkerPosition(null);
+    driveMarkerDisplaySeqRef.current = 0;
+    setDriveMarkerDisplay(null);
     if (!wasTrip) return;
     if (isNavigatingRef.current || isDrivingRef.current) return;
     restoreBrowseCameraAfterTrip({ animate: true });
@@ -5503,7 +5529,7 @@ export default function MapScreen() {
         roadLock: markerOnRoad,
         speedMs: hudKmh >= 1.5 ? hudKmh / 3.6 : 0,
       });
-      syncDriveMarkerDisplay(markerPose.lat, markerPose.lng);
+      syncDriveMarkerDisplay(markerPose.lat, markerPose.lng, travelHdg);
       pushTripCameraFromApply(markerPose.lat, markerPose.lng, travelHdg);
       publishUserLocation({ latitude: markerPose.lat, longitude: markerPose.lng });
       const tripSpeedMs = Math.max(0, engineKmh / 3.6);
@@ -5544,6 +5570,7 @@ export default function MapScreen() {
         roadPolylineCount: roadPolylines.length,
         engineOnRoad,
         markerOnRoad,
+        displaySeq: driveMarkerDisplaySeqRef.current,
         source: 'drive_core_v2',
       });
       lastRawForHeadingRef.current = { lat, lng, at: Date.now() };
@@ -5936,7 +5963,7 @@ export default function MapScreen() {
         isNavigating: isNavigating,
         isFreeDrive: isDriving && !isNavigating,
       });
-      syncDriveMarkerDisplay(plat, plng);
+      syncDriveMarkerDisplay(plat, plng, drHdgRef.current);
     } else {
       feedSmoothPositionTarget({
         latitude: plat,
@@ -7100,7 +7127,8 @@ export default function MapScreen() {
       drivingEntryAnchorRef.current = null;
       drivingEntryGraceUntilRef.current = 0;
       lastTripMarkerPoseRef.current = null;
-      setDriveMarkerPosition(null);
+      driveMarkerDisplaySeqRef.current = 0;
+    setDriveMarkerDisplay(null);
     }
     navDriveTraceSession('driving_end', {
       reason: opts?.reason ?? 'unspecified',
@@ -7318,7 +7346,7 @@ export default function MapScreen() {
           hudKmh: speedKmhRef.current,
           isFreeDrive: true,
         });
-        syncDriveMarkerDisplay(entryLat, entryLng);
+        syncDriveMarkerDisplay(entryLat, entryLng, entryHeading);
         lastDriveMarkerPushAtRef.current = Date.now();
         pushTripCameraFromApply(entryLat, entryLng, entryHeading);
       }
@@ -7660,7 +7688,7 @@ export default function MapScreen() {
           isNavigating: isNavigatingRef.current,
           isFreeDrive: !isNavigatingRef.current,
         });
-        syncDriveMarkerDisplay(fbLat, fbLng);
+        syncDriveMarkerDisplay(fbLat, fbLng, fbHdg);
         pushTripCameraFromApply(fbLat, fbLng, fbHdg);
         driveTraceFallback({
           fbLat: Number(fbLat.toFixed(6)),
@@ -11617,7 +11645,7 @@ export default function MapScreen() {
                 hudKmh: kmh,
                 isFreeDrive: true,
               });
-              syncDriveMarkerDisplay(entryLat, entryLng);
+              syncDriveMarkerDisplay(entryLat, entryLng, drivingHeading);
             } else {
               applyTripPosition(entryLat, entryLng, {
                 heading: drivingHeading,
@@ -14718,7 +14746,8 @@ export default function MapScreen() {
     drivingEntryGraceUntilRef.current = 0;
     drivingManualModeRef.current = false;
     lastTripMarkerPoseRef.current = null;
-    setDriveMarkerPosition(null);
+    driveMarkerDisplaySeqRef.current = 0;
+    setDriveMarkerDisplay(null);
     setIsDriving(false);
 
     startTrip(routeInfo?.duration ?? 0);
@@ -14794,7 +14823,7 @@ export default function MapScreen() {
         speedMs: 0,
         isNavigating: true,
       });
-      syncDriveMarkerDisplay(bootLat, bootLng);
+      syncDriveMarkerDisplay(bootLat, bootLng, bootHdg);
     }
     if (!gpsForceActiveRef.current) {
       gpsForceActiveRef.current = true;
@@ -15601,11 +15630,11 @@ export default function MapScreen() {
             })
           }
 
-          {DRIVE_CORE_V2 && isTripActive ? (
-            <DriveMarkerLayer
-              enabled={isTripActive}
-              marker={driveMarker}
-              position={driveMarkerPosition}
+          {DRIVE_CORE_V2 && isTripActive && driveMarkerDisplay ? (
+            <DrPositionMarker
+              latitude={driveMarkerDisplay.lat}
+              longitude={driveMarkerDisplay.lng}
+              heading={driveMarkerDisplay.hdg}
               avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
               imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
               cursorSkin={cursorSkinOverlay}
