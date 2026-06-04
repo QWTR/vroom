@@ -1,4 +1,5 @@
 export * from './types';
+export * from './roadMarkerPose';
 export * from './config';
 export * from './driveEngine';
 export { GeometryCache } from './geometryCache';

@@ -23,11 +23,16 @@ export type DriveMarkerTarget = {
   heading: number;
   durationMs?: number;
   speedMs?: number;
+  /** Prędkość HUD (km/h) — guardy kierunku, NIE ekstrapolacja po skosie. */
+  hudKmh?: number;
+  /** Między tickami GPS: lekki ruch wzdłuż headingu (domyślnie wł.). */
+  allowExtrapolation?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
 const CRUISE_HOLD_MS = 0.22;
-const CRUISE_EXTRAP_MAX_MS = 1500;
+/** Krótka ekstrapolacja wzdłuż headingu między tickami GPS (tylko gdy allowExtrapolation). */
+const CRUISE_EXTRAP_MAX_MS = 900;
 const MAX_DR_STEP_M = 3;
 /** Liniowy krok obrotu (°/klatka @60fps) — zsynchronizowany z kamerą. */
 const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
@@ -213,29 +218,38 @@ export function useDriveMarker(
   const segmentDurationMs = useSharedValue(650);
   const lastFrameLat = useSharedValue(NaN);
   const lastFrameLng = useSharedValue(NaN);
+  const allowExtrapolationSv = useSharedValue(1);
 
   const pushTarget = useCallback((t: DriveMarkerTarget) => {
     if (!Number.isFinite(t.lat) || !Number.isFinite(t.lng)) return;
 
     const incomingMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs!) : 0;
+    const hudKmh = Number.isFinite(t.hudKmh) ? Math.max(0, t.hudKmh!) : incomingMs * 3.6;
+    const allowExtrap = t.allowExtrapolation !== false;
+    allowExtrapolationSv.value = allowExtrap ? 1 : 0;
     lastGpsPushMsSv.value = Date.now();
 
     if (incomingMs >= MIN_DR_SPEED_MS) {
       speedMsSv.value = incomingMs;
-      cruiseSpeedMsSv.value = incomingMs;
-    } else if (cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
+      if (allowExtrap) {
+        cruiseSpeedMsSv.value = incomingMs;
+      }
+    } else if (allowExtrap && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS) {
       speedMsSv.value = cruiseSpeedMsSv.value;
     } else {
-      speedMsSv.value = 0;
+      speedMsSv.value = incomingMs;
+      if (!allowExtrap) {
+        cruiseSpeedMsSv.value = 0;
+      }
     }
 
-    const speedKmh = (t.speedMs ?? speedMsSv.value) * 3.6;
+    const speedKmh = hudKmh > 0 ? hudKmh : speedMsSv.value * 3.6;
     let tgtHdg = Number.isFinite(t.heading) ? t.heading : heading.value;
     if (Number.isFinite(heading.value)) {
       tgtHdg = guardMarkerHeadingPush(heading.value, tgtHdg, speedKmh);
     }
 
-    const moving = incomingMs >= MIN_DR_SPEED_MS;
+    const moving = incomingMs >= MIN_DR_SPEED_MS || hudKmh >= 2.5;
     let segDur = safeDurationMsJs(t.durationMs);
 
     const needsBootstrap = !Number.isFinite(lat.value) || !Number.isFinite(lng.value);
@@ -254,7 +268,8 @@ export function useDriveMarker(
     const errM = haversineMJs(fromLa, fromLn, t.lat, t.lng);
 
     if (
-      speedKmh >= 5
+      allowExtrap
+      && speedKmh >= 5
       && errM >= 1.2
       && isBackwardStepJs(fromLa, fromLn, t.lat, t.lng, heading.value, speedKmh >= 35 ? 1.2 : 2)
     ) {
@@ -267,7 +282,7 @@ export function useDriveMarker(
     }
 
     const forceInstant = t.durationMs === 0;
-    if (forceInstant || (errM < INSTANT_SNAP_MAX_ERR_M && !moving)) {
+    if (forceInstant || (errM < INSTANT_SNAP_MAX_ERR_M && hudKmh < 2.5)) {
       lat.value = t.lat;
       lng.value = t.lng;
       heading.value = tgtHdg;
@@ -291,6 +306,14 @@ export function useDriveMarker(
         lerpToHdg.value = tgtHdg;
         lerpDurationMs.value = segDur;
         segmentDurationMs.value = segDur;
+        const remainM = haversineMJs(lat.value, lng.value, t.lat, t.lng);
+        if (remainM > 0.35) {
+          lerpFromLat.value = lat.value;
+          lerpFromLng.value = lng.value;
+          lerpFromHdg.value = heading.value;
+          lerpStartMs.value = Date.now();
+          lerpActive.value = 1;
+        }
         return;
       }
     }
@@ -310,6 +333,7 @@ export function useDriveMarker(
     lerpFromHdg.value = heading.value;
     lerpActive.value = 1;
   }, [
+    allowExtrapolationSv,
     cruiseSpeedMsSv,
     heading,
     lastGpsPushMsSv,
@@ -474,7 +498,8 @@ export function useDriveMarker(
       const speedMs = speedMsSv.value;
       const staleMs = nowMs - lastGpsPushMsSv.value;
       if (
-        speedMs >= 0.5
+        allowExtrapolationSv.value > 0.5
+        && speedMs >= 0.5
         && staleMs > 0
         && staleMs <= CRUISE_EXTRAP_MAX_MS
       ) {

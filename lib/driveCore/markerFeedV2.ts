@@ -130,14 +130,16 @@ export function decideMarkerFeed(
     };
   }
 
-  const clamped = clampMarkerTargetForward(
-    feedState.lat,
-    feedState.lng,
-    lat,
-    lng,
-    feedState.heading,
-    speedKmh,
-  );
+  const clamped = opts.isFreeDrive
+    ? { lat, lng }
+    : clampMarkerTargetForward(
+        feedState.lat,
+        feedState.lng,
+        lat,
+        lng,
+        feedState.heading,
+        speedKmh,
+      );
   const useLat = clamped.lat;
   const useLng = clamped.lng;
 

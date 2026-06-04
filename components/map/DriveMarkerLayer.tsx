@@ -21,6 +21,8 @@ const COORD_COMMIT_MIN_MS = 16;
 type Props = {
   enabled: boolean;
   marker: DriveMarkerValues;
+  /** Bezpośrednia pozycja z ticku GPS — Mapbox MarkerView wymaga React state. */
+  position?: { lat: number; lng: number } | null;
   imageUri?: string | null;
   avatarUrl?: string | null;
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
@@ -32,6 +34,7 @@ type Props = {
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
   marker,
+  position,
   imageUri,
   avatarUrl,
   cursorSkin,
@@ -43,11 +46,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const lastRef = useRef({ lat: 0, lng: 0 });
   const lastCommitAtRef = useRef(0);
 
-  const commitCoordinate = useCallback((la: number, ln: number) => {
+  const commitCoordinate = useCallback((la: number, ln: number, force = false) => {
     const now = Date.now();
-    if (now - lastCommitAtRef.current < COORD_COMMIT_MIN_MS) return;
+    if (!force && now - lastCommitAtRef.current < COORD_COMMIT_MIN_MS) return;
     const prev = lastRef.current;
-    if (Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
+    if (!force && Math.abs(la - prev.lat) < 1e-9 && Math.abs(ln - prev.lng) < 1e-9) {
       return;
     }
     const prevCommitAt = lastCommitAtRef.current;
@@ -63,9 +66,18 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       lat: la,
       lng: ln,
       moveM,
-      msSinceLast: prevCommitAt > 0 ? now - prevCommitAt : null,
+      msSinceLast: prevCommitAt > 0 ? now - prevCommitAt : undefined,
     });
   }, []);
+
+  const positionDrivenRef = useRef(false);
+  useEffect(() => {
+    positionDrivenRef.current = !!(
+      position
+      && Number.isFinite(position.lat)
+      && Number.isFinite(position.lng)
+    );
+  }, [position?.lat, position?.lng]);
 
   useAnimatedReaction(
     () => {
@@ -77,7 +89,10 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     },
     (next) => {
       if (!next) return;
-      runOnJS(commitCoordinate)(next.lat, next.lng);
+      runOnJS((la: number, ln: number) => {
+        if (positionDrivenRef.current) return;
+        commitCoordinate(la, ln);
+      })(next.lat, next.lng);
     },
     [enabled, commitCoordinate],
   );
@@ -88,13 +103,18 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       lastCommitAtRef.current = 0;
       return;
     }
+    if (position && Number.isFinite(position.lat) && Number.isFinite(position.lng)) {
+      lastCommitAtRef.current = 0;
+      commitCoordinate(position.lat, position.lng, true);
+      return;
+    }
     const la = marker.lat.value;
     const ln = marker.lng.value;
     if (Number.isFinite(la) && Number.isFinite(ln)) {
       lastCommitAtRef.current = 0;
       commitCoordinate(la, ln);
     }
-  }, [enabled, marker.lat, marker.lng, commitCoordinate]);
+  }, [enabled, position?.lat, position?.lng, marker.lat, marker.lng, commitCoordinate]);
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -118,7 +138,15 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const showAvatar = !!mediaAvatar && !avatarFailed && !showSkin;
   const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar && !showSkin;
 
-  if (!enabled || !hasCoord) return null;
+  const reactPosition =
+    position
+    && Number.isFinite(position.lat)
+    && Number.isFinite(position.lng)
+      ? ([position.lng, position.lat] as [number, number])
+      : null;
+  const markerCoord = reactPosition ?? (hasCoord ? coordinate : null);
+
+  if (!enabled || !markerCoord) return null;
 
   let markerBody: React.ReactNode;
   if (showSkin) {
@@ -217,7 +245,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 
   return (
     <Mapbox.MarkerView
-      coordinate={coordinate}
+      coordinate={markerCoord}
       anchor={{ x: 0.5, y: 0.5 }}
       allowOverlapWithPuck
       allowOverlap
