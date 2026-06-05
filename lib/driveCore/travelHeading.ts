@@ -171,6 +171,10 @@ export function guardMarkerHeadingPush(
 ): number {
   const prev = normalizeHeading(prevHeading);
   const next = normalizeHeading(nextHeading);
+  const prevUnset = prev < 1.5 || prev > 358.5;
+  if (prevUnset && next > 15 && next < 345) {
+    return next;
+  }
   const flip = Math.abs(headingDelta(prev, next));
   if (speedKmh >= 10 && flip < 8) {
     return prev;

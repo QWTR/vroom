@@ -97,12 +97,19 @@ function rawMoveBearing(
   return bearingBetween(prevLat, prevLng, lat, lng);
 }
 
+/** 0° w pipeline = brak ustalonego kierunku (nie mylić z prawdziwą północą). */
+function isHeadingUnset(h: number | null | undefined): boolean {
+  if (h == null || !Number.isFinite(h)) return true;
+  const n = normalizeHeading(h);
+  return n < 1.5 || n > 358.5;
+}
+
 function applyFlipReject(
   prev: number | null,
   candidate: number,
   speedKmh: number,
 ): number {
-  if (prev == null) return candidate;
+  if (prev == null || isHeadingUnset(prev)) return candidate;
   const flip = Math.abs(headingDelta(prev, candidate));
   if (speedKmh >= TRAVEL_VECTOR_ONLY_MIN_KMH && flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) {
     return prev;
@@ -142,6 +149,19 @@ export function computeTripBearing(
     return applyFlipReject(prev, smoothed, speedKmh);
   }
 
+  if (vectorLock && moveBearing == null) {
+    const course = input.compassDeg != null
+      && Number.isFinite(input.compassDeg)
+      && input.compassDeg >= 0
+      ? normalizeHeading(input.compassDeg)
+      : null;
+    if (course != null && !isHeadingUnset(course)) {
+      return applyFlipReject(prev, course, speedKmh);
+    }
+    if (!isHeadingUnset(prev)) return prev;
+    if (!isHeadingUnset(road)) return road;
+  }
+
   if (moveBearing != null && (speedKmh >= 3.5 || input.movedM >= TRAVEL_HEADING_VECTOR_MIN_MOVE_M)) {
     ring.push(moveBearing);
     let candidate = ring.circularMean() ?? moveBearing;
@@ -162,7 +182,7 @@ export function computeTripBearing(
     return prev;
   }
 
-  if (vectorLock && prev != null) {
+  if (vectorLock && prev != null && !isHeadingUnset(prev)) {
     return prev;
   }
 

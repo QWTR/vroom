@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
 
 const TELEMETRY_FILE_NAME = 'vroom_telemetry.log';
 const TELEMETRY_FILE_PATH = `${FileSystem.documentDirectory}${TELEMETRY_FILE_NAME}`;
@@ -21,6 +22,7 @@ export function getTelemetryPath(): string {
 }
 
 export function logTelemetry(tag: string, data?: unknown): Promise<void> {
+  if (!DRIVE_SESSION_TRACE_ENABLED) return Promise.resolve();
   const ts = new Date().toISOString();
   const json = safeJson(data);
   const line = `${ts} | ${tag} | ${json}\n`;
@@ -55,6 +57,7 @@ export function logTelemetry(tag: string, data?: unknown): Promise<void> {
 }
 
 export async function clearTelemetry(): Promise<void> {
+  if (!DRIVE_SESSION_TRACE_ENABLED) return;
   try {
     await FileSystem.writeAsStringAsync(
       TELEMETRY_FILE_PATH,

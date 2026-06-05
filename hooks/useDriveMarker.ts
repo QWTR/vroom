@@ -258,14 +258,19 @@ export function useDriveMarker(
         if (t >= 1) {
           lat.value = toLa;
           lng.value = toLn;
-          const flip = Math.abs(headingDeltaW(heading.value, targetHdg));
-          heading.value = flip >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8
-            ? stepHeadingLinearWorklet(heading.value, lerpToHdg.value, HEADING_MAX_STEP_PER_FRAME_DEG)
-            : stepHeadingLinearWorklet(
-              heading.value,
-              targetHdg,
-              HEADING_MAX_STEP_PER_FRAME_DEG * (t >= 1 ? 1.4 : 1),
-            );
+          const flipToPipeline = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
+          if (flipToPipeline >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8) {
+            heading.value = lerpToHdg.value;
+          } else {
+            const flip = Math.abs(headingDeltaW(heading.value, targetHdg));
+            heading.value = flip >= HEADING_FLIP_REJECT_DEG && speedKmh >= 8
+              ? stepHeadingLinearWorklet(heading.value, lerpToHdg.value, HEADING_MAX_STEP_PER_FRAME_DEG * 2.5)
+              : stepHeadingLinearWorklet(
+                heading.value,
+                targetHdg,
+                HEADING_MAX_STEP_PER_FRAME_DEG * (t >= 1 ? 1.4 : 1),
+              );
+          }
           lerpActive.value = 0;
         } else {
           lat.value = fromLa + (toLa - fromLa) * t;
@@ -345,9 +350,9 @@ export function useDriveMarker(
     const headingFlipDeg = Number.isFinite(heading.value)
       ? Math.abs(headingDeltaW(heading.value, tgtHdg))
       : 0;
-    const snapHeadingOnly = t.syncHeading === true
+    const snapHeadingOnly = (t.syncHeading === true || headingFlipDeg >= HEADING_FLIP_REJECT_DEG)
       && speedKmh >= 8
-      && headingFlipDeg >= 38;
+      && headingFlipDeg >= 28;
     const segDur = clampSegmentDurationMs(t.durationMs, allowInstant);
     const poseSv = {
       lat,

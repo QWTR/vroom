@@ -108,6 +108,7 @@ function emitVroomGpsLog(
   payload: Record<string, unknown> | undefined,
   throttleMs: number,
 ): void {
+  if (!DRIVE_SESSION_TRACE_ENABLED) return;
   const now = Date.now();
   if (throttleMs > 0) {
     const last = lastAt[tag] ?? 0;

@@ -47,6 +47,27 @@ describe('computeTripBearing', () => {
     expect(h).toBeLessThan(90);
   });
 
+  it('escapes stuck 0° when real bearing arrives at speed', () => {
+    ring.reset();
+    const h = computeTripBearing(
+      {
+        prevLat: 51.211,
+        prevLng: 19.024,
+        lat: 51.211,
+        lng: 19.024,
+        movedM: 0.4,
+        speedMs: 14,
+        speedKmh: 51,
+        snapHeading: 0,
+        compassDeg: 248,
+        prevHeading: 0,
+      },
+      ring,
+    );
+    expect(h).toBeGreaterThan(200);
+    expect(h).toBeLessThan(270);
+  });
+
   it('rejects 180 flip at driving speed', () => {
     ring.reset();
     const prev = 10;

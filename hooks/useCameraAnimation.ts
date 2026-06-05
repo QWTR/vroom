@@ -64,13 +64,16 @@ const ZERO_PADDING: MapCameraPadding = {
 export function getTripCameraPadding(isNavigating: boolean): MapCameraPadding {
   const h = Dimensions.get('window').height;
   const tabBarPx = 88;
-  const hudPx = isNavigating ? 200 : 240;
-  // Nawigacja: większy paddingTop = marker niżej, więcej drogi przed autem (Waze).
+  /** Środek markera ~2–3 cm nad dolną krawędzią ekranu. */
+  const markerBottomInsetPx = isNavigating ? 108 : 98;
+  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 4 : 6), 60, 96));
   const top = Math.round(
-    clampNum(h * (isNavigating ? 0.50 : 0.38), isNavigating ? 280 : 240, isNavigating ? 460 : 400)
-    + hudPx * (isNavigating ? 0.18 : 0.26),
+    clampNum(
+      h - 2 * markerBottomInsetPx + bottom,
+      h * 0.52,
+      h * 0.86,
+    ),
   );
-  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 12 : 20), 48, 88));
   return {
     paddingTop: top,
     paddingBottom: bottom,
@@ -90,7 +93,9 @@ export const PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS = 380;
 /** Łagodny powrót po rozglądaniu się mapą — bez szarpnięcia zoomu. */
 const SOFT_RETURN_ANIM_MS = 1400;
 const BROWSE_PITCH = 52;
-const ACTIVE_PITCH = 68;
+/** Jazda: wyższy pitch = więcej drogi przed autem (kąt w górę), nie lookahead. */
+const ACTIVE_PITCH = 58;
+const NAV_ACTIVE_PITCH = 62;
 const BROWSE_ZOOM = 15;
 const RECENTER_ANIM_MS = 1000;
 /** Szybkie, płynne wejście kamery w tryb jazdy (zoom + pitch), bez 1 s opóźnienia. */
@@ -105,14 +110,14 @@ const NATIVE_FOLLOW_ANIM_MS = 400;
 const TRIP_MARKER_SYNC_MIN_MS = 320;
 /** Min. odstęp setCamera — nie krótszy niż animacja, żeby nie przerywać interpolacji Mapbox. */
 const NATIVE_FOLLOW_MIN_INTERVAL_MS = 66;
-/** V2 worklet-frame follow: ~60fps setCamera, bez 400ms segment anim. */
-const WORKLET_FRAME_MIN_INTERVAL_MS = 28;
-const WORKLET_FRAME_ANIM_MS = 32;
+/** V2: ciągły follow markera — mikro-kroki bez animacji Mapbox (bez szarpnięć co segment). */
+const WORKLET_FRAME_MIN_INTERVAL_MS = 32;
+const WORKLET_FRAME_ANIM_MS = 0;
 const NATIVE_FOLLOW_MAX_ANIM_MS = 520;
 const NATIVE_APPLY_MIN_MOVE_M = 0.08;
 const NATIVE_APPLY_MIN_HEADING_DEG = 0.2;
 
-const WORKLET_FRAME_VECTOR_MIN_MOVE_M = 0.08;
+const WORKLET_FRAME_VECTOR_MIN_MOVE_M = 0.35;
 const HEADING_VECTOR_MIN_MOVE_M = TRAVEL_HEADING_VECTOR_MIN_MOVE_M;
 const HEADING_LOW_SPEED_HOLD_KMH = 5;
 const HEADING_FLIP_GUARD_DEG = 105;
@@ -220,16 +225,16 @@ function applyFollowSpeedHysteresis(nextKmh: number, prevKmh: number): number {
 }
 
 /** Przesunięcie centrum mapy do przodu — więcej drogi przed autem przy wyższej prędkości. */
+/** Lekkie przesunięcie centrum — duży lookahead = marker zostaje z tyłu ekranu. */
 function lookaheadFromSpeed(speedKmh: number, isNavigating = false): number {
   const s = Math.max(0, speedKmh);
   let m = 0;
-  if (s < 12) m = 0;
-  else if (s <= 25) m = lerpNum(8, 22, (s - 12) / 13);
-  else if (s <= 60) m = lerpNum(22, 52, (s - 25) / 35);
-  else if (s <= 110) m = lerpNum(52, 72, (s - 60) / 50);
-  else m = lerpNum(72, 92, Math.min(1, (s - 110) / 50));
-  if (isNavigating && s >= 8) {
-    m = m * 1.28 + 14;
+  if (s < 18) m = 0;
+  else if (s <= 40) m = lerpNum(0, 10, (s - 18) / 22);
+  else if (s <= 80) m = lerpNum(10, 18, (s - 40) / 40);
+  else m = lerpNum(18, 24, Math.min(1, (s - 80) / 50));
+  if (isNavigating && s >= 18) {
+    m = m * 1.06 + 3;
   }
   return m;
 }
@@ -267,12 +272,12 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
   const zoomSpeed = active
     ? cameraZoomSpeedKmh({ speedKmh: input.speedKmh })
     : 0;
-  const rawZoom = active ? zoomFromSpeed(zoomSpeed) : BROWSE_ZOOM;
+  const rawZoom = active ? zoomFromSpeed(zoomSpeed) - 0.3 : BROWSE_ZOOM;
   return {
     center,
     heading: targetHeading,
     zoom: rawZoom,
-    pitch: active ? ACTIVE_PITCH : BROWSE_PITCH,
+    pitch: active ? (isNavigating ? NAV_ACTIVE_PITCH : ACTIVE_PITCH) : BROWSE_PITCH,
     padding: active ? activeCameraPadding(isNavigating) : ZERO_PADDING,
   };
 }
@@ -321,6 +326,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const resolvedHeadingRef = useRef<number | null>(null);
   const lastFrameInputRef = useRef<CameraFrameInput | null>(null);
   const stabilizedFollowSpeedRef = useRef(0);
+  const stabilizedLookaheadRef = useRef(0);
   const tripActiveRef = useRef(false);
   const gestureResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAfterUserGestureRef = useRef<() => void>(() => {});
@@ -356,6 +362,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     lastTravelUpdateAtRef.current = 0;
     speedKmhRef.current = 0;
     stabilizedFollowSpeedRef.current = 0;
+    stabilizedLookaheadRef.current = 0;
   }, [clearGestureResumeTimer]);
 
   const applyToMap = useCallback((
@@ -379,7 +386,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         effectivePose.center.latitude, effectivePose.center.longitude,
       );
       const hdgD = Math.abs(headingDelta(prev.heading, effectivePose.heading));
-      if (dm < 0.12 && hdgD < 0.35 && Math.abs(prev.zoom - effectivePose.zoom) < 0.002 && Math.abs(prev.pitch - effectivePose.pitch) < 0.08) {
+      if (dm < 0.02 && hdgD < 0.06 && Math.abs(prev.zoom - effectivePose.zoom) < 0.001 && Math.abs(prev.pitch - effectivePose.pitch) < 0.05) {
         return;
       }
     }
@@ -418,13 +425,13 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         : NATIVE_FOLLOW_ANIM_MS;
     const followSpeedKmh = stabilizedFollowSpeedRef.current;
     const minIntervalMs = followFromWorkletFrame
-      ? (followSpeedKmh >= 40 ? 48 : WORKLET_FRAME_MIN_INTERVAL_MS)
+      ? WORKLET_FRAME_MIN_INTERVAL_MS
       : NATIVE_FOLLOW_MIN_INTERVAL_MS;
     const minMoveM = followFromWorkletFrame
-      ? (followSpeedKmh >= 40 ? 0.35 : followSpeedKmh >= 20 ? 0.18 : 0.05)
+      ? 0.02
       : NATIVE_APPLY_MIN_MOVE_M;
     const minHeadingDeg = followFromWorkletFrame
-      ? (followSpeedKmh >= 40 ? 1.4 : followSpeedKmh >= 20 ? 0.6 : 0.12)
+      ? 0.05
       : NATIVE_APPLY_MIN_HEADING_DEG;
 
     let centerDeltaM = 999;
@@ -456,13 +463,21 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       return;
     }
 
+    if (
+      !followFromWorkletFrame
+      && segmentDurationMs != null
+      && segmentDurationMs >= TRIP_MARKER_SYNC_MIN_MS
+      && sinceLastApply < segmentDurationMs * 0.82
+      && centerDeltaM < 4
+      && headingDeltaDeg < 12
+    ) {
+      targetPoseRef.current = target;
+      return;
+    }
+
     let animMs: number;
     if (followFromWorkletFrame) {
-      animMs = clampNum(
-        Math.round(Math.max(WORKLET_FRAME_ANIM_MS, sinceLastApply * 1.05)),
-        WORKLET_FRAME_ANIM_MS,
-        52,
-      );
+      animMs = 0;
     } else if (segmentDurationMs === 0) {
       animMs = 0;
     } else if (segmentDurationMs != null && segmentDurationMs > 0) {
@@ -484,7 +499,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
     lastNativeFollowApplyAtRef.current = now;
     targetPoseRef.current = target;
-    applyToMap(target, animMs, 'linear');
+    applyToMap(target, animMs, followFromWorkletFrame ? 'linear' : 'easeTo');
   }, [applyToMap]);
 
   useEffect(() => () => {
@@ -711,81 +726,29 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       }
 
       if (input.headingFromTripPipeline) {
-        const snapHdg = normalizeHeading(input.heading);
+        const travelHdg = normalizeHeading(input.heading);
         if (input.followFromWorkletFrame) {
+          resolvedHeading = travelHdg;
+        } else {
+          resolvedHeading = travelHdg;
+          if (prevResolvedHeading != null && input.speedKmh >= 2) {
+            const flip = Math.abs(headingDelta(prevResolvedHeading, travelHdg));
+            if (flip < 4) {
+              resolvedHeading = lerpHeadingWithMaxStep(prevResolvedHeading, travelHdg, 2);
+            } else if (flip < 18) {
+              resolvedHeading = lerpHeadingWithMaxStep(
+                prevResolvedHeading,
+                travelHdg,
+                input.speedKmh >= 12 ? Math.min(flip, 16) : 8,
+              );
+            }
+          }
           if (
-            input.speedKmh >= 28
-            && movedM < 0.45
+            input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH
+            && movedM < 0.8
             && prevResolvedHeading != null
           ) {
             resolvedHeading = prevResolvedHeading;
-          } else if (
-            moveBearing != null
-            && movedM >= WORKLET_FRAME_VECTOR_MIN_MOVE_M
-            && input.speedKmh >= TRAVEL_VECTOR_LOCK_SPEED_KMH
-          ) {
-            resolvedHeading = moveBearing;
-          } else if (
-            moveBearing != null
-            && movedM >= WORKLET_FRAME_VECTOR_MIN_MOVE_M
-            && input.speedKmh >= 6
-          ) {
-            resolvedHeading = resolveTravelHeading({
-              snapHeading: snapHdg,
-              moveBearing,
-              movedM,
-              speedKmh: input.speedKmh,
-              prevHeading: prevResolvedHeading,
-            });
-          } else {
-            resolvedHeading = (prevResolvedHeading != null && input.speedKmh >= 22)
-              ? prevResolvedHeading
-              : snapHdg;
-          }
-          if (prevResolvedHeading != null) {
-            const maxStep = input.speedKmh >= 40 ? 14 : input.speedKmh >= 20 ? 10 : 7;
-            resolvedHeading = lerpHeadingWithMaxStep(
-              prevResolvedHeading,
-              resolvedHeading,
-              maxStep,
-            );
-          }
-        } else if (
-          moveBearing != null
-          && movedM >= HEADING_VECTOR_MIN_MOVE_M
-          && input.speedKmh >= 6
-        ) {
-          resolvedHeading = resolveTravelHeading({
-            snapHeading: snapHdg,
-            moveBearing,
-            movedM,
-            speedKmh: input.speedKmh,
-            prevHeading: prevResolvedHeading,
-          });
-          if (prevResolvedHeading != null) {
-            const flip = Math.abs(headingDelta(prevResolvedHeading, resolvedHeading));
-            if (flip >= HEADING_FLIP_GUARD_DEG) {
-              resolvedHeading = lerpHeadingWithMaxStep(
-                prevResolvedHeading,
-                resolvedHeading,
-                input.speedKmh >= 25 ? 14 : 8,
-              );
-            }
-          }
-        } else {
-          resolvedHeading = snapHdg;
-          if (prevResolvedHeading != null) {
-            const flip = Math.abs(headingDelta(prevResolvedHeading, resolvedHeading));
-            if (flip >= HEADING_FLIP_GUARD_DEG) {
-              resolvedHeading = lerpHeadingWithMaxStep(
-                prevResolvedHeading,
-                resolvedHeading,
-                input.speedKmh >= 25 ? 14 : 8,
-              );
-            }
-            if (input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH && movedM < 1.2) {
-              resolvedHeading = prevResolvedHeading;
-            }
           }
         }
       } else {
@@ -858,11 +821,17 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         hudSpeedKmh: speedForPose,
         frameMoveM: movedM,
       });
-      const followZoom = zoomFromSpeed(zoomSpeed);
+      const followZoom = zoomFromSpeed(zoomSpeed) - 0.3;
       const zoomTarget = userZoomOverrideRef.current != null
         ? userZoomOverrideRef.current
         : smoothZoomTarget(lastTargetZoomRef.current, followZoom, speedForPose);
-      const lookaheadM = lookaheadFromSpeed(speedForPose);
+      const isNavFollow = nextMode === 'navigationFollow';
+      const rawLook = lookaheadFromSpeed(speedForPose, isNavFollow);
+      const prevLook = stabilizedLookaheadRef.current;
+      const lookaheadM = prevLook <= 0.5
+        ? rawLook
+        : lerpNum(prevLook, rawLook, input.followFromWorkletFrame ? 0.1 : 0.18);
+      stabilizedLookaheadRef.current = lookaheadM;
       target = {
         ...target,
         heading: resolvedHeading,

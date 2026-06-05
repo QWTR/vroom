@@ -302,6 +302,22 @@ export class DriveEngine {
       travelHeadingDeg,
       maxStepM: isFreeDrive ? freeDriveMaxStep : maxStepM,
     });
+    if (
+      isFreeDrive
+      && frozenMove
+      && pose.crossTrackM > 38
+      && distanceM(frozenMove.lat, frozenMove.lng, raw.lat, raw.lng) > 18
+    ) {
+      this.cache.reset();
+      pose = this.snap.snap(raw, this.cache, {
+        isMoving: true,
+        isNavigating: false,
+        allowRawFallback: !localRoadGeometryMirror.hasGeometry(),
+        preferLocalL2: true,
+        travelHeadingDeg,
+        maxStepM: Math.max(maxStepM, freeDriveMaxStep),
+      });
+    }
     pose = this.snap.finalizeSnapPose(pose, this.cache, raw);
 
     const speedKmhMoving = this.speed.update(
