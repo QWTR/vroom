@@ -23,9 +23,6 @@ export function getGpsTickId(): number | null {
   return currentGpsTickId;
 }
 
-/** Alias — ostatni gpsTickId z beginGpsTick(). */
-export const currentGpsTickId = getGpsTickId;
-
 export function gpsTickPayload(extra?: Record<string, unknown>): Record<string, unknown> {
   const wall = currentGpsTickWallMs;
   return {
