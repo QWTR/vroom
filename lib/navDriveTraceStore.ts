@@ -41,9 +41,14 @@ let flushing = false;
 
 function shouldPersistTag(tag: string): boolean {
   if (tag.startsWith('DRIVE_TRACE_')) return true;
+  if (tag.startsWith('DRIVE_VISION_')) return true;
   if (tag.startsWith('NAV_TRACE_')) return true;
   if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
   if (tag.startsWith('SNAP_')) return true;
+  if (tag.startsWith('MATCH_') || tag.startsWith('MAP_MATCH_')) return true;
+  if (tag.startsWith('MARKER_') || tag.startsWith('CAMERA_')) return true;
+  if (tag.startsWith('NAV_')) return true;
+  if (tag === 'DRIVE_HEALTH' || tag === 'OFF_ROAD') return true;
   if (tag.includes('TELEPORT')) return true;
   if (tag.includes('WORKLET_FEED')) return true;
   if (tag.includes('GPS_TELEPORT')) return true;

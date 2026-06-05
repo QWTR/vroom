@@ -8,6 +8,8 @@ import {
   guardMarkerHeadingPush,
   TRAVEL_VECTOR_LOCK_SPEED_KMH,
 } from '../lib/driveCore/travelHeading';
+import { visionFrame } from '../lib/driveVisionTrace';
+import { DRIVE_FULL_VISION_LOG } from '../lib/driveLogConfig';
 
 export type DriveMarkerValues = {
   lat: SharedValue<number>;
@@ -512,6 +514,45 @@ export function useDriveMarker(
       frameCallback.setActive(false);
     };
   }, [tripActive, frameCallback, enabledSv]);
+
+  useEffect(() => {
+    if (!enabled || !DRIVE_FULL_VISION_LOG) return undefined;
+    let lastAt = 0;
+    let lastLat = NaN;
+    let lastLng = NaN;
+    const pollMs = 500;
+    const id = setInterval(() => {
+      if (!tripActive()) return;
+      const svLat = lat.value;
+      const svLng = lng.value;
+      const svHdg = heading.value;
+      if (!Number.isFinite(svLat) || !Number.isFinite(svLng)) return;
+      const now = Date.now();
+      const frameDtMs = lastAt > 0 ? now - lastAt : pollMs;
+      const frameMoveM = Number.isFinite(lastLat) && Number.isFinite(lastLng)
+        ? Math.hypot(
+          (svLat - lastLat) * 111320,
+          (svLng - lastLng) * 111320 * Math.cos((svLat * Math.PI) / 180),
+        )
+        : 0;
+      const impliedKmh = frameDtMs > 0 ? (frameMoveM / (frameDtMs / 1000)) * 3.6 : 0;
+      const staleMs = now - lastGpsPushMsSv.value;
+      visionFrame({
+        layer: 'sv',
+        svLat,
+        svLng,
+        svHdg,
+        frameDtMs,
+        impliedKmh,
+        stuck: staleMs > 2500 && speedMsSv.value * 3.6 >= 5,
+        msSinceCommit: staleMs,
+      });
+      lastAt = now;
+      lastLat = svLat;
+      lastLng = svLng;
+    }, pollMs);
+    return () => clearInterval(id);
+  }, [enabled, tripActive, lat, lng, heading, lastGpsPushMsSv, speedMsSv]);
 
   return useMemo(
     () => ({

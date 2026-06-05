@@ -90,6 +90,8 @@ import {
   driveTraceMarkerPipeline,
   driveTraceCameraPipeline,
 } from '../../lib/driveSessionTrace';
+import { visionEvent, visionTickFromV2 } from '../../lib/driveVisionTrace';
+import { getGpsTickId } from '../../lib/gpsTickTrace';
 import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
 import {
   buildRerouteOrigin,
@@ -1802,15 +1804,27 @@ function logSnapPipelineEnd(
   extra?: Record<string, unknown>,
 ): void {
   const rawToApplyM = haversineKm(rawLat, rawLng, applyLat, applyLng) * 1000;
+  const offRoadLeak = rawToApplyM >= 35;
   logGpsTickLayer('SNAP_PIPELINE_END', {
     rawLat: Number(rawLat.toFixed(6)),
     rawLng: Number(rawLng.toFixed(6)),
     applyLat: Number(applyLat.toFixed(6)),
     applyLng: Number(applyLng.toFixed(6)),
     rawToApplyM: Math.round(rawToApplyM),
-    offRoadLeak: rawToApplyM >= 35,
+    offRoadLeak,
     ...(extra ?? {}),
   });
+  if (offRoadLeak) {
+    visionEvent('OFF_ROAD', {
+      rawLat: Number(rawLat.toFixed(6)),
+      rawLng: Number(rawLng.toFixed(6)),
+      snapLat: Number(applyLat.toFixed(6)),
+      snapLng: Number(applyLng.toFixed(6)),
+      crossTrackM: Math.round(rawToApplyM),
+      action: 'snap_pipeline_leak',
+      ...(extra ?? {}),
+    });
+  }
 }
 
 type PersistedNavSession = {
@@ -4235,7 +4249,8 @@ function MapScreenInner() {
     isDrivingRef,
     minStationarySpeedKmh: DRIVING_ENTRY_STATIONARY_KMH,
     onLog: (event, payload) => {
-      if (__DEV__) vroomGpsLog(event, payload, 2000);
+      vroomGpsLog(`MAP_MATCH_COORD_${event}`, payload, 800);
+      visionEvent('MAP_MATCH_RECOVERY', { coordEvent: event, ...(payload ?? {}) });
     },
   });
 
@@ -5478,6 +5493,25 @@ function MapScreenInner() {
             if (Number.isFinite(snapped.heading)) {
               displayHdg = normalizeHeading(snapped.heading);
             }
+            visionEvent('SNAP_SOURCE', {
+              source: 'drive_core_road_marker_pose',
+              onRoad: snapped.onRoad,
+              crossTrackM: out.pose.crossTrackM,
+              snappedLat: Number(displayLat.toFixed(6)),
+              snappedLng: Number(displayLng.toFixed(6)),
+              rawLat: Number(lat.toFixed(6)),
+              rawLng: Number(lng.toFixed(6)),
+              speedKmh: Math.round(hudKmh),
+            });
+            if (!snapped.onRoad) {
+              visionEvent('OFF_ROAD', {
+                source: 'resolveRoadMarkerPose',
+                crossTrackM: out.pose.crossTrackM,
+                rawLat: Number(lat.toFixed(6)),
+                rawLng: Number(lng.toFixed(6)),
+                action: 'marker_pose_off_road',
+              });
+            }
           }
         } catch {
           displayLat = lat;
@@ -5714,6 +5748,42 @@ function MapScreenInner() {
         engineSnapLng,
         crossTrackM: out.pose.crossTrackM,
       });
+      const prevRawAnchor = lastRawForHeadingRef.current;
+      const rawStepM = prevRawAnchor
+        ? haversineKm(prevRawAnchor.lat, prevRawAnchor.lng, lat, lng) * 1000
+        : 0;
+      visionTickFromV2({
+        mode: isFreeDriveTick ? 'drive' : 'nav',
+        rawLat: lat,
+        rawLng: lng,
+        snapLat: engineSnapLat,
+        snapLng: engineSnapLng,
+        markerLat: displayLat,
+        markerLng: displayLng,
+        markerHdg: displayHdg,
+        markerSvLat: svLat,
+        markerSvLng: svLng,
+        markerSvHdg: svHdg,
+        accM: accuracy,
+        hudKmh,
+        engineKmh,
+        dopplerKmh: dopplerKmhTick,
+        crossTrackM: out.pose.crossTrackM,
+        onRoad,
+        source: freeDriveRaw ? 'free_drive_raw' : 'drive_core_v2',
+        rawStepM,
+        markerRawGapM,
+        svGapM,
+        chaseM,
+        catchupSoft,
+        hdgFlipDeg,
+        pushSegM,
+        feedDurMs: feedDur,
+        teleportClamp: false,
+        megaJumpBlocked: false,
+        feedSkipGate: false,
+        stationaryHold: parkedLike,
+      });
       lastRawForHeadingRef.current = { lat, lng, at: Date.now() };
       return true;
     };
@@ -5871,6 +5941,7 @@ function MapScreenInner() {
     lastCamPushFromMarkerFrameRef.current = now;
     lastCamPushCenterRef.current = { lat, lng };
     driveTraceCameraPipeline({
+      gpsTickId: getGpsTickId(),
       lat: round6(lat),
       lng: round6(lng),
       hintHdg: Math.round(hintHdg),
@@ -14321,6 +14392,10 @@ function MapScreenInner() {
           pts: rerouteResult.points.length,
           at: now,
         }, 0);
+        visionEvent('NAV_REROUTE_OK', {
+          pts: rerouteResult.points.length,
+          at: now,
+        });
       }
       const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
         ? drLatRef.current
@@ -14360,6 +14435,10 @@ function MapScreenInner() {
     rerouteBlockedUntilRef.current = Date.now() + REROUTE_RETRY_AFTER_FAIL_MS;
     setRerouteOrigin(null);
     setRerouteHeadingForApi(undefined);
+    visionEvent('NAV_REROUTE_FAIL', {
+      error: rerouteError ?? 'timeout',
+      pendingForMs,
+    });
   }, [offRoute, rerouteLoading, rerouteError]);
 
   // ── Reroute origin management (cooldown gate) ─────────────────────────────
@@ -14416,6 +14495,12 @@ function MapScreenInner() {
     lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
     setRerouteHeadingForApi(quantizeHeading(travelHdg));
     setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
+    visionEvent('NAV_REROUTE_REQUEST', {
+      vehicleLat: Number(vehicleLat.toFixed(6)),
+      vehicleLng: Number(vehicleLng.toFixed(6)),
+      travelHdg: Math.round(travelHdg),
+      speedKmh: Math.round(speedKmhRef.current),
+    });
   }, [offRoute, userLocation, endLocation]);
 
   useEffect(() => {
@@ -14964,6 +15049,7 @@ function MapScreenInner() {
       return;
     }
 
+    driveTraceSession('nav_end', { reason: 'arrived' });
     isNavigatingRef.current = false;
     setNavigatingFlag(false).catch(() => {});
     stopDR();
@@ -15063,6 +15149,15 @@ function MapScreenInner() {
 
       const announceTarget = resolveAnnouncementTarget(steps, nextStep, lat, lng);
       const distToManeuver = announceTarget.distanceM;
+      if (nextStep !== prevStep) {
+        visionEvent('NAV_STEP_CHANGE', {
+          prevStep,
+          nextStep,
+          distToManeuverM: Math.round(distToManeuver),
+          lat: Number(lat.toFixed(6)),
+          lng: Number(lng.toFixed(6)),
+        });
+      }
       const speechPhase = getNavigationSpeechPhase(distToManeuver);
 
       if (speechPhase && isSpeechRef.current) {
@@ -15108,6 +15203,13 @@ function MapScreenInner() {
             ) {
               offRouteRef.current = true;
               setOffRoute(true);
+              visionEvent('NAV_OFF_ROUTE', {
+                streak: offRouteStreakRef.current,
+                sinceMs: nowOff ? Date.now() - offRouteSinceRef.current : 0,
+                speedKmh: Math.round(speedKmhRef.current),
+                lat: Number(lat.toFixed(6)),
+                lng: Number(lng.toFixed(6)),
+              });
             }
           }
         }
@@ -15298,6 +15400,14 @@ function MapScreenInner() {
     setFollowMode('navigationFollow');
     pushCameraFromSmooth(bootLat, bootLng, bootHdg);
 
+    driveTraceSession('nav_start', {
+      routePts: routePointsRef.current.length,
+      bootLat: Number(bootLat.toFixed(6)),
+      bootLng: Number(bootLng.toFixed(6)),
+      bootHdg: Math.round(bootHdg),
+      offroad: isOffroadRef.current,
+    });
+
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
   }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, setFollowMode,
       recenterTo, resetDR, resetDRRefs, activeRoute, startGPS, applyTripPosition, driveCore, driveMarker, pushCameraFromSmooth]);
@@ -15346,6 +15456,7 @@ function MapScreenInner() {
 
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async () => {
+    driveTraceSession('nav_end', { reason: 'user_stop' });
     isNavigatingRef.current = false;
     setNavigatingFlag(false).catch(() => {});
     resetDRRefs();
@@ -16366,10 +16477,14 @@ function MapScreenInner() {
         {showSpeedPanel && (
           <SpeedometerHUD initialKmh={0}>
             {(hudKmh: number) => (
-              <View style={[
-                styles.speedPanelNav,
-                !isNavigating && { bottom: 200 },
-              ]}>
+              <Pressable
+                onLongPress={isTripActiveMap ? exportNavDriveTrace : undefined}
+                delayLongPress={700}
+                style={[
+                  styles.speedPanelNav,
+                  !isNavigating && { bottom: 200 },
+                ]}
+              >
                 <SpeedLimitBadge
                   initialKmh={0}
                   kmh={hudKmh}
@@ -16386,7 +16501,7 @@ function MapScreenInner() {
                   style={styles.speedValue}
                 />
                 <Text style={styles.speedLabel}>KM/H</Text>
-              </View>
+              </Pressable>
             )}
           </SpeedometerHUD>
         )}

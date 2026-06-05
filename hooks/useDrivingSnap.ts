@@ -11,6 +11,8 @@ import {
 import { navDriveTrace } from '../lib/navDriveTrace';
 import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
+import { visionEvent } from '../lib/driveVisionTrace';
+import { DRIVE_FULL_VISION_LOG } from '../lib/driveLogConfig';
 import { logTelemetry } from '../lib/telemetryLogger';
 
 // v10 CLIENT-FIRST snap: promienie musza wybaczac miejski dryf GPS (30–40 m),
@@ -381,7 +383,11 @@ export function useDrivingSnap() {
   const roadLockEngagedRef = useRef(false);
 
   const logSnapReject = useCallback((reason: string, payload?: Record<string, unknown>) => {
-    vroomGpsLog(`SNAP_${reason}`, { source: 'useDrivingSnap', ...(payload ?? {}) }, 1500);
+    vroomGpsLog(
+      `SNAP_${reason}`,
+      { source: 'useDrivingSnap', ...(payload ?? {}) },
+      DRIVE_FULL_VISION_LOG ? 400 : 1500,
+    );
   }, []);
 
   const setRoutePoints = useCallback((pts: { latitude: number; longitude: number }[]) => {
@@ -1366,6 +1372,18 @@ export function useDrivingSnap() {
     );
     lastTargetHeadingRef.current = smoothedBearing;
 
+    visionEvent('SNAP_SOURCE', {
+      source: usingMatchedRoad ? 'useDrivingSnap_matched' : 'useDrivingSnap_route',
+      snapped: true,
+      crossTrackM: Math.round(finalDistFromRawM),
+      snapLat: Number(snappedCoord.latitude.toFixed(6)),
+      snapLng: Number(snappedCoord.longitude.toFixed(6)),
+      rawLat: Number(lat.toFixed(6)),
+      rawLng: Number(lng.toFixed(6)),
+      speedKmh: Math.round(speedKmh),
+      segmentIndex: result.segmentIndex,
+      hardRoadLock,
+    });
     return { ...snappedCoord, snapped: true, targetHeading: smoothedBearing };
   }, []);
 

@@ -4,6 +4,8 @@ import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
 import { driveTraceMarkerUiSmooth } from '../../lib/driveSessionTrace';
+import { visionFrame } from '../../lib/driveVisionTrace';
+import { DRIVE_FULL_VISION_LOG } from '../../lib/driveLogConfig';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
 const MARKER_SIZE = 40;
@@ -65,6 +67,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
           const uiHdgDeltaDeg = lastCommitAt > 0
             ? Math.abs(((h - lastPose.hdg + 540) % 360) - 180)
             : 0;
+          const msSincePrevCommit = lastCommitAt > 0 ? now - lastCommitAt : 0;
           lastCommitAt = now;
           lastPose = { lat: la, lng: ln, hdg: Number.isFinite(h) ? h : 0 };
           setPose({
@@ -81,6 +84,24 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             uiHdgDeltaDeg,
             msSinceCommit: POSE_COMMIT_MIN_MS,
           });
+          if (DRIVE_FULL_VISION_LOG) {
+            visionFrame({
+              layer: 'ui',
+              svLat: la,
+              svLng: ln,
+              svHdg: Number.isFinite(h) ? h : 0,
+              uiLat: la,
+              uiLng: ln,
+              uiHdg: Number.isFinite(h) ? h : 0,
+              uiMoveM,
+              frameDtMs: msSincePrevCommit > 0 ? msSincePrevCommit : POSE_COMMIT_MIN_MS,
+              impliedKmh: msSincePrevCommit > 0 && uiMoveM > 0
+                ? (uiMoveM / (msSincePrevCommit / 1000)) * 3.6
+                : 0,
+              stuck: uiMoveM < 0.05 && msSincePrevCommit > 2000,
+              msSinceCommit: msSincePrevCommit,
+            });
+          }
         }
       }
       rafId = requestAnimationFrame(loop);

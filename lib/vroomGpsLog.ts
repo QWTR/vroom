@@ -60,10 +60,15 @@ function queueDriveSessionFileLine(line: string): void {
 function shouldMirrorDriveSessionFile(tag: string): boolean {
   if (!DRIVE_SESSION_TRACE_ENABLED) return false;
   if (tag.startsWith('DRIVE_TRACE_')) return true;
+  if (tag.startsWith('DRIVE_VISION_')) return true;
   if (tag.startsWith('MARKER_')) return true;
   if (tag.startsWith('CAMERA_')) return true;
   if (tag === 'RAW_GPS_TICK' || tag === 'CAM_FOLLOW_PUSH') return true;
   if (tag.startsWith('NAV_TRACE_') || tag.startsWith('GPS_')) return true;
+  if (tag.startsWith('NAV_')) return true;
+  if (tag.startsWith('SNAP_') || tag.startsWith('MATCH_')) return true;
+  if (tag.startsWith('MAP_MATCH_')) return true;
+  if (tag === 'DRIVE_HEALTH' || tag === 'OFF_ROAD') return true;
   if (tag === 'BUILD_FINGERPRINT') return true;
   return false;
 }

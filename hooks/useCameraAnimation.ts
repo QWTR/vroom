@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Dimensions } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { markerLogTick } from '../lib/markerPipelineLog';
+import { visionCamera } from '../lib/driveVisionTrace';
 import {
   headingDelta,
   lerpHeadingWithMaxStep,
@@ -874,6 +875,21 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         zoom: zoomTarget,
       };
       lastTargetZoomRef.current = target.zoom;
+      visionCamera({
+        centerLat: input.center.latitude,
+        centerLng: input.center.longitude,
+        offsetLat: target.center.latitude,
+        offsetLng: target.center.longitude,
+        heading: resolvedHeading,
+        zoom: target.zoom,
+        pitch: target.pitch,
+        lookaheadM,
+        speedKmh: speedForPose,
+        movedM,
+        nativeSkipped: false,
+        skipReason: null,
+        followFromWorkletFrame: input.followFromWorkletFrame === true,
+      });
     } else {
       lastTargetZoomRef.current = null;
       travelHeadingRef.current = null;
