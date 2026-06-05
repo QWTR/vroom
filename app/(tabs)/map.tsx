@@ -150,6 +150,8 @@ import {
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
 import { useSettings } from '../../hooks/useSettings';
+import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
+import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
 import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
 import { useDriveCore } from '../../hooks/useDriveCore';
 import { useDriveMarker } from '../../hooks/useDriveMarker';
@@ -1833,7 +1835,7 @@ type LoadedRouteContext = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function MapScreen() {
+function MapScreenInner() {
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
   const cameraRef            = useRef<Mapbox.Camera>(null);
@@ -17124,4 +17126,22 @@ export default function MapScreen() {
       </View>
     </>
   );
+}
+
+export default function MapScreen() {
+  const { settings } = useSettings();
+  const { blocked, message, checking, refresh } = useMapMaintenanceGate(!!settings.isAdmin);
+
+  if (!settings.isAdmin && (checking || blocked)) {
+    if (checking && !blocked) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#e33835" />
+        </View>
+      );
+    }
+    return <MapMaintenanceScreen message={message} onCleared={refresh} />;
+  }
+
+  return <MapScreenInner />;
 }
