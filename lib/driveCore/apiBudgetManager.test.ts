@@ -10,6 +10,7 @@ describe('ApiBudgetManager', () => {
       pose: { lat: 52, lng: 19, heading: 0, crossTrackM: 5, segmentIndex: 0 },
       isNavigating: true,
       isMoving: true,
+      speedKmh: 20,
       cache,
     });
     expect(decision.allowNetwork).toBe(false);
@@ -24,6 +25,7 @@ describe('ApiBudgetManager', () => {
       pose: { lat: 52, lng: 19, heading: 0, crossTrackM: 0, segmentIndex: 0 },
       isNavigating: false,
       isMoving: false,
+      speedKmh: 0,
       cache,
     });
     expect(decision.allowNetwork).toBe(false);

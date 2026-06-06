@@ -52,6 +52,8 @@ export type MapMatchBudgetDecision = {
   throttleBlocked: boolean;
   navigationBlocked: boolean;
   stationaryBlocked: boolean;
+  /** Foreground traffic-light pause (speed < 3 km/h). */
+  velocityPaused?: boolean;
 };
 
 export type BufferedGpsPoint = {

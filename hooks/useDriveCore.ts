@@ -70,6 +70,10 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
   const getTripActiveRef = useRef(opts.getTripActive);
   getTripActiveRef.current = opts.getTripActive;
 
+  const setAppBackground = useCallback((active: boolean) => {
+    engine.setAppBackground(active);
+  }, [engine]);
+
   const onRawGps = useCallback((raw: RawGpsFix): DriveTickOutput | null => {
     const tripActive = getTripActiveRef.current
       ? getTripActiveRef.current()
@@ -92,6 +96,7 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
     seedLocalMirror,
     primeLocalGeometry,
     getApiMetrics,
+    setAppBackground,
     engine,
   };
 }

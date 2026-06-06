@@ -9,6 +9,14 @@ import {
   recordMapMatchNetwork,
 } from '../lib/mapboxNetworkGate';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
+import { GpsBufferJitterFilter } from '../lib/driveCore/gpsBufferJitterFilter';
+import { evaluateLocalGeometryGate } from '../lib/driveCore/localGeometryMatchGate';
+import {
+  BACKGROUND_NETWORK_MIN_INTERVAL_MS,
+  BACKGROUND_NETWORK_MIN_PATH_M,
+  MAP_MATCH_TRAFFIC_LIGHT_KMH,
+} from '../lib/driveCore/config';
+import { isMapMatchAppBackground } from '../lib/mapMatch/mapMatchSyncState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapbox Map Matching — DAP to Road
@@ -18,14 +26,14 @@ import { vroomGpsLog } from '../lib/vroomGpsLog';
 
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-/** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <20 s. */
-const MIN_INTERVAL_MS = 18_000;
+/** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <45 s. */
+const MIN_INTERVAL_MS = 45_000;
 const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
 /** Suma dystansu w buforze przed wysłaniem trace (batching zamiast pojedynczych punktów). */
-const BATCH_MIN_PATH_DISTANCE_M = 20;
+const BATCH_MIN_PATH_DISTANCE_M = 40;
 const BATCH_MIN_POINTS = 3;
-/** Brak trace matching API poniżej tej prędkości — płynność z lokalnego snap/DR. */
-const STATIONARY_SPEED_KMH = 6;
+/** Traffic-light freeze for Map Matching API (marker still moves locally). */
+const STATIONARY_SPEED_KMH = MAP_MATCH_TRAFFIC_LIGHT_KMH;
 const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
 /** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
@@ -33,18 +41,18 @@ const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy przekroczone — tylko log stale; geometria zostaje do STALE_MAX_MS. */
 const EXPIRE_MS       = 120_000;
 const STALE_MAX_MS    = 15 * 60_000;
-const MIN_POINT_DIST_KM = 0.012; // ~12 m — mniej punktów w buforze, mniej zbędnych trace
+const MIN_POINT_DIST_KM = 0.005; // legacy fallback; jitter filter is primary gate
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów
-const MIN_FETCH_MOVE_M  = 15;
+const MIN_FETCH_MOVE_M  = 45;
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
 const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
 /** Zgodne z MATCHING_MAX_PER_WINDOW w mapboxProxy.js */
-const MAX_REQUESTS_PER_WINDOW = 28;
+const MAX_REQUESTS_PER_WINDOW = 20;
 const MAX_MANUAL_BURST_PER_WINDOW = 2;
 const BUDGET_SOFT_CAP_PER_WINDOW = 14;
-const BUDGET_HARD_CAP_PER_WINDOW = 28;
+const BUDGET_HARD_CAP_PER_WINDOW = 20;
 const STALE_SNAP_BURST_PER_WINDOW = 3;
 const FRESH_GEOMETRY_BLOCK_MS = 120_000;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
@@ -167,6 +175,8 @@ export function useDrivingMapMatch() {
   const requestTimesRef = useRef<number[]>([]);
   const directionsStubTimesRef = useRef<number[]>([]);
   const lastRefreshForceRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  const lastNetworkAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
+  const jitterFilterRef = useRef(new GpsBufferJitterFilter());
   const lastDirectionsStubRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const isFetchingRef  = useRef<boolean>(false);
   const matchedPtsRef  = useRef<{ latitude: number; longitude: number }[] | null>(null);
@@ -257,8 +267,28 @@ export function useDrivingMapMatch() {
       return;
     }
     const now  = Date.now();
+    const background = isMapMatchAppBackground();
+    const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
+    const noRoad = !!ctx?.noRoad;
+    const staleSnap = !!ctx?.staleSnap;
 
-    // Skip duplicate / near-duplicate points
+    if (!background && speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
+      logSnapReject('add_velocity_pause', { speedKmh: Math.round(speedKmh) });
+      return;
+    }
+
+    const jitterAccepted = jitterFilterRef.current.accept({
+      lat,
+      lng,
+      accuracy: ctx?.accuracyM ?? 12,
+      timestamp: now,
+    });
+    if (!jitterAccepted) {
+      logSnapReject('add_jitter_reject');
+      return;
+    }
+
+    // Skip duplicate / near-duplicate points (secondary guard)
     const last = bufferRef.current[bufferRef.current.length - 1];
     if (last && haversineKm(last.lat, last.lng, lat, lng) < MIN_POINT_DIST_KM) return;
 
@@ -267,15 +297,6 @@ export function useDrivingMapMatch() {
       bufferRef.current = bufferRef.current.slice(-BUFFER_SIZE);
     }
 
-    const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
-    const noRoad = !!ctx?.noRoad;
-    const staleSnap = !!ctx?.staleSnap;
-
-    // Przy braku geometrii trace może iść na postoju; przy snapie na drodze — oszczędzamy API.
-    if (speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
-      logSnapReject('add_stationary_skip', { speedKmh: Math.round(speedKmh) });
-      return;
-    }
     const acc = ctx?.accuracyM;
     const gate = canRequestMapMatch({
       lat,
@@ -291,8 +312,11 @@ export function useDrivingMapMatch() {
     const poorAcc = acc != null && Number.isFinite(acc) && acc > 35;
     const usageCount = getRequestUsageCount(now);
 
-    let dynamicMinIntervalMs = MIN_INTERVAL_MS;
+    let dynamicMinIntervalMs = background
+      ? BACKGROUND_NETWORK_MIN_INTERVAL_MS
+      : MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
+    let minPathM = background ? BACKGROUND_NETWORK_MIN_PATH_M : BATCH_MIN_PATH_DISTANCE_M;
     if (noRoad) {
       dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 24;
@@ -323,8 +347,8 @@ export function useDrivingMapMatch() {
       dynamicMinMoveM += 55;
     }
     if (staleSnap) {
-      dynamicMinIntervalMs = 18_000;
-      dynamicMinMoveM = 25;
+      dynamicMinIntervalMs = 45_000;
+      dynamicMinMoveM = 40;
     }
 
     // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
@@ -351,14 +375,15 @@ export function useDrivingMapMatch() {
     }
     const pathM = bufferPathDistanceM(bufferRef.current);
     const batchReady =
-      pathM >= BATCH_MIN_PATH_DISTANCE_M
+      pathM >= minPathM
       || bufferRef.current.length >= BUFFER_SIZE
       || (noRoad && pathM >= 12 && bufferRef.current.length >= BATCH_MIN_POINTS);
     if (!batchReady) {
       logSnapReject('add_batch_distance_gate', {
         pathM: Math.round(pathM),
-        minPathM: BATCH_MIN_PATH_DISTANCE_M,
+        minPathM,
         points: bufferRef.current.length,
+        background,
       });
       return;
     }
@@ -387,6 +412,22 @@ export function useDrivingMapMatch() {
     if (sqliteHit) {
       logSnapReject('add_sqlite_cache_hit');
       return;
+    }
+
+    if (!background) {
+      const anchor = lastNetworkAnchorRef.current ?? lastFetchRef.current;
+      const movedSinceNetworkM = anchor
+        ? haversineKm(anchor.lat, anchor.lng, lat, lng) * 1000
+        : Infinity;
+      const localGate = await evaluateLocalGeometryGate(lat, lng, movedSinceNetworkM);
+      if (localGate.skipNetwork && localGate.segment) {
+        matchedPtsRef.current = localGate.segment;
+        matchedTimeRef.current = Date.now();
+        logSnapReject('add_local_geometry_skip', {
+          crossTrackM: Math.round(localGate.crossTrackM),
+        });
+        return;
+      }
     }
 
     lastCallRef.current   = now;
@@ -427,6 +468,7 @@ export function useDrivingMapMatch() {
         );
         matchedPtsRef.current  = matched;
         matchedTimeRef.current = Date.now();
+        lastNetworkAnchorRef.current = { lat, lng };
         await persistMatchedGeometry(matched);
         console.log('[DrivingMapMatch] Matched', matched.length, 'points to road');
       } else {
@@ -595,9 +637,9 @@ export function useDrivingMapMatch() {
           },
           url,
           {
-            // Ręczne wejście w jazdę: jednorazowy fallback gdy proxy ma limit 429.
             allowFallback: manual,
             forceFallback: manual,
+            skipClientCache: manual || refresh,
             proxyTimeoutMs: manual ? 4500 : (refresh ? 4000 : 4500),
             fallbackTimeoutMs: manual ? 5000 : undefined,
           },
@@ -681,6 +723,8 @@ export function useDrivingMapMatch() {
     lastFetchRef.current  = null;
     lastRefreshForceRef.current = null;
     lastDirectionsStubRef.current = null;
+    lastNetworkAnchorRef.current = null;
+    jitterFilterRef.current.reset();
     requestTimesRef.current = [];
     directionsStubTimesRef.current = [];
     isFetchingRef.current = false;

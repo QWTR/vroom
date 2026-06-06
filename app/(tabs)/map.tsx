@@ -70,6 +70,7 @@ import {
   shouldAllowNetworkMapMatch,
   isClientFirstGeometryHealthy,
 } from '../../lib/mapMatch/clientFirstRoadGeometry';
+import { setMapMatchAppBackground } from '../../lib/mapMatch/mapMatchSyncState';
 import { useMapMatchCoordinator } from '../../hooks/useMapMatchCoordinator';
 import { markerLogCritical, markerLogTick } from '../../lib/markerPipelineLog';
 import { navDriveTrace, navDriveTraceSession } from '../../lib/navDriveTrace';
@@ -156,9 +157,9 @@ import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
 import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
 import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
 import { useDriveCore } from '../../hooks/useDriveCore';
-import { useDriveMarker } from '../../hooks/useDriveMarker';
-import { useDriveMarkerCameraFrame } from '../../hooks/useDriveMarkerCameraFrame';
+import { useDriveMarker, type DriveMarkerCameraSink } from '../../hooks/useDriveMarker';
 import { TripHeadingFilter } from '../../lib/driveCore/headingFilter';
+import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
 import {
   moveBearingBetween,
   normalizeHeading,
@@ -296,9 +297,9 @@ const FORCE_MAP_MATCH_RECOVER_STREAK = 4;
 /** Min. odstęp forceMatch przy braku geometrii drogi (noRoad). */
 /** NO_ROAD recovery — cooldown w MapMatchCoordinator (MAP_MATCH_COORD_NO_ROAD_*). */
 /** Min. odstęp między wywołaniami addMatchPosition z map.tsx (hook ma własny batching). */
-const ADD_MATCH_FEED_MIN_MS = 6_000;
-const ADD_MATCH_FEED_NO_ROAD_MIN_MS = 12_000;
-const ADD_MATCH_FEED_HEALTHY_MIN_MS = 60_000;
+const ADD_MATCH_FEED_MIN_MS = 45_000;
+const ADD_MATCH_FEED_NO_ROAD_MIN_MS = 60_000;
+const ADD_MATCH_FEED_HEALTHY_MIN_MS = 120_000;
 /** Mapbox match odrzucony gdy polyline dalej od surowego GPS. */
 const ROAD_MATCH_REJECT_RAW_M = 120;
 /** Miękka aktualizacja geometrii — bez resetSnap gdy przesunięcie osi drogi jest małe. */
@@ -949,8 +950,8 @@ function projectCoord(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── DRIVING MODE ──────────────────────────────────────────
-// Czas (ms) jazdy <10 km/h zanim wyłączymy tryb driving
-const DRIVING_STOP_DELAY_MS      = 12 * 60 * 1000; // 12 minut
+// Czas postoju (<3 km/h) zanim auto-wyłączymy tryb driving (guard w driveSessionGuard.ts)
+const DRIVING_STOP_DELAY_MS      = 12 * 60 * 1000; // legacy — unused; guard uses 3 min @ <3 km/h
 const DRIVING_SPEED_KMH          = 10;
 /** Postój przy włączeniu trybu jazdy — nie przesuwaj markera na odległą drogę. */
 const DRIVING_ENTRY_STATIONARY_KMH = 6;
@@ -2335,7 +2336,7 @@ function MapScreenInner() {
   });
   const gpsDbgLastLogAtRef = useRef(0);
   const gpsDbgLastAcceptedRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
-  const drivingStopTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const driveSessionGuardRef    = useRef(new DriveSessionGuard());
   const isDrivingRef          = useRef(false);
   const drivingSinceRef       = useRef(0);
   const drivingManualModeRef  = useRef(false);
@@ -4186,10 +4187,15 @@ function MapScreenInner() {
     () => isDrivingRef.current || isNavigatingRef.current,
     [],
   );
-  /** V2: marker 60 FPS — useDriveMarker SV + SmoothDrPositionMarker (sprawdzony bridge). */
+  /** V2: kamera z tego samego workletu co marker (60 fps). */
+  const driveMarkerCameraSinkRef = useRef<DriveMarkerCameraSink>({
+    enabled: false,
+    onFrame: () => {},
+  });
+  /** V2: marker 60 FPS — useDriveMarker SV + DriveMarkerLayer. */
   const useSmoothWorkletPath = isTripActiveMap && !DRIVE_CORE_V2;
   /** Hook zawsze załączony — trip start/stop tylko przez getTripActive (bez lagu React state). */
-  const driveMarker = useDriveMarker(true, getTripActive);
+  const driveMarker = useDriveMarker(true, getTripActive, driveMarkerCameraSinkRef);
   const driveCore = useDriveCore({
     isDriving,
     isNavigating,
@@ -4641,6 +4647,9 @@ function MapScreenInner() {
       accuracyM: accuracyM ?? null,
     }).ok;
     if (!gateOk || !noRoad) return;
+
+    // Drive Core V2 batches matching inside driveEngine — avoid duplicate trace calls.
+    if (DRIVE_CORE_V2) return;
 
     const nowMatch = Date.now();
     if (nowMatch - lastAddMatchFeedRef.current < ADD_MATCH_FEED_NO_ROAD_MIN_MS) return;
@@ -6006,7 +6015,7 @@ function MapScreenInner() {
     );
     const exploring = isUserExploringMapRef.current();
     const now = Date.now();
-    const followHdg = resolveCameraFollowHeading(lat, lng, hintHdg, cameraSpeedKmh);
+    const followHdg = hintHdg;
     const prevCam = lastCamPushFromMarkerFrameRef.current;
     const msSinceCamPush = prevCam > 0 ? now - prevCam : 0;
     const prevPushCenter = lastCamPushCenterRef.current;
@@ -6110,7 +6119,17 @@ function MapScreenInner() {
       exploring: false,
       frameMoveM: camFrameMoveM,
     });
-  }, [resolveCameraFollowHeading]);
+  }, []);
+
+  useEffect(() => {
+    driveMarkerCameraSinkRef.current.onFrame = pushCameraFromDriveMarkerFrame;
+  }, [pushCameraFromDriveMarkerFrame]);
+
+  useEffect(() => {
+    const on = DRIVE_CORE_V2 && (isDrivingRef.current || isNavigatingRef.current || isDriving || isNavigating);
+    driveMarkerCameraSinkRef.current.enabled = on;
+    driveMarker.setCameraFollowEnabled(on);
+  }, [isDriving, isNavigating, driveMarker]);
 
   const pushCameraFromSmooth = useCallback((
     lat: number,
@@ -6232,13 +6251,6 @@ function MapScreenInner() {
     [pushCameraFromSmooth, isNavigating],
   );
 
-  /** V2: kamera z workletu markera (~60 fps useFrameCallback, bez progów useAnimatedReaction). */
-  useDriveMarkerCameraFrame(
-    DRIVE_CORE_V2 && (isDriving || isNavigating),
-    driveMarker,
-    pushCameraFromDriveMarkerFrame,
-  );
-
   /** Po wejściu w trip: jednorazowy bootstrap kamery (follow = worklet markera). */
   useEffect(() => {
     if (!isTripActiveMap || (!V10_CLIENT_FIRST && !DRIVE_CORE_V2)) return;
@@ -6263,12 +6275,26 @@ function MapScreenInner() {
     if (!isDriving || isNavigating) return;
     if (drivingEntryJustStartedRef.current) return;
     setFollowMode('drivingFollow');
-    const lat = drLatRef.current;
-    const lng = drLngRef.current;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
-    const followHeading = Number.isFinite(drHdgRef.current)
+    let lat = drLatRef.current;
+    let lng = drLngRef.current;
+    let followHeading = Number.isFinite(drHdgRef.current)
       ? drHdgRef.current
       : (Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0);
+    if (DRIVE_CORE_V2) {
+      const mLat = driveMarker.lat.value;
+      const mLng = driveMarker.lng.value;
+      if (Number.isFinite(mLat) && Number.isFinite(mLng) && !(Math.abs(mLat) < 1e-6 && Math.abs(mLng) < 1e-6)) {
+        lat = mLat;
+        lng = mLng;
+      } else if (userLocation && Number.isFinite(userLocation.latitude) && Number.isFinite(userLocation.longitude)) {
+        lat = userLocation.latitude;
+        lng = userLocation.longitude;
+      }
+      if (Number.isFinite(driveMarker.heading.value)) {
+        followHeading = driveMarker.heading.value;
+      }
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
     recenterTo({
       center: { latitude: lat, longitude: lng },
       heading: followHeading,
@@ -6286,8 +6312,10 @@ function MapScreenInner() {
         isDriving: true,
         timestamp: Date.now(),
       });
+    } else {
+      pushTripCameraFromApply(lat, lng, followHeading, { instant: true });
     }
-  }, [isDriving, isNavigating, setFollowMode, updateCameraFrame, recenterTo]);
+  }, [isDriving, isNavigating, setFollowMode, updateCameraFrame, recenterTo, driveMarker, userLocation, pushTripCameraFromApply]);
 
   useEffect(() => {
     if (!MAP_RENDER_DEBUG) return;
@@ -6811,7 +6839,7 @@ function MapScreenInner() {
             const needsForceMatch =
               hasRaw
               && (drNoRoadStreakRef.current >= 3 || driftFromSnapM > 500);
-            if (needsForceMatch && raw) {
+            if (needsForceMatch && raw && !DRIVE_CORE_V2) {
               runMapMatchRecoveryRef.current({
                 reason: 'DR_DRIFT',
                 lat: raw.lat,
@@ -7587,10 +7615,7 @@ function MapScreenInner() {
     lastRawForHeadingRef.current = null;
     tripHeadingFilterRef.current?.reset();
     tripHeadingFilterRef.current = null;
-    if (drivingStopTimerRef.current) {
-      clearTimeout(drivingStopTimerRef.current);
-      drivingStopTimerRef.current = null;
-    }
+    driveSessionGuardRef.current.reset();
     // Zachowaj kotwicę sanity-checku na ostatniej pozycji (DR / pojazd), zamiast
     // nullować — inaczej pierwszy fix po wyjściu z jazdy omijał teleport-guard
     // i mógł „przenieść” użytkownika na losowy cache providera.
@@ -7671,6 +7696,30 @@ function MapScreenInner() {
     }));
   }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, driveCore, driveMarker, disposeTripCameraScheduler]);
 
+  const maybeAutoStopFromSessionGuard = useCallback((
+    effectiveSpeedKmh: number,
+    movingForDriving: boolean,
+  ) => {
+    if (!isDrivingRef.current || drivingManualModeRef.current || isNavigatingRef.current) {
+      return;
+    }
+    driveSessionGuardRef.current.noteSample({
+      effectiveSpeedKmh,
+      movingForDriving,
+      appStateActive: appStateRef.current === 'active',
+      manualDriving: drivingManualModeRef.current,
+    });
+    if (!driveSessionGuardRef.current.canAutoStop()) return;
+    if (__DEV__) {
+      console.log('[DrivingMode] auto_stop_guard', JSON.stringify({
+        stationaryMs: driveSessionGuardRef.current.getStationaryDurationMs(),
+        lockRemainingMs: driveSessionGuardRef.current.getHighSpeedLockRemainingMs(),
+      }));
+    }
+    exitDrivingMode({ reason: 'auto_stop_guard' });
+    setFollowMode('idleBrowse');
+  }, [exitDrivingMode]);
+
   const exportNavDriveTrace = useCallback(() => {
     void shareNavTraceLog();
   }, []);
@@ -7708,6 +7757,7 @@ function MapScreenInner() {
 
       drivingManuallyDisabledRef.current = false;
       drivingManualModeRef.current = true;
+      driveSessionGuardRef.current.reset();
       tripResumeFreezeUntilRef.current = 0;
       tripResumeAnchorRef.current = null;
       tripResumeConfirmRef.current = null;
@@ -8036,7 +8086,11 @@ function MapScreenInner() {
       let rawLng = rawLng0;
       const acc    = loc.accuracy ?? 10;
       const now    = Date.now();
-      const speedKmhRaw = (loc.speed != null && loc.speed >= 0) ? loc.speed * 3.6 : 0;
+      const speedKmhRaw = driveSessionGuardRef.current.resolveSpeedKmh(
+        loc.speed,
+        speedKmhRef.current,
+        now,
+      );
       if (loc.heading != null && loc.heading >= 0 && Number.isFinite(loc.heading)) {
         lastGpsDeviceHeadingRef.current = loc.heading;
       }
@@ -8147,6 +8201,12 @@ function MapScreenInner() {
           gpsSpeedMs,
         );
         if (handled) {
+          if (isDrivingRef.current && !isNavigatingRef.current) {
+            const movingForDrivingV2 =
+              speedKmhRaw >= DRIVING_SPEED_KMH
+              || speedKmhRef.current >= DRIVING_SPEED_KMH;
+            maybeAutoStopFromSessionGuard(speedKmhRaw, movingForDrivingV2);
+          }
           lastRawForHeadingRef.current = { lat: rawLat, lng: rawLng, at: now };
           lastAcceptedFixWallClockRef.current = now;
           return;
@@ -10550,14 +10610,14 @@ function MapScreenInner() {
           }
         }
 
-        // Feed map matching only in confirmed driving mode.
-        // Before driving starts, route snapping falls back to route geometry/raw GPS.
+        // Feed map matching only in confirmed driving mode (legacy — V2 uses driveEngine).
         const accStrict = (loc.accuracy ?? 999) <= 48;
         const accRelaxedDriving = (loc.accuracy ?? 999) <= 100;
         const accForMatch = isDrivingRef.current ? accRelaxedDriving : accStrict;
-        const nowMatch = Date.now();
         const staleSnapHintEarly =
           (snapAnchorStaleRef.current?.streak ?? 0) >= 3;
+        if (!DRIVE_CORE_V2) {
+        const nowMatch = Date.now();
         const feedMoveOk =
           noRoad && isDrivingRef.current ? movedForSnap >= 12 : movedForSnap >= 14;
         const feedSpeedOk =
@@ -10669,6 +10729,7 @@ function MapScreenInner() {
               );
             }
           }
+        }
         }
 
         // Twardy snap: zawsze przy aktywnym driving; przed auto-wejściem — ostatnia seria ticków.
@@ -12104,11 +12165,6 @@ function MapScreenInner() {
           // ── Wymaga N kolejnych odczytów przed wejściem w driving
           drivingConsecutiveRef.current += 1;
 
-          if (drivingStopTimerRef.current) {
-            clearTimeout(drivingStopTimerRef.current);
-            drivingStopTimerRef.current = null;
-          }
-
           if (!isDrivingRef.current) {
             if (drivingManuallyDisabledRef.current) {
               publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta });
@@ -12122,6 +12178,7 @@ function MapScreenInner() {
             }
             isDrivingRef.current      = true;
             drivingManualModeRef.current = false;
+            driveSessionGuardRef.current.reset();
             startTrip(Number(routeInfoRef.current?.duration) || 0);
             passiveTripStartedRef.current = true;
             drivingLastLocRef.current = null;
@@ -12734,64 +12791,16 @@ function MapScreenInner() {
         }
 
           if (
-            !movingForDriving
-            && isDrivingRef.current
+            isDrivingRef.current
             && !drivingManualModeRef.current
-            && !drivingStopTimerRef.current
             && !isNavigatingRef.current
           ) {
-            drivingStopTimerRef.current = setTimeout(() => {
-              passiveTripStartedRef.current = false;
-              const finalStats = finishTrip();
-              isDrivingRef.current        = false;
-              drivingManualModeRef.current = false;
-              drivingLastLocRef.current   = null;
-              lastDrivingPosRef.current   = null;
-              drivingStopTimerRef.current = null;
-              // Sync userLocation to last DR position before switching marker source
-              // to prevent a visible teleport when isDriving flips to false.
-              if (drLatRef.current !== 0 && drLngRef.current !== 0) {
-                setUserLocation({ latitude: drLatRef.current, longitude: drLngRef.current });
-              }
-              setIsDriving(false);
-              setFollowMode('idleBrowse');
-              profileTotalDistanceKmRef.current += Math.max(
-                0,
-                Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
-              );
-              void flushPendingKm(true, {
-                distanceKm: Math.max(0, Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current),
-                maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
-                avgSpeedKmh: finalStats.avgSpeedKmh,
-                durationSec: finalStats.elapsedSec,
-                routePoints: finalStats.trackedPoints,
-              }, 'driving');
-              if (DRIVE_TEST_DIAGNOSTICS) {
-                console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({
-                  at: Date.now(),
-                  reason: 'auto_stop_timer',
-                  distanceKm: Number(finalStats.distanceKm.toFixed(3)),
-                  maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
-                  avgSpeedKmh: finalStats.avgSpeedKmh,
-                  elapsedSec: finalStats.elapsedSec,
-                  routePoints: finalStats.trackedPoints.length,
-                }));
-              }
-              tripCheckpointSavedKmRef.current = 0;
-              clearStats();
-              resetSnap();
-              resetMapMatch();
-              drivingNoSnapStreakRef.current = 0;
-              lastDrivingNoSnapForceRef.current = 0;
-              applyRoadMatchPoints([]);
-              console.log('[DrivingMode] Exited driving mode (stop timer fired)');
-              const exitLoc = lastGoodLocRef.current;
-              if (drLatRef.current !== 0 && drLngRef.current !== 0) {
-                lastGoodLocRef.current = { lat: drLatRef.current, lng: drLngRef.current };
-              }
-              lastGoodTimeRef.current = Date.now();
-              lastAcceptedFixWallClockRef.current = Date.now();
-            }, DRIVING_STOP_DELAY_MS);
+            const guardKmh = driveSessionGuardRef.current.resolveSpeedKmh(
+              loc.speed,
+              Math.max(kmh, motionKmh, sustainedKmh, speedKmhRef.current, rawGpsKmhForSpike),
+              now,
+            );
+            maybeAutoStopFromSessionGuard(guardKmh, movingForDriving);
           }
 
       } else {
@@ -12941,7 +12950,6 @@ function MapScreenInner() {
       if (!isNavigatingRef.current && !isDrivingRef.current) {
         stopGPS();
       }
-      if (drivingStopTimerRef.current) clearTimeout(drivingStopTimerRef.current);
     };
   }, [locationReady, startGPS, stopGPS]);
 
@@ -14198,12 +14206,17 @@ function MapScreenInner() {
         }));
       }
       const tripActive = isDrivingRef.current || isNavigatingRef.current;
-      // inactive = Control Center / przejścia UI — NIE zatrzymuj GPS (inaczej marker stoi).
+      // AppState inactive (banner powiadomienia) — NIE kończy sesji jazdy, NIE ustawia tła Mapbox.
+      // Tylko pełne background wstrzymuje agresywne odpytywanie Map Matching.
       if (nextState === 'inactive' && tripActive) {
         bumpMatchedFreshnessRef.current();
       }
       if (nextState === 'background') {
         lastBackgroundAtRef.current = Date.now();
+        if (DRIVE_CORE_V2) {
+          driveCore.setAppBackground(true);
+        }
+        setMapMatchAppBackground(true);
         if (tripActive) {
           bumpMatchedFreshnessRef.current();
           const holdLat = drLatRef.current;
@@ -14241,6 +14254,10 @@ function MapScreenInner() {
         (prevState === 'background' || prevState === 'inactive') &&
         nextState === 'active';
       if (resumed) {
+        if (DRIVE_CORE_V2) {
+          driveCore.setAppBackground(false);
+        }
+        setMapMatchAppBackground(false);
         const now = Date.now();
         const bgPauseMs = lastBackgroundAtRef.current > 0 ? now - lastBackgroundAtRef.current : 0;
         const fixAgeMs = lastAcceptedFixWallClockRef.current > 0
@@ -16078,7 +16095,11 @@ function MapScreenInner() {
               const progMs = getLastProgrammaticCameraApplyMsRef.current();
               const withinProgrammaticGuard =
                 Date.now() - progMs < PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS;
-              if (!withinProgrammaticGuard && (isUserInteraction || gestureActive)) {
+              // 60fps follow: Mapbox często oznacza setCamera jako isUserInteraction — ufaj tylko gestureActive.
+              const realUserGesture =
+                gestureActive
+                && !withinProgrammaticGuard;
+              if (realUserGesture) {
                 notifyUserMapInteraction(
                   zoomLive ?? undefined,
                   pitchLive,
@@ -17360,17 +17381,20 @@ function MapScreenInner() {
 export default function MapScreen() {
   const { settings } = useSettings();
   const { blocked, message, checking, refresh } = useMapMaintenanceGate(!!settings.isAdmin);
+  const innerMountedRef = useRef(false);
 
-  if (!settings.isAdmin && (checking || blocked)) {
-    if (checking && !blocked) {
-      return (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color="#e33835" />
-        </View>
-      );
-    }
+  if (!settings.isAdmin && blocked) {
     return <MapMaintenanceScreen message={message} onCleared={refresh} />;
   }
 
+  if (!settings.isAdmin && checking && !innerMountedRef.current) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#e33835" />
+      </View>
+    );
+  }
+
+  innerMountedRef.current = true;
   return <MapScreenInner />;
 }

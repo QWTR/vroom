@@ -92,7 +92,7 @@ function activeCameraPadding(isNavigating: boolean): MapCameraPadding {
 /** Po tym czasie bez gestu użytkownika kamera wraca do follow (jazda/nawigacja). */
 const RETURN_TO_USER_MS = 4000;
 /** Ignoruj echo programmatic setCamera przy wykrywaniu gestu (ms). */
-export const PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS = 380;
+export const PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS = 520;
 /** Łagodny powrót po rozglądaniu się mapą — bez szarpnięcia zoomu. */
 const SOFT_RETURN_ANIM_MS = 1400;
 const BROWSE_PITCH = 52;
@@ -465,7 +465,11 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       return;
     }
 
-    if (sinceLastApply < minIntervalMs && centerDeltaM < (followFromWorkletFrame ? 0.08 : 1.2)) {
+    if (
+      !followFromWorkletFrame
+      && sinceLastApply < minIntervalMs
+      && centerDeltaM < 1.2
+    ) {
       targetPoseRef.current = target;
       return;
     }

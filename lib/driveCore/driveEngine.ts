@@ -2,6 +2,7 @@ import { ApiBudgetManager } from './apiBudgetManager';
 import { MARKER_TIMING_MAX_MS } from './config';
 import { bearingBetween, distanceM } from './geo';
 import { flushMapMatchBatch } from './mapMatchClient';
+import { evaluateLocalGeometryGate } from './localGeometryMatchGate';
 import { GeometryCache } from './geometryCache';
 import { GpsQualityGate, type GpsQualityResult } from './gpsQualityGate';
 import { localRoadGeometryMirror } from './localRoadSnap';
@@ -9,7 +10,7 @@ import { MotionStateMachine } from './motionState';
 import { RoadSnapEngine } from './roadSnap';
 import { SpeedMeter } from './speedMeter';
 import { roadGeometryStore } from '../roadGeometry/RoadGeometryStore';
-import type { DriveTickOutput, RawGpsFix, RoadPoint } from './types';
+import type { DriveTickOutput, RawGpsFix, RoadPoint, SnappedPose } from './types';
 
 export type DriveEngineCallbacks = {
   onPoseAfterMatch?: (output: DriveTickOutput) => void;
@@ -30,7 +31,13 @@ export class DriveEngine {
   private fetchInFlight = false;
   private localL2RefreshInFlight = false;
   private lastLocalL2RefreshAt = 0;
+  private isAppBackground = false;
   private callbacks: DriveEngineCallbacks = {};
+
+  setAppBackground(active: boolean): void {
+    this.isAppBackground = active;
+    this.budget.setAppBackground(active);
+  }
 
   setCallbacks(cb: DriveEngineCallbacks): void {
     this.callbacks = cb;
@@ -253,6 +260,7 @@ export class DriveEngine {
         { navDopplerHud: this.isNavigating },
       );
       this.maybeCommitEnvelope(raw, gate, false, isFreeDrive);
+      this.tryMapMatchSync(raw, frozen, speedKmh, false, gate);
       return {
         pose: frozen,
         speedKmh,
@@ -331,19 +339,7 @@ export class DriveEngine {
 
     this.maybeCommitEnvelope(raw, gate, true, isFreeDrive);
 
-    if (gate.verdict === 'FULL_ACCEPT') {
-      const decision = this.budget.evaluate({
-        raw,
-        pose,
-        isNavigating: this.isNavigating,
-        isMoving: true,
-        cache: this.cache,
-      });
-
-      if (decision.allowNetwork && !this.fetchInFlight) {
-        void this.scheduleNetworkFlush();
-      }
-    }
+    this.tryMapMatchSync(raw, pose, speedKmhMoving, true, gate);
 
     return {
       pose,
@@ -363,8 +359,64 @@ export class DriveEngine {
     return ms;
   }
 
-  private async scheduleNetworkFlush(): Promise<void> {
+  private tryMapMatchSync(
+    raw: RawGpsFix,
+    pose: SnappedPose,
+    speedKmh: number,
+    isMoving: boolean,
+    gate: GpsQualityResult,
+  ): void {
+    if (this.isNavigating) return;
+
+    const gateOk =
+      gate.verdict === 'FULL_ACCEPT'
+      || (this.isAppBackground && gate.verdict === 'DEGRADED');
+    if (!gateOk) return;
+
+    const dopplerKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
+    const speedUnknown = raw.gpsSpeedMs == null || raw.gpsSpeedMs < 0 || !Number.isFinite(raw.gpsSpeedMs);
+    const effectiveSpeedKmh = Math.max(
+      speedKmh,
+      dopplerKmh,
+      speedUnknown ? this.speed.getLastKmh() : 0,
+    );
+
+    const decision = this.budget.evaluate({
+      raw,
+      pose,
+      isNavigating: this.isNavigating,
+      isMoving: this.isAppBackground ? true : isMoving,
+      speedKmh: effectiveSpeedKmh,
+      speedUnknown,
+      cache: this.cache,
+    });
+
+    if (decision.allowNetwork && !this.fetchInFlight) {
+      void this.scheduleNetworkFlush(this.isAppBackground);
+    }
+  }
+
+  private async scheduleNetworkFlush(backgroundHistorical = false): Promise<void> {
     if (this.fetchInFlight || this.isNavigating) return;
+
+    const peek = this.budget.peekBuffer();
+    if (peek.length < 1) return;
+
+    const lastPeek = peek[peek.length - 1];
+    const isBg = backgroundHistorical || this.isAppBackground;
+
+    if (!isBg) {
+      const movedM = this.budget.getMovedSinceLastNetworkM(lastPeek.lat, lastPeek.lng);
+      const localGate = await evaluateLocalGeometryGate(lastPeek.lat, lastPeek.lng, movedM);
+      if (localGate.skipNetwork && localGate.segment) {
+        this.budget.takeBuffer();
+        this.budget.recordLocalGeometrySkip();
+        this.applyMatchGeometry(localGate.segment);
+        return;
+      }
+    }
+
     this.fetchInFlight = true;
     const batch = this.budget.takeBuffer();
     if (batch.length < 1) {
@@ -372,39 +424,44 @@ export class DriveEngine {
       return;
     }
     try {
-      const points = await flushMapMatchBatch(batch);
+      const last = batch[batch.length - 1];
+      const speedKmh = Math.max(0, this.speed.getLastKmh());
+      const points = await flushMapMatchBatch(batch, {
+        background: isBg,
+        speedKmh,
+      });
       if (points && points.length >= 2) {
-        this.budget.recordNetworkRequest();
-        const hint = this.snap.getFrozenPose();
-        this.cache.setFromMatch(points, hint ?? undefined);
-        localRoadGeometryMirror.setPolylines([points]);
-        const last = batch[batch.length - 1];
-        const raw: RawGpsFix = {
-          lat: last.lat,
-          lng: last.lng,
-          accuracy: 12,
-          timestamp: last.timestamp,
-        };
-        const pose = this.snap.snap(raw, this.cache, {
-          isMoving: true,
-          isNavigating: false,
-          allowRawFallback: true,
-          preferLocalL2: true,
-          maxStepM: 22,
-        });
-        const fullAccept = {
-          verdict: 'FULL_ACCEPT' as const,
-          allowSpeedDelta: true,
-          allowDoppler: true,
-        };
-        const out: DriveTickOutput = {
-          pose,
-          speedKmh: this.speed.update(raw, pose, true, false, fullAccept),
-          isMoving: true,
-          durationMs: MARKER_TIMING_MAX_MS,
-          geometrySource: 'segment_cache',
-        };
-        this.callbacks.onPoseAfterMatch?.(out);
+        this.budget.recordNetworkRequest(last.lat, last.lng, { background: isBg });
+        this.applyMatchGeometry(points);
+        if (!isBg) {
+          const hint = this.snap.getFrozenPose();
+          const raw: RawGpsFix = {
+            lat: last.lat,
+            lng: last.lng,
+            accuracy: 12,
+            timestamp: last.timestamp,
+          };
+          const pose = this.snap.snap(raw, this.cache, {
+            isMoving: true,
+            isNavigating: false,
+            allowRawFallback: true,
+            preferLocalL2: true,
+            maxStepM: 22,
+          });
+          const fullAccept = {
+            verdict: 'FULL_ACCEPT' as const,
+            allowSpeedDelta: true,
+            allowDoppler: true,
+          };
+          const out: DriveTickOutput = {
+            pose,
+            speedKmh: this.speed.update(raw, pose, true, false, fullAccept),
+            isMoving: true,
+            durationMs: MARKER_TIMING_MAX_MS,
+            geometrySource: 'segment_cache',
+          };
+          this.callbacks.onPoseAfterMatch?.(out);
+        }
       }
     } finally {
       this.fetchInFlight = false;
@@ -528,6 +585,13 @@ export class DriveEngine {
     const outputMoving = motionSaysMoving || effectiveKmh >= 2.5;
     const geometrySource =
       pose.crossTrackM < 200 ? 'segment_cache' : 'tangent_fallback';
+
+    this.tryMapMatchSync(raw, pose, effectiveKmh, outputMoving, {
+      verdict: gate.verdict,
+      allowPositionUpdate: true,
+      allowSpeedDelta: gate.allowSpeedDelta,
+      allowDoppler: gate.allowDoppler,
+    });
 
     return {
       pose,

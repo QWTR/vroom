@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, type MutableRefObject } from 'react';
 import {
+  runOnJS,
   useFrameCallback,
   useSharedValue,
   type SharedValue,
@@ -60,6 +61,12 @@ function headingDeltaJs(from: number, to: number): number {
 
 const LERP_MIN_MS = 280;
 const LERP_MAX_MS = 1200;
+const CAMERA_FRAME_MIN_MS = 14;
+
+export type DriveMarkerCameraSink = {
+  enabled: boolean;
+  onFrame: (lat: number, lng: number, hdg: number) => void;
+};
 
 /** Nigdy NaN/undefined/0 w trakcie jazdy (chyba że jawny instant bootstrap). */
 function clampSegmentDurationMs(ms: number | undefined, allowInstant: boolean): number {
@@ -271,12 +278,14 @@ function applyInstantPose(
 export function useDriveMarker(
   enabled: boolean,
   getTripActive?: () => boolean,
+  cameraSinkRef?: MutableRefObject<DriveMarkerCameraSink | null>,
 ): DriveMarkerValues & {
   pushTarget: (t: DriveMarkerTarget) => void;
   setCruiseSpeed: (speedMs: number) => void;
   reset: (anchor?: { lat: number; lng: number; heading?: number }) => void;
   resetTo: (lat: number, lng: number, heading: number) => void;
   ensureFrameActive: () => void;
+  setCameraFollowEnabled: (active: boolean) => void;
 } {
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
@@ -285,6 +294,23 @@ export function useDriveMarker(
   const cruiseSpeedMsSv = useSharedValue(0);
   const lastGpsPushMsSv = useSharedValue(0);
   const enabledSv = useSharedValue(enabled ? 1 : 0);
+  const cameraFollowEnabledSv = useSharedValue(0);
+  const lastCameraEmitTsSv = useSharedValue(0);
+
+  const emitCameraFrame = useCallback((latVal: number, lngVal: number, hdgVal: number) => {
+    const sink = cameraSinkRef?.current;
+    if (!sink?.enabled) return;
+    if (!Number.isFinite(latVal) || !Number.isFinite(lngVal)) return;
+    if (Math.abs(latVal) < 1e-6 && Math.abs(lngVal) < 1e-6) return;
+    sink.onFrame(latVal, lngVal, Number.isFinite(hdgVal) ? hdgVal : 0);
+  }, [cameraSinkRef]);
+
+  const setCameraFollowEnabled = useCallback((active: boolean) => {
+    cameraFollowEnabledSv.value = active ? 1 : 0;
+    if (!active) {
+      lastCameraEmitTsSv.value = 0;
+    }
+  }, [cameraFollowEnabledSv, lastCameraEmitTsSv]);
 
   const lerpActive = useSharedValue(0);
   const lerpFromLat = useSharedValue(NaN);
@@ -421,6 +447,15 @@ export function useDriveMarker(
           const toH = resolveShortestArcTargetWorklet(fromH, lerpToHdg.value);
           heading.value = normalizeHeadingW(fromH + headingDeltaW(fromH, toH) * idleAlpha);
         }
+      }
+    }
+
+    if (cameraFollowEnabledSv.value >= 0.5) {
+      const ts = frame.timestamp;
+      const lastEmit = lastCameraEmitTsSv.value;
+      if (lastEmit <= 0 || ts - lastEmit >= CAMERA_FRAME_MIN_MS) {
+        lastCameraEmitTsSv.value = ts;
+        runOnJS(emitCameraFrame)(lat.value, lng.value, heading.value);
       }
     }
   }, false);
@@ -677,6 +712,7 @@ export function useDriveMarker(
       reset,
       resetTo,
       ensureFrameActive,
+      setCameraFollowEnabled,
     }),
     [
       heading,
@@ -686,6 +722,7 @@ export function useDriveMarker(
       reset,
       resetTo,
       ensureFrameActive,
+      setCameraFollowEnabled,
       segmentDurationMs,
       setCruiseSpeed,
     ],

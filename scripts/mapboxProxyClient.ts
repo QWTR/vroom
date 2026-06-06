@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
 import { NativeModules } from 'react-native';
+import {
+  anchorFromMatchingPoints,
+  buildMatchingCacheKey,
+  buildMatchingProxyBody,
+  withMatchingClientCache,
+} from '../lib/mapMatch/matchingRequest';
 
 const { UsersModule } = NativeModules;
 
@@ -10,8 +16,9 @@ const TOKEN_TTL_MS = 60_000;
 let matchingFallbackTimes: number[] = [];
 let lastMatchingFallbackAt = 0;
 const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
-const MATCHING_FALLBACK_MAX_PER_WINDOW = 120;
-const MATCHING_FALLBACK_COOLDOWN_MS = 4_000;
+/** Direct Mapbox fallback is emergency-only — proxy must handle normal traffic. */
+const MATCHING_FALLBACK_MAX_PER_WINDOW = 3;
+const MATCHING_FALLBACK_COOLDOWN_MS = 120_000;
 
 type SearchCacheEntry = { at: number; data: unknown };
 const searchCache = new Map<string, SearchCacheEntry>();
@@ -254,34 +261,60 @@ export async function fetchMatchingViaProxy<T>(
     proxyTimeoutMs?: number;
     fallbackTimeoutMs?: number;
     signal?: AbortSignal;
+    /** Skip client memory cache (manual entry refresh). */
+    skipClientCache?: boolean;
   },
 ): Promise<T | null> {
-  const viaProxy = await callProxy<T>('/api/mapbox/matching', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500, signal: opts?.signal });
-  if (viaProxy != null) return viaProxy;
-  if (opts?.allowFallback !== true) return null;
-  const now = Date.now();
-  const cooldownMs = Math.max(0, opts?.cooldownMs ?? MATCHING_FALLBACK_COOLDOWN_MS);
-  matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
-  if (!opts?.forceFallback && matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
-  if (!opts?.forceFallback && now - lastMatchingFallbackAt < cooldownMs) return null;
-  lastMatchingFallbackAt = now;
-  matchingFallbackTimes.push(now);
-  try {
-    const res = await fetchWithTimeout(
-      fallbackUrl,
-      {},
-      Math.max(500, opts?.fallbackTimeoutMs ?? 3000),
-      opts?.signal,
-    );
-    if (!res.ok) return null;
-    return await res.json() as T;
-  } catch (e) {
-    if (isAbortError(e)) throw e;
-    return null;
+  const normalized = buildMatchingProxyBody(payload);
+  if (!normalized) return null;
+
+  const proxyBody = {
+    points: normalized.points,
+    profile: normalized.profile,
+    radiuses: normalized.radiuses,
+  };
+  const cacheKey = buildMatchingCacheKey(
+    normalized.points,
+    normalized.profile,
+    normalized.radiuses,
+  );
+  const anchor = anchorFromMatchingPoints(normalized.points);
+
+  const fetchOnce = async (): Promise<T | null> => {
+    const viaProxy = await callProxy<T>('/api/mapbox/matching', {
+      method: 'POST',
+      body: JSON.stringify(proxyBody),
+    }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500, signal: opts?.signal });
+    if (viaProxy != null) return viaProxy;
+
+    if (opts?.allowFallback !== true) return null;
+    const now = Date.now();
+    const cooldownMs = Math.max(0, opts?.cooldownMs ?? MATCHING_FALLBACK_COOLDOWN_MS);
+    matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
+    if (!opts?.forceFallback && matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
+    if (!opts?.forceFallback && now - lastMatchingFallbackAt < cooldownMs) return null;
+    lastMatchingFallbackAt = now;
+    matchingFallbackTimes.push(now);
+    try {
+      const res = await fetchWithTimeout(
+        fallbackUrl,
+        {},
+        Math.max(500, opts?.fallbackTimeoutMs ?? 3000),
+        opts?.signal,
+      );
+      if (!res.ok) return null;
+      return await res.json() as T;
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      return null;
+    }
+  };
+
+  if (opts?.skipClientCache) {
+    return fetchOnce();
   }
+
+  return withMatchingClientCache<T | null>(cacheKey, anchor, fetchOnce);
 }
 
 export function createMapboxSearchSessionToken(): string {

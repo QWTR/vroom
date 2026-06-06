@@ -73,8 +73,8 @@ export const MAP_MATCH_COORD_AUTO_ENTRY_MIN_MOVE_M = 180;
 
 const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
   DR_DRIFT: {
-    cooldownMs: 22_000,
-    minMoveM: 0,
+    cooldownMs: 90_000,
+    minMoveM: 40,
     priority: 55,
     matchOpts: { manual: true, forceImmediate: true },
   },
@@ -85,11 +85,11 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     matchOpts: { refresh: true },
   },
   HARD_RESCUE: {
-    cooldownMs: 18_000,
-    minMoveM: 0,
+    cooldownMs: 60_000,
+    minMoveM: 25,
     priority: 92,
     matchOpts: { manual: true, forceImmediate: true },
-    scheduleRetryMs: 18_000,
+    scheduleRetryMs: 60_000,
     retryAsRefresh: true,
   },
   MANUAL: {
@@ -101,16 +101,16 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     bypassMapboxGate: true,
   },
   PRE_DRIVE: {
-    cooldownMs: 25_000,
-    minMoveM: 12,
+    cooldownMs: 45_000,
+    minMoveM: 40,
     priority: 40,
     matchOpts: { refresh: true },
   },
   SPARSE_GEOM: {
-    cooldownMs: 6_000,
-    minMoveM: 8,
+    cooldownMs: 45_000,
+    minMoveM: 35,
     priority: 65,
-    matchOpts: { manual: true, forceImmediate: true },
+    matchOpts: { refresh: true },
   },
   SOFT_REFRESH: {
     cooldownMs: 180_000,
@@ -119,35 +119,34 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     matchOpts: { refresh: true },
   },
   STALE_GEOM: {
-    cooldownMs: 20_000,
-    minMoveM: 15,
+    cooldownMs: 60_000,
+    minMoveM: 35,
     priority: 68,
-    matchOpts: { manual: true, forceImmediate: true },
+    matchOpts: { refresh: true },
   },
   SNAP_RECOVERY: {
-    cooldownMs: 25_000,
-    minMoveM: 12,
+    cooldownMs: 45_000,
+    minMoveM: 30,
     priority: 60,
     matchOpts: { refresh: true },
   },
   SNAP_RECOVERY_MANUAL: {
-    cooldownMs: 45_000,
-    minMoveM: 20,
+    cooldownMs: 60_000,
+    minMoveM: 35,
     priority: 75,
     matchOpts: { manual: true },
   },
   STALE_ANCHOR: {
-    cooldownMs: 22_000,
-    minMoveM: 10,
+    cooldownMs: 60_000,
+    minMoveM: 30,
     priority: 62,
-    matchOpts: { manual: true, forceImmediate: true },
+    matchOpts: { refresh: true },
   },
   MARKER_STUCK: {
-    cooldownMs: 8_000,
-    minMoveM: 0,
+    cooldownMs: 45_000,
+    minMoveM: 20,
     priority: 88,
     matchOpts: { manual: true, forceImmediate: true },
-    bypassMapboxGate: true,
   },
   AUTO_ENTRY: {
     cooldownMs: MAP_MATCH_COORD_AUTO_ENTRY_COOLDOWN_MS,
@@ -156,8 +155,8 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     matchOpts: { manual: true, forceImmediate: true },
   },
   GPS_RESUME: {
-    cooldownMs: 20_000,
-    minMoveM: 30,
+    cooldownMs: 60_000,
+    minMoveM: 50,
     priority: 85,
     matchOpts: { refresh: true, forceImmediate: true },
   },
@@ -320,7 +319,7 @@ export class MapMatchCoordinator {
     cfg: ReasonConfig,
     forceImmediate: boolean,
   ): boolean {
-    if (forceImmediate && (cfg.bypassMapboxGate || reason === 'MANUAL' || reason === 'MARKER_STUCK')) {
+    if (forceImmediate && (reason === 'MANUAL' || reason === 'AUTO_ENTRY')) {
       return true;
     }
     const anchor = this.reasonAnchors.get(reason);

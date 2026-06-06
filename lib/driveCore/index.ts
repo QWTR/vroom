@@ -1,5 +1,9 @@
 export * from './types';
 export * from './roadMarkerPose';
+export * from './mapMatchSyncPolicy';
+export * from './gpsBufferJitterFilter';
+export * from './localGeometryMatchGate';
+export * from './driveSessionGuard';
 export * from './config';
 export * from './driveEngine';
 export { GeometryCache } from './geometryCache';

@@ -147,12 +147,12 @@ async function snapHistoryRouteViaMapbox(
 
   const data = await fetchMatchingViaProxy<MapMatchResponse>(
     {
-      coordinates: sampled.map(([lng, lat]) => [lng, lat]),
+      points: sampled.map(([lng, lat]) => ({ lat, lng })),
       radiuses: sampled.map(() => 25),
       profile: 'driving',
     },
     fallbackUrl,
-    { forceFallback: true, cooldownMs: 0, proxyTimeoutMs: 8000, fallbackTimeoutMs: 8000 },
+    { allowFallback: false, proxyTimeoutMs: 8000 },
   );
   if (!data || data.code !== 'Ok' || !data.matchings?.length) return points;
   const matched = data.matchings[0]?.geometry?.coordinates;
