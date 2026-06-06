@@ -14,7 +14,7 @@
  *   DRIVE_TRACE_MARKER_UI — pozycja markera na mapie (throttle ~200 ms)
  *   DRIVE_TRACE_CAMERA   — follow kamery (throttle ~300 ms)
  */
-import { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';
+import { DRIVE_SESSION_TRACE_ENABLED, DRIVE_FULL_VISION_LOG } from './driveLogConfig';
 import { gpsTickPayload } from './gpsTickTrace';
 import { vroomGpsLogNow } from './vroomGpsLog';
 
@@ -174,12 +174,12 @@ export function driveTraceMarkerPipeline(payload: Record<string, unknown>): void
   driveSessionLog('MARKER_PIPELINE', payload);
 }
 
-/** Push kamery z markera SV — throttle ~120 ms (grep: CAMERA_PIPELINE). */
+/** Push kamery z markera SV (grep: CAMERA_PIPELINE). */
 export function driveTraceCameraPipeline(payload: Record<string, unknown>): void {
-  driveSessionLogThrottled('CAMERA_PIPELINE', payload, 120);
+  driveSessionLogThrottled('CAMERA_PIPELINE', payload, DRIVE_FULL_VISION_LOG ? 120 : 240);
 }
 
-/** rAF MarkerView — ruch/heading UI vs worklet (grep: MARKER_UI_SMOOTH). */
+/** rAF MarkerView — diagnostyka (throttle logów, nie renderu). */
 export function driveTraceMarkerUiSmooth(payload: {
   lat: number;
   lng: number;
@@ -197,7 +197,7 @@ export function driveTraceMarkerUiSmooth(payload: {
     uiHdgDeltaDeg: Math.round(payload.uiHdgDeltaDeg),
     msSinceCommit: Math.round(payload.msSinceCommit),
     svGapM: payload.svGapM != null ? round1(payload.svGapM) : null,
-  }, 100);
+  }, DRIVE_FULL_VISION_LOG ? 500 : 1000);
 }
 
 export function driveTraceReject(
@@ -240,7 +240,7 @@ export function driveTraceCamera(payload: {
     speedKmh: round1(payload.speedKmh),
     exploring: payload.exploring,
     frameMoveM: payload.frameMoveM != null ? round1(payload.frameMoveM) : null,
-  }, 150);
+  }, DRIVE_FULL_VISION_LOG ? 80 : 150);
 }
 
 export { DRIVE_SESSION_TRACE_ENABLED } from './driveLogConfig';

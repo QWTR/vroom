@@ -1,6 +1,6 @@
 /** Stałe Drive Core V2 — API budget i snap lokalny. */
-export const CACHE_HIT_MAX_CROSS_TRACK_M = 18;
-export const OFF_BUFFER_TRIGGER_M = 20;
+export const CACHE_HIT_MAX_CROSS_TRACK_M = 22;
+export const OFF_BUFFER_TRIGGER_M = 16;
 export const NEAR_SEGMENT_END_M = 50;
 export const NETWORK_MIN_INTERVAL_MS = 4000;
 export const GPS_BATCH_MAX_POINTS = 12;

@@ -94,6 +94,33 @@ export class SpeedMeter {
     }
 
     if (quality.verdict !== 'FULL_ACCEPT') {
+      const gpsMs = raw.gpsSpeedMs;
+      if (
+        opts?.freeDriveDoppler
+        && !isNavigating
+        && isMoving
+        && gpsMs != null
+        && Number.isFinite(gpsMs)
+        && gpsMs >= 0.5
+      ) {
+        const gpsKmh = gpsMs * 3.6;
+        const instant = sanitizeTripSpeedKmh(
+          gpsKmh,
+          this.lastOutputKmh,
+          SPEED_MIN_DT_SEC,
+          false,
+        );
+        this.lastTs = now;
+        this.lastSnapped = { lat: pose.lat, lng: pose.lng, ts: now };
+        this.samples.push(instant);
+        if (this.samples.length > SPEED_EMA_SAMPLES) {
+          this.samples.shift();
+        }
+        const sum = this.samples.reduce((a, b) => a + b, 0);
+        const ema = this.samples.length > 0 ? sum / this.samples.length : 0;
+        this.lastOutputKmh = Math.round(Math.max(0, ema) * 10) / 10;
+        return this.lastOutputKmh;
+      }
       return this.lastOutputKmh;
     }
 

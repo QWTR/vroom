@@ -1,8 +1,8 @@
 /**
  * Diagnostyka jazdy (logcat [VROOM-TEL], pliki, SQLite).
- * Produkcja: wszystko OFF. Debug w aucie: ustaw na true i OTA/dev build.
+ * Pełny trace na testy w aucie — wyłącz przed masowym release userów.
  */
-export const DRIVE_SESSION_TRACE_ENABLED = false;
+export const DRIVE_SESSION_TRACE_ENABLED = true;
 
-/** MAX diagnostyka klatek markera/kamery — tylko gdy SESSION trace włączony. */
-export const DRIVE_FULL_VISION_LOG = false;
+/** V2 worklet follow — ~60 fps (telemetria scheduler; marker/kamera idą z Reanimated). */
+export const DRIVE_FULL_VISION_LOG = true;

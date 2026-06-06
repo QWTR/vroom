@@ -69,6 +69,7 @@ function shouldMirrorDriveSessionFile(tag: string): boolean {
   if (tag.startsWith('SNAP_') || tag.startsWith('MATCH_')) return true;
   if (tag.startsWith('MAP_MATCH_')) return true;
   if (tag === 'DRIVE_HEALTH' || tag === 'OFF_ROAD') return true;
+  if (tag.startsWith('SPEED_LIMIT')) return true;
   if (tag === 'BUILD_FINGERPRINT') return true;
   return false;
 }

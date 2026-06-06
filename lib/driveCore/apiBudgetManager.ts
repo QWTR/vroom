@@ -174,8 +174,10 @@ export class ApiBudgetManager {
     crossTrackM: number,
     remainingAlongCacheM: number | null,
   ): MapMatchBudgetDecision {
+    const urgentOffRoad = crossTrackM > OFF_BUFFER_TRIGGER_M;
     const throttleBlocked =
       !this.bypassThrottleOnce
+      && !urgentOffRoad
       && this.lastNetworkAt > 0
       && now - this.lastNetworkAt < NETWORK_MIN_INTERVAL_MS;
 

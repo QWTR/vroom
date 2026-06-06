@@ -1,0 +1,250 @@
+﻿ft":false,"hdgFlipDeg":4,"pushSegM":8.2,"feedDurMs":1000},"flags":{"teleportClamp":false,"megaJumpBlocked":false,"feedS
+kipGate":false,"stationaryHold":false}}
+06-06 19:49:28.027 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.027Z | CAMERA_HEADING | {"t":1780768168027,"
+speedKmh":85,"movedM":0.4,"moveBearing":null,"snapHdg":185,"headingOut":185,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":42,"impliedKmh":34,"followFromWorklet":false}
+06-06 19:49:28.034 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.034Z | CAMERA_PIPELINE | {"t":1780768168034,
+"seq":3033,"gpsTickId":1780768167960,"gpsTickAgeMs":40,"lat":51.421414,"lng":18.92762,"hintHdg":185,"followHdg":185,"pi
+pelineHdg":181,"workletHdg":185,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.2,"rawGapM":33.7,"segMs":1000,"msSinceCa
+mPush":49,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.034 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.034Z | DRIVE_TRACE_CAMERA | {"t":17807681680
+34,"seq":3034,"gpsTickId":1780768167960,"gpsTickAgeMs":40,"lat":51.421414,"lng":18.92762,"hdg":185,"speedKmh":85.4,"exp
+loring":false,"frameMoveM":0.2}
+06-06 19:49:28.056 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'pushCameraFromDriveMarkerFrame',
+06-06 19:49:28.056 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.056Z | DRIVE_HEALTH | {"t":1780768168056,"mo
+de":"driving","speedHudKmh":85.4,"speedPipeKmh":85.4,"gpsAgeMs":61,"drAgeMs":59,"gpsToDriftM":16,"snapAnchorDriftM":0,"
+offRoute":false,"reroutePending":false,"rerouteLoading":false,"hasRoutePts":0}
+06-06 19:49:28.057 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.057Z | DRIVE_TRACE_HEARTBEAT | {"t":17807681
+68057,"seq":3035,"gpsTickId":1780768167960,"gpsTickAgeMs":63,"driving":true,"navigating":false,"tripActive":true,"lat":
+51.4211117,"lng":18.9276022,"gpsAgeMs":63}
+06-06 19:49:28.119 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.118Z | DRIVE_TRACE_CAMERA | {"t":17807681681
+18,"seq":3036,"gpsTickId":1780768167960,"gpsTickAgeMs":124,"lat":51.421396,"lng":18.927619,"hdg":185,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:28.169 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.169Z | CAMERA_PIPELINE | {"t":1780768168169,
+"seq":3037,"gpsTickId":1780768167960,"gpsTickAgeMs":175,"lat":51.421388,"lng":18.927619,"hintHdg":185,"followHdg":185,"
+pipelineHdg":181,"workletHdg":185,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.5,"rawGapM":30.7,"segMs":1000,"msSince
+CamPush":29,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.169 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.169Z | CAMERA_HEADING | {"t":1780768168169,"
+speedKmh":85,"movedM":0.53,"moveBearing":182,"snapHdg":185,"headingOut":185,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":29,"impliedKmh":65,"followFromWorklet":true}
+06-06 19:49:28.202 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.202Z | DRIVE_TRACE_CAMERA | {"t":17807681682
+02,"seq":3038,"gpsTickId":1780768167960,"gpsTickAgeMs":208,"lat":51.421382,"lng":18.927619,"hdg":185,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.252 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.252Z | DRIVE_VISION_CAMERA | {"t":1780768168
+252,"seq":705,"gpsTickId":1780768167960,"gpsTickAgeMs":258,"centerLat":51.421374,"centerLng":18.927618,"offsetLat":51.4
+21208,"offsetLng":18.927597,"heading":184,"zoom":17.3,"pitch":58,"lookaheadM":18.6,"speedKmh":85,"movedM":0.5,"nativeSk
+ipped":false,"skipReason":null,"followFromWorkletFrame":true}
+06-06 19:49:28.286 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.286Z | DRIVE_TRACE_CAMERA | {"t":17807681682
+86,"seq":3039,"gpsTickId":1780768167960,"gpsTickAgeMs":292,"lat":51.421369,"lng":18.927618,"hdg":184,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.302 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.302Z | CAMERA_PIPELINE | {"t":1780768168302,
+"seq":3040,"gpsTickId":1780768167960,"gpsTickAgeMs":308,"lat":51.421366,"lng":18.927618,"hintHdg":184,"followHdg":184,"
+pipelineHdg":181,"workletHdg":184,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":28.3,"segMs":1000,"msSince
+CamPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.303 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.303Z | CAMERA_HEADING | {"t":1780768168303,"
+speedKmh":85,"movedM":0.29,"moveBearing":null,"snapHdg":184,"headingOut":184,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":17,"impliedKmh":61,"followFromWorklet":true}
+06-06 19:49:28.369 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'applyNativeFollow',
+06-06 19:49:28.369 I/ReactNativeJS(  650):   followFromWorkletFrame: true,
+06-06 19:49:28.369 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.369Z | DRIVE_TRACE_CAMERA | {"t":17807681683
+69,"seq":3041,"gpsTickId":1780768167960,"gpsTickAgeMs":375,"lat":51.421355,"lng":18.927617,"hdg":184,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.372 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.372Z | MARKER_UI_SMOOTH | {"t":1780768168372
+,"seq":3042,"gpsTickId":1780768167960,"gpsTickAgeMs":378,"lat":51.421355,"lng":18.927617,"hdg":184,"uiMoveM":9.3,"uiHdg
+DeltaDeg":2,"msSinceCommit":469,"svGapM":null}
+06-06 19:49:28.372 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.372Z | DRIVE_VISION_FRAME | {"t":17807681683
+72,"seq":706,"gpsTickId":1780768167960,"gpsTickAgeMs":378,"layer":"ui","svLat":51.421355,"svLng":18.927617,"svHdg":184,
+"uiLat":51.421355,"uiLng":18.927617,"uiHdg":184,"uiGapM":null,"frameDtMs":469,"impliedKmh":71.4,"stuck":false,"msSinceC
+ommit":469}
+06-06 19:49:28.437 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.437Z | CAMERA_PIPELINE | {"t":1780768168437,
+"seq":3043,"gpsTickId":1780768167960,"gpsTickAgeMs":443,"lat":51.421344,"lng":18.927617,"hintHdg":184,"followHdg":184,"
+pipelineHdg":181,"workletHdg":184,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":25.9,"segMs":1000,"msSince
+CamPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.437 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.437Z | CAMERA_HEADING | {"t":1780768168437,"
+speedKmh":85,"movedM":0.31,"moveBearing":null,"snapHdg":184,"headingOut":184,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":17,"impliedKmh":65,"followFromWorklet":true}
+06-06 19:49:28.452 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.452Z | DRIVE_TRACE_CAMERA | {"t":17807681684
+52,"seq":3044,"gpsTickId":1780768167960,"gpsTickAgeMs":458,"lat":51.421341,"lng":18.927616,"hdg":184,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.519 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'pushCameraFromDriveMarkerFrame',
+06-06 19:49:28.536 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.536Z | DRIVE_TRACE_CAMERA | {"t":17807681685
+36,"seq":3045,"gpsTickId":1780768167960,"gpsTickAgeMs":542,"lat":51.421328,"lng":18.927616,"hdg":183,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.569 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.569Z | CAMERA_PIPELINE | {"t":1780768168569,
+"seq":3046,"gpsTickId":1780768167960,"gpsTickAgeMs":575,"lat":51.421322,"lng":18.927615,"hintHdg":183,"followHdg":183,"
+pipelineHdg":181,"workletHdg":183,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":23.4,"segMs":1000,"msSince
+CamPush":16,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.570 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.570Z | CAMERA_HEADING | {"t":1780768168570,"
+speedKmh":85,"movedM":0.29,"moveBearing":null,"snapHdg":183,"headingOut":183,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":16,"impliedKmh":65,"followFromWorklet":true}
+06-06 19:49:28.570 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.570Z | CAM_FOLLOW_PUSH | {"t":1780768168570,
+"lat":51.421322,"lng":18.927615,"hdg":183,"snapHdg":183,"speedKmh":85,"exploring":false,"source":"drive_marker_sv"}
+06-06 19:49:28.619 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.619Z | DRIVE_TRACE_CAMERA | {"t":17807681686
+19,"seq":3047,"gpsTickId":1780768167960,"gpsTickAgeMs":625,"lat":51.421314,"lng":18.927615,"hdg":183,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.653 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.653Z | SPEED_LIMIT_FAIL | {"t":1780768168653
+,"lat":51.42485,"lng":18.93017,"nav":true,"reason":"no_data"}
+06-06 19:49:28.702 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.702Z | CAMERA_PIPELINE | {"t":1780768168702,
+"seq":3048,"gpsTickId":1780768167960,"gpsTickAgeMs":708,"lat":51.421301,"lng":18.927614,"hintHdg":183,"followHdg":183,"
+pipelineHdg":181,"workletHdg":183,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":21,"segMs":1000,"msSinceCa
+mPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.703 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.703Z | CAMERA_HEADING | {"t":1780768168703,"
+speedKmh":85,"movedM":0.31,"moveBearing":null,"snapHdg":183,"headingOut":183,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":17,"impliedKmh":65,"followFromWorklet":true}
+06-06 19:49:28.703 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.703Z | DRIVE_TRACE_CAMERA | {"t":17807681687
+03,"seq":3049,"gpsTickId":1780768167960,"gpsTickAgeMs":709,"lat":51.421301,"lng":18.927614,"hdg":183,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.752 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.752Z | DRIVE_VISION_CAMERA | {"t":1780768168
+752,"seq":707,"gpsTickId":1780768167960,"gpsTickAgeMs":758,"centerLat":51.421293,"centerLng":18.927614,"offsetLat":51.4
+21125,"offsetLng":18.927601,"heading":183,"zoom":17.3,"pitch":58,"lookaheadM":18.6,"speedKmh":85,"movedM":0.3,"nativeSk
+ipped":false,"skipReason":null,"followFromWorkletFrame":true}
+06-06 19:49:28.786 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.786Z | DRIVE_TRACE_CAMERA | {"t":17807681687
+86,"seq":3050,"gpsTickId":1780768167960,"gpsTickAgeMs":792,"lat":51.421287,"lng":18.927614,"hdg":183,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.836 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.836Z | CAMERA_PIPELINE | {"t":1780768168836,
+"seq":3051,"gpsTickId":1780768167960,"gpsTickAgeMs":842,"lat":51.421279,"lng":18.927613,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":18.6,"segMs":1000,"msSince
+CamPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.836 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.836Z | CAMERA_HEADING | {"t":1780768168836,"
+speedKmh":85,"movedM":0.29,"moveBearing":null,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":17,"impliedKmh":61,"followFromWorklet":true}
+06-06 19:49:28.869 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'applyNativeFollow',
+06-06 19:49:28.869 I/ReactNativeJS(  650):   followFromWorkletFrame: true,
+06-06 19:49:28.870 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.870Z | DRIVE_TRACE_CAMERA | {"t":17807681688
+70,"seq":3052,"gpsTickId":1780768167960,"gpsTickAgeMs":876,"lat":51.421274,"lng":18.927613,"hdg":182,"speedKmh":85.4,"e
+xploring":false,"frameMoveM":0.3}
+06-06 19:49:28.953 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.953Z | DRIVE_TRACE_CAMERA | {"t":17807681689
+53,"seq":3053,"gpsTickId":1780768167960,"gpsTickAgeMs":959,"lat":51.42126,"lng":18.927612,"hdg":182,"speedKmh":85.4,"ex
+ploring":false,"frameMoveM":0.3}
+06-06 19:49:28.969 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.969Z | CAMERA_PIPELINE | {"t":1780768168969,
+"seq":3054,"gpsTickId":1780768167960,"gpsTickAgeMs":975,"lat":51.421257,"lng":18.927612,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":85,"frameMoveM":0.3,"rawGapM":16.2,"segMs":1000,"msSince
+CamPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:28.970 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'pushCameraFromDriveMarkerFrame',
+06-06 19:49:28.970 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.970Z | CAMERA_HEADING | {"t":1780768168970,"
+speedKmh":85,"movedM":0.29,"moveBearing":null,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"nativ
+eFollow":true,"frameDtMs":17,"impliedKmh":61,"followFromWorklet":true}
+06-06 19:49:28.979 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.979Z | RAW_GPS_TICK | {"t":1780768168979,"gp
+sTickId":1780768168961,"gpsTickAgeMs":0,"lat":51.420894,"lng":18.927592,"speed":24.07,"speedKmh":86.7,"accuracy":4,"osT
+imestamp":1780768168961,"tripActive":true,"appState":"active"}
+06-06 19:49:28.979 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.979Z | DRIVE_TRACE_RAW | {"t":1780768168979,
+"seq":3055,"gpsTickId":1780768168961,"gpsTickAgeMs":0,"rawLat":51.420894,"rawLng":18.927592,"accM":4,"speedKmh":86.7,"s
+peedMs":24.1,"heading":181,"tripActive":true,"driving":true,"navigating":false,"osTimestamp":1780768168961}
+06-06 19:49:28.980 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.980Z | DRIVE_VISION_EVENT | {"t":17807681689
+80,"seq":708,"gpsTickId":1780768168961,"gpsTickAgeMs":1,"event":"SNAP_SOURCE","source":"drive_core_road_marker_pose","o
+nRoad":false,"crossTrackM":15.973528572688977,"snappedLat":51.421114,"snappedLng":18.927604,"rawLat":51.420894,"rawLng"
+:18.927592,"speedKmh":87}
+06-06 19:49:28.980 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.980Z | DRIVE_VISION_EVENT | {"t":17807681689
+80,"seq":709,"gpsTickId":1780768168961,"gpsTickAgeMs":1,"event":"OFF_ROAD","source":"resolveRoadMarkerPose","crossTrack
+M":15.973528572688977,"rawLat":51.420894,"rawLng":18.927592,"action":"marker_pose_off_road"}
+06-06 19:49:28.981 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.981Z | MARKER_RAW_CATCHUP | {"t":17807681689
+81,"hudKmh":87,"rawLat":51.42089,"rawLng":18.92759}
+06-06 19:49:28.981 I/ReactNativeJS(  650): '[DEBUG_CATCHUP]', { markerRawGapM: 0,
+06-06 19:49:28.983 I/ReactNativeJS(  650): '[DEBUG_WORKLET]', { mode: 'lerp_segment_start',
+06-06 19:49:28.983 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.983Z | DRIVE_TRACE_FEED | {"t":1780768168983
+,"seq":3056,"gpsTickId":1780768168961,"gpsTickAgeMs":4,"lat":51.420894,"lng":18.927592,"hdg":181,"durationMs":1200,"spe
+edKmh":86.7}
+06-06 19:49:28.984 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.984Z | MARKER_PIPELINE | {"t":1780768168984,
+"seq":3057,"gpsTickId":1780768168961,"gpsTickAgeMs":5,"rawLat":51.420894,"rawLng":18.927592,"engineSnapLat":51.421114,"
+engineSnapLng":18.927604,"displayLat":51.420894,"displayLng":18.927592,"displayHdg":181,"svLat":51.421257,"svLng":18.92
+7612,"svHdg":182,"markerRawGapM":0,"svGapM":40.4,"hdgFlipDeg":1,"pushSegM":39.9,"feedDurMs":1200,"feedSpeedMs":24.1,"hu
+dKmh":86.7,"engineKmh":85.1,"crossTrackM":16,"catchupSoft":true,"onRoad":false,"chaseM":0,"parkedLike":false,"freeDrive
+Raw":false}
+06-06 19:49:28.988 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.988Z | DRIVE_TRACE_TICK | {"t":1780768168988
+,"seq":3058,"gpsTickId":1780768168961,"gpsTickAgeMs":9,"rawLat":51.420894,"rawLng":18.927592,"snapLat":51.420894,"snapL
+ng":18.927592,"markerLat":51.420894,"markerLng":18.927592,"markerHdg":181,"markerSvLat":51.421257,"markerSvLng":18.9276
+12,"markerSvHdg":182,"accM":4,"hudKmh":86.7,"engineKmh":85.1,"dopplerKmh":86.7,"feedDurMs":1200,"cadenceMs":451,"feedSp
+eedMs":24.1,"isNavigating":false,"isFreeDrive":true,"isMoving":true,"feedSkipGate":false,"feedAccepted":true,"feedHeadi
+ngOnly":false,"source":"drive_core_v2","markerRawGapM":0,"svGapM":40.4,"hdgFlipDeg":1,"pushSegM":39.9,"catchupSoft":tru
+e,"onRoad":false,"chaseM":0,"engineSnapLat":51.421114,"engineSnapLng":18.927604,"crossTrackM":16}
+06-06 19:49:28.989 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:28.989Z | DRIVE_VISION_TICK | {"t":178076816898
+9,"seq":710,"gpsTickId":1780768168961,"gpsTickAgeMs":10,"mode":"drive","rawLat":51.420894,"rawLng":18.927592,"snapLat":
+51.421114,"snapLng":18.927604,"markerLat":51.420894,"markerLng":18.927592,"markerHdg":181,"markerSvLat":51.421257,"mark
+erSvLng":18.927612,"markerSvHdg":182,"accM":4,"hudKmh":86.7,"engineKmh":85.1,"dopplerKmh":86.7,"crossTrackM":16,"onRoad
+":false,"source":"drive_core_v2","smoothness":{"rawStepM":24.2,"markerRawGapM":0,"svGapM":40.4,"chaseM":0,"catchupSoft"
+:true,"hdgFlipDeg":1,"pushSegM":39.9,"feedDurMs":1200},"flags":{"teleportClamp":false,"megaJumpBlocked":false,"feedSkip
+Gate":false,"stationaryHold":false}}
+06-06 19:49:29.061 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'pushCameraFromDriveMarkerFrame',
+06-06 19:49:29.061 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'updateCameraFrame',
+06-06 19:49:29.061 I/ReactNativeJS(  650):   followFromWorkletFrame: true }
+06-06 19:49:29.061 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'applyNativeFollow',
+06-06 19:49:29.061 I/ReactNativeJS(  650):   followFromWorkletFrame: true,
+06-06 19:49:29.061 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.061Z | DRIVE_TRACE_CAMERA | {"t":17807681690
+61,"seq":3059,"gpsTickId":1780768168961,"gpsTickAgeMs":82,"lat":51.421235,"lng":18.927611,"hdg":182,"speedKmh":86.7,"ex
+ploring":false,"frameMoveM":2}
+06-06 19:49:29.102 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.102Z | CAMERA_PIPELINE | {"t":1780768169102,
+"seq":3060,"gpsTickId":1780768168961,"gpsTickAgeMs":123,"lat":51.421223,"lng":18.92761,"hintHdg":182,"followHdg":182,"p
+ipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":87,"frameMoveM":0.8,"rawGapM":36.6,"segMs":1200,"msSinceC
+amPush":25,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:29.102 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.102Z | CAMERA_HEADING | {"t":1780768169102,"
+speedKmh":87,"movedM":0.78,"moveBearing":182,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":25,"impliedKmh":112,"followFromWorklet":true}
+06-06 19:49:29.152 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.152Z | DRIVE_TRACE_CAMERA | {"t":17807681691
+52,"seq":3061,"gpsTickId":1780768168961,"gpsTickAgeMs":173,"lat":51.421209,"lng":18.927609,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.235 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.235Z | CAMERA_PIPELINE | {"t":1780768169235,
+"seq":3062,"gpsTickId":1780768168961,"gpsTickAgeMs":256,"lat":51.421186,"lng":18.927608,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":87,"frameMoveM":0.5,"rawGapM":32.5,"segMs":1200,"msSince
+CamPush":16,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:29.236 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.236Z | CAMERA_HEADING | {"t":1780768169236,"
+speedKmh":87,"movedM":0.52,"moveBearing":182,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":16,"impliedKmh":116,"followFromWorklet":true}
+06-06 19:49:29.236 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.236Z | DRIVE_TRACE_CAMERA | {"t":17807681692
+36,"seq":3063,"gpsTickId":1780768168961,"gpsTickAgeMs":257,"lat":51.421186,"lng":18.927608,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.252 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.252Z | DRIVE_VISION_CAMERA | {"t":1780768169
+252,"seq":711,"gpsTickId":1780768168961,"gpsTickAgeMs":273,"centerLat":51.421181,"centerLng":18.927608,"offsetLat":51.4
+21013,"offsetLng":18.927599,"heading":182,"zoom":17.3,"pitch":58,"lookaheadM":18.7,"speedKmh":85,"movedM":0.5,"nativeSk
+ipped":false,"skipReason":null,"followFromWorkletFrame":true}
+06-06 19:49:29.319 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.319Z | DRIVE_TRACE_CAMERA | {"t":17807681693
+19,"seq":3064,"gpsTickId":1780768168961,"gpsTickAgeMs":340,"lat":51.421163,"lng":18.927607,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.336 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.336Z | MARKER_UI_SMOOTH | {"t":1780768169336
+,"seq":3065,"gpsTickId":1780768168961,"gpsTickAgeMs":357,"lat":51.421158,"lng":18.927607,"hdg":182,"uiMoveM":12.9,"uiHd
+gDeltaDeg":0,"msSinceCommit":465,"svGapM":null}
+06-06 19:49:29.337 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.337Z | DRIVE_VISION_FRAME | {"t":17807681693
+37,"seq":712,"gpsTickId":1780768168961,"gpsTickAgeMs":358,"layer":"ui","svLat":51.421158,"svLng":18.927607,"svHdg":182,
+"uiLat":51.421158,"uiLng":18.927607,"uiHdg":182,"uiGapM":null,"frameDtMs":465,"impliedKmh":99.7,"stuck":false,"msSinceC
+ommit":465}
+06-06 19:49:29.358 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.358Z | CAMERA_PIPELINE | {"t":1780768169358,
+"seq":3066,"gpsTickId":1780768168961,"gpsTickAgeMs":379,"lat":51.421153,"lng":18.927606,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":87,"frameMoveM":0.5,"rawGapM":28.9,"segMs":1200,"msSince
+CamPush":23,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:29.359 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.359Z | CAMERA_HEADING | {"t":1780768169359,"
+speedKmh":87,"movedM":0.52,"moveBearing":182,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":23,"impliedKmh":81,"followFromWorklet":true}
+06-06 19:49:29.385 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'updateCameraFrame',
+06-06 19:49:29.385 I/ReactNativeJS(  650):   followFromWorkletFrame: true }
+06-06 19:49:29.386 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.386Z | CAM_FOLLOW_PUSH | {"t":1780768169386,
+"lat":51.421144,"lng":18.927606,"hdg":182,"snapHdg":182,"speedKmh":87,"exploring":false,"source":"drive_marker_sv"}
+06-06 19:49:29.403 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.402Z | DRIVE_TRACE_CAMERA | {"t":17807681694
+02,"seq":3067,"gpsTickId":1780768168961,"gpsTickAgeMs":423,"lat":51.421139,"lng":18.927606,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.486 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.485Z | CAMERA_PIPELINE | {"t":1780768169485,
+"seq":3068,"gpsTickId":1780768168961,"gpsTickAgeMs":506,"lat":51.421116,"lng":18.927604,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":87,"frameMoveM":0.5,"rawGapM":24.7,"segMs":1200,"msSince
+CamPush":16,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:29.486 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.486Z | CAMERA_HEADING | {"t":1780768169486,"
+speedKmh":87,"movedM":0.52,"moveBearing":182,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":16,"impliedKmh":116,"followFromWorklet":true}
+06-06 19:49:29.487 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.487Z | DRIVE_TRACE_CAMERA | {"t":17807681694
+87,"seq":3069,"gpsTickId":1780768168961,"gpsTickAgeMs":508,"lat":51.421116,"lng":18.927604,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.519 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'pushCameraFromDriveMarkerFrame',
+06-06 19:49:29.570 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.570Z | DRIVE_TRACE_CAMERA | {"t":17807681695
+70,"seq":3070,"gpsTickId":1780768168961,"gpsTickAgeMs":591,"lat":51.421093,"lng":18.927603,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":0.5}
+06-06 19:49:29.619 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.619Z | CAMERA_PIPELINE | {"t":1780768169619,
+"seq":3071,"gpsTickId":1780768168961,"gpsTickAgeMs":640,"lat":51.421079,"lng":18.927602,"hintHdg":182,"followHdg":182,"
+pipelineHdg":181,"workletHdg":182,"camHdgFlipDeg":0,"speedKmh":87,"frameMoveM":0.5,"rawGapM":20.6,"segMs":1200,"msSince
+CamPush":17,"offRoute":false,"source":"drive_marker_sv"}
+06-06 19:49:29.620 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.620Z | CAMERA_HEADING | {"t":1780768169620,"
+speedKmh":87,"movedM":0.52,"moveBearing":182,"snapHdg":182,"headingOut":182,"flipFromPrevDeg":0,"lookaheadM":19,"native
+Follow":true,"frameDtMs":17,"impliedKmh":109,"followFromWorklet":true}
+06-06 19:49:29.669 I/ReactNativeJS(  650): '[DEBUG_CAMERA]', { layer: 'updateCameraFrame',
+06-06 19:49:29.669 I/ReactNativeJS(  650):   followFromWorkletFrame: true }
+06-06 19:49:29.670 I/ReactNativeJS(  650): [VROOM-TEL] 2026-06-06T17:49:29.670Z | DRIVE_TRACE_CAMERA | {"t":17807681696
+70,"seq":3072,"gpsTickId":1780768168961,"gpsTickAgeMs":691,"lat":51.421065,"lng":18.927602,"hdg":182,"speedKmh":86.7,"e
+xploring":false,"frameMoveM":1}
+
+

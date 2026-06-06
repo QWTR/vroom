@@ -39,6 +39,94 @@ export function remainingAlongPolylineM(
   return sum;
 }
 
+export type PolylineArc = {
+  cumM: number[];
+  totalM: number;
+};
+
+/** Skumulowane długości wzdłuż polilinii (0 → totalM). */
+export function buildPolylineArc(points: RoadPoint[]): PolylineArc | null {
+  if (points.length < 2) return null;
+  const cumM = [0];
+  for (let i = 0; i < points.length - 1; i++) {
+    cumM.push(
+      cumM[i] + distanceM(
+        points[i].latitude,
+        points[i].longitude,
+        points[i + 1].latitude,
+        points[i + 1].longitude,
+      ),
+    );
+  }
+  return { cumM, totalM: cumM[cumM.length - 1] };
+}
+
+/** Rzut punktu na polilinię → skalar arcM (1D progress) + cross-track. */
+export function arcLengthAtPoint(
+  points: RoadPoint[],
+  arc: PolylineArc,
+  lat: number,
+  lng: number,
+  minSegmentIndex: number,
+  maxRadiusM = 2500,
+): { arcM: number; segmentIndex: number; crossTrackM: number } | null {
+  const proj = projectOnPolylineForward(lat, lng, points, minSegmentIndex, maxRadiusM);
+  if (!proj) return null;
+  const seg = proj.segmentIndex;
+  const a = points[seg];
+  const alongSegM = distanceM(a.latitude, a.longitude, proj.lat, proj.lng);
+  return {
+    arcM: arc.cumM[seg] + Math.max(0, alongSegM),
+    segmentIndex: seg,
+    crossTrackM: proj.crossTrackM,
+  };
+}
+
+/** Konwersja 1D arcM → pozycja wyłącznie na osi drogi (środek linii). */
+export function pointAtArcLength(
+  points: RoadPoint[],
+  arc: PolylineArc,
+  arcM: number,
+  travelHeadingDeg?: number,
+): { lat: number; lng: number; segmentIndex: number; heading: number } {
+  const clamped = Math.max(0, Math.min(arc.totalM, arcM));
+  let seg = 0;
+  for (let i = 0; i < arc.cumM.length - 1; i++) {
+    if (clamped <= arc.cumM[i + 1] + 1e-9) {
+      seg = i;
+      break;
+    }
+    seg = i;
+  }
+  const a = points[seg];
+  const b = points[seg + 1];
+  const segStart = arc.cumM[seg];
+  const segLen = Math.max(0.001, arc.cumM[seg + 1] - segStart);
+  const t = Math.max(0, Math.min(1, (clamped - segStart) / segLen));
+  const lat = a.latitude + t * (b.latitude - a.latitude);
+  const lng = a.longitude + t * (b.longitude - a.longitude);
+  let heading = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+  if (Number.isFinite(travelHeadingDeg)) {
+    heading = alignBearingToReference(heading, travelHeadingDeg!);
+  }
+  return { lat, lng, segmentIndex: seg, heading };
+}
+
+export function headingDeltaShort(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180;
+}
+
+export function smoothHeadingEma(
+  current: number,
+  target: number,
+  dtSec: number,
+  tauSec: number,
+): number {
+  const alpha = 1 - Math.exp(-Math.max(0.001, dtSec) / Math.max(0.05, tauSec));
+  const delta = headingDeltaShort(current, target);
+  return ((current + delta * alpha) % 360 + 360) % 360;
+}
+
 export function closestPointOnSegment(
   lat: number,
   lng: number,

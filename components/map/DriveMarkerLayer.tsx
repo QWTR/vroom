@@ -12,8 +12,8 @@ const MARKER_SIZE = 40;
 const AVATAR_INNER = 34;
 const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
-/** rAF → MarkerView: bez SymbolLayer/Images (ViewShot file:// = gigantyczny splash przy pitch). */
-const POSE_COMMIT_MIN_MS = 32;
+/** Telemetria UI co ~500 ms (60 fps render bez throttlingu). */
+const UI_TELEMETRY_EVERY_N_FRAMES = 30;
 
 function isValidMarkerCoord(la: number, ln: number): boolean {
   return Number.isFinite(la)
@@ -30,7 +30,7 @@ type Props = {
 };
 
 /**
- * Trip marker — MarkerView + rAF odczyt SharedValues (bez Mapbox.Images / SymbolLayer).
+ * Trip marker — MarkerView + rAF odczyt SharedValues (60 fps, telemetria odpięta od renderu).
  */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
@@ -51,7 +51,8 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     }
     let rafId = 0;
     let alive = true;
-    let lastCommitAt = 0;
+    let frameCount = 0;
+    let lastTelemetryAt = 0;
     let lastPose = { lat: 0, lng: 0, hdg: 0 };
     const loop = () => {
       if (!alive) return;
@@ -59,49 +60,51 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       const ln = marker.lng.value;
       const h = marker.heading.value;
       if (isValidMarkerCoord(la, ln)) {
+        const normHdg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
+        setPose({ lat: la, lng: ln, hdg: normHdg });
+        setVisible(true);
+
+        frameCount += 1;
         const now = Date.now();
-        if (now - lastCommitAt >= POSE_COMMIT_MIN_MS) {
-          const uiMoveM = lastCommitAt > 0
-            ? Math.hypot((la - lastPose.lat) * 111320, (ln - lastPose.lng) * 111320 * Math.cos((la * Math.PI) / 180))
+        const msSincePrevTelemetry = lastTelemetryAt > 0 ? now - lastTelemetryAt : 0;
+        if (
+          DRIVE_FULL_VISION_LOG
+          && (frameCount % UI_TELEMETRY_EVERY_N_FRAMES === 0 || lastTelemetryAt === 0)
+        ) {
+          const uiMoveM = lastTelemetryAt > 0
+            ? Math.hypot(
+              (la - lastPose.lat) * 111320,
+              (ln - lastPose.lng) * 111320 * Math.cos((la * Math.PI) / 180),
+            )
             : 0;
-          const uiHdgDeltaDeg = lastCommitAt > 0
-            ? Math.abs(((h - lastPose.hdg + 540) % 360) - 180)
+          const uiHdgDeltaDeg = lastTelemetryAt > 0
+            ? Math.abs(((normHdg - lastPose.hdg + 540) % 360) - 180)
             : 0;
-          const msSincePrevCommit = lastCommitAt > 0 ? now - lastCommitAt : 0;
-          lastCommitAt = now;
-          lastPose = { lat: la, lng: ln, hdg: Number.isFinite(h) ? h : 0 };
-          setPose({
-            lat: la,
-            lng: ln,
-            hdg: Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0,
-          });
-          setVisible(true);
           driveTraceMarkerUiSmooth({
             lat: la,
             lng: ln,
-            hdg: Number.isFinite(h) ? h : 0,
+            hdg: normHdg,
             uiMoveM,
             uiHdgDeltaDeg,
-            msSinceCommit: POSE_COMMIT_MIN_MS,
+            msSinceCommit: msSincePrevTelemetry > 0 ? msSincePrevTelemetry : 16,
           });
-          if (DRIVE_FULL_VISION_LOG) {
-            visionFrame({
-              layer: 'ui',
-              svLat: la,
-              svLng: ln,
-              svHdg: Number.isFinite(h) ? h : 0,
-              uiLat: la,
-              uiLng: ln,
-              uiHdg: Number.isFinite(h) ? h : 0,
-              uiMoveM,
-              frameDtMs: msSincePrevCommit > 0 ? msSincePrevCommit : POSE_COMMIT_MIN_MS,
-              impliedKmh: msSincePrevCommit > 0 && uiMoveM > 0
-                ? (uiMoveM / (msSincePrevCommit / 1000)) * 3.6
-                : 0,
-              stuck: uiMoveM < 0.05 && msSincePrevCommit > 2000,
-              msSinceCommit: msSincePrevCommit,
-            });
-          }
+          visionFrame({
+            layer: 'ui',
+            svLat: la,
+            svLng: ln,
+            svHdg: normHdg,
+            uiLat: la,
+            uiLng: ln,
+            uiHdg: normHdg,
+            frameDtMs: msSincePrevTelemetry > 0 ? msSincePrevTelemetry : 16,
+            impliedKmh: msSincePrevTelemetry > 16 && uiMoveM > 0
+              ? (uiMoveM / (msSincePrevTelemetry / 1000)) * 3.6
+              : 0,
+            stuck: uiMoveM < 0.05 && msSincePrevTelemetry > 2000,
+            msSinceCommit: msSincePrevTelemetry,
+          });
+          lastPose = { lat: la, lng: ln, hdg: normHdg };
+          lastTelemetryAt = now;
         }
       }
       rafId = requestAnimationFrame(loop);
@@ -116,7 +119,12 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
         hdg: Number.isFinite(h0) ? ((h0 % 360) + 360) % 360 : 0,
       });
       setVisible(true);
-      lastCommitAt = Date.now();
+      lastPose = {
+        lat: la0,
+        lng: ln0,
+        hdg: Number.isFinite(h0) ? ((h0 % 360) + 360) % 360 : 0,
+      };
+      lastTelemetryAt = Date.now();
     }
     rafId = requestAnimationFrame(loop);
     return () => {

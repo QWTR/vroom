@@ -35,7 +35,7 @@ if (-not $adb) {
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $out = Join-Path $PSScriptRoot "drive-live-$stamp.log"
-$filter = 'VROOM-TEL|SNAP_|DRIVE_TRACE|GPS_|ENTRY_SNAP|ROAD_MATCH|MAP_MATCH|SNAP_FAIL|WORKLET|road_frame|MARKER|DrivingMapMatch|GPSDBG'
+$filter = 'VROOM-TEL|DRIVE_TRACE|DRIVE_VISION|MARKER_|CAMERA_|NAV_TRACE|SNAP_|GPS_|ENTRY_SNAP|ROAD_MATCH|MAP_MATCH|SPEED_|DRIVE_API|TELEMETRY|GPSDBG'
 
 Write-Host "ADB: $adb"
 & $adb devices

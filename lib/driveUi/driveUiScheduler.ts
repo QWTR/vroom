@@ -4,9 +4,10 @@
  */
 
 export const DRIVE_SPEEDOMETER_MIN_MS = 200;
-export const DRIVE_CAMERA_MIN_MS = 250;
+/** V2 worklet follow — ~60 fps (telemetria scheduler; marker/kamera idą z Reanimated). */
+export const DRIVE_CAMERA_MIN_MS = 16;
 /** Po tym czasie wymuś klatkę kamery nawet przy stałym throttle. */
-export const DRIVE_CAMERA_MAX_LATENCY_MS = 450;
+export const DRIVE_CAMERA_MAX_LATENCY_MS = 48;
 
 export type TripCameraFrame = {
   lat: number;

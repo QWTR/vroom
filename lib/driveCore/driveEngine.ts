@@ -326,6 +326,7 @@ export class DriveEngine {
       true,
       this.isNavigating,
       qualityPick,
+      { freeDriveDoppler: isFreeDrive },
     );
 
     this.maybeCommitEnvelope(raw, gate, true, isFreeDrive);
