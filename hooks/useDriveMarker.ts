@@ -41,13 +41,13 @@ export type DriveMarkerTarget = {
 const MIN_DR_SPEED_MS = 0.08;
 const CRUISE_HOLD_MS = 0.22;
 const CRUISE_EXTRAP_MAX_MS = 900;
-const MAX_DR_STEP_M = 3;
+const MAX_DR_STEP_M = 6;
 const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
 const HEADING_FREEZE_SPEED_KMH = 5;
 const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
 const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
 const HEADING_FLIP_REJECT_DEG = 92;
-const IMPLIED_SPEED_CAP_MARGIN_KMH = 25;
+const IMPLIED_SPEED_CAP_MARGIN_KMH = 38;
 const MAX_FRAME_DT_SEC = 0.05;
 function logWorkletSegmentStart(payload: Record<string, unknown>): void {
   if (!DRIVE_V2_PIPELINE_DEBUG) return;
@@ -58,7 +58,7 @@ function headingDeltaJs(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
-const LERP_MIN_MS = 280;
+const LERP_MIN_MS = 200;
 const LERP_MAX_MS = 1200;
 
 /** Nigdy NaN/undefined/0 w trakcie jazdy (chyba że jawny instant bootstrap). */
