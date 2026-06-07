@@ -3,12 +3,12 @@ export const CACHE_HIT_MAX_CROSS_TRACK_M = 22;
 export const OFF_BUFFER_TRIGGER_M = 16;
 export const NEAR_SEGMENT_END_M = 50;
 /** Min gap between Drive Core Map Matching network calls (foreground). */
-export const NETWORK_MIN_INTERVAL_MS = 45_000;
-export const NETWORK_MIN_BUFFER_PATH_M = 35;
+export const NETWORK_MIN_INTERVAL_MS = 90_000;
+export const NETWORK_MIN_BUFFER_PATH_M = 60;
 /** Traffic-light: freeze Map Matching sync below this speed (foreground). */
 export const MAP_MATCH_TRAFFIC_LIGHT_KMH = 3;
 /** Background historical sync — time OR distance gate (whichever comes first). */
-export const BACKGROUND_NETWORK_MIN_INTERVAL_MS = 3 * 60_000;
+export const BACKGROUND_NETWORK_MIN_INTERVAL_MS = 5 * 60_000;
 export const BACKGROUND_NETWORK_MIN_PATH_M = 2000;
 export const GPS_BATCH_MAX_POINTS = 12;
 export const MATCH_RADIUS_M = 50;

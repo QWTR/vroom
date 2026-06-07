@@ -637,11 +637,9 @@ export function useDrivingMapMatch() {
           },
           url,
           {
-            allowFallback: manual,
-            forceFallback: manual,
+            allowFallback: false,
             skipClientCache: manual || refresh,
             proxyTimeoutMs: manual ? 4500 : (refresh ? 4000 : 4500),
-            fallbackTimeoutMs: manual ? 5000 : undefined,
           },
         );
         if (genWhenStarted !== matchGenRef.current) return null;

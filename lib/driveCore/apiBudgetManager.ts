@@ -80,6 +80,8 @@ export class ApiBudgetManager {
 
   private bypassThrottleOnce = false;
 
+  private immediateNetworkArmed = false;
+
 
 
   private isBackground = false;
@@ -123,6 +125,8 @@ export class ApiBudgetManager {
     this.lastNetworkAnchor = null;
 
     this.bypassThrottleOnce = false;
+
+    this.immediateNetworkArmed = false;
 
     this.isBackground = false;
 
@@ -244,9 +248,13 @@ export class ApiBudgetManager {
 
 
 
-  /** Pierwszy match po starcie free-drive — bez pełnego throttle path/distance. */
+  /** Pierwszy match po starcie free-drive — bez pełnego throttle path/distance (max 1× na sesję). */
 
   armImmediateNetworkIfNoCache(): void {
+
+    if (this.immediateNetworkArmed) return;
+
+    this.immediateNetworkArmed = true;
 
     this.bypassThrottleOnce = true;
 

@@ -3,9 +3,9 @@ import { roadGeometryStore } from '../roadGeometry/RoadGeometryStore';
 import type { RoadPoint } from './types';
 
 /** User moved this far along the trip — worth checking local geometry before Mapbox. */
-export const LOCAL_GEOMETRY_MOVED_MIN_M = 40;
+export const LOCAL_GEOMETRY_MOVED_MIN_M = 80;
 /** Still on known road if cross-track distance is below this. */
-export const LOCAL_GEOMETRY_ON_ROAD_MAX_M = 15;
+export const LOCAL_GEOMETRY_ON_ROAD_MAX_M = 25;
 const LOCAL_GEOMETRY_SEARCH_RADIUS_M = 120;
 
 export type LocalGeometryGateResult = {

@@ -13,12 +13,6 @@ const { UsersModule } = NativeModules;
 let cachedAuthToken: string | null = null;
 let tokenFetchedAt = 0;
 const TOKEN_TTL_MS = 60_000;
-let matchingFallbackTimes: number[] = [];
-let lastMatchingFallbackAt = 0;
-const MATCHING_FALLBACK_WINDOW_MS = 60 * 60 * 1000;
-/** Direct Mapbox fallback is emergency-only — proxy must handle normal traffic. */
-const MATCHING_FALLBACK_MAX_PER_WINDOW = 3;
-const MATCHING_FALLBACK_COOLDOWN_MS = 120_000;
 
 type SearchCacheEntry = { at: number; data: unknown };
 const searchCache = new Map<string, SearchCacheEntry>();
@@ -252,9 +246,9 @@ export async function fetchDirectionsViaProxy<T>(payload: Record<string, unknown
 
 export async function fetchMatchingViaProxy<T>(
   payload: Record<string, unknown>,
-  fallbackUrl: string,
+  _fallbackUrl: string,
   opts?: {
-    /** Direct Mapbox only when explicitly true (default: proxy-only). */
+    /** @deprecated Direct Mapbox fallback removed — proxy-only. */
     allowFallback?: boolean;
     forceFallback?: boolean;
     cooldownMs?: number;
@@ -281,33 +275,10 @@ export async function fetchMatchingViaProxy<T>(
   const anchor = anchorFromMatchingPoints(normalized.points);
 
   const fetchOnce = async (): Promise<T | null> => {
-    const viaProxy = await callProxy<T>('/api/mapbox/matching', {
+    return callProxy<T>('/api/mapbox/matching', {
       method: 'POST',
       body: JSON.stringify(proxyBody),
     }, { timeoutMs: opts?.proxyTimeoutMs ?? 3500, signal: opts?.signal });
-    if (viaProxy != null) return viaProxy;
-
-    if (opts?.allowFallback !== true) return null;
-    const now = Date.now();
-    const cooldownMs = Math.max(0, opts?.cooldownMs ?? MATCHING_FALLBACK_COOLDOWN_MS);
-    matchingFallbackTimes = matchingFallbackTimes.filter((t) => now - t < MATCHING_FALLBACK_WINDOW_MS);
-    if (!opts?.forceFallback && matchingFallbackTimes.length >= MATCHING_FALLBACK_MAX_PER_WINDOW) return null;
-    if (!opts?.forceFallback && now - lastMatchingFallbackAt < cooldownMs) return null;
-    lastMatchingFallbackAt = now;
-    matchingFallbackTimes.push(now);
-    try {
-      const res = await fetchWithTimeout(
-        fallbackUrl,
-        {},
-        Math.max(500, opts?.fallbackTimeoutMs ?? 3000),
-        opts?.signal,
-      );
-      if (!res.ok) return null;
-      return await res.json() as T;
-    } catch (e) {
-      if (isAbortError(e)) throw e;
-      return null;
-    }
   };
 
   if (opts?.skipClientCache) {

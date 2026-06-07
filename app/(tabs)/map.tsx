@@ -4374,6 +4374,10 @@ function MapScreenInner() {
     req: Parameters<typeof mapMatchCoord.requestRecovery>[0],
     onApplied?: (pts: { latitude: number; longitude: number }[] | null) => void,
   ) => {
+    if (DRIVE_CORE_V2 && req.reason !== 'MANUAL') {
+      onApplied?.(null);
+      return 0;
+    }
     const reqId = mapMatchCoord.allocRequestId();
     void mapMatchCoord.requestRecovery(req).then((pts) => {
       if (mapMatchCoord.isStaleRequest(reqId)) return;
@@ -7982,59 +7986,64 @@ function MapScreenInner() {
       recordDrivingTracePoint(entryLat, entryLng, { speedKmh: speedKmhRef.current }).catch(() => {});
       drivingManualEntryBusyRef.current = false;
 
-      const entryReqId = mapMatchCoord.allocRequestId();
-      void (async () => {
-        try {
-          const apiRoad = await mapMatchCoord.requestRecovery({
-            reason: 'MANUAL',
-            lat: startLat,
-            lng: startLng,
-            speedKmh: speedKmhRef.current,
-            forceImmediate: true,
-          });
-          if (mapMatchCoord.isStaleRequest(entryReqId)) return;
-          if (!apiRoad || apiRoad.length < 2) return;
-          applyRoadMatchPoints(apiRoad, { skipResync: true });
-          bumpMatchedFreshness();
-          if (DRIVE_CORE_V2) {
-            driveCore.applyMatchGeometry(apiRoad);
-            driveCore.seedLocalMirror(apiRoad);
-          } else {
-            resyncSnapAfterRoadGeometry();
+      if (!instantRoad || instantRoad.length < 2) {
+        const entryReqId = mapMatchCoord.allocRequestId();
+        void (async () => {
+          try {
+            const apiRoad = await mapMatchCoord.requestRecovery({
+              reason: 'MANUAL',
+              lat: startLat,
+              lng: startLng,
+              speedKmh: speedKmhRef.current,
+              forceImmediate: true,
+            });
+            if (mapMatchCoord.isStaleRequest(entryReqId)) return;
+            if (!apiRoad || apiRoad.length < 2) return;
+            applyRoadMatchPoints(apiRoad, { skipResync: true });
+            bumpMatchedFreshness();
+            if (DRIVE_CORE_V2) {
+              driveCore.applyMatchGeometry(apiRoad);
+              driveCore.seedLocalMirror(apiRoad);
+            } else {
+              resyncSnapAfterRoadGeometry();
+            }
+            if (!isDrivingRef.current || isNavigatingRef.current) return;
+            if (Date.now() < drivingEntryGraceUntilRef.current) return;
+            const curLat = drLatRef.current;
+            const curLng = drLngRef.current;
+            const asyncSnap = drivingSnap(
+              curLat,
+              curLng,
+              Math.max(0, speedKmhRef.current),
+              false,
+              true,
+              null,
+            );
+            if (
+              !asyncSnap.snapped
+              || !Number.isFinite(asyncSnap.latitude)
+              || !Number.isFinite(asyncSnap.longitude)
+            ) {
+              return;
+            }
+            const corrM = haversineKm(curLat, curLng, asyncSnap.latitude, asyncSnap.longitude) * 1000;
+            if (corrM > DRIVING_ENTRY_ASYNC_MAX_CORRECTION_M || corrM < 0.4) return;
+            const corrHdg = Number.isFinite(asyncSnap.targetHeading)
+              ? asyncSnap.targetHeading
+              : drHdgRef.current;
+            drLatRef.current = asyncSnap.latitude;
+            drLngRef.current = asyncSnap.longitude;
+            drHdgRef.current = corrHdg;
+            lastSetLocRef.current = { lat: asyncSnap.latitude, lng: asyncSnap.longitude };
+            // SSOT: bez async snap → marker (unika raw/snap yo-yo).
+          } catch {
+            /* background entry match optional */
           }
-          if (!isDrivingRef.current || isNavigatingRef.current) return;
-          if (Date.now() < drivingEntryGraceUntilRef.current) return;
-          const curLat = drLatRef.current;
-          const curLng = drLngRef.current;
-          const asyncSnap = drivingSnap(
-            curLat,
-            curLng,
-            Math.max(0, speedKmhRef.current),
-            false,
-            true,
-            null,
-          );
-          if (
-            !asyncSnap.snapped
-            || !Number.isFinite(asyncSnap.latitude)
-            || !Number.isFinite(asyncSnap.longitude)
-          ) {
-            return;
-          }
-          const corrM = haversineKm(curLat, curLng, asyncSnap.latitude, asyncSnap.longitude) * 1000;
-          if (corrM > DRIVING_ENTRY_ASYNC_MAX_CORRECTION_M || corrM < 0.4) return;
-          const corrHdg = Number.isFinite(asyncSnap.targetHeading)
-            ? asyncSnap.targetHeading
-            : drHdgRef.current;
-          drLatRef.current = asyncSnap.latitude;
-          drLngRef.current = asyncSnap.longitude;
-          drHdgRef.current = corrHdg;
-          lastSetLocRef.current = { lat: asyncSnap.latitude, lng: asyncSnap.longitude };
-          // SSOT: bez async snap → marker (unika raw/snap yo-yo).
-        } catch {
-          /* background entry match optional */
-        }
-      })();
+        })();
+      } else if (DRIVE_CORE_V2) {
+        driveCore.applyMatchGeometry(instantRoad);
+        driveCore.seedLocalMirror(instantRoad);
+      }
 
       console.log('[DrivingMode] Manually entered — snap-first entry');
     }

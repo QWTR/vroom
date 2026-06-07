@@ -2,11 +2,15 @@ import { fetchMatchingViaProxy } from './mapboxProxyClient';
 import { MAPBOX_TOKEN } from '../constants/mapConfig';
 import { haversineKm, snapToRoute } from './navigationUtils';
 import { roadGeometryStore, type RoadPoint } from '../lib/roadGeometry/RoadGeometryStore';
+import { canRequestMapMatch, recordMapMatchNetwork } from '../lib/mapboxNetworkGate';
 
 const MAX_MATCH_INPUT = 85;
 const CACHE_SNAP_MAX_M = 110;
 const MIN_CACHE_COVERAGE = 0.52;
 const BBOX_PAD_DEG = 0.002;
+const HISTORY_MATCH_MIN_INTERVAL_MS = 60_000;
+
+let lastHistoryMatchAt = 0;
 
 type MapMatchResponse = {
   code: string;
@@ -138,12 +142,31 @@ async function snapHistoryRouteViaMapbox(
   points: [number, number][],
 ): Promise<[number, number][]> {
   const sampled = downsampleForMatch(points);
+  const last = sampled[sampled.length - 1];
+  const lastLat = last[1];
+  const lastLng = last[0];
+
+  const gate = canRequestMapMatch({ lat: lastLat, lng: lastLng, speedKmh: 30, manual: false });
+  if (!gate.ok) {
+    if (__DEV__) console.log('[HistorySnap] gate blocked', gate.reason);
+    return points;
+  }
+
+  const now = Date.now();
+  if (now - lastHistoryMatchAt < HISTORY_MATCH_MIN_INTERVAL_MS) {
+    if (__DEV__) console.log('[HistorySnap] throttled 1/min');
+    return points;
+  }
+
   const coordPath = sampled.map(([lng, lat]) => `${lng},${lat}`).join(';');
   const radii = sampled.map(() => '25').join(';');
   const fallbackUrl =
     `https://api.mapbox.com/matching/v5/mapbox/driving/${coordPath}`
     + `?geometries=geojson&steps=false&overview=full&radiuses=${radii}`
     + `&access_token=${MAPBOX_TOKEN}`;
+
+  recordMapMatchNetwork(lastLat, lastLng, 'history_snap');
+  lastHistoryMatchAt = now;
 
   const data = await fetchMatchingViaProxy<MapMatchResponse>(
     {

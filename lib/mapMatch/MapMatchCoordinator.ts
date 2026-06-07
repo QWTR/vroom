@@ -7,6 +7,7 @@ import { canRequestMapMatch } from '../mapboxNetworkGate';
 import { haversineKm } from '../../scripts/navigationUtils';
 import { vroomGpsLog } from '../vroomGpsLog';
 import { shouldAllowNetworkMapMatch } from './clientFirstRoadGeometry';
+import { shouldCoordinatorAllowNetwork } from './coordinatorNetworkPolicy';
 
 export type MapMatchRecoveryReason =
   | 'DR_DRIFT'
@@ -353,6 +354,12 @@ export class MapMatchCoordinator {
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       this.reject('rejected_by_invalid');
+      return this.deps.getMatchedPoints();
+    }
+
+    if (!shouldCoordinatorAllowNetwork(reason)) {
+      this.reject('rejected_by_client_first');
+      this.log('COORD_V2_SKIP', { reason });
       return this.deps.getMatchedPoints();
     }
 
