@@ -24,10 +24,15 @@ function isValidMarkerCoord(la: number, ln: number): boolean {
 type Props = {
   enabled: boolean;
   marker: DriveMarkerValues;
+  /** Unified trip sync — parent rAF drives pose (same SV read as camera). */
+  externalPose?: DriveMarkerTripPose | null;
+  externalVisible?: boolean;
   imageUri?: string | null;
   avatarUrl?: string | null;
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
 };
+
+type DriveMarkerTripPose = { lat: number; lng: number; hdg: number };
 
 /**
  * Trip marker — MarkerView + rAF odczyt SharedValues (60 fps, telemetria odpięta od renderu).
@@ -35,18 +40,21 @@ type Props = {
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
   marker,
+  externalPose = null,
+  externalVisible,
   imageUri,
   avatarUrl,
   cursorSkin,
 }: Props) {
+  const useExternalPose = externalPose != null;
   const [visible, setVisible] = useState(false);
   const [pose, setPose] = useState({ lat: 0, lng: 0, hdg: 0 });
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [snapshotFailed, setSnapshotFailed] = useState(false);
 
   useEffect(() => {
-    if (!enabled) {
-      setVisible(false);
+    if (useExternalPose || !enabled) {
+      if (!useExternalPose) setVisible(false);
       return;
     }
     let rafId = 0;
@@ -131,7 +139,12 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       alive = false;
       cancelAnimationFrame(rafId);
     };
-  }, [enabled, marker.lat, marker.lng, marker.heading]);
+  }, [enabled, marker.lat, marker.lng, marker.heading, useExternalPose]);
+
+  const displayPose = useExternalPose && externalPose ? externalPose : pose;
+  const displayVisible = useExternalPose
+    ? (externalVisible ?? false)
+    : visible;
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -141,7 +154,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     setSnapshotFailed(false);
   }, [imageUri]);
 
-  if (!enabled || !visible) return null;
+  if (!enabled || !displayVisible) return null;
 
   const mediaAvatar = normalizeMediaUri(avatarUrl);
   const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);
@@ -149,11 +162,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const showSkin = !!skinUri;
   const showAvatar = !!mediaAvatar && !avatarFailed && !showSkin;
   const showSnapshot = !!imageUri && !snapshotFailed && !showAvatar && !showSkin;
-  const markerTransform = { transform: [{ rotate: `${pose.hdg}deg` }] as const };
+  const markerTransform = { transform: [{ rotate: `${displayPose.hdg}deg` }] as const };
 
   return (
     <Mapbox.MarkerView
-      coordinate={[pose.lng, pose.lat]}
+      coordinate={[displayPose.lng, displayPose.lat]}
       anchor={{ x: 0.5, y: 0.5 }}
       allowOverlapWithPuck
       allowOverlap

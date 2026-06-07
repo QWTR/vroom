@@ -157,7 +157,8 @@ import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
 import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
 import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
 import { useDriveCore } from '../../hooks/useDriveCore';
-import { useDriveMarker, type DriveMarkerCameraSink } from '../../hooks/useDriveMarker';
+import { useDriveMarker } from '../../hooks/useDriveMarker';
+import { useDriveMarkerTripSync } from '../../hooks/useDriveMarkerTripSync';
 import { TripHeadingFilter } from '../../lib/driveCore/headingFilter';
 import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
 import {
@@ -1998,6 +1999,7 @@ function MapScreenInner() {
     opts?: { instant?: boolean },
   ) => {
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
+    if (DRIVE_CORE_V2) return;
     const speedKmh = speedKmhRef.current < 3 ? 0 : speedKmhRef.current;
     let hdg = Number.isFinite(heading) ? normalizeHeading(heading) : 0;
     lastCamResolvedHdgRef.current = hdg;
@@ -4187,15 +4189,10 @@ function MapScreenInner() {
     () => isDrivingRef.current || isNavigatingRef.current,
     [],
   );
-  /** V2: kamera z tego samego workletu co marker (60 fps). */
-  const driveMarkerCameraSinkRef = useRef<DriveMarkerCameraSink>({
-    enabled: false,
-    onFrame: () => {},
-  });
   /** V2: marker 60 FPS — useDriveMarker SV + DriveMarkerLayer. */
   const useSmoothWorkletPath = isTripActiveMap && !DRIVE_CORE_V2;
   /** Hook zawsze załączony — trip start/stop tylko przez getTripActive (bez lagu React state). */
-  const driveMarker = useDriveMarker(true, getTripActive, driveMarkerCameraSinkRef);
+  const driveMarker = useDriveMarker(true, getTripActive);
   const driveCore = useDriveCore({
     isDriving,
     isNavigating,
@@ -5466,6 +5463,8 @@ function MapScreenInner() {
     syncUserExploreView,
     notifyUserMapInteraction,
     getLastAppliedCameraZoom,
+    touchProgrammaticCameraApply,
+    getUserZoomOverride,
   } = useCameraAnimation(cameraRef);
 
   useEffect(() => {
@@ -5479,6 +5478,26 @@ function MapScreenInner() {
   useEffect(() => {
     setTripCameraActive(isDriving || isNavigating);
   }, [isDriving, isNavigating, setTripCameraActive]);
+
+  const driveMarkerTripSyncRefs = useRef({
+    getSpeedKmh: () => Math.max(speedKmhRef.current, rawGpsKmhRef.current),
+    getIsNavigating: () => isNavigatingRef.current,
+    isUserExploring: () => isUserExploringMapRef.current(),
+    onProgrammaticCameraApply: () => touchProgrammaticCameraApply(),
+    getUserZoomOverride: () => getUserZoomOverride(),
+  });
+  driveMarkerTripSyncRefs.current.getSpeedKmh = () => Math.max(speedKmhRef.current, rawGpsKmhRef.current);
+  driveMarkerTripSyncRefs.current.getIsNavigating = () => isNavigatingRef.current;
+  driveMarkerTripSyncRefs.current.isUserExploring = () => isUserExploringMapRef.current();
+  driveMarkerTripSyncRefs.current.onProgrammaticCameraApply = touchProgrammaticCameraApply;
+  driveMarkerTripSyncRefs.current.getUserZoomOverride = getUserZoomOverride;
+
+  const driveMarkerTripSync = useDriveMarkerTripSync(
+    DRIVE_CORE_V2 && isTripActiveMap,
+    driveMarker,
+    cameraRef,
+    driveMarkerTripSyncRefs,
+  );
 
   const resetBrowseCameraRef = useRef<
     ((center: { latitude: number; longitude: number }, opts?: { animate?: boolean }) => void) | null
@@ -6001,7 +6020,7 @@ function MapScreenInner() {
     lng: number,
     workletHdg?: number,
   ) => {
-    if (!DRIVE_CORE_V2) return;
+    if (DRIVE_CORE_V2) return;
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return;
@@ -6120,16 +6139,6 @@ function MapScreenInner() {
       frameMoveM: camFrameMoveM,
     });
   }, []);
-
-  useEffect(() => {
-    driveMarkerCameraSinkRef.current.onFrame = pushCameraFromDriveMarkerFrame;
-  }, [pushCameraFromDriveMarkerFrame]);
-
-  useEffect(() => {
-    const on = DRIVE_CORE_V2 && (isDrivingRef.current || isNavigatingRef.current || isDriving || isNavigating);
-    driveMarkerCameraSinkRef.current.enabled = on;
-    driveMarker.setCameraFollowEnabled(on);
-  }, [isDriving, isNavigating, driveMarker]);
 
   const pushCameraFromSmooth = useCallback((
     lat: number,
@@ -6251,18 +6260,10 @@ function MapScreenInner() {
     [pushCameraFromSmooth, isNavigating],
   );
 
-  /** Po wejściu w trip: jednorazowy bootstrap kamery (follow = worklet markera). */
+  /** Po wejściu w trip: jednorazowy bootstrap kamery (legacy smooth path). V2 → useDriveMarkerTripSync. */
   useEffect(() => {
     if (!isTripActiveMap || (!V10_CLIENT_FIRST && !DRIVE_CORE_V2)) return;
-    if (DRIVE_CORE_V2) {
-      const lat = driveMarker.lat.value;
-      const lng = driveMarker.lng.value;
-      const hdg = driveMarker.heading.value;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        pushTripCameraFromApply(lat, lng, Number.isFinite(hdg) ? hdg : 0, { instant: true });
-      }
-      return;
-    }
+    if (DRIVE_CORE_V2) return;
     const lat = tripSmoothPosition.lat.value;
     const lng = tripSmoothPosition.lng.value;
     const hdg = tripSmoothPosition.heading.value;
@@ -6312,10 +6313,8 @@ function MapScreenInner() {
         isDriving: true,
         timestamp: Date.now(),
       });
-    } else {
-      pushTripCameraFromApply(lat, lng, followHeading, { instant: true });
     }
-  }, [isDriving, isNavigating, setFollowMode, updateCameraFrame, recenterTo, driveMarker, userLocation, pushTripCameraFromApply]);
+  }, [isDriving, isNavigating, setFollowMode, updateCameraFrame, recenterTo, driveMarker, userLocation]);
 
   useEffect(() => {
     if (!MAP_RENDER_DEBUG) return;
@@ -16308,6 +16307,8 @@ function MapScreenInner() {
             <DriveMarkerLayer
               enabled={isTripActive}
               marker={driveMarker}
+              externalPose={driveMarkerTripSync.pose}
+              externalVisible={driveMarkerTripSync.visible}
               avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
               imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
               cursorSkin={cursorSkinOverlay}

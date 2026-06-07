@@ -592,6 +592,14 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     return Number.isFinite(z) ? z! : null;
   }, []);
 
+  const touchProgrammaticCameraApply = useCallback(() => {
+    lastNativeFollowApplyAtRef.current = Date.now();
+  }, []);
+
+  const getUserZoomOverride = useCallback((): number | null => {
+    return userZoomOverrideRef.current;
+  }, []);
+
   const resumeTripCameraFollow = useCallback(() => {
     if (!tripActiveRef.current) return;
     userPanUntilRef.current = 0;
@@ -1020,5 +1028,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     syncUserExploreView,
     notifyUserMapInteraction,
     getLastAppliedCameraZoom,
+    touchProgrammaticCameraApply,
+    getUserZoomOverride,
   };
 }
