@@ -24,3 +24,9 @@ export const MARKER_TIMING_MAX_MS = 400;
 export const SNAP_MAX_RADIUS_M = 80;
 export const SNAP_WIDE_RETRY_RADIUS_M = 120;
 export const ROUTE_SNAP_MAX_RADIUS_M = 45;
+/** Snap scoring — kara kątowa ponad softDeg (legacy useDrivingSnap ~0.32). */
+export const SNAP_ANGLE_SOFT_DEG = 18;
+export const SNAP_ANGLE_WEIGHT = 0.35;
+export const SNAP_ANGLE_REJECT_DEG = 35;
+export const SNAP_ANGLE_REJECT_HIGHWAY_DEG = 45;
+export const SNAP_HIGHWAY_SPEED_KMH = 55;

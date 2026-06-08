@@ -150,15 +150,7 @@ export function computeTripBearing(
   }
 
   if (vectorLock && moveBearing == null) {
-    const course = input.compassDeg != null
-      && Number.isFinite(input.compassDeg)
-      && input.compassDeg >= 0
-      ? normalizeHeading(input.compassDeg)
-      : null;
-    if (course != null && !isHeadingUnset(course)) {
-      return applyFlipReject(prev, course, speedKmh);
-    }
-    if (!isHeadingUnset(prev)) return prev;
+    if (!isHeadingUnset(prev)) return prev!;
     if (!isHeadingUnset(road)) return road;
   }
 
@@ -174,30 +166,12 @@ export function computeTripBearing(
     return applyFlipReject(prev, candidate, speedKmh);
   }
 
-  if (
-    prev != null
-    && speedKmh < TRAVEL_HEADING_LOW_SPEED_HOLD_KMH
-    && input.movedM < 1
-  ) {
+  if (prev != null && speedKmh < TRAVEL_HEADING_LOW_SPEED_HOLD_KMH) {
     return prev;
   }
 
   if (vectorLock && prev != null && !isHeadingUnset(prev)) {
     return prev;
-  }
-
-  const compass = input.compassDeg != null
-    && Number.isFinite(input.compassDeg)
-    && input.compassDeg >= 0
-    && speedKmh < TRAVEL_COMPASS_MAX_KMH
-    ? normalizeHeading(input.compassDeg)
-    : null;
-
-  if (compass != null && prev != null) {
-    const flip = Math.abs(headingDelta(prev, compass));
-    if (flip < 110) {
-      return lerpHeadingWithMaxStep(prev, compass, 18);
-    }
   }
 
   if (prev != null) {

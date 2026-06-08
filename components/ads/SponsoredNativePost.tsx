@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -11,8 +11,9 @@ interface Props {
   onImageError?: () => void;
 }
 
-export function SponsoredNativePost({ campaign, onPress, onImageError }: Props) {
+export function SponsoredNativePost({ campaign, onPress }: Props) {
   const { theme } = useTheme();
+  const [heroFailed, setHeroFailed] = useState(false);
 
   const open = () => {
     onPress?.();
@@ -46,7 +47,11 @@ export function SponsoredNativePost({ campaign, onPress, onImageError }: Props) 
               justifyContent: 'center',
             }}
           >
-            <Image source={{ uri: campaign.imageUrl }} style={{ width: 42, height: 42 }} contentFit="cover" onError={() => onImageError?.()} />
+            {!!campaign.imageUrl ? (
+              <Image source={{ uri: campaign.imageUrl }} style={{ width: 42, height: 42 }} contentFit="cover" />
+            ) : (
+              <MaterialIcons name="campaign" size={20} color="#FFD700" />
+            )}
           </View>
           <View style={{ flex: 1, marginLeft: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -68,7 +73,14 @@ export function SponsoredNativePost({ campaign, onPress, onImageError }: Props) 
           )}
         </View>
 
-        <Image source={{ uri: campaign.imageUrl }} style={{ width: '100%', height: 180 }} contentFit="cover" onError={() => onImageError?.()} />
+        {!!campaign.imageUrl && !heroFailed && (
+          <Image
+            source={{ uri: campaign.imageUrl }}
+            style={{ width: '100%', height: 180 }}
+            contentFit="cover"
+            onError={() => setHeroFailed(true)}
+          />
+        )}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.border, gap: 8 }}>
           <MaterialIcons name="campaign" size={14} color={theme.textDim} />

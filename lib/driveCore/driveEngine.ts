@@ -4,8 +4,9 @@ import { bearingBetween, distanceM } from './geo';
 import { flushMapMatchBatch } from './mapMatchClient';
 import { evaluateLocalGeometryGate } from './localGeometryMatchGate';
 import { GeometryCache } from './geometryCache';
-import { GpsQualityGate, type GpsQualityResult } from './gpsQualityGate';
+import { GpsQualityGate, GPS_WAKE_MIN_KMH, type GpsQualityResult } from './gpsQualityGate';
 import { localRoadGeometryMirror } from './localRoadSnap';
+import type { NavRouteStartAnchor } from './navRouteBootstrap';
 import { MotionStateMachine } from './motionState';
 import { RoadSnapEngine } from './roadSnap';
 import { SpeedMeter } from './speedMeter';
@@ -33,6 +34,7 @@ export class DriveEngine {
   private lastLocalL2RefreshAt = 0;
   private isAppBackground = false;
   private callbacks: DriveEngineCallbacks = {};
+  private navBootstrap: NavRouteStartAnchor | null = null;
 
   setAppBackground(active: boolean): void {
     this.isAppBackground = active;
@@ -58,6 +60,7 @@ export class DriveEngine {
     this.lastTimestamp = 0;
     this.fetchInFlight = false;
     this.localL2RefreshInFlight = false;
+    this.navBootstrap = null;
 
     if (opts?.seedPolyline && opts.seedPolyline.length >= 2) {
       this.cache.setFromMatch(opts.seedPolyline);
@@ -136,6 +139,9 @@ export class DriveEngine {
 
   setNavigating(active: boolean): void {
     this.isNavigating = active;
+    if (!active) {
+      this.navBootstrap = null;
+    }
   }
 
   setRoutePolyline(points: RoadPoint[]): void {
@@ -144,17 +150,50 @@ export class DriveEngine {
     }
   }
 
+  /** Teleport markera na start trasy — ignoruj słaby GPS do pierwszego ruchu. */
+  setNavRouteBootstrap(anchor: NavRouteStartAnchor | null): void {
+    this.navBootstrap = anchor;
+    if (!anchor) return;
+    this.motion.reset({ lat: anchor.lat, lng: anchor.lng });
+    this.snap.seedPose(
+      anchor.lat,
+      anchor.lng,
+      this.cache,
+      anchor.headingDeg,
+    );
+    this.quality.commitAccepted({
+      lat: anchor.lat,
+      lng: anchor.lng,
+      accuracy: 8,
+      timestamp: Date.now(),
+    });
+  }
+
+  clearNavRouteBootstrap(): void {
+    this.navBootstrap = null;
+  }
+
+  isNavRouteBootstrapActive(): boolean {
+    return this.isNavigating && this.navBootstrap != null;
+  }
+
+  getNavRouteBootstrap(): NavRouteStartAnchor | null {
+    return this.navBootstrap;
+  }
+
   onRawGps(raw: RawGpsFix): DriveTickOutput | null {
     if (!Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) return null;
 
     const isFreeDrive = !this.isNavigating;
     const freeDriveNoRoute = isFreeDrive && !this.cache.hasGeometry();
     const motionBefore = this.motion.getSnapshot();
+    const bootstrapActive = this.isNavigating && this.navBootstrap != null;
     const gate = this.quality.evaluate(raw, {
       isMoving: motionBefore.isMoving,
       isNavigating: this.isNavigating,
       lastSpeedKmh: this.speed.getLastKmh(),
       freeDriveNoRoute,
+      navBootstrapActive: bootstrapActive && !motionBefore.isMoving,
     });
 
     if (this.quality.registerBadVerdict(gate.verdict, motionBefore.isMoving)) {
@@ -166,6 +205,13 @@ export class DriveEngine {
     }
 
     if (gate.verdict === 'REJECT') {
+      if (bootstrapActive) {
+        const woke = this.processNavBootstrapMotion(raw, gate);
+        if (woke) {
+          return this.onRawGps(raw);
+        }
+        return this.buildNavBootstrapTick(raw);
+      }
       const rejectDopplerKmh =
         raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
       if (isFreeDrive) {
@@ -252,6 +298,13 @@ export class DriveEngine {
     };
 
     if (!isMoving) {
+      if (bootstrapActive) {
+        const woke = this.processNavBootstrapMotion(raw, gate);
+        if (woke) {
+          return this.onRawGps(raw);
+        }
+        return this.buildNavBootstrapTick(raw);
+      }
       if (isFreeDrive) {
         const out = this.buildFreeDriveTick(raw, gate, true);
         this.maybeCommitEnvelope(raw, gate, out.isMoving, isFreeDrive);
@@ -611,6 +664,70 @@ export class DriveEngine {
       durationMs,
       geometrySource,
     };
+  }
+
+  private buildNavBootstrapTick(raw: RawGpsFix): DriveTickOutput {
+    const anchor = this.navBootstrap!;
+    const dopplerKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
+    return {
+      pose: {
+        lat: anchor.lat,
+        lng: anchor.lng,
+        heading: anchor.headingDeg,
+        crossTrackM: 0,
+        segmentIndex: 0,
+      },
+      speedKmh: dopplerKmh,
+      isMoving: false,
+      durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
+      geometrySource: this.cache.source() ?? 'route',
+    };
+  }
+
+  /** Wykryj ruszenie z postoju na starcie nawigacji (Doppler / dystans). */
+  private processNavBootstrapMotion(
+    raw: RawGpsFix,
+    gate: GpsQualityResult,
+  ): boolean {
+    if (!this.navBootstrap) return false;
+
+    const softVerdict =
+      gate.verdict === 'REJECT' ? 'DEGRADED' as const : gate.verdict;
+    let isMoving = this.motion.update(raw, {
+      positionTrusted: gate.allowPositionUpdate,
+      qualityVerdict: softVerdict,
+    });
+
+    const dopplerKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
+    if (!isMoving && dopplerKmh >= 8) {
+      this.motion.wakeFromGps();
+      isMoving = true;
+    }
+    if (
+      !isMoving
+      && softVerdict !== 'REJECT'
+      && this.quality.registerWakeSample(raw, softVerdict)
+    ) {
+      this.motion.wakeFromGps();
+      isMoving = true;
+    }
+    if (
+      !isMoving
+      && gate.verdict === 'REJECT'
+      && dopplerKmh >= GPS_WAKE_MIN_KMH
+      && this.quality.registerWakeSample(raw, 'DEGRADED')
+    ) {
+      this.motion.wakeFromGps();
+      isMoving = true;
+    }
+
+    if (isMoving) {
+      this.navBootstrap = null;
+      this.quality.resetWakeStreak();
+    }
+    return isMoving;
   }
 }
 

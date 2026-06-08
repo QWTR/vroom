@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
-import { AdPlaceholder } from './AdPlaceholder';
 
 /** BanerVroom — domyślna jednostka (strona główna). */
 export const BANNER_ID_VROOM = 'ca-app-pub-1660420496578702/5609918502';
@@ -33,11 +32,13 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
     return () => clearTimeout(t);
   }, [failed, isPremium, premiumLoading]);
 
+  useEffect(() => {
+    if (!failed || isPremium || premiumLoading) return;
+    onFailedToLoad?.();
+  }, [failed, isPremium, premiumLoading, onFailedToLoad]);
+
   if (premiumLoading || isPremium) return null;
-  if (failed) {
-    if (onFailedToLoad) return null;
-    return <AdPlaceholder variant="banner" />;
-  }
+  if (failed) return null;
 
   return (
     <View
@@ -51,7 +52,7 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
         backgroundColor: theme.surface,
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: loaded ? undefined : 44,
+        minHeight: 44,
       }}
     >
       <BannerAd
@@ -79,21 +80,8 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
             justifyContent: 'center',
             alignItems: 'center',
             backgroundColor: theme.surface,
-            paddingHorizontal: 8,
           }}
-        >
-          <Text
-            style={{
-              fontFamily: 'Orbitron',
-              color: theme.textDim,
-              fontSize: 8,
-              textAlign: 'center',
-              letterSpacing: 1,
-            }}
-          >
-            TU POWINNA BYĆ REKLAMA
-          </Text>
-        </View>
+        />
       )}
     </View>
   );

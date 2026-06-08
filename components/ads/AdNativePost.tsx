@@ -14,7 +14,6 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
-import { AdPlaceholder } from './AdPlaceholder';
 
 /** Dyskusje — native advanced */
 const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187';
@@ -54,14 +53,13 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
       setFailed(false);
     }).catch((e: any) => {
       setFailed(true);
-      onFailedToLoad?.();
       console.warn('[AdNativePost] failed', { unitId, error: e });
     });
 
     return () => {
       ad?.destroy();
     };
-  }, [isPremium, premiumLoading, retryTick, onFailedToLoad]);
+  }, [isPremium, premiumLoading, retryTick]);
 
   useEffect(() => {
     if (!failed || isPremium || premiumLoading) return;
@@ -73,11 +71,26 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
     return () => clearTimeout(t);
   }, [failed, isPremium, premiumLoading]);
 
+  useEffect(() => {
+    if (!failed || isPremium || premiumLoading) return;
+    onFailedToLoad?.();
+  }, [failed, isPremium, premiumLoading, onFailedToLoad]);
+
   if (premiumLoading || isPremium) return null;
 
   if (!nativeAd) {
-    if (failed && onFailedToLoad) return null;
-    return <AdPlaceholder variant="native" />;
+    if (failed) return null;
+    return (
+      <View
+        style={{
+          marginHorizontal: 12,
+          marginBottom: 10,
+          minHeight: 40,
+          borderRadius: 14,
+          backgroundColor: theme.surface,
+        }}
+      />
+    );
   }
 
   return (

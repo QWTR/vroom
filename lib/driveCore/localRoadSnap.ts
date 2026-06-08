@@ -1,25 +1,41 @@
-import { bearingBetween, closestPointOnSegment, distanceM } from './geo';
+import {
+  bearingBetween,
+  closestPointOnSegment,
+  distanceM,
+  headingDeltaAbs,
+  snapSegmentScore,
+} from './geo';
+import { SNAP_HIGHWAY_SPEED_KMH } from './config';
 import type { RoadPoint, SnappedPose } from './types';
 
 /** Promień wyszukiwania segmentów L2 wokół GPS (m). */
 export const LOCAL_L2_SNAP_RADIUS_M = 55;
 export const LOCAL_L2_SNAP_WIDE_M = 95;
-/** Segment zgodny z kierunkiem jazdy; przy braku trafień — nearest w promieniu. */
-export const LOCAL_L2_HEADING_ALIGN_DEG = 58;
+/** Segment zgodny z kierunkiem jazdy (miejski domyślnie). */
+export const LOCAL_L2_HEADING_ALIGN_DEG = 32;
+export const LOCAL_L2_HEADING_ALIGN_HIGHWAY_DEG = 42;
+/** Nearest fallback — odrzuć segment prostopadły do ruchu. */
+export const LOCAL_L2_NEAREST_MAX_ANGLE_DEG = 45;
 const MIRROR_TTL_MS = 180_000;
 const MAX_STORED_POLYLINES = 36;
-
-function headingDeltaDeg(a: number, b: number): number {
-  return Math.abs(((b - a + 540) % 360) - 180);
-}
 
 function segmentBearing(a: RoadPoint, b: RoadPoint): number {
   return bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
 }
 
-function headingMatchesTravel(segBearing: number, travelHeadingDeg: number): boolean {
+function headingAlignDeg(speedKmh?: number): number {
+  return (speedKmh ?? 0) >= SNAP_HIGHWAY_SPEED_KMH
+    ? LOCAL_L2_HEADING_ALIGN_HIGHWAY_DEG
+    : LOCAL_L2_HEADING_ALIGN_DEG;
+}
+
+function headingMatchesTravel(
+  segBearing: number,
+  travelHeadingDeg: number,
+  speedKmh?: number,
+): boolean {
   if (!Number.isFinite(travelHeadingDeg)) return true;
-  return headingDeltaDeg(segBearing, travelHeadingDeg) <= LOCAL_L2_HEADING_ALIGN_DEG;
+  return headingDeltaAbs(segBearing, travelHeadingDeg) <= headingAlignDeg(speedKmh);
 }
 
 /**
@@ -54,34 +70,53 @@ export class LocalRoadGeometryMirror {
   }
 
   /**
-   * Heading-filter, potem nearest — zawsze wybierz segment bliżej osi drogi.
+   * Heading-filter + score; nearest tylko gdy kąt OK względem ruchu.
    */
   snapToLocalRoadBest(
     lat: number,
     lng: number,
     travelHeadingDeg: number,
     radiusM: number = LOCAL_L2_SNAP_RADIUS_M,
+    speedKmh?: number,
   ): SnappedPose | null {
-    const withHeading = this.snapToLocalRoad(lat, lng, travelHeadingDeg, radiusM);
-    const nearest = this.snapToLocalRoadNearest(lat, lng, Math.max(radiusM, LOCAL_L2_SNAP_WIDE_M));
+    const withHeading = this.snapToLocalRoad(lat, lng, travelHeadingDeg, radiusM, speedKmh);
+    const nearest = this.snapToLocalRoadNearest(
+      lat,
+      lng,
+      Math.max(radiusM, LOCAL_L2_SNAP_WIDE_M),
+      travelHeadingDeg,
+      speedKmh,
+    );
     if (!withHeading) return nearest;
     if (!nearest) return withHeading;
-    return withHeading.crossTrackM <= nearest.crossTrackM + 2
-      ? withHeading
-      : nearest;
+    const nearestAngleOk = !Number.isFinite(travelHeadingDeg)
+      || headingDeltaAbs(nearest.heading, travelHeadingDeg) <= LOCAL_L2_NEAREST_MAX_ANGLE_DEG;
+    if (!nearestAngleOk) return withHeading;
+    const withScore = snapSegmentScore(
+      withHeading.crossTrackM,
+      withHeading.heading,
+      travelHeadingDeg,
+      speedKmh,
+    ) ?? Infinity;
+    const nearScore = snapSegmentScore(
+      nearest.crossTrackM,
+      nearest.heading,
+      travelHeadingDeg,
+      speedKmh,
+    ) ?? Infinity;
+    return withScore <= nearScore ? withHeading : nearest;
   }
 
-  /**
-   * Rzut prostopadły na najbliższy segment z lokalnej bazy, z filtrem heading.
-   */
   snapToLocalRoad(
     lat: number,
     lng: number,
     travelHeadingDeg: number,
     radiusM: number = LOCAL_L2_SNAP_RADIUS_M,
+    speedKmh?: number,
   ): SnappedPose | null {
     if (!this.hasGeometry()) return null;
 
+    let bestScore = Infinity;
     let bestCross = Infinity;
     let bestLat = lat;
     let bestLng = lng;
@@ -93,20 +128,21 @@ export class LocalRoadGeometryMirror {
         const a = poly[i];
         const b = poly[i + 1];
         const segH = segmentBearing(a, b);
-        if (!headingMatchesTravel(segH, travelHeadingDeg)) continue;
+        if (!headingMatchesTravel(segH, travelHeadingDeg, speedKmh)) continue;
 
         const onSeg = closestPointOnSegment(lat, lng, a, b);
         const centerDistM = distanceM(lat, lng, onSeg.lat, onSeg.lng);
         if (centerDistM > LOCAL_L2_SNAP_WIDE_M + 15) continue;
         if (onSeg.crossTrackM > radiusM) continue;
 
-        if (onSeg.crossTrackM < bestCross) {
-          bestCross = onSeg.crossTrackM;
-          bestLat = onSeg.lat;
-          bestLng = onSeg.lng;
-          bestHeading = segH;
-          bestSegIdx = i;
-        }
+        const score = snapSegmentScore(onSeg.crossTrackM, segH, travelHeadingDeg, speedKmh);
+        if (score == null || score >= bestScore) continue;
+        bestScore = score;
+        bestCross = onSeg.crossTrackM;
+        bestLat = onSeg.lat;
+        bestLng = onSeg.lng;
+        bestHeading = segH;
+        bestSegIdx = i;
       }
     }
 
@@ -123,16 +159,16 @@ export class LocalRoadGeometryMirror {
     };
   }
 
-  /**
-   * Najbliższy segment bez filtra heading — fallback przy ruchu gdy filtr odrzuca wszystko.
-   */
   snapToLocalRoadNearest(
     lat: number,
     lng: number,
     radiusM: number = LOCAL_L2_SNAP_WIDE_M,
+    travelHeadingDeg?: number,
+    speedKmh?: number,
   ): SnappedPose | null {
     if (!this.hasGeometry()) return null;
 
+    let bestScore = Infinity;
     let bestCross = Infinity;
     let bestLat = lat;
     let bestLng = lng;
@@ -144,16 +180,23 @@ export class LocalRoadGeometryMirror {
         const a = poly[i];
         const b = poly[i + 1];
         const segH = segmentBearing(a, b);
+        if (
+          Number.isFinite(travelHeadingDeg)
+          && headingDeltaAbs(segH, travelHeadingDeg!) > LOCAL_L2_NEAREST_MAX_ANGLE_DEG
+        ) {
+          continue;
+        }
         const onSeg = closestPointOnSegment(lat, lng, a, b);
         if (onSeg.crossTrackM > radiusM) continue;
 
-        if (onSeg.crossTrackM < bestCross) {
-          bestCross = onSeg.crossTrackM;
-          bestLat = onSeg.lat;
-          bestLng = onSeg.lng;
-          bestHeading = segH;
-          bestSegIdx = i;
-        }
+        const score = snapSegmentScore(onSeg.crossTrackM, segH, travelHeadingDeg, speedKmh);
+        if (score == null || score >= bestScore) continue;
+        bestScore = score;
+        bestCross = onSeg.crossTrackM;
+        bestLat = onSeg.lat;
+        bestLng = onSeg.lng;
+        bestHeading = segH;
+        bestSegIdx = i;
       }
     }
 

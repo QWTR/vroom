@@ -41,13 +41,22 @@ Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navi
 - Verify no long periods of frozen distance while marker visibly moves.
 - Verify summary distance remains close to reference trip distance (target drift <= 5% on 10-20 km run).
 
+## Test Run 6: Intersections and Low-Speed Heading (V2 snap stability)
+
+- Approach a 4-way intersection at 30-40 km/h and drive straight through without turning.
+- Verify marker does not jump onto the cross street (no lateral snap to perpendicular road).
+- Repeat with a deliberate 90° turn; verify marker follows the turn within ~1 s (no instant teleport).
+- Stop at traffic lights for 20-30 s with engine running.
+- Verify marker heading stays stable (no compass spin while stationary).
+- After green, verify marker resumes forward motion without backward “jojo” correction.
+
 ## Test Run 4: Marker Rotation SSOT (Driving / Nav)
 
 - Drive 50-120 km/h on straight highway for 2+ minutes.
 - Verify marker does not spin or flip 90/180 deg while road is straight.
 - Enter a roundabout at ~40-60 km/h; verify rotation follows curve without jitter.
 - Verify marker stays in camera viewport (no drift to edge then snap back).
-- At crawl speed below 10 km/h, verify marker can use compass without violent spins.
+- At crawl speed below 10 km/h, verify marker heading stays locked (no compass-driven spins).
 
 ## Test Run 5: Stop-Go Speed Stability
 

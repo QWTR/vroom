@@ -6,6 +6,13 @@ import {
   haversineKm,
   stepTowardSnapOnPolyline,
 } from '../../scripts/navigationUtils';
+import {
+  SNAP_ANGLE_REJECT_DEG,
+  SNAP_ANGLE_REJECT_HIGHWAY_DEG,
+  SNAP_ANGLE_SOFT_DEG,
+  SNAP_ANGLE_WEIGHT,
+  SNAP_HIGHWAY_SPEED_KMH,
+} from './config';
 import type { RoadPoint } from './types';
 
 export { bearingBetween, densifyPolyline, haversineKm };
@@ -116,6 +123,29 @@ export function headingDeltaShort(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
+export function headingDeltaAbs(from: number, to: number): number {
+  return Math.abs(headingDeltaShort(from, to));
+}
+
+/** Score segmentu snap — niższy = lepszy; null = hard reject (kąt). */
+export function snapSegmentScore(
+  crossTrackM: number,
+  segBearing: number,
+  travelHeadingDeg?: number,
+  speedKmh?: number,
+): number | null {
+  if (!Number.isFinite(travelHeadingDeg)) {
+    return crossTrackM;
+  }
+  const angleDelta = headingDeltaAbs(segBearing, travelHeadingDeg!);
+  const rejectDeg = (speedKmh ?? 0) >= SNAP_HIGHWAY_SPEED_KMH
+    ? SNAP_ANGLE_REJECT_HIGHWAY_DEG
+    : SNAP_ANGLE_REJECT_DEG;
+  if (angleDelta > rejectDeg) return null;
+  const penalty = Math.max(0, angleDelta - SNAP_ANGLE_SOFT_DEG) * SNAP_ANGLE_WEIGHT;
+  return crossTrackM + penalty;
+}
+
 export function smoothHeadingEma(
   current: number,
   target: number,
@@ -171,6 +201,7 @@ export function projectOnPolylineForward(
   minSegmentIndex: number,
   maxRadiusM: number,
   travelHeadingDeg?: number,
+  speedKmh?: number,
 ): {
   lat: number;
   lng: number;
@@ -181,14 +212,22 @@ export function projectOnPolylineForward(
   if (points.length < 2) return null;
   const minSeg = Math.max(0, Math.min(minSegmentIndex, points.length - 2));
 
+  let bestScore = Infinity;
   let bestCross = Infinity;
   let bestLat = lat;
   let bestLng = lng;
   let bestSeg = minSeg;
 
   for (let i = minSeg; i < points.length - 1; i++) {
-    const onSeg = closestPointOnSegment(lat, lng, points[i], points[i + 1]);
-    if (onSeg.crossTrackM < bestCross) {
+    const a = points[i];
+    const b = points[i + 1];
+    const onSeg = closestPointOnSegment(lat, lng, a, b);
+    if (onSeg.crossTrackM > maxRadiusM) continue;
+    const segBearing = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+    const score = snapSegmentScore(onSeg.crossTrackM, segBearing, travelHeadingDeg, speedKmh);
+    if (score == null) continue;
+    if (score < bestScore) {
+      bestScore = score;
       bestCross = onSeg.crossTrackM;
       bestLat = onSeg.lat;
       bestLng = onSeg.lng;

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 
 const SESSION_KEY = 'vroom_ad_session_id';
-const CACHE_TTL_MS = 55_000;
+const CACHE_TTL_MS = 110_000;
 
 export type AdPlacement = 'map_banner' | 'feed_native' | 'home_banner';
 
@@ -106,6 +106,12 @@ class SponsoredAdStore {
     }
   }
 
+  refreshPlacement(placement: AdPlacement) {
+    if (this.enabledPlacements.get(placement)) {
+      void this.fetch(placement, true, true);
+    }
+  }
+
   async fetch(placement: AdPlacement, enabled: boolean, force = false) {
     if (!enabled) {
       this.cache.set(placement, { result: { source: 'admob' }, fetchedAt: Date.now() });
@@ -147,11 +153,14 @@ class SponsoredAdStore {
       );
 
       const result: SponsoredAdResult = res.ok
-        ? await res.json().then((data) =>
-            data?.source === 'sponsored' && data.campaign
+        ? await res.json().then((data) => {
+            if (__DEV__) {
+              console.log('[SponsoredAd]', placement, data?.source, data?.campaign?.title ?? '-');
+            }
+            return data?.source === 'sponsored' && data.campaign
               ? { source: 'sponsored' as const, campaign: data.campaign }
-              : { source: 'admob' as const },
-          )
+              : { source: 'admob' as const };
+          })
         : { source: 'admob' };
 
       this.cache.set(placement, { result, fetchedAt: Date.now() });

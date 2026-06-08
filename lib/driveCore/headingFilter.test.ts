@@ -1,3 +1,4 @@
+import { describe, expect, it, beforeEach } from 'vitest';
 import {
   computeTripBearing,
   HeadingRingBuffer,
@@ -39,7 +40,7 @@ describe('computeTripBearing', () => {
         speedMs: TRAVEL_VECTOR_LOCK_SPEED_MS + 1,
         snapHeading: 270,
         compassDeg: 90,
-        prevHeading: 0,
+        prevHeading: 45,
       },
       ring,
     );
@@ -47,20 +48,19 @@ describe('computeTripBearing', () => {
     expect(h).toBeLessThan(90);
   });
 
-  it('escapes stuck 0° when real bearing arrives at speed', () => {
+  it('uses movement vector at speed when prev heading unset', () => {
     ring.reset();
     const h = computeTripBearing(
       {
         prevLat: 51.211,
         prevLng: 19.024,
-        lat: 51.211,
-        lng: 19.024,
-        movedM: 0.4,
+        lat: 51.21,
+        lng: 19.023,
+        movedM: 55,
         speedMs: 14,
         speedKmh: 51,
         snapHeading: 0,
-        compassDeg: 248,
-        prevHeading: 0,
+        prevHeading: undefined,
       },
       ring,
     );
@@ -68,9 +68,30 @@ describe('computeTripBearing', () => {
     expect(h).toBeLessThan(270);
   });
 
+  it('ignores compass at low speed and holds previous heading', () => {
+    ring.reset();
+    const prev = 88;
+    const h = computeTripBearing(
+      {
+        prevLat: 52.0,
+        prevLng: 21.0,
+        lat: 52.0,
+        lng: 21.0,
+        movedM: 0.2,
+        speedMs: 1.5,
+        speedKmh: 6,
+        snapHeading: 270,
+        compassDeg: 210,
+        prevHeading: prev,
+      },
+      ring,
+    );
+    expect(h).toBe(prev);
+  });
+
   it('rejects 180 flip at driving speed', () => {
     ring.reset();
-    const prev = 10;
+    const prev = 45;
     const h = computeTripBearing(
       {
         prevLat: 52.0,
@@ -79,12 +100,12 @@ describe('computeTripBearing', () => {
         lng: 21.0,
         movedM: 50,
         speedMs: 15,
-        snapHeading: 190,
+        snapHeading: 50,
         prevHeading: prev,
       },
       ring,
     );
-    ring.push(190);
+    ring.push(h);
     const h2 = computeTripBearing(
       {
         prevLat: 52.001,
@@ -93,7 +114,7 @@ describe('computeTripBearing', () => {
         lng: 21.0,
         movedM: 50,
         speedMs: 15,
-        snapHeading: 10,
+        snapHeading: 225,
         prevHeading: h,
       },
       ring,

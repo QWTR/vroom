@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { sponsoredAdStore } from './sponsoredAdStore';
+import type { AdPlacement } from './sponsoredAdStore';
 
-export const AD_ROTATION_MS = 60_000;
+/** Partner 2 min, AdMob 1 min — na przemian */
+export const PARTNER_SLOT_MS = 120_000;
+export const ADMOB_SLOT_MS = 60_000;
 
-export type AdDisplaySource = 'partner' | 'admob' | 'placeholder';
+export type AdDisplaySource = 'partner' | 'admob';
 
 type RotationSnapshot = {
   slot: 'partner' | 'admob';
@@ -11,7 +14,7 @@ type RotationSnapshot = {
   partnerFailed: boolean;
 };
 
-class AdRotationStore {
+class PlacementRotationStore {
   private slot: 'partner' | 'admob' = 'partner';
   private admobFailed = false;
   private partnerFailed = false;
@@ -23,8 +26,9 @@ class AdRotationStore {
     admobFailed: false,
     partnerFailed: false,
   };
-  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private timeoutId: ReturnType<typeof setTimeout> | null = null;
   private subscriberCount = 0;
+  private activePlacement: AdPlacement | null = null;
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -51,54 +55,69 @@ class AdRotationStore {
     this.listeners.forEach((listener) => listener());
   }
 
-  private stopInterval() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+  private stopTimer() {
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
     }
   }
 
-  private startInterval() {
-    this.stopInterval();
+  private scheduleNext(placement: AdPlacement) {
+    this.stopTimer();
     if (!this.enabled || !this.hasPartner) return;
 
-    this.intervalId = setInterval(() => {
+    const duration = this.slot === 'partner' ? PARTNER_SLOT_MS : ADMOB_SLOT_MS;
+    this.timeoutId = setTimeout(() => {
       this.admobFailed = false;
       this.partnerFailed = false;
       const nextSlot = this.slot === 'partner' ? 'admob' : 'partner';
       this.slot = nextSlot;
       if (nextSlot === 'partner') {
-        sponsoredAdStore.refreshActivePlacements();
+        sponsoredAdStore.refreshPlacement(placement);
       }
       this.notify();
-    }, AD_ROTATION_MS);
+      this.scheduleNext(placement);
+    }, duration);
   }
 
-  setContext(hasPartner: boolean, enabled: boolean) {
+  private startTimer(placement: AdPlacement) {
+    this.activePlacement = placement;
+    if (this.timeoutId) return;
+    this.slot = 'partner';
+    this.scheduleNext(placement);
+  }
+
+  setContext(placement: AdPlacement, hasPartner: boolean, enabled: boolean) {
     const changed = this.hasPartner !== hasPartner || this.enabled !== enabled;
     this.hasPartner = hasPartner;
     this.enabled = enabled;
 
-    if (!enabled || !hasPartner) {
-      this.slot = 'admob';
-      this.stopInterval();
+    if (!enabled) {
+      this.stopTimer();
       if (changed) this.notify();
       return;
     }
 
-    if (!this.intervalId) {
-      this.slot = 'partner';
+    if (!hasPartner) {
+      this.slot = 'admob';
+      this.stopTimer();
+      if (changed) this.notify();
+      return;
     }
-    this.startInterval();
+
+    this.startTimer(placement);
     if (changed) this.notify();
   }
 
-  acquire() {
+  acquire(placement: AdPlacement) {
     this.subscriberCount += 1;
     return () => {
       this.subscriberCount = Math.max(0, this.subscriberCount - 1);
       if (this.subscriberCount === 0) {
-        this.stopInterval();
+        this.stopTimer();
+        this.activePlacement = null;
+      } else if (this.activePlacement === placement && this.enabled && this.hasPartner) {
+        this.startTimer(placement);
       }
     };
   }
@@ -116,45 +135,66 @@ class AdRotationStore {
   };
 }
 
-const adRotationStore = new AdRotationStore();
+const rotationStores = new Map<AdPlacement, PlacementRotationStore>();
 
-export function useAdRotation(hasPartner: boolean, enabled: boolean) {
+function getRotationStore(placement: AdPlacement) {
+  let store = rotationStores.get(placement);
+  if (!store) {
+    store = new PlacementRotationStore();
+    rotationStores.set(placement, store);
+  }
+  return store;
+}
+
+function resolveDisplaySource(
+  snapshot: RotationSnapshot,
+  hasPartner: boolean,
+  enabled: boolean,
+): AdDisplaySource {
+  if (!enabled) return 'admob';
+
+  const canPartner = hasPartner && !snapshot.partnerFailed;
+  const canAdmob = !snapshot.admobFailed;
+
+  if (snapshot.slot === 'partner') {
+    if (canPartner) return 'partner';
+    if (canAdmob) return 'admob';
+  } else {
+    if (canAdmob) return 'admob';
+    if (canPartner) return 'partner';
+  }
+
+  if (hasPartner) return 'partner';
+  return 'admob';
+}
+
+export function useAdRotation(placement: AdPlacement, hasPartner: boolean, enabled: boolean) {
+  const store = getRotationStore(placement);
+
   const snapshot = useSyncExternalStore(
-    adRotationStore.subscribe,
-    adRotationStore.getSnapshot,
-    adRotationStore.getSnapshot,
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
   );
 
   useEffect(() => {
-    const release = adRotationStore.acquire();
+    const release = store.acquire(placement);
     return release;
-  }, []);
+  }, [placement, store]);
 
   useEffect(() => {
-    adRotationStore.setContext(hasPartner, enabled);
-  }, [hasPartner, enabled]);
+    store.setContext(placement, hasPartner, enabled);
+  }, [placement, hasPartner, enabled, store]);
 
-  const displaySource = useMemo((): AdDisplaySource => {
-    if (!enabled) return 'placeholder';
-
-    const canPartner = hasPartner && !snapshot.partnerFailed;
-    const canAdmob = !snapshot.admobFailed;
-
-    if (snapshot.slot === 'partner') {
-      if (canPartner) return 'partner';
-      if (canAdmob) return 'admob';
-      return 'placeholder';
-    }
-
-    if (canAdmob) return 'admob';
-    if (canPartner) return 'partner';
-    return 'placeholder';
-  }, [snapshot, hasPartner, enabled]);
+  const displaySource = useMemo(
+    () => resolveDisplaySource(snapshot, hasPartner, enabled),
+    [snapshot, hasPartner, enabled],
+  );
 
   return {
     displaySource,
     slot: snapshot.slot,
-    markAdmobFailed: adRotationStore.markAdmobFailed,
-    markPartnerFailed: adRotationStore.markPartnerFailed,
+    markAdmobFailed: store.markAdmobFailed,
+    markPartnerFailed: store.markPartnerFailed,
   };
 }

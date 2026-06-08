@@ -138,6 +138,47 @@ describe('resolveRoadMarkerPose', () => {
     expect(distanceM(prev.lat, prev.lng, result.lat, result.lng)).toBeGreaterThan(25);
   });
 
+  it('without turnResnap stays on current road at perpendicular intersection', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const eastWest: RoadPoint[] = [
+      { latitude: 52.0, longitude: 20.998 },
+      { latitude: 52.0, longitude: 21.002 },
+    ];
+    const northSouth: RoadPoint[] = [
+      { latitude: 51.999, longitude: 21.0 },
+      { latitude: 52.001, longitude: 21.0 },
+    ];
+    const prev = { lat: 52.0, lng: 21.0008 };
+    resolveRoadMarkerPose({
+      prev: { lat: 52.0, lng: 21.0002 },
+      enginePose: snappedPose(52.0, 21.0004, 3),
+      roadPolylines: [eastWest, northSouth],
+      speedKmh: 35,
+      travelHeadingDeg: 90,
+      rawLat: 52.0,
+      rawLng: 21.0002,
+      isNavigating: false,
+      turnResnap: false,
+    });
+    const rawLat = 52.00015;
+    const rawLng = 21.0;
+    const result = resolveRoadMarkerPose({
+      prev,
+      enginePose: snappedPose(52.0, 21.0009, 5),
+      roadPolylines: [eastWest, northSouth],
+      speedKmh: 35,
+      travelHeadingDeg: 90,
+      rawLat,
+      rawLng,
+      isNavigating: false,
+      turnResnap: false,
+    });
+    expect(result.onRoad).toBe(true);
+    expect(Math.abs(result.lat - 52.0)).toBeLessThan(0.0002);
+    expect(result.lng).toBeGreaterThan(prev.lng - 0.0001);
+  });
+
   it('turnResnap advances marker toward raw GPS on branch', () => {
     resetRoadMarkerPoseState();
     localRoadGeometryMirror.clear();

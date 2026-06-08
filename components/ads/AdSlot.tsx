@@ -1,9 +1,9 @@
 import React from 'react';
+import { View } from 'react-native';
 import { AdBanner, BANNER_ID_VROOM } from './AdBanner';
 import { AdNativePost } from './AdNativePost';
 import { SponsoredBanner } from './SponsoredBanner';
 import { SponsoredNativePost } from './SponsoredNativePost';
-import { AdPlaceholder } from './AdPlaceholder';
 import { useSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
 import { useAdRotation } from '../../hooks/useAdRotation';
 import { usePremium } from '../../contexts/PremiumContext';
@@ -30,40 +30,37 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
 
   const { result, loading, recordClick } = useSponsoredAd(placement, adsEnabled);
 
-  const hasPartner = result?.source === 'sponsored' && !!result?.campaign?.imageUrl;
-  const { displaySource, markAdmobFailed, markPartnerFailed } = useAdRotation(hasPartner, adsEnabled);
+  const partnerCampaign = result?.source === 'sponsored' ? result.campaign : undefined;
+  const hasPartner = !!partnerCampaign?.title;
+
+  const { displaySource, markAdmobFailed } = useAdRotation(placement, hasPartner, adsEnabled);
 
   if (premiumLoading || isPremium) return null;
 
   const onPartnerPress = () => {
-    if (result?.campaign) recordClick(result.campaign.id);
+    if (partnerCampaign) recordClick(partnerCampaign.id);
   };
 
-  if (loading && !result) {
-    return <AdPlaceholder variant={variant} />;
-  }
-
-  if (displaySource === 'partner' && result?.campaign) {
+  const renderPartner = () => {
+    if (!partnerCampaign) return null;
     if (variant === 'native') {
       return (
         <SponsoredNativePost
-          campaign={result.campaign}
+          campaign={partnerCampaign}
           onPress={onPartnerPress}
-          onImageError={markPartnerFailed}
         />
       );
     }
     return (
       <SponsoredBanner
-        campaign={result.campaign}
+        campaign={partnerCampaign}
         onPress={onPartnerPress}
         aspectRatio={BANNER_ASPECT[placement]}
-        onImageError={markPartnerFailed}
       />
     );
-  }
+  };
 
-  if (displaySource === 'admob') {
+  const renderAdmob = () => {
     if (variant === 'native') {
       return <AdNativePost onFailedToLoad={markAdmobFailed} />;
     }
@@ -73,7 +70,27 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
         onFailedToLoad={markAdmobFailed}
       />
     );
+  };
+
+  const renderLoadingShell = () => (
+    <View
+      style={{
+        marginHorizontal: variant === 'native' ? 12 : 20,
+        marginVertical: variant === 'native' ? 0 : 6,
+        marginBottom: variant === 'native' ? 10 : undefined,
+        minHeight: variant === 'native' ? 40 : 44,
+        borderRadius: variant === 'native' ? 14 : 12,
+      }}
+    />
+  );
+
+  if (loading && !partnerCampaign) {
+    return displaySource === 'partner' ? renderLoadingShell() : renderAdmob();
   }
 
-  return <AdPlaceholder variant={variant} />;
+  if (displaySource === 'partner') {
+    return renderPartner() ?? renderAdmob();
+  }
+
+  return renderAdmob();
 }

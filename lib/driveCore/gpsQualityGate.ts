@@ -18,6 +18,8 @@ export type GpsQualityContext = {
   lastSpeedKmh: number;
   /** Wolna jazda bez polilinii — łagodniejsza koperta kinematyczna. */
   freeDriveNoRoute?: boolean;
+  /** Postój na starcie nawigacji — ignoruj miękką dokładność GPS. */
+  navBootstrapActive?: boolean;
 };
 
 /** Start ruchu — wymagana dokładność. */
@@ -128,6 +130,28 @@ export class GpsQualityGate {
 
   evaluate(raw: RawGpsFix, ctx: GpsQualityContext): GpsQualityResult {
     const acc = Number.isFinite(raw.accuracy) ? raw.accuracy : 999;
+
+    if (ctx.navBootstrapActive && !ctx.isMoving) {
+      if (acc > GATE_ACC_DEGRADED_MAX_M) {
+        return reject('accuracy_hard');
+      }
+      const kin = this.evaluateKinematic(raw, ctx.lastSpeedKmh, false);
+      if (kin === 'REJECT') {
+        return {
+          verdict: 'DEGRADED',
+          allowPositionUpdate: false,
+          allowSpeedDelta: false,
+          allowDoppler: this.allowDoppler(raw, ctx.lastSpeedKmh, false),
+          reason: 'nav_bootstrap_kinematic',
+        };
+      }
+      return {
+        verdict: 'FULL_ACCEPT',
+        allowPositionUpdate: true,
+        allowSpeedDelta: true,
+        allowDoppler: this.allowDoppler(raw, ctx.lastSpeedKmh, true),
+      };
+    }
 
     if (acc > GATE_ACC_DEGRADED_MAX_M) {
       return reject('accuracy_hard');

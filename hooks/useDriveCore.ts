@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { DriveEngine } from '../lib/driveCore/driveEngine';
+import type { NavRouteStartAnchor } from '../lib/driveCore/navRouteBootstrap';
 import type { DriveTickOutput, RawGpsFix, RoadPoint } from '../lib/driveCore/types';
 import type { ApiMetrics } from '../lib/driveCore/apiBudgetManager';
 
@@ -74,6 +75,18 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
     engine.setAppBackground(active);
   }, [engine]);
 
+  const setNavRouteBootstrap = useCallback((anchor: NavRouteStartAnchor | null) => {
+    engine.setNavRouteBootstrap(anchor);
+  }, [engine]);
+
+  const clearNavRouteBootstrap = useCallback(() => {
+    engine.clearNavRouteBootstrap();
+  }, [engine]);
+
+  const isNavRouteBootstrapActive = useCallback(() => {
+    return engine.isNavRouteBootstrapActive();
+  }, [engine]);
+
   const onRawGps = useCallback((raw: RawGpsFix): DriveTickOutput | null => {
     const tripActive = getTripActiveRef.current
       ? getTripActiveRef.current()
@@ -97,6 +110,9 @@ export function useDriveCore(opts: UseDriveCoreOptions) {
     primeLocalGeometry,
     getApiMetrics,
     setAppBackground,
+    setNavRouteBootstrap,
+    clearNavRouteBootstrap,
+    isNavRouteBootstrapActive,
     engine,
   };
 }
