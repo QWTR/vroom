@@ -14,36 +14,16 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
+import { AdPlaceholder } from './AdPlaceholder';
 
 /** Dyskusje — native advanced */
 const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187';
 
-function AdPlaceholder() {
-  const { theme } = useTheme();
-  return (
-    <View style={{
-      marginHorizontal: 12,
-      marginBottom: 10,
-      backgroundColor: theme.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: '#e3383530',
-      borderStyle: 'dashed',
-      overflow: 'hidden',
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 40,
-    }}>
-      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, textAlign: 'center', letterSpacing: 1 }}>
-        TU POWINNA BYĆ REKLAMA
-      </Text>
-    </View>
-  );
+interface AdNativePostProps {
+  onFailedToLoad?: () => void;
 }
 
-export function AdNativePost() {
+export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
   const { theme } = useTheme();
   const { isPremium, isLoading: premiumLoading } = usePremium();
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
@@ -74,13 +54,14 @@ export function AdNativePost() {
       setFailed(false);
     }).catch((e: any) => {
       setFailed(true);
+      onFailedToLoad?.();
       console.warn('[AdNativePost] failed', { unitId, error: e });
     });
 
     return () => {
       ad?.destroy();
     };
-  }, [isPremium, premiumLoading, retryTick]);
+  }, [isPremium, premiumLoading, retryTick, onFailedToLoad]);
 
   useEffect(() => {
     if (!failed || isPremium || premiumLoading) return;
@@ -95,7 +76,8 @@ export function AdNativePost() {
   if (premiumLoading || isPremium) return null;
 
   if (!nativeAd) {
-    return <AdPlaceholder />;
+    if (failed && onFailedToLoad) return null;
+    return <AdPlaceholder variant="native" />;
   }
 
   return (

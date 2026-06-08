@@ -1,6 +1,6 @@
 import { LocationState, RouteInfo } from '../constants/types';
 import { Step } from '../hooks/useGoogleDirections';
-import { cleanInstruction } from '../scripts/navigationUtils';
+import { formatNavigationInstruction } from '../scripts/navigationUtils';
 
 export type NavRoutePoint = { lat: number; lng: number };
 
@@ -72,7 +72,7 @@ export function toCarSafeNavigationDto(input: NavigationCoreSnapshotInput): CarS
   return {
     isNavigating,
     currentStepIndex: Math.max(0, currentStepIndex || 0),
-    nextInstruction: step?.html_instructions ? cleanInstruction(step.html_instructions) : '',
+    nextInstruction: step ? formatNavigationInstruction(step) : '',
     turnDistanceMeters: distToTurnM != null ? Math.max(0, Math.round(distToTurnM)) : null,
     remainingDistanceMeters: remainingDistKm != null ? Math.max(0, Math.round(remainingDistKm * 1000)) : null,
     remainingDurationSec,

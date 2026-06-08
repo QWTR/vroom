@@ -169,6 +169,62 @@ describe('resolveRoadMarkerPose', () => {
     );
   });
 
+  it('navigation uses route polyline only — ignores OSM mirror', () => {
+    resetRoadMarkerPoseState();
+    const route: RoadPoint[] = [
+      { latitude: 52.0, longitude: 21.0 },
+      { latitude: 52.002, longitude: 21.0 },
+      { latitude: 52.004, longitude: 21.0 },
+    ];
+    const parallelOsm: RoadPoint[] = [
+      { latitude: 52.0, longitude: 21.0008 },
+      { latitude: 52.002, longitude: 21.0008 },
+      { latitude: 52.004, longitude: 21.0008 },
+    ];
+    localRoadGeometryMirror.setPolylines([parallelOsm]);
+    const rawLat = 52.001;
+    const rawLng = 21.0001;
+    const result = resolveRoadMarkerPose({
+      prev: { lat: 52.0, lng: 21.0 },
+      enginePose: snappedPose(52.001, 21.0001, 4),
+      roadPolylines: [route],
+      speedKmh: 40,
+      travelHeadingDeg: 0,
+      rawLat,
+      rawLng,
+      isNavigating: true,
+    });
+    expect(result.onRoad).toBe(true);
+    expect(Math.abs(result.lng - 21.0)).toBeLessThan(0.0003);
+    localRoadGeometryMirror.clear();
+  });
+
+  it('navigation hard-snaps arc progress on large segment jump', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const route: RoadPoint[] = [
+      { latitude: 52.0, longitude: 21.0 },
+      { latitude: 52.0, longitude: 21.002 },
+      { latitude: 52.002, longitude: 21.002 },
+    ];
+    const prev = { lat: 52.0, lng: 21.0015 };
+    const rawLat = 52.0018;
+    const rawLng = 21.002;
+    const result = resolveRoadMarkerPose({
+      prev,
+      enginePose: snappedPose(52.0, 21.0018, 5),
+      roadPolylines: [route],
+      speedKmh: 45,
+      travelHeadingDeg: 90,
+      rawLat,
+      rawLng,
+      isNavigating: true,
+      turnResnap: false,
+    });
+    expect(result.lat).toBeGreaterThan(51.999);
+    expect(Math.abs(result.lng - 21.002)).toBeLessThan(0.0005);
+  });
+
   it('steps forward along polyline without jumping to raw', () => {
     resetRoadMarkerPoseState();
     localRoadGeometryMirror.clear();

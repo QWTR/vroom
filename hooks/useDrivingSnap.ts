@@ -431,10 +431,14 @@ export function useDrivingSnap() {
         const proj = projectOntoPolylineWithIndex(fallbackLat, fallbackLng, emergencyPts, maxProjectM);
         if (proj) {
           const projected = { latitude: proj.latitude, longitude: proj.longitude };
+          const segHdg = Number.isFinite(proj.segmentBearing)
+            ? alignBearingToReference(proj.segmentBearing, lastTargetHeadingRef.current)
+            : lastTargetHeadingRef.current;
           lastSnappedRef.current = projected;
           lastSegmentIndexRef.current = proj.segmentIndex;
+          lastTargetHeadingRef.current = segHdg;
           lastSnapAtRef.current = Date.now();
-          return { ...projected, snapped: true, targetHeading: lastTargetHeadingRef.current };
+          return { ...projected, snapped: true, targetHeading: segHdg };
         }
       }
       if (hardRoadLock && lastSnappedRef.current) {
@@ -699,6 +703,7 @@ export function useDrivingSnap() {
     // Dla zwykłej trasy (routePtsRef) używamy mniejszego promienia, żeby nie skakać
     // na odległe drogi gdy użytkownik jedzie po polnej drodze lub poza trasą.
     const usingMatchedRoad = !isNavigating && roadMatchPtsRef.current.length >= 2;
+    const freeDriveHardLock = usingMatchedRoad && hardRoadLock;
     // Matched-road radius: keep baseline strict to avoid wrong parallel roads,
     // and apply +15% only when GPS accuracy is poor or hard lock is active.
     const matchedRadiusBoost =
@@ -709,6 +714,12 @@ export function useDrivingSnap() {
         ? 1.15
         : 1;
     let matchedRoadRadius = Math.round(SNAP_RADIUS_M_MATCHED * matchedRadiusBoost);
+    if (freeDriveHardLock) {
+      matchedRoadRadius = Math.max(matchedRoadRadius, SNAP_RADIUS_M_MATCHED_TIER3);
+      if (accuracyM != null && Number.isFinite(accuracyM) && accuracyM >= 18) {
+        matchedRoadRadius = Math.min(95, Math.round(matchedRoadRadius * 1.14));
+      }
+    }
     if (stationary && usingMatchedRoad) {
       matchedRoadRadius = Math.min(matchedRoadRadius, 28);
     }
@@ -781,14 +792,19 @@ export function useDrivingSnap() {
     if (!result && hardRoadLock) {
       const rm = roadMatchPtsRef.current;
       const rt = routePtsRef.current;
-      if (rm.length >= 2) {
-        result = snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER2, snapOpts)
-          || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER3, snapOpts)
-          || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_EMERGENCY_M, snapOpts);
-      }
-      if (!result && rt.length >= 2) {
+      if (isNavigating && rt.length >= 2) {
         result = snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_M_ROUTE_HARD, snapOpts)
           || snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_EMERGENCY_M, snapOpts);
+      } else {
+        if (rm.length >= 2) {
+          result = snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER2, snapOpts)
+            || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_M_MATCHED_TIER3, snapOpts)
+            || snapToRouteWithInfo(lat, lng, rm, SNAP_RADIUS_EMERGENCY_M, snapOpts);
+        }
+        if (!result && rt.length >= 2) {
+          result = snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_M_ROUTE_HARD, snapOpts)
+            || snapToRouteWithInfo(lat, lng, rt, SNAP_RADIUS_EMERGENCY_M, snapOpts);
+        }
       }
     }
 
@@ -820,13 +836,22 @@ export function useDrivingSnap() {
       const accBoost = acc >= 18 ? Math.min(12, Math.round((acc - 16) * 0.5)) : 0;
       // Matched road = +6 (Mapbox sprawdzilo geometrie)
       const matchedBoost = usingHighConfidenceGeom ? 6 : 0;
-      return Math.min(52, 22 + speedBoost + accBoost + matchedBoost);
+      const freeDriveBoost = freeDriveHardLock ? 14 : 0;
+      const cap = isNavigating ? 52 : 62;
+      return Math.min(cap, 22 + speedBoost + accBoost + matchedBoost + freeDriveBoost);
     })();
-    const hardLimitM = Math.max(120, softLimitM + 50);
+    const hardLimitM = Math.max(
+      120,
+      softLimitM + (isNavigating ? 50 : (freeDriveHardLock ? 65 : 50)),
+    );
+    const lateralClampMinKmh = isNavigating
+      ? DRIVING_LATERAL_REJECT_MIN_KMH
+      : Math.max(8, DRIVING_LATERAL_REJECT_MIN_KMH - 12);
     if (
       result
       && hardRoadLock
-      && speedKmh >= DRIVING_LATERAL_REJECT_MIN_KMH
+      && !isNavigating
+      && speedKmh >= lateralClampMinKmh
       && result.distM > hardLimitM
     ) {
       // v10.14: nigdy raw/reject przy absurdalnym dist — klamruj do hardLimit lub hold.
@@ -853,7 +878,8 @@ export function useDrivingSnap() {
     if (
       result
       && hardRoadLock
-      && speedKmh >= DRIVING_LATERAL_REJECT_MIN_KMH
+      && !isNavigating
+      && speedKmh >= lateralClampMinKmh
       && result.distM > softLimitM
     ) {
       // Soft clamp: przesuwamy snap w strone raw do softLimitM.
@@ -1305,10 +1331,15 @@ export function useDrivingSnap() {
     // Even when snap scoring falls back to blended continuity, re-project the
     // final coordinate to the currently active polyline to avoid off-road drift.
     if (hardRoadLock && pts.length >= 2) {
+      const finalProjectPts = isNavigating && routePtsRef.current.length >= 2
+        ? (routePtsRef.current.length <= 4
+          ? densifyPolyline(routePtsRef.current, 6)
+          : routePtsRef.current)
+        : pts;
       const finalRoadProj = projectOntoPolylineWithIndex(
         snappedCoord.latitude,
         snappedCoord.longitude,
-        pts,
+        finalProjectPts,
         SNAP_RADIUS_EMERGENCY_M + 30,
       );
       if (finalRoadProj) {
@@ -1365,10 +1396,13 @@ export function useDrivingSnap() {
       segmentBearing = alignBearingToReference(segmentBearing, lastTargetHeadingRef.current);
     }
 
+    const headingBlendAlpha = hardRoadLock
+      ? (isNavigating ? 0.58 : 0.74)
+      : 0.4;
     const smoothedBearing = lerpAngle(
       lastTargetHeadingRef.current,
       segmentBearing,
-      hardRoadLock ? 0.58 : 0.4,
+      headingBlendAlpha,
     );
     lastTargetHeadingRef.current = smoothedBearing;
 

@@ -8,9 +8,10 @@ import type { SponsoredCampaign } from '../../hooks/useSponsoredAd';
 interface Props {
   campaign: SponsoredCampaign;
   onPress?: () => void;
+  onImageError?: () => void;
 }
 
-export function SponsoredNativePost({ campaign, onPress }: Props) {
+export function SponsoredNativePost({ campaign, onPress, onImageError }: Props) {
   const { theme } = useTheme();
 
   const open = () => {
@@ -45,7 +46,7 @@ export function SponsoredNativePost({ campaign, onPress }: Props) {
               justifyContent: 'center',
             }}
           >
-            <Image source={{ uri: campaign.imageUrl }} style={{ width: 42, height: 42 }} contentFit="cover" />
+            <Image source={{ uri: campaign.imageUrl }} style={{ width: 42, height: 42 }} contentFit="cover" onError={() => onImageError?.()} />
           </View>
           <View style={{ flex: 1, marginLeft: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -67,7 +68,7 @@ export function SponsoredNativePost({ campaign, onPress }: Props) {
           )}
         </View>
 
-        <Image source={{ uri: campaign.imageUrl }} style={{ width: '100%', height: 180 }} contentFit="cover" />
+        <Image source={{ uri: campaign.imageUrl }} style={{ width: '100%', height: 180 }} contentFit="cover" onError={() => onImageError?.()} />
 
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.border, gap: 8 }}>
           <MaterialIcons name="campaign" size={14} color={theme.textDim} />

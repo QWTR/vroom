@@ -11,6 +11,8 @@ import { vroomGpsLog } from '../vroomGpsLog';
 /** Lateral distance above which we distrust snap at highway speeds. */
 const LATERAL_REJECT_BASE_M = 42;
 const LATERAL_REJECT_FAST_M = 58;
+/** Free drive: GPS bywa 30–50 m off-axis — szersza tolerancja zanim raw fallback. */
+const LATERAL_REJECT_FREE_DRIVE_BOOST_M = 38;
 const FAST_SPEED_KMH = 70;
 
 /** Hysteresis: bonus for staying on locked segment (prevents parallel-road jumps). */
@@ -79,7 +81,7 @@ export class SnapToRoadEngine {
     }
 
     const motionBearing = ctx.motionBearingDeg ?? this.state.lastHeading;
-    const maxRadiusM = snapRadiusM(ctx.speedKmh, ctx.accuracyM, ctx.hardRoadLock);
+    const maxRadiusM = snapRadiusM(ctx.speedKmh, ctx.accuracyM, ctx.hardRoadLock, ctx.isNavigating);
     const projection = projectOntoPolylineWithIndex(
       ctx.filteredLat,
       ctx.filteredLng,
@@ -163,16 +165,39 @@ export class SnapToRoadEngine {
 
     candidates.sort((a, b) => a.score - b.score);
     const best = candidates[0];
-    const lateralRejectM = ctx.speedKmh >= FAST_SPEED_KMH ? LATERAL_REJECT_FAST_M : LATERAL_REJECT_BASE_M;
+    const lateralRejectM = lateralRejectThresholdM(ctx);
     const rawLateralM = haversineM(ctx.rawLat, ctx.rawLng, best.lat, best.lng);
+    const rejectDueToLateral =
+      best.lateralM > maxRadiusM
+      || rawLateralM > lateralRejectM + (ctx.isNavigating ? 20 : 35);
 
-    if (best.lateralM > maxRadiusM || rawLateralM > lateralRejectM + 20) {
+    if (rejectDueToLateral) {
       vroomGpsLog('DT_SNAP_REJECT', {
         lateralM: Math.round(best.lateralM),
         rawLateralM: Math.round(rawLateralM),
         maxRadiusM: Math.round(maxRadiusM),
+        lateralRejectM: Math.round(lateralRejectM),
         speedKmh: Math.round(ctx.speedKmh),
+        freeDrive: !ctx.isNavigating,
       }, 1500);
+      if (ctx.hardRoadLock && !ctx.isNavigating && projection) {
+        const segIdx = projection.segmentIndex;
+        const seg = geometry[segIdx];
+        const segNext = geometry[Math.min(segIdx + 1, geometry.length - 1)];
+        const segBearing = bearingBetween(seg.latitude, seg.longitude, segNext.latitude, segNext.longitude);
+        const aligned = alignBearingToReference(segBearing, motionBearing);
+        this.state.lockedSegmentIndex = segIdx;
+        this.state.lastSnapped = { latitude: projection.latitude, longitude: projection.longitude };
+        this.state.lastHeading = aligned;
+        return {
+          latitude: projection.latitude,
+          longitude: projection.longitude,
+          snapped: true,
+          targetHeading: aligned,
+          segmentIndex: segIdx,
+          confidence: Math.max(0.2, 1 - best.lateralM / (maxRadiusM + 25)),
+        };
+      }
       if (this.state.lastSnapped && ctx.hardRoadLock) {
         return {
           latitude: this.state.lastSnapped.latitude,
@@ -276,13 +301,25 @@ function scoreCandidate(args: {
   return score;
 }
 
-function snapRadiusM(speedKmh: number, accuracyM: number | null, hardLock: boolean): number {
+function lateralRejectThresholdM(ctx: SnapContext): number {
+  const base = ctx.speedKmh >= FAST_SPEED_KMH ? LATERAL_REJECT_FAST_M : LATERAL_REJECT_BASE_M;
+  return ctx.isNavigating ? base : base + LATERAL_REJECT_FREE_DRIVE_BOOST_M;
+}
+
+function snapRadiusM(
+  speedKmh: number,
+  accuracyM: number | null,
+  hardLock: boolean,
+  isNavigating: boolean,
+): number {
   const acc = accuracyM != null && Number.isFinite(accuracyM) ? accuracyM : 25;
   let base = 32;
   if (speedKmh >= 90) base = 52;
   else if (speedKmh >= 55) base = 44;
   else if (speedKmh >= 25) base = 38;
   if (hardLock) base += 6;
+  if (!isNavigating) base += 14;
   if (acc > 35) base += Math.min(14, (acc - 35) * 0.35);
+  if (!isNavigating && acc > 22) base += Math.min(10, (acc - 22) * 0.25);
   return base;
 }

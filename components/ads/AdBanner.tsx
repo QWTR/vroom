@@ -3,45 +3,17 @@ import { View, Text } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
+import { AdPlaceholder } from './AdPlaceholder';
 
 /** BanerVroom — domyślna jednostka (strona główna). */
 export const BANNER_ID_VROOM = 'ca-app-pub-1660420496578702/5609918502';
 
-function BannerPlaceholder() {
-  const { theme } = useTheme();
-  return (
-    <View
-      style={{
-        marginHorizontal: 20,
-        marginVertical: 6,
-        minHeight: 40,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#e3383530',
-        borderStyle: 'dashed',
-        backgroundColor: theme.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Text
-        style={{
-          fontFamily: 'Orbitron',
-          color: theme.textDim,
-          fontSize: 8,
-          textAlign: 'center',
-          letterSpacing: 1,
-        }}
-      >
-        TU POWINNA BYĆ REKLAMA
-      </Text>
-    </View>
-  );
+interface AdBannerProps {
+  BANNERID?: string;
+  onFailedToLoad?: () => void;
 }
 
-export function AdBanner({ BANNERID = BANNER_ID_VROOM }) {
+export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBannerProps) {
   const { theme } = useTheme();
   const { isPremium, isLoading: premiumLoading } = usePremium();
   const [loaded, setLoaded] = useState(false);
@@ -62,7 +34,10 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM }) {
   }, [failed, isPremium, premiumLoading]);
 
   if (premiumLoading || isPremium) return null;
-  if (failed) return <BannerPlaceholder />;
+  if (failed) {
+    if (onFailedToLoad) return null;
+    return <AdPlaceholder variant="banner" />;
+  }
 
   return (
     <View
@@ -88,6 +63,7 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM }) {
         onAdFailedToLoad={(err: any) => {
           setLoaded(false);
           setFailed(true);
+          onFailedToLoad?.();
           console.warn('[AdBanner] failed', { unitId, error: err });
         }}
       />

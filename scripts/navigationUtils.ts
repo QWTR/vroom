@@ -126,7 +126,7 @@ function formatDistanceForSpeech(distanceM: number): string {
   return `za ${kmTxt} ${unit}`;
 }
 
-export type NavigationSpeechPhase = 'far' | 'near' | 'now';
+export type NavigationSpeechPhase = 'far300' | 'far' | 'near' | 'now';
 
 function isMinorManeuver(maneuver?: string, instruction = ''): boolean {
   const m = (maneuver ?? '').toLowerCase();
@@ -156,15 +156,82 @@ function extractStreetName(instruction: string): string | null {
 
 function maneuverPhrase(step: Step): string | null {
   const m = (step.maneuver ?? '').toLowerCase();
-  if (m.includes('uturn')) return 'zawróć';
-  if (m.includes('roundabout')) return 'na rondzie zjedź odpowiednim zjazdem';
-  if (m.includes('sharp-left') || m === 'turn-sharp-left') return 'ostro w lewo';
-  if (m.includes('sharp-right') || m === 'turn-sharp-right') return 'ostro w prawo';
-  if (m.includes('slight-left') || m === 'fork-left' || m === 'ramp-left') return 'łagodnie w lewo';
-  if (m.includes('slight-right') || m === 'fork-right' || m === 'ramp-right') return 'łagodnie w prawo';
-  if (m.includes('left')) return 'w lewo';
-  if (m.includes('right')) return 'w prawo';
+  const mod = (step.maneuverModifier ?? '').toLowerCase().replace(/\s+/g, '-');
+  const combined = mod && !m.includes(mod) ? `${m}-${mod}` : m;
+
+  if (combined.includes('uturn')) return 'zawróć';
+  if (combined.includes('roundabout')) {
+    if (step.maneuverExit != null && step.maneuverExit > 0) {
+      return `na rondzie zjedź ${exitOrdinalWord(step.maneuverExit)} zjazdem`;
+    }
+    const exitFromText = extractRoundaboutExit(cleanInstruction(step.html_instructions));
+    if (exitFromText != null) {
+      return `na rondzie zjedź ${exitOrdinalWord(exitFromText)} zjazdem`;
+    }
+    return 'na rondzie zjedź odpowiednim zjazdem';
+  }
+  if (combined.includes('sharp-left') || mod === 'sharp-left') return 'ostro w lewo';
+  if (combined.includes('sharp-right') || mod === 'sharp-right') return 'ostro w prawo';
+  if (combined.includes('slight-left') || mod === 'slight-left' || combined.includes('fork-left') || combined.includes('ramp-left')) {
+    return 'łagodnie w lewo';
+  }
+  if (combined.includes('slight-right') || mod === 'slight-right' || combined.includes('fork-right') || combined.includes('ramp-right')) {
+    return 'łagodnie w prawo';
+  }
+  if (combined.includes('left') || mod === 'left') return 'w lewo';
+  if (combined.includes('right') || mod === 'right') return 'w prawo';
   return null;
+}
+
+/** Polska instrukcja manewru do wyświetlenia w UI (bez dystansu). */
+export function formatNavigationInstruction(step: Step): string {
+  const rawInstruction = cleanInstruction(step.html_instructions);
+  const maneuverKey = (step.maneuver ?? '').toLowerCase();
+
+  if (isMinorManeuver(maneuverKey, rawInstruction)) {
+    const street = step.streetName?.trim()
+      || extractStreetName(rawInstruction);
+    if (street) return `Kontynuuj na ${street}`;
+    return 'Kontynuuj prosto';
+  }
+
+  const isRoundabout =
+    maneuverKey.includes('roundabout')
+    || /\brondo\b/i.test(rawInstruction)
+    || /\brondzie\b/i.test(rawInstruction);
+
+  if (isRoundabout) {
+    const exitNo = step.maneuverExit
+      ?? extractRoundaboutExit(rawInstruction);
+    if (exitNo != null) {
+      return `Na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`;
+    }
+    return 'Na rondzie zjedź odpowiednim zjazdem';
+  }
+
+  const turn = maneuverPhrase(step);
+  const street = step.streetName?.trim()
+    || extractStreetName(rawInstruction);
+
+  if (turn && street) return `Skręć ${turn} w ulicę ${street}`;
+  if (turn) return `Skręć ${turn}`;
+
+  const fallback = humanizeInstruction(normalizeForSpeech(rawInstruction));
+  if (fallback) return fallback.charAt(0).toUpperCase() + fallback.slice(1);
+  return 'Kontynuuj prosto';
+}
+
+/** Pełny baner nawigacji: dystans + instrukcja po polsku. */
+export function formatNavigationBanner(step: Step, distanceM: number | null): string {
+  const instruction = formatNavigationInstruction(step);
+  if (distanceM == null || distanceM <= 40) {
+    return `Teraz ${lowerFirst(instruction)}`;
+  }
+
+  const distText = distanceM < 1000
+    ? `Za ${Math.round(distanceM / 10) * 10} m`
+    : `Za ${(distanceM / 1000).toFixed(1)} km`;
+  return `${distText} ${lowerFirst(instruction)}`;
 }
 
 /**
@@ -207,6 +274,7 @@ export function getNavigationSpeechPhase(distanceM: number): NavigationSpeechPha
   if (distanceM <= 40) return 'now';
   if (distanceM >= 88 && distanceM <= 112) return 'near';
   if (distanceM >= 235 && distanceM <= 265) return 'far';
+  if (distanceM >= 285 && distanceM <= 315) return 'far300';
   return null;
 }
 
@@ -253,19 +321,21 @@ export function buildNavigationSpeech(
     || /\brondzie\b/i.test(baseInstruction);
 
   if (isRoundabout) {
-    const exitNo = extractRoundaboutExit(baseInstruction);
+    const exitNo = step.maneuverExit ?? extractRoundaboutExit(baseInstruction);
     const roundaboutInstruction = exitNo != null
       ? `na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`
       : 'na rondzie zjedź odpowiednim zjazdem';
     if (phase === 'now') return `teraz ${roundaboutInstruction}`;
     const distPrefix = phase === 'near'
       ? 'za 100 metrów'
-      : formatDistanceForSpeech(Math.max(distanceM, 250));
+      : phase === 'far300'
+        ? 'za 300 metrów'
+        : formatDistanceForSpeech(Math.max(distanceM, 250));
     return `${distPrefix}, ${roundaboutInstruction}`;
   }
 
   const turn = maneuverPhrase(step);
-  const street = extractStreetName(rawInstruction);
+  const street = step.streetName?.trim() || extractStreetName(rawInstruction);
 
   if (phase === 'now') {
     if (turn && street) return `teraz skręć ${turn} na ${street}`;
@@ -275,7 +345,9 @@ export function buildNavigationSpeech(
 
   const distPrefix = phase === 'near'
     ? 'za 100 metrów'
-    : formatDistanceForSpeech(Math.max(distanceM, 250));
+    : phase === 'far300'
+      ? 'za 300 metrów'
+      : formatDistanceForSpeech(Math.max(distanceM, 250));
 
   if (turn) {
     return `${distPrefix}, skręć ${turn}`;

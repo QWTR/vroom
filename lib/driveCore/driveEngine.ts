@@ -195,20 +195,31 @@ export class DriveEngine {
         };
       }
       if (rejectDopplerKmh >= 3) {
-        const hdg = this.snap.getFrozenPose()?.heading ?? 0;
-        return {
-          pose: {
-            lat: raw.lat,
-            lng: raw.lng,
-            heading: hdg,
-            crossTrackM: 999,
-            segmentIndex: 0,
-          },
-          speedKmh: Math.max(this.speed.getLastKmh(), rejectDopplerKmh),
-          isMoving: rejectDopplerKmh >= 5,
-          durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
-          geometrySource: this.cache.source() ?? 'tangent_fallback',
-        };
+        const routeHeld = this.snap.snap(raw, this.cache, {
+          isMoving: true,
+          isNavigating: true,
+          allowRawFallback: false,
+          travelHeadingDeg: this.snap.getFrozenPose()?.heading,
+        });
+        if (routeHeld && routeHeld.crossTrackM < 999) {
+          return {
+            pose: routeHeld,
+            speedKmh: Math.max(this.speed.getLastKmh(), rejectDopplerKmh),
+            isMoving: rejectDopplerKmh >= 5,
+            durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
+            geometrySource: this.cache.source() ?? 'route',
+          };
+        }
+        const frozen = this.snap.getFrozenPose();
+        if (frozen) {
+          return {
+            pose: { ...frozen },
+            speedKmh: Math.max(this.speed.getLastKmh(), rejectDopplerKmh),
+            isMoving: rejectDopplerKmh >= 5,
+            durationMs: Math.max(320, Math.min(1200, this.computeRawDtMs(raw.timestamp))),
+            geometrySource: this.cache.source() ?? 'route',
+          };
+        }
       }
       return null;
     }

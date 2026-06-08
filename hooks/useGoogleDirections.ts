@@ -13,8 +13,30 @@ export interface Step {
   duration: { text: string; value: number };
   start_location: { lat: number; lng: number };
   end_location:   { lat: number; lng: number };
+  /** maneuver.type (OSRM/Mapbox) */
   maneuver?: string;
+  /** maneuver.modifier: left, slight left, sharp right, … */
+  maneuverModifier?: string;
+  /** maneuver.exit — numer zjazdu na rondzie */
+  maneuverExit?: number;
+  /** step.name — nazwa ulicy docelowej */
+  streetName?: string;
   polyline: { points: string };
+}
+
+function combineManeuverIconKey(type?: string, modifier?: string): string {
+  const t = String(type || '').toLowerCase().replace(/_/g, '-');
+  const mod = String(modifier || '').toLowerCase().trim().replace(/\s+/g, '-');
+  if (!mod) return t || 'navigation';
+  if (t === 'turn') return `turn-${mod}`;
+  if (t.includes('roundabout')) {
+    if (mod.includes('left')) return 'roundabout-left';
+    if (mod.includes('right')) return 'roundabout-right';
+    return 'roundabout';
+  }
+  if (t === 'uturn') return mod.includes('left') ? 'uturn-left' : 'uturn-right';
+  if (t === 'fork' || t === 'ramp' || t === 'merge') return `${t}-${mod}`;
+  return `${t}-${mod}`;
 }
 
 export interface DirectionsResult {
@@ -96,6 +118,15 @@ function parseMapboxRoute(route: any, index: number, includeSteps = true): Direc
     const decodedGeom = decodePolyline(step.geometry);
     const lastPt = decodedGeom[decodedGeom.length - 1] ?? { latitude: sLat, longitude: sLng };
 
+    const maneuverType = step.maneuver?.type;
+    const maneuverModifier = step.maneuver?.modifier;
+    const maneuverExit = step.maneuver?.exit != null
+      ? Number(step.maneuver.exit)
+      : undefined;
+    const streetName = typeof step.name === 'string' && step.name.trim()
+      ? step.name.trim()
+      : undefined;
+
     return {
       html_instructions: step.maneuver.instruction ?? '',
       distance: {
@@ -108,7 +139,10 @@ function parseMapboxRoute(route: any, index: number, includeSteps = true): Direc
       },
       start_location: { lat: sLat, lng: sLng },
       end_location: { lat: lastPt.latitude, lng: lastPt.longitude },
-      maneuver: step.maneuver.type,
+      maneuver: combineManeuverIconKey(maneuverType, maneuverModifier),
+      maneuverModifier: maneuverModifier || undefined,
+      maneuverExit: Number.isFinite(maneuverExit) ? maneuverExit : undefined,
+      streetName,
       polyline: { points: step.geometry },
     } as Step;
   });

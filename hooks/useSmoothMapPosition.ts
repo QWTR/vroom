@@ -435,9 +435,11 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         if (flat.length >= 4) {
           const hdgJumpRoad = angleDeltaWorklet(anchorHdg.value, feedHdg);
           roadFlat.value = flat;
-          if (hdgJumpRoad > 28 || instant) {
-            roadIdx.value = findNearestRoadIndexWorklet(flat, lat.value, lng.value);
+          if (hdgJumpRoad > 28) {
+            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
             turnDrFreezeUntil.value = now + TURN_DR_FREEZE_MS;
+          } else if (instant && bootstrapped.value === 0) {
+            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
           } else {
             roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
           }
@@ -578,7 +580,9 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
 
       if (bootstrapped.value === 1) {
         const hdgJump = angleDeltaWorklet(anchorHdg.value, feedHdg);
-        if (hdgJump > 28 && distFromDisplayM < 15) {
+        const feedKmhForHdg = (feedSpeedMsRaw ?? 0) * 3.6;
+        const preferRoadHeading = feedKmhForHdg >= HEADING_LOCK_SPEED_MS * 3.6;
+        if (hdgJump > 28 && distFromDisplayM < 15 && !preferRoadHeading) {
           feedHdg = anchorHdg.value;
         }
       }

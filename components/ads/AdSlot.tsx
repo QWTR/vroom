@@ -1,15 +1,21 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useEffect } from 'react';
 import { AdBanner, BANNER_ID_VROOM } from './AdBanner';
 import { AdNativePost } from './AdNativePost';
 import { SponsoredBanner } from './SponsoredBanner';
 import { SponsoredNativePost } from './SponsoredNativePost';
-import { useSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
+import { AdPlaceholder } from './AdPlaceholder';
+import { useSponsoredAd, prefetchSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
+import { useAdRotation } from '../../hooks/useAdRotation';
 import { usePremium } from '../../contexts/PremiumContext';
 
 const BANNER_IDS: Partial<Record<AdPlacement, string>> = {
   map_banner: 'ca-app-pub-1660420496578702/3363343740',
   home_banner: BANNER_ID_VROOM,
+};
+
+const BANNER_ASPECT: Partial<Record<AdPlacement, number>> = {
+  map_banner: 728 / 90,
+  home_banner: 320 / 100,
 };
 
 interface Props {
@@ -20,25 +26,58 @@ interface Props {
 
 export function AdSlot({ placement, variant, enabled = true }: Props) {
   const { isPremium, isLoading: premiumLoading } = usePremium();
-  const { result, loading, recordClick } = useSponsoredAd(placement, enabled && !premiumLoading && !isPremium);
+  const adsEnabled = enabled && !premiumLoading && !isPremium;
+
+  useEffect(() => {
+    prefetchSponsoredAd(placement, adsEnabled);
+  }, [placement, adsEnabled]);
+
+  const { result, loading, recordClick } = useSponsoredAd(placement, adsEnabled);
+
+  const hasPartner = !loading && result?.source === 'sponsored' && !!result?.campaign?.imageUrl;
+  const { displaySource, markAdmobFailed, markPartnerFailed } = useAdRotation(hasPartner, adsEnabled);
 
   if (premiumLoading || isPremium) return null;
 
-  if (!loading && result?.source === 'sponsored' && result.campaign) {
-    const onPress = () => recordClick(result.campaign!.id);
-    if (variant === 'native') {
-      return <SponsoredNativePost campaign={result.campaign} onPress={onPress} />;
-    }
-    return <SponsoredBanner campaign={result.campaign} onPress={onPress} />;
-  }
+  const onPartnerPress = () => {
+    if (result?.campaign) recordClick(result.campaign.id);
+  };
 
   if (loading) {
-    return <View style={{ minHeight: variant === 'banner' ? 44 : 80 }} />;
+    return <AdPlaceholder variant={variant} />;
   }
 
-  if (variant === 'native') {
-    return <AdNativePost />;
+  if (displaySource === 'partner' && result?.campaign) {
+    if (variant === 'native') {
+      return (
+        <SponsoredNativePost
+          campaign={result.campaign}
+          onPress={onPartnerPress}
+          onImageError={markPartnerFailed}
+        />
+      );
+    }
+    return (
+      <SponsoredBanner
+        campaign={result.campaign}
+        onPress={onPartnerPress}
+        aspectRatio={BANNER_ASPECT[placement]}
+        onImageError={markPartnerFailed}
+      />
+    );
   }
 
-  return <AdBanner BANNERID={BANNER_IDS[placement] || BANNER_ID_VROOM} />;
+  if (displaySource === 'admob') {
+    if (variant === 'native') {
+      return <AdNativePost onFailedToLoad={markAdmobFailed} />;
+    }
+    return (
+      <AdBanner
+        BANNERID={BANNER_IDS[placement] || BANNER_ID_VROOM}
+        onFailedToLoad={markAdmobFailed}
+      />
+    );
+  }
+
+  return <AdPlaceholder variant={variant} />;
 }

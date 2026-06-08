@@ -183,13 +183,16 @@ export function guardMarkerHeadingPush(
     return prev;
   }
   if (speedKmh >= TRAVEL_VECTOR_ONLY_MIN_KMH && flip >= TRAVEL_HEADING_FLIP_REJECT_DEG) {
+    if (flip >= 22 && flip < TRAVEL_HEADING_FLIP_REJECT_DEG && speedKmh >= 8 && speedKmh < 55) {
+      return lerpHeadingWithMaxStep(prev, next, 16);
+    }
     return prev;
   }
   if (speedKmh >= 6 && flip >= 125) {
     return prev;
   }
   if (speedKmh >= 3 && flip >= 45) {
-    return lerpHeadingWithMaxStep(prev, next, 8);
+    return lerpHeadingWithMaxStep(prev, next, 12);
   }
   return next;
 }

@@ -14,6 +14,25 @@ const MARKER_BORDER = 2;
 const FALLBACK_DOT = 22;
 /** Telemetria UI co ~500 ms (60 fps render bez throttlingu). */
 const UI_TELEMETRY_EVERY_N_FRAMES = 30;
+const MARKER_UI_MIN_INTERVAL_MS = 33;
+const MARKER_UI_MIN_MOVE_M = 0.15;
+const MARKER_UI_MIN_HDG_DEG = 0.8;
+
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos((lat1 * Math.PI) / 180)
+    * Math.cos((lat2 * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function headingDeltaDeg(a: number, b: number): number {
+  return Math.abs(((a - b + 540) % 360) - 180);
+}
 
 function isValidMarkerCoord(la: number, ln: number): boolean {
   return Number.isFinite(la)
@@ -61,6 +80,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     let alive = true;
     let frameCount = 0;
     let lastTelemetryAt = 0;
+    let lastUiAt = 0;
     let lastPose = { lat: 0, lng: 0, hdg: 0 };
     const loop = () => {
       if (!alive) return;
@@ -69,11 +89,24 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       const h = marker.heading.value;
       if (isValidMarkerCoord(la, ln)) {
         const normHdg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
-        setPose({ lat: la, lng: ln, hdg: normHdg });
-        setVisible(true);
+        const now = Date.now();
+        const moveM = lastUiAt > 0
+          ? haversineM(lastPose.lat, lastPose.lng, la, ln)
+          : Infinity;
+        const dHdg = lastUiAt > 0 ? headingDeltaDeg(lastPose.hdg, normHdg) : Infinity;
+        const shouldUpdateUi =
+          lastUiAt <= 0
+          || now - lastUiAt >= MARKER_UI_MIN_INTERVAL_MS
+          || moveM >= MARKER_UI_MIN_MOVE_M
+          || dHdg >= MARKER_UI_MIN_HDG_DEG;
+        if (shouldUpdateUi) {
+          setPose({ lat: la, lng: ln, hdg: normHdg });
+          setVisible(true);
+          lastUiAt = now;
+          lastPose = { lat: la, lng: ln, hdg: normHdg };
+        }
 
         frameCount += 1;
-        const now = Date.now();
         const msSincePrevTelemetry = lastTelemetryAt > 0 ? now - lastTelemetryAt : 0;
         if (
           DRIVE_FULL_VISION_LOG

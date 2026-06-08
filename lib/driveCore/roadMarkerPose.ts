@@ -91,13 +91,16 @@ function computeMaxStepM(speedKmh: number): number {
   return Math.min(52, Math.max(4, v * dt * 1.22 + 2.5));
 }
 
-function collectPolylines(explicit: RoadPoint[][]): RoadPoint[][] {
+function collectPolylines(explicit: RoadPoint[][], isNavigating: boolean): RoadPoint[][] {
   const out: RoadPoint[][] = [];
   for (const poly of explicit) {
     if (poly.length >= 2) out.push(poly);
   }
-  for (const poly of localRoadGeometryMirror.getPolylines()) {
-    if (poly.length >= 2) out.push(poly);
+  // Nawigacja: tylko explicit (route) — bez lustra OSM.
+  if (!isNavigating) {
+    for (const poly of localRoadGeometryMirror.getPolylines()) {
+      if (poly.length >= 2) out.push(poly);
+    }
   }
   return out;
 }
@@ -196,17 +199,44 @@ function pickTargetArcM(
   return pool[0]?.arcM ?? null;
 }
 
+type ArcAdvanceOpts = {
+  turnResnap?: boolean;
+  isNavigating?: boolean;
+};
+
 /** 1D catch-up wzdłuż polilinii — bez lateral drift. */
 function advanceArcProgress(
   currentArcM: number,
   targetArcM: number,
   maxStepM: number,
   prevRawGapM: number,
+  opts: ArcAdvanceOpts = {},
 ): number {
+  const turnResnap = opts.turnResnap === true;
+  const isNavigating = opts.isNavigating === true;
   const alongErr = targetArcM - currentArcM;
   const absErr = Math.abs(alongErr);
 
-  if (absErr > TELEPORT_M || prevRawGapM > 120) {
+  // Nawigacja: twardy snap do polilinii trasy — bez spring przez budynki.
+  if (isNavigating) {
+    if (absErr > TELEPORT_M || prevRawGapM > 120) {
+      return targetArcM;
+    }
+    if (absErr <= SOFT_CATCHUP_M) {
+      const alpha = Math.min(0.9, maxStepM / Math.max(absErr, 0.35));
+      return currentArcM + alongErr * alpha;
+    }
+    const gain = turnResnap ? 1 : (prevRawGapM > 35 ? 0.9 : 0.75);
+    const step = Math.min(maxStepM, absErr * gain);
+    return currentArcM + Math.sign(alongErr) * step;
+  }
+
+  const teleportThreshold = turnResnap ? TELEPORT_M + 40 : TELEPORT_M;
+  if (absErr > teleportThreshold || prevRawGapM > 120) {
+    if (turnResnap && absErr <= teleportThreshold + 25) {
+      const springAlpha = Math.min(0.62, maxStepM / Math.max(absErr, 0.35));
+      return currentArcM + alongErr * springAlpha;
+    }
     return targetArcM;
   }
 
@@ -218,6 +248,58 @@ function advanceArcProgress(
   const gain = prevRawGapM > 35 ? 0.85 : 0.65;
   const step = Math.min(maxStepM, absErr * gain);
   return currentArcM + Math.sign(alongErr) * step;
+}
+
+/** Przełączenie na gałąź najbliższą raw GPS (zamiast kroku do surowych współrzędnych). */
+function resnapOnBestBranch(
+  polylines: RoadPoint[][],
+  rawLat: number,
+  rawLng: number,
+  travelHeadingDeg: number,
+  maxRadiusM: number,
+  speedKmh: number,
+): RoadMarkerResult | null {
+  if (polylines.length < 1) return null;
+  const searchRadiusM = Math.min(2500, maxRadiusM + (speedKmh >= 8 ? 180 : 120));
+  const pick = pickBestPolylineAt(polylines, rawLat, rawLng, searchRadiusM);
+  if (!pick.poly || pick.crossTrackM > maxRadiusM + 70) return null;
+
+  const arc = buildPolylineArc(pick.poly);
+  if (!arc) return null;
+
+  lastPolylineKey = '';
+  lastArcProgressM = 0;
+  lastSegmentIndex = 0;
+
+  const rawProj = projectForward(
+    rawLat,
+    rawLng,
+    pick.poly,
+    0,
+    searchRadiusM,
+    travelHeadingDeg,
+  );
+  if (!rawProj) return null;
+
+  const at = projectionToArc(pick.poly, arc, rawProj);
+  const maxStepM = computeMaxStepM(speedKmh);
+  const outArcM = advanceArcProgress(0, at.arcM, maxStepM, pick.crossTrackM, { turnResnap: true });
+  const pose = pointAtArcLength(pick.poly, arc, outArcM, travelHeadingDeg);
+  const nowMs = Date.now();
+  const roadHeading = smoothRoadHeading(pose.heading, nowMs);
+
+  lastPolylineKey = polylineKey(pick.poly);
+  lastArcProgressM = outArcM;
+  lastSegmentIndex = pose.segmentIndex;
+
+  return {
+    lat: pose.lat,
+    lng: pose.lng,
+    onRoad: true,
+    crossTrackM: pick.crossTrackM,
+    segmentIndex: pose.segmentIndex,
+    heading: roadHeading,
+  };
 }
 
 function smoothRoadHeading(targetHdg: number, nowMs: number): number {
@@ -254,17 +336,17 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     turnResnap = false,
   } = input;
 
-  const maxRadiusM = isNavigating ? 50 : 100;
+  const maxRadiusM = isNavigating ? 50 : 120;
   const prevRawGapM = prev ? distanceM(prev.lat, prev.lng, rawLat, rawLng) : 0;
   let maxStepM = computeMaxStepM(speedKmh);
-  if (turnResnap) {
+  if (turnResnap && !isNavigating) {
     maxStepM = Math.max(maxStepM, Math.min(48, computeMaxStepM(speedKmh) * 1.25));
   }
   // Marker w tyle za raw GPS — przyspiesz catch-up wzdłuż osi (nie ograniczaj kroku).
-  if (prevRawGapM > 25) {
+  if (!isNavigating && prevRawGapM > 25) {
     maxStepM = Math.max(maxStepM, Math.min(58, prevRawGapM * 0.55));
   }
-  const polylines = collectPolylines(roadPolylines);
+  const polylines = collectPolylines(roadPolylines, isNavigating);
 
   if (prevRawGapM > 45) {
     console.log('[DEBUG_CATCHUP]', {
@@ -284,9 +366,11 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     lastPolylineKey = '';
   }
 
-  const poly = turnResnap
-    ? pickBestPolylineAt(polylines, rawLat, rawLng, Math.min(2500, maxRadiusM + 80)).poly
-    : pickBestPolyline(polylines, rawLat, rawLng, maxRadiusM, prev);
+  const poly = isNavigating && polylines.length >= 1
+    ? polylines.reduce((best, p) => (p.length > best.length ? p : best), polylines[0])
+    : turnResnap
+      ? pickBestPolylineAt(polylines, rawLat, rawLng, Math.min(2500, maxRadiusM + 80)).poly
+      : pickBestPolyline(polylines, rawLat, rawLng, maxRadiusM, prev);
 
   if (!poly) {
     const chaseRaw = prevRawGapM > 50 || isRawGpsPose(enginePose);
@@ -369,7 +453,7 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
       rawLng,
       travelHeadingDeg,
     );
-    if (local && local.crossTrackM <= maxRadiusM + 15) {
+    if (local && local.crossTrackM <= maxRadiusM + (isNavigating ? 15 : 28)) {
       localProj = {
         lat: local.lat,
         lng: local.lng,
@@ -386,15 +470,23 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     && prevRawGapM > 45;
 
   if (rawOnPolyStale || (prevRawGapM > 50 && !rawProj)) {
+    const branchResnap = resnapOnBestBranch(
+      polylines,
+      rawLat,
+      rawLng,
+      travelHeadingDeg,
+      maxRadiusM,
+      speedKmh,
+    );
+    if (branchResnap) return branchResnap;
     if (prev) {
-      const stepM = Math.min(maxStepM, prevRawGapM);
-      const frac = stepM / Math.max(prevRawGapM, 0.05);
+      const hold = pointAtArcLength(poly, arc, currentArcM, travelHeadingDeg);
       return {
-        lat: prev.lat + (rawLat - prev.lat) * frac,
-        lng: prev.lng + (rawLng - prev.lng) * frac,
-        onRoad: false,
+        lat: hold.lat,
+        lng: hold.lng,
+        onRoad: true,
         crossTrackM: rawProj?.crossTrackM ?? prevRawGapM,
-        segmentIndex: lastSegmentIndex,
+        segmentIndex: hold.segmentIndex,
         heading: Number.isFinite(travelHeadingDeg) ? travelHeadingDeg : enginePose.heading,
       };
     }
@@ -425,7 +517,10 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     targetArcM = Math.max(targetArcM, currentArcM - 0.3);
   }
 
-  const outArcM = advanceArcProgress(currentArcM, targetArcM, maxStepM, prevRawGapM);
+  const outArcM = advanceArcProgress(currentArcM, targetArcM, maxStepM, prevRawGapM, {
+    turnResnap,
+    isNavigating,
+  });
   const clampedArcM = speedKmh >= 1.2
     ? Math.max(outArcM, currentArcM - 0.2)
     : outArcM;
@@ -434,15 +529,41 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
   // — wtedy targetArcM ≈ currentArcM mimo że raw GPS jedzie dalej.
   const arcStallM = Math.abs(clampedArcM - currentArcM);
   if (prev && prevRawGapM > 30 && arcStallM < 0.5 && speedKmh >= 4) {
-    const stepM = Math.min(maxStepM, prevRawGapM * 0.4);
-    const frac = stepM / Math.max(prevRawGapM, 0.05);
-    return {
-      lat: prev.lat + (rawLat - prev.lat) * frac,
-      lng: prev.lng + (rawLng - prev.lng) * frac,
-      onRoad: false,
+    const branchResnap = resnapOnBestBranch(
+      polylines,
+      rawLat,
+      rawLng,
+      travelHeadingDeg,
+      maxRadiusM,
+      speedKmh,
+    );
+    if (branchResnap) return branchResnap;
+    const stallPose = pointAtArcLength(poly, arc, clampedArcM, travelHeadingDeg);
+    const stallStepM = Math.min(maxStepM, prevRawGapM * 0.35);
+    const stallTarget = projectionToArc(poly, arc, {
+      lat: rawLat,
+      lng: rawLng,
+      heading: travelHeadingDeg,
       crossTrackM: rawProj?.crossTrackM ?? prevRawGapM,
-      segmentIndex: lastSegmentIndex,
-      heading: Number.isFinite(travelHeadingDeg) ? travelHeadingDeg : enginePose.heading,
+      segmentIndex: stallPose.segmentIndex,
+    });
+    const stallArcM = advanceArcProgress(
+      clampedArcM,
+      stallTarget.arcM,
+      stallStepM,
+      prevRawGapM,
+      { turnResnap: true, isNavigating },
+    );
+    const stallOut = pointAtArcLength(poly, arc, stallArcM, travelHeadingDeg);
+    lastArcProgressM = stallArcM;
+    lastSegmentIndex = stallOut.segmentIndex;
+    return {
+      lat: stallOut.lat,
+      lng: stallOut.lng,
+      onRoad: true,
+      crossTrackM: rawProj?.crossTrackM ?? prevRawGapM,
+      segmentIndex: stallOut.segmentIndex,
+      heading: smoothRoadHeading(stallOut.heading, Date.now()),
     };
   }
 
@@ -509,7 +630,9 @@ export function resolveDriveMarkerDisplayPose(input: {
           const prevArc = arcLengthAtPoint(bestPoly, arc, prev.lat, prev.lng, 0, 110);
           currentArcM = prevArc?.arcM ?? 0;
         }
-        const outArcM = advanceArcProgress(currentArcM, targetArc.arcM, maxStepM, 0);
+        const outArcM = advanceArcProgress(currentArcM, targetArc.arcM, maxStepM, 0, {
+          isNavigating: false,
+        });
         const pose = pointAtArcLength(bestPoly, arc, outArcM);
         return {
           lat: pose.lat,
