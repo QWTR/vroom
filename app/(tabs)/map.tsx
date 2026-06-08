@@ -240,11 +240,9 @@ import {
 import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRenderer';
 import { ArrowMarkerRenderer } from '../../components/markers/ArrowMarkerRenderer';
 import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
-import { MarkerRenderer } from '../../components/markers/MarkerRenderer';
 import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
 import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
 import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
-import { LiveUserMarker } from '../../components/markers/LiveUserMarker';
 import { AddSpeedCameraModal, type CameraType } from '../../components/modals/AddSpeedCameraModal';
 import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
@@ -264,6 +262,8 @@ import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
+import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
+import { LiveUsersFleetLayer } from '../../components/map/LiveUsersFleetLayer';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // v10 CLIENT-FIRST — jeden pipeline ruchu (bez konfliktow writerow):
@@ -4288,8 +4288,6 @@ function MapScreenInner() {
   const [arrowMarkerImage,    setArrowMarkerImage]    = useState<string | null>(null);
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
-  const [markerImages,        setMarkerImages]        = useState<Record<string, string>>({});
-  const [markerImageSignatures, setMarkerImageSignatures] = useState<Record<string, string>>({});
   const [pinImages,           setPinImages]           = useState<Record<string, string>>({});
   const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
 
@@ -5553,7 +5551,6 @@ function MapScreenInner() {
     isSpeechEnabled,
     settings.backgroundTracking || isSharing,
     liveMapEnabled && (isSharing || isMapFocused),
-    isTripActiveMap,
   );
 
   useEffect(() => {
@@ -15432,70 +15429,64 @@ function MapScreenInner() {
   );
 
   // ─────────────────────────────────────────────────────────
+  const liveUsersAnchor = useMemo(() => {
+    if (userLocation) {
+      return { latitude: userLocation.latitude, longitude: userLocation.longitude };
+    }
+    if (
+      Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
+      && (drLatRef.current !== 0 || drLngRef.current !== 0)
+    ) {
+      return { latitude: drLatRef.current, longitude: drLngRef.current };
+    }
+    return null;
+  }, [userLocation?.latitude, userLocation?.longitude]);
+
   const visibleLiveUserIds = useMemo(() => {
     if (!isMapFocused || liveUserIds.length === 0) return [];
-    const anchor =
-      userLocation
-      ?? (
-        Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
-        && (drLatRef.current !== 0 || drLngRef.current !== 0)
-          ? { latitude: drLatRef.current, longitude: drLngRef.current }
-          : null
-      );
     const candidates = liveUserIds.filter((id) => String(id) !== String(currentUserId));
-    if (!anchor) return candidates.slice(0, 48);
-    return candidates
-      .filter((id) => {
+    const scored = candidates
+      .map((id) => {
         const meta = liveMapStore.getMeta(id);
         const pos = liveMapStore.getPosition(id);
-        if (!meta || !pos) return false;
-        if (meta.isFriend) return true;
-        return calculateDistance(
-          anchor.latitude,
-          anchor.longitude,
-          pos.lat,
-          pos.lng,
-        ) <= MAX_NEARBY_USERS_DISTANCE;
+        if (!meta || !pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return null;
+        const distKm = liveUsersAnchor
+          ? calculateDistance(
+            liveUsersAnchor.latitude,
+            liveUsersAnchor.longitude,
+            pos.lat,
+            pos.lng,
+          )
+          : 0;
+        return { id, meta, distKm };
       })
-      .sort((a, b) => a - b)
-      .slice(0, 48);
-  }, [userLocation, liveUserIds, liveMapStore, currentUserId, isMapFocused]);
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+      .filter(({ meta, distKm }) => {
+        if (meta.isFriend) return true;
+        if (!liveUsersAnchor) return true;
+        return distKm <= MAX_NEARBY_USERS_DISTANCE;
+      });
+
+    scored.sort((a, b) => {
+      if (!!a.meta.isFriend !== !!b.meta.isFriend) return a.meta.isFriend ? -1 : 1;
+      return a.distKm - b.distKm;
+    });
+
+    return scored.slice(0, 150).map((entry) => entry.id);
+  }, [liveUserIds, liveMapStore, currentUserId, isMapFocused, liveUsersAnchor]);
+
+  const liveFleetGeoJson = useLiveFleetAnimator(
+    liveMapStore,
+    visibleLiveUserIds,
+    isMapFocused && liveMapEnabled,
+    liveUsersAnchor,
+  );
 
   const visibleUsers = useMemo(() => {
     return visibleLiveUserIds
       .map((id) => nearbyUsers.find((u) => u.id === String(id)))
       .filter((u): u is User => u != null);
   }, [visibleLiveUserIds, nearbyUsers]);
-
-  const getUserMarkerSignature = useCallback((u: User): string => (
-    `${u.avatar ?? ''}|${u.avatarFrameUrl ?? ''}|${u.name}|${u.isFriend ? '1' : '0'}|${u.isPremium ? '1' : '0'}`
-  ), []);
-
-  useEffect(() => {
-    const activeIds = new Set(visibleUsers.map((u) => u.id));
-    setMarkerImages((prev) => {
-      let changed = false;
-      const next: Record<string, string> = { ...prev };
-      Object.keys(next).forEach((id) => {
-        if (!activeIds.has(id)) {
-          delete next[id];
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-    setMarkerImageSignatures((prev) => {
-      let changed = false;
-      const next: Record<string, string> = { ...prev };
-      Object.keys(next).forEach((id) => {
-        if (!activeIds.has(id)) {
-          delete next[id];
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [visibleUsers]);
 
   // ─────────────────────────────────────────────────────────
   // Helpers
@@ -15570,14 +15561,36 @@ function MapScreenInner() {
   }, [userLocation]);
 
   const handleUserMarkerPress = useCallback((user: User) => {
-    if (!userLocation) return;
+    const anchor = userLocation ?? liveUsersAnchor;
+    if (!anchor) return;
     const dist = calculateDistance(
-      userLocation.latitude, userLocation.longitude,
+      anchor.latitude, anchor.longitude,
       user.latitude, user.longitude,
     );
     setSelectedUser({ ...user, distance: dist });
     setUserInfoVisible(true);
-  }, [userLocation]);
+  }, [userLocation, liveUsersAnchor]);
+
+  const handleLiveUserPress = useCallback((userId: number) => {
+    let user = nearbyUsers.find((u) => u.id === String(userId));
+    if (!user) {
+      const meta = liveMapStore.getMeta(userId);
+      const pos = liveMapStore.getPosition(userId);
+      if (!meta || !pos) return;
+      user = {
+        id: String(userId),
+        name: meta.username,
+        latitude: pos.lat,
+        longitude: pos.lng,
+        avatar: meta.avatarUrl ?? '',
+        avatarFrameUrl: meta.avatarFrameUrl ?? '',
+        status: 'Online',
+        isFriend: meta.isFriend ?? false,
+        isPremium: meta.isPremium ?? false,
+      };
+    }
+    handleUserMarkerPress(user);
+  }, [nearbyUsers, handleUserMarkerPress, liveMapStore]);
 
   const handleNavigateToUser = useCallback(() => {
     if (!selectedUser || !userLocation) return;
@@ -16543,28 +16556,6 @@ function MapScreenInner() {
         )}
 
         {/* ── Off-screen renderers ─────────────────────────── */}
-        {visibleUsers.length > 0 && visibleUsers.map(user =>
-          (() => {
-            const signature = getUserMarkerSignature(user);
-            return !markerImages[user.id] || markerImageSignatures[user.id] !== signature;
-          })() ? (
-            <MarkerRenderer
-              key={`renderer_${user.id}_${getUserMarkerSignature(user)}`}
-              user={user}
-              distance={calculateDistance(
-                (userLocation?.latitude ?? drLatRef.current),
-                (userLocation?.longitude ?? drLngRef.current),
-                user.latitude, user.longitude,
-              )}
-              onCapture={uri => {
-                const signature = getUserMarkerSignature(user);
-                setMarkerImages(prev => ({ ...prev, [user.id]: uri }));
-                setMarkerImageSignatures(prev => ({ ...prev, [user.id]: signature }));
-              }}
-            />
-          ) : null,
-        )}
-
         {userLocation && isMapFocused && (
           <CarMarkerRenderer
             avatarUrl={myAvatarUrl}
@@ -16814,26 +16805,11 @@ function MapScreenInner() {
             />
           ) : null}
 
-          {visibleLiveUserIds.map((userId) => {
-            const user = nearbyUsers.find((u) => u.id === String(userId));
-            if (!user) return null;
-            const dist = calculateDistance(
-              (userLocation?.latitude ?? drLatRef.current),
-              (userLocation?.longitude ?? drLngRef.current),
-              user.latitude,
-              user.longitude,
-            );
-            return (
-              <LiveUserMarker
-                key={`user_${userId}`}
-                userId={userId}
-                store={liveMapStore}
-                distanceKm={dist}
-                imageUri={markerImages[user.id] ?? null}
-                onPress={() => handleUserMarkerPress(user)}
-              />
-            );
-          })}
+          <LiveUsersFleetLayer
+            shape={liveFleetGeoJson}
+            visible={isMapFocused && visibleLiveUserIds.length > 0}
+            onUserPress={handleLiveUserPress}
+          />
 
           {remainingRoutePoints.length > 1 && !arrived ? (
             <MapActiveRouteLayers

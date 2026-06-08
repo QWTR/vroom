@@ -65,8 +65,8 @@ const LIVE_USER_STALE_MS = 3 * 60 * 1000;
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
-const LIVE_USER_MAX_STEP_M = 180;
 const LIVE_USER_EVENT_STALE_MS = 2 * 60 * 1000;
+const USERS_REFRESH_MS = 45_000;
 const SOCKET_USERS_FALLBACK_MS = 1_500;
 const LIVE_USERS_REST_FRESH_MS = 40_000;
 
@@ -91,10 +91,7 @@ export function useLiveMap(
   isSpeechEnabled: boolean,
   allowBackgroundWork = false,
   enabled = true,
-  tripActive = false,
 ) {
-  const tripActiveRef = useRef(tripActive);
-  useEffect(() => { tripActiveRef.current = tripActive; }, [tripActive]);
   const storeRef = useRef<LiveMapStore | null>(null);
   if (!storeRef.current) storeRef.current = createLiveMapStore();
   const store = storeRef.current;
@@ -134,31 +131,10 @@ export function useLiveMap(
     return appStateRef.current === 'active';
   }, []);
 
-  // ── Position smoothing for live users (prevents teleportation) ───
-  const smoothedPosRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
-  const SMOOTH_ALPHA   = 0.35;   // 0 = frozen, 1 = instant
-  const MIN_MOVE_M     = 4;      // ignore jitter smaller than 4 m
-
-  // ── Time-based interpolation state for live users ─────────────────
-  type InterpEntry = {
-    fromLat: number; fromLng: number;
-    toLat:   number; toLng:   number;
-    startMs: number; durationMs: number;
-    lastUpdateMs: number;
-  };
-  const interpRef = useRef<Map<number, InterpEntry>>(new Map());
   const liveUserLastSeenRef = useRef<Map<number, number>>(new Map());
   const pendingOfflineRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const liveUserLastSeqRef = useRef<Map<number, number>>(new Map());
   const liveUserLastServerAtRef = useRef<Map<number, number>>(new Map());
-  const INTERP_TICK_BASE_MS = 180;
-  const INTERP_TICK_BUSY_MS = 140;
-  const INTERP_TICK_TRIP_MS = 120;
-  const MIN_INTERP_DUR_MS  = 90;  // minimum lerp duration guard
-  const MAX_INTERP_DUR_MS  = 2200;
-  const USERS_REFRESH_MS   = 45_000;
-
-  const easeInOut = (t: number) => t * t * (3 - 2 * t);
 
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
@@ -206,8 +182,6 @@ export function useLiveMap(
   const removeLiveUser = useCallback((id: number) => {
     if (!Number.isFinite(id)) return;
     liveUserLastSeenRef.current.delete(id);
-    smoothedPosRef.current.delete(id);
-    interpRef.current.delete(id);
     liveUserLastSeqRef.current.delete(id);
     liveUserLastServerAtRef.current.delete(id);
     const pending = pendingOfflineRef.current.get(id);
@@ -284,9 +258,6 @@ export function useLiveMap(
 
       const avatarUri = normalizeMediaUri(meta.avatarUrl);
       if (avatarUri) Image.prefetch(avatarUri).catch(() => {});
-      if (!smoothedPosRef.current.has(u.id)) {
-        smoothedPosRef.current.set(u.id, { lat: coords.lat, lng: coords.lng });
-      }
     }
 
     for (const id of store.getUserIdsSnapshot()) {
@@ -297,13 +268,6 @@ export function useLiveMap(
       }
     }
 
-    const activeIds = new Set(store.getUserIdsSnapshot());
-    Array.from(smoothedPosRef.current.keys()).forEach((id) => {
-      if (!activeIds.has(id)) smoothedPosRef.current.delete(id);
-    });
-    Array.from(interpRef.current.keys()).forEach((id) => {
-      if (!activeIds.has(id)) interpRef.current.delete(id);
-    });
     store.syncUserIdsArray();
   }, [touchLiveUser, store, pickCoords, removeLiveUser]);
 
@@ -446,7 +410,6 @@ export function useLiveMap(
     setSharingStatus('off');
     hasUsersFromSocketRef.current = false;
     lastSnapshotAtRef.current = 0;
-    interpRef.current.clear();
     liveUserLastSeqRef.current.clear();
     liveUserLastServerAtRef.current.clear();
     store.clear();
@@ -539,52 +502,7 @@ export function useLiveMap(
         liveUserLastServerAtRef.current.set(id, serverAt);
         touchLiveUser(id);
 
-        const now = Date.now();
         const existingMeta = store.getMeta(id);
-        const existingPos = store.getPosition(id);
-        const prevSmoothed = smoothedPosRef.current.get(id)
-          ?? (existingPos ? { lat: existingPos.lat, lng: existingPos.lng } : null);
-
-        let targetLat = rawLat;
-        let targetLng = rawLng;
-        if (prevSmoothed) {
-          const distM = distanceKm(prevSmoothed.lat, prevSmoothed.lng, targetLat, targetLng) * 1000;
-          if (distM < MIN_MOVE_M) {
-            targetLat = prevSmoothed.lat;
-            targetLng = prevSmoothed.lng;
-          } else {
-            if (distM > LIVE_USER_MAX_STEP_M) {
-              const ratio = LIVE_USER_MAX_STEP_M / distM;
-              targetLat = prevSmoothed.lat + (targetLat - prevSmoothed.lat) * ratio;
-              targetLng = prevSmoothed.lng + (targetLng - prevSmoothed.lng) * ratio;
-            }
-            targetLat = prevSmoothed.lat + SMOOTH_ALPHA * (targetLat - prevSmoothed.lat);
-            targetLng = prevSmoothed.lng + SMOOTH_ALPHA * (targetLng - prevSmoothed.lng);
-          }
-        }
-        smoothedPosRef.current.set(id, { lat: targetLat, lng: targetLng });
-
-        const interp = interpRef.current.get(id);
-        let fromLat = existingPos?.lat ?? targetLat;
-        let fromLng = existingPos?.lng ?? targetLng;
-        if (interp) {
-          const t = Math.min((now - interp.startMs) / Math.max(interp.durationMs, MIN_INTERP_DUR_MS), 1);
-          const te = easeInOut(t);
-          fromLat = interp.fromLat + (interp.toLat - interp.fromLat) * te;
-          fromLng = interp.fromLng + (interp.toLng - interp.fromLng) * te;
-        }
-        const lastMs = interp?.lastUpdateMs ?? now;
-        const durationMs = Math.min(Math.max(now - lastMs, 220), MAX_INTERP_DUR_MS);
-        interpRef.current.set(id, {
-          fromLat,
-          fromLng,
-          toLat: targetLat,
-          toLng: targetLng,
-          startMs: now,
-          durationMs,
-          lastUpdateMs: now,
-        });
-
         const meta: LiveUserMeta = {
           id,
           username: typeof data?.username === 'string'
@@ -603,7 +521,7 @@ export function useLiveMap(
           seq: Number.isFinite(seq) ? seq : null,
         };
         store.setMeta(meta);
-        store.setPosition(id, fromLat, fromLng, true);
+        store.setPosition(id, rawLat, rawLng, true);
         store.syncUserIdsArray();
         lastSnapshotAtRef.current = Date.now();
       });
@@ -698,7 +616,7 @@ export function useLiveMap(
     isIncomingNewer,
   ]);
 
-  // Pause socket/interp when app is backgrounded without background permission
+  // Pause socket when app is backgrounded without background permission
   useEffect(() => {
     if (!enabled) return;
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -708,7 +626,6 @@ export function useLiveMap(
         s?.emit('live:leave');
         s?.disconnect();
         setConnected(false);
-        interpRef.current.clear();
       } else if (next === 'active' && tokenRef.current && enabledRef.current) {
         const s = socketRef.current;
         if (s && !s.connected) {
@@ -740,53 +657,6 @@ export function useLiveMap(
     });
     return () => sub.remove();
   }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, clearUsersFallbackTimer, mergeLiveUsersFromApi, store]);
-
-  // ── Time-based interpolation ticker — smoothly moves live-user markers ──
-  useEffect(() => {
-    if (!enabled) return;
-
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const tick = () => {
-      if (!allowBgRef.current && !isForegroundActive()) return;
-      const now = Date.now();
-      const updates = new Map<number, { lat: number; lng: number }>();
-      interpRef.current.forEach((entry, userId) => {
-        const { fromLat, fromLng, toLat, toLng, startMs, durationMs } = entry;
-        const t = Math.min((now - startMs) / Math.max(durationMs, MIN_INTERP_DUR_MS), 1);
-        const te = easeInOut(t);
-        updates.set(userId, {
-          lat: fromLat + (toLat - fromLat) * te,
-          lng: fromLng + (toLng - fromLng) * te,
-        });
-        if (t >= 1) {
-          interpRef.current.delete(userId);
-        }
-      });
-      if (updates.size === 0) return;
-      updates.forEach((pos, userId) => {
-        store.setPosition(userId, pos.lat, pos.lng, true);
-      });
-    };
-
-    const arm = () => {
-      if (interval) clearInterval(interval);
-      const ms = tripActiveRef.current
-        ? INTERP_TICK_TRIP_MS
-        : interpRef.current.size > 5
-          ? INTERP_TICK_BUSY_MS
-          : INTERP_TICK_BASE_MS;
-      interval = setInterval(tick, ms);
-    };
-
-    arm();
-    const rescheduler = setInterval(arm, 5000);
-
-    return () => {
-      if (interval) clearInterval(interval);
-      clearInterval(rescheduler);
-    };
-  }, [isForegroundActive, enabled, tripActive, store]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
@@ -948,8 +818,6 @@ export function useLiveMap(
         pendingOfflineRef.current.forEach((t) => clearTimeout(t));
         pendingOfflineRef.current.clear();
         liveUserLastSeenRef.current.clear();
-        smoothedPosRef.current.clear();
-        interpRef.current.clear();
         liveUserLastSeqRef.current.clear();
         liveUserLastServerAtRef.current.clear();
         store.clear();
