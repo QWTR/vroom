@@ -1,4 +1,3 @@
-import { MAPBOX_TOKEN } from '../../constants/mapConfig';
 import { fetchMatchingViaProxy } from '../../scripts/mapboxProxyClient';
 import { canRequestMapMatch, recordMapMatchNetwork } from '../mapboxNetworkGate';
 import { readMatchingClientCache, buildMatchingCacheKey } from '../mapMatch/matchingRequest';
@@ -6,7 +5,6 @@ import { roadGeometryStore } from '../roadGeometry/RoadGeometryStore';
 import { MAP_MATCH_TRAFFIC_LIGHT_KMH, MATCH_RADIUS_M, GPS_BATCH_MAX_POINTS } from './config';
 import type { BufferedGpsPoint, RoadPoint } from './types';
 
-const MAP_MATCH_URL = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 const FORCE_OFFSET_DEG = 0.00005;
 
 type MapMatchResponse = {
@@ -81,12 +79,7 @@ export async function flushMapMatchBatch(
   }
 
   const radiuses = batch.map(() => MATCH_RADIUS_M);
-  const coordsPath = batch.map((p) => `${p.lng},${p.lat}`).join(';');
-  const radiusesParam = radiuses.map((r) => String(r)).join(';');
-  const fallbackUrl =
-    `${MAP_MATCH_URL}/${coordsPath}` +
-    `?geometries=geojson&tidy=true&radiuses=${radiusesParam}` +
-    `&access_token=${MAPBOX_TOKEN}`;
+  const timestamps = batch.map((p) => p.timestamp);
 
   recordMapMatchNetwork(
     last.lat,
@@ -98,8 +91,9 @@ export async function flushMapMatchBatch(
       points: proxyPoints,
       profile: 'driving',
       radiuses,
+      timestamps,
     },
-    fallbackUrl,
+    '',
     { allowFallback: false, proxyTimeoutMs: background ? 6500 : 4500 },
   );
 

@@ -5588,6 +5588,7 @@ function MapScreenInner() {
     setTripCameraActive,
     getLastProgrammaticCameraApplyMs,
     isUserExploringMap,
+    shouldPauseTripCameraFollow,
     resumeTripCameraFollow,
     syncUserExploreView,
     notifyUserMapInteraction,
@@ -5611,13 +5612,13 @@ function MapScreenInner() {
   const driveMarkerTripSyncRefs = useRef({
     getSpeedKmh: () => Math.max(speedKmhRef.current, rawGpsKmhRef.current),
     getIsNavigating: () => isNavigatingRef.current,
-    isUserExploring: () => isUserExploringMapRef.current(),
+    shouldPauseTripCameraFollow: () => shouldPauseTripCameraFollow(),
     onProgrammaticCameraApply: () => touchProgrammaticCameraApply(),
     getUserZoomOverride: () => getUserZoomOverride(),
   });
   driveMarkerTripSyncRefs.current.getSpeedKmh = () => Math.max(speedKmhRef.current, rawGpsKmhRef.current);
   driveMarkerTripSyncRefs.current.getIsNavigating = () => isNavigatingRef.current;
-  driveMarkerTripSyncRefs.current.isUserExploring = () => isUserExploringMapRef.current();
+  driveMarkerTripSyncRefs.current.shouldPauseTripCameraFollow = () => shouldPauseTripCameraFollow();
   driveMarkerTripSyncRefs.current.onProgrammaticCameraApply = touchProgrammaticCameraApply;
   driveMarkerTripSyncRefs.current.getUserZoomOverride = getUserZoomOverride;
 
@@ -16411,24 +16412,16 @@ function MapScreenInner() {
               }
             }
             const gestureActive = Boolean(e?.gestures?.isGestureActive);
-            const isUserInteraction = e?.properties?.isUserInteraction === true;
             const tripActive = isDrivingRef.current || isNavigatingRef.current;
             const pitchRaw = e?.properties?.pitch;
             const pitchLive = Number.isFinite(pitchRaw) ? Number(pitchRaw) : undefined;
-            if (tripActive) {
-              const progMs = getLastProgrammaticCameraApplyMsRef.current();
-              const withinProgrammaticGuard =
-                Date.now() - progMs < PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS;
-              // 60fps follow: Mapbox często oznacza setCamera jako isUserInteraction — ufaj tylko gestureActive.
-              const realUserGesture =
-                gestureActive
-                && !withinProgrammaticGuard;
-              if (realUserGesture) {
-                notifyUserMapInteraction(
-                  zoomLive ?? undefined,
-                  pitchLive,
-                );
-              }
+            if (tripActive && gestureActive) {
+              // 60fps follow aktualizuje kamerę co klatkę — nie filtruj programmatic guard
+              // (inaczej pinch/pan nigdy nie włącza wolnej kamery).
+              notifyUserMapInteraction(
+                zoomLive ?? undefined,
+                pitchLive,
+              );
             } else if (
               gestureActive
               && (Platform.OS === 'ios' ? (e?.properties?.isUserInteraction !== false) : true)

@@ -262,11 +262,14 @@ export async function fetchMatchingViaProxy<T>(
   const normalized = buildMatchingProxyBody(payload);
   if (!normalized) return null;
 
-  const proxyBody = {
+  const proxyBody: Record<string, unknown> = {
     points: normalized.points,
     profile: normalized.profile,
     radiuses: normalized.radiuses,
   };
+  if (normalized.timestamps && normalized.timestamps.length === normalized.points.length) {
+    proxyBody.timestamps = normalized.timestamps;
+  }
   const cacheKey = buildMatchingCacheKey(
     normalized.points,
     normalized.profile,

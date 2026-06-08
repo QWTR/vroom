@@ -90,7 +90,7 @@ function activeCameraPadding(isNavigating: boolean): MapCameraPadding {
 }
 
 /** Po tym czasie bez gestu użytkownika kamera wraca do follow (jazda/nawigacja). */
-const RETURN_TO_USER_MS = 4000;
+const RETURN_TO_USER_MS = 3000;
 /** Ignoruj echo programmatic setCamera przy wykrywaniu gestu (ms). */
 export const PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS = 520;
 /** Łagodny powrót po rozglądaniu się mapą — bez szarpnięcia zoomu. */
@@ -543,6 +543,17 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
   const isUserExploringMap = useCallback(() => {
     return modeRef.current === 'userPanning' || Date.now() < userPanUntilRef.current;
+  }, []);
+
+  /** V2 rAF follow: pauza podczas gestu użytkownika i animacji powrotu do markera. */
+  const shouldPauseTripCameraFollow = useCallback(() => {
+    const now = Date.now();
+    return (
+      modeRef.current === 'userPanning'
+      || now < userPanUntilRef.current
+      || modeRef.current === 'recenterTransition'
+      || now < recenterLockUntilRef.current
+    );
   }, []);
 
   const extendUserExploreSession = useCallback((now: number) => {
@@ -1024,6 +1035,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     setTripCameraActive,
     getLastProgrammaticCameraApplyMs,
     isUserExploringMap,
+    shouldPauseTripCameraFollow,
     resumeTripCameraFollow,
     syncUserExploreView,
     notifyUserMapInteraction,

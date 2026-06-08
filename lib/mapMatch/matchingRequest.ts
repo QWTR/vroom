@@ -61,6 +61,7 @@ export function buildMatchingProxyBody(input: Record<string, unknown>): {
   points: MatchingPoint[];
   profile: string;
   radiuses: number[] | null;
+  timestamps: number[] | null;
 } | null {
   const points = normalizeMatchingPoints(input);
   if (!points) return null;
@@ -75,7 +76,14 @@ export function buildMatchingProxyBody(input: Record<string, unknown>): {
     });
   }
 
-  return { points, profile, radiuses };
+  const timestampsRaw = input.timestamps;
+  let timestamps: number[] | null = null;
+  if (Array.isArray(timestampsRaw) && timestampsRaw.length === points.length) {
+    timestamps = timestampsRaw.map((t) => Number(t)).filter((t) => Number.isFinite(t));
+    if (timestamps.length !== points.length) timestamps = null;
+  }
+
+  return { points, profile, radiuses, timestamps };
 }
 
 function bucketPoints(points: MatchingPoint[]): MatchingPoint[] {

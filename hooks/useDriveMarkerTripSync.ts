@@ -18,7 +18,8 @@ function isValidMarkerCoord(la: number, ln: number): boolean {
 export type DriveMarkerTripSyncRefs = {
   getSpeedKmh: () => number;
   getIsNavigating: () => boolean;
-  isUserExploring: () => boolean;
+  /** Pauza follow kamery (gest użytkownika lub animacja powrotu). */
+  shouldPauseTripCameraFollow: () => boolean;
   onProgrammaticCameraApply: () => void;
   getUserZoomOverride: () => number | null;
 };
@@ -57,7 +58,7 @@ export function useDriveMarkerTripSync(
         setVisible(true);
 
         const sink = refs.current;
-        if (sink && !sink.isUserExploring()) {
+        if (sink && !sink.shouldPauseTripCameraFollow()) {
           const params = buildTripFollowSetCameraParams({
             lat: la,
             lng: ln,
