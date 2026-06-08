@@ -1,9 +1,9 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
-import { AD_ROTATION_MS } from './useAdRotation';
 
 const SESSION_KEY = 'vroom_ad_session_id';
+const CACHE_TTL_MS = 55_000;
 
 export type AdPlacement = 'map_banner' | 'feed_native' | 'home_banner';
 
@@ -49,6 +49,7 @@ class SponsoredAdStore {
   private cache = new Map<AdPlacement, PlacementEntry>();
   private loading = new Set<AdPlacement>();
   private inflight = new Map<AdPlacement, Promise<void>>();
+  private enabledPlacements = new Map<AdPlacement, boolean>();
   private listeners = new Set<() => void>();
   private snapshots = new Map<AdPlacement, Snapshot>();
 
@@ -79,7 +80,30 @@ class SponsoredAdStore {
   }
 
   private isFresh(entry: PlacementEntry | undefined) {
-    return !!entry && Date.now() - entry.fetchedAt < AD_ROTATION_MS - 5_000;
+    return !!entry && Date.now() - entry.fetchedAt < CACHE_TTL_MS;
+  }
+
+  invalidate(placement?: AdPlacement) {
+    if (placement) {
+      this.cache.delete(placement);
+      this.snapshots.delete(placement);
+    } else {
+      this.cache.clear();
+      this.snapshots.clear();
+    }
+    this.notify();
+  }
+
+  setEnabled(placement: AdPlacement, enabled: boolean) {
+    this.enabledPlacements.set(placement, enabled);
+  }
+
+  refreshActivePlacements() {
+    for (const [placement, enabled] of this.enabledPlacements) {
+      if (enabled) {
+        void this.fetch(placement, true, true);
+      }
+    }
   }
 
   async fetch(placement: AdPlacement, enabled: boolean, force = false) {
@@ -158,6 +182,11 @@ class SponsoredAdStore {
 export const sponsoredAdStore = new SponsoredAdStore();
 
 export function useSponsoredAd(placement: AdPlacement, enabled = true) {
+  useEffect(() => {
+    sponsoredAdStore.setEnabled(placement, enabled);
+    prefetchSponsoredAd(placement, enabled);
+  }, [placement, enabled]);
+
   const { result, loading } = useSyncExternalStore(
     sponsoredAdStore.subscribe,
     () => sponsoredAdStore.getSnapshot(placement),

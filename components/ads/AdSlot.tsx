@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { AdBanner, BANNER_ID_VROOM } from './AdBanner';
 import { AdNativePost } from './AdNativePost';
 import { SponsoredBanner } from './SponsoredBanner';
 import { SponsoredNativePost } from './SponsoredNativePost';
 import { AdPlaceholder } from './AdPlaceholder';
-import { useSponsoredAd, prefetchSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
+import { useSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
 import { useAdRotation } from '../../hooks/useAdRotation';
 import { usePremium } from '../../contexts/PremiumContext';
 
@@ -28,13 +28,9 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
   const { isPremium, isLoading: premiumLoading } = usePremium();
   const adsEnabled = enabled && !premiumLoading && !isPremium;
 
-  useEffect(() => {
-    prefetchSponsoredAd(placement, adsEnabled);
-  }, [placement, adsEnabled]);
-
   const { result, loading, recordClick } = useSponsoredAd(placement, adsEnabled);
 
-  const hasPartner = !loading && result?.source === 'sponsored' && !!result?.campaign?.imageUrl;
+  const hasPartner = result?.source === 'sponsored' && !!result?.campaign?.imageUrl;
   const { displaySource, markAdmobFailed, markPartnerFailed } = useAdRotation(hasPartner, adsEnabled);
 
   if (premiumLoading || isPremium) return null;
@@ -43,7 +39,7 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
     if (result?.campaign) recordClick(result.campaign.id);
   };
 
-  if (loading) {
+  if (loading && !result) {
     return <AdPlaceholder variant={variant} />;
   }
 
