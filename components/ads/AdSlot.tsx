@@ -1,5 +1,5 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, useWindowDimensions } from 'react-native';
 import { AdBanner, BANNER_ID_VROOM } from './AdBanner';
 import { AdNativePost } from './AdNativePost';
 import { SponsoredBanner } from './SponsoredBanner';
@@ -18,6 +18,14 @@ const BANNER_ASPECT: Partial<Record<AdPlacement, number>> = {
   home_banner: 320 / 100,
 };
 
+const BANNER_H_MARGIN = 40;
+const BANNER_V_MARGIN = 12;
+
+function bannerSlotHeight(placement: AdPlacement, screenWidth: number): number {
+  const aspect = BANNER_ASPECT[placement] ?? 320 / 100;
+  return (screenWidth - BANNER_H_MARGIN) / aspect + BANNER_V_MARGIN;
+}
+
 interface Props {
   placement: AdPlacement;
   variant: 'banner' | 'native';
@@ -26,6 +34,7 @@ interface Props {
 
 export function AdSlot({ placement, variant, enabled = true }: Props) {
   const { isPremium, isLoading: premiumLoading } = usePremium();
+  const { width: screenWidth } = useWindowDimensions();
   const adsEnabled = enabled && !premiumLoading && !isPremium;
 
   const { result, loading, recordClick } = useSponsoredAd(placement, adsEnabled);
@@ -35,7 +44,25 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
 
   const { displaySource, markAdmobFailed } = useAdRotation(placement, hasPartner, adsEnabled);
 
-  if (premiumLoading || isPremium) return null;
+  const fixedBannerHeight = useMemo(
+    () => (variant === 'banner' ? bannerSlotHeight(placement, screenWidth) : 0),
+    [variant, placement, screenWidth],
+  );
+
+  const wrapBannerSlot = (content: React.ReactNode) => {
+    if (variant !== 'banner' || fixedBannerHeight <= 0) return content;
+    return (
+      <View style={{ height: fixedBannerHeight, overflow: 'hidden' }}>
+        {content}
+      </View>
+    );
+  };
+
+  if (isPremium) return null;
+
+  if (premiumLoading) {
+    return variant === 'banner' ? wrapBannerSlot(null) : null;
+  }
 
   const onPartnerPress = () => {
     if (partnerCampaign) recordClick(partnerCampaign.id);
@@ -78,19 +105,21 @@ export function AdSlot({ placement, variant, enabled = true }: Props) {
         marginHorizontal: variant === 'native' ? 12 : 20,
         marginVertical: variant === 'native' ? 0 : 6,
         marginBottom: variant === 'native' ? 10 : undefined,
-        minHeight: variant === 'native' ? 40 : 44,
+        minHeight: variant === 'native' ? 40 : Math.max(44, fixedBannerHeight - BANNER_V_MARGIN),
         borderRadius: variant === 'native' ? 14 : 12,
       }}
     />
   );
 
   if (loading && !partnerCampaign) {
-    return displaySource === 'partner' ? renderLoadingShell() : renderAdmob();
+    return wrapBannerSlot(
+      displaySource === 'partner' ? renderLoadingShell() : renderAdmob(),
+    );
   }
 
   if (displaySource === 'partner') {
-    return renderPartner() ?? renderAdmob();
+    return wrapBannerSlot(renderPartner() ?? renderAdmob());
   }
 
-  return renderAdmob();
+  return wrapBannerSlot(renderAdmob());
 }

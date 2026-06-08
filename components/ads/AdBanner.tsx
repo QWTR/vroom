@@ -38,23 +38,24 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
   }, [failed, isPremium, premiumLoading, onFailedToLoad]);
 
   if (premiumLoading || isPremium) return null;
-  if (failed) return null;
+
+  const shellStyle = {
+    marginHorizontal: 20,
+    marginVertical: 6,
+    borderRadius: 12,
+    overflow: 'hidden' as const,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    minHeight: 44,
+  };
+
+  if (failed) return <View style={shellStyle} />;
 
   return (
-    <View
-      style={{
-        marginHorizontal: 20,
-        marginVertical: 6,
-        borderRadius: 12,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 44,
-      }}
-    >
+    <View style={shellStyle}>
       <BannerAd
         key={`banner-${retryTick}-${unitId}`}
         unitId={unitId}
