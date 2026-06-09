@@ -282,6 +282,8 @@ import { LiveUsersFleetLayer } from '../../components/map/LiveUsersFleetLayer';
 const V10_CLIENT_FIRST = true;
 /** Drive Core V2 — motion/snap/marker/API budget (`lib/driveCore`). */
 const DRIVE_CORE_V2 = true;
+/** Kamera: jeden setCamera/segment GPS (Mapbox linearTo) zamiast 60×/s przez RN bridge. */
+const DRIVE_CAMERA_SEGMENT_SYNC = true;
 /** Legacy — raw marker tylko gdy brak geometrii drogi (patrz hasRoadGeometry w drive tick). */
 const FREE_DRIVE_RAW_MARKER_KMH = 40;
 /** Free drive: dopiero powyżej tego crossTrack zaczyna się grace (Android jitter w lesie). */
@@ -2181,7 +2183,12 @@ function MapScreenInner() {
     lastCamVehicleForBearingRef.current = { lat, lng };
     const segMs = opts?.instant || opts?.hardSnap
       ? 0
-      : (Number.isFinite(feedDurMs) && feedDurMs > 0 ? Math.round(feedDurMs) : 0);
+      : Math.round(Math.max(
+        TRIP_GPS_FEED_MIN_MS,
+        Number.isFinite(feedDurMs) && feedDurMs > 0
+          ? feedDurMs
+          : lastSegmentDurationMsRef.current,
+      ));
     updateCameraFrameRef.current?.({
       center: { latitude: lat, longitude: lng },
       heading: hintHdg,
@@ -6160,15 +6167,25 @@ function MapScreenInner() {
           polylineKey: displayPolylineKey,
           speedMs: feedSpeedMs,
         });
-        if (segmentInstant) {
-          pushCameraFromGpsSegment(
-            displayLat,
-            displayLng,
-            displayHdg,
-            0,
-            zeroVelocityLock || parkedLike ? 0 : hudKmh,
-            { instant: true },
-          );
+        if (!isUserExploringMapRef.current()) {
+          if (segmentInstant) {
+            pushCameraFromGpsSegment(
+              displayLat,
+              displayLng,
+              displayHdg,
+              0,
+              zeroVelocityLock || parkedLike ? 0 : hudKmh,
+              { instant: true },
+            );
+          } else if (DRIVE_CAMERA_SEGMENT_SYNC) {
+            pushCameraFromGpsSegment(
+              displayLat,
+              displayLng,
+              displayHdg,
+              segmentDurationMs,
+              zeroVelocityLock || parkedLike ? 0 : hudKmh,
+            );
+          }
         }
       }
       const svLat = driveMarker.lat.value;
@@ -6481,9 +6498,12 @@ function MapScreenInner() {
     });
   }, []);
 
-  /** V2: kamera z tych samych SV co marker (60 FPS, linear native follow). */
+  /**
+   * V2 fallback: 60 FPS camera przez RN bridge — wyłączone gdy DRIVE_CAMERA_SEGMENT_SYNC
+   * (natywna interpolacja Mapbox linearTo na segment GPS jest płynniejsza i tańsza).
+   */
   useDriveMarkerCameraFrame(
-    DRIVE_CORE_V2 && isTripActiveMap,
+    DRIVE_CORE_V2 && isTripActiveMap && !DRIVE_CAMERA_SEGMENT_SYNC,
     driveMarker,
     pushCameraFromDriveMarkerFrame,
   );

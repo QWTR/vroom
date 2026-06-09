@@ -1,7 +1,7 @@
 import React, { memo, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
-import Animated, { useAnimatedProps } from 'react-native-reanimated';
+import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
 import {
   DRIVE_MARKER_IMAGE_KEY,
@@ -21,6 +21,9 @@ const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',
   features: [],
 });
+
+/** Min. zmiana współrzędnych zanim odświeżamy GeoJSON (unika zbędnych parse w Mapbox). */
+const COORD_EPS = 1e-7;
 
 type Props = {
   enabled: boolean;
@@ -49,6 +52,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     cursorSkin,
   }), [avatarUrl, imageUri, cursorSkin?.imageUrl, cursorSkin?.borderColor]);
 
+  const lastShape = useSharedValue(EMPTY_SHAPE);
+  const lastLat = useSharedValue(NaN);
+  const lastLng = useSharedValue(NaN);
+  const lastHdg = useSharedValue(NaN);
+
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';
     const la = marker.lat.value;
@@ -59,19 +67,37 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       || !Number.isFinite(ln)
       || (Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6)
     ) {
+      if (lastShape.value !== EMPTY_SHAPE) {
+        lastShape.value = EMPTY_SHAPE;
+      }
       return { shape: EMPTY_SHAPE };
     }
     const hdg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
-    return {
-      shape: JSON.stringify({
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [ln, la] },
-          properties: { heading: hdg },
-        }],
-      }),
-    };
+    const prevLa = lastLat.value;
+    const prevLn = lastLng.value;
+    const prevH = lastHdg.value;
+    if (
+      Number.isFinite(prevLa)
+      && Number.isFinite(prevLn)
+      && Math.abs(la - prevLa) <= COORD_EPS
+      && Math.abs(ln - prevLn) <= COORD_EPS
+      && Math.abs(hdg - prevH) < 0.15
+    ) {
+      return { shape: lastShape.value };
+    }
+    lastLat.value = la;
+    lastLng.value = ln;
+    lastHdg.value = hdg;
+    const nextShape = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [ln, la] },
+        properties: { heading: hdg },
+      }],
+    });
+    lastShape.value = nextShape;
+    return { shape: nextShape };
   });
 
   const textureUri = capturedUri ?? imageUri ?? null;

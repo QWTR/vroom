@@ -1,4 +1,4 @@
-import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
+import { runOnJS, useAnimatedReaction, useSharedValue } from 'react-native-reanimated';
 import type { DriveMarkerValues } from './useDriveMarker';
 
 export type DriveMarkerCameraSink = {
@@ -6,15 +6,20 @@ export type DriveMarkerCameraSink = {
   onFrame: (lat: number, lng: number, hdg: number) => void;
 };
 
+/** Min. odstęp między setCamera z workletu (ms) — ogranicza RN bridge / frame drops. */
+const FRAME_CAMERA_MIN_INTERVAL_MS = 50;
+
 /**
- * V2: kamera 60 FPS — reaguje na te same SharedValues co DriveMarkerLayer.
- * updateCameraFrame dostaje followFromWorkletFrame + segmentDurationMs≈16 → linear, animMs=0.
+ * V2 fallback: kamera z SharedValues markera (throttled).
+ * Preferowany tryb: segmentSync w useCameraAnimation (jeden setCamera / tick GPS).
  */
 export function useDriveMarkerCameraFrame(
   enabled: boolean,
   marker: DriveMarkerValues,
   onFrame: (lat: number, lng: number, hdg: number) => void,
 ): void {
+  const lastPushMs = useSharedValue(0);
+
   useAnimatedReaction(
     () => ({
       lat: marker.lat.value,
@@ -33,6 +38,11 @@ export function useDriveMarkerCameraFrame(
       ) {
         return;
       }
+      const now = Date.now();
+      if (lastPushMs.value > 0 && now - lastPushMs.value < FRAME_CAMERA_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastPushMs.value = now;
       runOnJS(onFrame)(next.lat, next.lng, next.hdg);
     },
     [enabled, onFrame],

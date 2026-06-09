@@ -451,12 +451,15 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       targetPoseRef.current = target;
       return;
     }
+    if (followFromWorkletFrame && !segmentSync) {
+      targetPoseRef.current = target;
+      return;
+    }
+
     const prev = lastMapApplyRef.current;
     const sinceLastApply = lastNativeFollowApplyAtRef.current > 0
       ? now - lastNativeFollowApplyAtRef.current
-      : followFromWorkletFrame
-        ? WORKLET_FRAME_ANIM_MS
-        : NATIVE_FOLLOW_ANIM_MS;
+      : NATIVE_FOLLOW_ANIM_MS;
     const followSpeedKmh = stabilizedFollowSpeedRef.current;
     const minIntervalMs = followFromWorkletFrame
       ? WORKLET_FRAME_MIN_INTERVAL_MS
@@ -523,7 +526,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         animMode = 'linear';
       } else {
         animMs = clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200);
-        animMode = prev ? 'linearTo' : 'easeTo';
+        // linearTo: Mapbox dokańcza bieżącą animację i płynnie przechodzi do nowego celu.
+        animMode = 'linearTo';
       }
     } else if (followFromWorkletFrame) {
       animMs = 0;
@@ -1055,6 +1059,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       isNavigating,
       softReturn: true,
     });
+    const resumeSegMs = input?.segmentDurationMs;
+    const resumeSegmentSync = input?.segmentSync === true;
     updateCameraFrame({
       center,
       heading,
@@ -1063,7 +1069,10 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       isDriving,
       timestamp: now,
       headingFromTripPipeline: true,
-      followFromWorkletFrame: true,
+      segmentSync: resumeSegmentSync || undefined,
+      segmentDurationMs: resumeSegmentSync && resumeSegMs != null && resumeSegMs > 0
+        ? resumeSegMs
+        : undefined,
     });
   };
 
