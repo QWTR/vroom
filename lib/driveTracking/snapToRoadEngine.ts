@@ -16,8 +16,10 @@ const LATERAL_REJECT_FREE_DRIVE_BOOST_M = 38;
 const FAST_SPEED_KMH = 70;
 
 /** Hysteresis: bonus for staying on locked segment (prevents parallel-road jumps). */
-const SEGMENT_LOCK_BONUS_M = 18;
-const SEGMENT_SWITCH_PENALTY_M = 12;
+const SEGMENT_LOCK_BONUS_M = 28;
+const SEGMENT_SWITCH_PENALTY_M = 25;
+const CROSSING_SWITCH_HEADING_MARGIN_DEG = 8;
+const CROSSING_SWITCH_BLOCK_PENALTY_M = 55;
 const HEADING_MISMATCH_PENALTY_PER_DEG = 0.35;
 
 export type SnapEngineState = {
@@ -82,6 +84,19 @@ export class SnapToRoadEngine {
 
     const motionBearing = ctx.motionBearingDeg ?? this.state.lastHeading;
     const maxRadiusM = snapRadiusM(ctx.speedKmh, ctx.accuracyM, ctx.hardRoadLock, ctx.isNavigating);
+    let lockedSegBearing: number | null = null;
+    if (this.state.lockedSegmentIndex >= 0) {
+      const lockedIdx = Math.max(0, Math.min(this.state.lockedSegmentIndex, geometry.length - 2));
+      const lockedSeg = geometry[lockedIdx];
+      const lockedSegNext = geometry[Math.min(lockedIdx + 1, geometry.length - 1)];
+      lockedSegBearing = bearingBetween(
+        lockedSeg.latitude,
+        lockedSeg.longitude,
+        lockedSegNext.latitude,
+        lockedSegNext.longitude,
+      );
+      lockedSegBearing = alignBearingToReference(lockedSegBearing, motionBearing);
+    }
     const projection = projectOntoPolylineWithIndex(
       ctx.filteredLat,
       ctx.filteredLng,
@@ -110,6 +125,7 @@ export class SnapToRoadEngine {
         segBearing: aligned,
         motionBearing,
         lockedSeg: this.state.lockedSegmentIndex,
+        lockedSegBearing,
         roadCredit: this.state.roadCredit,
         speedKmh: ctx.speedKmh,
       });
@@ -138,6 +154,7 @@ export class SnapToRoadEngine {
         segBearing: aligned,
         motionBearing,
         lockedSeg: this.state.lockedSegmentIndex,
+        lockedSegBearing,
         roadCredit: this.state.roadCredit,
         speedKmh: ctx.speedKmh,
         legacyBonus: 6,
@@ -238,6 +255,14 @@ export class SnapToRoadEngine {
       const lockedCand = candidates.find((c) => c.segIdx === this.state.lockedSegmentIndex);
       if (lockedCand && best.score - lockedCand.score < switchThreshold) {
         Object.assign(best, lockedCand);
+      } else if (lockedCand) {
+        const deltaToBest = headingDeltaDeg(best.segBearing, motionBearing);
+        const deltaToLocked = headingDeltaDeg(lockedCand.segBearing, motionBearing);
+        if (deltaToLocked + CROSSING_SWITCH_HEADING_MARGIN_DEG < deltaToBest) {
+          Object.assign(best, lockedCand);
+        } else {
+          this.state.roadCredit = Math.max(0, this.state.roadCredit - 12);
+        }
       } else {
         this.state.roadCredit = Math.max(0, this.state.roadCredit - 12);
       }
@@ -266,6 +291,7 @@ function scoreCandidate(args: {
   segBearing: number;
   motionBearing: number;
   lockedSeg: number;
+  lockedSegBearing?: number | null;
   roadCredit: number;
   speedKmh: number;
   legacyBonus?: number;
@@ -276,6 +302,7 @@ function scoreCandidate(args: {
     segBearing,
     motionBearing,
     lockedSeg,
+    lockedSegBearing = null,
     roadCredit,
     speedKmh,
     legacyBonus = 0,
@@ -294,6 +321,19 @@ function scoreCandidate(args: {
     } else {
       const leap = Math.abs(segIdx - lockedSeg);
       score += SEGMENT_SWITCH_PENALTY_M + leap * 0.8;
+      if (leap > 1) {
+        const motionAlign = headingDeltaDeg(segBearing, motionBearing);
+        if (motionAlign > 45) {
+          score += CROSSING_SWITCH_BLOCK_PENALTY_M + (motionAlign - 45) * 0.5;
+        }
+      }
+      if (lockedSegBearing != null) {
+        const deltaToNew = headingDeltaDeg(segBearing, motionBearing);
+        const deltaToLocked = headingDeltaDeg(lockedSegBearing, motionBearing);
+        if (deltaToLocked + CROSSING_SWITCH_HEADING_MARGIN_DEG < deltaToNew) {
+          score += CROSSING_SWITCH_BLOCK_PENALTY_M;
+        }
+      }
     }
   }
 

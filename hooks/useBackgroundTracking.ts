@@ -349,9 +349,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 
     const { latitude, longitude, speed, accuracy } = location.coords;
 
-    // ── Send live location only when sharing is active ────────────────────
+    // ── Send live location only when sharing is active (Ghost = zero POST) ─
     const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
-    if (sharingFlag === 'true') {
+    if (sharingFlag !== 'true') {
+      // Ghost Mode / live off — skip live location entirely.
+    } else {
       await fetch(`${API_URL}/api/live/location`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

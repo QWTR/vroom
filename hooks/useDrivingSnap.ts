@@ -46,6 +46,27 @@ const IOS_SEGMENT_SWITCH_CONFIRM_RADIUS_M = 32;
 /** Surowy GPS musi być tak daleko od zablokowanej polilinii, żeby puścić boczną drogę. */
 const ROAD_LOCK_ESCAPE_M = 70;
 const ROAD_LOCK_ESCAPE_TICKS = 2;
+const FALLBACK_HEADING_REJECT_DEG = 110;
+const FALLBACK_HEADING_REJECT_FAST_DEG = 100;
+const OPPOSITE_LANE_REJECT_DEG = 120;
+
+function resolveActiveTravelHeading(
+  expectedHeading: number | null,
+  lastKnownHeading: number,
+  speedKmh: number,
+): number | null {
+  if (expectedHeading != null && Number.isFinite(expectedHeading)) return expectedHeading;
+  if (speedKmh >= 5 && Number.isFinite(lastKnownHeading) && lastKnownHeading !== 0) {
+    return lastKnownHeading;
+  }
+  return expectedHeading;
+}
+
+function fallbackHeadingRejectDeg(speedKmh?: number): number {
+  return (speedKmh ?? 0) >= 70
+    ? FALLBACK_HEADING_REJECT_FAST_DEG
+    : FALLBACK_HEADING_REJECT_DEG;
+}
 
 function projectByBearingMeters(
   lat: number,
@@ -223,6 +244,8 @@ function snapToRouteWithInfo(
     isNavigating?: boolean;
     /** Nie szukaj globalnego dopasowania na równoległej drodze (histereza hard lock). */
     lockParallelRoad?: boolean;
+    lastKnownHeading?: number | null;
+    globalFallbackSearch?: boolean;
   },
 ): SnapResult | null {
   if (pts.length < 2) return null;
@@ -247,7 +270,17 @@ function snapToRouteWithInfo(
   const segTo = useForwardWindow
     ? Math.min(pts.length - 2, Number(opts!.expectedSegIndex) + forwardLeap)
     : pts.length - 2;
-  const headingRejectDeg = snapHeadingRejectDeg(opts?.speedKmh, !!opts?.isNavigating);
+  const globalFallback = !!opts?.globalFallbackSearch;
+  const activeTravelHeading = globalFallback
+    ? resolveActiveTravelHeading(
+      opts?.expectedHeading ?? null,
+      opts?.lastKnownHeading ?? 0,
+      opts?.speedKmh ?? 0,
+    )
+    : opts?.expectedHeading ?? null;
+  const headingRejectDeg = globalFallback
+    ? fallbackHeadingRejectDeg(opts?.speedKmh)
+    : snapHeadingRejectDeg(opts?.speedKmh, !!opts?.isNavigating);
   const headingScoreSoftDeg = snapHeadingScoreSoftDeg(opts?.speedKmh);
   let headingRejects = 0;
   let headingRejectMaxDelta = 0;
@@ -260,8 +293,13 @@ function snapToRouteWithInfo(
 
     const dist = distanceToSegmentMeters(userLat, userLng, aLat, aLon, bLat, bLon);
     const segBearing = bearingBetween(aLat, aLon, bLat, bLon);
-    if (opts?.expectedHeading != null && Number.isFinite(opts.expectedHeading)) {
-      const delta = angleDeltaDeg(segBearing, Number(opts.expectedHeading));
+    if (activeTravelHeading != null && Number.isFinite(activeTravelHeading)) {
+      const delta = angleDeltaDeg(segBearing, Number(activeTravelHeading));
+      if (globalFallback && delta > OPPOSITE_LANE_REJECT_DEG) {
+        headingRejects += 1;
+        if (delta > headingRejectMaxDelta) headingRejectMaxDelta = delta;
+        continue;
+      }
       if (delta > headingRejectDeg) {
         headingRejects += 1;
         if (delta > headingRejectMaxDelta) headingRejectMaxDelta = delta;
@@ -269,9 +307,12 @@ function snapToRouteWithInfo(
       }
     }
     let score = dist;
-    if (opts?.expectedHeading != null && Number.isFinite(opts.expectedHeading)) {
-      const delta = angleDeltaDeg(segBearing, Number(opts.expectedHeading));
+    if (activeTravelHeading != null && Number.isFinite(activeTravelHeading)) {
+      const delta = angleDeltaDeg(segBearing, Number(activeTravelHeading));
       score += Math.max(0, delta - headingScoreSoftDeg) * 0.32;
+      if (globalFallback) {
+        score += Math.max(0, delta - 60) * 0.6;
+      }
     }
     if (opts?.expectedSegIndex != null && Number.isFinite(opts.expectedSegIndex)) {
       const leap = Math.abs(i - Number(opts.expectedSegIndex));
@@ -303,11 +344,18 @@ function snapToRouteWithInfo(
   }
 
   if (minDist > maxRadiusM && useForwardWindow && !opts?.lockParallelRoad) {
+    const travelHdg = resolveActiveTravelHeading(
+      opts?.expectedHeading ?? null,
+      opts?.lastKnownHeading ?? 0,
+      opts?.speedKmh ?? 0,
+    );
     return snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
-      expectedHeading: null,
+      expectedHeading: travelHdg,
       expectedSegIndex: null,
       speedKmh: opts?.speedKmh,
       isNavigating: opts?.isNavigating,
+      lastKnownHeading: opts?.lastKnownHeading,
+      globalFallbackSearch: true,
     });
   }
   if (minDist > maxRadiusM && useForwardWindow && opts?.lockParallelRoad) {
@@ -327,8 +375,16 @@ function snapToRouteWithInfo(
 
   if (useForwardWindow && Number.isFinite(minDist) && !opts?.lockParallelRoad) {
     const global = snapToRouteWithInfo(userLat, userLng, pts, maxRadiusM, {
-      expectedHeading: null,
+      expectedHeading: resolveActiveTravelHeading(
+        opts?.expectedHeading ?? null,
+        opts?.lastKnownHeading ?? 0,
+        opts?.speedKmh ?? 0,
+      ),
       expectedSegIndex: null,
+      speedKmh: opts?.speedKmh,
+      isNavigating: opts?.isNavigating,
+      lastKnownHeading: opts?.lastKnownHeading,
+      globalFallbackSearch: true,
     });
     if (global) {
       const segLeap = opts?.expectedSegIndex != null && Number.isFinite(opts.expectedSegIndex)
@@ -749,7 +805,7 @@ export function useDrivingSnap() {
     const expectedHeading =
       last && movedRawM >= 5
         ? bearingBetween(last.lat, last.lng, lat, lng)
-        : null;
+        : (effectiveSpeedKmh >= 5 ? lastTargetHeadingRef.current : null);
     const expectedSegIndex = lastSegmentIndexRef.current >= 0 ? lastSegmentIndexRef.current : null;
     const snapOpts = {
       expectedHeading,
@@ -757,6 +813,7 @@ export function useDrivingSnap() {
       speedKmh: effectiveSpeedKmh,
       isNavigating,
       lockParallelRoad: roadLockHeld,
+      lastKnownHeading: lastTargetHeadingRef.current,
     };
 
     let result = snapToRouteWithInfo(lat, lng, pts, dynamicRadius, snapOpts);

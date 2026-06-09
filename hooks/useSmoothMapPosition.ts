@@ -22,6 +22,8 @@ const WORKLET_STALL_MS = 2000;
 const CRUISE_MIN_MS = 0.55;
 /** Dead reckoning tylko przy realnej jeździe (~5+ km/h). */
 const DR_MIN_SPEED_MS = 1.39;
+/** Poniżej tej prędkości worklet może cofać roadIdx (postój / manewry parkingowe). */
+const NO_BACKWARD_MIN_SPEED_MS = 1.39;
 /** Heading z azymutu drogi od ~5 km/h (zgodnie z TRIP_COMPASS_HEADING_MAX_KMH). */
 const HEADING_LOCK_SPEED_MS = DR_MIN_SPEED_MS;
 /** Brak nowego feedu GPS — worklet jedzie DR wzdłuż drogi. */
@@ -118,6 +120,17 @@ function haversineMWorklet(
 function angleDeltaWorklet(a: number, b: number): number {
   'worklet';
   return Math.abs((((a - b) + 540) % 360) - 180);
+}
+
+function clampRoadIdxForwardWorklet(
+  prevIdx: number,
+  nextIdx: number,
+  speedMs: number,
+  allowRewind: boolean,
+): number {
+  'worklet';
+  if (allowRewind || speedMs < NO_BACKWARD_MIN_SPEED_MS) return nextIdx;
+  return Math.max(prevIdx, nextIdx);
 }
 
 function bearingBetweenWorklet(
@@ -239,6 +252,7 @@ function advanceAlongRoadWorklet(
   fromLat: number,
   fromLng: number,
   distM: number,
+  speedMs = 0,
 ): { lat: number; lng: number; idx: number } {
   'worklet';
   const n = roadLenWorklet(roadFlat);
@@ -247,7 +261,12 @@ function advanceAlongRoadWorklet(
   let idx = Math.max(0, Math.min(n - 2, startIdx));
   // Jeśli odlecieliśmy, złap najbliższy punkt okna.
   const snapI = findNearestRoadIndexWorklet(roadFlat, fromLat, fromLng);
-  if (Math.abs(snapI - idx) > 6) idx = Math.max(0, Math.min(n - 2, snapI));
+  if (Math.abs(snapI - idx) > 6) {
+    const clampedSnapI = Math.max(0, Math.min(n - 2, snapI));
+    idx = speedMs >= NO_BACKWARD_MIN_SPEED_MS
+      ? Math.max(idx, clampedSnapI)
+      : clampedSnapI;
+  }
 
   let curLat = fromLat;
   let curLng = fromLng;
@@ -423,6 +442,17 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         });
       }
 
+      const uturnOrReroute =
+        instant
+        || src.includes('bootstrap')
+        || src.includes('recovery')
+        || (
+          bootstrapped.value === 1
+          && feedSpeedMsRaw >= NO_BACKWARD_MIN_SPEED_MS
+          && distFromDisplayM >= 6
+          && angleDeltaWorklet(anchorHdg.value, feedHdg) > 100
+        );
+
       // Road geometry snapshot (small window) for DR along curve — przed backward guard.
       if (target.roadPts && Array.isArray(target.roadPts) && target.roadPts.length >= 2) {
         const flat: number[] = [];
@@ -435,13 +465,16 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
         if (flat.length >= 4) {
           const hdgJumpRoad = angleDeltaWorklet(anchorHdg.value, feedHdg);
           roadFlat.value = flat;
+          const prevIdx = roadIdx.value;
+          const nearestIdx = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
+          roadIdx.value = clampRoadIdxForwardWorklet(
+            prevIdx,
+            nearestIdx,
+            feedSpeedMsRaw,
+            uturnOrReroute,
+          );
           if (hdgJumpRoad > 28) {
-            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
             turnDrFreezeUntil.value = now + TURN_DR_FREEZE_MS;
-          } else if (instant && bootstrapped.value === 0) {
-            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
-          } else {
-            roadIdx.value = findNearestRoadIndexWorklet(flat, feedLat, feedLng);
           }
         }
       }
@@ -865,13 +898,20 @@ export function useSmoothMapPosition(enabled: boolean): SmoothMapPositionValues 
               lat.value,
               lng.value,
               drStepM,
+              cruiseMs,
             );
             const roadDrMoveM = haversineMWorklet(lat.value, lng.value, next.lat, next.lng);
             const turnFreeze = now < turnDrFreezeUntil.value;
-            if (turnFreeze && Math.abs(next.idx - prevRoadIdx) > 3) {
+            const clampedIdx = clampRoadIdxForwardWorklet(
+              prevRoadIdx,
+              next.idx,
+              cruiseMs,
+              false,
+            );
+            if (turnFreeze && Math.abs(clampedIdx - prevRoadIdx) > 3) {
               roadIdx.value = prevRoadIdx;
             } else {
-              roadIdx.value = next.idx;
+              roadIdx.value = clampedIdx;
             }
             const roadDrStalled =
               roadDrMoveM < 0.03

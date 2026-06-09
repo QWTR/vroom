@@ -104,7 +104,14 @@ export class DriveTrackingPipeline {
       this.kalman.setProcessNoise(0.12, 0.45);
     }
 
-    const kf = this.kalman.filter(rawLat, rawLng, accuracyM, timestampMs, preSpeedKmh);
+    const kf = this.kalman.filter(
+      rawLat,
+      rawLng,
+      accuracyM,
+      timestampMs,
+      preSpeedKmh,
+      input.headingDeg,
+    );
     let lat = kf.latitude;
     let lng = kf.longitude;
 

@@ -53,12 +53,58 @@ export function createLiveMapStore() {
     if (notify) notifyPosition(id);
   };
 
-  const removeUser = (id: number) => {
-    if (!metaById.has(id)) return;
+  const removeUserInPlace = (id: number) => {
+    if (!metaById.has(id)) return false;
     metaById.delete(id);
     positions.delete(id);
     positionListeners.delete(id);
+    return true;
+  };
+
+  const removeUser = (id: number) => {
+    if (!removeUserInPlace(id)) return;
     syncUserIdsArray();
+  };
+
+  const pruneUsersInPlace = (ids: number[]) => {
+    let removed = false;
+    for (const id of ids) {
+      if (removeUserInPlace(id)) removed = true;
+    }
+    if (removed) syncUserIdsArray();
+  };
+
+  type MergeUserBatchEntry = {
+    meta: LiveUserMeta;
+    lat: number;
+    lng: number;
+  };
+
+  const mergeUsersBatch = (
+    entries: MergeUserBatchEntry[],
+    pruneIds: number[] = [],
+  ): number[] => {
+    const changedPositionIds: number[] = [];
+
+    for (const { meta, lat, lng } of entries) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      setMeta(meta);
+      const prev = positions.get(meta.id);
+      const posChanged = !prev || prev.lat !== lat || prev.lng !== lng;
+      setPosition(meta.id, lat, lng, false);
+      if (posChanged) changedPositionIds.push(meta.id);
+    }
+
+    for (const id of pruneIds) {
+      removeUserInPlace(id);
+    }
+    syncUserIdsArray();
+
+    for (const id of changedPositionIds) {
+      notifyPosition(id);
+    }
+
+    return changedPositionIds;
   };
 
   const getLiveUsersArray = (): LiveUserSnapshot[] => {
@@ -91,6 +137,8 @@ export function createLiveMapStore() {
     setMeta,
     setPosition,
     removeUser,
+    pruneUsersInPlace,
+    mergeUsersBatch,
     syncUserIdsArray,
     getLiveUsersArray,
 
