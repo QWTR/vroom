@@ -8,16 +8,18 @@ import type { ArcWindowSlice } from '../lib/driveCore/geo';
 
 const DRIVE_V2_PIPELINE_DEBUG = false;
 
+const MAX_AHEAD_ARC_M = 12.0;
+
 /** Dynamiczny limit wyprzedzenia targetArcM — skaluje z prędkością (m). */
 function maxAheadArcMWorklet(speedMs: number): number {
   'worklet';
   const v = Math.max(0, speedMs);
-  return Math.min(18, Math.max(6, v * 2.8 + 4));
+  return Math.min(18, Math.max(MAX_AHEAD_ARC_M, v * 2.8 + 4));
 }
 
 export function maxAheadArcM(speedMs: number): number {
   const v = Math.max(0, speedMs);
-  return Math.min(18, Math.max(6, v * 2.8 + 4));
+  return Math.min(18, Math.max(MAX_AHEAD_ARC_M, v * 2.8 + 4));
 }
 
 const MIN_CRUISE_MS = 0.35;
@@ -25,7 +27,7 @@ const MAX_HEADING_RATE_DPS = 95;
 /** Min. czas segmentu — zsynchronizowany z TRIP_SEGMENT_MIN_MS / kamera segmentSync. */
 const SEGMENT_MIN_MS = 320;
 /** Przy zmianie okna arc — twardy snap tylko gdy gap przekracza ten próg (m). */
-const POLYLINE_KEY_HARD_SNAP_M = 22;
+const POLYLINE_KEY_HARD_SNAP_M = 45;
 
 export type DriveMarkerArcFeed = {
   targetArcM: number;
@@ -320,14 +322,20 @@ export function useDriveMarker(
       const pts = roadPtsFlat.value;
       const cum = roadCumM.value;
       if (pts.length >= 4 && cum.length >= 2) {
-        let nextArcM = displayArcM.value + cruiseMs * dt;
-
-        const maxAhead = maxAheadArcMWorklet(cruiseMs);
         const gap = targetArcM.value - displayArcM.value;
-        if (gap < -maxAhead) {
-          nextArcM = targetArcM.value - maxAhead;
-        } else if (gap > 0 && nextArcM > targetArcM.value) {
-          nextArcM = targetArcM.value;
+        const samePolyline = polylineKeySv.value.length > 0;
+        let effectiveCruiseMs = cruiseMs;
+        if (samePolyline && gap < 0) {
+          effectiveCruiseMs = 0;
+        }
+
+        let nextArcM = displayArcM.value + effectiveCruiseMs * dt;
+        if (gap >= 0) {
+          if (nextArcM > targetArcM.value) {
+            nextArcM = targetArcM.value;
+          }
+        } else if (samePolyline) {
+          nextArcM = displayArcM.value;
         }
 
         displayArcM.value = nextArcM;

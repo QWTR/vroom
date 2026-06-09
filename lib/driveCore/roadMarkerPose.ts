@@ -33,7 +33,9 @@ function collectDisplayPolylines(explicit: RoadPoint[]): RoadPoint[][] {
 const RAW_GPS_CROSS_TRACK_M = 150;
 
 /** Poniżej: płynny spring/lerp wzdłuż osi drogi (bez teleportu). */
-const SOFT_CATCHUP_M = 15;
+const SOFT_CATCHUP_M = 25;
+/** Poniżej: przyspieszony catch-up; powyżej: wielokrokowy (bez twardego teleportu). */
+const TELEPORT_M = 50;
 /** EMA heading przy przejściach segmentów (200–300 ms). */
 const HEADING_SMOOTH_TAU_SEC = 0.25;
 
@@ -157,8 +159,7 @@ function isRawGpsPose(pose: SnappedPose): boolean {
 
 function computeMaxStepM(speedKmh: number): number {
   const v = Math.max(0, speedKmh / 3.6);
-  const dt = 0.85;
-  return Math.min(65, Math.max(5, v * dt * 1.35 + 3));
+  return Math.min(65, Math.max(8, v * 0.85 + 4));
 }
 
 function collectPolylines(explicit: RoadPoint[][], isNavigating: boolean): RoadPoint[][] {
@@ -407,8 +408,8 @@ function advanceArcProgress(
     return currentArcM + alongErr * alpha;
   }
 
-  // 15–80 m: przyspieszony catch-up wzdłuż osi.
-  if (absErr <= 80) {
+  // SOFT_CATCHUP_M–TELEPORT_M: przyspieszony catch-up wzdłuż osi.
+  if (absErr <= TELEPORT_M) {
     const gapGain = prevRawGapM > 35 ? 0.85 : 0.65;
     const turnBoost = turnResnap ? 1.15 : 1;
     const step = Math.min(
@@ -418,7 +419,7 @@ function advanceArcProgress(
     return currentArcM + Math.sign(alongErr) * step;
   }
 
-  // >80 m lub duży raw gap: wielokrokowy catch-up — nigdy instant teleport (free drive).
+  // >TELEPORT_M lub duży raw gap: wielokrokowy catch-up — nigdy instant teleport (free drive).
   const largeGain = prevRawGapM > 120 ? 0.9 : 0.85;
   const largeStep = Math.min(maxStepM * 2.5, absErr * largeGain);
   return currentArcM + Math.sign(alongErr) * largeStep;

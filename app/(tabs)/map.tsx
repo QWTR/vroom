@@ -1332,7 +1332,7 @@ function computeDriveFeedSpeedMs(
 }
 
 /** Czas zaniku prędkości integratora markera po zeroVelocityLock / microSleep (ms). */
-const FEED_SPEED_DECAY_MS = 1800;
+const FEED_SPEED_DECAY_MS = 1500;
 
 function decayedMarkerFeedSpeedMs(
   nowMs: number,
@@ -2279,6 +2279,7 @@ function MapScreenInner() {
   const drHdgRef    = useRef(0);
   const lastMovingFeedSpeedMsRef = useRef(0);
   const lastMovingAtRef = useRef(0);
+  const coastingSpeedRef = useRef(0);
   const tripHeadingFilterRef = useRef<TripHeadingFilter | null>(null);
   const travelHeadingStateRef = useRef({
     lat: NaN,
@@ -6149,16 +6150,35 @@ function MapScreenInner() {
         isFreeDriveTick,
         out.isMoving,
       );
+      const motionStopped = zeroVelocityLock || parkedLike || out.microSleep;
       let feedSpeedMs = computedFeedSpeedMs;
-      if (computedFeedSpeedMs > 0.5) {
+      if (!motionStopped && computedFeedSpeedMs > 0.12) {
+        coastingSpeedRef.current = computedFeedSpeedMs;
         lastMovingFeedSpeedMsRef.current = computedFeedSpeedMs;
         lastMovingAtRef.current = nowMs;
-      } else if (zeroVelocityLock || parkedLike || out.microSleep) {
+        feedSpeedMs = computedFeedSpeedMs;
+      } else if (motionStopped) {
+        if (coastingSpeedRef.current <= 0 && lastMovingFeedSpeedMsRef.current > 0) {
+          coastingSpeedRef.current = lastMovingFeedSpeedMsRef.current;
+        }
+        if (lastMovingAtRef.current <= 0 && coastingSpeedRef.current > 0) {
+          lastMovingAtRef.current = nowMs;
+        }
+        feedSpeedMs = decayedMarkerFeedSpeedMs(
+          nowMs,
+          coastingSpeedRef.current > 0
+            ? coastingSpeedRef.current
+            : lastMovingFeedSpeedMsRef.current,
+          lastMovingAtRef.current,
+        );
+        coastingSpeedRef.current = feedSpeedMs;
+      } else if (computedFeedSpeedMs <= 0.12) {
         feedSpeedMs = decayedMarkerFeedSpeedMs(
           nowMs,
           lastMovingFeedSpeedMsRef.current,
           lastMovingAtRef.current,
         );
+        coastingSpeedRef.current = feedSpeedMs;
       }
       if (DRIVE_V2_PIPELINE_DEBUG && (markerRawGapM > 18 || chaseM >= 1)) {
         console.log('[DEBUG_CATCHUP]', {
@@ -8335,6 +8355,7 @@ function MapScreenInner() {
         driveSessionInitFramesRef.current = 0;
         lastMovingFeedSpeedMsRef.current = 0;
         lastMovingAtRef.current = 0;
+        coastingSpeedRef.current = 0;
         pushDriveMarkerV2(driveMarker, entryLat, entryLng, entryHeading, {
           durationMs: 0,
           allowInstant: true,
