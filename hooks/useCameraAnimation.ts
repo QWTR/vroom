@@ -487,7 +487,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       || Math.abs((prev?.zoom ?? 0) - target.zoom) > 0.06
       || Math.abs((prev?.pitch ?? 0) - target.pitch) > 0.5;
 
-    if (!significant && sinceLastApply < minIntervalMs) {
+    if (!segmentSync && !significant && sinceLastApply < minIntervalMs) {
       targetPoseRef.current = target;
       return;
     }

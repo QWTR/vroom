@@ -4,27 +4,39 @@ import {
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
-import {
-  guardMarkerHeadingPush,
-  TRAVEL_VECTOR_LOCK_SPEED_KMH,
-} from '../lib/driveCore/travelHeading';
-import {
-  BACKWARD_ARC_EPS_M,
-  evaluateMarkerForwardGate,
-} from '../lib/driveCore/markerForwardGate';
 import type { ArcWindowSlice } from '../lib/driveCore/geo';
-import { ZERO_VELOCITY_LOCK_KMH } from '../lib/driveCore/config';
 
-/** ADB: `adb logcat | grep DEBUG_WORKLET` (działa też na produkcji). */
-const DRIVE_V2_PIPELINE_DEBUG = true;
+const DRIVE_V2_PIPELINE_DEBUG = false;
+
+/** Kinetyczny integrator arc — prędkość bazowa z GPS + gumka na gap. */
+const ARC_CRUISE_DEADZONE_M = 2.5;
+const RUBBER_BAND_K = 0.09;
+const PLAYBACK_VEL_TAU_SEC = 0.38;
+const MAX_SPEED_BOOST_RATIO = 1.3;
+const MIN_SPEED_RATIO = 0.7;
+const MAX_AHEAD_ARC_M = 3.5;
+const CREEP_CATCHUP_MS = 0.55;
+const LARGE_ARC_GAP_M = 14;
+const ARC_CATCHUP_GAP_M = 18;
+const OFFROAD_BLEND_TAU_SEC = 0.38;
+const OFFROAD_BLEND_TAU_CATCHUP_SEC = 0.28;
+const MIN_CRUISE_MS = 0.35;
+const MAX_HEADING_RATE_DPS = 95;
+
+export type DriveMarkerArcFeed = {
+  targetArcM: number;
+  baseArcM: number;
+  /** [lat0,lng0,lat1,lng1,...] */
+  ptsFlat: number[];
+  cumM: number[];
+  polylineKey: string;
+};
 
 export type DriveMarkerValues = {
   lat: SharedValue<number>;
   lng: SharedValue<number>;
   heading: SharedValue<number>;
-  /** Faza 3 — wygładzony heading (kamera + marker). */
-  displayHeading: SharedValue<number>;
-  /** Ostatni segment GPS (ms) — synchronizacja kamery Mapbox. */
+  /** Ostatni segment GPS (ms) — synchronizacja z kamerą Mapbox. */
   segmentDurationMs: SharedValue<number>;
 };
 
@@ -33,58 +45,27 @@ export type DriveMarkerTarget = {
   lng: number;
   heading: number;
   durationMs?: number;
-  speedMs?: number;
-  /** Prędkość HUD (km/h) — guardy kierunku, NIE ekstrapolacja po skosie. */
-  hudKmh?: number;
-  /** Między tickami GPS: lekki ruch wzdłuż headingu (domyślnie wł.). */
-  allowExtrapolation?: boolean;
-  /** Jawny instant snap (bootstrap/resume) — durationMs=0 + allowInstant. */
   allowInstant?: boolean;
-  /** @deprecated Ignorowane — heading zawsze LERP (najkrótsza droga na okręgu). */
-  syncHeading?: boolean;
-  /** Ease-out quad na pozycji (płynny catchup snap-to-road). */
-  easeOutPosition?: boolean;
-  /** Postęp 1D wzdłuż polilinii (forward-only gate). */
-  arcM?: number;
+  onRoad?: boolean;
+  targetArcM?: number;
+  arcWindow?: ArcWindowSlice | null;
   polylineKey?: string;
-  /** Faza 2 — wycinek geometrii dla coast po łuku. */
-  arcWindow?: ArcWindowSlice;
-  /** Faza 3 — heading wyświetlany (LPF droga). */
-  displayHeading?: number;
-  /** Faza 4 — zamrożenie workletu przy postoju. */
-  microSleep?: boolean;
-  /** Navigation Sanity — silnik mówi „stoi”: zero coast + zero speed. */
-  zeroVelocityLock?: boolean;
+  speedMs?: number;
 };
 
-const MIN_DR_SPEED_MS = 0.08;
-const CRUISE_HOLD_MS = 0.22;
-const CRUISE_EXTRAP_MAX_MS = 900;
-const MAX_DR_STEP_M = 6;
-const HEADING_MAX_STEP_PER_FRAME_DEG = 2.8;
-const HEADING_FREEZE_SPEED_KMH = 5;
-const MOVEMENT_HEADING_MIN_SPEED_KMH = TRAVEL_VECTOR_LOCK_SPEED_KMH;
-const MOVEMENT_HEADING_MIN_SEG_M = 0.35;
-const HEADING_FLIP_REJECT_DEG = 92;
-const IMPLIED_SPEED_CAP_MARGIN_KMH = 38;
-const MAX_FRAME_DT_SEC = 0.05;
-function logWorkletSegmentStart(payload: Record<string, unknown>): void {
+function logWorkletDiag(payload: Record<string, unknown>): void {
   if (!DRIVE_V2_PIPELINE_DEBUG) return;
-  console.log('[DEBUG_WORKLET]', payload);
+  console.log('[DEBUG_WORKLET_ARC]', payload);
 }
 
-function headingDeltaJs(from: number, to: number): number {
-  return ((to - from + 540) % 360) - 180;
-}
-
-const LERP_MIN_MS = 200;
-const LERP_MAX_MS = 1200;
-
-/** Nigdy NaN/undefined/0 w trakcie jazdy (chyba że jawny instant bootstrap). */
 function clampSegmentDurationMs(ms: number | undefined, allowInstant: boolean): number {
   if (allowInstant && ms === 0) return 0;
   const v = Number.isFinite(ms) && (ms as number) > 0 ? (ms as number) : 650;
-  return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, v));
+  return Math.max(320, Math.min(1200, v));
+}
+
+function normalizeHeadingJs(h: number): number {
+  return ((h % 360) + 360) % 360;
 }
 
 function normalizeHeadingW(h: number): number {
@@ -97,37 +78,43 @@ function headingDeltaW(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
-function metersToLatDelta(m: number): number {
+function clampWorklet(n: number, min: number, max: number): number {
   'worklet';
-  return (m / 6371000) * (180 / Math.PI);
+  return Math.max(min, Math.min(max, n));
 }
 
-function metersToLngDelta(m: number, lat: number): number {
-  'worklet';
-  const cos = Math.cos((lat * Math.PI) / 180);
-  return cos > 1e-6 ? metersToLatDelta(m) / cos : 0;
-}
-
-function clampMs(ms: number): number {
-  'worklet';
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return LERP_MIN_MS;
-  }
-  return Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, ms));
-}
-
-function haversineMWorklet(aLat: number, aLng: number, bLat: number, bLng: number): number {
+function haversineMWorklet(
+  aLat: number,
+  aLng: number,
+  bLat: number,
+  bLng: number,
+): number {
   'worklet';
   const R = 6371000;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
   const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const s1 = Math.sin(dLat / 2) ** 2;
+  const s1 = Math.pow(Math.sin(dLat / 2), 2);
   const s2 =
     Math.cos((aLat * Math.PI) / 180)
     * Math.cos((bLat * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
+    * Math.pow(Math.sin(dLng / 2), 2);
   const a = s1 + s2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function bearingBetweenJs(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 function bearingBetweenWorklet(
@@ -137,209 +124,173 @@ function bearingBetweenWorklet(
   lng2: number,
 ): number {
   'worklet';
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const lat1R = (lat1 * Math.PI) / 180;
-  const lat2R = (lat2 * Math.PI) / 180;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
   const y = Math.sin(dLng) * Math.cos(lat2R);
-  const x =
-    Math.cos(lat1R) * Math.sin(lat2R)
-    - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
-  return normalizeHeadingW((Math.atan2(y, x) * 180) / Math.PI);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-function stepHeadingLinearWorklet(current: number, target: number, maxStepDeg: number): number {
+function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
   'worklet';
-  const d = headingDeltaW(current, target);
-  const step = Math.max(-maxStepDeg, Math.min(maxStepDeg, d));
-  return normalizeHeadingW(current + step);
+  const diff = headingDeltaW(from, to);
+  const clamped = Math.max(-maxDeltaDeg, Math.min(maxDeltaDeg, diff));
+  return normalizeHeadingW(from + clamped);
 }
 
-function easeOutQuadWorklet(t: number): number {
+/** Docelowa prędkość odtwarzania — cruise przy małym gap, gumka przy większym. */
+function desiredPlaybackSpeedMsW(gpsSpeedMs: number, gapM: number): number {
   'worklet';
-  const x = Math.min(1, Math.max(0, t));
-  return 1 - (1 - x) * (1 - x);
-}
+  const moving = gpsSpeedMs >= MIN_CRUISE_MS;
+  const cruise = moving ? gpsSpeedMs : 0;
 
-function isValidCoordWorklet(la: number, ln: number): boolean {
-  'worklet';
-  return Number.isFinite(la)
-    && Number.isFinite(ln)
-    && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
-}
-
-function pointAtArcLengthWorklet(
-  lats: number[],
-  lngs: number[],
-  cumM: number[],
-  arcM: number,
-  fallbackLat = 0,
-  fallbackLng = 0,
-  fallbackHdg = 0,
-): { lat: number; lng: number; heading: number } {
-  'worklet';
-  if (lats.length < 2 || cumM.length < 2) {
-    const la = Number.isFinite(lats[0]) ? lats[0]! : fallbackLat;
-    const ln = Number.isFinite(lngs[0]) ? lngs[0]! : fallbackLng;
-    return { lat: la, lng: ln, heading: fallbackHdg };
+  if (Math.abs(gapM) <= ARC_CRUISE_DEADZONE_M) {
+    return cruise;
   }
-  const totalM = cumM[cumM.length - 1];
-  const safeArcM = Number.isFinite(arcM) ? arcM : 0;
-  const clamped = Math.max(0, Math.min(Number.isFinite(totalM) ? totalM : 0, safeArcM));
+
+  const excessGap = gapM - Math.sign(gapM) * ARC_CRUISE_DEADZONE_M;
+  let desired = cruise + excessGap * RUBBER_BAND_K;
+
+  if (moving) {
+    desired = clampWorklet(
+      desired,
+      cruise * MIN_SPEED_RATIO,
+      cruise * MAX_SPEED_BOOST_RATIO,
+    );
+  } else if (Math.abs(gapM) >= LARGE_ARC_GAP_M) {
+    desired = clampWorklet(desired, 0, CREEP_CATCHUP_MS);
+  } else {
+    desired = 0;
+  }
+
+  return Math.max(0, desired);
+}
+
+function pointAtWindowArcLocalCore(
+  ptsFlat: number[],
+  cumM: number[],
+  localM: number,
+): { lat: number; lng: number; heading: number } {
+  const n = cumM.length;
+  if (n < 2 || ptsFlat.length < 4) {
+    return { lat: NaN, lng: NaN, heading: 0 };
+  }
+  const total = cumM[n - 1];
+  const clamped = Math.max(0, Math.min(total, localM));
   let seg = 0;
-  for (let i = 0; i < cumM.length - 1; i++) {
-    if (clamped <= cumM[i + 1] + 1e-6) {
+  for (let i = 0; i < n - 1; i += 1) {
+    if (clamped <= cumM[i + 1]) {
       seg = i;
       break;
     }
     seg = i;
   }
-  const segStart = cumM[seg];
-  const segLen = Math.max(0.001, cumM[seg + 1] - segStart);
-  const t = Math.max(0, Math.min(1, (clamped - segStart) / segLen));
-  const lat = lats[seg] + (lats[seg + 1] - lats[seg]) * t;
-  const lng = lngs[seg] + (lngs[seg + 1] - lngs[seg]) * t;
-  const heading = bearingBetweenWorklet(lats[seg], lngs[seg], lats[seg + 1], lngs[seg + 1]);
-  if (!isValidCoordWorklet(lat, lng) || !Number.isFinite(heading)) {
-    return { lat: fallbackLat, lng: fallbackLng, heading: fallbackHdg };
-  }
+  const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
+  const t = (clamped - cumM[seg]) / segLen;
+  const aLat = ptsFlat[seg * 2];
+  const aLng = ptsFlat[seg * 2 + 1];
+  const bLat = ptsFlat[(seg + 1) * 2];
+  const bLng = ptsFlat[(seg + 1) * 2 + 1];
+  const lat = aLat + (bLat - aLat) * t;
+  const lng = aLng + (bLng - aLng) * t;
+  const heading = bearingBetweenJs(aLat, aLng, bLat, bLng);
   return { lat, lng, heading };
 }
 
-function lerpProgressWorklet(
-  nowMs: number,
-  startMs: number,
-  durationMs: number,
-  easeOut: boolean,
-): number {
+/** Pozycja na wycinku okna arc (localM wzdłuż cumM okna) — UI thread. */
+function pointAtWindowArcLocal(
+  ptsFlat: number[],
+  cumM: number[],
+  localM: number,
+): { lat: number; lng: number; heading: number } {
   'worklet';
-  let dur = clampMs(durationMs);
-  if (!Number.isFinite(dur) || dur <= 0) {
-    dur = LERP_MIN_MS;
+  const n = cumM.length;
+  if (n < 2 || ptsFlat.length < 4) {
+    return { lat: NaN, lng: NaN, heading: 0 };
   }
-  if (!Number.isFinite(startMs) || startMs <= 0) {
-    return 1;
-  }
-  let elapsed = nowMs - startMs;
-  if (!Number.isFinite(elapsed) || elapsed < 0) {
-    elapsed = 0;
-  }
-  let t = elapsed / dur;
-  if (!Number.isFinite(t)) {
-    t = 1;
-  }
-  t = Math.min(1, Math.max(0, t));
-  return easeOut ? easeOutQuadWorklet(t) : t;
-}
-
-/** Heading docelowy po najkrótszej drodze na okręgu (0–360). */
-function resolveShortestArcTargetWorklet(from: number, to: number): number {
-  'worklet';
-  const diff = headingDeltaW(from, to);
-  return normalizeHeadingW(from + diff);
-}
-
-function applyCappedSegmentPositionWorklet(
-  curLat: number,
-  curLng: number,
-  fromLa: number,
-  fromLn: number,
-  toLa: number,
-  toLn: number,
-  t: number,
-  segM: number,
-  realSpeedKmh: number,
-  dtSec: number,
-): { lat: number; lng: number; remainM: number; posT: number } {
-  'worklet';
-  const idealLat = fromLa + (toLa - fromLa) * t;
-  const idealLng = fromLn + (toLn - fromLn) * t;
-  const maxImpliedKmh = Math.max(realSpeedKmh + IMPLIED_SPEED_CAP_MARGIN_KMH, 8);
-  const maxStepM = (maxImpliedKmh / 3.6) * dtSec;
-  let nextLat = idealLat;
-  let nextLng = idealLng;
-  const stepM = haversineMWorklet(curLat, curLng, idealLat, idealLng);
-  if (stepM > maxStepM && maxStepM > 0.002) {
-    const frac = maxStepM / stepM;
-    nextLat = curLat + (idealLat - curLat) * frac;
-    nextLng = curLng + (idealLng - curLng) * frac;
-  }
-  const remainM = haversineMWorklet(nextLat, nextLng, toLa, toLn);
-  const posT = segM > 0.15
-    ? Math.min(1, Math.max(0, 1 - remainM / segM))
-    : t;
-  return { lat: nextLat, lng: nextLng, remainM, posT };
-}
-
-function applySegmentHeadingWorklet(
-  fromHdg: number,
-  toHdg: number,
-  t: number,
-  speedKmh: number,
-  fromLa: number,
-  fromLn: number,
-  toLa: number,
-  toLn: number,
-  segM: number,
-): number {
-  'worklet';
-  if (speedKmh < HEADING_FREEZE_SPEED_KMH) {
-    return normalizeHeadingW(fromHdg);
-  }
-  const toResolved = resolveShortestArcTargetWorklet(fromHdg, toHdg);
-  let hdgAtT = normalizeHeadingW(fromHdg + headingDeltaW(fromHdg, toResolved) * t);
-  if (speedKmh >= MOVEMENT_HEADING_MIN_SPEED_KMH && segM >= MOVEMENT_HEADING_MIN_SEG_M && t < 1) {
-    const segHdg = bearingBetweenWorklet(fromLa, fromLn, toLa, toLn);
-    if (Math.abs(headingDeltaW(segHdg, toResolved)) <= 28) {
-      hdgAtT = normalizeHeadingW(fromHdg + headingDeltaW(fromHdg, segHdg) * t);
+  const total = cumM[n - 1];
+  const clamped = Math.max(0, Math.min(total, localM));
+  let seg = 0;
+  for (let i = 0; i < n - 1; i += 1) {
+    if (clamped <= cumM[i + 1]) {
+      seg = i;
+      break;
     }
+    seg = i;
   }
-  return t >= 1 ? toResolved : hdgAtT;
+  const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
+  const t = (clamped - cumM[seg]) / segLen;
+  const aLat = ptsFlat[seg * 2];
+  const aLng = ptsFlat[seg * 2 + 1];
+  const bLat = ptsFlat[(seg + 1) * 2];
+  const bLng = ptsFlat[(seg + 1) * 2 + 1];
+  const lat = aLat + (bLat - aLat) * t;
+  const lng = aLng + (bLng - aLng) * t;
+  const heading = bearingBetweenWorklet(aLat, aLng, bLat, bLng);
+  return { lat, lng, heading };
+}
+
+function packArcWindowFeed(window: ArcWindowSlice, polylineKey: string): DriveMarkerArcFeed | null {
+  if (!window || window.points.length < 2 || window.cumM.length < 2) return null;
+  const ptsFlat: number[] = [];
+  for (let i = 0; i < window.points.length; i += 1) {
+    const p = window.points[i];
+    if (!p) continue;
+    ptsFlat.push(p.lat, p.lng);
+  }
+  if (ptsFlat.length < 4) return null;
+  return {
+    targetArcM: 0,
+    baseArcM: window.baseArcM,
+    ptsFlat,
+    cumM: window.cumM.slice(),
+    polylineKey,
+  };
 }
 
 function applyInstantPose(
-  targetLat: number,
-  targetLng: number,
-  tgtHdg: number,
+  lat: number,
+  lng: number,
+  hdg: number,
+  arcM: number,
+  seedPlaybackMs: number,
   sv: {
     lat: SharedValue<number>;
     lng: SharedValue<number>;
     heading: SharedValue<number>;
-    displayHeading: SharedValue<number>;
-    lastFrameLat: SharedValue<number>;
-    lastFrameLng: SharedValue<number>;
-    lerpFromLat: SharedValue<number>;
-    lerpFromLng: SharedValue<number>;
-    lerpToLat: SharedValue<number>;
-    lerpToLng: SharedValue<number>;
-    lerpFromHdg: SharedValue<number>;
-    lerpToHdg: SharedValue<number>;
-    lerpActive: SharedValue<number>;
+    displayArcM: SharedValue<number>;
+    targetArcM: SharedValue<number>;
+    targetLat: SharedValue<number>;
+    targetLng: SharedValue<number>;
+    targetHdg: SharedValue<number>;
+    onRoad: SharedValue<number>;
+    frameActive: SharedValue<number>;
+    playbackSpeedMs: SharedValue<number>;
   },
 ): void {
-  sv.lat.value = targetLat;
-  sv.lng.value = targetLng;
-  sv.heading.value = tgtHdg;
-  sv.displayHeading.value = tgtHdg;
-  sv.lastFrameLat.value = targetLat;
-  sv.lastFrameLng.value = targetLng;
-  sv.lerpFromLat.value = targetLat;
-  sv.lerpFromLng.value = targetLng;
-  sv.lerpToLat.value = targetLat;
-  sv.lerpToLng.value = targetLng;
-  sv.lerpFromHdg.value = tgtHdg;
-  sv.lerpToHdg.value = tgtHdg;
-  sv.lerpActive.value = 0;
+  sv.lat.value = lat;
+  sv.lng.value = lng;
+  sv.heading.value = hdg;
+  sv.displayArcM.value = arcM;
+  sv.targetArcM.value = arcM;
+  sv.targetLat.value = lat;
+  sv.targetLng.value = lng;
+  sv.targetHdg.value = hdg;
+  sv.onRoad.value = 1;
+  sv.frameActive.value = 1;
+  sv.playbackSpeedMs.value = Math.max(0, seedPlaybackMs);
 }
 
 /**
- * Marker V2 — gate-free LERP: każdy pushTarget z finite coords uruchamia ruch.
+ * Marker V2 — kinetyczny integrator arc (speedMs * dt + gumka na gap), 60 FPS.
  */
 export function useDriveMarker(
   enabled: boolean,
   getTripActive?: () => boolean,
 ): DriveMarkerValues & {
   pushTarget: (t: DriveMarkerTarget) => void;
-  setCruiseSpeed: (speedMs: number) => void;
   reset: (anchor?: { lat: number; lng: number; heading?: number }) => void;
   resetTo: (lat: number, lng: number, heading: number) => void;
   ensureFrameActive: () => void;
@@ -347,212 +298,97 @@ export function useDriveMarker(
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
-  const displayHeadingSv = useSharedValue(0);
-  const speedMsSv = useSharedValue(0);
-  const microSleepSv = useSharedValue(0);
-  const cruiseSpeedMsSv = useSharedValue(0);
-  const lastGpsPushMsSv = useSharedValue(0);
   const enabledSv = useSharedValue(enabled ? 1 : 0);
-
-  const lerpActive = useSharedValue(0);
-  const lerpFromLat = useSharedValue(NaN);
-  const lerpFromLng = useSharedValue(NaN);
-  const lerpToLat = useSharedValue(NaN);
-  const lerpToLng = useSharedValue(NaN);
-  const lerpFromHdg = useSharedValue(0);
-  const lerpToHdg = useSharedValue(0);
-  const lerpStartMs = useSharedValue(0);
-  const lerpDurationMs = useSharedValue(650);
   const segmentDurationMs = useSharedValue(650);
-  const lastFrameLat = useSharedValue(NaN);
-  const lastFrameLng = useSharedValue(NaN);
-  const allowExtrapolationSv = useSharedValue(1);
-  const lerpEaseOutSv = useSharedValue(0);
-  const currentArcMSv = useSharedValue(0);
-  const targetArcMSv = useSharedValue(0);
-  const polylineKeySv = useSharedValue('');
-  const blockExtrapolationSv = useSharedValue(0);
-  const arcCoastActiveSv = useSharedValue(0);
-  const arcWinBaseMSv = useSharedValue(0);
-  const arcWinLatsSv = useSharedValue<number[]>([]);
-  const arcWinLngsSv = useSharedValue<number[]>([]);
-  const arcWinCumSv = useSharedValue<number[]>([]);
 
-  const frameCallback = useFrameCallback((frame) => {
+  const displayArcM = useSharedValue(0);
+  const targetArcM = useSharedValue(0);
+  const baseArcM = useSharedValue(0);
+  const roadPtsFlat = useSharedValue<number[]>([]);
+  const roadCumM = useSharedValue<number[]>([]);
+  const polylineKeySv = useSharedValue('');
+  const onRoad = useSharedValue(0);
+  const speedMs = useSharedValue(0);
+  const targetLat = useSharedValue(NaN);
+  const targetLng = useSharedValue(NaN);
+  const targetHdg = useSharedValue(0);
+  const frameActive = useSharedValue(0);
+  /** Ostatni frameInfo.timestamp z useFrameCallback (ms, requestAnimationFrame). */
+  const lastFrameTimestamp = useSharedValue(0);
+  /** Płynna prędkość odtwarzania wzdłuż arc (momentum, nie skok co tick GPS). */
+  const playbackSpeedMs = useSharedValue(0);
+
+  const frameCallback = useFrameCallback((frameInfo) => {
     'worklet';
     if (enabledSv.value < 0.5) return;
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
-    if (microSleepSv.value > 0.5) return;
 
-    const nowMs = Date.now();
+    const tspf = frameInfo.timeSincePreviousFrame;
+    let dt = 1 / 60;
+    if (tspf != null && tspf > 0) {
+      dt = clampWorklet(tspf / 1000, 0.008, 0.05);
+    } else if (lastFrameTimestamp.value > 0) {
+      dt = clampWorklet(
+        (frameInfo.timestamp - lastFrameTimestamp.value) / 1000,
+        0.008,
+        0.05,
+      );
+    }
+    lastFrameTimestamp.value = frameInfo.timestamp;
 
-    if (lerpActive.value > 0.5) {
-      const fromLa = lerpFromLat.value;
-      const fromLn = lerpFromLng.value;
-      const toLa = lerpToLat.value;
-      const toLn = lerpToLng.value;
+    const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
 
-      if (
-        !Number.isFinite(fromLa)
-        || !Number.isFinite(fromLn)
-        || !Number.isFinite(toLa)
-        || !Number.isFinite(toLn)
-      ) {
-        lerpActive.value = 0;
-      } else {
-        const rawDur = lerpDurationMs.value;
-        const durationMs = !Number.isFinite(rawDur) || rawDur <= 0 ? LERP_MIN_MS : rawDur;
-        let t = lerpProgressWorklet(nowMs, lerpStartMs.value, durationMs, false);
+    if (onRoad.value >= 0.5) {
+      const pts = roadPtsFlat.value;
+      const cum = roadCumM.value;
+      if (pts.length >= 4 && cum.length >= 2) {
+        const gap = targetArcM.value - displayArcM.value;
+        const desiredSpeed = desiredPlaybackSpeedMsW(speedMs.value, gap);
+        const velAlpha = 1 - Math.exp(-dt / PLAYBACK_VEL_TAU_SEC);
+        playbackSpeedMs.value += (desiredSpeed - playbackSpeedMs.value) * velAlpha;
 
-        if (!Number.isFinite(t) || t >= 1) {
-          t = 1;
+        let nextArcM = displayArcM.value + playbackSpeedMs.value * dt;
+
+        if (gap < -MAX_AHEAD_ARC_M) {
+          nextArcM = targetArcM.value - MAX_AHEAD_ARC_M;
+          playbackSpeedMs.value = Math.min(playbackSpeedMs.value, cruiseMs);
+        } else if (gap > 0 && playbackSpeedMs.value * dt > gap + 0.15) {
+          nextArcM = targetArcM.value;
+          playbackSpeedMs.value = desiredSpeed;
         }
 
-        const segM = haversineMWorklet(fromLa, fromLn, toLa, toLn);
-        if (segM < 0.15) {
-          t = 1;
-        }
+        displayArcM.value = nextArcM;
 
-        const speedKmh = speedMsSv.value * 3.6;
-        const dtSec = Math.max(
-          0.001,
-          Math.min(MAX_FRAME_DT_SEC, (frame.timeSincePreviousFrame ?? 16) / 1000),
-        );
-        const capped = applyCappedSegmentPositionWorklet(
-          lat.value,
-          lng.value,
-          fromLa,
-          fromLn,
-          toLa,
-          toLn,
-          t,
-          segM,
-          speedKmh,
-          dtSec,
-        );
-        lat.value = capped.lat;
-        lng.value = capped.lng;
-        const segHdg = applySegmentHeadingWorklet(
-          lerpFromHdg.value,
-          lerpToHdg.value,
-          capped.posT,
-          speedKmh,
-          fromLa,
-          fromLn,
-          toLa,
-          toLn,
-          segM,
-        );
-        heading.value = segHdg;
-        displayHeadingSv.value = segHdg;
-        if (capped.remainM < 0.15) {
-          lat.value = toLa;
-          lng.value = toLn;
-          const endHdg = applySegmentHeadingWorklet(
-            lerpFromHdg.value,
-            lerpToHdg.value,
-            1,
-            speedKmh,
-            fromLa,
-            fromLn,
-            toLa,
-            toLn,
-            segM,
-          );
-          heading.value = endHdg;
-          displayHeadingSv.value = endHdg;
-          if (Number.isFinite(targetArcMSv.value) && targetArcMSv.value > 0) {
-            currentArcMSv.value = targetArcMSv.value;
-          }
-          lerpActive.value = 0;
-          if (allowExtrapolationSv.value === 1 && speedKmh >= ZERO_VELOCITY_LOCK_KMH) {
-            blockExtrapolationSv.value = 0;
-          }
-        } else if (t >= 1) {
-          const chaseImpliedMs = (capped.remainM / Math.max((speedKmh + IMPLIED_SPEED_CAP_MARGIN_KMH) / 3.6, 2.5)) * 1000;
-          lerpFromLat.value = capped.lat;
-          lerpFromLng.value = capped.lng;
-          lerpFromHdg.value = heading.value;
-          lerpStartMs.value = nowMs;
-          lerpDurationMs.value = Math.max(LERP_MIN_MS, Math.min(LERP_MAX_MS, chaseImpliedMs));
+        const localM = displayArcM.value - baseArcM.value;
+        const pose = pointAtWindowArcLocal(pts, cum, localM);
+        if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
+          lat.value = pose.lat;
+          lng.value = pose.lng;
+          const maxHdgStep = MAX_HEADING_RATE_DPS * dt;
+          const roadHdg = normalizeHeadingW(pose.heading);
+          const tgtHdg = Number.isFinite(targetHdg.value) ? targetHdg.value : roadHdg;
+          const blended = lerpHeadingCappedWorklet(heading.value, tgtHdg, maxHdgStep);
+          heading.value = lerpHeadingCappedWorklet(blended, roadHdg, maxHdgStep * 0.85);
         }
       }
     } else {
-      const speedMs = speedMsSv.value;
-      const staleMs = nowMs - lastGpsPushMsSv.value;
-      const dtSec = Math.min(
-        0.05,
-        Math.max(0.001, (frame.timeSincePreviousFrame ?? 16) / 1000),
-      );
-      const arcLats = arcWinLatsSv.value;
-      const arcLngs = arcWinLngsSv.value;
-      const arcCum = arcWinCumSv.value;
-      const arcCoast = arcCoastActiveSv.value > 0.5
-        && arcLats.length >= 2
-        && arcCum.length >= 2;
-
-      const coastSpeedKmh = speedMs * 3.6;
-      if (
-        arcCoast
-        && blockExtrapolationSv.value < 0.5
-        && allowExtrapolationSv.value > 0.5
-        && coastSpeedKmh >= ZERO_VELOCITY_LOCK_KMH
-        && staleMs > 0
-        && staleMs <= CRUISE_EXTRAP_MAX_MS
-      ) {
-        let localArcM = currentArcMSv.value - arcWinBaseMSv.value;
-        localArcM += speedMs * dtSec;
-        if (Number.isFinite(targetArcMSv.value)) {
-          const targetLocal = targetArcMSv.value - arcWinBaseMSv.value;
-          const err = targetLocal - localArcM;
-          localArcM += err * Math.min(0.35, 8 * dtSec);
+      const tLat = targetLat.value;
+      const tLng = targetLng.value;
+      if (Number.isFinite(tLat) && Number.isFinite(tLng)) {
+        const distM = haversineMWorklet(lat.value, lng.value, tLat, tLng);
+        const tau = distM >= ARC_CATCHUP_GAP_M ? OFFROAD_BLEND_TAU_CATCHUP_SEC : OFFROAD_BLEND_TAU_SEC;
+        const alpha = 1 - Math.exp(-dt / tau);
+        let step = distM * alpha;
+        const maxStep = Math.max(0.3, cruiseMs * dt * 1.15);
+        if (step > maxStep) step = maxStep;
+        if (distM > 0.02) {
+          const t = step / distM;
+          lat.value = lat.value + (tLat - lat.value) * t;
+          lng.value = lng.value + (tLng - lng.value) * t;
         }
-        const totalM = arcCum[arcCum.length - 1];
-        const segLen = Number.isFinite(totalM) ? totalM : 0;
-        const safeLocal = Number.isFinite(localArcM) ? localArcM : 0;
-        localArcM = Math.max(0, Math.min(segLen, safeLocal));
-        currentArcMSv.value = arcWinBaseMSv.value + localArcM;
-        const pose = pointAtArcLengthWorklet(
-          arcLats,
-          arcLngs,
-          arcCum,
-          localArcM,
-          lastFrameLat.value,
-          lastFrameLng.value,
-          heading.value,
-        );
-        if (isValidCoordWorklet(pose.lat, pose.lng)) {
-          lat.value = pose.lat;
-          lng.value = pose.lng;
-          heading.value = pose.heading;
-          displayHeadingSv.value = pose.heading;
-        }
-      } else if (
-        blockExtrapolationSv.value < 0.5
-        && allowExtrapolationSv.value > 0.5
-        && coastSpeedKmh >= ZERO_VELOCITY_LOCK_KMH
-        && staleMs > 0
-        && staleMs <= CRUISE_EXTRAP_MAX_MS
-      ) {
-        const stepM = Math.min(MAX_DR_STEP_M, speedMs * dtSec);
-        if (stepM > 0.008) {
-          const hdgRad = (heading.value * Math.PI) / 180;
-          lat.value = lat.value + metersToLatDelta(stepM * Math.cos(hdgRad));
-          lng.value = lng.value + metersToLngDelta(stepM * Math.sin(hdgRad), lat.value);
-        }
-      }
-      lastFrameLat.value = lat.value;
-      lastFrameLng.value = lng.value;
-      const idleSpeedKmh = speedMsSv.value * 3.6;
-      if (idleSpeedKmh >= HEADING_FREEZE_SPEED_KMH) {
-        const hdgErr = Math.abs(headingDeltaW(heading.value, lerpToHdg.value));
-        if (hdgErr > 1.5) {
-          const idleAlpha = Math.min(0.22, HEADING_MAX_STEP_PER_FRAME_DEG / Math.max(hdgErr, 8));
-          const fromH = heading.value;
-          const toH = resolveShortestArcTargetWorklet(fromH, lerpToHdg.value);
-          const nextH = normalizeHeadingW(fromH + headingDeltaW(fromH, toH) * idleAlpha);
-          heading.value = nextH;
-          displayHeadingSv.value = nextH;
+        const maxHdgStep = MAX_HEADING_RATE_DPS * dt;
+        if (Number.isFinite(targetHdg.value)) {
+          heading.value = lerpHeadingCappedWorklet(heading.value, targetHdg.value, maxHdgStep);
         }
       }
     }
@@ -561,351 +397,260 @@ export function useDriveMarker(
   const pushTarget = useCallback((t: DriveMarkerTarget) => {
     if (!Number.isFinite(t.lat) || !Number.isFinite(t.lng)) return;
 
-    microSleepSv.value = t.microSleep ? 1 : 0;
-    if (t.microSleep) {
-      return;
-    }
-
-    const incomingMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs!) : 0;
-    const hudKmh = Number.isFinite(t.hudKmh) ? Math.max(0, t.hudKmh!) : incomingMs * 3.6;
-    const allowExtrap = t.allowExtrapolation !== false;
-    const zeroLock = t.zeroVelocityLock === true;
-
-    if (zeroLock) {
-      speedMsSv.value = 0;
-      cruiseSpeedMsSv.value = 0;
-      arcCoastActiveSv.value = 0;
-      allowExtrapolationSv.value = 0;
-      blockExtrapolationSv.value = 1;
-    } else if (hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-      blockExtrapolationSv.value = 0;
-      allowExtrapolationSv.value = allowExtrap ? 1 : 0;
-    }
-
-    lastGpsPushMsSv.value = Date.now();
-
-    if (zeroLock) {
-      speedMsSv.value = 0;
-      cruiseSpeedMsSv.value = 0;
-    } else if (incomingMs >= MIN_DR_SPEED_MS && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-      speedMsSv.value = incomingMs;
-      if (allowExtrap) {
-        cruiseSpeedMsSv.value = incomingMs;
-      }
-    } else {
-      speedMsSv.value = incomingMs;
-      cruiseSpeedMsSv.value = incomingMs >= MIN_DR_SPEED_MS ? incomingMs : 0;
-      if (!allowExtrap || hudKmh < ZERO_VELOCITY_LOCK_KMH) {
-        cruiseSpeedMsSv.value = 0;
-      }
-    }
-
-    const speedKmh = hudKmh > 0 ? hudKmh : speedMsSv.value * 3.6;
-    const fromHdg = Number.isFinite(heading.value) ? heading.value : 0;
-    let tgtHdg = Number.isFinite(t.displayHeading)
-      ? t.displayHeading!
-      : Number.isFinite(t.heading)
-        ? t.heading
-        : fromHdg;
-    if (speedKmh >= HEADING_FREEZE_SPEED_KMH && Number.isFinite(fromHdg)) {
-      tgtHdg = guardMarkerHeadingPush(fromHdg, tgtHdg, speedKmh);
-      const diff = headingDeltaJs(fromHdg, tgtHdg);
-      tgtHdg = ((fromHdg + diff) % 360 + 360) % 360;
-    } else {
-      tgtHdg = ((fromHdg % 360) + 360) % 360;
-    }
-
+    const tgtHdg = Number.isFinite(t.heading)
+      ? normalizeHeadingJs(t.heading)
+      : (Number.isFinite(heading.value) ? heading.value : 0);
     const allowInstant = t.allowInstant === true;
     const segDur = clampSegmentDurationMs(t.durationMs, allowInstant);
-    lerpEaseOutSv.value = 0;
+    segmentDurationMs.value = allowInstant && segDur === 0 ? 320 : segDur;
 
-    let targetLat = t.lat;
-    let targetLng = t.lng;
+    const road = t.onRoad === true
+      && t.arcWindow != null
+      && Number.isFinite(t.targetArcM);
+    const arcFeed = road
+      ? packArcWindowFeed(t.arcWindow!, t.polylineKey ?? '')
+      : null;
+    const useArc = road && arcFeed != null;
 
-    if (t.arcWindow && t.arcWindow.points.length >= 2) {
-      arcWinLatsSv.value = t.arcWindow.points.map((p) => p.lat);
-      arcWinLngsSv.value = t.arcWindow.points.map((p) => p.lng);
-      arcWinCumSv.value = t.arcWindow.cumM.slice();
-      arcWinBaseMSv.value = t.arcWindow.baseArcM;
-      arcCoastActiveSv.value = 1;
-    } else {
-      arcCoastActiveSv.value = 0;
-    }
-
-    if (Number.isFinite(lat.value) && Number.isFinite(lng.value) && !allowInstant) {
-      const key = t.polylineKey ?? '';
-      if (key.length > 0 && key !== polylineKeySv.value) {
-        polylineKeySv.value = key;
-        if (Number.isFinite(t.arcM)) {
-          currentArcMSv.value = t.arcM!;
-          targetArcMSv.value = t.arcM!;
-        }
-      }
-      const gate = evaluateMarkerForwardGate({
-        fromLat: lat.value,
-        fromLng: lng.value,
-        toLat: t.lat,
-        toLng: t.lng,
-        headingDeg: Number.isFinite(heading.value) ? heading.value : tgtHdg,
-        hudKmh: speedKmh,
-        arcM: t.arcM,
-        currentArcM: currentArcMSv.value,
-        polylineKey: t.polylineKey,
-        currentPolylineKey: polylineKeySv.value,
-      });
-      if (!gate.acceptPosition) {
-        blockExtrapolationSv.value = 1;
-        lerpToHdg.value = tgtHdg;
-        if (gate.headingOnly && speedKmh >= HEADING_FREEZE_SPEED_KMH) {
-          const fromH = heading.value;
-          const d = headingDeltaJs(fromH, tgtHdg);
-          heading.value = ((fromH + d * 0.18) % 360 + 360) % 360;
-        }
-        lastGpsPushMsSv.value = Date.now();
-        return;
-      }
-      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-        blockExtrapolationSv.value = 0;
-      }
-      targetLat = gate.lat;
-      targetLng = gate.lng;
-      if (Number.isFinite(t.arcM)) {
-        targetArcMSv.value = t.arcM!;
-      }
-    }
-
-    const poseSv = {
-      lat,
-      lng,
-      heading,
-      displayHeading: displayHeadingSv,
-      lastFrameLat,
-      lastFrameLng,
-      lerpFromLat,
-      lerpFromLng,
-      lerpToLat,
-      lerpToLng,
-      lerpFromHdg,
-      lerpToHdg,
-      lerpActive,
-    };
+    const feedSpeed = Number.isFinite(t.speedMs) && (t.speedMs as number) > 0
+      ? (t.speedMs as number)
+      : 0;
+    speedMs.value = feedSpeed;
+    targetLat.value = t.lat;
+    targetLng.value = t.lng;
+    targetHdg.value = tgtHdg;
+    frameActive.value = 1;
 
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) {
-      applyInstantPose(targetLat, targetLng, tgtHdg, poseSv);
-      if (Number.isFinite(t.arcM)) {
-        currentArcMSv.value = t.arcM!;
-        targetArcMSv.value = t.arcM!;
+      if (useArc && arcFeed) {
+        roadPtsFlat.value = arcFeed.ptsFlat;
+        roadCumM.value = arcFeed.cumM;
+        baseArcM.value = arcFeed.baseArcM;
+        polylineKeySv.value = arcFeed.polylineKey;
+        onRoad.value = 1;
+        const arcM = t.targetArcM as number;
+        targetArcM.value = arcM;
+        const localM = arcM - arcFeed.baseArcM;
+        const pose = pointAtWindowArcLocalCore(arcFeed.ptsFlat, arcFeed.cumM, localM);
+        applyInstantPose(
+          Number.isFinite(pose.lat) ? pose.lat : t.lat,
+          Number.isFinite(pose.lng) ? pose.lng : t.lng,
+          tgtHdg,
+          arcM,
+          feedSpeed,
+          {
+            lat,
+            lng,
+            heading,
+            displayArcM,
+            targetArcM,
+            targetLat,
+            targetLng,
+            targetHdg,
+            onRoad,
+            frameActive,
+            playbackSpeedMs,
+          },
+        );
+      } else {
+        onRoad.value = 0;
+        applyInstantPose(t.lat, t.lng, tgtHdg, 0, feedSpeed, {
+          lat,
+          lng,
+          heading,
+          displayArcM,
+          targetArcM,
+          targetLat,
+          targetLng,
+          targetHdg,
+          onRoad,
+          frameActive,
+          playbackSpeedMs,
+        });
       }
-      if (t.polylineKey) polylineKeySv.value = t.polylineKey;
-      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-        blockExtrapolationSv.value = 0;
-      }
-      segmentDurationMs.value = segDur > 0 ? segDur : LERP_MIN_MS;
-      logWorkletSegmentStart({
-        mode: 'instant_bootstrap',
-        lerpDurationMs: segDur > 0 ? segDur : LERP_MIN_MS,
-        hdgDeltaDeg: Number.isFinite(heading.value)
-          ? Math.round(Math.abs(headingDeltaJs(heading.value, tgtHdg)))
-          : null,
-        deadReckoningEnabled: allowExtrap && incomingMs >= MIN_DR_SPEED_MS,
-        allowInstant: true,
-        easeOut: t.easeOutPosition === true,
-      });
+      logWorkletDiag({ mode: 'instant_bootstrap', onRoad: useArc });
       return;
     }
 
     if (allowInstant && segDur === 0) {
-      applyInstantPose(targetLat, targetLng, tgtHdg, poseSv);
-      if (Number.isFinite(t.arcM)) {
-        currentArcMSv.value = t.arcM!;
-        targetArcMSv.value = t.arcM!;
+      if (useArc && arcFeed) {
+        roadPtsFlat.value = arcFeed.ptsFlat;
+        roadCumM.value = arcFeed.cumM;
+        baseArcM.value = arcFeed.baseArcM;
+        polylineKeySv.value = arcFeed.polylineKey;
+        onRoad.value = 1;
+        const arcM = t.targetArcM as number;
+        const localM = arcM - arcFeed.baseArcM;
+        const pose = pointAtWindowArcLocalCore(arcFeed.ptsFlat, arcFeed.cumM, localM);
+        applyInstantPose(
+          Number.isFinite(pose.lat) ? pose.lat : t.lat,
+          Number.isFinite(pose.lng) ? pose.lng : t.lng,
+          tgtHdg,
+          arcM,
+          feedSpeed,
+          {
+            lat,
+            lng,
+            heading,
+            displayArcM,
+            targetArcM,
+            targetLat,
+            targetLng,
+            targetHdg,
+            onRoad,
+            frameActive,
+            playbackSpeedMs,
+          },
+        );
+      } else {
+        onRoad.value = 0;
+        applyInstantPose(t.lat, t.lng, tgtHdg, 0, feedSpeed, {
+          lat,
+          lng,
+          heading,
+          displayArcM,
+          targetArcM,
+          targetLat,
+          targetLng,
+          targetHdg,
+          onRoad,
+          frameActive,
+          playbackSpeedMs,
+        });
       }
-      if (t.polylineKey) polylineKeySv.value = t.polylineKey;
-      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-        blockExtrapolationSv.value = 0;
-      }
-      segmentDurationMs.value = LERP_MIN_MS;
-      logWorkletSegmentStart({
-        mode: 'instant_allowInstant',
-        lerpDurationMs: LERP_MIN_MS,
-        hdgDeltaDeg: Number.isFinite(heading.value)
-          ? Math.round(Math.abs(headingDeltaJs(heading.value, tgtHdg)))
-          : null,
-        deadReckoningEnabled: allowExtrap && incomingMs >= MIN_DR_SPEED_MS,
-        allowInstant: true,
-        easeOut: t.easeOutPosition === true,
-      });
+      logWorkletDiag({ mode: 'instant_allowInstant', onRoad: useArc });
       return;
     }
 
-    const fromLaSnap = lat.value;
-    const fromLnSnap = lng.value;
-    const fromHdgSnap = heading.value;
-    segmentDurationMs.value = segDur;
-    lerpDurationMs.value = segDur;
-    lerpFromLat.value = fromLaSnap;
-    lerpFromLng.value = fromLnSnap;
-    lerpToLat.value = targetLat;
-    lerpToLng.value = targetLng;
-    lerpToHdg.value = tgtHdg;
-    lerpFromHdg.value = fromHdgSnap;
-    lerpStartMs.value = Date.now();
-    lerpActive.value = 1;
-    if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
-      blockExtrapolationSv.value = 0;
+    if (useArc && arcFeed) {
+      const key = arcFeed.polylineKey;
+      const keyChanged = key.length > 0 && key !== polylineKeySv.value;
+      roadPtsFlat.value = arcFeed.ptsFlat;
+      roadCumM.value = arcFeed.cumM;
+      baseArcM.value = arcFeed.baseArcM;
+      polylineKeySv.value = key;
+      onRoad.value = 1;
+      const arcM = t.targetArcM as number;
+      targetArcM.value = arcM;
+      if (keyChanged) {
+        displayArcM.value = arcM;
+        playbackSpeedMs.value = feedSpeed;
+        const localM = arcM - arcFeed.baseArcM;
+        const pose = pointAtWindowArcLocalCore(arcFeed.ptsFlat, arcFeed.cumM, localM);
+        if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
+          lat.value = pose.lat;
+          lng.value = pose.lng;
+        }
+      }
+      logWorkletDiag({
+        mode: 'arc_target_update',
+        targetArcM: Number(arcM.toFixed(1)),
+        displayArcM: Number(displayArcM.value.toFixed(1)),
+        keyChanged,
+      });
+    } else {
+      onRoad.value = 0;
+      logWorkletDiag({ mode: 'offroad_target_update' });
     }
-    logWorkletSegmentStart({
-      mode: 'lerp_segment_start',
-      lerpDurationMs: segDur,
-      hdgDeltaDeg: Number.isFinite(fromHdgSnap)
-        ? Math.round(Math.abs(headingDeltaJs(fromHdgSnap, tgtHdg)))
-        : null,
-      deadReckoningEnabled:
-        allowExtrap
-        && (incomingMs >= MIN_DR_SPEED_MS || cruiseSpeedMsSv.value >= CRUISE_HOLD_MS),
-      allowInstant: false,
-      easeOut: false,
-      headingFrozen: speedKmh < HEADING_FREEZE_SPEED_KMH,
-      posDeltaM: Number.isFinite(fromLaSnap) && Number.isFinite(fromLnSnap)
-        ? Math.round(
-          Math.hypot(
-            (t.lat - fromLaSnap) * 111320,
-            (t.lng - fromLnSnap) * 111320 * Math.cos((fromLaSnap * Math.PI) / 180),
-          ) * 10,
-        ) / 10
-        : null,
-    });
   }, [
-    allowExtrapolationSv,
-    arcCoastActiveSv,
-    arcWinBaseMSv,
-    arcWinCumSv,
-    arcWinLatsSv,
-    arcWinLngsSv,
-    blockExtrapolationSv,
-    currentArcMSv,
-    cruiseSpeedMsSv,
-    displayHeadingSv,
+    baseArcM,
+    displayArcM,
+    frameActive,
     heading,
-    lastFrameLat,
-    lastFrameLng,
-    lastGpsPushMsSv,
     lat,
     lng,
-    lerpActive,
-    lerpDurationMs,
-    lerpEaseOutSv,
-    lerpFromHdg,
-    lerpFromLat,
-    lerpFromLng,
-    lerpStartMs,
-    lerpToHdg,
-    lerpToLat,
-    lerpToLng,
-    microSleepSv,
+    onRoad,
     polylineKeySv,
+    roadCumM,
+    roadPtsFlat,
     segmentDurationMs,
-    speedMsSv,
-    targetArcMSv,
+    speedMs,
+    playbackSpeedMs,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
   ]);
 
-  const setCruiseSpeed = useCallback((speedMs: number) => {
-    const ms = Math.max(0, speedMs);
-    if (ms >= MIN_DR_SPEED_MS) {
-      speedMsSv.value = ms;
-      cruiseSpeedMsSv.value = ms;
-      lastGpsPushMsSv.value = Date.now();
-    }
-  }, [cruiseSpeedMsSv, lastGpsPushMsSv, speedMsSv]);
-
   const reset = useCallback((anchor?: { lat: number; lng: number; heading?: number }) => {
-    speedMsSv.value = 0;
-    cruiseSpeedMsSv.value = 0;
-    lastGpsPushMsSv.value = 0;
-    lerpActive.value = 0;
-    currentArcMSv.value = 0;
-    targetArcMSv.value = 0;
+    frameActive.value = 0;
+    onRoad.value = 0;
+    roadPtsFlat.value = [];
+    roadCumM.value = [];
     polylineKeySv.value = '';
-    blockExtrapolationSv.value = 0;
-    microSleepSv.value = 0;
-    arcCoastActiveSv.value = 0;
+    displayArcM.value = 0;
+    targetArcM.value = 0;
+    baseArcM.value = 0;
+    speedMs.value = 0;
+    playbackSpeedMs.value = 0;
+    lastFrameTimestamp.value = 0;
 
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
+      const hdg = Number.isFinite(anchor.heading) ? anchor.heading! : 0;
       lat.value = anchor.lat;
       lng.value = anchor.lng;
-      heading.value = Number.isFinite(anchor.heading) ? anchor.heading! : 0;
-      lastFrameLat.value = anchor.lat;
-      lastFrameLng.value = anchor.lng;
-      lastGpsPushMsSv.value = Date.now();
+      heading.value = hdg;
+      targetLat.value = anchor.lat;
+      targetLng.value = anchor.lng;
+      targetHdg.value = hdg;
     } else {
       lat.value = NaN;
       lng.value = NaN;
       heading.value = 0;
+      targetLat.value = NaN;
+      targetLng.value = NaN;
+      targetHdg.value = 0;
     }
   }, [
-    blockExtrapolationSv,
-    cruiseSpeedMsSv,
-    currentArcMSv,
+    baseArcM,
+    displayArcM,
+    frameActive,
     heading,
-    lastGpsPushMsSv,
     lat,
-    lerpActive,
+    lastFrameTimestamp,
     lng,
+    onRoad,
     polylineKeySv,
-    speedMsSv,
-    targetArcMSv,
+    roadCumM,
+    roadPtsFlat,
+    speedMs,
+    playbackSpeedMs,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
   ]);
 
-  const resetTo = useCallback((targetLat: number, targetLng: number, hdg: number) => {
-    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) return;
-    const normHdg = Number.isFinite(hdg) ? ((hdg % 360) + 360) % 360 : 0;
-    lat.value = targetLat;
-    lng.value = targetLng;
+  const resetTo = useCallback((targetLatVal: number, targetLngVal: number, hdg: number) => {
+    if (!Number.isFinite(targetLatVal) || !Number.isFinite(targetLngVal)) return;
+    const normHdg = Number.isFinite(hdg) ? normalizeHeadingJs(hdg) : 0;
+    lat.value = targetLatVal;
+    lng.value = targetLngVal;
     heading.value = normHdg;
-    lastFrameLat.value = targetLat;
-    lastFrameLng.value = targetLng;
-    speedMsSv.value = 0;
-    cruiseSpeedMsSv.value = 0;
-    lastGpsPushMsSv.value = Date.now();
-    lerpActive.value = 0;
-    lerpFromLat.value = targetLat;
-    lerpFromLng.value = targetLng;
-    lerpToLat.value = targetLat;
-    lerpToLng.value = targetLng;
-    lerpFromHdg.value = normHdg;
-    lerpToHdg.value = normHdg;
-    lerpStartMs.value = Date.now();
-    lerpDurationMs.value = LERP_MIN_MS;
-    segmentDurationMs.value = LERP_MIN_MS;
-    currentArcMSv.value = 0;
-    targetArcMSv.value = 0;
-    polylineKeySv.value = '';
-    blockExtrapolationSv.value = 0;
-    microSleepSv.value = 0;
-    arcCoastActiveSv.value = 0;
+    targetLat.value = targetLatVal;
+    targetLng.value = targetLngVal;
+    targetHdg.value = normHdg;
+    displayArcM.value = 0;
+    targetArcM.value = 0;
+    onRoad.value = 0;
+    frameActive.value = 1;
+    playbackSpeedMs.value = 0;
+    lastFrameTimestamp.value = 0;
+    segmentDurationMs.value = 320;
   }, [
-    arcCoastActiveSv,
-    blockExtrapolationSv,
-    cruiseSpeedMsSv,
-    currentArcMSv,
+    displayArcM,
+    frameActive,
     heading,
-    microSleepSv,
-    lastGpsPushMsSv,
     lat,
+    lastFrameTimestamp,
     lng,
-    lerpActive,
-    lerpDurationMs,
-    lerpFromHdg,
-    lerpFromLat,
-    lerpFromLng,
-    lerpStartMs,
-    lerpToHdg,
-    lerpToLat,
-    lerpToLng,
-    polylineKeySv,
+    onRoad,
+    playbackSpeedMs,
     segmentDurationMs,
-    speedMsSv,
-    targetArcMSv,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
   ]);
 
   const tripActive = useCallback(() => {
@@ -936,25 +681,21 @@ export function useDriveMarker(
       lat,
       lng,
       heading,
-      displayHeading: displayHeadingSv,
       segmentDurationMs,
       pushTarget,
-      setCruiseSpeed,
       reset,
       resetTo,
       ensureFrameActive,
     }),
     [
-      displayHeadingSv,
+      ensureFrameActive,
       heading,
       lat,
       lng,
       pushTarget,
       reset,
       resetTo,
-      ensureFrameActive,
       segmentDurationMs,
-      setCruiseSpeed,
     ],
   );
 }

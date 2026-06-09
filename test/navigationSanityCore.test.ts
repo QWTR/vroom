@@ -4,9 +4,9 @@ import {
   computeHeadingRateDps,
   isSharpManeuver,
   isZeroVelocityLock,
-  resolveCameraSegmentDuration,
   resolveTripHudKmh,
 } from '../lib/driveCore/navigationSanityCore';
+import { resolveTripSegmentDurationMs } from '../lib/driveCore/tripSegmentDuration';
 
 describe('navigationSanityCore', () => {
   it('detects sharp turn by heading rate', () => {
@@ -20,11 +20,9 @@ describe('navigationSanityCore', () => {
     expect(rate).toBeCloseTo(30, 1);
   });
 
-  it('shortens camera duration on sharp turn', () => {
-    const dur = resolveCameraSegmentDuration(1000, { sharpTurn: true });
-    expect(dur).toBeGreaterThanOrEqual(300);
-    expect(dur).toBeLessThanOrEqual(400);
-    expect(resolveCameraSegmentDuration(1000, { sharpTurn: false })).toBe(1000);
+  it('uses unified segment duration for marker and camera', () => {
+    expect(resolveTripSegmentDurationMs(1000, 40)).toBe(1000);
+    expect(resolveTripSegmentDurationMs(200, 5)).toBe(320);
   });
 
   it('zero velocity lock uses engine priority over doppler noise', () => {
