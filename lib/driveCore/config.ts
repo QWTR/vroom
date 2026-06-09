@@ -52,3 +52,12 @@ export const ARC_WINDOW_AHEAD_SPEED_SEC = 3;
 
 /** Faza 3 — LPF heading na drodze. */
 export const DISPLAY_HEADING_ROAD_TAU_SEC = 0.35;
+
+/** Navigation Sanity Core — postój, zakręty, reroute. */
+export const ZERO_VELOCITY_LOCK_KMH = 4;
+export const ZERO_VELOCITY_ENGINE_STILL_KMH = 3;
+export const ZERO_VELOCITY_RAW_TRUST_KMH = 6;
+export const SHARP_TURN_RATE_DPS = 15;
+export const CAMERA_TURN_DURATION_MIN_MS = 300;
+export const CAMERA_TURN_DURATION_MAX_MS = 400;
+export const CAMERA_TURN_DURATION_FACTOR = 0.5;

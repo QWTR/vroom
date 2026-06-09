@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import Mapbox from '@rnmapbox/maps';
@@ -68,6 +68,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const useExternalPose = externalPose != null;
   const [visible, setVisible] = useState(false);
   const [pose, setPose] = useState({ lat: 0, lng: 0, hdg: 0 });
+  const lastGoodPoseRef = useRef<{ lat: number; lng: number; hdg: number } | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [snapshotFailed, setSnapshotFailed] = useState(false);
 
@@ -100,10 +101,12 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
           || moveM >= MARKER_UI_MIN_MOVE_M
           || dHdg >= MARKER_UI_MIN_HDG_DEG;
         if (shouldUpdateUi) {
-          setPose({ lat: la, lng: ln, hdg: normHdg });
+          const nextPose = { lat: la, lng: ln, hdg: normHdg };
+          setPose(nextPose);
+          lastGoodPoseRef.current = nextPose;
           setVisible(true);
           lastUiAt = now;
-          lastPose = { lat: la, lng: ln, hdg: normHdg };
+          lastPose = nextPose;
         }
 
         frameCount += 1;
@@ -160,11 +163,13 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
         hdg: Number.isFinite(h0) ? ((h0 % 360) + 360) % 360 : 0,
       });
       setVisible(true);
-      lastPose = {
+      const bootPose = {
         lat: la0,
         lng: ln0,
         hdg: Number.isFinite(h0) ? ((h0 % 360) + 360) % 360 : 0,
       };
+      lastPose = bootPose;
+      lastGoodPoseRef.current = bootPose;
       lastTelemetryAt = Date.now();
     }
     rafId = requestAnimationFrame(loop);
@@ -174,7 +179,10 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     };
   }, [enabled, marker.lat, marker.lng, marker.heading, useExternalPose]);
 
-  const displayPose = useExternalPose && externalPose ? externalPose : pose;
+  const rawPose = useExternalPose && externalPose ? externalPose : pose;
+  const displayPose = isValidMarkerCoord(rawPose.lat, rawPose.lng)
+    ? rawPose
+    : (lastGoodPoseRef.current ?? rawPose);
   const displayVisible = useExternalPose
     ? (externalVisible ?? false)
     : visible;
@@ -187,7 +195,8 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     setSnapshotFailed(false);
   }, [imageUri]);
 
-  if (!enabled || !displayVisible) return null;
+  const canRender = enabled && (displayVisible || lastGoodPoseRef.current != null);
+  if (!canRender || !isValidMarkerCoord(displayPose.lat, displayPose.lng)) return null;
 
   const mediaAvatar = normalizeMediaUri(avatarUrl);
   const skinUri = normalizeMediaUri(cursorSkin?.imageUrl);

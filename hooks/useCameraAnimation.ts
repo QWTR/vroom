@@ -357,6 +357,22 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   }, []);
 
   /** Po wyjściu z jazdy/nawigacji — anuluj auto-powrót po pan/zoom. */
+  /** Reroute / hard snap — przerwij bieżącą animację Mapbox i wyczyść lookahead/timery. */
+  const abortTripCameraAnimation = useCallback((heading?: number) => {
+    clearGestureResumeTimer();
+    stabilizedLookaheadRef.current = 0;
+    stabilizedFollowSpeedRef.current = 0;
+    targetPoseRef.current = null;
+    lastNativeFollowApplyAtRef.current = 0;
+    lastMapApplyRef.current = null;
+    if (Number.isFinite(heading)) {
+      const h = normalizeHeading(heading!);
+      travelHeadingRef.current = h;
+      resolvedHeadingRef.current = h;
+      lastResolvedHeadingAtRef.current = Date.now();
+    }
+  }, [clearGestureResumeTimer]);
+
   const releaseTripCameraState = useCallback(() => {
     tripActiveRef.current = false;
     lastFrameInputRef.current = null;
@@ -1066,6 +1082,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     recenterTo,
     resetBrowseCamera,
     releaseTripCameraState,
+    abortTripCameraAnimation,
     setFollowMode,
     setTripCameraActive,
     getLastProgrammaticCameraApplyMs,

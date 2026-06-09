@@ -159,6 +159,13 @@ import { useDriveCore } from '../../hooks/useDriveCore';
 import { useDriveMarker } from '../../hooks/useDriveMarker';
 import { preferRoadHeading, TripHeadingFilter } from '../../lib/driveCore/headingFilter';
 import type { ArcWindowSlice } from '../../lib/driveCore/geo';
+import {
+  computeHeadingRateDps,
+  isSharpManeuver,
+  isZeroVelocityLock,
+  resolveCameraSegmentDuration,
+  resolveTripHudKmh,
+} from '../../lib/driveCore/navigationSanityCore';
 import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
 import {
   moveBearingBetween,
@@ -1160,6 +1167,7 @@ function pushDriveMarkerV2(
       arcWindow?: ArcWindowSlice;
       displayHeading?: number;
       microSleep?: boolean;
+      zeroVelocityLock?: boolean;
     }) => void;
     ensureFrameActive?: () => void;
     heading?: { value: number };
@@ -1181,6 +1189,7 @@ function pushDriveMarkerV2(
     arcWindow?: ArcWindowSlice;
     displayHeading?: number;
     microSleep?: boolean;
+    zeroVelocityLock?: boolean;
   },
 ): void {
   if (!DRIVE_CORE_V2 || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -1213,6 +1222,7 @@ function pushDriveMarkerV2(
     arcWindow: opts?.arcWindow,
     displayHeading: opts?.displayHeading ?? heading,
     microSleep: opts?.microSleep === true,
+    zeroVelocityLock: opts?.zeroVelocityLock === true,
   });
   if (DRIVE_V2_PIPELINE_DEBUG) {
     const svHdgRaw = driveMarker.heading?.value;
@@ -2194,13 +2204,16 @@ function MapScreenInner() {
   }, []);
 
   /** V2: jedna natywna animacja kamery na segment GPS — zsynchronizowana z workletem markera. */
+  const abortTripCameraAnimationRef = useRef<((heading?: number) => void) | null>(null);
+  const lastDisplayHdgForSanityRef = useRef<{ hdg: number; atMs: number }>({ hdg: 0, atMs: 0 });
+
   const pushCameraFromGpsSegment = useCallback((
     lat: number,
     lng: number,
     displayHeading: number,
     feedDurMs: number,
     speedKmh: number,
-    opts?: { instant?: boolean },
+    opts?: { instant?: boolean; hardSnap?: boolean },
   ) => {
     if (!DRIVE_CORE_V2) return;
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
@@ -2208,9 +2221,12 @@ function MapScreenInner() {
     if (isUserExploringMapRef.current()) return;
     const cameraSpeedKmh = speedKmh < 3 ? 0 : speedKmh;
     const hintHdg = normalizeHeading(displayHeading);
+    if (opts?.hardSnap || opts?.instant) {
+      abortTripCameraAnimationRef.current?.(hintHdg);
+    }
     lastCamResolvedHdgRef.current = hintHdg;
     lastCamVehicleForBearingRef.current = { lat, lng };
-    const segMs = opts?.instant
+    const segMs = opts?.instant || opts?.hardSnap
       ? 0
       : Math.max(320, Math.min(1200, Math.round(feedDurMs)));
     updateCameraFrameRef.current?.({
@@ -5674,6 +5690,7 @@ function MapScreenInner() {
     recenterTo,
     resetBrowseCamera,
     releaseTripCameraState,
+    abortTripCameraAnimation,
     setFollowMode,
     setTripCameraActive,
     getLastProgrammaticCameraApplyMs,
@@ -5762,6 +5779,37 @@ function MapScreenInner() {
     updateCameraFrameRef.current = updateCameraFrame;
   }, [updateCameraFrame]);
 
+  useEffect(() => {
+    abortTripCameraAnimationRef.current = abortTripCameraAnimation;
+  }, [abortTripCameraAnimation]);
+
+  const hardResetOnRouteChange = useCallback((
+    lat: number,
+    lng: number,
+    heading: number,
+    reason: 'reroute' | 'route_swap',
+  ) => {
+    if (!DRIVE_CORE_V2) return;
+    const hdg = normalizeHeading(heading);
+    driveMarker.resetTo(lat, lng, hdg);
+    resetRoadMarkerPoseState();
+    resetTurnConfirmState(turnConfirmStateRef.current);
+    resetTravelHeadingState(lat, lng, hdg);
+    lastSegmentDurationMsRef.current = TRIP_GPS_FEED_MIN_MS;
+    lastDisplayHdgForSanityRef.current = { hdg, atMs: Date.now() };
+    lastTripMarkerPoseRef.current = { lat, lng };
+    drLatRef.current = lat;
+    drLngRef.current = lng;
+    drHdgRef.current = hdg;
+    pushCameraFromGpsSegment(lat, lng, hdg, 0, 0, { instant: true, hardSnap: true });
+    vroomGpsLog('NAV_SANITY_HARD_RESET', {
+      reason,
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+      hdg: Math.round(hdg),
+    }, 0);
+  }, [driveMarker, pushCameraFromGpsSegment, resetTravelHeadingState]);
+
   useEffect(() => () => {
     resetSpeedometerEmitterThrottle();
   }, []);
@@ -5826,12 +5874,15 @@ function MapScreenInner() {
         || (!out.isMoving
           && engineKmh < 2.5
           && dopplerKmhTick < 4);
-      const hudKmh = parkedLike
-        ? Math.min(engineKmh, dopplerKmhTick)
-        : mergeTripHudKmh(engineKmh, dopplerKmhTick);
+      const zeroVelocityLock = isZeroVelocityLock(engineKmh, dopplerKmhTick, parkedLike);
+      const hudKmh = resolveTripHudKmh(engineKmh, dopplerKmhTick, { zeroVelocityLock });
       speedKmhRef.current = hudKmh;
       rawGpsKmhRef.current = dopplerKmhTick > 0 ? dopplerKmhTick : hudKmh;
-      emitSpeedometerKmh(hudKmh);
+      if (zeroVelocityLock) {
+        emitSpeedometerKmh(0);
+      } else {
+        emitSpeedometerKmh(hudKmh);
+      }
 
       const cachePts = driveCore.engine.cache.getPolyline()?.points ?? null;
       const roadPolylines = collectTripRoadPolylines(
@@ -6267,7 +6318,7 @@ function MapScreenInner() {
         ? false
         : isSessionFirstGpsFrame
           || (!isFreeDriveTick && confirmedTurn && pushSegM > 4);
-      const feedSpeedMs = parkedLike
+      const feedSpeedMs = zeroVelocityLock || parkedLike
         ? 0
         : computeDriveFeedSpeedMs(hudKmh, dopplerKmhTick, isFreeDriveTick, out.isMoving);
       if (DRIVE_V2_PIPELINE_DEBUG) {
@@ -6323,11 +6374,25 @@ function MapScreenInner() {
       const pipelineHdgFlip = Number.isFinite(svHdgBeforePush)
         ? Math.abs(headingDelta(svHdgBeforePush, displayHdg))
         : 0;
+      const prevSanityHdg = lastDisplayHdgForSanityRef.current;
+      const hdgDtMs = prevSanityHdg.atMs > 0 ? nowMs - prevSanityHdg.atMs : cadenceMs;
+      const headingRateDps = computeHeadingRateDps(
+        prevSanityHdg.hdg,
+        displayHdg,
+        hdgDtMs,
+      );
+      const sharpTurn = isSharpManeuver(headingRateDps, confirmedTurn);
+      const cameraFeedDur = resolveCameraSegmentDuration(feedDur, { sharpTurn });
+      lastDisplayHdgForSanityRef.current = { hdg: displayHdg, atMs: nowMs };
+
       pushDriveMarkerV2(driveMarker, displayLat, displayLng, displayHdg, {
         durationMs: markerInstantPush ? 0 : feedDur,
-        hudKmh: parkedLike ? 0 : hudKmh,
+        hudKmh: zeroVelocityLock || parkedLike ? 0 : hudKmh,
         speedMs: feedSpeedMs,
-        allowExtrapolation: !navBootstrapGlue && !parkedLike && !isSessionFirstGpsFrame,
+        allowExtrapolation: !zeroVelocityLock
+          && !navBootstrapGlue
+          && !parkedLike
+          && !isSessionFirstGpsFrame,
         allowInstant: markerInstantPush,
         easeOutPosition: false,
         arcM: displayArcM,
@@ -6335,14 +6400,23 @@ function MapScreenInner() {
         arcWindow: displayArcWindow,
         displayHeading: displayHdg,
         microSleep: out.microSleep === true,
+        zeroVelocityLock,
       });
       if (!out.microSleep) {
+        if (sharpTurn && DRIVE_V2_PIPELINE_DEBUG) {
+          markerLogTick('CAM_SHARP_TURN', {
+            headingRateDps: Math.round(headingRateDps),
+            markerFeedDur: feedDur,
+            cameraFeedDur,
+            confirmedTurn,
+          }, 400);
+        }
         pushCameraFromGpsSegment(
           displayLat,
           displayLng,
           displayHdg,
-          feedDur,
-          parkedLike ? 0 : hudKmh,
+          cameraFeedDur,
+          zeroVelocityLock || parkedLike ? 0 : hudKmh,
           { instant: markerInstantPush || isSessionFirstGpsFrame },
         );
       }
@@ -15081,9 +15155,23 @@ function MapScreenInner() {
     setNavRouteOverride(rerouteResult);
     if (rerouteResult.points?.length) {
       routePointsRef.current = rerouteResult.points;
+      const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
+        ? drLatRef.current
+        : userLocation.latitude;
+      const curLng = Number.isFinite(drLngRef.current) && drLngRef.current !== 0
+        ? drLngRef.current
+        : userLocation.longitude;
+      const idx = findClosestPointIndex(curLat, curLng, rerouteResult.points);
       if (DRIVE_CORE_V2) {
         driveCore.setRoutePolyline(rerouteResult.points);
         driveCore.applyMatchGeometry(rerouteResult.points);
+        const snapPt = rerouteResult.points[idx] ?? rerouteResult.points[0];
+        let snapHdg = Number.isFinite(drHdgRef.current) ? drHdgRef.current : 0;
+        if (idx < rerouteResult.points.length - 1) {
+          const next = rerouteResult.points[idx + 1];
+          snapHdg = bearingBetween(snapPt.latitude, snapPt.longitude, next.latitude, next.longitude);
+        }
+        hardResetOnRouteChange(snapPt.latitude, snapPt.longitude, snapHdg, 'reroute');
         vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
           pts: rerouteResult.points.length,
           at: now,
@@ -15093,13 +15181,6 @@ function MapScreenInner() {
           at: now,
         });
       }
-      const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
-        ? drLatRef.current
-        : userLocation.latitude;
-      const curLng = Number.isFinite(drLngRef.current) && drLngRef.current !== 0
-        ? drLngRef.current
-        : userLocation.longitude;
-      const idx = findClosestPointIndex(curLat, curLng, rerouteResult.points);
       navRouteIdxRef.current = idx;
       setRemainingRoutePoints([
         { latitude: curLat, longitude: curLng },
@@ -15119,7 +15200,7 @@ function MapScreenInner() {
       type: 'info',
       text2: 'Nowa trasa od Twojej pozycji (w kierunku jazdy).',
     });
-  }, [rerouteResult, offRoute, userLocation, driveCore]);
+  }, [rerouteResult, offRoute, userLocation, driveCore, hardResetOnRouteChange]);
 
   useEffect(() => {
     if (!offRoute || !reroutePendingRef.current) return;

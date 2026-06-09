@@ -13,6 +13,7 @@ import {
   evaluateMarkerForwardGate,
 } from '../lib/driveCore/markerForwardGate';
 import type { ArcWindowSlice } from '../lib/driveCore/geo';
+import { ZERO_VELOCITY_LOCK_KMH } from '../lib/driveCore/config';
 
 /** ADB: `adb logcat | grep DEBUG_WORKLET` (działa też na produkcji). */
 const DRIVE_V2_PIPELINE_DEBUG = true;
@@ -52,6 +53,8 @@ export type DriveMarkerTarget = {
   displayHeading?: number;
   /** Faza 4 — zamrożenie workletu przy postoju. */
   microSleep?: boolean;
+  /** Navigation Sanity — silnik mówi „stoi”: zero coast + zero speed. */
+  zeroVelocityLock?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
@@ -157,18 +160,31 @@ function easeOutQuadWorklet(t: number): number {
   return 1 - (1 - x) * (1 - x);
 }
 
+function isValidCoordWorklet(la: number, ln: number): boolean {
+  'worklet';
+  return Number.isFinite(la)
+    && Number.isFinite(ln)
+    && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
+}
+
 function pointAtArcLengthWorklet(
   lats: number[],
   lngs: number[],
   cumM: number[],
   arcM: number,
+  fallbackLat = 0,
+  fallbackLng = 0,
+  fallbackHdg = 0,
 ): { lat: number; lng: number; heading: number } {
   'worklet';
   if (lats.length < 2 || cumM.length < 2) {
-    return { lat: lats[0] ?? 0, lng: lngs[0] ?? 0, heading: 0 };
+    const la = Number.isFinite(lats[0]) ? lats[0]! : fallbackLat;
+    const ln = Number.isFinite(lngs[0]) ? lngs[0]! : fallbackLng;
+    return { lat: la, lng: ln, heading: fallbackHdg };
   }
   const totalM = cumM[cumM.length - 1];
-  const clamped = Math.max(0, Math.min(totalM, arcM));
+  const safeArcM = Number.isFinite(arcM) ? arcM : 0;
+  const clamped = Math.max(0, Math.min(Number.isFinite(totalM) ? totalM : 0, safeArcM));
   let seg = 0;
   for (let i = 0; i < cumM.length - 1; i++) {
     if (clamped <= cumM[i + 1] + 1e-6) {
@@ -183,6 +199,9 @@ function pointAtArcLengthWorklet(
   const lat = lats[seg] + (lats[seg + 1] - lats[seg]) * t;
   const lng = lngs[seg] + (lngs[seg + 1] - lngs[seg]) * t;
   const heading = bearingBetweenWorklet(lats[seg], lngs[seg], lats[seg + 1], lngs[seg + 1]);
+  if (!isValidCoordWorklet(lat, lng) || !Number.isFinite(heading)) {
+    return { lat: fallbackLat, lng: fallbackLng, heading: fallbackHdg };
+  }
   return { lat, lng, heading };
 }
 
@@ -446,7 +465,9 @@ export function useDriveMarker(
             currentArcMSv.value = targetArcMSv.value;
           }
           lerpActive.value = 0;
-          blockExtrapolationSv.value = 0;
+          if (allowExtrapolationSv.value === 1 && speedKmh >= ZERO_VELOCITY_LOCK_KMH) {
+            blockExtrapolationSv.value = 0;
+          }
         } else if (t >= 1) {
           const chaseImpliedMs = (capped.remainM / Math.max((speedKmh + IMPLIED_SPEED_CAP_MARGIN_KMH) / 3.6, 2.5)) * 1000;
           lerpFromLat.value = capped.lat;
@@ -470,11 +491,12 @@ export function useDriveMarker(
         && arcLats.length >= 2
         && arcCum.length >= 2;
 
+      const coastSpeedKmh = speedMs * 3.6;
       if (
         arcCoast
         && blockExtrapolationSv.value < 0.5
         && allowExtrapolationSv.value > 0.5
-        && speedMs >= 0.5
+        && coastSpeedKmh >= ZERO_VELOCITY_LOCK_KMH
         && staleMs > 0
         && staleMs <= CRUISE_EXTRAP_MAX_MS
       ) {
@@ -486,18 +508,29 @@ export function useDriveMarker(
           localArcM += err * Math.min(0.35, 8 * dtSec);
         }
         const totalM = arcCum[arcCum.length - 1];
-        localArcM = Math.max(0, Math.min(totalM, localArcM));
+        const segLen = Number.isFinite(totalM) ? totalM : 0;
+        const safeLocal = Number.isFinite(localArcM) ? localArcM : 0;
+        localArcM = Math.max(0, Math.min(segLen, safeLocal));
         currentArcMSv.value = arcWinBaseMSv.value + localArcM;
-        const pose = pointAtArcLengthWorklet(arcLats, arcLngs, arcCum, localArcM);
-        lat.value = pose.lat;
-        lng.value = pose.lng;
-        heading.value = pose.heading;
-        displayHeadingSv.value = pose.heading;
+        const pose = pointAtArcLengthWorklet(
+          arcLats,
+          arcLngs,
+          arcCum,
+          localArcM,
+          lastFrameLat.value,
+          lastFrameLng.value,
+          heading.value,
+        );
+        if (isValidCoordWorklet(pose.lat, pose.lng)) {
+          lat.value = pose.lat;
+          lng.value = pose.lng;
+          heading.value = pose.heading;
+          displayHeadingSv.value = pose.heading;
+        }
       } else if (
         blockExtrapolationSv.value < 0.5
         && allowExtrapolationSv.value > 0.5
-        && speedMs >= 0.5
-        && speedMsSv.value * 3.6 >= 4.5
+        && coastSpeedKmh >= ZERO_VELOCITY_LOCK_KMH
         && staleMs > 0
         && staleMs <= CRUISE_EXTRAP_MAX_MS
       ) {
@@ -536,20 +569,33 @@ export function useDriveMarker(
     const incomingMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs!) : 0;
     const hudKmh = Number.isFinite(t.hudKmh) ? Math.max(0, t.hudKmh!) : incomingMs * 3.6;
     const allowExtrap = t.allowExtrapolation !== false;
-    allowExtrapolationSv.value = allowExtrap ? 1 : 0;
+    const zeroLock = t.zeroVelocityLock === true;
+
+    if (zeroLock) {
+      speedMsSv.value = 0;
+      cruiseSpeedMsSv.value = 0;
+      arcCoastActiveSv.value = 0;
+      allowExtrapolationSv.value = 0;
+      blockExtrapolationSv.value = 1;
+    } else if (hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
+      blockExtrapolationSv.value = 0;
+      allowExtrapolationSv.value = allowExtrap ? 1 : 0;
+    }
+
     lastGpsPushMsSv.value = Date.now();
 
-    if (incomingMs >= MIN_DR_SPEED_MS && hudKmh >= 4.5) {
+    if (zeroLock) {
+      speedMsSv.value = 0;
+      cruiseSpeedMsSv.value = 0;
+    } else if (incomingMs >= MIN_DR_SPEED_MS && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
       speedMsSv.value = incomingMs;
       if (allowExtrap) {
         cruiseSpeedMsSv.value = incomingMs;
       }
-    } else if (allowExtrap && cruiseSpeedMsSv.value >= CRUISE_HOLD_MS && hudKmh >= 5.5) {
-      speedMsSv.value = cruiseSpeedMsSv.value;
     } else {
       speedMsSv.value = incomingMs;
       cruiseSpeedMsSv.value = incomingMs >= MIN_DR_SPEED_MS ? incomingMs : 0;
-      if (!allowExtrap || hudKmh < 4) {
+      if (!allowExtrap || hudKmh < ZERO_VELOCITY_LOCK_KMH) {
         cruiseSpeedMsSv.value = 0;
       }
     }
@@ -618,7 +664,9 @@ export function useDriveMarker(
         lastGpsPushMsSv.value = Date.now();
         return;
       }
-      blockExtrapolationSv.value = 0;
+      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
+        blockExtrapolationSv.value = 0;
+      }
       targetLat = gate.lat;
       targetLng = gate.lng;
       if (Number.isFinite(t.arcM)) {
@@ -649,7 +697,9 @@ export function useDriveMarker(
         targetArcMSv.value = t.arcM!;
       }
       if (t.polylineKey) polylineKeySv.value = t.polylineKey;
-      blockExtrapolationSv.value = 0;
+      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
+        blockExtrapolationSv.value = 0;
+      }
       segmentDurationMs.value = segDur > 0 ? segDur : LERP_MIN_MS;
       logWorkletSegmentStart({
         mode: 'instant_bootstrap',
@@ -671,7 +721,9 @@ export function useDriveMarker(
         targetArcMSv.value = t.arcM!;
       }
       if (t.polylineKey) polylineKeySv.value = t.polylineKey;
-      blockExtrapolationSv.value = 0;
+      if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
+        blockExtrapolationSv.value = 0;
+      }
       segmentDurationMs.value = LERP_MIN_MS;
       logWorkletSegmentStart({
         mode: 'instant_allowInstant',
@@ -699,7 +751,9 @@ export function useDriveMarker(
     lerpFromHdg.value = fromHdgSnap;
     lerpStartMs.value = Date.now();
     lerpActive.value = 1;
-    blockExtrapolationSv.value = 0;
+    if (!zeroLock && allowExtrap && hudKmh >= ZERO_VELOCITY_LOCK_KMH) {
+      blockExtrapolationSv.value = 0;
+    }
     logWorkletSegmentStart({
       mode: 'lerp_segment_start',
       lerpDurationMs: segDur,
