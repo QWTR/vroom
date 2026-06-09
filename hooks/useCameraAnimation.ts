@@ -31,7 +31,9 @@ type CameraFrameInput = {
   headingFromTripPipeline?: boolean;
   /** Czas segmentu GPS (ms) — liniowa animacja kamery jak marker. */
   segmentDurationMs?: number;
-  /** V2: kamera z 60fps driveMarker SV — animationDuration ~0, bez GPS-segment anim. */
+  /** V2 segment-sync: jeden setCamera na tick GPS, natywna interpolacja Mapbox (linearTo). */
+  segmentSync?: boolean;
+  /** @deprecated rAF worklet follow — zastąpione przez segmentSync. */
   followFromWorkletFrame?: boolean;
   /** Wygładzony lookahead (Reanimated spring) — bez sztywnego offsetu od raw heading. */
   smoothedLookaheadM?: number;
@@ -267,13 +269,21 @@ function buildTargetPose(input: CameraFrameInput, mode: CameraFollowMode): Camer
   const active = isActiveFollowMode(mode);
   const isNavigating = mode === 'navigationFollow';
   const targetHeading = normalizeHeading(input.heading || 0);
-  const lookaheadM = active ? lookaheadFromSpeed(input.speedKmh, isNavigating) : 0;
-  const center = offsetCenter(
-    input.center.latitude,
-    input.center.longitude,
-    targetHeading,
-    lookaheadM,
-  );
+  /** Segment-sync: center = dokładny cel markera; framing tylko przez padding. */
+  const useMarkerCenter = input.segmentSync === true;
+  const lookaheadM = useMarkerCenter
+    ? 0
+    : active
+      ? lookaheadFromSpeed(input.speedKmh, isNavigating)
+      : 0;
+  const center = useMarkerCenter
+    ? { latitude: input.center.latitude, longitude: input.center.longitude }
+    : offsetCenter(
+      input.center.latitude,
+      input.center.longitude,
+      targetHeading,
+      lookaheadM,
+    );
   const zoomSpeed = active
     ? cameraZoomSpeedKmh({ speedKmh: input.speedKmh })
     : 0;
@@ -375,7 +385,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   const applyToMap = useCallback((
     pose: CameraPose,
     duration: number,
-    animationMode: 'linear' | 'easeTo' = 'linear',
+    animationMode: 'linear' | 'linearTo' | 'easeTo' = 'linear',
   ) => {
     if (
       tripActiveRef.current
@@ -416,6 +426,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     now: number,
     segmentDurationMs?: number,
     followFromWorkletFrame?: boolean,
+    segmentSync?: boolean,
   ) => {
     if (
       tripActiveRef.current
@@ -466,7 +477,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }
 
     if (
-      !followFromWorkletFrame
+      !segmentSync
+      && !followFromWorkletFrame
       && sinceLastApply < minIntervalMs
       && centerDeltaM < 1.2
     ) {
@@ -475,7 +487,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }
 
     if (
-      !followFromWorkletFrame
+      !segmentSync
+      && !followFromWorkletFrame
       && segmentDurationMs != null
       && segmentDurationMs >= TRIP_MARKER_SYNC_MIN_MS
       && sinceLastApply < segmentDurationMs * 0.82
@@ -487,10 +500,21 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     }
 
     let animMs: number;
-    if (followFromWorkletFrame) {
+    let animMode: 'linear' | 'linearTo' | 'easeTo' = 'easeTo';
+    if (segmentSync) {
+      if (segmentDurationMs == null || segmentDurationMs <= 0) {
+        animMs = 0;
+        animMode = 'linear';
+      } else {
+        animMs = clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200);
+        animMode = prev ? 'linearTo' : 'easeTo';
+      }
+    } else if (followFromWorkletFrame) {
       animMs = 0;
+      animMode = 'linear';
     } else if (segmentDurationMs === 0) {
       animMs = 0;
+      animMode = 'linear';
     } else if (segmentDurationMs != null && segmentDurationMs > 0) {
       const segDur = clampNum(segmentDurationMs, TRIP_MARKER_SYNC_MIN_MS, 1200);
       animMs = clampNum(
@@ -498,6 +522,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         NATIVE_FOLLOW_ANIM_MS,
         NATIVE_FOLLOW_MAX_ANIM_MS,
       );
+      animMode = 'easeTo';
     } else {
       animMs = clampNum(
         sinceLastApply >= 40
@@ -506,27 +531,30 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         NATIVE_FOLLOW_ANIM_MS,
         NATIVE_FOLLOW_MAX_ANIM_MS,
       );
+      animMode = 'easeTo';
     }
 
     lastNativeFollowApplyAtRef.current = now;
     targetPoseRef.current = target;
-    if (followFromWorkletFrame) {
+    if (segmentSync || followFromWorkletFrame) {
       const logGapMs = now - lastDebugCameraApplyLogAtRef.current;
       if (centerDeltaM >= 1.2 || logGapMs >= 500) {
         lastDebugCameraApplyLogAtRef.current = now;
         console.log('[DEBUG_CAMERA]', {
           layer: 'applyNativeFollow',
           animMs,
+          animMode,
           centerDeltaM: Number(centerDeltaM.toFixed(2)),
           headingDeltaDeg: Number(headingDeltaDeg.toFixed(1)),
-          followFromWorkletFrame: true,
+          segmentSync: !!segmentSync,
+          followFromWorkletFrame: !!followFromWorkletFrame,
           segmentDurationMsIn: segmentDurationMs ?? null,
           speedKmh: Math.round(stabilizedFollowSpeedRef.current),
           targetHeading: Math.round(target.heading),
         });
       }
     }
-    applyToMap(target, animMs, followFromWorkletFrame ? 'linear' : 'easeTo');
+    applyToMap(target, animMs, animMode);
   }, [applyToMap]);
 
   useEffect(() => () => {
@@ -773,7 +801,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
 
       if (input.headingFromTripPipeline) {
         const travelHdg = normalizeHeading(input.heading);
-        if (input.followFromWorkletFrame) {
+        if (input.followFromWorkletFrame || input.segmentSync) {
           resolvedHeading = travelHdg;
           if (
             input.speedKmh < HEADING_LOW_SPEED_HOLD_KMH
@@ -889,16 +917,20 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
         ? userZoomOverrideRef.current
         : smoothZoomTarget(lastTargetZoomRef.current, followZoom, speedForPose);
       const isNavFollow = nextMode === 'navigationFollow';
-      const rawLook = lookaheadFromSpeed(speedForPose, isNavFollow);
+      const segmentSyncCenter = input.segmentSync === true;
+      const rawLook = segmentSyncCenter ? 0 : lookaheadFromSpeed(speedForPose, isNavFollow);
       const prevLook = stabilizedLookaheadRef.current;
       const useExternalLook =
-        input.smoothedLookaheadM != null
+        !segmentSyncCenter
+        && input.smoothedLookaheadM != null
         && Number.isFinite(input.smoothedLookaheadM);
-      const lookaheadM = useExternalLook
-        ? input.smoothedLookaheadM!
-        : prevLook <= 0.5
-          ? rawLook
-          : prevLook * 0.92 + rawLook * 0.08;
+      const lookaheadM = segmentSyncCenter
+        ? 0
+        : useExternalLook
+          ? input.smoothedLookaheadM!
+          : prevLook <= 0.5
+            ? rawLook
+            : prevLook * 0.92 + rawLook * 0.08;
       stabilizedLookaheadRef.current = lookaheadM;
       if (input.followFromWorkletFrame) {
         const vehicleDeltaM = movedM;
@@ -922,12 +954,14 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       target = {
         ...target,
         heading: resolvedHeading,
-        center: offsetCenter(
-          input.center.latitude,
-          input.center.longitude,
-          resolvedHeading,
-          lookaheadM,
-        ),
+        center: segmentSyncCenter
+          ? { latitude: input.center.latitude, longitude: input.center.longitude }
+          : offsetCenter(
+            input.center.latitude,
+            input.center.longitude,
+            resolvedHeading,
+            lookaheadM,
+          ),
         zoom: zoomTarget,
       };
       lastTargetZoomRef.current = target.zoom;
@@ -973,6 +1007,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
       now,
       input.segmentDurationMs,
       input.followFromWorkletFrame,
+      input.segmentSync,
     );
   }, [applyNativeFollow, applyToMap]);
 

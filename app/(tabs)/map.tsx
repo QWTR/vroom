@@ -45,7 +45,6 @@ import {
   normalizeHudSpeedKmh,
   resetSpeedometerEmitterThrottle,
 } from '../../components/map/SpeedometerHUD';
-import { createTripCameraScheduler } from '../../lib/driveUi/driveUiScheduler';
 import { MapTerrainLayers } from '../../components/map/MapTerrainLayers';
 import { MapVividLayers } from '../../components/map/MapVividLayers';
 import { MapCanvas } from '../../components/map/MapCanvas';
@@ -158,8 +157,6 @@ import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanc
 import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
 import { useDriveCore } from '../../hooks/useDriveCore';
 import { useDriveMarker } from '../../hooks/useDriveMarker';
-import { useDriveMarkerTripSync } from '../../hooks/useDriveMarkerTripSync';
-import { buildTripFollowSetCameraParams } from '../../lib/driveUi/tripCameraPose';
 import { preferRoadHeading, TripHeadingFilter } from '../../lib/driveCore/headingFilter';
 import type { ArcWindowSlice } from '../../lib/driveCore/geo';
 import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
@@ -2166,35 +2163,11 @@ function MapScreenInner() {
   }) => void) | null>(null);
   const lastSegmentDurationMsRef = useRef(650);
 
-  /** Throttle native setCamera — max ~4 Hz; marker/worklet bez zmian. */
-  const tripCameraSchedulerRef = useRef<ReturnType<typeof createTripCameraScheduler> | null>(null);
-  /** Sync z useCameraAnimation — wcześniej niż scheduler (hook jest niżej w pliku). */
+  /** Sync z useCameraAnimation — ref do isUserExploringMap (hook jest niżej w pliku). */
   const isUserExploringMapRef = useRef<() => boolean>(() => false);
   const getLastProgrammaticCameraApplyMsRef = useRef<() => number>(() => 0);
   const pushCameraFromSmoothRef = useRef<(lat: number, lng: number, hdg: number) => void>(() => {});
-  const ensureTripCameraScheduler = useCallback(() => {
-    if (!tripCameraSchedulerRef.current) {
-      tripCameraSchedulerRef.current = createTripCameraScheduler((frame) => {
-        if (!isDrivingRef.current && !isNavigatingRef.current) return;
-        updateCameraFrameRef.current?.({
-          center: { latitude: frame.lat, longitude: frame.lng },
-          heading: frame.heading,
-          speedKmh: speedKmhRef.current,
-          isNavigating: isNavigatingRef.current,
-          isDriving: isDrivingRef.current,
-          timestamp: Date.now(),
-          headingFromTripPipeline: true,
-          followFromWorkletFrame: DRIVE_CORE_V2,
-        });
-      });
-    }
-    return tripCameraSchedulerRef.current;
-  }, []);
-  const disposeTripCameraScheduler = useCallback(() => {
-    tripCameraSchedulerRef.current?.dispose();
-    tripCameraSchedulerRef.current = null;
-  }, []);
-  /** Kamera: bootstrap / entry + segment GPS (V2). */
+  /** Kamera: bootstrap / entry (legacy). V2 → pushCameraFromGpsSegment na ticku GPS. */
   const pushTripCameraFromApply = useCallback((
     lat: number,
     lng: number,
@@ -2220,11 +2193,11 @@ function MapScreenInner() {
     });
   }, []);
 
-  /** V2: jedna animacja kamery na segment GPS — zsynchronizowana z LERP markera. */
+  /** V2: jedna natywna animacja kamery na segment GPS — zsynchronizowana z workletem markera. */
   const pushCameraFromGpsSegment = useCallback((
     lat: number,
     lng: number,
-    hdg: number,
+    displayHeading: number,
     feedDurMs: number,
     speedKmh: number,
     opts?: { instant?: boolean },
@@ -2232,9 +2205,11 @@ function MapScreenInner() {
     if (!DRIVE_CORE_V2) return;
     if (!isDrivingRef.current && !isNavigatingRef.current) return;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (isUserExploringMapRef.current()) return;
     const cameraSpeedKmh = speedKmh < 3 ? 0 : speedKmh;
-    const hintHdg = normalizeHeading(hdg);
+    const hintHdg = normalizeHeading(displayHeading);
     lastCamResolvedHdgRef.current = hintHdg;
+    lastCamVehicleForBearingRef.current = { lat, lng };
     const segMs = opts?.instant
       ? 0
       : Math.max(320, Math.min(1200, Math.round(feedDurMs)));
@@ -2246,7 +2221,7 @@ function MapScreenInner() {
       isDriving: isDrivingRef.current,
       timestamp: Date.now(),
       headingFromTripPipeline: true,
-      followFromWorkletFrame: true,
+      segmentSync: true,
       segmentDurationMs: segMs,
     });
     markerLogTick('CAM_SEGMENT_PUSH', {
@@ -2257,6 +2232,14 @@ function MapScreenInner() {
       speedKmh: Math.round(cameraSpeedKmh),
       instant: !!opts?.instant,
     }, 600);
+    driveTraceCamera({
+      lat,
+      lng,
+      hdg: hintHdg,
+      speedKmh: cameraSpeedKmh,
+      exploring: false,
+      frameMoveM: 0,
+    });
   }, []);
 
   /** V10: bump/resume bez feedDR — jeden applyTripPosition. */
@@ -5716,26 +5699,6 @@ function MapScreenInner() {
     setTripCameraActive(isDriving || isNavigating);
   }, [isDriving, isNavigating, setTripCameraActive]);
 
-  const driveMarkerTripSyncRefs = useRef({
-    getSpeedKmh: () => Math.max(speedKmhRef.current, rawGpsKmhRef.current),
-    getIsNavigating: () => isNavigatingRef.current,
-    shouldPauseTripCameraFollow: () => shouldPauseTripCameraFollow(),
-    onProgrammaticCameraApply: () => touchProgrammaticCameraApply(),
-    getUserZoomOverride: () => getUserZoomOverride(),
-  });
-  driveMarkerTripSyncRefs.current.getSpeedKmh = () => Math.max(speedKmhRef.current, rawGpsKmhRef.current);
-  driveMarkerTripSyncRefs.current.getIsNavigating = () => isNavigatingRef.current;
-  driveMarkerTripSyncRefs.current.shouldPauseTripCameraFollow = () => shouldPauseTripCameraFollow();
-  driveMarkerTripSyncRefs.current.onProgrammaticCameraApply = touchProgrammaticCameraApply;
-  driveMarkerTripSyncRefs.current.getUserZoomOverride = getUserZoomOverride;
-
-  useDriveMarkerTripSync(
-    DRIVE_CORE_V2 && isTripActiveMap,
-    driveMarker,
-    cameraRef,
-    driveMarkerTripSyncRefs,
-  );
-
   const resetBrowseCameraRef = useRef<
     ((center: { latitude: number; longitude: number }, opts?: { animate?: boolean }) => void) | null
   >(null);
@@ -5800,9 +5763,8 @@ function MapScreenInner() {
   }, [updateCameraFrame]);
 
   useEffect(() => () => {
-    disposeTripCameraScheduler();
     resetSpeedometerEmitterThrottle();
-  }, [disposeTripCameraScheduler]);
+  }, []);
 
   useEffect(() => {
     if (!DRIVE_CORE_V2) return;
@@ -6374,6 +6336,16 @@ function MapScreenInner() {
         displayHeading: displayHdg,
         microSleep: out.microSleep === true,
       });
+      if (!out.microSleep) {
+        pushCameraFromGpsSegment(
+          displayLat,
+          displayLng,
+          displayHdg,
+          feedDur,
+          parkedLike ? 0 : hudKmh,
+          { instant: markerInstantPush || isSessionFirstGpsFrame },
+        );
+      }
       const svLat = driveMarker.lat.value;
       const svLng = driveMarker.lng.value;
       const svHdg = driveMarker.heading.value;
@@ -6506,7 +6478,7 @@ function MapScreenInner() {
       }
       return true;
     };
-  }, [driveCore, driveMarker, publishUserLocation, recordDrivingTracePoint, headingForDriveMarker, pushTripCameraFromApply, feedPosition, feedSpeed, maybeClearDrivingManualDisable]);
+  }, [driveCore, driveMarker, publishUserLocation, recordDrivingTracePoint, headingForDriveMarker, pushCameraFromGpsSegment, feedPosition, feedSpeed, maybeClearDrivingManualDisable]);
 
   useEffect(() => {
     if (!DRIVE_CORE_V2 || !isNavigating) return;
@@ -6804,7 +6776,7 @@ function MapScreenInner() {
     [pushCameraFromSmooth, isNavigating],
   );
 
-  /** Po wejściu w trip: jednorazowy bootstrap kamery (legacy smooth path). V2 → useDriveMarkerTripSync. */
+  /** Po wejściu w trip: jednorazowy bootstrap kamery (legacy smooth path). V2 → pushCameraFromGpsSegment na ticku GPS. */
   useEffect(() => {
     if (!isTripActiveMap || (!V10_CLIENT_FIRST && !DRIVE_CORE_V2)) return;
     if (DRIVE_CORE_V2) return;
@@ -7070,6 +7042,7 @@ function MapScreenInner() {
         allowInstant: true,
         allowExtrapolation: false,
       });
+      pushCameraFromGpsSegment(plat, plng, drHdgRef.current, TRIP_GPS_FEED_MIN_MS, kmh, { instant: true });
     } else {
       feedSmoothPositionTarget({
         latitude: plat,
@@ -7080,7 +7053,7 @@ function MapScreenInner() {
         source: 'driving_nav_bootstrap',
       });
     }
-  }, [isDriving, isNavigating, driveMarker]);
+  }, [isDriving, isNavigating, driveMarker, pushCameraFromGpsSegment]);
 
   // ── Dead-reckoning — w v10 wylaczone (marker = worklet live cruise + snap). ──
   const drEnabled = !V10_CLIENT_FIRST && locationReady && (isNavigating || isDriving);
@@ -8217,7 +8190,6 @@ function MapScreenInner() {
     setSpeed(null);
     clearStats();
     tripPeakSpeedRef.current = 0;
-    disposeTripCameraScheduler();
     resetSpeedometerEmitterThrottle();
     emitSpeedometerKmh(0);
     if (DRIVE_CORE_V2) {
@@ -8246,7 +8218,7 @@ function MapScreenInner() {
       reason: opts?.reason ?? 'unspecified',
       skipFlush: !!opts?.skipFlush,
     }));
-  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, driveCore, driveMarker, disposeTripCameraScheduler]);
+  }, [stopDR, resetDRRefs, resetSnap, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, driveCore, driveMarker]);
 
   const maybeAutoStopFromSessionGuard = useCallback((
     effectiveSpeedKmh: number,
@@ -8490,16 +8462,14 @@ function MapScreenInner() {
           allowExtrapolation: false,
         });
         lastDriveMarkerPushAtRef.current = Date.now();
-        pushTripCameraFromApply(entryLat, entryLng, entryHeading, { instant: true });
-        const entryCam = buildTripFollowSetCameraParams({
-          lat: entryLat,
-          lng: entryLng,
-          headingDeg: entryHeading,
-          speedKmh: speedKmhRef.current,
-          isNavigating: false,
-        });
-        (cameraRef.current as { setCamera?: (p: typeof entryCam) => void } | null)?.setCamera?.(entryCam);
-        touchProgrammaticCameraApply();
+        pushCameraFromGpsSegment(
+          entryLat,
+          entryLng,
+          entryHeading,
+          TRIP_GPS_FEED_MIN_MS,
+          speedKmhRef.current,
+          { instant: true },
+        );
       }
       if (!gpsForceActiveRef.current) {
         gpsForceActiveRef.current = true;
@@ -8860,7 +8830,7 @@ function MapScreenInner() {
         });
         drLastFrameAtRef.current = Date.now();
         if (!isNavTick) {
-          pushTripCameraFromApply(fbLat, fbLng, fbHdg, { instant: true });
+          pushCameraFromGpsSegment(fbLat, fbLng, fbHdg, fbDur, fallbackKmh, { instant: true });
         }
         driveTraceFallback({
           fbLat: Number(fbLat.toFixed(6)),
@@ -12815,6 +12785,14 @@ function MapScreenInner() {
                 hudKmh: kmh,
                 allowInstant: true,
               });
+              pushCameraFromGpsSegment(
+                entryLat,
+                entryLng,
+                drivingHeading,
+                TRIP_GPS_FEED_MIN_MS,
+                kmh,
+                { instant: true },
+              );
             } else {
               applyTripPosition(entryLat, entryLng, {
                 heading: drivingHeading,
@@ -12834,7 +12812,9 @@ function MapScreenInner() {
               entryAnim: true,
             });
             setFollowMode('drivingFollow');
-            pushCameraFromSmoothRef.current(entryLat, entryLng, drivingHeading);
+            if (!DRIVE_CORE_V2) {
+              pushCameraFromSmoothRef.current(entryLat, entryLng, drivingHeading);
+            }
             publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta });
 
             if (motionKmh >= DRIVING_ENTRY_STATIONARY_KMH) {
@@ -14350,7 +14330,7 @@ function MapScreenInner() {
     driveMarker.ensureFrameActive?.();
     setFollowMode(isNavigatingRef.current ? 'navigationFollow' : 'drivingFollow');
     if (DRIVE_CORE_V2) {
-      pushTripCameraFromApply(lat, lng, hdg, { instant: true });
+      pushCameraFromGpsSegment(lat, lng, hdg, TRIP_GPS_FEED_MIN_MS, speedKmhRef.current, { instant: true });
       return;
     }
     recenterTo({
@@ -14374,7 +14354,7 @@ function MapScreenInner() {
       lat: Number(lat.toFixed(5)),
       lng: Number(lng.toFixed(5)),
     });
-  }, [driveMarker, setFollowMode, recenterTo, pushCameraFromSmooth, pushTripCameraFromApply]);
+  }, [driveMarker, setFollowMode, recenterTo, pushCameraFromSmooth, pushCameraFromGpsSegment]);
 
   /** Krótki powrót z tła (<20s) — bez restartu GPS, map-match i fake 12 km/h. */
   const BRIEF_BG_RESUME_MAX_MS = 20_000;
@@ -16133,6 +16113,14 @@ function MapScreenInner() {
           hudKmh: speedKmhRef.current,
           allowInstant: true,
         });
+        pushCameraFromGpsSegment(
+          bootLat,
+          bootLng,
+          bootHdg,
+          TRIP_GPS_FEED_MIN_MS,
+          speedKmhRef.current,
+          { instant: true },
+        );
       }
     }
     if (!gpsForceActiveRef.current) {
