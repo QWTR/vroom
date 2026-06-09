@@ -1,51 +1,31 @@
-import React, { memo, useCallback, useMemo } from 'react';
+import React, { memo, useCallback } from 'react';
 import { View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
-import type { LiveFleetGeoJson } from '../../hooks/useLiveFleetAnimator';
+import Animated from 'react-native-reanimated';
+import type { FleetMetaPinRequest } from '../../hooks/useLiveFleetAnimator';
 import {
-  buildPinSpriteSignature,
   liveUserPinIconSize,
   liveUserPinImageKey,
   useLiveUserPinSprites,
 } from '../../hooks/useLiveUserPinSprites';
 import { LiveUserPinSpriteCapture } from './LiveUserPinSpriteCapture';
 
+const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
+
 type Props = {
-  shape: LiveFleetGeoJson;
+  animatedShapeProps: Partial<{ shape: string }>;
+  metaPinRequests: FleetMetaPinRequest[];
   visible: boolean;
   onUserPress: (userId: number) => void;
 };
 
-function LiveUsersFleetLayerInner({ shape, visible, onUserPress }: Props) {
-  const pinRequests = useMemo(
-    () => shape.features.map((f) => {
-      const p = f.properties;
-      return {
-        id: p.id,
-        signature: buildPinSpriteSignature({
-          id: p.id,
-          avatarUrl: p.avatarUrl,
-          avatarFrameUrl: p.avatarFrameUrl,
-          isPremium: p.isPremium === 1,
-          isFriend: p.isFriend === 1,
-          initials: p.initials,
-          distanceLabel: p.distanceLabel,
-        }),
-        data: {
-          username: p.username,
-          initials: p.initials,
-          distanceLabel: p.distanceLabel,
-          avatarUrl: p.hasAvatar === 1 ? p.avatarUrl : null,
-          avatarFrameUrl: p.avatarFrameUrl || null,
-          isPremium: p.isPremium === 1,
-          isFriend: p.isFriend === 1,
-        },
-      };
-    }),
-    [shape.features],
-  );
-
-  const { images, pendingCaptures, handleCapture } = useLiveUserPinSprites(pinRequests);
+function LiveUsersFleetLayerInner({
+  animatedShapeProps,
+  metaPinRequests,
+  visible,
+  onUserPress,
+}: Props) {
+  const { images, pendingCaptures, handleCapture } = useLiveUserPinSprites(metaPinRequests);
   const hasPinImages = Object.keys(images).length > 0;
   const iconSize = liveUserPinIconSize();
 
@@ -59,7 +39,7 @@ function LiveUsersFleetLayerInner({ shape, visible, onUserPress }: Props) {
     [onUserPress],
   );
 
-  if (!visible || !shape.features.length) return null;
+  if (!visible || metaPinRequests.length === 0) return null;
 
   return (
     <>
@@ -79,9 +59,9 @@ function LiveUsersFleetLayerInner({ shape, visible, onUserPress }: Props) {
 
       {hasPinImages ? <Mapbox.Images images={images} /> : null}
 
-      <Mapbox.ShapeSource
+      <ReanimatedShapeSource
         id="liveUsersSource"
-        shape={shape}
+        animatedProps={animatedShapeProps}
         onPress={handlePress}
         hitbox={{ width: 140, height: 100 }}
       >
@@ -96,7 +76,7 @@ function LiveUsersFleetLayerInner({ shape, visible, onUserPress }: Props) {
             iconOptional: true,
           }}
         />
-      </Mapbox.ShapeSource>
+      </ReanimatedShapeSource>
     </>
   );
 }

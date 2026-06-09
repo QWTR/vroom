@@ -160,7 +160,8 @@ import { useDriveCore } from '../../hooks/useDriveCore';
 import { useDriveMarker } from '../../hooks/useDriveMarker';
 import { useDriveMarkerTripSync } from '../../hooks/useDriveMarkerTripSync';
 import { buildTripFollowSetCameraParams } from '../../lib/driveUi/tripCameraPose';
-import { TripHeadingFilter } from '../../lib/driveCore/headingFilter';
+import { preferRoadHeading, TripHeadingFilter } from '../../lib/driveCore/headingFilter';
+import type { ArcWindowSlice } from '../../lib/driveCore/geo';
 import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
 import {
   moveBearingBetween,
@@ -263,6 +264,10 @@ import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
+import {
+  boundsFromCenterZoom,
+  EMPTY_VIEWPORT,
+} from '../../hooks/liveFleetSpatialIndex';
 import { LiveUsersFleetLayer } from '../../components/map/LiveUsersFleetLayer';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1155,9 +1160,13 @@ function pushDriveMarkerV2(
       easeOutPosition?: boolean;
       arcM?: number;
       polylineKey?: string;
+      arcWindow?: ArcWindowSlice;
+      displayHeading?: number;
+      microSleep?: boolean;
     }) => void;
     ensureFrameActive?: () => void;
     heading?: { value: number };
+    displayHeading?: { value: number };
   },
   lat: number,
   lng: number,
@@ -1172,6 +1181,9 @@ function pushDriveMarkerV2(
     easeOutPosition?: boolean;
     arcM?: number;
     polylineKey?: string;
+    arcWindow?: ArcWindowSlice;
+    displayHeading?: number;
+    microSleep?: boolean;
   },
 ): void {
   if (!DRIVE_CORE_V2 || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -1201,6 +1213,9 @@ function pushDriveMarkerV2(
     easeOutPosition: opts?.easeOutPosition === true,
     arcM: opts?.arcM,
     polylineKey: opts?.polylineKey,
+    arcWindow: opts?.arcWindow,
+    displayHeading: opts?.displayHeading ?? heading,
+    microSleep: opts?.microSleep === true,
   });
   if (DRIVE_V2_PIPELINE_DEBUG) {
     const svHdgRaw = driveMarker.heading?.value;
@@ -5871,6 +5886,7 @@ function MapScreenInner() {
       );
       let displayArcM: number | undefined;
       let displayPolylineKey: string | undefined;
+      let displayArcWindow: ArcWindowSlice | undefined;
       let onRoad = false;
       const hasRoadGeometry = roadPolylines.some((p) => p.length >= 2);
 
@@ -5994,6 +6010,7 @@ function MapScreenInner() {
             displayHdg = normalizeHeading(snapped.heading);
             displayArcM = snapped.arcM;
             displayPolylineKey = snapped.polylineKey;
+            displayArcWindow = snapped.arcWindow;
           }
         } catch {
           /* anchor fallback */
@@ -6037,10 +6054,19 @@ function MapScreenInner() {
             displayLng = snapped.lng;
             onRoad = snapped.onRoad;
             if (Number.isFinite(snapped.heading)) {
-              displayHdg = normalizeHeading(snapped.heading);
+              displayHdg = normalizeHeading(
+                preferRoadHeading(
+                  snapped.motionHeading,
+                  snapped.displayHeading,
+                  snapped.onRoad,
+                  hudKmh,
+                  driveMarker.displayHeading?.value ?? lastHeadingRef.current,
+                ),
+              );
             }
             displayArcM = snapped.arcM;
             displayPolylineKey = snapped.polylineKey;
+            displayArcWindow = snapped.arcWindow;
             visionEvent('SNAP_SOURCE', {
               source: 'drive_core_road_marker_pose',
               onRoad: snapped.onRoad,
@@ -6344,6 +6370,9 @@ function MapScreenInner() {
         easeOutPosition: false,
         arcM: displayArcM,
         polylineKey: displayPolylineKey,
+        arcWindow: displayArcWindow,
+        displayHeading: displayHdg,
+        microSleep: out.microSleep === true,
       });
       const svLat = driveMarker.lat.value;
       const svLng = driveMarker.lng.value;
@@ -15475,11 +15504,18 @@ function MapScreenInner() {
     return scored.slice(0, 150).map((entry) => entry.id);
   }, [liveUserIds, liveMapStore, currentUserId, isMapFocused, liveUsersAnchor]);
 
-  const liveFleetGeoJson = useLiveFleetAnimator(
+  const [fleetViewportBounds, setFleetViewportBounds] = useState(EMPTY_VIEWPORT);
+  const lastFleetViewportAtRef = useRef(0);
+
+  const {
+    animatedShapeProps: liveFleetAnimatedShapeProps,
+    metaPinRequests: liveFleetMetaPinRequests,
+  } = useLiveFleetAnimator(
     liveMapStore,
     visibleLiveUserIds,
     isMapFocused && liveMapEnabled,
     liveUsersAnchor,
+    fleetViewportBounds,
   );
 
   const visibleUsers = useMemo(() => {
@@ -16661,6 +16697,22 @@ function MapScreenInner() {
             if (zoomLive != null) {
               setCurrentZoom(zoomLive);
             }
+            const center = e?.properties?.center;
+            if (Array.isArray(center) && center.length >= 2) {
+              const cLng = Number(center[0]);
+              const cLat = Number(center[1]);
+              if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
+                const nowVp = Date.now();
+                if (nowVp - lastFleetViewportAtRef.current >= 200) {
+                  lastFleetViewportAtRef.current = nowVp;
+                  const zoomForBounds = zoomLive ?? currentZoom;
+                  const padding = isNavigating || isDriving ? 1.05 : 1.2;
+                  setFleetViewportBounds(
+                    boundsFromCenterZoom(cLat, cLng, zoomForBounds, padding),
+                  );
+                }
+              }
+            }
             if (MAP_RENDER_DEBUG) {
               const now = Date.now();
               if (now - lastCameraChangeLogAtRef.current >= 250) {
@@ -16806,7 +16858,8 @@ function MapScreenInner() {
           ) : null}
 
           <LiveUsersFleetLayer
-            shape={liveFleetGeoJson}
+            animatedShapeProps={liveFleetAnimatedShapeProps}
+            metaPinRequests={liveFleetMetaPinRequests}
             visible={isMapFocused && visibleLiveUserIds.length > 0}
             onUserPress={handleLiveUserPress}
           />

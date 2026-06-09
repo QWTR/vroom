@@ -40,12 +40,13 @@ describe('mapMatchSyncPolicy', () => {
   });
 
   it('respects foreground network interval', () => {
+    const now = 120_000;
     const decision = evaluateMapMatchSync({
       mode: 'foreground',
       speedKmh: 20,
       isMoving: true,
-      now: NETWORK_MIN_INTERVAL_MS - 1,
-      lastNetworkAt: 0,
+      now,
+      lastNetworkAt: now - (NETWORK_MIN_INTERVAL_MS - 5_000),
       bufferPathM: 100,
       bufferPoints: 4,
       bypassThrottleOnce: false,

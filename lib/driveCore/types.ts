@@ -37,6 +37,8 @@ export type DriveTickOutput = {
   isMoving: boolean;
   durationMs: number;
   geometrySource: GeometrySource;
+  /** Faza 4 — zamrożenie snap/L2 przy postoju. */
+  microSleep?: boolean;
 };
 
 export type MapMatchNetworkTrigger =

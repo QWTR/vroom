@@ -1,4 +1,6 @@
 import { bearingBetween } from '../../scripts/navigationUtils';
+import { DISPLAY_HEADING_ROAD_TAU_SEC } from './config';
+import { smoothHeadingEma } from './geo';
 
 export const TRAVEL_HEADING_VECTOR_MIN_MOVE_M = 1.2;
 export const TRAVEL_HEADING_LOW_SPEED_HOLD_KMH = 5;
@@ -181,6 +183,24 @@ export function computeTripBearing(
   }
 
   return road;
+}
+
+/** Faza 3 — display heading z segmentu drogi (EMA) gdy onRoad. */
+export function preferRoadHeading(
+  motionHeading: number,
+  roadHeading: number,
+  onRoad: boolean,
+  speedKmh: number,
+  prevDisplay?: number | null,
+  dtSec = 0.25,
+): number {
+  if (!onRoad || speedKmh < 8) {
+    return motionHeading;
+  }
+  const base = prevDisplay != null && Number.isFinite(prevDisplay)
+    ? prevDisplay
+    : motionHeading;
+  return smoothHeadingEma(base, roadHeading, dtSec, DISPLAY_HEADING_ROAD_TAU_SEC);
 }
 
 /** Sesyjny filtr heading (SSOT) — trzyma ring buffer między tickami GPS. */

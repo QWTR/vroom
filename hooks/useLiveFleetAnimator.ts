@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  runOnJS,
+  useAnimatedProps,
   useFrameCallback,
   useSharedValue,
 } from 'react-native-reanimated';
 import { normalizeMediaUri } from '../lib/mediaUri';
 import { calculateDistance } from '../scripts/distance';
+import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteVisual';
+import { buildPinSpriteSignature } from './useLiveUserPinSprites';
+import {
+  EMPTY_VIEWPORT,
+  isInViewport,
+  type ViewportBounds,
+} from './liveFleetSpatialIndex';
 import type { LiveMapStore } from './liveMapStore';
 
-const GEOJSON_PUSH_MS = 33;
 /** Wykładnicza stała czasowa LERP [1/s] — niezależna od FPS. */
 const LERP_RATE = 10;
 const MAX_DT_SEC = 0.05;
 const ARRIVE_EPS_M = 0.4;
-/** Dead reckoning: maks. czas „sunania” bez nowego pakietu z serwera. */
 const COAST_MAX_MS = 2000;
 const MIN_COAST_SPEED_MPS = 0.8;
 const MAX_SPEED_MPS = 55;
@@ -61,6 +66,12 @@ export type LiveFleetFeature = {
 export type LiveFleetGeoJson = {
   type: 'FeatureCollection';
   features: LiveFleetFeature[];
+};
+
+export type FleetMetaPinRequest = {
+  id: number;
+  signature: string;
+  data: LiveUserPinSpriteData;
 };
 
 const EMPTY_FC: LiveFleetGeoJson = {
@@ -125,11 +136,12 @@ function moveAlongBearing(lat: number, lng: number, heading: number, distM: numb
   return { lat: (lat2 * 180) / Math.PI, lng: (lng2 * 180) / Math.PI };
 }
 
-function buildGeoJson(slots: FleetSlot[]): LiveFleetGeoJson {
+function buildGeoJson(slots: FleetSlot[], bounds: ViewportBounds): LiveFleetGeoJson {
   'worklet';
   const features: LiveFleetFeature[] = [];
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
+    if (!isInViewport(s.lat, s.lng, bounds)) continue;
     features.push({
       type: 'Feature',
       id: s.id,
@@ -152,14 +164,124 @@ function buildGeoJson(slots: FleetSlot[]): LiveFleetGeoJson {
   return { type: 'FeatureCollection', features };
 }
 
+function buildMetaPinRequests(
+  store: LiveMapStore,
+  visibleUserIds: number[],
+  anchor: { latitude: number; longitude: number } | null,
+): FleetMetaPinRequest[] {
+  const out: FleetMetaPinRequest[] = [];
+  for (const id of visibleUserIds) {
+    const meta = store.getMeta(id);
+    const pos = store.getPosition(id);
+    if (!meta) continue;
+    const avatarUri = normalizeMediaUri(meta.avatarUrl);
+    const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
+    const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri);
+    const username = meta.username?.trim() || 'Użytkownik';
+    const initials = username.slice(0, 2).toUpperCase();
+    const distKm = pos && anchor
+      ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
+      : 0;
+    const distanceLabel = `${distKm.toFixed(1)} km`;
+    out.push({
+      id,
+      signature: buildPinSpriteSignature({
+        id,
+        avatarUrl: avatarUri ?? '',
+        avatarFrameUrl: frameUri ?? '',
+        isPremium: !!meta.isPremium,
+        isFriend: !!meta.isFriend,
+        initials,
+        distanceLabel,
+      }),
+      data: {
+        username,
+        initials,
+        distanceLabel,
+        avatarUrl: hasAvatar ? avatarUri : null,
+        avatarFrameUrl: frameUri || null,
+        isPremium: !!meta.isPremium,
+        isFriend: !!meta.isFriend,
+      },
+    });
+  }
+  return out;
+}
+
+function mergeSlotFromStore(
+  id: number,
+  store: LiveMapStore,
+  prev: FleetSlot | undefined,
+  anchor: { latitude: number; longitude: number } | null,
+  now: number,
+): FleetSlot | null {
+  const pos = store.getPosition(id);
+  const meta = store.getMeta(id);
+  if (!pos || !meta) return null;
+
+  const isNew = !prev;
+  const targetChanged = !isNew
+    && (prev.targetLat !== pos.lat || prev.targetLng !== pos.lng);
+
+  let speedMps = prev?.speedMps ?? 0;
+  let heading = prev?.heading ?? 0;
+
+  if (targetChanged && prev) {
+    const dtSec = (now - prev.lastStoreAtMs) / 1000;
+    if (dtSec > 0.05 && dtSec < 30) {
+      const distM = calculateDistance(prev.targetLat, prev.targetLng, pos.lat, pos.lng) * 1000;
+      speedMps = Math.min(MAX_SPEED_MPS, distM / dtSec);
+      if (speedMps >= MIN_COAST_SPEED_MPS) {
+        heading = bearingDegJs(prev.targetLat, prev.targetLng, pos.lat, pos.lng);
+      }
+    } else {
+      speedMps = 0;
+    }
+  } else if (isNew) {
+    speedMps = 0;
+    heading = 0;
+  }
+
+  const avatarUri = normalizeMediaUri(meta.avatarUrl);
+  const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
+  const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri) ? 1 : 0;
+  const username = meta.username?.trim() || 'Użytkownik';
+  const initials = username.slice(0, 2).toUpperCase();
+  const distKm = anchor
+    ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
+    : 0;
+
+  return {
+    id,
+    lat: isNew ? pos.lat : prev!.lat,
+    lng: isNew ? pos.lng : prev!.lng,
+    targetLat: pos.lat,
+    targetLng: pos.lng,
+    heading,
+    speedMps,
+    coastElapsedMs: targetChanged ? 0 : (prev?.coastElapsedMs ?? 0),
+    lastStoreAtMs: targetChanged || isNew ? now : (prev?.lastStoreAtMs ?? now),
+    isPremium: meta.isPremium ? 1 : 0,
+    isFriend: meta.isFriend ? 1 : 0,
+    avatarUrl: avatarUri ?? '',
+    avatarFrameUrl: frameUri ?? '',
+    hasAvatar,
+    username,
+    initials,
+    distanceLabel: `${distKm.toFixed(1)} km`,
+    pinColor: pinColorFor(meta),
+  };
+}
+
 export function useLiveFleetAnimator(
   store: LiveMapStore,
   visibleUserIds: number[],
   enabled: boolean,
   anchor: { latitude: number; longitude: number } | null,
+  viewportBounds: ViewportBounds = EMPTY_VIEWPORT,
 ) {
-  const [revision, setRevision] = useState(0);
-  const [geoJson, setGeoJson] = useState<LiveFleetGeoJson>(EMPTY_FC);
+  const [metaRevision, setMetaRevision] = useState(0);
+  const [metaPinRequests, setMetaPinRequests] = useState<FleetMetaPinRequest[]>([]);
 
   const visibleKey = useMemo(
     () => visibleUserIds.slice().sort((a, b) => a - b).join(','),
@@ -170,30 +292,31 @@ export function useLiveFleetAnimator(
     ? `${anchor.latitude.toFixed(4)},${anchor.longitude.toFixed(4)}`
     : 'none';
 
+  const fleetSv = useSharedValue<FleetSlot[]>([]);
+  const shapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_FC);
+  const viewportSv = useSharedValue<ViewportBounds>(EMPTY_VIEWPORT);
+
+  useEffect(() => {
+    viewportSv.value = viewportBounds;
+  }, [
+    viewportBounds.north,
+    viewportBounds.south,
+    viewportBounds.east,
+    viewportBounds.west,
+    viewportBounds.valid,
+    viewportSv,
+  ]);
+
   useEffect(() => {
     if (!enabled) return;
-    return store.subscribeUserIds(() => setRevision((r) => r + 1));
+    return store.subscribeUserIds(() => setMetaRevision((r) => r + 1));
   }, [store, enabled]);
 
-  useEffect(() => {
-    if (!enabled || visibleUserIds.length === 0) return;
-    const unsubs = visibleUserIds.map((id) =>
-      store.subscribePosition(id, () => setRevision((r) => r + 1)),
-    );
-    return () => unsubs.forEach((u) => u());
-  }, [store, visibleKey, enabled, visibleUserIds]);
-
-  const fleetSv = useSharedValue<FleetSlot[]>([]);
-  const lastPushMsSv = useSharedValue(0);
-
-  const pushGeoJson = useCallback((fc: LiveFleetGeoJson) => {
-    setGeoJson(fc);
-  }, []);
-
-  useEffect(() => {
+  const rebuildFleetFromStore = useCallback(() => {
     if (!enabled || visibleUserIds.length === 0) {
       fleetSv.value = [];
-      setGeoJson(EMPTY_FC);
+      shapeSv.value = EMPTY_FC;
+      setMetaPinRequests([]);
       return;
     }
 
@@ -202,76 +325,63 @@ export function useLiveFleetAnimator(
     const next: FleetSlot[] = [];
 
     for (const id of visibleUserIds) {
-      const pos = store.getPosition(id);
-      const meta = store.getMeta(id);
-      if (!pos || !meta) continue;
-
-      const prev = prevById.get(id);
-      const isNew = !prev;
-      const targetChanged = !isNew
-        && (prev.targetLat !== pos.lat || prev.targetLng !== pos.lng);
-
-      let speedMps = prev?.speedMps ?? 0;
-      let heading = prev?.heading ?? 0;
-
-      if (targetChanged && prev) {
-        const dtSec = (now - prev.lastStoreAtMs) / 1000;
-        if (dtSec > 0.05 && dtSec < 30) {
-          const distM = calculateDistance(prev.targetLat, prev.targetLng, pos.lat, pos.lng) * 1000;
-          speedMps = Math.min(MAX_SPEED_MPS, distM / dtSec);
-          if (speedMps >= MIN_COAST_SPEED_MPS) {
-            heading = bearingDegJs(prev.targetLat, prev.targetLng, pos.lat, pos.lng);
-          }
-        } else {
-          speedMps = 0;
-        }
-      } else if (isNew) {
-        speedMps = 0;
-        heading = 0;
-      }
-
-      const avatarUri = normalizeMediaUri(meta.avatarUrl);
-      const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
-      const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri) ? 1 : 0;
-      const username = meta.username?.trim() || 'Użytkownik';
-      const initials = username.slice(0, 2).toUpperCase();
-      const distKm = anchor
-        ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
-        : 0;
-
-      next.push({
-        id,
-        lat: isNew ? pos.lat : prev.lat,
-        lng: isNew ? pos.lng : prev.lng,
-        targetLat: pos.lat,
-        targetLng: pos.lng,
-        heading,
-        speedMps,
-        coastElapsedMs: targetChanged ? 0 : (prev?.coastElapsedMs ?? 0),
-        lastStoreAtMs: targetChanged || isNew ? now : (prev?.lastStoreAtMs ?? now),
-        isPremium: meta.isPremium ? 1 : 0,
-        isFriend: meta.isFriend ? 1 : 0,
-        avatarUrl: avatarUri ?? '',
-        avatarFrameUrl: frameUri ?? '',
-        hasAvatar,
-        username,
-        initials,
-        distanceLabel: `${distKm.toFixed(1)} km`,
-        pinColor: pinColorFor(meta),
-      });
+      const slot = mergeSlotFromStore(id, store, prevById.get(id), anchor, now);
+      if (slot) next.push(slot);
     }
 
     fleetSv.value = next;
-  }, [store, visibleKey, revision, enabled, visibleUserIds, fleetSv, anchorKey, anchor]);
+    shapeSv.value = buildGeoJson(next, viewportSv.value);
+    setMetaPinRequests(buildMetaPinRequests(store, visibleUserIds, anchor));
+  }, [store, visibleUserIds, enabled, anchor, fleetSv, shapeSv, viewportSv]);
+
+  useEffect(() => {
+    rebuildFleetFromStore();
+  }, [rebuildFleetFromStore, visibleKey, metaRevision, anchorKey]);
+
+  useEffect(() => {
+    if (!enabled || visibleUserIds.length === 0) return;
+
+    const onPosition = (id: number) => {
+      const pos = store.getPosition(id);
+      if (!pos) return;
+      const slots = fleetSv.value;
+      let idx = -1;
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i].id === id) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) return;
+
+      const prev = slots[idx];
+      const now = Date.now();
+      const merged = mergeSlotFromStore(id, store, prev, anchor, now);
+      if (!merged) return;
+
+      const next = slots.slice();
+      next[idx] = merged;
+      fleetSv.value = next;
+    };
+
+    const unsubs = visibleUserIds.map((id) =>
+      store.subscribePosition(id, () => onPosition(id)),
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [store, visibleKey, enabled, visibleUserIds, fleetSv, anchor]);
 
   const frameCallback = useFrameCallback((frame) => {
     'worklet';
     const slots = fleetSv.value;
-    if (!slots.length) return;
+    if (!slots.length) {
+      shapeSv.value = EMPTY_FC;
+      return;
+    }
 
     const dtMs = frame.timeSincePreviousFrame ?? 16.67;
     const dtSec = Math.min(dtMs / 1000, MAX_DT_SEC);
     const alpha = 1 - Math.exp(-LERP_RATE * dtSec);
+    const bounds = viewportSv.value;
 
     const nextSlots: FleetSlot[] = [];
     for (let i = 0; i < slots.length; i++) {
@@ -332,11 +442,7 @@ export function useLiveFleetAnimator(
       });
     }
     fleetSv.value = nextSlots;
-
-    const now = frame.timestamp;
-    if (now - lastPushMsSv.value < GEOJSON_PUSH_MS) return;
-    lastPushMsSv.value = now;
-    runOnJS(pushGeoJson)(buildGeoJson(nextSlots));
+    shapeSv.value = buildGeoJson(nextSlots, bounds);
   }, false);
 
   useEffect(() => {
@@ -344,5 +450,19 @@ export function useLiveFleetAnimator(
     return () => frameCallback.setActive(false);
   }, [enabled, visibleUserIds.length, frameCallback]);
 
-  return geoJson;
+  // RNMBXShapeSource.setShape wymaga GeoJSON string (nie obiektu) przy animatedProps.
+  const animatedShapeProps = useAnimatedProps(() => {
+    'worklet';
+    return {
+      shape: JSON.stringify(shapeSv.value),
+    };
+  });
+
+  const hasFleet = metaPinRequests.length > 0;
+
+  return {
+    animatedShapeProps,
+    metaPinRequests,
+    hasFleet,
+  };
 }

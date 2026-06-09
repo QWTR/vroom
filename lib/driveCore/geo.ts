@@ -7,6 +7,14 @@ import {
   stepTowardSnapOnPolyline,
 } from '../../scripts/navigationUtils';
 import {
+  ARC_WINDOW_AHEAD_BASE_M,
+  ARC_WINDOW_AHEAD_SPEED_SEC,
+  ARC_WINDOW_BACK_M,
+  ARC_WINDOW_MAX_NODES,
+  ROUTE_DEVIATION_ANGLE_DEG,
+  ROUTE_DEVIATION_CROSS_TRACK_M,
+  ROUTE_DEVIATION_TICKS,
+  ROUTE_GRAVITY_CROSS_TRACK_MULT,
   SNAP_ANGLE_REJECT_DEG,
   SNAP_ANGLE_REJECT_HIGHWAY_DEG,
   SNAP_ANGLE_SOFT_DEG,
@@ -127,15 +135,32 @@ export function headingDeltaAbs(from: number, to: number): number {
   return Math.abs(headingDeltaShort(from, to));
 }
 
+export type SnapSegmentScoreOpts = {
+  /** Segment leży na polilinii trasy nawigacyjnej. */
+  onRoutePolyline?: boolean;
+  /** Segment ciągły względem poprzedniego (bez skoku na gałąź). */
+  segmentConnected?: boolean;
+};
+
 /** Score segmentu snap — niższy = lepszy; null = hard reject (kąt). */
 export function snapSegmentScore(
   crossTrackM: number,
   segBearing: number,
   travelHeadingDeg?: number,
   speedKmh?: number,
+  opts?: SnapSegmentScoreOpts,
 ): number | null {
+  let effectiveCross = crossTrackM;
+  if (opts?.onRoutePolyline && opts?.segmentConnected) {
+    effectiveCross = crossTrackM / ROUTE_GRAVITY_CROSS_TRACK_MULT;
+  } else if (opts?.onRoutePolyline) {
+    effectiveCross = crossTrackM * 0.85;
+  } else {
+    effectiveCross = crossTrackM * ROUTE_GRAVITY_CROSS_TRACK_MULT;
+  }
+
   if (!Number.isFinite(travelHeadingDeg)) {
-    return crossTrackM;
+    return effectiveCross;
   }
   const angleDelta = headingDeltaAbs(segBearing, travelHeadingDeg!);
   const rejectDeg = (speedKmh ?? 0) >= SNAP_HIGHWAY_SPEED_KMH
@@ -143,7 +168,100 @@ export function snapSegmentScore(
     : SNAP_ANGLE_REJECT_DEG;
   if (angleDelta > rejectDeg) return null;
   const penalty = Math.max(0, angleDelta - SNAP_ANGLE_SOFT_DEG) * SNAP_ANGLE_WEIGHT;
-  return crossTrackM + penalty;
+  return effectiveCross + penalty;
+}
+
+/** Escape z trasy dopiero po N tickach dużego kąta + cross-track. */
+export class RouteDeviationTracker {
+  private ticks = 0;
+
+  reset(): void {
+    this.ticks = 0;
+  }
+
+  isDeviated(angleDeg: number, crossTrackM: number): boolean {
+    if (
+      angleDeg >= ROUTE_DEVIATION_ANGLE_DEG
+      && crossTrackM >= ROUTE_DEVIATION_CROSS_TRACK_M
+    ) {
+      this.ticks += 1;
+    } else {
+      this.ticks = 0;
+    }
+    return this.ticks >= ROUTE_DEVIATION_TICKS;
+  }
+}
+
+export type ArcWindowSlice = {
+  points: { lat: number; lng: number }[];
+  cumM: number[];
+  baseArcM: number;
+  totalM: number;
+};
+
+/** Wycinek polilinii dla workletu coast (max 32 węzły). */
+export function buildArcWindow(
+  points: RoadPoint[],
+  arc: PolylineArc,
+  arcM: number,
+  speedMs: number,
+): ArcWindowSlice | null {
+  if (points.length < 2 || arc.totalM <= 0) return null;
+
+  const aheadM = ARC_WINDOW_AHEAD_BASE_M + Math.max(0, speedMs) * ARC_WINDOW_AHEAD_SPEED_SEC;
+  const winStart = Math.max(0, arcM - ARC_WINDOW_BACK_M);
+  const winEnd = Math.min(arc.totalM, arcM + aheadM);
+
+  const slicePoints: { lat: number; lng: number }[] = [];
+  const sliceCum: number[] = [0];
+  let lastAddedArc = -1;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const segStart = arc.cumM[i];
+    const segEnd = arc.cumM[i + 1];
+    if (segEnd < winStart || segStart > winEnd) continue;
+
+    const addNode = (idx: number, arcPos: number) => {
+      if (slicePoints.length >= ARC_WINDOW_MAX_NODES) return;
+      if (arcPos <= lastAddedArc + 0.05) return;
+      const p = points[idx];
+      slicePoints.push({ lat: p.latitude, lng: p.longitude });
+      if (slicePoints.length > 1) {
+        const prev = slicePoints[slicePoints.length - 2];
+        const stepM = distanceM(prev.lat, prev.lng, p.latitude, p.longitude);
+        sliceCum.push(sliceCum[sliceCum.length - 1] + stepM);
+      }
+      lastAddedArc = arcPos;
+    };
+
+    if (segStart >= winStart && segStart <= winEnd) {
+      addNode(i, segStart);
+    }
+    if (segEnd >= winStart && segEnd <= winEnd) {
+      addNode(i + 1, segEnd);
+    }
+  }
+
+  if (slicePoints.length < 2) {
+    const pose = pointAtArcLength(points, arc, arcM);
+    const nextPose = pointAtArcLength(points, arc, Math.min(arc.totalM, arcM + 20));
+    return {
+      points: [
+        { lat: pose.lat, lng: pose.lng },
+        { lat: nextPose.lat, lng: nextPose.lng },
+      ],
+      cumM: [0, distanceM(pose.lat, pose.lng, nextPose.lat, nextPose.lng)],
+      baseArcM: arcM,
+      totalM: distanceM(pose.lat, pose.lng, nextPose.lat, nextPose.lng),
+    };
+  }
+
+  return {
+    points: slicePoints,
+    cumM: sliceCum,
+    baseArcM: winStart,
+    totalM: sliceCum[sliceCum.length - 1],
+  };
 }
 
 export function smoothHeadingEma(
@@ -202,6 +320,10 @@ export function projectOnPolylineForward(
   maxRadiusM: number,
   travelHeadingDeg?: number,
   speedKmh?: number,
+  routeGravity?: {
+    onRoutePolyline: boolean;
+    lastSegmentIndex?: number;
+  },
 ): {
   lat: number;
   lng: number;
@@ -224,7 +346,19 @@ export function projectOnPolylineForward(
     const onSeg = closestPointOnSegment(lat, lng, a, b);
     if (onSeg.crossTrackM > maxRadiusM) continue;
     const segBearing = bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
-    const score = snapSegmentScore(onSeg.crossTrackM, segBearing, travelHeadingDeg, speedKmh);
+    const segmentConnected = routeGravity?.onRoutePolyline === true
+      && routeGravity.lastSegmentIndex != null
+      && Math.abs(i - routeGravity.lastSegmentIndex) <= 1;
+    const score = snapSegmentScore(
+      onSeg.crossTrackM,
+      segBearing,
+      travelHeadingDeg,
+      speedKmh,
+      {
+        onRoutePolyline: routeGravity?.onRoutePolyline,
+        segmentConnected,
+      },
+    );
     if (score == null) continue;
     if (score < bestScore) {
       bestScore = score;

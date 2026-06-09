@@ -29,6 +29,8 @@ export type SnapOptions = {
   travelHeadingDeg?: number;
   /** Free-drive: najpierw snap z lokalnego L2 (RoadGeometryStore mirror). */
   preferLocalL2?: boolean;
+  /** Faza 4 — zamrożenie snap/scoring przy postoju. */
+  microSleep?: boolean;
 };
 
 export class RoadSnapEngine {
@@ -67,6 +69,10 @@ export class RoadSnapEngine {
   }
 
   snap(raw: RawGpsFix, cache: GeometryCache, opts: SnapOptions): SnappedPose {
+    if (opts.microSleep && this.frozenPose) {
+      return { ...this.frozenPose };
+    }
+
     const poly = cache.getPolyline();
     const maxRadius = opts.isNavigating ? ROUTE_SNAP_MAX_RADIUS_M : SNAP_MAX_RADIUS_M;
     const minSeg = cache.getLastSegmentIndex();
@@ -76,7 +82,7 @@ export class RoadSnapEngine {
 
     if (!opts.isMoving) {
       if (hasPoly) {
-        const pose = this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg);
+        const pose = this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg, opts.isNavigating);
         if (pose) {
           this.frozenPose = pose;
           return pose;
@@ -131,8 +137,8 @@ export class RoadSnapEngine {
 
     if (hasPoly) {
       let pose =
-        this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg)
-        ?? this.projectWithRetry(raw, cache, minSeg, SNAP_WIDE_RETRY_RADIUS_M, travelHdg);
+        this.projectWithRetry(raw, cache, minSeg, maxRadius, travelHdg, opts.isNavigating)
+        ?? this.projectWithRetry(raw, cache, minSeg, SNAP_WIDE_RETRY_RADIUS_M, travelHdg, opts.isNavigating);
 
       // Stary segment_cache (np. po teleportacji GPS) — nie trzymaj markera na martwej polilinii.
       if (pose && pose.crossTrackM > 45) {
@@ -696,6 +702,7 @@ export class RoadSnapEngine {
     minSeg: number,
     maxRadius: number,
     travelHdg = 0,
+    isNavigating = false,
   ): SnappedPose | null {
     const poly = cache.getPolyline();
     if (!poly) return null;
@@ -707,6 +714,13 @@ export class RoadSnapEngine {
       Math.max(0, minSeg - 1),
       maxRadius,
       travelHdg,
+      undefined,
+      isNavigating
+        ? {
+          onRoutePolyline: poly.source === 'route',
+          lastSegmentIndex: cache.getLastSegmentIndex(),
+        }
+        : undefined,
     );
     if (proj) {
       return {

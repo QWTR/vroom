@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   projectOnPolylineForward,
+  RouteDeviationTracker,
   snapSegmentScore,
 } from './geo';
 import type { RoadPoint } from './types';
@@ -17,6 +18,28 @@ describe('snapSegmentScore', () => {
     const aligned = snapSegmentScore(3, 0, 0, 30)!;
     const angled = snapSegmentScore(2, 30, 0, 30)!;
     expect(aligned).toBeLessThan(angled);
+  });
+
+  it('route gravity keeps navigation segment when side road is 15 m closer', () => {
+    const route = snapSegmentScore(20, 0, 0, 30, {
+      onRoutePolyline: true,
+      segmentConnected: true,
+    })!;
+    const side = snapSegmentScore(5, 0, 0, 30, {
+      onRoutePolyline: false,
+    })!;
+    expect(route).toBeLessThan(side);
+  });
+});
+
+describe('RouteDeviationTracker', () => {
+  it('requires 3 consecutive deviation ticks', () => {
+    const tracker = new RouteDeviationTracker();
+    expect(tracker.isDeviated(45, 40)).toBe(false);
+    expect(tracker.isDeviated(45, 40)).toBe(false);
+    expect(tracker.isDeviated(45, 40)).toBe(true);
+    expect(tracker.isDeviated(10, 5)).toBe(false);
+    expect(tracker.isDeviated(45, 40)).toBe(false);
   });
 });
 

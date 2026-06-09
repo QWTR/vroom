@@ -266,6 +266,60 @@ describe('resolveRoadMarkerPose', () => {
     expect(Math.abs(result.lng - 21.002)).toBeLessThan(0.0005);
   });
 
+  it('exposes motionHeading and displayHeading', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const result = resolveRoadMarkerPose({
+      prev: null,
+      enginePose: snappedPose(52.001, 21.0, 2),
+      roadPolylines: [ROAD],
+      speedKmh: 40,
+      travelHeadingDeg: 0,
+      rawLat: 52.0015,
+      rawLng: 21.0002,
+      isNavigating: false,
+    });
+    expect(result.motionHeading).toBe(0);
+    expect(Number.isFinite(result.displayHeading)).toBe(true);
+    expect(result.arcWindow?.points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('blocks branch resnap when angular rate exceeds threshold', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const along: RoadPoint[] = [
+      { latitude: 52.0, longitude: 21.0 },
+      { latitude: 52.002, longitude: 21.0 },
+    ];
+    const branch: RoadPoint[] = [
+      { latitude: 52.001, longitude: 20.999 },
+      { latitude: 52.001, longitude: 21.001 },
+    ];
+    resolveRoadMarkerPose({
+      prev: { lat: 52.001, lng: 21.0 },
+      enginePose: snappedPose(52.001, 21.0, 3),
+      roadPolylines: [along, branch],
+      speedKmh: 35,
+      travelHeadingDeg: 0,
+      rawLat: 52.001,
+      rawLng: 21.0,
+      isNavigating: false,
+      turnResnap: false,
+    });
+    const result = resolveRoadMarkerPose({
+      prev: { lat: 52.001, lng: 21.0 },
+      enginePose: snappedPose(52.001, 21.0005, 8),
+      roadPolylines: [along, branch],
+      speedKmh: 35,
+      travelHeadingDeg: 90,
+      rawLat: 52.001,
+      rawLng: 21.0009,
+      isNavigating: false,
+      turnResnap: true,
+    });
+    expect(Math.abs(result.lng - 21.0)).toBeLessThan(0.002);
+  });
+
   it('steps forward along polyline without jumping to raw', () => {
     resetRoadMarkerPoseState();
     localRoadGeometryMirror.clear();

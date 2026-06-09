@@ -12,6 +12,7 @@ import {
   BACKWARD_ARC_EPS_M,
   evaluateMarkerForwardGate,
 } from '../lib/driveCore/markerForwardGate';
+import type { ArcWindowSlice } from '../lib/driveCore/geo';
 
 /** ADB: `adb logcat | grep DEBUG_WORKLET` (działa też na produkcji). */
 const DRIVE_V2_PIPELINE_DEBUG = true;
@@ -20,6 +21,8 @@ export type DriveMarkerValues = {
   lat: SharedValue<number>;
   lng: SharedValue<number>;
   heading: SharedValue<number>;
+  /** Faza 3 — wygładzony heading (kamera + marker). */
+  displayHeading: SharedValue<number>;
   /** Ostatni segment GPS (ms) — synchronizacja kamery Mapbox. */
   segmentDurationMs: SharedValue<number>;
 };
@@ -43,6 +46,12 @@ export type DriveMarkerTarget = {
   /** Postęp 1D wzdłuż polilinii (forward-only gate). */
   arcM?: number;
   polylineKey?: string;
+  /** Faza 2 — wycinek geometrii dla coast po łuku. */
+  arcWindow?: ArcWindowSlice;
+  /** Faza 3 — heading wyświetlany (LPF droga). */
+  displayHeading?: number;
+  /** Faza 4 — zamrożenie workletu przy postoju. */
+  microSleep?: boolean;
 };
 
 const MIN_DR_SPEED_MS = 0.08;
@@ -148,6 +157,35 @@ function easeOutQuadWorklet(t: number): number {
   return 1 - (1 - x) * (1 - x);
 }
 
+function pointAtArcLengthWorklet(
+  lats: number[],
+  lngs: number[],
+  cumM: number[],
+  arcM: number,
+): { lat: number; lng: number; heading: number } {
+  'worklet';
+  if (lats.length < 2 || cumM.length < 2) {
+    return { lat: lats[0] ?? 0, lng: lngs[0] ?? 0, heading: 0 };
+  }
+  const totalM = cumM[cumM.length - 1];
+  const clamped = Math.max(0, Math.min(totalM, arcM));
+  let seg = 0;
+  for (let i = 0; i < cumM.length - 1; i++) {
+    if (clamped <= cumM[i + 1] + 1e-6) {
+      seg = i;
+      break;
+    }
+    seg = i;
+  }
+  const segStart = cumM[seg];
+  const segLen = Math.max(0.001, cumM[seg + 1] - segStart);
+  const t = Math.max(0, Math.min(1, (clamped - segStart) / segLen));
+  const lat = lats[seg] + (lats[seg + 1] - lats[seg]) * t;
+  const lng = lngs[seg] + (lngs[seg + 1] - lngs[seg]) * t;
+  const heading = bearingBetweenWorklet(lats[seg], lngs[seg], lats[seg + 1], lngs[seg + 1]);
+  return { lat, lng, heading };
+}
+
 function lerpProgressWorklet(
   nowMs: number,
   startMs: number,
@@ -247,6 +285,7 @@ function applyInstantPose(
     lat: SharedValue<number>;
     lng: SharedValue<number>;
     heading: SharedValue<number>;
+    displayHeading: SharedValue<number>;
     lastFrameLat: SharedValue<number>;
     lastFrameLng: SharedValue<number>;
     lerpFromLat: SharedValue<number>;
@@ -261,6 +300,7 @@ function applyInstantPose(
   sv.lat.value = targetLat;
   sv.lng.value = targetLng;
   sv.heading.value = tgtHdg;
+  sv.displayHeading.value = tgtHdg;
   sv.lastFrameLat.value = targetLat;
   sv.lastFrameLng.value = targetLng;
   sv.lerpFromLat.value = targetLat;
@@ -288,7 +328,9 @@ export function useDriveMarker(
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
+  const displayHeadingSv = useSharedValue(0);
   const speedMsSv = useSharedValue(0);
+  const microSleepSv = useSharedValue(0);
   const cruiseSpeedMsSv = useSharedValue(0);
   const lastGpsPushMsSv = useSharedValue(0);
   const enabledSv = useSharedValue(enabled ? 1 : 0);
@@ -311,11 +353,17 @@ export function useDriveMarker(
   const targetArcMSv = useSharedValue(0);
   const polylineKeySv = useSharedValue('');
   const blockExtrapolationSv = useSharedValue(0);
+  const arcCoastActiveSv = useSharedValue(0);
+  const arcWinBaseMSv = useSharedValue(0);
+  const arcWinLatsSv = useSharedValue<number[]>([]);
+  const arcWinLngsSv = useSharedValue<number[]>([]);
+  const arcWinCumSv = useSharedValue<number[]>([]);
 
   const frameCallback = useFrameCallback((frame) => {
     'worklet';
     if (enabledSv.value < 0.5) return;
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
+    if (microSleepSv.value > 0.5) return;
 
     const nowMs = Date.now();
 
@@ -365,7 +413,7 @@ export function useDriveMarker(
         );
         lat.value = capped.lat;
         lng.value = capped.lng;
-        heading.value = applySegmentHeadingWorklet(
+        const segHdg = applySegmentHeadingWorklet(
           lerpFromHdg.value,
           lerpToHdg.value,
           capped.posT,
@@ -376,10 +424,12 @@ export function useDriveMarker(
           toLn,
           segM,
         );
+        heading.value = segHdg;
+        displayHeadingSv.value = segHdg;
         if (capped.remainM < 0.15) {
           lat.value = toLa;
           lng.value = toLn;
-          heading.value = applySegmentHeadingWorklet(
+          const endHdg = applySegmentHeadingWorklet(
             lerpFromHdg.value,
             lerpToHdg.value,
             1,
@@ -390,6 +440,8 @@ export function useDriveMarker(
             toLn,
             segM,
           );
+          heading.value = endHdg;
+          displayHeadingSv.value = endHdg;
           if (Number.isFinite(targetArcMSv.value) && targetArcMSv.value > 0) {
             currentArcMSv.value = targetArcMSv.value;
           }
@@ -407,7 +459,41 @@ export function useDriveMarker(
     } else {
       const speedMs = speedMsSv.value;
       const staleMs = nowMs - lastGpsPushMsSv.value;
+      const dtSec = Math.min(
+        0.05,
+        Math.max(0.001, (frame.timeSincePreviousFrame ?? 16) / 1000),
+      );
+      const arcLats = arcWinLatsSv.value;
+      const arcLngs = arcWinLngsSv.value;
+      const arcCum = arcWinCumSv.value;
+      const arcCoast = arcCoastActiveSv.value > 0.5
+        && arcLats.length >= 2
+        && arcCum.length >= 2;
+
       if (
+        arcCoast
+        && blockExtrapolationSv.value < 0.5
+        && allowExtrapolationSv.value > 0.5
+        && speedMs >= 0.5
+        && staleMs > 0
+        && staleMs <= CRUISE_EXTRAP_MAX_MS
+      ) {
+        let localArcM = currentArcMSv.value - arcWinBaseMSv.value;
+        localArcM += speedMs * dtSec;
+        if (Number.isFinite(targetArcMSv.value)) {
+          const targetLocal = targetArcMSv.value - arcWinBaseMSv.value;
+          const err = targetLocal - localArcM;
+          localArcM += err * Math.min(0.35, 8 * dtSec);
+        }
+        const totalM = arcCum[arcCum.length - 1];
+        localArcM = Math.max(0, Math.min(totalM, localArcM));
+        currentArcMSv.value = arcWinBaseMSv.value + localArcM;
+        const pose = pointAtArcLengthWorklet(arcLats, arcLngs, arcCum, localArcM);
+        lat.value = pose.lat;
+        lng.value = pose.lng;
+        heading.value = pose.heading;
+        displayHeadingSv.value = pose.heading;
+      } else if (
         blockExtrapolationSv.value < 0.5
         && allowExtrapolationSv.value > 0.5
         && speedMs >= 0.5
@@ -415,10 +501,6 @@ export function useDriveMarker(
         && staleMs > 0
         && staleMs <= CRUISE_EXTRAP_MAX_MS
       ) {
-        const dtSec = Math.min(
-          0.05,
-          Math.max(0.001, (frame.timeSincePreviousFrame ?? 16) / 1000),
-        );
         const stepM = Math.min(MAX_DR_STEP_M, speedMs * dtSec);
         if (stepM > 0.008) {
           const hdgRad = (heading.value * Math.PI) / 180;
@@ -435,7 +517,9 @@ export function useDriveMarker(
           const idleAlpha = Math.min(0.22, HEADING_MAX_STEP_PER_FRAME_DEG / Math.max(hdgErr, 8));
           const fromH = heading.value;
           const toH = resolveShortestArcTargetWorklet(fromH, lerpToHdg.value);
-          heading.value = normalizeHeadingW(fromH + headingDeltaW(fromH, toH) * idleAlpha);
+          const nextH = normalizeHeadingW(fromH + headingDeltaW(fromH, toH) * idleAlpha);
+          heading.value = nextH;
+          displayHeadingSv.value = nextH;
         }
       }
     }
@@ -443,6 +527,11 @@ export function useDriveMarker(
 
   const pushTarget = useCallback((t: DriveMarkerTarget) => {
     if (!Number.isFinite(t.lat) || !Number.isFinite(t.lng)) return;
+
+    microSleepSv.value = t.microSleep ? 1 : 0;
+    if (t.microSleep) {
+      return;
+    }
 
     const incomingMs = Number.isFinite(t.speedMs) ? Math.max(0, t.speedMs!) : 0;
     const hudKmh = Number.isFinite(t.hudKmh) ? Math.max(0, t.hudKmh!) : incomingMs * 3.6;
@@ -467,7 +556,11 @@ export function useDriveMarker(
 
     const speedKmh = hudKmh > 0 ? hudKmh : speedMsSv.value * 3.6;
     const fromHdg = Number.isFinite(heading.value) ? heading.value : 0;
-    let tgtHdg = Number.isFinite(t.heading) ? t.heading : fromHdg;
+    let tgtHdg = Number.isFinite(t.displayHeading)
+      ? t.displayHeading!
+      : Number.isFinite(t.heading)
+        ? t.heading
+        : fromHdg;
     if (speedKmh >= HEADING_FREEZE_SPEED_KMH && Number.isFinite(fromHdg)) {
       tgtHdg = guardMarkerHeadingPush(fromHdg, tgtHdg, speedKmh);
       const diff = headingDeltaJs(fromHdg, tgtHdg);
@@ -482,6 +575,16 @@ export function useDriveMarker(
 
     let targetLat = t.lat;
     let targetLng = t.lng;
+
+    if (t.arcWindow && t.arcWindow.points.length >= 2) {
+      arcWinLatsSv.value = t.arcWindow.points.map((p) => p.lat);
+      arcWinLngsSv.value = t.arcWindow.points.map((p) => p.lng);
+      arcWinCumSv.value = t.arcWindow.cumM.slice();
+      arcWinBaseMSv.value = t.arcWindow.baseArcM;
+      arcCoastActiveSv.value = 1;
+    } else {
+      arcCoastActiveSv.value = 0;
+    }
 
     if (Number.isFinite(lat.value) && Number.isFinite(lng.value) && !allowInstant) {
       const key = t.polylineKey ?? '';
@@ -527,6 +630,7 @@ export function useDriveMarker(
       lat,
       lng,
       heading,
+      displayHeading: displayHeadingSv,
       lastFrameLat,
       lastFrameLng,
       lerpFromLat,
@@ -619,9 +723,15 @@ export function useDriveMarker(
     });
   }, [
     allowExtrapolationSv,
+    arcCoastActiveSv,
+    arcWinBaseMSv,
+    arcWinCumSv,
+    arcWinLatsSv,
+    arcWinLngsSv,
     blockExtrapolationSv,
     currentArcMSv,
     cruiseSpeedMsSv,
+    displayHeadingSv,
     heading,
     lastFrameLat,
     lastFrameLng,
@@ -638,6 +748,7 @@ export function useDriveMarker(
     lerpToHdg,
     lerpToLat,
     lerpToLng,
+    microSleepSv,
     polylineKeySv,
     segmentDurationMs,
     speedMsSv,
@@ -662,6 +773,8 @@ export function useDriveMarker(
     targetArcMSv.value = 0;
     polylineKeySv.value = '';
     blockExtrapolationSv.value = 0;
+    microSleepSv.value = 0;
+    arcCoastActiveSv.value = 0;
 
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
       lat.value = anchor.lat;
@@ -714,11 +827,15 @@ export function useDriveMarker(
     targetArcMSv.value = 0;
     polylineKeySv.value = '';
     blockExtrapolationSv.value = 0;
+    microSleepSv.value = 0;
+    arcCoastActiveSv.value = 0;
   }, [
+    arcCoastActiveSv,
     blockExtrapolationSv,
     cruiseSpeedMsSv,
     currentArcMSv,
     heading,
+    microSleepSv,
     lastGpsPushMsSv,
     lat,
     lng,
@@ -765,6 +882,7 @@ export function useDriveMarker(
       lat,
       lng,
       heading,
+      displayHeading: displayHeadingSv,
       segmentDurationMs,
       pushTarget,
       setCruiseSpeed,
@@ -773,6 +891,7 @@ export function useDriveMarker(
       ensureFrameActive,
     }),
     [
+      displayHeadingSv,
       heading,
       lat,
       lng,

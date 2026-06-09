@@ -7,6 +7,7 @@ import { GeometryCache } from './geometryCache';
 import { GpsQualityGate, GPS_WAKE_MIN_KMH, type GpsQualityResult } from './gpsQualityGate';
 import { localRoadGeometryMirror } from './localRoadSnap';
 import type { NavRouteStartAnchor } from './navRouteBootstrap';
+import { MicroSleepController } from './microSleep';
 import { MotionStateMachine } from './motionState';
 import { RoadSnapEngine } from './roadSnap';
 import { SpeedMeter } from './speedMeter';
@@ -26,6 +27,7 @@ export class DriveEngine {
   readonly snap = new RoadSnapEngine();
   readonly budget = new ApiBudgetManager();
   readonly quality = new GpsQualityGate();
+  readonly microSleep = new MicroSleepController();
 
   private lastTimestamp = 0;
   private isNavigating = false;
@@ -56,6 +58,7 @@ export class DriveEngine {
     this.snap.reset();
     this.budget.reset();
     this.quality.reset();
+    this.microSleep.reset();
     localRoadGeometryMirror.clear();
     this.lastTimestamp = 0;
     this.fetchInFlight = false;
@@ -200,7 +203,7 @@ export class DriveEngine {
       this.quality.commitAccepted(raw);
     }
 
-    if (isFreeDrive) {
+    if (isFreeDrive && !this.microSleep.isSleeping()) {
       this.scheduleLocalL2Refresh(raw);
     }
 
@@ -296,6 +299,9 @@ export class DriveEngine {
       allowSpeedDelta: gate.allowSpeedDelta,
       allowDoppler: gate.allowDoppler,
     };
+    const dopplerPreKmh =
+      raw.gpsSpeedMs != null && raw.gpsSpeedMs >= 0 ? raw.gpsSpeedMs * 3.6 : 0;
+    const preSpeedKmh = Math.max(this.speed.getLastKmh(), dopplerPreKmh);
 
     if (!isMoving) {
       if (bootstrapActive) {
@@ -310,10 +316,25 @@ export class DriveEngine {
         this.maybeCommitEnvelope(raw, gate, out.isMoving, isFreeDrive);
         return out;
       }
+      const sleeping = this.microSleep.update(raw.lat, raw.lng, 0, raw.timestamp);
+      if (sleeping) {
+        const held = this.snap.getFrozenPose();
+        if (held) {
+          return {
+            pose: { ...held },
+            speedKmh: 0,
+            isMoving: false,
+            durationMs,
+            geometrySource: this.cache.source() ?? 'tangent_fallback',
+            microSleep: true,
+          };
+        }
+      }
       const frozen = this.snap.snap(raw, this.cache, {
         isMoving: false,
         isNavigating: this.isNavigating,
         allowRawFallback: false,
+        microSleep: this.microSleep.isSleeping(),
       });
       const speedKmh = this.speed.update(
         raw,
@@ -323,6 +344,7 @@ export class DriveEngine {
         qualityPick,
         { navDopplerHud: this.isNavigating },
       );
+      this.microSleep.update(raw.lat, raw.lng, speedKmh, raw.timestamp);
       this.maybeCommitEnvelope(raw, gate, false, isFreeDrive);
       this.tryMapMatchSync(raw, frozen, speedKmh, false, gate);
       return {
@@ -331,7 +353,22 @@ export class DriveEngine {
         isMoving: false,
         durationMs,
         geometrySource: this.cache.source() ?? 'tangent_fallback',
+        microSleep: this.microSleep.isSleeping(),
       };
+    }
+
+    if (this.microSleep.update(raw.lat, raw.lng, preSpeedKmh, raw.timestamp)) {
+      const held = this.snap.getFrozenPose();
+      if (held) {
+        return {
+          pose: { ...held },
+          speedKmh: 0,
+          isMoving: false,
+          durationMs,
+          geometrySource: this.cache.source() ?? 'tangent_fallback',
+          microSleep: true,
+        };
+      }
     }
 
     const dopplerKmhForStep =
@@ -373,6 +410,7 @@ export class DriveEngine {
       preferLocalL2: isFreeDrive,
       travelHeadingDeg,
       maxStepM: isFreeDrive ? freeDriveMaxStep : maxStepM,
+      microSleep: this.microSleep.isSleeping(),
     });
     if (
       isFreeDrive
@@ -411,6 +449,7 @@ export class DriveEngine {
       isMoving: true,
       durationMs,
       geometrySource: this.cache.source() ?? 'tangent_fallback',
+      microSleep: this.microSleep.isSleeping(),
     };
   }
 

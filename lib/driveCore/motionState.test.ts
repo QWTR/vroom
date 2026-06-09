@@ -1,12 +1,12 @@
 import { MotionStateMachine } from './motionState';
 
 describe('MotionStateMachine', () => {
-  it('starts stopped until 3m movement with good accuracy', () => {
+  it('starts stopped until MOTION_MIN_DIST_M movement with good accuracy', () => {
     const m = new MotionStateMachine();
     m.reset({ lat: 52, lng: 19 });
-    expect(m.update({ lat: 52.00001, lng: 19.00001, accuracy: 10, timestamp: 1000 }, { positionTrusted: true })).toBe(false);
-    expect(m.update({ lat: 52.00005, lng: 19.00005, accuracy: 10, timestamp: 2000 }, { positionTrusted: true })).toBe(false);
-    expect(m.update({ lat: 52.00008, lng: 19, accuracy: 10, timestamp: 3000 }, { positionTrusted: true })).toBe(true);
+    expect(m.update({ lat: 52.000001, lng: 19.000001, accuracy: 10, timestamp: 1000 }, { positionTrusted: true })).toBe(false);
+    expect(m.update({ lat: 52.000005, lng: 19.000005, accuracy: 10, timestamp: 2000 }, { positionTrusted: true })).toBe(false);
+    expect(m.update({ lat: 52.00002, lng: 19, accuracy: 10, timestamp: 3000 }, { positionTrusted: true })).toBe(true);
   });
 
   it('wakes from stop on DEGRADED when displacement >= 10m', () => {

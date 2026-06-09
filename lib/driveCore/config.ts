@@ -30,3 +30,25 @@ export const SNAP_ANGLE_WEIGHT = 0.35;
 export const SNAP_ANGLE_REJECT_DEG = 35;
 export const SNAP_ANGLE_REJECT_HIGHWAY_DEG = 45;
 export const SNAP_HIGHWAY_SPEED_KMH = 55;
+
+/** Faza 1 — grawitacja trasy: boczna droga bliżej GPS nie wygrywa z segmentem nawigacyjnym. */
+export const ROUTE_GRAVITY_CROSS_TRACK_MULT = 3.5;
+export const ROUTE_DEVIATION_ANGLE_DEG = 40;
+export const ROUTE_DEVIATION_CROSS_TRACK_M = 35;
+export const ROUTE_DEVIATION_TICKS = 3;
+export const BRANCH_BLOCK_ANGULAR_RATE_DPS = 12;
+
+/** Faza 4 — micro-sleep przy postoju. */
+export const MICRO_SLEEP_MAX_SPEED_KMH = 0.5;
+export const MICRO_SLEEP_HOLD_MS = 3000;
+export const MICRO_SLEEP_WAKE_DIST_M = 6;
+export const MICRO_SLEEP_WAKE_SPEED_KMH = 5;
+
+/** Faza 2 — okno łuku w worklecie. */
+export const ARC_WINDOW_MAX_NODES = 32;
+export const ARC_WINDOW_BACK_M = 30;
+export const ARC_WINDOW_AHEAD_BASE_M = 80;
+export const ARC_WINDOW_AHEAD_SPEED_SEC = 3;
+
+/** Faza 3 — LPF heading na drodze. */
+export const DISPLAY_HEADING_ROAD_TAU_SEC = 0.35;
