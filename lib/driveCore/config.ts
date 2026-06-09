@@ -39,7 +39,7 @@ export const ROUTE_DEVIATION_TICKS = 3;
 export const BRANCH_BLOCK_ANGULAR_RATE_DPS = 12;
 
 /** Faza 4 — micro-sleep przy postoju. */
-export const MICRO_SLEEP_MAX_SPEED_KMH = 0.5;
+export const MICRO_SLEEP_MAX_SPEED_KMH = 2;
 export const MICRO_SLEEP_HOLD_MS = 3000;
 export const MICRO_SLEEP_WAKE_DIST_M = 6;
 export const MICRO_SLEEP_WAKE_SPEED_KMH = 5;

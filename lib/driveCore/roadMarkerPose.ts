@@ -17,6 +17,7 @@ import {
   type PolylineArc,
 } from './geo';
 import { localRoadGeometryMirror } from './localRoadSnap';
+import { shouldAllowBranchSwitch } from './turnConfirmBuffer';
 import type { RoadPoint, SnappedPose } from './types';
 
 function collectDisplayPolylines(explicit: RoadPoint[]): RoadPoint[][] {
@@ -33,8 +34,6 @@ const RAW_GPS_CROSS_TRACK_M = 150;
 
 /** Poniżej: płynny spring/lerp wzdłuż osi drogi (bez teleportu). */
 const SOFT_CATCHUP_M = 15;
-/** Powyżej: twardy snap (U-turn, utrata GPS). */
-const TELEPORT_M = 25;
 /** EMA heading przy przejściach segmentów (200–300 ms). */
 const HEADING_SMOOTH_TAU_SEC = 0.25;
 
@@ -59,6 +58,8 @@ export type RoadMarkerInput = {
   lastSegmentIndex?: number | null;
   /** Skręt na skrzyżowaniu — pozwól wybrać gałąź prostopadłą (bez forward-only lock). */
   turnResnap?: boolean;
+  /** Fizyczny wektor jazdy GPS potwierdził skręt (debounce turnConfirmBuffer). */
+  confirmedTurn?: boolean;
 };
 
 export type RoadMarkerResult = {
@@ -156,8 +157,8 @@ function isRawGpsPose(pose: SnappedPose): boolean {
 
 function computeMaxStepM(speedKmh: number): number {
   const v = Math.max(0, speedKmh / 3.6);
-  const dt = 0.72;
-  return Math.min(52, Math.max(4, v * dt * 1.22 + 2.5));
+  const dt = 0.85;
+  return Math.min(65, Math.max(5, v * dt * 1.35 + 3));
 }
 
 function collectPolylines(explicit: RoadPoint[][], isNavigating: boolean): RoadPoint[][] {
@@ -326,6 +327,33 @@ function projectionToArc(
   return { arcM: arc.cumM[proj.segmentIndex] ?? 0, crossTrackM: proj.crossTrackM, segmentIndex: proj.segmentIndex };
 }
 
+function filterArcCandidates(
+  candidates: { arcM: number; crossTrackM: number; segmentIndex: number }[],
+  lockedSeg: number,
+  poly: RoadPoint[],
+  travelHeadingDeg: number,
+  speedKmh: number,
+  allowBranching: boolean,
+  confirmedTurn: boolean,
+): { arcM: number; crossTrackM: number; segmentIndex: number }[] {
+  if (allowBranching && confirmedTurn) return candidates;
+  const maxSeg = lockedSeg + 1;
+  return candidates.filter((c) => {
+    if (c.segmentIndex < lockedSeg || c.segmentIndex > maxSeg) return false;
+    if (c.segmentIndex === lockedSeg) return true;
+    const segA = poly[c.segmentIndex];
+    const segB = poly[Math.min(c.segmentIndex + 1, poly.length - 1)];
+    if (!segA || !segB) return false;
+    const segBearing = bearingBetween(
+      segA.latitude,
+      segA.longitude,
+      segB.latitude,
+      segB.longitude,
+    );
+    return shouldAllowBranchSwitch(confirmedTurn, travelHeadingDeg, segBearing, speedKmh);
+  });
+}
+
 function pickTargetArcM(
   prevArcM: number | null,
   candidates: { arcM: number; crossTrackM: number; segmentIndex: number }[],
@@ -349,7 +377,7 @@ type ArcAdvanceOpts = {
   isNavigating?: boolean;
 };
 
-/** 1D catch-up wzdłuż polilinii — bez lateral drift. */
+/** 1D catch-up wzdłuż polilinii — bez lateral drift, bez twardego teleportu. */
 function advanceArcProgress(
   currentArcM: number,
   targetArcM: number,
@@ -362,37 +390,38 @@ function advanceArcProgress(
   const alongErr = targetArcM - currentArcM;
   const absErr = Math.abs(alongErr);
 
-  // Nawigacja: twardy snap do polilinii trasy — bez spring przez budynki.
-  if (isNavigating) {
-    if (absErr > TELEPORT_M || prevRawGapM > 120) {
-      return targetArcM;
-    }
-    if (absErr <= SOFT_CATCHUP_M) {
-      const alpha = Math.min(0.9, maxStepM / Math.max(absErr, 0.35));
-      return currentArcM + alongErr * alpha;
-    }
-    const gain = turnResnap ? 1 : (prevRawGapM > 35 ? 0.9 : 0.75);
-    const step = Math.min(maxStepM, absErr * gain);
-    return currentArcM + Math.sign(alongErr) * step;
+  if (absErr < 0.05) {
+    return targetArcM;
   }
 
-  const teleportThreshold = turnResnap ? TELEPORT_M + 40 : TELEPORT_M;
-  if (absErr > teleportThreshold || prevRawGapM > 120) {
-    if (turnResnap && absErr <= teleportThreshold + 25) {
-      const springAlpha = Math.min(0.62, maxStepM / Math.max(absErr, 0.35));
-      return currentArcM + alongErr * springAlpha;
-    }
+  // Nawigacja: tylko ekstremalny reroute (>120 m) — instant snap do trasy.
+  if (isNavigating && (absErr > 120 || prevRawGapM > 120)) {
     return targetArcM;
   }
 
   if (absErr <= SOFT_CATCHUP_M) {
-    const springAlpha = Math.min(0.55, maxStepM / Math.max(absErr, 0.35));
-    return currentArcM + alongErr * springAlpha;
+    const alpha = Math.min(
+      isNavigating ? 0.9 : 0.55,
+      maxStepM / Math.max(absErr, 0.35),
+    );
+    return currentArcM + alongErr * alpha;
   }
 
-  const gain = prevRawGapM > 35 ? 0.85 : 0.65;
-  const step = Math.min(maxStepM, absErr * gain);
-  return currentArcM + Math.sign(alongErr) * step;
+  // 15–80 m: przyspieszony catch-up wzdłuż osi.
+  if (absErr <= 80) {
+    const gapGain = prevRawGapM > 35 ? 0.85 : 0.65;
+    const turnBoost = turnResnap ? 1.15 : 1;
+    const step = Math.min(
+      maxStepM * (1 + absErr / 30) * turnBoost,
+      absErr * gapGain,
+    );
+    return currentArcM + Math.sign(alongErr) * step;
+  }
+
+  // >80 m lub duży raw gap: wielokrokowy catch-up — nigdy instant teleport (free drive).
+  const largeGain = prevRawGapM > 120 ? 0.9 : 0.85;
+  const largeStep = Math.min(maxStepM * 2.5, absErr * largeGain);
+  return currentArcM + Math.sign(alongErr) * largeStep;
 }
 
 /** Przełączenie na gałąź najbliższą raw GPS (zamiast kroku do surowych współrzędnych). */
@@ -500,6 +529,7 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     rawLng,
     isNavigating,
     turnResnap = false,
+    confirmedTurn = false,
   } = input;
 
   const nowMs = Date.now();
@@ -510,7 +540,8 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
       enginePose.crossTrackM,
     )
     : true;
-  const allowBranchResnap = turnResnap && (!isNavigating || routeDeviated);
+  const allowBranchResnap = confirmedTurn && turnResnap && (!isNavigating || routeDeviated);
+  const allowBranching = confirmedTurn && turnResnap;
 
   const maxRadiusM = isNavigating ? 50 : 120;
   const prevRawGapM = prev ? distanceM(prev.lat, prev.lng, rawLat, rawLng) : 0;
@@ -629,9 +660,12 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
   }
 
   const polyKey = polylineKey(poly);
-  const minSeg = turnResnap
+  const lockedSeg = Math.max(0, input.lastSegmentIndex ?? lastSegmentIndex);
+  const minSeg = allowBranching
     ? 0
-    : Math.max(0, (input.lastSegmentIndex ?? lastSegmentIndex) - 1);
+    : (confirmedTurn
+      ? Math.max(0, lockedSeg - 1)
+      : lockedSeg);
 
   if (polyKey !== lastPolylineKey) {
     lastPolylineKey = polyKey;
@@ -654,7 +688,7 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
   const rawProjRadiusM = prevRawGapM > 45
     ? Math.min(2500, prevRawGapM + 150)
     : maxRadiusM + 30;
-  const rawProjMinSeg = turnResnap ? 0 : minSeg;
+  const rawProjMinSeg = allowBranching ? 0 : minSeg;
   const rawProj = projectForward(
     rawLat,
     rawLng,
@@ -736,12 +770,64 @@ export function resolveRoadMarkerPose(input: RoadMarkerInput): RoadMarkerResult 
     }
   }
 
+  if (
+    !confirmedTurn
+    && !allowBranching
+    && rawProj
+    && rawProj.segmentIndex !== lockedSeg
+  ) {
+    const segA = poly[rawProj.segmentIndex];
+    const segB = poly[Math.min(rawProj.segmentIndex + 1, poly.length - 1)];
+    if (segA && segB) {
+      const segBearing = bearingBetween(
+        segA.latitude,
+        segA.longitude,
+        segB.latitude,
+        segB.longitude,
+      );
+      const segDelta = headingDeltaAbs(travelHeadingDeg, segBearing);
+      if (segDelta > 35) {
+        const hold = pointAtArcLength(poly, arc, currentArcM, travelHeadingDeg);
+        return packMarkerResult(
+          {
+            lat: hold.lat,
+            lng: hold.lng,
+            onRoad: true,
+            crossTrackM: rawProj.crossTrackM,
+            segmentIndex: hold.segmentIndex,
+            heading: smoothRoadHeading(hold.heading, nowMs),
+            arcM: currentArcM,
+            polylineKey: polyKey,
+          },
+          travelHeadingDeg,
+          poly,
+          arc,
+          speedKmh,
+        );
+      }
+    }
+  }
+
   const arcCandidates: { arcM: number; crossTrackM: number; segmentIndex: number }[] = [];
   if (rawProj) arcCandidates.push(projectionToArc(poly, arc, rawProj));
   if (localProj) arcCandidates.push(projectionToArc(poly, arc, localProj));
   if (engineProj) arcCandidates.push(projectionToArc(poly, arc, engineProj));
 
-  let targetArcM = pickTargetArcM(currentArcM, arcCandidates, turnResnap);
+  const filteredCandidates = filterArcCandidates(
+    arcCandidates,
+    lockedSeg,
+    poly,
+    travelHeadingDeg,
+    speedKmh,
+    allowBranching,
+    confirmedTurn,
+  );
+
+  let targetArcM = pickTargetArcM(
+    currentArcM,
+    filteredCandidates.length > 0 ? filteredCandidates : arcCandidates,
+    allowBranching,
+  );
   if (targetArcM == null && rawProj) {
     targetArcM = projectionToArc(poly, arc, rawProj).arcM;
   }

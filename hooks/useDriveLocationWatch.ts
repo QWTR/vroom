@@ -14,6 +14,12 @@ import {
   GPS_LAYER_A_ACTIVE_REJECT_ACC_M,
   isActiveLayerATeleport,
 } from '../lib/driveCore/gpsQualityGate';
+import {
+  ACTIVE_STALE_MS,
+  computeGpsRestartBackoffMs,
+  IDLE_STALE_MS,
+  WATCHDOG_POLL_MS,
+} from '../lib/driveLocation/gpsWatchdog';
 
 export type DriveLocationFix = {
   latitude: number;
@@ -41,10 +47,15 @@ const MAX_ACCURACY_BROWSING_M = 140;
 const MAX_ACCURACY_ACTIVE_M = 220;
 const MAX_ACCURACY_ACTIVE_HARD_M = GPS_LAYER_A_ACTIVE_REJECT_ACC_M;
 const MAX_SPEED_ACTIVE_KMH = 360;
-const ACTIVE_FIX_TIMEOUT_MS = 10000;
-const IDLE_FIX_TIMEOUT_MS = 22000;
-const WATCHDOG_CHECK_MS = 8000;
-const ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE = 1;
+export {
+  ACTIVE_STALE_MS,
+  computeGpsRestartBackoffMs,
+  GPS_RESTART_BACKOFF_BASE_MS,
+  GPS_RESTART_BACKOFF_MAX_MS,
+  IDLE_STALE_MS,
+  WATCHDOG_POLL_MS,
+} from '../lib/driveLocation/gpsWatchdog';
+
 const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
 const DERIVED_SPEED_MIN_DT_MS = 900;
@@ -55,7 +66,6 @@ const ACTIVE_EMIT_MIN_INTERVAL_FAST_MS = 40;
 const HIGHWAY_EMIT_SPEED_KMH = 45;
 const ACTIVE_FORCE_EMIT_GAP_MS = 200;
 const ACTIVE_EMIT_MIN_HEADING_DELTA = 6;
-const ACTIVE_DISTANCE_INTERVAL_M = 3;
 
 type GpsProfile = 'offMap' | 'browsing' | 'activeDrive' | 'activeNav';
 
@@ -157,8 +167,10 @@ export function useDriveLocationWatch({
 
   const lastGoodRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
-  const lastFixAtRef = useRef<number>(0);
-  const staleStrikeRef = useRef(0);
+  /** Ostatni poprawny fix (po bramkach jakości) — SSOT dla watchdogu. */
+  const lastValidFixAtRef = useRef<number>(0);
+  const restartAttemptRef = useRef(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const opSeqRef = useRef(0);
   const lastEmitRef = useRef<{
     at: number;
@@ -190,7 +202,80 @@ export function useDriveLocationWatch({
     }
   }, []);
 
-  const subscribe = useCallback(async (profile: GpsProfile, resetLock = false) => {
+  const currentProfile = useCallback((): GpsProfile => {
+    return resolveGpsProfile(
+      mapFocusedRef.current,
+      navRef.current,
+      drivingRef.current,
+      speedRef.current,
+      forceActiveRef.current,
+    );
+  }, []);
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  const teardownSubscription = useCallback(() => {
+    clearRestartTimer();
+    opSeqRef.current += 1;
+    subRef.current?.remove();
+    subRef.current = null;
+  }, [clearRestartTimer]);
+
+  const markValidFix = useCallback(() => {
+    lastValidFixAtRef.current = Date.now();
+    restartAttemptRef.current = 0;
+  }, []);
+
+  const subscribeRef = useRef<
+    (profile: GpsProfile, resetLock?: boolean, reason?: string) => Promise<void>
+  >(async () => {});
+
+  const scheduleRestart = useCallback((reason: string) => {
+    if (restartTimerRef.current) return;
+    const attempt = restartAttemptRef.current;
+    const backoffMs = computeGpsRestartBackoffMs(attempt);
+    restartAttemptRef.current = attempt + 1;
+    restartTimerRef.current = setTimeout(() => {
+      restartTimerRef.current = null;
+      void subscribeRef.current(currentProfile(), isActiveGpsProfile(profileRef.current), reason);
+    }, backoffMs);
+  }, [currentProfile]);
+
+  const forceResubscribe = useCallback((reason: string) => {
+    const staleMs = lastValidFixAtRef.current > 0
+      ? Date.now() - lastValidFixAtRef.current
+      : -1;
+    void logTelemetry('GPS_WATCHDOG_RESTART', {
+      reason,
+      staleMs: staleMs >= 0 ? Math.round(staleMs) : null,
+      attempt: restartAttemptRef.current,
+      profile: profileRef.current,
+      at: Date.now(),
+    });
+    if (__DEV__) {
+      console.log('[GPSDBG] GPS_WATCHDOG_RESTART', JSON.stringify({
+        reason,
+        staleMs,
+        attempt: restartAttemptRef.current,
+        profile: profileRef.current,
+      }));
+    }
+    lastGpsRestartAtRef.current = Date.now();
+    teardownSubscription();
+    scheduleRestart(reason);
+  }, [scheduleRestart, teardownSubscription]);
+
+  const subscribe = useCallback(async (
+    profile: GpsProfile,
+    resetLock = false,
+    reason = 'subscribe',
+  ) => {
+    clearRestartTimer();
     const opId = ++opSeqRef.current;
     subRef.current?.remove();
     subRef.current = null;
@@ -208,8 +293,6 @@ export function useDriveLocationWatch({
         (loc) => {
           try {
             const now = Date.now();
-            lastFixAtRef.current = now;
-            staleStrikeRef.current = 0;
             const rawLat = loc.coords.latitude;
             const rawLng = loc.coords.longitude;
             const acc = loc.coords.accuracy ?? 999;
@@ -359,6 +442,7 @@ export function useDriveLocationWatch({
 
             lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
             speedRef.current = effectiveSpeedKmh;
+            markValidFix();
 
             maybeEmitLocation({
               latitude: rawLat,
@@ -385,11 +469,12 @@ export function useDriveLocationWatch({
             );
             if (isActiveGpsProfile(nextProfile) && !isActiveGpsProfile(profileRef.current)) {
               setTimeout(() => {
-                void subscribe(nextProfile, true);
+                void subscribeRef.current(nextProfile, true, 'profile_upgrade');
               }, 0);
             }
           } catch (e) {
             console.warn('useDriveLocationWatch location callback error:', e);
+            forceResubscribe('callback_error');
           }
         },
       );
@@ -399,21 +484,24 @@ export function useDriveLocationWatch({
       }
       subRef.current = sub;
       profileRef.current = profile;
-      lastFixAtRef.current = Date.now();
+      lastValidFixAtRef.current = Date.now();
+      restartAttemptRef.current = 0;
+      if (__DEV__ && reason !== 'subscribe') {
+        console.log('[GPSDBG] watch subscribed', JSON.stringify({ profile, reason }));
+      }
     } catch (e) {
       console.warn('useDriveLocationWatch subscribe error:', e);
+      scheduleRestart('subscribe_error');
     }
-  }, [applyLockState]);
+  }, [
+    applyLockState,
+    clearRestartTimer,
+    forceResubscribe,
+    markValidFix,
+    scheduleRestart,
+  ]);
 
-  const currentProfile = useCallback((): GpsProfile => {
-    return resolveGpsProfile(
-      mapFocusedRef.current,
-      navRef.current,
-      drivingRef.current,
-      speedRef.current,
-      forceActiveRef.current,
-    );
-  }, []);
+  subscribeRef.current = subscribe;
 
   useEffect(() => {
     const next = resolveGpsProfile(
@@ -425,61 +513,67 @@ export function useDriveLocationWatch({
     );
     if (next !== profileRef.current) {
       const resetLock = isActiveGpsProfile(next) && !isActiveGpsProfile(profileRef.current);
-      void subscribe(next, resetLock);
+      void subscribe(next, resetLock, 'profile_change');
     }
   }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, subscribe]);
 
   const start = useCallback(async () => {
+    restartAttemptRef.current = 0;
     const profile =
       navRef.current
         ? 'activeNav'
         : (drivingRef.current || forceActiveRef.current ? 'activeDrive' : currentProfile());
-    await subscribe(profile, isActiveGpsProfile(profile));
+    await subscribe(profile, isActiveGpsProfile(profile), 'start');
   }, [currentProfile, subscribe]);
 
   const stop = useCallback(() => {
-    opSeqRef.current += 1;
-    subRef.current?.remove();
-    subRef.current = null;
-    staleStrikeRef.current = 0;
+    teardownSubscription();
     speedRef.current = 0;
     lastEmitRef.current = null;
-  }, []);
+    lastValidFixAtRef.current = 0;
+  }, [teardownSubscription]);
 
   const hardRestart = useCallback(async (reason: string) => {
     void logTelemetry('GPS_RESUME_HARD_RESTART', { reason, at: Date.now() });
     if (__DEV__) console.log('[GPSDBG] GPS_RESUME_HARD_RESTART', JSON.stringify({ reason, at: Date.now() }));
     lastGpsRestartAtRef.current = Date.now();
-    stop();
+    restartAttemptRef.current = 0;
+    teardownSubscription();
     resetGpsLockState(lockRef.current);
     applyLockState(false);
     lastEmitRef.current = null;
     speedRef.current = 0;
-    await subscribe(navRef.current ? 'activeNav' : 'activeDrive', true);
-  }, [stop, subscribe, applyLockState]);
+    await subscribe(navRef.current ? 'activeNav' : 'activeDrive', true, `hard_${reason}`);
+  }, [subscribe, applyLockState, teardownSubscription]);
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (!subRef.current) return;
-      const timeoutMs = isActiveGpsProfile(profileRef.current)
-        ? ACTIVE_FIX_TIMEOUT_MS
-        : IDLE_FIX_TIMEOUT_MS;
-      const staleForMs = Date.now() - lastFixAtRef.current;
-      if (staleForMs < timeoutMs) {
-        staleStrikeRef.current = 0;
+      const profile = profileRef.current;
+      const staleThresholdMs = isActiveGpsProfile(profile)
+        ? ACTIVE_STALE_MS
+        : IDLE_STALE_MS;
+      const now = Date.now();
+      const lastValid = lastValidFixAtRef.current;
+
+      if (subRef.current) {
+        const staleForMs = lastValid > 0 ? now - lastValid : staleThresholdMs + 1;
+        if (staleForMs >= staleThresholdMs) {
+          forceResubscribe('watchdog_stale');
+        }
         return;
       }
-      const requiredStrikes = isActiveGpsProfile(profileRef.current)
-        ? ACTIVE_STALE_STRIKES_BEFORE_RESUBSCRIBE
-        : 1;
-      staleStrikeRef.current += 1;
-      if (staleStrikeRef.current < requiredStrikes) return;
-      staleStrikeRef.current = 0;
-      lastFixAtRef.current = Date.now();
-      void subscribe(currentProfile(), isActiveGpsProfile(profileRef.current));
-    }, WATCHDOG_CHECK_MS);
+
+      const desiredProfile = currentProfile();
+      if (desiredProfile !== 'offMap' || isActiveGpsProfile(profile)) {
+        scheduleRestart('watchdog_no_subscription');
+      }
+    }, WATCHDOG_POLL_MS);
     return () => clearInterval(id);
-  }, [currentProfile, subscribe]);
+  }, [currentProfile, forceResubscribe, scheduleRestart]);
+
+  useEffect(() => () => {
+    teardownSubscription();
+  }, [teardownSubscription]);
 
   return {
     start,

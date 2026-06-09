@@ -6,12 +6,12 @@ export type DriveMarkerCameraSink = {
   onFrame: (lat: number, lng: number, hdg: number) => void;
 };
 
-/** Min. odstęp między setCamera z workletu (ms) — ogranicza RN bridge / frame drops. */
-const FRAME_CAMERA_MIN_INTERVAL_MS = 50;
+/** Min. odstęp między setCamera z workletu (ms) — ~60 FPS, zsynchronizowany z markerem. */
+const FRAME_CAMERA_MIN_INTERVAL_MS = 16;
 
 /**
- * V2 fallback: kamera z SharedValues markera (throttled).
- * Preferowany tryb: segmentSync w useCameraAnimation (jeden setCamera / tick GPS).
+ * V2: kamera z SharedValues markera (throttled ~60 FPS).
+ * Gdy DRIVE_CAMERA_SEGMENT_SYNC=false — preferowany tryb follow.
  */
 export function useDriveMarkerCameraFrame(
   enabled: boolean,

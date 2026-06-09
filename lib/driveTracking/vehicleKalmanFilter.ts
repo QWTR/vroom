@@ -1,4 +1,4 @@
-import { fromLocalEnuM, toLocalEnuM } from './geoMath';
+import { fromLocalEnuM, headingDeltaDeg, toLocalEnuM } from './geoMath';
 
 /**
  * 2D constant-velocity Kalman filter in a local ENU tangent plane.
@@ -16,6 +16,12 @@ export class VehicleKalmanFilter {
   private processPosVar = 0.35;
   private processVelVar = 1.2;
   private measPosBaseVar = 4;
+  private lastGpsHeadingDeg: number | null = null;
+  private lastGpsHeadingAtMs: number | null = null;
+  private readonly MANEUVER_HEADING_DELTA_DEG = 15;
+  private readonly MANEUVER_WINDOW_MS = 2500;
+  private readonly MANEUVER_Q_POS = 2.5;
+  private readonly MANEUVER_Q_VEL = 3.2;
 
   reset(): void {
     this.anchorLat = null;
@@ -23,6 +29,8 @@ export class VehicleKalmanFilter {
     this.x = null;
     this.P = null;
     this.lastTimeMs = null;
+    this.lastGpsHeadingDeg = null;
+    this.lastGpsHeadingAtMs = null;
   }
 
   setProcessNoise(posVar: number, velVar: number): void {
@@ -39,6 +47,7 @@ export class VehicleKalmanFilter {
     accuracyM: number,
     timestampMs: number,
     speedKmh = 0,
+    gpsHeadingDeg?: number | null,
   ): { latitude: number; longitude: number; velocityMs: number; headingDeg: number } {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return { latitude: lat, longitude: lng, velocityMs: 0, headingDeg: 0 };
@@ -63,8 +72,34 @@ export class VehicleKalmanFilter {
     this.lastTimeMs = timestampMs;
 
     const speedFactor = Math.min(1, Math.max(0, (speedKmh - 15) / 75));
-    const qPos = this.processPosVar * (1 + speedFactor * 2.2);
-    const qVel = this.processVelVar * (1 + speedFactor * 3.5);
+    let qPos = this.processPosVar * (1 + speedFactor * 2.2);
+    let qVel = this.processVelVar * (1 + speedFactor * 3.5);
+
+    const [, , preVe, preVn] = this.x!;
+    const preVelocityMs = Math.sqrt(preVe * preVe + preVn * preVn);
+    const predictedHeadingDeg = preVelocityMs > 0.4
+      ? ((Math.atan2(preVe, preVn) * 180) / Math.PI + 360) % 360
+      : (this.lastGpsHeadingDeg ?? 0);
+
+    let maneuver = false;
+    if (gpsHeadingDeg != null && Number.isFinite(gpsHeadingDeg) && preVelocityMs > 0.35) {
+      const vsPredicted = headingDeltaDeg(gpsHeadingDeg, predictedHeadingDeg);
+      const vsLast = this.lastGpsHeadingDeg != null
+        ? headingDeltaDeg(gpsHeadingDeg, this.lastGpsHeadingDeg)
+        : 0;
+      const dtHeadingMs = this.lastGpsHeadingAtMs != null
+        ? timestampMs - this.lastGpsHeadingAtMs
+        : 9999;
+      maneuver = vsPredicted >= this.MANEUVER_HEADING_DELTA_DEG
+        || (dtHeadingMs <= this.MANEUVER_WINDOW_MS && vsLast >= this.MANEUVER_HEADING_DELTA_DEG);
+      this.lastGpsHeadingDeg = gpsHeadingDeg;
+      this.lastGpsHeadingAtMs = timestampMs;
+    }
+
+    if (maneuver) {
+      qPos = Math.max(qPos, this.MANEUVER_Q_POS);
+      qVel = Math.max(qVel, this.MANEUVER_Q_VEL);
+    }
 
     predictCv(this.x, this.P!, dtSec, qPos, qVel);
 

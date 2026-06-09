@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createTurnConfirmState,
   resetTurnConfirmState,
+  shouldAllowBranchSwitch,
   TURN_CONFIRM_DELTA_DEG,
   updateTurnConfirmState,
 } from './turnConfirmBuffer';
@@ -32,5 +33,19 @@ describe('updateTurnConfirmState', () => {
     const r = updateTurnConfirmState(state, 0, 50, 0, 3);
     expect(r.confirmedTurn).toBe(false);
     expect(state.samples.length).toBe(0);
+  });
+});
+
+describe('shouldAllowBranchSwitch', () => {
+  it('allows switch when turn is confirmed', () => {
+    expect(shouldAllowBranchSwitch(true, 90, 180, 30)).toBe(true);
+  });
+
+  it('blocks perpendicular branch without confirmed turn', () => {
+    expect(shouldAllowBranchSwitch(false, 90, 180, 30)).toBe(false);
+  });
+
+  it('allows aligned branch without confirmed turn', () => {
+    expect(shouldAllowBranchSwitch(false, 90, 95, 30)).toBe(true);
   });
 });

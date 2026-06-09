@@ -41,7 +41,7 @@ describe('resolveRoadMarkerPose', () => {
     });
     expect(result.onRoad).toBe(true);
     expect(result.crossTrackM).toBeLessThan(40);
-    expect(Math.abs(result.lat - rawLat)).toBeLessThan(0.001);
+    expect(Math.abs(result.lat - rawLat)).toBeLessThan(0.0015);
   });
 
   it('steps toward raw when engine returns raw GPS and road is missing', () => {
@@ -115,6 +115,30 @@ describe('resolveRoadMarkerPose', () => {
     );
   });
 
+  it('catch-up on ~40m gap advances incrementally without teleport', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const prev = { lat: 52.0, lng: 21.0 };
+    const rawLat = 52.00036;
+    const rawLng = 21.0;
+    const gapM = distanceM(prev.lat, prev.lng, rawLat, rawLng);
+    expect(gapM).toBeGreaterThan(35);
+    expect(gapM).toBeLessThan(45);
+    const result = resolveRoadMarkerPose({
+      prev,
+      enginePose: snappedPose(52.0, 21.0, 5),
+      roadPolylines: [ROAD],
+      speedKmh: 50,
+      travelHeadingDeg: 0,
+      rawLat,
+      rawLng,
+      isNavigating: false,
+    });
+    const stepM = distanceM(prev.lat, prev.lng, result.lat, result.lng);
+    expect(stepM).toBeGreaterThan(0.5);
+    expect(stepM).toBeLessThan(gapM - 1);
+  });
+
   it('closes large longitudinal lag toward raw GPS in one tick', () => {
     resetRoadMarkerPoseState();
     localRoadGeometryMirror.clear();
@@ -173,10 +197,51 @@ describe('resolveRoadMarkerPose', () => {
       rawLng,
       isNavigating: false,
       turnResnap: false,
+      confirmedTurn: false,
     });
     expect(result.onRoad).toBe(true);
     expect(Math.abs(result.lat - 52.0)).toBeLessThan(0.0002);
     expect(result.lng).toBeGreaterThan(prev.lng - 0.0001);
+  });
+
+  it('holds east-west segment when confirmedTurn is false at intersection', () => {
+    resetRoadMarkerPoseState();
+    localRoadGeometryMirror.clear();
+    const eastWest: RoadPoint[] = [
+      { latitude: 52.0, longitude: 20.998 },
+      { latitude: 52.0, longitude: 21.002 },
+    ];
+    const northSouth: RoadPoint[] = [
+      { latitude: 51.999, longitude: 21.0 },
+      { latitude: 52.001, longitude: 21.0 },
+    ];
+    resolveRoadMarkerPose({
+      prev: { lat: 52.0, lng: 21.0002 },
+      enginePose: snappedPose(52.0, 21.0004, 3),
+      roadPolylines: [eastWest, northSouth],
+      speedKmh: 35,
+      travelHeadingDeg: 90,
+      rawLat: 52.0,
+      rawLng: 21.0002,
+      isNavigating: false,
+      confirmedTurn: false,
+    });
+    const prev = { lat: 52.0, lng: 21.0008 };
+    const result = resolveRoadMarkerPose({
+      prev,
+      enginePose: snappedPose(52.0, 21.0009, 5),
+      roadPolylines: [eastWest, northSouth],
+      speedKmh: 35,
+      travelHeadingDeg: 90,
+      rawLat: 52.00015,
+      rawLng: 21.0,
+      isNavigating: false,
+      turnResnap: false,
+      confirmedTurn: false,
+    });
+    expect(result.onRoad).toBe(true);
+    expect(Math.abs(result.lat - 52.0)).toBeLessThan(0.00015);
+    expect(result.lng).toBeGreaterThan(21.0005);
   });
 
   it('turnResnap advances marker toward raw GPS on branch', () => {
@@ -203,6 +268,7 @@ describe('resolveRoadMarkerPose', () => {
       rawLng,
       isNavigating: false,
       turnResnap: true,
+      confirmedTurn: true,
     });
     expect(result.lat).toBeGreaterThan(prev.lat);
     expect(distanceM(result.lat, result.lng, rawLat, rawLng)).toBeLessThan(
