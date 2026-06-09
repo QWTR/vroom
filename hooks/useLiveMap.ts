@@ -59,8 +59,8 @@ const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
 const LIVE_USERS_RADIUS_KM = 35;
 const LIVE_USERS_TAKE = 220;
-/** Zgodne z backendem (~2 min lastSeen) + bufor na opóźnione odświeżenie. */
-const LIVE_USER_STALE_MS = 3 * 60 * 1000;
+/** Brak aktualizacji pozycji — usuń zombie (snapshot / prune). */
+const LIVE_USER_STALE_MS = 60_000;
 /** Opóźnienie przed usunięciem po user:offline (chroni przed miganiem). */
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
@@ -90,7 +90,8 @@ export function useLiveMap(
   userLocation:    { latitude: number; longitude: number } | null,
   isSpeechEnabled: boolean,
   allowBackgroundWork = false,
-  enabled = true,
+  mapSessionActive = true,
+  liveUsersEnabled = true,
 ) {
   const storeRef = useRef<LiveMapStore | null>(null);
   if (!storeRef.current) storeRef.current = createLiveMapStore();
@@ -113,9 +114,10 @@ export function useLiveMap(
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
   const toggleRetryRef     = useRef(0);
-  const allowBgRef         = useRef(allowBackgroundWork);
-  const enabledRef         = useRef(enabled);
-  const appStateRef        = useRef<AppStateStatus>(AppState.currentState);
+  const allowBgRef              = useRef(allowBackgroundWork);
+  const mapSessionActiveRef     = useRef(mapSessionActive);
+  const liveUsersEnabledRef     = useRef(liveUsersEnabled);
+  const appStateRef             = useRef<AppStateStatus>(AppState.currentState);
   const lastSnapshotAtRef  = useRef(0);
   const hasUsersFromSocketRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,8 +126,11 @@ export function useLiveMap(
     allowBgRef.current = allowBackgroundWork;
   }, [allowBackgroundWork]);
   useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
+    mapSessionActiveRef.current = mapSessionActive;
+  }, [mapSessionActive]);
+  useEffect(() => {
+    liveUsersEnabledRef.current = liveUsersEnabled;
+  }, [liveUsersEnabled]);
 
   const isForegroundActive = useCallback(() => {
     return appStateRef.current === 'active';
@@ -213,10 +218,11 @@ export function useLiveMap(
     }
   }, [store, removeLiveUser]);
 
-  /** Scal listę użytkowników — nie kasuj świeżych spoza incoming (grace). */
+  /** Scal listę użytkowników — batch merge bez flicker; prune zombie in-place. */
   const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
     const now = Date.now();
     const incomingById = new Set<number>();
+    const batchEntries: { meta: LiveUserMeta; lat: number; lng: number }[] = [];
 
     for (const u of incoming) {
       if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
@@ -253,23 +259,31 @@ export function useLiveMap(
         serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
         seq: u.seq ?? prevMeta?.seq ?? null,
       };
-      store.setMeta(meta);
-      store.setPosition(u.id, coords.lat, coords.lng, true);
+      batchEntries.push({ meta, lat: coords.lat, lng: coords.lng });
 
       const avatarUri = normalizeMediaUri(meta.avatarUrl);
       if (avatarUri) Image.prefetch(avatarUri).catch(() => {});
     }
 
+    const pruneIds: number[] = [];
     for (const id of store.getUserIdsSnapshot()) {
       if (incomingById.has(id)) continue;
       const last = liveUserLastSeenRef.current.get(id) ?? 0;
       if (now - last >= LIVE_USER_STALE_MS) {
-        removeLiveUser(id);
+        liveUserLastSeenRef.current.delete(id);
+        liveUserLastSeqRef.current.delete(id);
+        liveUserLastServerAtRef.current.delete(id);
+        const pending = pendingOfflineRef.current.get(id);
+        if (pending) {
+          clearTimeout(pending);
+          pendingOfflineRef.current.delete(id);
+        }
+        pruneIds.push(id);
       }
     }
 
-    store.syncUserIdsArray();
-  }, [touchLiveUser, store, pickCoords, removeLiveUser]);
+    store.mergeUsersBatch(batchEntries, pruneIds);
+  }, [touchLiveUser, store, pickCoords]);
 
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -301,19 +315,23 @@ export function useLiveMap(
     isSharingRef.current = isSharing;
     if (!isSharing) {
       setSharingStatus('off');
-    } else if (connected) {
+    } else if (connected && liveUsersEnabled) {
       setSharingStatus('on');
-      joinLiveMapRoom();
-    } else {
+    } else if (isSharing) {
       setSharingStatus('connecting');
     }
-  }, [isSharing, connected, joinLiveMapRoom]);
+  }, [isSharing, connected, liveUsersEnabled]);
 
-  // Dołącz do pokoju live_map gdy mapa jest aktywna — bez tego socket nie dostarcza user:location.
+  // Synchronizacja pokoju live_map — tylko gdy flota włączona (Ghost = brak join).
   useEffect(() => {
-    if (!enabled || !connected) return;
+    if (!liveUsersEnabled || !connected) {
+      if (connected && socketRef.current?.connected) {
+        leaveLiveMapRoom();
+      }
+      return;
+    }
     joinLiveMapRoom();
-  }, [enabled, connected, joinLiveMapRoom]);
+  }, [liveUsersEnabled, connected, joinLiveMapRoom, leaveLiveMapRoom]);
 
   // ── Filtruj warnings do 25 km gdy zmienia się pozycja lub lista ──
   useEffect(() => {
@@ -364,7 +382,7 @@ export function useLiveMap(
   }, []);
 
   const fetchLiveUsersRest = useCallback(async (token: string) => {
-    if (!enabledRef.current) return;
+    if (!liveUsersEnabledRef.current) return;
     if (
       socketRef.current?.connected
       && hasUsersFromSocketRef.current
@@ -377,7 +395,7 @@ export function useLiveMap(
         buildLiveUsersUrl(),
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (usersRes.ok && enabledRef.current) {
+      if (usersRes.ok && liveUsersEnabledRef.current) {
         const data = await usersRes.json();
         const users: LiveUser[] = Array.isArray(data) ? data : [];
         mergeLiveUsersFromApi(users);
@@ -391,7 +409,7 @@ export function useLiveMap(
     clearUsersFallbackTimer();
     usersFallbackTimerRef.current = setTimeout(() => {
       usersFallbackTimerRef.current = null;
-      if (!enabledRef.current) return;
+      if (!liveUsersEnabledRef.current) return;
       if (hasUsersFromSocketRef.current) return;
       void fetchLiveUsersRest(token);
     }, SOCKET_USERS_FALLBACK_MS);
@@ -399,35 +417,63 @@ export function useLiveMap(
 
   const fetchInitialData = useCallback(async (token: string) => {
     await fetchWarnings(token);
-    scheduleUsersRestFallback(token);
+    if (liveUsersEnabledRef.current) {
+      scheduleUsersRestFallback(token);
+    }
   }, [fetchWarnings, scheduleUsersRestFallback]);
-
-  useEffect(() => {
-    if (enabled) return;
-    clearUsersFallbackTimer();
-    socketRef.current?.disconnect();
-    setConnected(false);
-    setSharingStatus('off');
-    hasUsersFromSocketRef.current = false;
-    lastSnapshotAtRef.current = 0;
-    liveUserLastSeqRef.current.clear();
-    liveUserLastServerAtRef.current.clear();
-    store.clear();
-  }, [enabled, store, clearUsersFallbackTimer]);
-
-  // Po połączeniu — tylko ostrzeżenia + fallback użytkowników gdy brak snapshotu.
-  useEffect(() => {
-    if (!enabled || !connected) return;
-    const tok = tokenRef.current;
-    if (!tok) return;
-    void fetchWarnings(tok);
-    scheduleUsersRestFallback(tok);
-  }, [enabled, connected, fetchWarnings, scheduleUsersRestFallback]);
 
   // Geo refresh REST tylko gdy socket martwy lub dawno bez snapshotu.
   const lastUsersGeoRefreshRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
+
+  const clearLiveUsersFleetState = useCallback(() => {
+    clearUsersFallbackTimer();
+    pendingOfflineRef.current.forEach((t) => clearTimeout(t));
+    pendingOfflineRef.current.clear();
+    liveUserLastSeenRef.current.clear();
+    liveUserLastSeqRef.current.clear();
+    liveUserLastServerAtRef.current.clear();
+    hasUsersFromSocketRef.current = false;
+    lastSnapshotAtRef.current = 0;
+    lastUsersGeoRefreshRef.current = null;
+    store.clear();
+  }, [store, clearUsersFallbackTimer]);
+
+  // Ghost Mode — wyłącz flotę, socket zostaje dla ostrzeżeń.
   useEffect(() => {
-    if (!enabled) return;
+    if (liveUsersEnabled) return;
+    if (connected && socketRef.current?.connected) {
+      leaveLiveMapRoom();
+    }
+    clearLiveUsersFleetState();
+  }, [liveUsersEnabled, connected, leaveLiveMapRoom, clearLiveUsersFleetState]);
+
+  // Blur taba — pełne rozłączenie sesji mapy (socket + ostrzeżenia).
+  useEffect(() => {
+    if (mapSessionActive) return;
+    clearUsersFallbackTimer();
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('live:leave');
+    }
+    socketRef.current?.disconnect();
+    setConnected(false);
+    setSharingStatus('off');
+    clearLiveUsersFleetState();
+    setWarnings([]);
+  }, [mapSessionActive, clearUsersFallbackTimer, clearLiveUsersFleetState]);
+
+  // Po połączeniu — ostrzeżenia + opcjonalnie fallback floty.
+  useEffect(() => {
+    if (!mapSessionActive || !connected) return;
+    const tok = tokenRef.current;
+    if (!tok) return;
+    void fetchWarnings(tok);
+    if (liveUsersEnabled) {
+      scheduleUsersRestFallback(tok);
+    }
+  }, [mapSessionActive, liveUsersEnabled, connected, fetchWarnings, scheduleUsersRestFallback]);
+
+  useEffect(() => {
+    if (!liveUsersEnabled) return;
     if (!userLocation) return;
     const tok = tokenRef.current;
     if (!tok) return;
@@ -447,11 +493,11 @@ export function useLiveMap(
       && now - lastSnapshotAtRef.current < LIVE_USERS_REST_FRESH_MS
     ) return;
     void fetchLiveUsersRest(tok);
-  }, [userLocation?.latitude, userLocation?.longitude, enabled, fetchLiveUsersRest]);
+  }, [userLocation?.latitude, userLocation?.longitude, liveUsersEnabled, fetchLiveUsersRest]);
 
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
-    if (!enabled) return;
+    if (!mapSessionActive) return;
     (async () => {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -470,14 +516,22 @@ export function useLiveMap(
       socket.on('connect', async () => {
         setConnected(true);
         hasUsersFromSocketRef.current = false;
-        joinLiveMapRoom();
+        if (liveUsersEnabledRef.current) {
+          joinLiveMapRoom();
+        }
         await fetchWarnings(token);
-        scheduleUsersRestFallback(token);
+        if (liveUsersEnabledRef.current) {
+          scheduleUsersRestFallback(token);
+        }
       });
 
       socket.on('disconnect', (reason) => {
         setConnected(false);
-        if (reason === 'io server disconnect' && (isSharingRef.current || isForegroundActive())) {
+        if (
+          reason === 'io server disconnect'
+          && mapSessionActiveRef.current
+          && (isSharingRef.current || isForegroundActive())
+        ) {
           socket.connect();
         }
       });
@@ -485,7 +539,7 @@ export function useLiveMap(
       socket.on('connect_error', (err) => console.log('❌ connect_error:', err.message));
 
       socket.on('user:location', (data: any) => {
-        if (!enabledRef.current) return;
+        if (!liveUsersEnabledRef.current) return;
         const id = Number(data?.id);
         const rawLat = Number(data?.lat);
         const rawLng = Number(data?.lng);
@@ -527,7 +581,7 @@ export function useLiveMap(
       });
 
       socket.on('live:users:snapshot', (data: any) => {
-        if (!enabledRef.current) return;
+        if (!liveUsersEnabledRef.current) return;
         const users: LiveUser[] = (Array.isArray(data) ? data : [])
           .map((u) => ({
             id: Number(u?.id),
@@ -553,6 +607,7 @@ export function useLiveMap(
       });
 
       socket.on('user:offline', (data) => {
+        if (!liveUsersEnabledRef.current) return;
         const id = Number(data?.id);
         if (!Number.isFinite(id)) return;
         // Manual OFF should disappear immediately; disconnects still use grace.
@@ -564,7 +619,7 @@ export function useLiveMap(
       });
 
       socket.on('warning:new', (warning: LiveWarning) => {
-        if (!enabledRef.current) return;
+        if (!mapSessionActiveRef.current) return;
         setWarnings(prev => [warning, ...(prev ?? [])]);
         checkSingleWarningProximityRef.current?.(warning);
       });
@@ -596,13 +651,13 @@ export function useLiveMap(
       clearUsersFallbackTimer();
       const s = socketRef.current;
       if (s) {
-        s.emit('live:leave');
+        if (s.connected) s.emit('live:leave');
         s.disconnect();
       }
     };
   }, [
     fetchInitialData,
-    enabled,
+    mapSessionActive,
     touchLiveUser,
     scheduleLiveUserOffline,
     removeLiveUser,
@@ -618,22 +673,24 @@ export function useLiveMap(
 
   // Pause socket when app is backgrounded without background permission
   useEffect(() => {
-    if (!enabled) return;
+    if (!mapSessionActive) return;
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       appStateRef.current = next;
       if ((next === 'background' || next === 'inactive') && !allowBgRef.current) {
         const s = socketRef.current;
-        s?.emit('live:leave');
+        if (s?.connected) s.emit('live:leave');
         s?.disconnect();
         setConnected(false);
-      } else if (next === 'active' && tokenRef.current && enabledRef.current) {
+      } else if (next === 'active' && tokenRef.current && mapSessionActiveRef.current) {
         const s = socketRef.current;
         if (s && !s.connected) {
           s.connect();
         } else if (s?.connected) {
-          joinLiveMapRoom();
+          if (liveUsersEnabledRef.current) joinLiveMapRoom();
           void fetchWarnings(tokenRef.current!);
-          scheduleUsersRestFallback(tokenRef.current!);
+          if (liveUsersEnabledRef.current) {
+            scheduleUsersRestFallback(tokenRef.current!);
+          }
         }
         if (isSharingRef.current) {
           const loc = userLocationRef.current;
@@ -660,7 +717,7 @@ export function useLiveMap(
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
-    if (!enabled) return;
+    if (!liveUsersEnabled) return;
     const interval = setInterval(async () => {
       if (!allowBgRef.current && !isForegroundActive()) return;
       const token = tokenRef.current;
@@ -674,14 +731,14 @@ export function useLiveMap(
       await fetchLiveUsersRest(token);
     }, USERS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [enabled, fetchLiveUsersRest]);
+  }, [liveUsersEnabled, fetchLiveUsersRest]);
 
   // Usuń tylko naprawdę przestarzałych (brak socket/API przez STALE_MS).
   useEffect(() => {
-    if (!enabled) return;
+    if (!liveUsersEnabled) return;
     const id = setInterval(pruneStaleLiveUsers, 30_000);
     return () => clearInterval(id);
-  }, [enabled, pruneStaleLiveUsers]);
+  }, [liveUsersEnabled, pruneStaleLiveUsers]);
 
   // ── Proximity alert ───────────────────────────────────
   const triggerProximityAlert = useCallback((warning: LiveWarning, distM: number) => {
@@ -813,14 +870,12 @@ export function useLiveMap(
       } else {
         setSharingStatus('off');
         Toast.show({ type: 'info', text1: '👁️ Lokalizacja ukryta', text2: 'Jesteś niewidoczny na mapie' });
-        socketRef.current?.emit('user:stop_sharing');
-        leaveLiveMapRoom();
-        pendingOfflineRef.current.forEach((t) => clearTimeout(t));
-        pendingOfflineRef.current.clear();
-        liveUserLastSeenRef.current.clear();
-        liveUserLastSeqRef.current.clear();
-        liveUserLastServerAtRef.current.clear();
-        store.clear();
+        const socket = socketRef.current;
+        if (socket?.connected) {
+          socket.emit('user:stop_sharing');
+          leaveLiveMapRoom();
+        }
+        clearLiveUsersFleetState();
       }
       return nextShare;
     } catch {
@@ -830,7 +885,7 @@ export function useLiveMap(
     } finally {
       toggleInFlightRef.current = false;
     }
-  }, [fetchInitialData, joinLiveMapRoom, leaveLiveMapRoom, store]);
+  }, [fetchInitialData, joinLiveMapRoom, leaveLiveMapRoom, clearLiveUsersFleetState]);
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (
@@ -959,7 +1014,7 @@ export function useLiveMap(
 
   /** Po powrocie z tła / starcie — socket, lista użytkowników, opcjonalnie share na serwerze. */
   const resumeLiveSession = useCallback(async () => {
-    if (!enabledRef.current) return;
+    if (!mapSessionActiveRef.current) return;
     let token = tokenRef.current;
     if (!token) {
       token = await AsyncStorage.getItem('token');
@@ -970,9 +1025,9 @@ export function useLiveMap(
     if (!socket?.connected) {
       socket?.connect();
     } else {
-      joinLiveMapRoom();
+      if (liveUsersEnabledRef.current) joinLiveMapRoom();
       await fetchWarnings(token);
-      scheduleUsersRestFallback(token);
+      if (liveUsersEnabledRef.current) scheduleUsersRestFallback(token);
     }
     if (!isSharingRef.current) return;
     const loc = userLocationRef.current;
@@ -995,7 +1050,7 @@ export function useLiveMap(
     } catch {
       /* ignore */
     }
-  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom]);
+  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, leaveLiveMapRoom]);
 
   const liveUsers = store.getLiveUsersArray();
 

@@ -323,6 +323,9 @@ const DEBUG_NETWORK = false;
 const SEND_INTERVAL_MS    = 15_000; // poll period (ms)
 const SEND_MIN_DIST_M     = 40;     // min movement before sending (saves bandwidth while stationary)
 const SEND_MAX_ELAPSED_MS = 60_000; // heartbeat: force-send after this long even without movement
+const FLEET_VISIBLE_CAP = 150;
+const FLEET_VISIBLE_CAP_STICKY = 170;
+const FLEET_EXIT_DISTANCE_BUFFER_KM = 3;
 const FORCE_MAP_MATCH_RECOVER_MIN_INTERVAL_MS = 45_000;
 const FORCE_MAP_MATCH_RECOVER_STREAK = 4;
 /** Min. odstęp forceMatch przy braku geometrii drogi (noRoad). */
@@ -5564,8 +5567,17 @@ function MapScreenInner() {
     userLocation,
     isSpeechEnabled,
     settings.backgroundTracking || isSharing,
-    liveMapEnabled && (isSharing || isMapFocused),
+    liveMapEnabled && isMapFocused,
+    isSharing && liveMapEnabled && isMapFocused,
   );
+
+  const mapSessionActive = liveMapEnabled && isMapFocused;
+  const liveUsersEnabled = isSharing && mapSessionActive;
+  const stickyFleetIdsRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    if (!liveUsersEnabled) stickyFleetIdsRef.current = [];
+  }, [liveUsersEnabled]);
 
   useEffect(() => {
     if (isMapFocused) {
@@ -15487,7 +15499,7 @@ function MapScreenInner() {
   }, [currentStep, isNavigating, effectiveNavRoute]);
 
   const nearbyUsers = useMemo(() => {
-    if (!isMapFocused) return [];
+    if (!liveUsersEnabled) return [];
     return liveUserIds
       .filter((id) => String(id) !== String(currentUserId))
       .map((id) => {
@@ -15507,7 +15519,7 @@ function MapScreenInner() {
         } as User;
       })
       .filter((u): u is User => u != null);
-  }, [liveUserIds, liveMapStore, currentUserId, isMapFocused]);
+  }, [liveUserIds, liveMapStore, currentUserId, liveUsersEnabled]);
 
   // Bez live — zero cudzych markerów (demo wyłączone).
   useDemoUsers(
@@ -15533,7 +15545,7 @@ function MapScreenInner() {
   }, [userLocation?.latitude, userLocation?.longitude]);
 
   const visibleLiveUserIds = useMemo(() => {
-    if (!isMapFocused || liveUserIds.length === 0) return [];
+    if (!liveUsersEnabled || liveUserIds.length === 0) return [];
     const candidates = liveUserIds.filter((id) => String(id) !== String(currentUserId));
     const scored = candidates
       .map((id) => {
@@ -15562,8 +15574,35 @@ function MapScreenInner() {
       return a.distKm - b.distKm;
     });
 
-    return scored.slice(0, 150).map((entry) => entry.id);
-  }, [liveUserIds, liveMapStore, currentUserId, isMapFocused, liveUsersAnchor]);
+    const core = scored.slice(0, FLEET_VISIBLE_CAP);
+    const coreIds = new Set(core.map((entry) => entry.id));
+    const cutoffDist = core.length >= FLEET_VISIBLE_CAP
+      ? core[FLEET_VISIBLE_CAP - 1].distKm
+      : Infinity;
+    const exitThreshold = cutoffDist + FLEET_EXIT_DISTANCE_BUFFER_KM;
+    const scoredById = new Map(scored.map((entry) => [entry.id, entry]));
+
+    for (const id of stickyFleetIdsRef.current) {
+      if (coreIds.has(id)) continue;
+      const entry = scoredById.get(id);
+      if (entry && entry.distKm <= exitThreshold) {
+        coreIds.add(id);
+      }
+    }
+
+    const result = Array.from(coreIds)
+      .map((id) => scoredById.get(id))
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+      .sort((a, b) => {
+        if (!!a.meta.isFriend !== !!b.meta.isFriend) return a.meta.isFriend ? -1 : 1;
+        return a.distKm - b.distKm;
+      })
+      .slice(0, FLEET_VISIBLE_CAP_STICKY)
+      .map((entry) => entry.id);
+
+    stickyFleetIdsRef.current = result;
+    return result;
+  }, [liveUserIds, liveMapStore, currentUserId, liveUsersEnabled, liveUsersAnchor]);
 
   const [fleetViewportBounds, setFleetViewportBounds] = useState(EMPTY_VIEWPORT);
   const lastFleetViewportAtRef = useRef(0);
@@ -15574,7 +15613,7 @@ function MapScreenInner() {
   } = useLiveFleetAnimator(
     liveMapStore,
     visibleLiveUserIds,
-    isMapFocused && liveMapEnabled,
+    liveUsersEnabled,
     liveUsersAnchor,
     fleetViewportBounds,
   );
@@ -15721,6 +15760,7 @@ function MapScreenInner() {
     }
     const next = await toggleSharing();
     setIsSharing(next);
+    if (!next) stickyFleetIdsRef.current = [];
     AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, next ? 'true' : 'false').catch(() => {});
     AsyncStorage.setItem(
       BG_IS_SHARING_KEY,
@@ -16929,7 +16969,7 @@ function MapScreenInner() {
           <LiveUsersFleetLayer
             animatedShapeProps={liveFleetAnimatedShapeProps}
             metaPinRequests={liveFleetMetaPinRequests}
-            visible={isMapFocused && visibleLiveUserIds.length > 0}
+            visible={liveUsersEnabled && visibleLiveUserIds.length > 0}
             onUserPress={handleLiveUserPress}
           />
 

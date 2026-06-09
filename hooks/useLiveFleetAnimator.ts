@@ -29,6 +29,8 @@ type FleetSlot = {
   lng: number;
   targetLat: number;
   targetLng: number;
+  lastGoodLat: number;
+  lastGoodLng: number;
   heading: number;
   speedMps: number;
   coastElapsedMs: number;
@@ -43,6 +45,25 @@ type FleetSlot = {
   distanceLabel: string;
   pinColor: string;
 };
+
+function isValidFleetCoordJs(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && Math.abs(lat) <= 90
+    && Math.abs(lng) <= 180
+  );
+}
+
+function isValidFleetCoord(lat: number, lng: number): boolean {
+  'worklet';
+  return (
+    Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && Math.abs(lat) <= 90
+    && Math.abs(lng) <= 180
+  );
+}
 
 export type LiveFleetFeature = {
   type: 'Feature';
@@ -136,16 +157,30 @@ function moveAlongBearing(lat: number, lng: number, heading: number, distM: numb
   return { lat: (lat2 * 180) / Math.PI, lng: (lng2 * 180) / Math.PI };
 }
 
+function resolveFleetDisplayCoord(s: FleetSlot): { lat: number; lng: number } | null {
+  'worklet';
+  if (isValidFleetCoord(s.lat, s.lng)) return { lat: s.lat, lng: s.lng };
+  if (isValidFleetCoord(s.lastGoodLat, s.lastGoodLng)) {
+    return { lat: s.lastGoodLat, lng: s.lastGoodLng };
+  }
+  if (isValidFleetCoord(s.targetLat, s.targetLng)) {
+    return { lat: s.targetLat, lng: s.targetLng };
+  }
+  return null;
+}
+
 function buildGeoJson(slots: FleetSlot[], bounds: ViewportBounds): LiveFleetGeoJson {
   'worklet';
   const features: LiveFleetFeature[] = [];
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
-    if (!isInViewport(s.lat, s.lng, bounds)) continue;
+    const display = resolveFleetDisplayCoord(s);
+    if (!display) continue;
+    if (!isInViewport(display.lat, display.lng, bounds)) continue;
     features.push({
       type: 'Feature',
       id: s.id,
-      geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+      geometry: { type: 'Point', coordinates: [display.lng, display.lat] },
       properties: {
         id: s.id,
         heading: s.heading,
@@ -251,12 +286,21 @@ function mergeSlotFromStore(
     ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
     : 0;
 
+  const initLat = isNew ? pos.lat : prev!.lat;
+  const initLng = isNew ? pos.lng : prev!.lng;
+  const prevGoodLat = prev?.lastGoodLat ?? initLat;
+  const prevGoodLng = prev?.lastGoodLng ?? initLng;
+  const lastGoodLat = isValidFleetCoordJs(initLat, initLng) ? initLat : prevGoodLat;
+  const lastGoodLng = isValidFleetCoordJs(initLat, initLng) ? initLng : prevGoodLng;
+
   return {
     id,
-    lat: isNew ? pos.lat : prev!.lat,
-    lng: isNew ? pos.lng : prev!.lng,
+    lat: initLat,
+    lng: initLng,
     targetLat: pos.lat,
     targetLng: pos.lng,
+    lastGoodLat: isValidFleetCoordJs(lastGoodLat, lastGoodLng) ? lastGoodLat : pos.lat,
+    lastGoodLng: isValidFleetCoordJs(lastGoodLat, lastGoodLng) ? lastGoodLng : pos.lng,
     heading,
     speedMps,
     coastElapsedMs: targetChanged ? 0 : (prev?.coastElapsedMs ?? 0),
@@ -420,12 +464,29 @@ export function useLiveFleetAnimator(
         }
       }
 
+      let lastGoodLat = s.lastGoodLat;
+      let lastGoodLng = s.lastGoodLng;
+      if (isValidFleetCoord(lat, lng)) {
+        lastGoodLat = lat;
+        lastGoodLng = lng;
+      } else if (isValidFleetCoord(s.lastGoodLat, s.lastGoodLng)) {
+        lat = s.lastGoodLat;
+        lng = s.lastGoodLng;
+      } else if (isValidFleetCoord(s.targetLat, s.targetLng)) {
+        lat = s.targetLat;
+        lng = s.targetLng;
+        lastGoodLat = s.targetLat;
+        lastGoodLng = s.targetLng;
+      }
+
       nextSlots.push({
         id: s.id,
         lat,
         lng,
         targetLat: s.targetLat,
         targetLng: s.targetLng,
+        lastGoodLat,
+        lastGoodLng,
         heading,
         speedMps: s.speedMps,
         coastElapsedMs,
