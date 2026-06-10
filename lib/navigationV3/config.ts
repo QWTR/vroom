@@ -11,9 +11,13 @@ export const NAV_V3 = {
   BRANCH_CONFIRM_TICKS: 3,
   BRANCH_HEADING_CONFIRM_TOLERANCE_DEG: 20,
   ON_ROAD_BLEND_EPS: 0.05,
-  /** ~30 FPS bridge throttle — native Mapbox interpolates between pushes. */
-  CAMERA_FOLLOW_INTERVAL_MS: 32,
-  CAMERA_NATIVE_ANIM_MS: 35,
+  /** Min. odstęp setCamera — musi być krótszy niż animacja, inaczej Mapbox przerywa interpolację. */
+  CAMERA_FOLLOW_INTERVAL_MS: 80,
+  /** Długa natywna interpolacja — jeden płynny ruch, bez „pompowania” zoomu. */
+  CAMERA_NATIVE_ANIM_MS: 420,
+  /** Zoom aktualizowany max co N ms (osobno od pozycji). */
+  CAMERA_ZOOM_UPDATE_MS: 700,
+  CAMERA_SPEED_DEADZONE_KMH: 6,
   CAMERA_MAX_HEADING_DPS: 95,
   GPS_IMPOSSIBLE_JUMP_M: 150,
   GPS_IMPOSSIBLE_JUMP_MAX_KMH: 300,

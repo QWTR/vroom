@@ -7,9 +7,13 @@ import {
 } from 'react-native-reanimated';
 import { NAV_V3 } from '../lib/navigationV3/config';
 import type { NavMode } from '../lib/navigationV3/types';
-import { getTripCameraPadding } from './useCameraAnimation';
+import {
+  cameraZoomSpeedKmh,
+  getTripCameraPadding,
+} from './useCameraAnimation';
 import type { DriveMarkerV3Values } from './useDriveMarkerV3';
 import {
+  headingDelta,
   lerpHeadingWithMaxStep,
   normalizeHeading,
 } from '../lib/driveCore/travelHeading';
@@ -19,7 +23,6 @@ export type UseCameraV3Options = {
   marker: DriveMarkerV3Values;
   enabled: boolean;
   mode: NavMode;
-  /** HUD speed (km/h) — aktualizowany przez pipeline; fallback gdy brak ruchu. */
   speedKmhRef?: React.MutableRefObject<number>;
   isUserExploring?: () => boolean;
 };
@@ -30,9 +33,16 @@ const DRIVE_PITCH = 58;
 const NAV_PITCH = 62;
 const RETURN_FROM_EXPLORE_MS = 3000;
 const USER_ZOOM_OVERRIDE_EPS = 0.04;
+
 const FOLLOW_ANIM_MS = NAV_V3.CAMERA_NATIVE_ANIM_MS;
-const POS_EMA_ALPHA = 0.38;
-const HDG_EMA_ALPHA = 0.28;
+const FOLLOW_INTERVAL_MS = NAV_V3.CAMERA_FOLLOW_INTERVAL_MS;
+const ZOOM_UPDATE_MS = NAV_V3.CAMERA_ZOOM_UPDATE_MS;
+const SPEED_DEADZONE_KMH = NAV_V3.CAMERA_SPEED_DEADZONE_KMH;
+
+/** Wolniejsze wygładzenie pozycji — mniej mikro-jitteru z workletu. */
+const POS_EMA_ALPHA = 0.16;
+const MIN_CENTER_MOVE_M = 0.12;
+const MIN_HEADING_DEG = 0.22;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -54,32 +64,6 @@ function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): num
   return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
 }
 
-/**
- * Przesuwa punkt wzdłuż kierunku jazdy (bearing: 0° = północ, 90° = wschód).
- * Dodatni offset = do przodu względem markera → kamera siedzi za autem.
- */
-function offsetCenter(
-  lat: number,
-  lng: number,
-  headingDeg: number,
-  offsetMeters: number,
-): { latitude: number; longitude: number } {
-  if (!Number.isFinite(offsetMeters) || offsetMeters <= 0) {
-    return { latitude: lat, longitude: lng };
-  }
-  const hdg = normalizeHeading(headingDeg);
-  const R = 6371000;
-  const headingRad = (hdg * Math.PI) / 180;
-  const dLat = (offsetMeters * Math.cos(headingRad)) / R;
-  const dLng =
-    (offsetMeters * Math.sin(headingRad))
-    / (R * Math.cos((lat * Math.PI) / 180));
-  return {
-    latitude: lat + (dLat * 180) / Math.PI,
-    longitude: lng + (dLng * 180) / Math.PI,
-  };
-}
-
 function zoomFromSpeed(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
   if (s <= 12) return 19.05;
@@ -91,30 +75,41 @@ function zoomFromSpeed(speedKmh: number): number {
   return lerpNum(16.05, 15.55, Math.min(1, (s - 160) / 45));
 }
 
-function lookaheadFromSpeed(speedKmh: number, isNavigating: boolean): number {
-  const s = Math.max(0, speedKmh);
-  let m = 0;
-  if (s < 18) m = 0;
-  else if (s <= 40) m = lerpNum(0, 10, (s - 18) / 22);
-  else if (s <= 80) m = lerpNum(10, 18, (s - 40) / 40);
-  else m = lerpNum(18, 24, Math.min(1, (s - 80) / 50));
-  if (isNavigating && s >= 18) {
-    m = m * 1.06 + 3;
-  }
-  return m;
+function smoothZoomTarget(prev: number | null, next: number, speedKmh: number): number {
+  if (prev == null || !Number.isFinite(prev)) return next;
+  const maxStep = speedKmh >= 90 ? 0.022 : speedKmh >= 45 ? 0.018 : 0.012;
+  const d = next - prev;
+  if (Math.abs(d) <= maxStep) return next;
+  return prev + Math.sign(d) * maxStep;
+}
+
+function applySpeedHysteresis(nextKmh: number, prevKmh: number): number {
+  const next = Math.max(0, nextKmh);
+  const prev = Math.max(0, prevKmh);
+  if (prev <= 0.5) return next;
+  if (Math.abs(next - prev) < SPEED_DEADZONE_KMH) return prev;
+  return prev * 0.92 + next * 0.08;
 }
 
 function maxHeadingRateDegPerSec(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
-  if (s < 2.5) return 22;
-  if (s < 10) return 48;
-  if (s < 35) return 72;
-  if (s < 70) return 95;
+  if (s < 2.5) return 18;
+  if (s < 10) return 36;
+  if (s < 35) return 52;
+  if (s < 70) return 68;
   return NAV_V3.CAMERA_MAX_HEADING_DPS;
 }
 
+type SentPose = {
+  lat: number;
+  lng: number;
+  heading: number;
+  zoom: number;
+  atMs: number;
+};
+
 /**
- * V3 camera — obserwator markera @ ~30 FPS + natywna interpolacja Mapbox.
+ * V3 camera — stabilny follow: długa natywna animacja, zoom rzadko i płynnie.
  */
 export function useCameraV3(opts: UseCameraV3Options) {
   const {
@@ -132,14 +127,16 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const displayHeadingRef = useRef(0);
   const smoothedLatRef = useRef<number | null>(null);
   const smoothedLngRef = useRef<number | null>(null);
-  const smoothedZoomRef = useRef<number | null>(null);
-  const smoothedLookaheadRef = useRef(0);
   const smoothedSpeedRef = useRef(0);
-  const lastCenterRef = useRef<{ lat: number; lng: number } | null>(null);
+  const smoothedZoomRef = useRef<number | null>(null);
+  const lastSentRef = useRef<SentPose | null>(null);
+  const lastNativeApplyRef = useRef(0);
+  const lastZoomTickRef = useRef(0);
   const lastFrameAtRef = useRef(0);
   const userExploreUntilRef = useRef(0);
   const userZoomOverrideRef = useRef<number | null>(null);
   const userPanningRef = useRef(false);
+  const cachedPaddingRef = useRef<ReturnType<typeof getTripCameraPadding> | null>(null);
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
@@ -149,14 +146,16 @@ export function useCameraV3(opts: UseCameraV3Options) {
     displayHeadingRef.current = 0;
     smoothedLatRef.current = null;
     smoothedLngRef.current = null;
-    smoothedZoomRef.current = null;
-    smoothedLookaheadRef.current = 0;
     smoothedSpeedRef.current = 0;
-    lastCenterRef.current = null;
+    smoothedZoomRef.current = null;
+    lastSentRef.current = null;
+    lastNativeApplyRef.current = 0;
+    lastZoomTickRef.current = 0;
     lastFrameAtRef.current = 0;
     userExploreUntilRef.current = 0;
     userZoomOverrideRef.current = null;
     userPanningRef.current = false;
+    cachedPaddingRef.current = null;
   }, [followEnabledSv]);
 
   useEffect(() => {
@@ -168,11 +167,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const setUserExploring = useCallback((exploring: boolean, resumeMs = RETURN_FROM_EXPLORE_MS) => {
     userPanningRef.current = exploring;
-    if (exploring) {
-      userExploreUntilRef.current = Date.now() + resumeMs;
-    } else {
-      userExploreUntilRef.current = 0;
-    }
+    userExploreUntilRef.current = exploring ? Date.now() + resumeMs : 0;
   }, []);
 
   const isPaused = useCallback((): boolean => {
@@ -193,8 +188,8 @@ export function useCameraV3(opts: UseCameraV3Options) {
     if (isPaused()) return;
 
     const now = Date.now();
-    const prevAt = lastFrameAtRef.current > 0 ? lastFrameAtRef.current : now - 32;
-    const dtSec = clampNum((now - prevAt) / 1000, 0.012, 0.12);
+    const prevAt = lastFrameAtRef.current > 0 ? lastFrameAtRef.current : now - FOLLOW_INTERVAL_MS;
+    const dtSec = clampNum((now - prevAt) / 1000, 0.016, 0.14);
     lastFrameAtRef.current = now;
 
     const prevLat = smoothedLatRef.current;
@@ -204,69 +199,93 @@ export function useCameraV3(opts: UseCameraV3Options) {
     smoothedLatRef.current = smoothLat;
     smoothedLngRef.current = smoothLng;
 
-    const prevCenter = lastCenterRef.current;
-    const frameMoveM = prevCenter
-      ? haversineM(prevCenter.lat, prevCenter.lng, smoothLat, smoothLng)
-      : 0;
-    lastCenterRef.current = { lat: smoothLat, lng: smoothLng };
-
-    const impliedKmh = frameMoveM > 0.05
-      ? Math.min(220, (frameMoveM / dtSec) * 3.6)
-      : 0;
-    const refKmh = speedKmhRef?.current ?? 0;
-    let speedKmh = Math.max(refKmh, impliedKmh);
-    if (speedKmh < 3 && frameMoveM < 1.2) {
-      speedKmh = 0;
-    }
-    smoothedSpeedRef.current = smoothedSpeedRef.current <= 0.5
-      ? speedKmh
-      : smoothedSpeedRef.current * 0.88 + speedKmh * 0.12;
+    const hudKmh = Math.max(0, speedKmhRef?.current ?? 0);
+    smoothedSpeedRef.current = applySpeedHysteresis(hudKmh, smoothedSpeedRef.current);
 
     const markerHdg = normalizeHeading(markerHeading);
     const maxHdgStep = maxHeadingRateDegPerSec(smoothedSpeedRef.current) * dtSec;
-    const followHdg = displayHeadingRef.current <= 0.01
+    displayHeadingRef.current = displayHeadingRef.current <= 0.01
       ? markerHdg
       : lerpHeadingWithMaxStep(displayHeadingRef.current, markerHdg, maxHdgStep);
-    displayHeadingRef.current = lerpHeadingWithMaxStep(
-      followHdg,
-      markerHdg,
-      Math.max(1.5, 360 * dtSec * 3 * HDG_EMA_ALPHA),
-    );
 
-    const targetLookahead = lookaheadFromSpeed(smoothedSpeedRef.current, isNavigating);
-    smoothedLookaheadRef.current = smoothedLookaheadRef.current <= 0.5
-      ? targetLookahead
-      : smoothedLookaheadRef.current * 0.9 + targetLookahead * 0.1;
+    const sinceLastApply = lastNativeApplyRef.current > 0
+      ? now - lastNativeApplyRef.current
+      : FOLLOW_ANIM_MS;
+    const prevSent = lastSentRef.current;
 
-    // Segment-sync: marker = center geograficzny; framing tylko przez padding (jak V2).
-    // Lekki lookahead tylko przy wyższych prędkościach — bez podwójnego przesunięcia.
-    const useLookahead = smoothedLookaheadRef.current > 2 && smoothedSpeedRef.current >= 18;
-    const center = useLookahead
-      ? offsetCenter(smoothLat, smoothLng, displayHeadingRef.current, smoothedLookaheadRef.current)
-      : { latitude: smoothLat, longitude: smoothLng };
+    let centerDeltaM = 999;
+    let headingDeltaDeg = 999;
+    if (prevSent) {
+      centerDeltaM = haversineM(prevSent.lat, prevSent.lng, smoothLat, smoothLng);
+      headingDeltaDeg = Math.abs(headingDelta(prevSent.heading, displayHeadingRef.current));
+    }
 
-    const rawZoom = zoomFromSpeed(smoothedSpeedRef.current);
-    const prevZoom = smoothedZoomRef.current;
-    const zoom = prevZoom == null
-      ? rawZoom
-      : prevZoom + Math.sign(rawZoom - prevZoom) * Math.min(Math.abs(rawZoom - prevZoom), 0.06);
-    smoothedZoomRef.current = zoom;
+    if (
+      prevSent
+      && sinceLastApply < FOLLOW_INTERVAL_MS
+      && centerDeltaM < MIN_CENTER_MOVE_M
+      && headingDeltaDeg < MIN_HEADING_DEG
+    ) {
+      return;
+    }
 
-    const padding = getTripCameraPadding(isNavigating);
+    if (
+      prevSent
+      && sinceLastApply < FOLLOW_ANIM_MS * 0.75
+      && centerDeltaM < 0.5
+      && headingDeltaDeg < 1.5
+    ) {
+      return;
+    }
+
+    const zoomSpeed = cameraZoomSpeedKmh({
+      speedKmh: smoothedSpeedRef.current,
+      hudSpeedKmh: hudKmh,
+      frameMoveM: centerDeltaM,
+    });
+    const rawZoom = zoomFromSpeed(zoomSpeed) - 0.3;
+
+    let zoom = smoothedZoomRef.current;
+    if (zoom == null || now - lastZoomTickRef.current >= ZOOM_UPDATE_MS) {
+      zoom = smoothZoomTarget(smoothedZoomRef.current, rawZoom, smoothedSpeedRef.current);
+      smoothedZoomRef.current = zoom;
+      lastZoomTickRef.current = now;
+    }
+
+    const effectiveZoom = userZoomOverrideRef.current ?? zoom;
+    const zoomChanged = !prevSent || Math.abs(prevSent.zoom - effectiveZoom) >= 0.025;
+    const significant =
+      !prevSent
+      || centerDeltaM >= MIN_CENTER_MOVE_M
+      || headingDeltaDeg >= MIN_HEADING_DEG
+      || zoomChanged;
+
+    if (!significant) return;
+
+    if (!cachedPaddingRef.current) {
+      cachedPaddingRef.current = getTripCameraPadding(isNavigating);
+    }
+    const padding = cachedPaddingRef.current;
     const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
-    const effectiveZoom = userZoomOverrideRef.current != null
-      ? userZoomOverrideRef.current
-      : zoom;
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
-      centerCoordinate: [center.longitude, center.latitude],
+      centerCoordinate: [smoothLng, smoothLat],
       heading: displayHeadingRef.current,
       zoomLevel: effectiveZoom,
       pitch,
       padding,
       animationDuration: FOLLOW_ANIM_MS,
-      animationMode: 'linear',
+      animationMode: 'linearTo',
     });
+
+    lastNativeApplyRef.current = now;
+    lastSentRef.current = {
+      lat: smoothLat,
+      lng: smoothLng,
+      heading: displayHeadingRef.current,
+      zoom: effectiveZoom,
+      atMs: now,
+    };
   }, [
     cameraRef,
     enabled,
@@ -298,12 +317,12 @@ export function useCameraV3(opts: UseCameraV3Options) {
         prev
         && Math.abs(next.lat - prev.lat) < 1e-9
         && Math.abs(next.lng - prev.lng) < 1e-9
-        && Math.abs(next.hdg - prev.hdg) < 0.04
+        && Math.abs(next.hdg - prev.hdg) < 0.12
       ) {
         return;
       }
       const now = Date.now();
-      if (lastPushMs.value > 0 && now - lastPushMs.value < NAV_V3.CAMERA_FOLLOW_INTERVAL_MS) {
+      if (lastPushMs.value > 0 && now - lastPushMs.value < FOLLOW_INTERVAL_MS) {
         return;
       }
       lastPushMs.value = now;
@@ -322,33 +341,37 @@ export function useCameraV3(opts: UseCameraV3Options) {
     displayHeadingRef.current = hdg;
     smoothedLatRef.current = center.latitude;
     smoothedLngRef.current = center.longitude;
-    lastCenterRef.current = { lat: center.latitude, lng: center.longitude };
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
 
     const speedKmh = opts?.speedKmh ?? speedKmhRef?.current ?? 0;
     smoothedSpeedRef.current = speedKmh;
-    const lookahead = lookaheadFromSpeed(speedKmh, isNavigating);
-    smoothedLookaheadRef.current = lookahead;
-    const zoom = zoomFromSpeed(speedKmh);
+    const zoom = zoomFromSpeed(speedKmh) - 0.3;
     smoothedZoomRef.current = zoom;
+    lastZoomTickRef.current = Date.now();
+    cachedPaddingRef.current = getTripCameraPadding(isNavigating);
 
-    const target = lookahead > 2
-      ? offsetCenter(center.latitude, center.longitude, hdg, lookahead)
-      : center;
-    const padding = getTripCameraPadding(isNavigating);
-    const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
     const animate = opts?.animate !== false;
+    const duration = animate ? 480 : FOLLOW_ANIM_MS;
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
-      centerCoordinate: [target.longitude, target.latitude],
+      centerCoordinate: [center.longitude, center.latitude],
       heading: hdg,
       zoomLevel: zoom,
-      pitch,
-      padding,
-      animationDuration: animate ? 480 : FOLLOW_ANIM_MS,
-      animationMode: animate ? 'easeTo' : 'linear',
+      pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
+      padding: cachedPaddingRef.current,
+      animationDuration: duration,
+      animationMode: animate ? 'easeTo' : 'linearTo',
     });
+
+    lastNativeApplyRef.current = Date.now();
+    lastSentRef.current = {
+      lat: center.latitude,
+      lng: center.longitude,
+      heading: hdg,
+      zoom,
+      atMs: Date.now(),
+    };
   }, [cameraRef, isNavigating, speedKmhRef]);
 
   const resetBrowseCamera = useCallback((
