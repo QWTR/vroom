@@ -2221,6 +2221,9 @@ function MapScreenInner() {
   const jumpAnomalyCarrySpeedMsRef = useRef<number | null>(null);
   const jumpRecoveryCandidateRef = useRef<{ lat: number; lng: number; hits: number; firstAt: number } | null>(null);
   const lastSpeedEmitRef = useRef<{ kmh: number; at: number } | null>(null);
+  /** Stable refs so navV3.onTarget can call trip-stats feeders declared later in the hook order. */
+  const feedPositionRef = useRef<(lat: number, lng: number, speedMs?: number) => number>(() => 0);
+  const feedSpeedRef = useRef<(speedMs: number | null) => void>(() => {});
   const roadMatchSigRef       = useRef('');
   const drivingSnapGeometryRef = useRef<{ latitude: number; longitude: number }[]>([]);
   const markerStaleSnapTicksRef = useRef(0);
@@ -2938,6 +2941,22 @@ function MapScreenInner() {
       lastSetLocRef.current = { lat: out.target.lat, lng: out.target.lng };
       lastAcceptedFixWallClockRef.current = Date.now();
 
+      // V3 SSOT → trip distance / speed / route trace (snapped coords, not raw GPS).
+      if (!out.rejected && appStateRef.current === 'active') {
+        const speedMs = out.hudSpeedKmh > 0 ? out.hudSpeedKmh / 3.6 : undefined;
+        feedSpeedRef.current(speedMs ?? null);
+        const segKm = feedPositionRef.current(
+          out.target.lat,
+          out.target.lng,
+          speedMs,
+        );
+        if (segKm > 0) {
+          recordDrivingTracePoint(out.target.lat, out.target.lng, {
+            speedKmh: out.hudSpeedKmh,
+          }).catch(() => {});
+        }
+      }
+
       if (isDrivingRef.current && !isNavigatingRef.current && endLocationRef.current) {
         const now = Date.now();
         const prev = lastPreviewOriginCoordRef.current;
@@ -3448,6 +3467,8 @@ function MapScreenInner() {
     startTrip, feedSpeed, feedPosition,
     finishTrip, clearStats, stats: tripStats, liveDistanceKm,
   } = useTripStats();
+  feedPositionRef.current = feedPosition;
+  feedSpeedRef.current = feedSpeed;
 
   const publishSpeed = useCallback((
     gpsSpeedMs: number | null,
