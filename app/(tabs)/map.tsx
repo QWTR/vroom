@@ -172,8 +172,13 @@ import {
   createTurnConfirmState,
   resetTurnConfirmState,
 } from '../../lib/driveCore/turnConfirmBuffer';
-import { resolveNavRouteStartAnchor } from '../../lib/driveCore/navRouteBootstrap';
+import {
+  resolveNavRouteStartAnchor,
+  routeHeadingAtPoint,
+  trimRoutePointsFromVehicle,
+} from '../../lib/driveCore/navRouteBootstrap';
 import type { NavRouteStartAnchor } from '../../lib/driveCore/navRouteBootstrap';
+import { getLiveTripPose } from '../../lib/mapScreen/liveTripPose';
 import { validateGeometryAgainstRaw } from '../../hooks/useDrivingSnap';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
 import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
@@ -2794,6 +2799,10 @@ function MapScreenInner() {
   const [cameraDetailVisible,  setCameraDetailVisible]  = useState(false);
   const { snapCameras } = useSnapCameras();
   const [snappedCameras, setSnappedCameras] = useState<any[]>([]);
+  const lastPreviewOriginBumpRef = useRef(0);
+  const lastPreviewOriginCoordRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [livePreviewOriginTick, setLivePreviewOriginTick] = useState(0);
+  const endLocationRef = useRef<LocationState | null>(null);
   const [stableStartLocation, setStableStartLocation] = useState<LocationState | null>(null);
 
   // ── State – fuel stations ─────────────────────────────────
@@ -2903,8 +2912,22 @@ function MapScreenInner() {
       drLatRef.current = out.target.lat;
       drLngRef.current = out.target.lng;
       drHdgRef.current = out.target.headingDeg;
+      drLastFrameAtRef.current = Date.now();
       lastSetLocRef.current = { lat: out.target.lat, lng: out.target.lng };
       lastAcceptedFixWallClockRef.current = Date.now();
+
+      if (isDrivingRef.current && !isNavigatingRef.current && endLocationRef.current) {
+        const now = Date.now();
+        const prev = lastPreviewOriginCoordRef.current;
+        const movedM = prev
+          ? haversineKm(prev.lat, prev.lng, out.target.lat, out.target.lng) * 1000
+          : 999;
+        if (movedM >= 80 || now - lastPreviewOriginBumpRef.current >= 5000) {
+          lastPreviewOriginBumpRef.current = now;
+          lastPreviewOriginCoordRef.current = { lat: out.target.lat, lng: out.target.lng };
+          setLivePreviewOriginTick((t) => t + 1);
+        }
+      }
     },
   });
 
@@ -3103,24 +3126,35 @@ function MapScreenInner() {
   }, [runMapMatchRecovery, mapMatchCoord]);
 
   const resolveDrivingAnchor = useCallback((): { latitude: number; longitude: number } | null => {
-    if (
-      drLatRef.current !== 0
-      && drLngRef.current !== 0
-      && Date.now() - drLastFrameAtRef.current <= DR_STALE_MS
-    ) {
-      return { latitude: drLatRef.current, longitude: drLngRef.current };
-    }
-    if (lastSetLocRef.current) {
-      return { latitude: lastSetLocRef.current.lat, longitude: lastSetLocRef.current.lng };
-    }
-    if (lastGoodLocRef.current) {
-      return { latitude: lastGoodLocRef.current.lat, longitude: lastGoodLocRef.current.lng };
+    const tripActive = isDrivingRef.current || isNavigatingRef.current;
+    const live = getLiveTripPose({
+      drLat: drLatRef.current,
+      drLng: drLngRef.current,
+      drHdg: drHdgRef.current,
+      tripActive,
+      lastSetLoc: lastSetLocRef.current,
+      lastGoodLoc: lastGoodLocRef.current,
+    });
+    if (live) {
+      return { latitude: live.latitude, longitude: live.longitude };
     }
     const u = currentLocRef.current;
     if (u && Number.isFinite(u.latitude) && Number.isFinite(u.longitude)) {
       return { latitude: u.latitude, longitude: u.longitude };
     }
     return null;
+  }, []);
+
+  /** SSOT live pose for routing preview + nav bootstrap (drLatRef during trip). */
+  const readLiveTripPose = useCallback((): ReturnType<typeof getLiveTripPose> => {
+    return getLiveTripPose({
+      drLat: drLatRef.current,
+      drLng: drLngRef.current,
+      drHdg: drHdgRef.current,
+      tripActive: isDrivingRef.current || isNavigatingRef.current,
+      lastSetLoc: lastSetLocRef.current,
+      lastGoodLoc: lastGoodLocRef.current,
+    });
   }, []);
 
   /** Wywoływane gdy nowy odcinek drogi (matched geometry) pojawia się w trakcie
@@ -4475,6 +4509,10 @@ function MapScreenInner() {
   const { showNavigationNotification, dismissNavigationNotification } = useNavigationNotification();
 
   useEffect(() => {
+    endLocationRef.current = endLocation;
+  }, [endLocation]);
+
+  useEffect(() => {
     if (endLocation && !isNavigating) {
       // Ustaw raz gdy pojawia się cel, nie aktualizuj co GPS update
       setStableStartLocation(prev => prev ?? startLocation);
@@ -4486,10 +4524,27 @@ function MapScreenInner() {
   /** Podgląd trasy: tylko isNavigating blokuje Directions (nie isDriving — inaczej brak trasy w trybie jazdy). */
   const routePreviewOrigin = useMemo((): LocationState | null => {
     if (isNavigating || isOffroadRoute) return null;
+
+    const tripActive = isDriving || isNavigating;
+    if (tripActive) {
+      const live = getLiveTripPose({
+        drLat: drLatRef.current,
+        drLng: drLngRef.current,
+        drHdg: drHdgRef.current,
+        tripActive: true,
+        lastSetLoc: lastSetLocRef.current,
+        lastGoodLoc: lastGoodLocRef.current,
+      });
+      if (live) {
+        return { latitude: live.latitude, longitude: live.longitude, name: 'Moja pozycja' };
+      }
+    }
+
     if (
       startLocation
       && Number.isFinite(startLocation.latitude)
       && Number.isFinite(startLocation.longitude)
+      && !tripActive
     ) {
       return startLocation;
     }
@@ -4497,7 +4552,7 @@ function MapScreenInner() {
       return { ...userLocation, name: 'Moja pozycja' };
     }
     return null;
-  }, [isNavigating, isOffroadRoute, startLocation, userLocation]);
+  }, [isNavigating, isOffroadRoute, isDriving, startLocation, userLocation, livePreviewOriginTick]);
 
   const routePreviewDestination = useMemo((): LocationState | null => {
     if (isNavigating || isOffroadRoute) return null;
@@ -12322,7 +12377,12 @@ if (pts.length >= 2) {
 
   // ── beginNavigation ───────────────────────────────────────
   const beginNavigation = useCallback(() => {
-    if (!userLocation) return;
+    const livePose = readLiveTripPose();
+    const fallbackLoc = userLocation
+      ? { latitude: userLocation.latitude, longitude: userLocation.longitude, headingDeg: lastHeadingRef.current || 0 }
+      : null;
+    const pose = livePose ?? fallbackLoc;
+    if (!pose) return;
 
     // Nie wołaj pełnego exitDrivingMode (finishTrip + reset silnika) — to kasowało trip
     // i mogło crashować przy przejściu jazda → nawigacja.
@@ -12353,53 +12413,56 @@ if (pts.length >= 2) {
     lastSpokenRef.current        = '';
     announcedPhasesRef.current   = new Set();
 
-    const navStart = { ...userLocation, name: 'Moja pozycja' };
+    const navStart = { latitude: pose.latitude, longitude: pose.longitude, name: 'Moja pozycja' };
     const seededRoute = previewRouteRef.current ?? navRouteRef.current;
-    if (seededRoute?.points?.length) {
-      setNavRouteOverride(seededRoute);
-      routePointsRef.current = seededRoute.points;
+    let routePts = seededRoute?.points?.length ? seededRoute.points.slice() : [];
+
+    if (routePts.length >= 2) {
+      routePts = trimRoutePointsFromVehicle(
+        routePts,
+        navStart.latitude,
+        navStart.longitude,
+        NAV_ROUTE_SNAP_M,
+      );
+      routePointsRef.current = routePts;
+      if (seededRoute) {
+        setNavRouteOverride({ ...seededRoute, points: routePts });
+      }
     } else {
       setNavRouteOverride(null);
+      routePointsRef.current = [];
     }
 
     // ── Offroad: ustaw punkty z załadowanej trasy ─────────
     if (isOffroadRef.current) {
       const pts = offroadLoadedPointsRef.current.length > 1
         ? offroadLoadedPointsRef.current
-        : (seededRoute?.points ?? activeRoute?.points ?? []);
+        : (routePts.length >= 2 ? routePts : (seededRoute?.points ?? activeRoute?.points ?? []));
       offroadPointsRef.current = pts;
-      routePointsRef.current   = pts;
+      routePointsRef.current   = pts.length >= 2
+        ? trimRoutePointsFromVehicle(pts, navStart.latitude, navStart.longitude, NAV_ROUTE_SNAP_M)
+        : pts;
     }
 
     let bootLat = navStart.latitude;
     let bootLng = navStart.longitude;
-    const routeAnchor = routePointsRef.current.length >= 2
-      ? resolveNavRouteStartAnchor(routePointsRef.current)
-      : null;
-    let bootHdg = lastHeadingRef.current || 0;
-    if (routeAnchor) {
-      bootLat = routeAnchor.lat;
-      bootLng = routeAnchor.lng;
-      bootHdg = alignBearingToReference(
-        routeAnchor.headingDeg,
-        lastGpsDeviceHeadingRef.current ?? bootHdg,
-      );
-    } else if (routePointsRef.current.length > 1) {
+    let bootHdg = pose.headingDeg ?? lastHeadingRef.current ?? drHdgRef.current ?? 0;
+
+    if (routePointsRef.current.length >= 2) {
       const bootSnapped = snapToRoute(bootLat, bootLng, routePointsRef.current, NAV_ROUTE_SNAP_M);
       bootLat = bootSnapped.latitude;
       bootLng = bootSnapped.longitude;
-      if (Number.isFinite(bootSnapped.targetHeading)) {
-        bootHdg = alignBearingToReference(
-          bootSnapped.targetHeading,
-          lastGpsDeviceHeadingRef.current ?? bootHdg,
-        );
-      }
+      bootHdg = alignBearingToReference(
+        routeHeadingAtPoint(routePointsRef.current, bootLat, bootLng, bootHdg),
+        lastGpsDeviceHeadingRef.current ?? bootHdg,
+      );
     }
+
     lastSetLocRef.current = { lat: bootLat, lng: bootLng };
     lastGoodLocRef.current = { lat: bootLat, lng: bootLng };
 
     setIsNavigating(true);
-    navRouteBootstrapRef.current = routeAnchor;
+    navRouteBootstrapRef.current = null;
     resetTravelHeadingState(bootLat, bootLng, bootHdg);
     getTripHeadingFilter().reset(bootHdg);
     tripMarkerV2BootstrappedRef.current = true;
@@ -12443,32 +12506,37 @@ if (pts.length >= 2) {
       bootLng: Number(bootLng.toFixed(6)),
       bootHdg: Math.round(bootHdg),
       offroad: isOffroadRef.current,
-      routeBootstrap: routeAnchor != null,
+      routeBootstrap: false,
+      livePose: true,
     });
 
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
   }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, setFollowMode,
-      recenterTo, activeRoute, startGPS, navV3, driveMarker]);
+      activeRoute, startGPS, navV3, driveMarker, readLiveTripPose, tripBootstrapPose]);
 
   // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
     if (!endLocation) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wybierz cel podróży' }); return;
     }
-    if (!userLocation) {
+    const livePose = readLiveTripPose();
+    const navUserLoc = livePose
+      ? { latitude: livePose.latitude, longitude: livePose.longitude }
+      : userLocation;
+    if (!navUserLoc) {
       Toast.show({ type: 'error', text1: 'BŁĄD GPS', text2: 'Czekam na lokalizację...' }); return;
     }
     if (!startLocation) {
-      setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+      setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
       startIsMyLocationRef.current = true;
       setTimeout(() => beginNavigation(), 100);
       return;
     }
     const distToStart = haversineKm(
-      userLocation.latitude, userLocation.longitude,
+      navUserLoc.latitude, navUserLoc.longitude,
       startLocation.latitude, startLocation.longitude,
     ) * 1000;
-    if (distToStart > 100) {
+    if (distToStart > 100 && !(isDrivingRef.current || isNavigatingRef.current)) {
       Alert.alert(
         'Daleko od startu',
         `Jesteś ${Math.round(distToStart)}m od punktu startowego.`,
@@ -12477,11 +12545,11 @@ if (pts.length >= 2) {
           { text: 'Nawiguj do startu', onPress: () => {
             approachingRouteStartRef.current = true;
             setEndLocation(startLocation);
-            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
           }},
           { text: 'Startuj z mojej pozycji', onPress: () => {
             approachingRouteStartRef.current = false;
-            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
             startIsMyLocationRef.current = true;
             beginNavigation();
           }},
@@ -12490,7 +12558,7 @@ if (pts.length >= 2) {
       return;
     }
     beginNavigation();
-  }, [startLocation, endLocation, userLocation, beginNavigation]);
+  }, [startLocation, endLocation, userLocation, beginNavigation, readLiveTripPose]);
 
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async () => {
