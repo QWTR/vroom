@@ -16,16 +16,16 @@ describe('computeRoadBlend', () => {
 
   it('returns 1 at or below attach threshold', () => {
     expect(computeRoadBlend(0, cfg)).toBe(1);
-    expect(computeRoadBlend(12, cfg)).toBe(1);
+    expect(computeRoadBlend(40, cfg)).toBe(1);
   });
 
   it('returns 0 at or above detach full', () => {
-    expect(computeRoadBlend(45, cfg)).toBe(0);
     expect(computeRoadBlend(100, cfg)).toBe(0);
+    expect(computeRoadBlend(150, cfg)).toBe(0);
   });
 
   it('smoothly decreases between detach start and full', () => {
-    const mid = computeRoadBlend(31.5, cfg);
+    const mid = computeRoadBlend(80, cfg);
     expect(mid).toBeGreaterThan(0.2);
     expect(mid).toBeLessThan(0.8);
   });

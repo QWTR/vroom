@@ -9,6 +9,7 @@ import type { ArcWindowSlice, NavigationTarget, PathMode } from '../lib/navigati
 
 const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
 const MAX_HEADING_RATE_DPS = NAV_V3.MARKER_MAX_HEADING_DPS;
+const MARKER_HEADING_EMA = NAV_V3.MARKER_HEADING_EMA;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
 const POLYLINE_KEY_HARD_SNAP_M = 45;
 
@@ -216,14 +217,14 @@ function pointAtWindowArcLocal(
   }
   const total = cumM[n - 1];
   const clamped = Math.max(0, Math.min(total, localM));
-  let seg = 0;
-  for (let i = 0; i < n - 1; i += 1) {
-    if (clamped <= cumM[i + 1]) {
-      seg = i;
-      break;
-    }
-    seg = i;
+  let lo = 0;
+  let hi = n - 2;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if (cumM[mid + 1] <= clamped) lo = mid;
+    else hi = mid - 1;
   }
+  const seg = lo;
   const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
   const t = (clamped - cumM[seg]) / segLen;
   const aLat = ptsFlat[seg * 2];
@@ -399,7 +400,10 @@ export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
 
     lat.value = nextLat;
     lng.value = nextLng;
-    heading.value = lerpHeadingCappedWorklet(heading.value, segmentHdg, maxHdgStep);
+    const hdgStep = maxHdgStep * (1 - MARKER_HEADING_EMA * 0.55);
+    const emaStep = Math.max(1.2, MAX_HEADING_RATE_DPS * dt * MARKER_HEADING_EMA * 2.5);
+    const blendedHdg = lerpHeadingCappedWorklet(heading.value, segmentHdg, hdgStep);
+    heading.value = lerpHeadingCappedWorklet(heading.value, blendedHdg, emaStep);
   }, false);
 
   const pushTarget = useCallback((target: NavigationTarget) => {

@@ -2,7 +2,7 @@ import React, { memo, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
-import type { DriveMarkerValues } from '../../hooks/useDriveMarker';
+import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
 import {
   DRIVE_MARKER_IMAGE_KEY,
   DriveMarkerSpriteCapture,
@@ -27,7 +27,7 @@ const COORD_EPS = 1e-7;
 
 type Props = {
   enabled: boolean;
-  marker: DriveMarkerValues;
+  marker: DriveMarkerV3Values;
   imageUri?: string | null;
   avatarUrl?: string | null;
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;

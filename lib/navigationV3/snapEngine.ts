@@ -9,6 +9,7 @@ import {
   buildPolylineArc,
   arcLengthAtPoint,
   headingDeltaAbs,
+  pointAtArcLength,
   projectOnPolylineForward,
   snapSegmentScore,
 } from '../driveCore/geo';
@@ -78,6 +79,59 @@ function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): numb
   return haversineKm(aLat, aLng, bLat, bLng) * 1000;
 }
 
+/** Arc window with every densified vertex in range — preserves sharp corners. */
+function buildSnapArcWindow(
+  dense: RoadPoint[],
+  arc: ReturnType<typeof buildPolylineArc>,
+  arcM: number,
+  speedMs: number,
+): ArcWindowSlice | null {
+  if (!arc || dense.length < 2 || arc.totalM <= 0) return null;
+
+  const backM = 40;
+  const aheadM = 90 + Math.max(0, speedMs) * 10;
+  const winStart = Math.max(0, arcM - backM);
+  const winEnd = Math.min(arc.totalM, arcM + aheadM);
+
+  const points: { lat: number; lng: number }[] = [];
+  const cumM: number[] = [0];
+
+  const pushPoint = (lat: number, lng: number) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const last = points[points.length - 1];
+    if (last) {
+      const stepM = distanceM(last.lat, last.lng, lat, lng);
+      if (stepM < 0.2) return;
+      cumM.push(cumM[cumM.length - 1] + stepM);
+    }
+    points.push({ lat, lng });
+  };
+
+  const startPose = pointAtArcLength(dense, arc, winStart);
+  pushPoint(startPose.lat, startPose.lng);
+
+  for (let i = 0; i < dense.length; i += 1) {
+    const nodeArc = arc.cumM[i] ?? 0;
+    if (nodeArc <= winStart + 0.5 || nodeArc >= winEnd - 0.5) continue;
+    const p = dense[i];
+    pushPoint(p.latitude, p.longitude);
+  }
+
+  const endPose = pointAtArcLength(dense, arc, winEnd);
+  pushPoint(endPose.lat, endPose.lng);
+
+  if (points.length < 2) {
+    return buildArcWindow(dense, arc, arcM, speedMs);
+  }
+
+  return {
+    points,
+    cumM,
+    baseArcM: winStart,
+    totalM: cumM[cumM.length - 1],
+  };
+}
+
 function toRoadPoints(points: { lat: number; lng: number }[]): RoadPoint[] {
   return points.map((p) => ({ latitude: p.lat, longitude: p.lng }));
 }
@@ -137,7 +191,7 @@ function projectOnPolyline(
 ): PolylineProjection | null {
   const dense = densifyPolyline(
     toRoadPoints(polyline.points),
-    polyline.points.length <= 4 ? 6 : 8,
+    polyline.points.length <= 4 ? 4 : 5,
   );
   if (dense.length < 2) return null;
 
@@ -165,7 +219,7 @@ function projectOnPolyline(
   const arcInfo = arcLengthAtPoint(dense, arc, proj.lat, proj.lng, proj.segmentIndex, 2500);
   const arcM = arcInfo?.arcM ?? 0;
   const speedForWindow = Math.max(0, speedMs);
-  const windowRaw = buildArcWindow(dense, arc, arcM, speedForWindow);
+  const windowRaw = buildSnapArcWindow(dense, arc, arcM, speedForWindow);
 
   const arcWindow: ArcWindowSlice | null = windowRaw
     ? {
@@ -197,7 +251,7 @@ function scoreGlobalProjection(
 ): PolylineProjection | null {
   const dense = densifyPolyline(
     toRoadPoints(polyline.points),
-    polyline.points.length <= 4 ? 6 : 8,
+    polyline.points.length <= 4 ? 4 : 5,
   );
   if (dense.length < 2) return null;
 
@@ -259,7 +313,7 @@ function scoreGlobalProjection(
   if (best) {
     const arc = buildPolylineArc(dense);
     if (arc) {
-      const windowRaw = buildArcWindow(dense, arc, best.arcM, Math.max(0, speedMs));
+      const windowRaw = buildSnapArcWindow(dense, arc, best.arcM, Math.max(0, speedMs));
       if (windowRaw) {
         best.arcWindow = {
           points: windowRaw.points,
