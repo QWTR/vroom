@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
@@ -25,6 +25,17 @@ const EMPTY_SHAPE = JSON.stringify({
 /** Min. zmiana współrzędnych zanim odświeżamy GeoJSON (unika zbędnych parse w Mapbox). */
 const COORD_EPS = 1e-7;
 
+function spriteCacheKey(data: DriveMarkerSpriteData): string {
+  return [
+    data.avatarUrl ?? '',
+    data.imageUri ?? '',
+    data.cursorSkin?.imageUrl ?? '',
+    data.cursorSkin?.borderColor ?? '',
+  ].join('|');
+}
+
+let lastSpriteCache: { key: string; uri: string } | null = null;
+
 type Props = {
   enabled: boolean;
   marker: DriveMarkerV3Values;
@@ -44,13 +55,22 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   avatarUrl,
   cursorSkin,
 }: Props) {
-  const [capturedUri, setCapturedUri] = useState<string | null>(null);
-
   const spriteData = useMemo<DriveMarkerSpriteData>(() => ({
     avatarUrl,
     imageUri,
     cursorSkin,
   }), [avatarUrl, imageUri, cursorSkin?.imageUrl, cursorSkin?.borderColor]);
+
+  const cacheKey = spriteCacheKey(spriteData);
+  const [capturedUri, setCapturedUri] = useState<string | null>(() => {
+    if (lastSpriteCache?.key === cacheKey) return lastSpriteCache.uri;
+    return null;
+  });
+
+  const handleCapture = useCallback((uri: string) => {
+    lastSpriteCache = { key: cacheKey, uri };
+    setCapturedUri(uri);
+  }, [cacheKey]);
 
   const lastShape = useSharedValue(EMPTY_SHAPE);
   const lastLat = useSharedValue(NaN);
@@ -112,38 +132,49 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       >
         <DriveMarkerSpriteCapture
           data={spriteData}
-          onCapture={setCapturedUri}
+          onCapture={handleCapture}
         />
       </View>
 
       {textureUri ? (
-        <>
-          <Mapbox.Images
-            images={{
-              [DRIVE_MARKER_IMAGE_KEY]: { uri: textureUri },
+        <Mapbox.Images
+          images={{
+            [DRIVE_MARKER_IMAGE_KEY]: { uri: textureUri },
+          }}
+        />
+      ) : null}
+
+      <ReanimatedShapeSource
+        id="tripDriveMarkerSource"
+        animatedProps={animatedShapeProps}
+      >
+        {textureUri ? (
+          <Mapbox.SymbolLayer
+            id="tripDriveMarkerSymbol"
+            style={{
+              iconImage: DRIVE_MARKER_IMAGE_KEY,
+              iconSize: ICON_SIZE,
+              iconRotate: ['get', 'heading'],
+              iconRotationAlignment: 'map',
+              iconAllowOverlap: true,
+              iconIgnorePlacement: true,
+              iconAnchor: 'center',
+              iconOptional: false,
             }}
           />
-
-          <ReanimatedShapeSource
-            id="tripDriveMarkerSource"
-            animatedProps={animatedShapeProps}
-          >
-            <Mapbox.SymbolLayer
-              id="tripDriveMarkerSymbol"
-              style={{
-                iconImage: DRIVE_MARKER_IMAGE_KEY,
-                iconSize: ICON_SIZE,
-                iconRotate: ['get', 'heading'],
-                iconRotationAlignment: 'map',
-                iconAllowOverlap: true,
-                iconIgnorePlacement: true,
-                iconAnchor: 'center',
-                iconOptional: false,
-              }}
-            />
-          </ReanimatedShapeSource>
-        </>
-      ) : null}
+        ) : (
+          <Mapbox.CircleLayer
+            id="tripDriveMarkerFallback"
+            style={{
+              circleRadius: 9,
+              circleColor: '#e33835',
+              circleStrokeWidth: 2.5,
+              circleStrokeColor: '#ffffff',
+              circlePitchAlignment: 'map',
+            }}
+          />
+        )}
+      </ReanimatedShapeSource>
     </>
   );
 });

@@ -13,6 +13,8 @@ import type {
 
 export type UseDriveNavigationV3Options = {
   mode: NavMode;
+  /** Ref-based mode (natychmiast po isDrivingRef) — ma pierwszeństwo nad `mode` z React state. */
+  getMode?: () => NavMode;
   /** Wywoływane po każdym zaakceptowanym ticku GPS z gotowym NavigationTarget. */
   onTarget?: (output: DrivePipelineOutput) => void;
   /** Dynamiczna geometria drogi / trasy — odczyt w momencie ticku GPS. */
@@ -37,14 +39,20 @@ export function useDriveNavigationV3(opts: UseDriveNavigationV3Options) {
 
   const onTargetRef = useRef(opts.onTarget);
   const getGeometryRef = useRef(opts.getGeometry);
+  const getModeRef = useRef(opts.getMode);
   onTargetRef.current = opts.onTarget;
   getGeometryRef.current = opts.getGeometry;
+  getModeRef.current = opts.getMode;
 
   useEffect(() => {
     pipeline.setMode(opts.mode);
   }, [pipeline, opts.mode]);
 
   const processGpsFix = useCallback((loc: GpsLocationInput): DrivePipelineOutput | null => {
+    const liveMode = getModeRef.current?.() ?? pipeline.getMode();
+    if (pipeline.getMode() !== liveMode) {
+      pipeline.setMode(liveMode);
+    }
     const geometry = getGeometryRef.current?.() ?? {
       roadPolylines: [] as RoadPolyline[],
       routePolyline: null,
@@ -61,8 +69,20 @@ export function useDriveNavigationV3(opts: UseDriveNavigationV3Options) {
     };
 
     const out = pipeline.processGpsFix(input);
-    if (out && !out.rejected) {
-      onTargetRef.current?.(out);
+    if (out) {
+      if (!out.rejected) {
+        onTargetRef.current?.(out);
+      } else {
+        // Słaby GPS / postój: utrzymaj marker na ostatnim kotwicy (hardReset / bootstrap).
+        onTargetRef.current?.({
+          ...out,
+          target: {
+            ...out.target,
+            allowInstant: true,
+            speedMs: 0,
+          },
+        });
+      }
     }
     return out;
   }, [pipeline]);

@@ -45,3 +45,24 @@ export function getLiveTripPose(input: LiveTripPoseInput): LiveTripPose | null {
 
   return null;
 }
+
+export type BestKnownPoseInput = LiveTripPoseInput & {
+  userLocation?: { latitude: number; longitude: number } | null;
+  headingFallback?: number;
+};
+
+/** Najlepsza znana pozycja — DR, snap, good loc, na końcu userLocation (cold start / słaby GPS). */
+export function resolveBestKnownPose(input: BestKnownPoseInput): LiveTripPose | null {
+  const fromRefs = getLiveTripPose(input);
+  if (fromRefs) return fromRefs;
+
+  const u = input.userLocation;
+  if (u && isValidCoord(u.latitude, u.longitude)) {
+    const headingDeg = Number.isFinite(input.drHdg) && input.drHdg !== 0
+      ? input.drHdg
+      : (input.headingFallback ?? 0);
+    return { latitude: u.latitude, longitude: u.longitude, headingDeg };
+  }
+
+  return null;
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   useFrameCallback,
   useSharedValue,
@@ -19,12 +19,41 @@ export type DriveMarkerV3Values = {
   heading: SharedValue<number>;
 };
 
+export type DriveMarkerSeedPose = {
+  lat: number;
+  lng: number;
+  headingDeg?: number;
+};
+
 export type UseDriveMarkerV3Return = DriveMarkerV3Values & {
   pushTarget: (target: NavigationTarget) => void;
   reset: (anchor?: { lat: number; lng: number; headingDeg?: number }) => void;
   resetTo: (lat: number, lng: number, headingDeg: number) => void;
   ensureFrameActive: () => void;
 };
+
+/** Natychmiastowy target wizualny — bez czekania na akcept filtra GPS. */
+export function coldStartNavigationTarget(
+  lat: number,
+  lng: number,
+  headingDeg = 0,
+): NavigationTarget {
+  const hdg = normalizeHeadingJs(headingDeg);
+  return {
+    lat,
+    lng,
+    headingDeg: hdg,
+    speedMs: 0,
+    pathMode: 'offRoad',
+    roadBlend: 0,
+    rawLat: lat,
+    rawLng: lng,
+    targetArcM: null,
+    arcWindow: null,
+    polylineKey: null,
+    allowInstant: true,
+  };
+}
 
 function normalizeHeadingJs(h: number): number {
   return ((h % 360) + 360) % 360;
@@ -263,7 +292,14 @@ function pathModeOnRoad(mode: PathMode): boolean {
  * V3 marker — distance integrator @ 60 FPS.
  * No durationMs. No gpsCadence. Single writer for display lat/lng/heading.
  */
-export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
+export function useDriveMarkerV3(
+  enabled = true,
+  getSeedPose?: () => DriveMarkerSeedPose | null,
+): UseDriveMarkerV3Return {
+  const getSeedPoseRef = useRef(getSeedPose);
+  getSeedPoseRef.current = getSeedPose;
+  const bootstrappedJsRef = useRef(false);
+
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
   const heading = useSharedValue(0);
@@ -311,6 +347,7 @@ export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
     onRoadSv.value = onRoad ? 1 : 0;
     roadBlendSv.value = blend;
     bootstrapped.value = 1;
+    bootstrappedJsRef.current = true;
   }, [
     baseArcM,
     bootstrapped,
@@ -538,6 +575,7 @@ export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
   ]);
 
   const reset = useCallback((anchor?: { lat: number; lng: number; headingDeg?: number }) => {
+    bootstrappedJsRef.current = false;
     bootstrapped.value = 0;
     onRoadSv.value = 0;
     roadBlendSv.value = 0;
@@ -561,6 +599,7 @@ export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
       rawTargetLat.value = anchor.lat;
       rawTargetLng.value = anchor.lng;
       bootstrapped.value = 1;
+      bootstrappedJsRef.current = true;
     } else {
       lat.value = NaN;
       lng.value = NaN;
@@ -634,10 +673,40 @@ export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
   useEffect(() => {
     enabledSv.value = enabled ? 1 : 0;
     frameCallback.setActive(enabled);
+    if (!enabled) {
+      bootstrappedJsRef.current = false;
+    }
     return () => {
       frameCallback.setActive(false);
     };
   }, [enabled, enabledSv, frameCallback]);
+
+  /** Trip ON bez wcześniejszego resetTo — seed z najlepszej znanej pozycji (cold start / postój). */
+  useEffect(() => {
+    if (!enabled || bootstrappedJsRef.current) return;
+    const pose = getSeedPoseRef.current?.();
+    if (!pose || !Number.isFinite(pose.lat) || !Number.isFinite(pose.lng)) return;
+    const hdg = Number.isFinite(pose.headingDeg) ? pose.headingDeg! : 0;
+    applyInstantPose(
+      pose.lat,
+      pose.lng,
+      hdg,
+      0,
+      false,
+      0,
+      pose.lat,
+      pose.lng,
+    );
+    onRoadSv.value = 0;
+    roadPtsFlat.value = [];
+    roadCumM.value = [];
+    polylineKeySv.value = '';
+    displayArcM.value = 0;
+    targetArcM.value = 0;
+    baseArcM.value = 0;
+    lastFrameTimestamp.value = 0;
+    frameCallback.setActive(true);
+  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, lastFrameTimestamp, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
 
   return useMemo(
     () => ({

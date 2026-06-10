@@ -52,7 +52,7 @@ import { makeMapStyles } from '../../styles/mapstyle';
 import { ensureMapboxToken } from '../../lib/mapboxInit';
 import { useMapTilePrefetch } from '../../hooks/useMapTilePrefetch';
 import { buildV3GeometryFromRefs } from '../../lib/mapScreen/v3Geometry';
-import { useDriveMarkerV3 } from '../../hooks/useDriveMarkerV3';
+import { coldStartNavigationTarget, useDriveMarkerV3 } from '../../hooks/useDriveMarkerV3';
 import { useDriveNavigationV3 } from '../../hooks/useDriveNavigationV3';
 import { useCameraV3 } from '../../hooks/useCameraV3';
 import type { NavMode } from '../../lib/navigationV3/types';
@@ -178,7 +178,7 @@ import {
   trimRoutePointsFromVehicle,
 } from '../../lib/driveCore/navRouteBootstrap';
 import type { NavRouteStartAnchor } from '../../lib/driveCore/navRouteBootstrap';
-import { getLiveTripPose } from '../../lib/mapScreen/liveTripPose';
+import { getLiveTripPose, resolveBestKnownPose } from '../../lib/mapScreen/liveTripPose';
 import { validateGeometryAgainstRaw } from '../../hooks/useDrivingSnap';
 import { useDemoUsers } from '../../hooks/useDemoUsers';
 import { useDrivingMapMatch } from '../../hooks/useDrivingMapMatch';
@@ -2880,8 +2880,23 @@ function MapScreenInner() {
     () => isDrivingRef.current || isNavigatingRef.current,
     [],
   );
+  const getDriveMarkerSeedPose = useCallback(() => {
+    const pose = resolveBestKnownPose({
+      drLat: drLatRef.current,
+      drLng: drLngRef.current,
+      drHdg: drHdgRef.current,
+      tripActive: isDrivingRef.current || isNavigatingRef.current,
+      lastSetLoc: lastSetLocRef.current,
+      lastGoodLoc: lastGoodLocRef.current,
+      userLocation: currentLocRef.current ?? userLocation,
+      headingFallback: lastHeadingRef.current,
+    });
+    if (!pose) return null;
+    return { lat: pose.latitude, lng: pose.longitude, headingDeg: pose.headingDeg };
+  }, [userLocation]);
+
   /** V3: marker 60 FPS — useDriveMarkerV3 SV + DriveMarkerLayer. */
-  const driveMarker = useDriveMarkerV3(true);
+  const driveMarker = useDriveMarkerV3(isTripActiveMap, getDriveMarkerSeedPose);
   const navV3Mode: NavMode = isNavigating
     ? 'navigation'
     : isDriving
@@ -2897,6 +2912,13 @@ function MapScreenInner() {
 
   const navV3 = useDriveNavigationV3({
     mode: navV3Mode,
+    getMode: () => (
+      isNavigatingRef.current
+        ? 'navigation'
+        : isDrivingRef.current
+          ? 'freeDrive'
+          : 'idle'
+    ),
     getGeometry: buildV3Geometry,
     onTarget: (out) => {
       speedKmhRef.current = out.hudSpeedKmh;
@@ -2948,7 +2970,16 @@ function MapScreenInner() {
   ) => {
     const hdg = normalizeHeading(heading);
     navV3.hardReset(lat, lng, hdg);
+    navV3.pipeline.setMode(
+      isNavigatingRef.current
+        ? 'navigation'
+        : isDrivingRef.current
+          ? 'freeDrive'
+          : 'idle',
+    );
     driveMarker.resetTo(lat, lng, hdg);
+    driveMarker.pushTarget(coldStartNavigationTarget(lat, lng, hdg));
+    driveMarker.ensureFrameActive?.();
     lastTripMarkerPoseRef.current = { lat, lng };
     drLatRef.current = lat;
     drLngRef.current = lng;
@@ -4484,15 +4515,25 @@ function MapScreenInner() {
       return;
     }
     if (tripMarkerV2BootstrappedRef.current) return;
-    const boot = lastSetLocRef.current ?? lastGoodLocRef.current;
-    const plat = boot?.lat ?? drLatRef.current;
-    const plng = boot?.lng ?? drLngRef.current;
+    const best = resolveBestKnownPose({
+      drLat: drLatRef.current,
+      drLng: drLngRef.current,
+      drHdg: drHdgRef.current,
+      tripActive: true,
+      lastSetLoc: lastSetLocRef.current,
+      lastGoodLoc: lastGoodLocRef.current,
+      userLocation: currentLocRef.current ?? userLocation,
+      headingFallback: lastHeadingRef.current,
+    });
+    const plat = best?.latitude ?? drLatRef.current;
+    const plng = best?.longitude ?? drLngRef.current;
     if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
     if (Math.abs(plat) < 1e-6 && Math.abs(plng) < 1e-6) return;
     tripMarkerV2BootstrappedRef.current = true;
-    const hdg = Number.isFinite(drHdgRef.current) ? drHdgRef.current : (lastHeadingRef.current || 0);
+    const hdg = best?.headingDeg
+      ?? (Number.isFinite(drHdgRef.current) ? drHdgRef.current : (lastHeadingRef.current || 0));
     tripBootstrapPose(plat, plng, hdg, { animateCamera: true });
-  }, [isDriving, isNavigating, tripBootstrapPose]);
+  }, [isDriving, isNavigating, tripBootstrapPose, userLocation]);
 
 
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
@@ -5292,9 +5333,23 @@ function MapScreenInner() {
         return;
       }
       drivingManualEntryBusyRef.current = true;
-      const rawFix = currentLocRef.current;
-      const startLat = rawFix?.latitude ?? userLocation.latitude;
-      const startLng = rawFix?.longitude ?? userLocation.longitude;
+      const entryPose = resolveBestKnownPose({
+        drLat: drLatRef.current,
+        drLng: drLngRef.current,
+        drHdg: drHdgRef.current,
+        tripActive: false,
+        lastSetLoc: lastSetLocRef.current,
+        lastGoodLoc: lastGoodLocRef.current,
+        userLocation: currentLocRef.current ?? userLocation,
+        headingFallback: lastHeadingRef.current,
+      });
+      if (!entryPose) {
+        drivingManualEntryBusyRef.current = false;
+        Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na fix lokalizacji zanim włączysz jazdę.' });
+        return;
+      }
+      const startLat = entryPose.latitude;
+      const startLng = entryPose.longitude;
       const stationaryEntry = speedKmhRef.current < DRIVING_ENTRY_STATIONARY_KMH;
 
       drivingManuallyDisabledRef.current = false;
@@ -5344,7 +5399,9 @@ function MapScreenInner() {
 
       let entryLat = startLat;
       let entryLng = startLng;
-      let entryHeading = Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0;
+      let entryHeading = Number.isFinite(entryPose.headingDeg)
+        ? entryPose.headingDeg
+        : (Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : 0);
       drivingEntryGraceUntilRef.current = Date.now() + DRIVING_ENTRY_GRACE_MS;
 
       const entryGeom = drivingSnapGeometryRef.current;
@@ -10706,6 +10763,7 @@ if (appStateRef.current === 'active') {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const hdg = Number.isFinite(heading) ? heading : 0;
     driveMarker.resetTo(lat, lng, hdg);
+    driveMarker.pushTarget(coldStartNavigationTarget(lat, lng, hdg));
     driveMarker.ensureFrameActive?.();
     setFollowMode(isNavigatingRef.current ? 'navigationFollow' : 'drivingFollow');
     cameraV3.recenter(
