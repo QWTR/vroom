@@ -37,12 +37,13 @@ import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import {
-  SpeedometerHUD,
-  SpeedLimitBadge,
-  SpeedValueText,
+  HudPanelShell,
+  DriveSpeedTile,
+  HudQuickReportButton,
   emitSpeedometerKmh,
   normalizeHudSpeedKmh,
   resetSpeedometerEmitterThrottle,
+  useHudStyles,
 } from '../../components/map/SpeedometerHUD';
 import { MapTerrainLayers } from '../../components/map/MapTerrainLayers';
 import { MapVividLayers } from '../../components/map/MapVividLayers';
@@ -2867,6 +2868,7 @@ function MapScreenInner() {
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top, { mapControlsTop: 12 });
+  const hudStyles = useHudStyles();
   const homeLocation = (
     Number.isFinite(settings.homeLatitude) &&
     Number.isFinite(settings.homeLongitude) &&
@@ -12941,19 +12943,11 @@ if (pts.length >= 2) {
     : (userLocation?.longitude ?? NaN);
   const markerHdg = lastHeadingRef.current !== 0 ? lastHeadingRef.current : heading;
 
-  // ── Czy pokazać prędkościomierz (lewy) — w trybie jazdy prędkość + limit są w górnym HUD ──
+  // ── Prędkościomierz: mały kafelek (lewy dół) — jazda, nawigacja lub browsing ──
   const isRoutePreviewOpen = !isNavigating && !isBuilding && !!endLocation;
   const showSpeedPanel =
     !isRoutePreviewOpen
-    && (isNavigating || (!isDriving && (speedKmh > 5 || speedLimit !== null)));
-
-  const goalLat = isTripActive ? drLatRef.current : markerLat;
-  const goalLng = isTripActive ? drLngRef.current : markerLng;
-  const drivingGoalDistKm =
-    isDriving && !isNavigating && endLocation
-    && Number.isFinite(goalLat) && Number.isFinite(goalLng)
-      ? haversineKm(goalLat, goalLng, endLocation.latitude, endLocation.longitude)
-      : null;
+    && (isNavigating || isDriving || speedKmh > 5 || speedLimit !== null);
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -13509,426 +13503,252 @@ if (pts.length >= 2) {
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (
-          isOffroadRef.current ? (
-            // ── OFFROAD panel ──────────────────────────────
-            <View style={styles.navigationPanelTop}>
-              <View style={styles.instructionBox}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View style={{
-                    width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
-                    borderWidth: 1.5, borderColor: '#ff922b45',
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <MaterialCommunityIcons name="terrain" size={32} color="#ff922b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: '#ff922b', fontWeight: '900', letterSpacing: 2 }}>
-                      TRYB OFFROAD
-                    </Text>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted, marginTop: 2 }}>
-                      Nawigacja w linii prostej
-                    </Text>
-                    {routeInfo && (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#ff922b', marginTop: 2 }}>
-                        {routeInfo.distance} km
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                <MaterialIcons name="close" size={18} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            currentStepData ? (
-              // ── STANDARDOWY panel kroków ───────────────────
-              <View style={styles.navigationPanelTop}>
+          <View pointerEvents="box-none" style={styles.navigationPanelTop}>
+            <HudPanelShell>
+              {isOffroadRef.current ? (
                 <View style={styles.instructionBox}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                    <View style={{
-                      width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
-                      borderWidth: 1.5, borderColor: '#e3383545',
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <MaterialIcons name={getManeuverIcon(currentStepData.maneuver) as any} size={32} color={theme.text} />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[hudStyles.maneuverBox, { borderColor: theme.warning + '55' }]}>
+                      <MaterialCommunityIcons name="terrain" size={28} color={theme.warning} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      {/* Live dystans do następnego skrętu */}
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 26, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>
+                      <Text style={[hudStyles.label, { color: theme.warning, fontWeight: '700' }]}>
+                        Tryb offroad
+                      </Text>
+                      <Text style={[hudStyles.instruction, { marginTop: 4 }]}>
+                        Nawigacja w linii prostej
+                      </Text>
+                      {routeInfo && (
+                        <Text style={[hudStyles.metaPrimary, { marginTop: 6 }]}>
+                          {routeInfo.distance} km
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ) : currentStepData ? (
+                <View style={styles.instructionBox}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                    <View style={hudStyles.maneuverBox}>
+                      <MaterialIcons
+                        name={getManeuverIcon(currentStepData.maneuver) as any}
+                        size={28}
+                        color={theme.text}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={hudStyles.navDistance}>
                         {distToTurnM !== null
                           ? distToTurnM < 1000
                             ? `${Math.round(distToTurnM / 10) * 10} m`
                             : `${(distToTurnM / 1000).toFixed(1)} km`
                           : currentStepData.distance?.text}
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textMuted, marginTop: 2 }} numberOfLines={1}>
+                      <Text style={[hudStyles.instruction, { marginTop: 4 }]} numberOfLines={2}>
                         {formatNavigationInstruction(currentStepData)}
                       </Text>
                     </View>
                   </View>
 
                   {activeSteps[currentStep + 1] && (
-                    <View style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 8,
-                      backgroundColor: theme.border, borderRadius: 10,
-                      paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6,
-                    }}>
-                      <MaterialIcons name="subdirectory-arrow-right" size={14} color={theme.textDim} />
-                      <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>Potem: </Text>
-                      <MaterialIcons name={getManeuverIcon(activeSteps[currentStep + 1].maneuver) as any} size={14} color={theme.textMuted} />
-                      <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontSize: 9, flex: 1 }} numberOfLines={1}>
-                        {formatNavigationInstruction(activeSteps[currentStep + 1])}
+                    <View style={hudStyles.thenRow}>
+                      <MaterialIcons name="subdirectory-arrow-right" size={16} color={theme.textMuted} />
+                      <Text style={hudStyles.thenText} numberOfLines={1}>
+                        Potem: {formatNavigationInstruction(activeSteps[currentStep + 1])}
                       </Text>
                     </View>
                   )}
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1 }}>
+                  <View style={hudStyles.metaRow}>
+                    <Text style={hudStyles.meta}>
                       Krok {currentStep + 1}/{activeSteps.length}
                     </Text>
-                    {/* Live pozostały dystans do celu */}
                     {remainingDistKm !== null && (
                       <>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
-                        <MaterialIcons name="straighten" size={10} color="#00bfff" />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', fontWeight: '700' }}>
+                        <View style={hudStyles.metaDot} />
+                        <Text style={hudStyles.metaAccent}>
                           {remainingDistKm < 1
-                            ? `${Math.round(remainingDistKm * 1000)} m`
-                            : `${remainingDistKm.toFixed(1)} km`}
+                            ? `${Math.round(remainingDistKm * 1000)} m do celu`
+                            : `${remainingDistKm.toFixed(1)} km do celu`}
                         </Text>
                       </>
                     )}
                     {routeInfo && (
                       <>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
-                        <MaterialIcons name="schedule" size={10} color="#e33835" />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835', fontWeight: '700' }}>
+                        <View style={hudStyles.metaDot} />
+                        <Text style={hudStyles.metaPrimary}>
                           {formatDuration(routeInfo.duration)}
                         </Text>
-                        <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: theme.border3 }} />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
-                          cel: {new Date(Date.now() + (routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+                        <View style={hudStyles.metaDot} />
+                        <Text style={hudStyles.meta}>
+                          Cel {new Date(Date.now() + (routeInfo.duration ?? 0) * 60 * 1000).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </>
                     )}
                   </View>
                 </View>
-                <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                  <MaterialIcons name="close" size={18} color={theme.textDim} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.navigationPanelTop}>
+              ) : (
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <View style={{
-                      width: 56, height: 56, backgroundColor: theme.surface3, borderRadius: 14,
-                      borderWidth: 1.5, borderColor: '#e3383545',
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
+                    <View style={hudStyles.maneuverBox}>
                       <ActivityIndicator size="small" color={theme.text} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '800', letterSpacing: 1 }}>
-                        ŁADOWANIE MANEWRÓW...
+                      <Text style={[hudStyles.label, { fontWeight: '700', color: theme.text }]}>
+                        Ładowanie manewrów…
                       </Text>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textMuted, marginTop: 3 }}>
+                      <Text style={[hudStyles.instruction, { marginTop: 4 }]}>
                         Trwa pobieranie szczegółów trasy
                       </Text>
                       {routeInfo && (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#00bfff', marginTop: 4 }}>
-                          {routeInfo.distance} km {routeInfo.duration ? `· ${formatDuration(routeInfo.duration)}` : ''}
+                        <Text style={[hudStyles.metaAccent, { marginTop: 6 }]}>
+                          {routeInfo.distance} km
+                          {routeInfo.duration ? ` · ${formatDuration(routeInfo.duration)}` : ''}
                         </Text>
                       )}
                     </View>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.closeNavBtn} onPress={stopNavigation}>
-                  <MaterialIcons name="close" size={18} color={theme.textDim} />
-                </TouchableOpacity>
-              </View>
-            )
-          )
+              )}
+              <TouchableOpacity style={hudStyles.closeBtn} onPress={stopNavigation}>
+                <MaterialIcons name="close" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </HudPanelShell>
+          </View>
         )}
 
         {/* ── Off-route banner ─────────────────────────────── */}
         {isNavigating && offRoute && !isOffroadRef.current && (
-          <View style={{
-            position: 'absolute', top: insets.top + 84,
-            left: 12, right: 12,
-            backgroundColor: '#ff922b12', borderRadius: 12,
-            borderWidth: 1, borderColor: '#ff922b45',
-            padding: 10, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 20,
-            opacity: 0.82,
-          }}>
-            <MaterialIcons name="warning" size={18} color="#ff922b" />
-            <Text style={{ color: '#ff922b', fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>
-              {(rerouteLoading || rerouteOrigin != null || reroutePendingRef.current) ? 'PRZELICZAM TRASĘ...' : 'POZA TRASĄ — PONAWIAM...'}
+          <View style={[styles.hudOffRouteBanner, { top: insets.top + 100 }]}>
+            <MaterialIcons name="warning" size={22} color={theme.warning} />
+            <Text style={styles.hudOffRouteText}>
+              {(rerouteLoading || rerouteOrigin != null || reroutePendingRef.current)
+                ? 'Przeliczam trasę…'
+                : 'Poza trasą — ponawiam…'}
             </Text>
             {(rerouteLoading || rerouteOrigin != null || reroutePendingRef.current) && (
-              <ActivityIndicator size="small" color="#ff922b" style={{ marginLeft: 'auto' }} />
+              <ActivityIndicator size="small" color={theme.warning} />
             )}
           </View>
         )}
 
-        {/* ── Prędkościomierz (nawigacja + driving mode) ───── */}
+        {/* ── Prędkościomierz (nawigacja lub browsing >5 km/h) ─ */}
         {showSpeedPanel && (
-          <SpeedometerHUD initialKmh={0}>
-            {(hudKmh: number) => (
-              <Pressable
-                onLongPress={isTripActiveMap ? exportNavDriveTrace : undefined}
-                delayLongPress={700}
-                style={[
-                  styles.speedPanelNav,
-                  !isNavigating && { bottom: 200 },
-                ]}
-              >
-                <SpeedLimitBadge
-                  initialKmh={0}
-                  kmh={hudKmh}
-                  speedLimit={effectiveSpeedLimit}
-                  tolerance={SPEED_LIMIT_TOLERANCE}
-                  size={44}
-                  style={{ marginBottom: 4, alignSelf: 'center' }}
-                />
-                <SpeedValueText
-                  initialKmh={0}
-                  kmh={hudKmh}
-                  speedLimit={effectiveSpeedLimit}
-                  tolerance={SPEED_LIMIT_TOLERANCE}
-                  style={styles.speedValue}
-                />
-                <Text style={styles.speedLabel}>KM/H</Text>
-              </Pressable>
-            )}
-          </SpeedometerHUD>
-        )}
-
-        {/* ── Tryb jazdy: górny HUD (prawie pełna szerokość) — prędkość, limit, dystans do celu ── */}
-        {isDriving && !isNavigating && (
-          <SpeedometerHUD initialKmh={0}>
-            {(hudKmh: number) => (
-              <Pressable
-                onLongPress={exportNavDriveTrace}
-                delayLongPress={700}
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 6,
-                  right: 6,
-                  zIndex: 96,
-                  backgroundColor: theme.mapOverlay,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.primaryBorder,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 3 },
-                  shadowOpacity: isDark ? 0.4 : 0.15,
-                  shadowRadius: 10,
-                  elevation: 12,
-                }}
-              >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                <MaterialCommunityIcons name="car-sports" size={22} color={theme.primary} />
-                <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.primary, letterSpacing: 2, fontWeight: '800' }}>
-                    TRYB JAZDY
-                  </Text>
-                  <SpeedValueText
-                    initialKmh={0}
-                    kmh={hudKmh}
-                    speedLimit={effectiveSpeedLimit}
-                    tolerance={SPEED_LIMIT_TOLERANCE}
-                    showUnit
-                    style={{
-                      fontFamily: 'Orbitron',
-                      fontSize: 30,
-                      fontWeight: '900',
-                      color: theme.text,
-                      letterSpacing: -1,
-                      marginTop: 2,
-                    }}
-                    unitStyle={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.textDim, fontWeight: '700' }}
-                  />
-                </View>
-              </View>
-              <SpeedLimitBadge
-                initialKmh={0}
-                kmh={hudKmh}
-                speedLimit={effectiveSpeedLimit}
-                tolerance={SPEED_LIMIT_TOLERANCE}
-                size={48}
-              />
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 1 }}>PRZEJECHANE (SILNIK TRASY)</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '800', color: theme.primary }}>
-                {(Number.isFinite(liveDistanceKm) ? liveDistanceKm : 0).toFixed(2)} km
-              </Text>
-            </View>
-
-            <View style={{
-              marginTop: 10,
-              paddingTop: 10,
-              borderTopWidth: 1,
-              borderTopColor: theme.border,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}>
-              <MaterialIcons name="navigation" size={16} color="#00bfff" />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                {endLocation ? (
-                  <>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
-                      {endLocation.name ?? 'Cel trasy'}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <MaterialIcons name="straighten" size={12} color="#00bfff" />
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#00bfff', fontWeight: '800' }}>
-                          {drivingGoalDistKm != null
-                            ? (drivingGoalDistKm < 1
-                              ? `${Math.round(drivingGoalDistKm * 1000)} m`
-                              : `${drivingGoalDistKm.toFixed(1)} km`)
-                            : '—'}
-                        </Text>
-                      </View>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>do celu (linia prosta)</Text>
-                      {routeInfo?.distance != null && (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textMuted }}>
-                          · trasa ~{routeInfo.distance} km
-                        </Text>
-                      )}
-                    </View>
-                  </>
-                ) : (
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#ffffff55' }}>
-                    Ustaw cel w wyszukiwarce — zobaczysz dystans i podgląd trasy.
-                  </Text>
-                )}
-              </View>
-            </View>
-              </Pressable>
-            )}
-          </SpeedometerHUD>
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.hudSpeedTilePos,
+              !isNavigating && !isDriving && { bottom: 200 },
+            ]}
+          >
+            <DriveSpeedTile
+              speedLimit={effectiveSpeedLimit}
+              tolerance={SPEED_LIMIT_TOLERANCE}
+              onLongPress={isTripActiveMap ? exportNavDriveTrace : undefined}
+            />
+          </View>
         )}
 
         {/* ── Przyciski boczne + FAB (akcje w modalu) ─────── */}
         <View style={[
           styles.rightBottomControls,
           !isNavigating && !isDriving && {
-            bottom: startLocation && endLocation && routeInfo ? 248 : 188
+            bottom: startLocation && endLocation && routeInfo ? 248 : 188,
           },
-          isDriving && startLocation && endLocation && routeInfo && {bottom: 328}
+          (isDriving || isNavigating) && { bottom: 28 },
         ]}>
+          {(isDriving || isNavigating) && (
+            <HudQuickReportButton onPress={() => setReportVisible(true)} />
+          )}
+
           {!isNavigating && (
             <TouchableOpacity
               style={[
                 styles.sideBtn,
-                isDriving
-                  ? { backgroundColor: '#e3383522', borderColor: '#e3383555' }
-                  : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+                isDriving && {
+                  backgroundColor: theme.primaryBg,
+                  borderColor: theme.primaryBorder2,
+                },
               ]}
               onPress={handleToggleDrivingMode}
               activeOpacity={0.75}
             >
               <MaterialCommunityIcons
                 name="car-outline"
-                size={20}
-                color={isDriving ? '#e33835' : theme.textDim}
-              />
-            </TouchableOpacity>
-          )}
-
-          {!isDriving && (
-            <TouchableOpacity
-              style={[
-                styles.sideBtn,
-                isBuilding
-                  ? { backgroundColor: '#db1e1e', borderColor: '#000000c7' }
-                  : { backgroundColor: isDark ? '#0c0c0cd2' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' },
-              ]}
-              onPress={() => {
-                if (isBuilding) {
-                  if (pins.length >= 2) { finishPin(); setSaveRouteVisible(true); }
-                  else { cancelBuilding(); Toast.show({ type: 'info', text1: 'Dodaj min. 2 punkty' }); }
-                } else {
-                  startBuilding();
-                  Toast.show({ type: 'info', text1: '📍 TRYB TWORZENIA TRASY', text2: 'Dotykaj mapę aby dodać punkty' });
-                }
-              }}
-              activeOpacity={0.75}
-            >
-              <MaterialCommunityIcons
-                name={isBuilding ? 'check' : 'map-marker-path'}
-                size={20}
-                color={isBuilding ? '#ffffff' : theme.primary}
+                size={22}
+                color={isDriving ? theme.primary : theme.textMuted}
               />
             </TouchableOpacity>
           )}
 
           {isNavigating && (
             <TouchableOpacity
-              style={[styles.sideBtn, { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#fa07079a' : '#c0201d40' }]}
+              style={[styles.sideBtn, { borderColor: theme.primaryBorder }]}
               onPress={() => { setSearchModalVisible(true); setMapFabModalVisible(false); }}
               activeOpacity={0.75}
             >
-              <MaterialIcons name="alt-route" size={20} color={theme.primary} />
+              <MaterialIcons name="alt-route" size={22} color={theme.primary} />
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
             style={[
               styles.sideBtn,
-              isSharing
-                ? { backgroundColor: '#4de92620', borderColor: '#4de92645' }
-                : { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' },
+              isSharing && {
+                backgroundColor: theme.online + '18',
+                borderColor: theme.online + '45',
+              },
             ]}
             onPress={handleToggleSharing}
             activeOpacity={0.75}
           >
             <MaterialIcons
               name={isSharing ? 'location-on' : 'location-off'}
-              size={20}
-              color={isSharing ? '#4de926' : theme.textDim}
+              size={22}
+              color={isSharing ? theme.online : theme.textMuted}
             />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.sideBtn, { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' }]}
+            style={styles.sideBtn}
             onPress={handleCenterOnUser}
             activeOpacity={0.75}
           >
-            <MaterialIcons name="my-location" size={20} color={theme.textDim} />
+            <MaterialIcons name="my-location" size={22} color={theme.textMuted} />
           </TouchableOpacity>
 
           {connected && isSharing && (
             <View style={{
               position: 'absolute',
-              top: 12 + (isDriving && !isNavigating ? 178 : 120),
-              right: 12,
-              flexDirection: 'row', alignItems: 'center', gap: 5,
-              backgroundColor: '#4de92618', paddingHorizontal: 8, paddingVertical: 4,
-              borderRadius: 20, borderWidth: 1, borderColor: '#4de92635', zIndex: 15,
+              top: -36,
+              right: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: theme.surface,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 20,
+              borderWidth: 1.5,
+              borderColor: theme.border,
+              zIndex: 15,
               pointerEvents: 'none',
+              elevation: 6,
+              shadowColor: '#000',
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
             }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#4de926' }} />
-              <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>LIVE</Text>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.online }} />
+              <Text style={{ color: theme.online, fontSize: 12, fontWeight: '700' }}>LIVE</Text>
             </View>
           )}
 
           <TouchableOpacity
-            style={[styles.sideBtn, { backgroundColor: isDark ? '#ffffff08' : '#ffffffee', borderColor: isDark ? '#ffffff10' : '#00000018' }]}
+            style={styles.sideBtn}
             onPress={() => setMapFabModalVisible(true)}
             activeOpacity={0.75}
           >
-            <MaterialCommunityIcons name="widgets-outline" size={22} color={theme.textMuted} />
+            <MaterialCommunityIcons name="widgets-outline" size={24} color={theme.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -14079,10 +13899,7 @@ if (pts.length >= 2) {
         {/* ── Search bar ───────────────────────────────────── */}
         {!isNavigating && !isBuilding && (
           <TouchableOpacity
-            style={[
-              styles.topSearchButton,
-              isDriving && !isNavigating && { top: 148 },
-            ]}
+            style={styles.topSearchButton}
             onPress={() => setSearchModalVisible(true)}
             activeOpacity={0.8}
           >
@@ -14233,17 +14050,6 @@ if (pts.length >= 2) {
                   <MaterialIcons name="close" size={18} color={isDark ? '#f73f3fb4' : '#000'} />
                 </TouchableOpacity>
               </View>
-            </View>
-          </View>
-        )}
-
-        {/* ── Empty state ──────────────────────────────────── */}
-        {!isNavigating && !isBuilding && !isDriving && !startLocation && !endLocation && !searchModalVisible && (
-          <View style={styles.emptyStateContainer}>
-            <View style={styles.emptyState}>
-              <MaterialIcons name="location-on" size={40} color="#e33835ce" />
-              <Text style={styles.emptyTitle}>WYBIERZ TRASĘ</Text>
-              <Text style={styles.emptySubtitle}>Dotknij paska wyszukiwania</Text>
             </View>
           </View>
         )}

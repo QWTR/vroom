@@ -74,51 +74,60 @@ export function makeMapStyles(
     userMarkerDistance: { fontSize: 7, color: t.primary, fontFamily: 'Orbitron', letterSpacing: 0.5, marginTop: 2 },
 
     // ═══════════════════════════════════════════
-    // SPEED PANEL
+    // HUD — premium driving / navigation overlay
     // ═══════════════════════════════════════════
-    speedPanelNav: {
+    hudSpeedTilePos: {
       position: 'absolute',
       bottom: 24,
       left: 16,
-      backgroundColor: isDark ? SURF : t.mapOverlay,
-      borderRadius: 18,
-      paddingVertical: 14,
-      paddingHorizontal: 18,
-      alignItems: 'center',
-      borderWidth: isDark ? 1 : 1.5,
-      borderColor: isDark ? t.primaryBorder : t.border2,
-      elevation: isDark ? 8 : 12,
-      shadowColor: isDark ? t.primary : '#000',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: isDark ? 0.3 : 0.15,
-      shadowRadius: 8,
       zIndex: 30,
-      minWidth: 80,
+      backgroundColor: 'transparent',
     },
-    speedValue: {
-      color: t.primary, fontSize: 28, fontFamily: 'Orbitron',
-      fontWeight: '700', letterSpacing: -1, lineHeight: 32,
+    hudOffRouteBanner: {
+      position: 'absolute',
+      left: 12,
+      right: 12,
+      zIndex: 20,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: t.warning + '55',
+      backgroundColor: SURF,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
     },
-    speedLabel: { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 3, marginTop: 2 },
+    hudOffRouteText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: t.warning,
+      flex: 1,
+    },
 
     // ═══════════════════════════════════════════
     // SIDE CONTROLS
     // ═══════════════════════════════════════════
     rightBottomControls: { position: 'absolute', right: 14, bottom: 24, gap: 10, zIndex: 100 },
     sideBtn: {
-      backgroundColor: isDark ? SURF : t.mapOverlay,
-      width: 46,
-      height: 46,
+      backgroundColor: SURF,
+      width: 48,
+      height: 48,
       borderRadius: 14,
-      borderWidth: isDark ? 1 : 1.5,
-      borderColor: isDark ? t.border2 : t.border2,
+      borderWidth: 1.5,
+      borderColor: t.border,
       alignItems: 'center',
       justifyContent: 'center',
-      elevation: isDark ? 6 : 10,
+      elevation: 8,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: isDark ? 0.4 : 0.18,
-      shadowRadius: isDark ? 4 : 8,
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
     },
     /** Spójny wygląd ikon w rozwiniętym menu FAB (bez tęczowych obramowań). */
     fabSheetItem: {
@@ -155,33 +164,48 @@ export function makeMapStyles(
     },
 
     // ═══════════════════════════════════════════
-    // NAVIGATION PANEL TOP
+    // NAVIGATION PANEL TOP (legacy keys — HUD używa HudPanelShell)
     // ═══════════════════════════════════════════
     navigationPanelTop: {
       position: 'absolute',
       top: MAP_CONTROLS_TOP,
       left: 12,
       right: 12,
-      backgroundColor: isDark ? SURF : t.mapOverlay,
-      borderRadius: 20,
-      padding: 18,
-      borderWidth: isDark ? 1 : 1.5,
-      borderColor: isDark ? t.primaryBorder : t.primaryBorder,
-      elevation: 10,
-      shadowColor: isDark ? t.primary : '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.2 : 0.12,
-      shadowRadius: 8,
       zIndex: 13,
     },
-
-    instructionBox:     { paddingRight: 40 },
-    instructionDistance:{ color: t.primary, fontSize: 11, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 2, marginBottom: 6 },
-    instructionText:    { color: t.text, fontSize: 13, fontFamily: 'Orbitron', fontWeight: '700', letterSpacing: 0.2, lineHeight: 20 },
-    stepCounter:        { color: t.textDim, fontSize: 7, fontFamily: 'Orbitron', letterSpacing: 3, marginTop: 8 },
+    instructionBox: { paddingRight: 44 },
+    instructionDistance: {
+      fontFamily: 'Orbitron',
+      fontSize: 26,
+      fontWeight: '900',
+      color: t.text,
+      letterSpacing: -0.5,
+      lineHeight: 30,
+    },
+    instructionText: {
+      color: t.text,
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 20,
+    },
+    stepCounter: {
+      color: t.textMuted,
+      fontSize: 12,
+      fontWeight: '600',
+      marginTop: 8,
+    },
     closeNavBtn: {
-      position: 'absolute', top: 10, right: 10, padding: 6,
-      backgroundColor: t.border, borderRadius: 10, borderWidth: 1, borderColor: t.border2,
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      width: 32,
+      height: 32,
+      borderRadius: 10,
+      backgroundColor: SURF2,
+      borderWidth: 1,
+      borderColor: t.border,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     // ═══════════════════════════════════════════
