@@ -12,6 +12,8 @@ const MAX_HEADING_RATE_DPS = NAV_V3.MARKER_MAX_HEADING_DPS;
 const MARKER_HEADING_EMA = NAV_V3.MARKER_HEADING_EMA;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
 const POLYLINE_KEY_HARD_SNAP_M = 45;
+const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
+const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -30,6 +32,8 @@ export type UseDriveMarkerV3Return = DriveMarkerV3Values & {
   reset: (anchor?: { lat: number; lng: number; headingDeg?: number }) => void;
   resetTo: (lat: number, lng: number, headingDeg: number) => void;
   ensureFrameActive: () => void;
+  /** Po foreground — twardy snap do ostatniego targetu (bez nadganiania dt). */
+  resumeFromBackground: () => void;
 };
 
 /** Natychmiastowy target wizualny — bez czekania na akcept filtra GPS. */
@@ -38,7 +42,7 @@ export function coldStartNavigationTarget(
   lng: number,
   headingDeg = 0,
 ): NavigationTarget {
-  const hdg = normalizeHeadingJs(headingDeg);
+  const hdg = safeHeadingJs(headingDeg, 0);
   return {
     lat,
     lng,
@@ -57,6 +61,21 @@ export function coldStartNavigationTarget(
 
 function normalizeHeadingJs(h: number): number {
   return ((h % 360) + 360) % 360;
+}
+
+/** Kuloodporny kąt 0–360 — nigdy NaN (GeoJSON / worklet). */
+function safeHeadingJs(h: unknown, fallback = 0): number {
+  if (typeof h === 'number' && Number.isFinite(h)) {
+    return normalizeHeadingJs(h);
+  }
+  if (typeof fallback === 'number' && Number.isFinite(fallback)) {
+    return normalizeHeadingJs(fallback);
+  }
+  return 0;
+}
+
+function safeCoordJs(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
 function packArcWindowFeed(
@@ -171,9 +190,22 @@ function headingDeltaW(from: number, to: number): number {
 
 function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
   'worklet';
-  const diff = headingDeltaW(from, to);
+  const f = Number.isFinite(from) ? from : 0;
+  const t = Number.isFinite(to) ? to : f;
+  const diff = headingDeltaW(f, t);
   const clamped = Math.max(-maxDeltaDeg, Math.min(maxDeltaDeg, diff));
-  return normalizeHeadingW(from + clamped);
+  return normalizeHeadingW(f + clamped);
+}
+
+function safeHeadingWorklet(h: unknown, fallback: number): number {
+  'worklet';
+  if (typeof h === 'number' && Number.isFinite(h)) {
+    return normalizeHeadingW(h);
+  }
+  if (typeof fallback === 'number' && Number.isFinite(fallback)) {
+    return normalizeHeadingW(fallback);
+  }
+  return 0;
 }
 
 function clampWorklet(n: number, min: number, max: number): number {
@@ -299,6 +331,7 @@ export function useDriveMarkerV3(
   const getSeedPoseRef = useRef(getSeedPose);
   getSeedPoseRef.current = getSeedPose;
   const bootstrappedJsRef = useRef(false);
+  const lastTargetJsRef = useRef<NavigationTarget | null>(null);
 
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
@@ -323,6 +356,7 @@ export function useDriveMarkerV3(
   const rawTargetLng = useSharedValue(NaN);
 
   const lastFrameTimestamp = useSharedValue(0);
+  const skipCatchUpSv = useSharedValue(0);
 
   const applyInstantPose = useCallback((
     poseLat: number,
@@ -334,16 +368,20 @@ export function useDriveMarkerV3(
     rawLat: number,
     rawLng: number,
   ) => {
-    lat.value = poseLat;
-    lng.value = poseLng;
-    heading.value = poseHdg;
-    displayArcM.value = arcM;
-    targetArcM.value = arcM;
-    targetLat.value = poseLat;
-    targetLng.value = poseLng;
-    targetHdg.value = poseHdg;
-    rawTargetLat.value = rawLat;
-    rawTargetLng.value = rawLng;
+    const prevHdg = Number.isFinite(heading.value) ? heading.value : 0;
+    const safeLat = safeCoordJs(poseLat, safeCoordJs(lat.value, rawLat));
+    const safeLng = safeCoordJs(poseLng, safeCoordJs(lng.value, rawLng));
+    const safeHdg = safeHeadingJs(poseHdg, prevHdg);
+    lat.value = safeLat;
+    lng.value = safeLng;
+    heading.value = safeHdg;
+    displayArcM.value = Number.isFinite(arcM) ? arcM : 0;
+    targetArcM.value = Number.isFinite(arcM) ? arcM : 0;
+    targetLat.value = safeLat;
+    targetLng.value = safeLng;
+    targetHdg.value = safeHdg;
+    rawTargetLat.value = safeCoordJs(rawLat, safeLat);
+    rawTargetLng.value = safeCoordJs(rawLng, safeLng);
     onRoadSv.value = onRoad ? 1 : 0;
     roadBlendSv.value = blend;
     bootstrapped.value = 1;
@@ -370,17 +408,29 @@ export function useDriveMarkerV3(
     if (enabledSv.value < 0.5 || bootstrapped.value < 0.5) return;
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
 
-    const tspf = frameInfo.timeSincePreviousFrame;
-    let dt = 1 / 60;
-    if (tspf != null && tspf > 0) {
-      dt = clampWorklet(tspf / 1000, 0.008, 0.05);
-    } else if (lastFrameTimestamp.value > 0) {
-      dt = clampWorklet(
-        (frameInfo.timestamp - lastFrameTimestamp.value) / 1000,
-        0.008,
-        0.05,
-      );
+    if (skipCatchUpSv.value >= 0.5) {
+      skipCatchUpSv.value = 0;
+      lastFrameTimestamp.value = frameInfo.timestamp;
+      if (Number.isFinite(targetLat.value) && Number.isFinite(targetLng.value)) {
+        lat.value = targetLat.value;
+        lng.value = targetLng.value;
+        heading.value = safeHeadingWorklet(targetHdg.value, heading.value);
+        if (Number.isFinite(targetArcM.value)) {
+          displayArcM.value = targetArcM.value;
+        }
+      }
+      return;
     }
+
+    const tspf = frameInfo.timeSincePreviousFrame;
+    let dtMs = 1000 / 60;
+    if (tspf != null && tspf > 0) {
+      dtMs = tspf > STALE_FRAME_MS ? MAX_FRAME_DT_MS : tspf;
+    } else if (lastFrameTimestamp.value > 0) {
+      const gapMs = frameInfo.timestamp - lastFrameTimestamp.value;
+      dtMs = gapMs > STALE_FRAME_MS ? MAX_FRAME_DT_MS : Math.max(8, gapMs);
+    }
+    const dt = clampWorklet(dtMs / 1000, 0.008, MAX_FRAME_DT_MS / 1000);
     lastFrameTimestamp.value = frameInfo.timestamp;
 
     const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
@@ -420,7 +470,7 @@ export function useDriveMarkerV3(
         const blended = blendPositionWorklet(roadPose.lat, roadPose.lng, rawLat, rawLng, blend);
         nextLat = blended.lat;
         nextLng = blended.lng;
-        segmentHdg = normalizeHeadingW(roadPose.heading);
+        segmentHdg = safeHeadingWorklet(roadPose.heading, targetHdg.value);
       }
     } else {
       const tLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
@@ -432,23 +482,36 @@ export function useDriveMarkerV3(
         nextLat = stepped.lat;
         nextLng = stepped.lng;
       }
-      segmentHdg = Number.isFinite(targetHdg.value) ? targetHdg.value : heading.value;
+      segmentHdg = safeHeadingWorklet(targetHdg.value, heading.value);
     }
 
-    lat.value = nextLat;
-    lng.value = nextLng;
+    lat.value = Number.isFinite(nextLat) ? nextLat : lat.value;
+    lng.value = Number.isFinite(nextLng) ? nextLng : lng.value;
     const hdgStep = maxHdgStep * (1 - MARKER_HEADING_EMA * 0.55);
     const emaStep = Math.max(1.2, MAX_HEADING_RATE_DPS * dt * MARKER_HEADING_EMA * 2.5);
     const blendedHdg = lerpHeadingCappedWorklet(heading.value, segmentHdg, hdgStep);
-    heading.value = lerpHeadingCappedWorklet(heading.value, blendedHdg, emaStep);
+    heading.value = safeHeadingWorklet(
+      lerpHeadingCappedWorklet(heading.value, blendedHdg, emaStep),
+      0,
+    );
   }, false);
 
   const pushTarget = useCallback((target: NavigationTarget) => {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+    lastTargetJsRef.current = target;
 
-    const tgtHdg = Number.isFinite(target.headingDeg)
-      ? normalizeHeadingJs(target.headingDeg)
-      : (Number.isFinite(heading.value) ? heading.value : 0);
+    const arcSegHdg = target.arcWindow && target.arcWindow.points.length >= 2
+      ? bearingBetweenJs(
+        target.arcWindow.points[0]!.lat,
+        target.arcWindow.points[0]!.lng,
+        target.arcWindow.points[1]!.lat,
+        target.arcWindow.points[1]!.lng,
+      )
+      : null;
+    const tgtHdg = safeHeadingJs(
+      target.headingDeg,
+      safeHeadingJs(arcSegHdg, safeHeadingJs(heading.value, 0)),
+    );
 
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
@@ -589,7 +652,7 @@ export function useDriveMarkerV3(
     lastFrameTimestamp.value = 0;
 
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
-      const hdg = Number.isFinite(anchor.headingDeg) ? anchor.headingDeg! : 0;
+      const hdg = safeHeadingJs(anchor.headingDeg, 0);
       lat.value = anchor.lat;
       lng.value = anchor.lng;
       heading.value = hdg;
@@ -634,7 +697,7 @@ export function useDriveMarkerV3(
 
   const resetTo = useCallback((targetLatVal: number, targetLngVal: number, hdg: number) => {
     if (!Number.isFinite(targetLatVal) || !Number.isFinite(targetLngVal)) return;
-    const normHdg = Number.isFinite(hdg) ? normalizeHeadingJs(hdg) : 0;
+    const normHdg = safeHeadingJs(hdg, 0);
     applyInstantPose(
       targetLatVal,
       targetLngVal,
@@ -665,6 +728,41 @@ export function useDriveMarkerV3(
     targetArcM,
   ]);
 
+  const resumeFromBackground = useCallback(() => {
+    lastFrameTimestamp.value = 0;
+    skipCatchUpSv.value = 1;
+    const t = lastTargetJsRef.current;
+    if (t && Number.isFinite(t.lat) && Number.isFinite(t.lng)) {
+      pushTarget({ ...t, allowInstant: true });
+      return;
+    }
+    if (Number.isFinite(targetLat.value) && Number.isFinite(targetLng.value)) {
+      applyInstantPose(
+        targetLat.value,
+        targetLng.value,
+        safeHeadingJs(targetHdg.value, 0),
+        Number.isFinite(targetArcM.value) ? targetArcM.value : 0,
+        onRoadSv.value >= 0.5,
+        roadBlendSv.value,
+        Number.isFinite(rawTargetLat.value) ? rawTargetLat.value : targetLat.value,
+        Number.isFinite(rawTargetLng.value) ? rawTargetLng.value : targetLng.value,
+      );
+    }
+  }, [
+    applyInstantPose,
+    onRoadSv,
+    pushTarget,
+    rawTargetLat,
+    rawTargetLng,
+    roadBlendSv,
+    skipCatchUpSv,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
+    lastFrameTimestamp,
+  ]);
+
   const ensureFrameActive = useCallback(() => {
     enabledSv.value = enabled ? 1 : 0;
     frameCallback.setActive(enabled);
@@ -686,7 +784,7 @@ export function useDriveMarkerV3(
     if (!enabled || bootstrappedJsRef.current) return;
     const pose = getSeedPoseRef.current?.();
     if (!pose || !Number.isFinite(pose.lat) || !Number.isFinite(pose.lng)) return;
-    const hdg = Number.isFinite(pose.headingDeg) ? pose.headingDeg! : 0;
+    const hdg = safeHeadingJs(pose.headingDeg, 0);
     applyInstantPose(
       pose.lat,
       pose.lng,
@@ -717,8 +815,9 @@ export function useDriveMarkerV3(
       reset,
       resetTo,
       ensureFrameActive,
+      resumeFromBackground,
     }),
-    [ensureFrameActive, heading, lat, lng, pushTarget, reset, resetTo],
+    [ensureFrameActive, heading, lat, lng, pushTarget, reset, resetTo, resumeFromBackground],
   );
 }
 

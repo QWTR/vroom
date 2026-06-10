@@ -50,6 +50,9 @@ export function createDefaultSnapEngineState(): SnapEngineState {
     lastSegmentIndex: 0,
     lastPolylineKey: '',
     lastSegmentHeadingDeg: 0,
+    lockedTravelHeadingDeg: -1,
+    lastRoadBlend: 1,
+    offRoadStickTicks: 0,
     branchCandidate: null,
   };
 }
@@ -73,6 +76,57 @@ export function computeRoadBlend(
   const u = Math.max(0, Math.min(1, t));
   const smooth = u * u * (3 - 2 * u);
   return 1 - smooth;
+}
+
+/**
+ * Lepkość blendu — unika natychmiastowego przełączenia onRoad→offRoad przy skręcie,
+ * zanim map-match odświeży geometrię.
+ */
+export function applyRoadBlendStickiness(
+  targetBlend: number,
+  prevBlend: number,
+  crossTrackM: number,
+  stickTicks: number,
+  cfg: Pick<SnapEngineConfig, 'detachFullM' | 'onRoadBlendEps'>,
+): { blend: number; stickTicks: number } {
+  const target = Math.max(0, Math.min(1, targetBlend));
+  const prev = Math.max(0, Math.min(1, prevBlend));
+
+  if (target >= prev) {
+    return { blend: target, stickTicks: 0 };
+  }
+
+  const farOffRoad = crossTrackM >= cfg.detachFullM + 30;
+  const nextTicks = farOffRoad ? stickTicks + 1 : stickTicks + 1;
+  const maxSticky = NAV_V3.SNAP_BLEND_STICKY_TICKS;
+
+  if (farOffRoad && nextTicks >= maxSticky) {
+    return { blend: target, stickTicks: 0 };
+  }
+
+  const decayed = Math.max(target, prev - NAV_V3.SNAP_BLEND_DECAY_PER_TICK);
+  const minHold = cfg.onRoadBlendEps + 0.08;
+  const blend = nextTicks < maxSticky
+    ? Math.max(decayed, minHold)
+    : decayed;
+
+  return { blend, stickTicks: nextTicks };
+}
+
+/** Wykrywa ewidentny skręt na skrzyżowaniu (nagła zmiana kąta + ucieczka od polilinii). */
+export function detectIntersectionTurn(
+  travelHeadingDeg: number,
+  lastSegmentHeadingDeg: number,
+  crossTrackM: number,
+): boolean {
+  if (!Number.isFinite(lastSegmentHeadingDeg) || !Number.isFinite(travelHeadingDeg)) {
+    return false;
+  }
+  if (crossTrackM < NAV_V3.INTERSECTION_TURN_CROSS_TRACK_M) {
+    return false;
+  }
+  return headingDeltaAbs(travelHeadingDeg, lastSegmentHeadingDeg)
+    >= NAV_V3.INTERSECTION_TURN_HEADING_DEG;
 }
 
 function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -136,21 +190,86 @@ function toRoadPoints(points: { lat: number; lng: number }[]): RoadPoint[] {
   return points.map((p) => ({ latitude: p.lat, longitude: p.lng }));
 }
 
-function computeTravelHeadingDeg(
+export type TravelHeadingResult = {
+  headingDeg: number;
+  lockedTravelHeadingDeg: number;
+};
+
+/** true gdy brak wcześniejszego kursu (cold start na postoju). */
+function stateLockedNeedsSegment(locked: number): boolean {
+  return !Number.isFinite(locked) || locked < 0;
+}
+
+/** Zawsze zwraca skończony kąt 0–360 — nigdy NaN. */
+export function safeHeadingDeg(h: unknown, fallback = 0): number {
+  if (typeof h === 'number' && Number.isFinite(h) && h >= 0) {
+    return ((h % 360) + 360) % 360;
+  }
+  if (typeof fallback === 'number' && Number.isFinite(fallback) && fallback >= 0) {
+    return ((fallback % 360) + 360) % 360;
+  }
+  return 0;
+}
+
+/**
+ * Kurs jazdy bez kompasu w trybie trip (metalowa karoseria zakłóca magnetyk).
+ * Heading lock: przy postoju / małym ruchu zwraca ostatni poprawny wektor ruchu.
+ * segmentHeadingDeg — kierunek najbliższego segmentu drogi przy cold start / postoju.
+ */
+export function computeTravelHeadingDeg(
   raw: RawGpsFix,
   prev: { lat: number; lng: number } | null,
   fallbackDeg: number,
-): number {
+  lockedHeadingDeg: number,
+  tripActive: boolean,
+  segmentHeadingDeg?: number | null,
+): TravelHeadingResult {
+  const segFallback = safeHeadingDeg(segmentHeadingDeg, 0);
+  const rawLocked = lockedHeadingDeg;
+  const locked = safeHeadingDeg(
+    rawLocked >= 0 ? rawLocked : undefined,
+    safeHeadingDeg(fallbackDeg, segFallback),
+  );
+
+  const speedMs = raw.speedMs != null && raw.speedMs >= 0 ? raw.speedMs : 0;
+  const speedKmh = speedMs * 3.6;
+
   if (prev) {
     const movedM = distanceM(prev.lat, prev.lng, raw.lat, raw.lng);
-    if (movedM >= 2.5) {
-      return bearingBetween(prev.lat, prev.lng, raw.lat, raw.lng);
+    if (movedM >= NAV_V3.TRAVEL_HEADING_MIN_MOVE_M) {
+      const motionBearing = safeHeadingDeg(
+        bearingBetween(prev.lat, prev.lng, raw.lat, raw.lng),
+        locked,
+      );
+      return { headingDeg: motionBearing, lockedTravelHeadingDeg: motionBearing };
     }
   }
-  if (raw.headingDeg != null && Number.isFinite(raw.headingDeg) && raw.headingDeg >= 0) {
-    return raw.headingDeg;
+
+  if (tripActive) {
+    const useSegmentAtStandstill =
+      segFallback > 0
+      && speedKmh < NAV_V3.TRAVEL_HEADING_LOCK_SPEED_KMH
+      && stateLockedNeedsSegment(rawLocked);
+    const hdg = useSegmentAtStandstill
+      ? segFallback
+      : safeHeadingDeg(locked, segFallback);
+    return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
   }
-  return fallbackDeg;
+
+  if (
+    speedKmh < NAV_V3.TRAVEL_HEADING_LOCK_SPEED_KMH
+    || !prev
+  ) {
+    const hdg = safeHeadingDeg(locked, segFallback);
+    return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
+  }
+
+  if (raw.headingDeg != null && Number.isFinite(raw.headingDeg) && raw.headingDeg >= 0) {
+    const hdg = safeHeadingDeg(raw.headingDeg, locked);
+    return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
+  }
+  const hdg = safeHeadingDeg(locked, segFallback);
+  return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
 }
 
 function buildCumM(points: { lat: number; lng: number }[]): number[] {
@@ -499,6 +618,8 @@ export type SnapResolveInput = {
   prev: { lat: number; lng: number } | null;
   polylines: RoadPolyline[];
   isNavigating: boolean;
+  /** freeDrive lub navigation — bez fallbacku do kompasu. */
+  tripActive?: boolean;
   travelHeadingDeg?: number;
   state: SnapEngineState;
 };
@@ -507,6 +628,83 @@ export type SnapResolveOutput = {
   result: SnapResult;
   state: SnapEngineState;
 };
+
+function buildOffRoadStickyResult(
+  raw: RawGpsFix,
+  prev: { lat: number; lng: number } | null,
+  travelHeadingDeg: number,
+  state: SnapEngineState,
+  cfg: SnapEngineConfig,
+  crossTrackM: number,
+): { result: SnapResult; state: SnapEngineState } {
+  const headingDeg = safeHeadingDeg(
+    alignBearingToReference(
+      travelHeadingDeg,
+      state.lastSegmentHeadingDeg || travelHeadingDeg,
+    ),
+    safeHeadingDeg(travelHeadingDeg, 0),
+  );
+
+  if (!prev || crossTrackM >= 200) {
+    const nextState: SnapEngineState = {
+      ...state,
+      lastRoadBlend: 0,
+      offRoadStickTicks: 0,
+    };
+    return {
+      result: {
+        lat: raw.lat,
+        lng: raw.lng,
+        rawLat: raw.lat,
+        rawLng: raw.lng,
+        headingDeg,
+        crossTrackM,
+        pathMode: 'offRoad',
+        roadBlend: 0,
+        segmentIndex: state.lastSegmentIndex,
+        arcM: null,
+        polylineKey: null,
+        arcWindow: null,
+      },
+      state: nextState,
+    };
+  }
+
+  const rawBlend = computeRoadBlend(crossTrackM, cfg);
+  const sticky = applyRoadBlendStickiness(
+    rawBlend,
+    state.lastRoadBlend,
+    crossTrackM,
+    state.offRoadStickTicks,
+    cfg,
+  );
+  const roadBlend = sticky.blend;
+  const onRoad = roadBlend > cfg.onRoadBlendEps;
+  const nextState: SnapEngineState = {
+    ...state,
+    lastRoadBlend: roadBlend,
+    offRoadStickTicks: sticky.stickTicks,
+    lockedTravelHeadingDeg: state.lockedTravelHeadingDeg,
+  };
+
+  return {
+    result: {
+      lat: onRoad ? prev!.lat : raw.lat,
+      lng: onRoad ? prev!.lng : raw.lng,
+      rawLat: raw.lat,
+      rawLng: raw.lng,
+      headingDeg,
+      crossTrackM,
+      pathMode: onRoad ? 'onRoad' : 'offRoad',
+      roadBlend,
+      segmentIndex: state.lastSegmentIndex,
+      arcM: null,
+      polylineKey: onRoad ? state.lastPolylineKey || null : null,
+      arcWindow: null,
+    },
+    state: nextState,
+  };
+}
 
 export function resolveSnap(
   input: SnapResolveInput,
@@ -517,34 +715,24 @@ export function resolveSnap(
   let state = { ...input.state };
 
   const speedMs = raw.speedMs != null && raw.speedMs >= 0 ? raw.speedMs : 0;
-  const travelHeadingDeg = computeTravelHeadingDeg(
+  const tripActive = input.tripActive ?? isNavigating;
+  const travel = computeTravelHeadingDeg(
     raw,
     prev,
     input.travelHeadingDeg ?? state.lastSegmentHeadingDeg,
+    state.lockedTravelHeadingDeg,
+    tripActive,
+    null,
   );
+  let travelHeadingDeg = safeHeadingDeg(travel.headingDeg, 0);
+  state = {
+    ...state,
+    lockedTravelHeadingDeg: safeHeadingDeg(travel.lockedTravelHeadingDeg, travelHeadingDeg),
+  };
 
   if (!polylines.length) {
-    const headingDeg = alignBearingToReference(
-      travelHeadingDeg,
-      state.lastSegmentHeadingDeg || travelHeadingDeg,
-    );
-    return {
-      result: {
-        lat: raw.lat,
-        lng: raw.lng,
-        rawLat: raw.lat,
-        rawLng: raw.lng,
-        headingDeg,
-        crossTrackM: 999,
-        pathMode: 'offRoad',
-        roadBlend: 0,
-        segmentIndex: state.lastSegmentIndex,
-        arcM: null,
-        polylineKey: null,
-        arcWindow: null,
-      },
-      state,
-    };
+    const off = buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999);
+    return off;
   }
 
   const { projection, nextState } = findBestProjection(
@@ -560,38 +748,48 @@ export function resolveSnap(
   state = nextState;
 
   if (!projection) {
-    const headingDeg = alignBearingToReference(
-      travelHeadingDeg,
-      state.lastSegmentHeadingDeg || travelHeadingDeg,
-    );
-    return {
-      result: {
-        lat: raw.lat,
-        lng: raw.lng,
-        rawLat: raw.lat,
-        rawLng: raw.lng,
-        headingDeg,
-        crossTrackM: 999,
-        pathMode: 'offRoad',
-        roadBlend: 0,
-        segmentIndex: state.lastSegmentIndex,
-        arcM: null,
-        polylineKey: null,
-        arcWindow: null,
-      },
-      state,
-    };
+    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999);
   }
 
-  const roadBlend = computeRoadBlend(projection.crossTrackM, cfg);
+  const rawBlend = computeRoadBlend(projection.crossTrackM, cfg);
+  const sticky = applyRoadBlendStickiness(
+    rawBlend,
+    state.lastRoadBlend,
+    projection.crossTrackM,
+    state.offRoadStickTicks,
+    cfg,
+  );
+  const roadBlend = sticky.blend;
   const pathMode: SnapResult['pathMode'] = roadBlend > cfg.onRoadBlendEps ? 'onRoad' : 'offRoad';
-  const headingDeg = alignBearingToReference(projection.headingDeg, travelHeadingDeg);
+
+  const segHeading = safeHeadingDeg(projection.headingDeg, travelHeadingDeg);
+  const movedM = prev
+    ? distanceM(prev.lat, prev.lng, raw.lat, raw.lng)
+    : 0;
+  if (tripActive && movedM < NAV_V3.TRAVEL_HEADING_MIN_MOVE_M) {
+    travelHeadingDeg = segHeading;
+    state.lockedTravelHeadingDeg = segHeading;
+  }
+
+  const headingDeg = safeHeadingDeg(
+    alignBearingToReference(projection.headingDeg, travelHeadingDeg),
+    segHeading,
+  );
+
+  const intersectionTurnDetected = detectIntersectionTurn(
+    travelHeadingDeg,
+    state.lastSegmentHeadingDeg,
+    projection.crossTrackM,
+  );
 
   state = {
     ...state,
     lastSegmentIndex: projection.segmentIndex,
     lastPolylineKey: projection.polylineKey,
     lastSegmentHeadingDeg: headingDeg,
+    lockedTravelHeadingDeg: safeHeadingDeg(state.lockedTravelHeadingDeg, headingDeg),
+    lastRoadBlend: roadBlend,
+    offRoadStickTicks: sticky.stickTicks,
     branchCandidate: branchSwitchConfirmed(state, cfg) ? null : state.branchCandidate,
   };
 
@@ -609,6 +807,7 @@ export function resolveSnap(
       arcM: projection.arcM,
       polylineKey: projection.polylineKey,
       arcWindow: projection.arcWindow,
+      intersectionTurnDetected,
     },
     state,
   };

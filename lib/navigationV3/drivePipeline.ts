@@ -229,12 +229,14 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
 
       const polylines = collectPolylines(geometry, state.mode);
       const isNavigating = state.mode === 'navigation';
+      const tripActive = state.mode === 'navigation' || state.mode === 'freeDrive';
 
       const { result: snap } = snapEngine.resolve({
         raw: fix,
         prev: state.displayPrev,
         polylines,
         isNavigating,
+        tripActive,
         travelHeadingDeg: fix.headingDeg ?? undefined,
       });
 

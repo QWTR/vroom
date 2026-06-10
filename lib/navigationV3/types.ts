@@ -37,12 +37,19 @@ export type SnapResult = {
   arcM: number | null;
   polylineKey: string | null;
   arcWindow: ArcWindowSlice | null;
+  /** Ewidentny skręt z polilinii — trigger dynamicznego map-match. */
+  intersectionTurnDetected?: boolean;
 };
 
 export type SnapEngineState = {
   lastSegmentIndex: number;
   lastPolylineKey: string;
   lastSegmentHeadingDeg: number;
+  /** Ostatni poprawny wektor ruchu (bez kompasu w aucie). */
+  lockedTravelHeadingDeg: number;
+  /** Lepkość roadBlend między tickami GPS. */
+  lastRoadBlend: number;
+  offRoadStickTicks: number;
   branchCandidate: {
     polylineKey: string;
     segmentIndex: number;

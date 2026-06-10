@@ -23,7 +23,8 @@ export type MapMatchRecoveryReason =
   | 'STALE_ANCHOR'
   | 'MARKER_STUCK'
   | 'AUTO_ENTRY'
-  | 'GPS_RESUME';
+  | 'GPS_RESUME'
+  | 'INTERSECTION_TURN';
 
 export type MatchedRoadPoint = { latitude: number; longitude: number };
 
@@ -51,6 +52,7 @@ type ForceMatchOpts = {
   manual?: boolean;
   refresh?: boolean;
   forceImmediate?: boolean;
+  intersectionTurn?: boolean;
   speedKmh?: number;
   headingDeg?: number;
 };
@@ -160,6 +162,12 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     minMoveM: 50,
     priority: 85,
     matchOpts: { refresh: true, forceImmediate: true },
+  },
+  INTERSECTION_TURN: {
+    cooldownMs: 6_000,
+    minMoveM: 10,
+    priority: 97,
+    matchOpts: { refresh: true, forceImmediate: true, intersectionTurn: true },
   },
 };
 
@@ -377,7 +385,8 @@ export class MapMatchCoordinator {
       reason === 'MANUAL'
       || reason === 'AUTO_ENTRY'
       || reason === 'PRE_DRIVE'
-      || reason === 'GPS_RESUME';
+      || reason === 'GPS_RESUME'
+      || reason === 'INTERSECTION_TURN';
     if (!clientFirstBypass) {
       const critical =
         reason === 'HARD_RESCUE'

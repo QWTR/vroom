@@ -7,15 +7,20 @@ export {
 } from './drivePipeline';
 export { filterGpsFix, type GpsFilterConfig } from './gpsFilter';
 export {
+  applyRoadBlendStickiness,
   computeRoadBlend,
+  computeTravelHeadingDeg,
+  safeHeadingDeg,
   createDefaultSnapEngineState,
   createSnapEngine,
+  detectIntersectionTurn,
   makeRoadPolyline,
   packRoadPolyline,
   resolveSnap,
   type SnapEngineConfig,
   type SnapResolveInput,
   type SnapResolveOutput,
+  type TravelHeadingResult,
 } from './snapEngine';
 export { buildNavigationTarget } from './targetBuilder';
 export type {

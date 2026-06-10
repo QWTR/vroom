@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { NAV_V3 } from './config';
 import {
+  applyRoadBlendStickiness,
   computeRoadBlend,
+  computeTravelHeadingDeg,
   createDefaultSnapEngineState,
+  detectIntersectionTurn,
   makeRoadPolyline,
   resolveSnap,
+  safeHeadingDeg,
 } from './snapEngine';
 
 describe('computeRoadBlend', () => {
@@ -78,7 +82,62 @@ describe('resolveSnap', () => {
     });
 
     expect(out.result.pathMode).toBe('offRoad');
-    expect(out.result.roadBlend).toBe(0);
-    expect(out.result.lat).toBe(52.001);
+  });
+
+  it('detects intersection turn from heading jump and cross-track', () => {
+    expect(detectIntersectionTurn(90, 0, 25)).toBe(true);
+    expect(detectIntersectionTurn(10, 0, 25)).toBe(false);
+    expect(detectIntersectionTurn(90, 0, 10)).toBe(false);
+  });
+
+  it('applies road blend stickiness on detach', () => {
+    const cfg = { detachFullM: 100, onRoadBlendEps: 0.05 };
+    const first = applyRoadBlendStickiness(0, 1, 85, 0, cfg);
+    expect(first.blend).toBeGreaterThan(0.05);
+    expect(first.stickTicks).toBe(1);
+  });
+
+  it('heading lock ignores compass in trip mode', () => {
+    const out = computeTravelHeadingDeg(
+      {
+        lat: 52.0,
+        lng: 21.0,
+        accuracyM: 8,
+        timestampMs: 1000,
+        speedMs: 0,
+        headingDeg: 270,
+      },
+      { lat: 52.0, lng: 21.0 },
+      45,
+      45,
+      true,
+    );
+    expect(out.headingDeg).toBe(45);
+    expect(out.lockedTravelHeadingDeg).toBe(45);
+  });
+
+  it('uses segment heading at cold start standstill in trip mode', () => {
+    const out = computeTravelHeadingDeg(
+      {
+        lat: 52.0,
+        lng: 21.0,
+        accuracyM: 8,
+        timestampMs: 1000,
+        speedMs: 0,
+        headingDeg: 270,
+      },
+      null,
+      0,
+      -1,
+      true,
+      127,
+    );
+    expect(out.headingDeg).toBe(127);
+    expect(out.lockedTravelHeadingDeg).toBe(127);
+  });
+
+  it('safeHeadingDeg never returns NaN', () => {
+    expect(safeHeadingDeg(NaN, 12)).toBe(12);
+    expect(safeHeadingDeg(undefined, NaN)).toBe(0);
   });
 });

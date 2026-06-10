@@ -79,20 +79,31 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';
-    const la = marker.lat.value;
-    const ln = marker.lng.value;
-    const h = marker.heading.value;
-    if (
-      !Number.isFinite(la)
-      || !Number.isFinite(ln)
-      || (Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6)
-    ) {
-      if (lastShape.value !== EMPTY_SHAPE) {
-        lastShape.value = EMPTY_SHAPE;
+    let la = marker.lat.value;
+    let ln = marker.lng.value;
+    let h = marker.heading.value;
+
+    const hasValidCoords = Number.isFinite(la) && Number.isFinite(ln)
+      && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
+    const hasLastCoords = Number.isFinite(lastLat.value) && Number.isFinite(lastLng.value)
+      && !(Math.abs(lastLat.value) < 1e-6 && Math.abs(lastLng.value) < 1e-6);
+
+    if (!hasValidCoords) {
+      if (hasLastCoords) {
+        la = lastLat.value;
+        ln = lastLng.value;
+        h = Number.isFinite(h) ? h : lastHdg.value;
+      } else {
+        if (lastShape.value !== EMPTY_SHAPE) {
+          lastShape.value = EMPTY_SHAPE;
+        }
+        return { shape: EMPTY_SHAPE };
       }
-      return { shape: EMPTY_SHAPE };
     }
-    const hdg = Number.isFinite(h) ? ((h % 360) + 360) % 360 : 0;
+
+    const hdg = Number.isFinite(h)
+      ? ((h % 360) + 360) % 360
+      : (Number.isFinite(lastHdg.value) ? lastHdg.value : 0);
     const prevLa = lastLat.value;
     const prevLn = lastLng.value;
     const prevH = lastHdg.value;

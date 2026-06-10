@@ -1998,6 +1998,8 @@ function MapScreenInner() {
    *  delta-pozycji — niewrażliwa na GPS jitter przy postoju. Używane do drift clamp
    *  w DR.onFrame żeby odróżnić "stoję, GPS jitteruje" od "jadę, lat/lng zamarły". */
   const rawGpsKmhRef = useRef(0);
+  /** Surowy GPS dla COG kamery V3 (nie snapped marker / polilinia). */
+  const rawGpsCourseRef = useRef<{ lat: number; lng: number } | null>(null);
   /** Kurs z Dopplera GPS (loc.coords.heading, °) — fallback gdy brak wektora ruchu. */
   const lastGpsDeviceHeadingRef = useRef<number | null>(null);
   const tripPeakSpeedRef = useRef(0);
@@ -2049,6 +2051,7 @@ function MapScreenInner() {
   const lastDrivingSqliteRecoverRef = useRef<number>(0);
   const lastClientFirstResolveRef = useRef<number>(0);
   const lastAddMatchFeedRef = useRef<number>(0);
+  const lastIntersectionMatchRef = useRef<number>(0);
   /** Po starcie trybu jazdy/nawigacji: tłumimy ekstremalne skoki speed (zimny GPS fix). */
   const tripSpeedWarmupUntilRef = useRef<number>(0);
   /** Zapobiega równoległemu wejściu w driving (podwójny tap podczas await forceMatch). */
@@ -2932,6 +2935,9 @@ function MapScreenInner() {
         emitSpeedometerKmh(0);
       }
       driveMarker.pushTarget(out.target);
+      if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
+        rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
+      }
       lastHeadingRef.current = out.target.headingDeg;
       lastTripMarkerPoseRef.current = { lat: out.target.lat, lng: out.target.lng };
       drLatRef.current = out.target.lat;
@@ -2969,6 +2975,41 @@ function MapScreenInner() {
           setLivePreviewOriginTick((t) => t + 1);
         }
       }
+
+      if (
+        !out.rejected
+        && out.snap.intersectionTurnDetected
+        && isDrivingRef.current
+        && !isNavigatingRef.current
+      ) {
+        const nowTurn = Date.now();
+        if (nowTurn - lastIntersectionMatchRef.current >= 5_000) {
+          lastIntersectionMatchRef.current = nowTurn;
+          roadMatchSigRef.current = '';
+          const turnReqId = mapMatchCoord.allocRequestId();
+          void mapMatchCoord.requestRecovery({
+            reason: 'INTERSECTION_TURN',
+            lat: out.snap.rawLat,
+            lng: out.snap.rawLng,
+            speedKmh: out.hudSpeedKmh,
+            headingDeg: out.snap.headingDeg,
+            forceImmediate: true,
+          }).then((pts) => {
+            if (mapMatchCoord.isStaleRequest(turnReqId)) return;
+            if (!isDrivingRef.current || isNavigatingRef.current) return;
+            if (pts && pts.length >= 2) {
+              applyRoadMatchPoints(pts, { skipResync: true });
+              bumpMatchedFreshness();
+              resyncSnapAfterRoadGeometry(
+                out.snap.rawLat,
+                out.snap.rawLng,
+                out.hudSpeedKmh,
+                null,
+              );
+            }
+          });
+        }
+      }
     },
   });
 
@@ -2978,6 +3019,7 @@ function MapScreenInner() {
     enabled: isTripActiveMap,
     mode: navV3Mode,
     speedKmhRef,
+    rawGpsRef: rawGpsCourseRef,
     isUserExploring: () => isUserExploringMapRef.current(),
   });
 
@@ -3088,6 +3130,10 @@ function MapScreenInner() {
       if (next === 'active') {
         bgProjectionCooldownUntilRef.current = Date.now() + BG_PROJECTION_COOLDOWN_MS;
         stopBgMarkerTick();
+        if (isNavigatingRef.current || isDrivingRef.current) {
+          driveMarker.resumeFromBackground();
+          cameraV3.resumeFromBackground();
+        }
       }
       syncBgMarkerTick();
     });
@@ -3095,7 +3141,7 @@ function MapScreenInner() {
       sub.remove();
       stopBgMarkerTick();
     };
-  }, [isTripActiveMap]);
+  }, [isTripActiveMap, driveMarker, cameraV3]);
 
   const showThreeDBuildings = enableThreeDScene && currentZoom >= BUILDINGS_3D_MIN_ZOOM && !isTripActiveMap;
   const showTerrainLayers = enableThreeDScene && !isTripActiveMap;

@@ -140,6 +140,8 @@ export type ForceMatchOptions = {
   manual?: boolean;
   /** Okresowe odświeżenie osi drogi w driving — omija cache 72s, wlicza się w budżet zapytań. */
   refresh?: boolean;
+  /** Skręt na skrzyżowaniu — omija cooldown interwału trace. */
+  intersectionTurn?: boolean;
   speedKmh?: number;
   headingDeg?: number;
 };
@@ -149,6 +151,7 @@ export type AddMatchContext = {
   accuracyM?: number | null;
   noRoad?: boolean;
   staleSnap?: boolean;
+  intersectionTurn?: boolean;
 };
 
 interface MapMatchResponse {
@@ -271,8 +274,9 @@ export function useDrivingMapMatch() {
     const speedKmh = Math.max(0, ctx?.speedKmh ?? 0);
     const noRoad = !!ctx?.noRoad;
     const staleSnap = !!ctx?.staleSnap;
+    const intersectionTurn = !!ctx?.intersectionTurn;
 
-    if (!background && speedKmh < STATIONARY_SPEED_KMH && !noRoad) {
+    if (!background && speedKmh < STATIONARY_SPEED_KMH && !noRoad && !intersectionTurn) {
       logSnapReject('add_velocity_pause', { speedKmh: Math.round(speedKmh) });
       return;
     }
@@ -317,7 +321,11 @@ export function useDrivingMapMatch() {
       : MIN_INTERVAL_MS;
     let dynamicMinMoveM = MIN_FETCH_MOVE_M;
     let minPathM = background ? BACKGROUND_NETWORK_MIN_PATH_M : BATCH_MIN_PATH_DISTANCE_M;
-    if (noRoad) {
+    if (intersectionTurn) {
+      dynamicMinIntervalMs = 0;
+      dynamicMinMoveM = 8;
+      minPathM = 8;
+    } else if (noRoad) {
       dynamicMinIntervalMs = 30_000;
       dynamicMinMoveM = 24;
     } else if (speedKmh >= 55) {
@@ -353,12 +361,12 @@ export function useDrivingMapMatch() {
 
     // Przy bardzo małej prędkości i istniejącym snapie utrzymujemy płynność lokalnie
     // (DR + drivingSnap), nie dopytując API — chyba że staleSnap (geometria odjechała).
-    if (matchedPtsRef.current && speedKmh < 8 && !noRoad && !staleSnap) {
+    if (matchedPtsRef.current && speedKmh < 8 && !noRoad && !staleSnap && !intersectionTurn) {
       logSnapReject('add_low_speed_cached_geometry', { speedKmh: Math.round(speedKmh) });
       return;
     }
 
-    if (now - lastCallRef.current < dynamicMinIntervalMs) {
+    if (!intersectionTurn && now - lastCallRef.current < dynamicMinIntervalMs) {
       logSnapReject('add_interval_gate', {
         waitMs: dynamicMinIntervalMs - (now - lastCallRef.current),
         staleSnap,
@@ -509,6 +517,7 @@ export function useDrivingMapMatch() {
 
       const manual = !!opts?.manual;
       const refresh = !!opts?.refresh;
+      const intersectionTurn = !!opts?.intersectionTurn;
       const speedKmh = Math.max(0, opts?.speedKmh ?? 0);
 
       if (!manual) {
@@ -523,15 +532,16 @@ export function useDrivingMapMatch() {
         for (let i = 0; i < 50 && isFetchingRef.current; i++) {
           await sleep(60);
         }
-      } else if (refresh) {
-        if (getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW * 2.5) {
+      } else if (refresh || intersectionTurn) {
+        if (!intersectionTurn && getRequestUsageCount(Date.now()) >= BUDGET_HARD_CAP_PER_WINDOW * 2.5) {
           logSnapReject('force_refresh_budget_hard_cap');
           return matchedPtsRef.current;
         }
-        for (let i = 0; i < 15 && isFetchingRef.current; i++) {
-          await sleep(50);
+        const waitLoops = intersectionTurn ? 8 : 15;
+        for (let i = 0; i < waitLoops && isFetchingRef.current; i++) {
+          await sleep(intersectionTurn ? 30 : 50);
         }
-        if (isFetchingRef.current) {
+        if (isFetchingRef.current && !intersectionTurn) {
           logSnapReject('force_refresh_fetch_inflight');
           return matchedPtsRef.current;
         }
@@ -545,25 +555,27 @@ export function useDrivingMapMatch() {
             return matchedPtsRef.current;
           }
         }
-      } else if (isFetchingRef.current) {
+      } else if (isFetchingRef.current && !intersectionTurn) {
         logSnapReject('force_fetch_inflight');
         return null;
       }
 
       if (
-        !manual &&
-        !refresh &&
-        matchedPtsRef.current &&
-        Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
+        !manual
+        && !refresh
+        && !intersectionTurn
+        && matchedPtsRef.current
+        && Date.now() - matchedTimeRef.current < FORCE_MATCH_MIN_INTERVAL_MS
       ) {
         logSnapReject('force_recent_cache_used');
         return matchedPtsRef.current;
       }
       if (
-        !manual &&
-        !refresh &&
-        matchedPtsRef.current &&
-        Date.now() - matchedTimeRef.current < FRESH_GEOMETRY_BLOCK_MS
+        !manual
+        && !refresh
+        && !intersectionTurn
+        && matchedPtsRef.current
+        && Date.now() - matchedTimeRef.current < FRESH_GEOMETRY_BLOCK_MS
       ) {
         logSnapReject('force_geometry_fresh');
         return matchedPtsRef.current;
