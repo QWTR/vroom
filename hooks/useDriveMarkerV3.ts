@@ -1,0 +1,682 @@
+import { useCallback, useEffect, useMemo } from 'react';
+import {
+  useFrameCallback,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { NAV_V3 } from '../lib/navigationV3/config';
+import type { ArcWindowSlice, NavigationTarget, PathMode } from '../lib/navigationV3/types';
+
+const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
+const MAX_HEADING_RATE_DPS = NAV_V3.MARKER_MAX_HEADING_DPS;
+const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
+const POLYLINE_KEY_HARD_SNAP_M = 45;
+
+export type DriveMarkerV3Values = {
+  lat: SharedValue<number>;
+  lng: SharedValue<number>;
+  heading: SharedValue<number>;
+};
+
+export type UseDriveMarkerV3Return = DriveMarkerV3Values & {
+  pushTarget: (target: NavigationTarget) => void;
+  reset: (anchor?: { lat: number; lng: number; headingDeg?: number }) => void;
+  resetTo: (lat: number, lng: number, headingDeg: number) => void;
+  ensureFrameActive: () => void;
+};
+
+function normalizeHeadingJs(h: number): number {
+  return ((h % 360) + 360) % 360;
+}
+
+function packArcWindowFeed(
+  window: ArcWindowSlice | null | undefined,
+  polylineKey: string,
+): {
+  ptsFlat: number[];
+  cumM: number[];
+  baseArcM: number;
+  polylineKey: string;
+} | null {
+  if (!window || window.points.length < 2 || window.cumM.length < 2) return null;
+  const ptsFlat: number[] = [];
+  for (let i = 0; i < window.points.length; i += 1) {
+    const p = window.points[i];
+    if (!p) continue;
+    ptsFlat.push(p.lat, p.lng);
+  }
+  if (ptsFlat.length < 4) return null;
+  return {
+    ptsFlat,
+    cumM: window.cumM.slice(),
+    baseArcM: window.baseArcM,
+    polylineKey,
+  };
+}
+
+function haversineMJs(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2) ** 2;
+  const s2 =
+    Math.cos((aLat * Math.PI) / 180)
+    * Math.cos((bLat * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
+}
+
+function bearingBetweenJs(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function pointAtWindowArcLocalJs(
+  ptsFlat: number[],
+  cumM: number[],
+  localM: number,
+): { lat: number; lng: number; heading: number } {
+  const n = cumM.length;
+  if (n < 2 || ptsFlat.length < 4) {
+    return { lat: NaN, lng: NaN, heading: 0 };
+  }
+  const total = cumM[n - 1];
+  const clamped = Math.max(0, Math.min(total, localM));
+  let seg = 0;
+  for (let i = 0; i < n - 1; i += 1) {
+    if (clamped <= cumM[i + 1]) {
+      seg = i;
+      break;
+    }
+    seg = i;
+  }
+  const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
+  const t = (clamped - cumM[seg]) / segLen;
+  const aLat = ptsFlat[seg * 2];
+  const aLng = ptsFlat[seg * 2 + 1];
+  const bLat = ptsFlat[(seg + 1) * 2];
+  const bLng = ptsFlat[(seg + 1) * 2 + 1];
+  const lat = aLat + (bLat - aLat) * t;
+  const lng = aLng + (bLng - aLng) * t;
+  const hdg = bearingBetweenJs(aLat, aLng, bLat, bLng);
+  return { lat, lng, heading: hdg };
+}
+
+function blendPositionJs(
+  roadLat: number,
+  roadLng: number,
+  rawLat: number,
+  rawLng: number,
+  roadBlend: number,
+): { lat: number; lng: number } {
+  const blend = Math.max(0, Math.min(1, roadBlend));
+  if (blend >= 0.999) return { lat: roadLat, lng: roadLng };
+  if (blend <= 0.001) return { lat: rawLat, lng: rawLng };
+  const inv = 1 - blend;
+  return {
+    lat: roadLat * blend + rawLat * inv,
+    lng: roadLng * blend + rawLng * inv,
+  };
+}
+
+function normalizeHeadingW(h: number): number {
+  'worklet';
+  return ((h % 360) + 360) % 360;
+}
+
+function headingDeltaW(from: number, to: number): number {
+  'worklet';
+  return ((to - from + 540) % 360) - 180;
+}
+
+function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
+  'worklet';
+  const diff = headingDeltaW(from, to);
+  const clamped = Math.max(-maxDeltaDeg, Math.min(maxDeltaDeg, diff));
+  return normalizeHeadingW(from + clamped);
+}
+
+function clampWorklet(n: number, min: number, max: number): number {
+  'worklet';
+  return Math.max(min, Math.min(max, n));
+}
+
+function haversineMWorklet(
+  aLat: number,
+  aLng: number,
+  bLat: number,
+  bLng: number,
+): number {
+  'worklet';
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s1 = Math.sin(dLat / 2) ** 2;
+  const s2 =
+    Math.cos((aLat * Math.PI) / 180)
+    * Math.cos((bLat * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
+}
+
+function bearingBetweenWorklet(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  'worklet';
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const lat1R = toRad(lat1);
+  const lat2R = toRad(lat2);
+  const y = Math.sin(dLng) * Math.cos(lat2R);
+  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function stepTowardWorklet(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  maxStepM: number,
+): { lat: number; lng: number } {
+  'worklet';
+  const distM = haversineMWorklet(fromLat, fromLng, toLat, toLng);
+  if (distM < 0.008 || maxStepM < 0.008) {
+    return { lat: fromLat, lng: fromLng };
+  }
+  const t = Math.min(1, maxStepM / distM);
+  return {
+    lat: fromLat + (toLat - fromLat) * t,
+    lng: fromLng + (toLng - fromLng) * t,
+  };
+}
+
+function pointAtWindowArcLocal(
+  ptsFlat: number[],
+  cumM: number[],
+  localM: number,
+): { lat: number; lng: number; heading: number } {
+  'worklet';
+  const n = cumM.length;
+  if (n < 2 || ptsFlat.length < 4) {
+    return { lat: NaN, lng: NaN, heading: 0 };
+  }
+  const total = cumM[n - 1];
+  const clamped = Math.max(0, Math.min(total, localM));
+  let seg = 0;
+  for (let i = 0; i < n - 1; i += 1) {
+    if (clamped <= cumM[i + 1]) {
+      seg = i;
+      break;
+    }
+    seg = i;
+  }
+  const segLen = Math.max(0.001, cumM[seg + 1] - cumM[seg]);
+  const t = (clamped - cumM[seg]) / segLen;
+  const aLat = ptsFlat[seg * 2];
+  const aLng = ptsFlat[seg * 2 + 1];
+  const bLat = ptsFlat[(seg + 1) * 2];
+  const bLng = ptsFlat[(seg + 1) * 2 + 1];
+  const lat = aLat + (bLat - aLat) * t;
+  const lng = aLng + (bLng - aLng) * t;
+  const heading = bearingBetweenWorklet(aLat, aLng, bLat, bLng);
+  return { lat, lng, heading };
+}
+
+function blendPositionWorklet(
+  roadLat: number,
+  roadLng: number,
+  rawLat: number,
+  rawLng: number,
+  roadBlend: number,
+): { lat: number; lng: number } {
+  'worklet';
+  const blend = clampWorklet(roadBlend, 0, 1);
+  if (blend >= 0.999) return { lat: roadLat, lng: roadLng };
+  if (blend <= 0.001) return { lat: rawLat, lng: rawLng };
+  const inv = 1 - blend;
+  return {
+    lat: roadLat * blend + rawLat * inv,
+    lng: roadLng * blend + rawLng * inv,
+  };
+}
+
+function pathModeOnRoad(mode: PathMode): boolean {
+  return mode === 'onRoad';
+}
+
+/**
+ * V3 marker — distance integrator @ 60 FPS.
+ * No durationMs. No gpsCadence. Single writer for display lat/lng/heading.
+ */
+export function useDriveMarkerV3(enabled = true): UseDriveMarkerV3Return {
+  const lat = useSharedValue(NaN);
+  const lng = useSharedValue(NaN);
+  const heading = useSharedValue(0);
+  const enabledSv = useSharedValue(enabled ? 1 : 0);
+  const bootstrapped = useSharedValue(0);
+
+  const displayArcM = useSharedValue(0);
+  const targetArcM = useSharedValue(0);
+  const baseArcM = useSharedValue(0);
+  const roadPtsFlat = useSharedValue<number[]>([]);
+  const roadCumM = useSharedValue<number[]>([]);
+  const polylineKeySv = useSharedValue('');
+  const onRoadSv = useSharedValue(0);
+  const roadBlendSv = useSharedValue(0);
+  const speedMs = useSharedValue(0);
+
+  const targetLat = useSharedValue(NaN);
+  const targetLng = useSharedValue(NaN);
+  const targetHdg = useSharedValue(0);
+  const rawTargetLat = useSharedValue(NaN);
+  const rawTargetLng = useSharedValue(NaN);
+
+  const lastFrameTimestamp = useSharedValue(0);
+
+  const applyInstantPose = useCallback((
+    poseLat: number,
+    poseLng: number,
+    poseHdg: number,
+    arcM: number,
+    onRoad: boolean,
+    blend: number,
+    rawLat: number,
+    rawLng: number,
+  ) => {
+    lat.value = poseLat;
+    lng.value = poseLng;
+    heading.value = poseHdg;
+    displayArcM.value = arcM;
+    targetArcM.value = arcM;
+    targetLat.value = poseLat;
+    targetLng.value = poseLng;
+    targetHdg.value = poseHdg;
+    rawTargetLat.value = rawLat;
+    rawTargetLng.value = rawLng;
+    onRoadSv.value = onRoad ? 1 : 0;
+    roadBlendSv.value = blend;
+    bootstrapped.value = 1;
+  }, [
+    baseArcM,
+    bootstrapped,
+    displayArcM,
+    heading,
+    lat,
+    lng,
+    onRoadSv,
+    rawTargetLat,
+    rawTargetLng,
+    roadBlendSv,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
+  ]);
+
+  const frameCallback = useFrameCallback((frameInfo) => {
+    'worklet';
+    if (enabledSv.value < 0.5 || bootstrapped.value < 0.5) return;
+    if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) return;
+
+    const tspf = frameInfo.timeSincePreviousFrame;
+    let dt = 1 / 60;
+    if (tspf != null && tspf > 0) {
+      dt = clampWorklet(tspf / 1000, 0.008, 0.05);
+    } else if (lastFrameTimestamp.value > 0) {
+      dt = clampWorklet(
+        (frameInfo.timestamp - lastFrameTimestamp.value) / 1000,
+        0.008,
+        0.05,
+      );
+    }
+    lastFrameTimestamp.value = frameInfo.timestamp;
+
+    const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
+    const stepM = cruiseMs * dt;
+    const maxHdgStep = MAX_HEADING_RATE_DPS * dt;
+
+    const blend = clampWorklet(roadBlendSv.value, 0, 1);
+    const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
+    const pts = roadPtsFlat.value;
+    const cum = roadCumM.value;
+    const hasArc = pts.length >= 4 && cum.length >= 2;
+
+    let nextLat = lat.value;
+    let nextLng = lng.value;
+    let segmentHdg = targetHdg.value;
+
+    if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
+      const gap = targetArcM.value - displayArcM.value;
+      let nextArcM = displayArcM.value;
+
+      if (stepM > 0.001) {
+        if (gap >= 0) {
+          const arcStep = stepM * Math.max(ON_ROAD_BLEND_EPS, blend);
+          nextArcM = Math.min(displayArcM.value + arcStep, targetArcM.value);
+        } else if (gap < -0.5) {
+          nextArcM = Math.max(displayArcM.value - stepM * 0.35, targetArcM.value);
+        }
+      }
+
+      displayArcM.value = nextArcM;
+      const localM = nextArcM - baseArcM.value;
+      const roadPose = pointAtWindowArcLocal(pts, cum, localM);
+
+      if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
+        const rawLat = Number.isFinite(rawTargetLat.value) ? rawTargetLat.value : targetLat.value;
+        const rawLng = Number.isFinite(rawTargetLng.value) ? rawTargetLng.value : targetLng.value;
+        const blended = blendPositionWorklet(roadPose.lat, roadPose.lng, rawLat, rawLng, blend);
+        nextLat = blended.lat;
+        nextLng = blended.lng;
+        segmentHdg = normalizeHeadingW(roadPose.heading);
+      }
+    } else {
+      const tLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
+      const tLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
+      if (Number.isFinite(tLat) && Number.isFinite(tLng)) {
+        const stepped = stepM > 0.001
+          ? stepTowardWorklet(lat.value, lng.value, tLat, tLng, stepM)
+          : { lat: lat.value, lng: lng.value };
+        nextLat = stepped.lat;
+        nextLng = stepped.lng;
+      }
+      segmentHdg = Number.isFinite(targetHdg.value) ? targetHdg.value : heading.value;
+    }
+
+    lat.value = nextLat;
+    lng.value = nextLng;
+    heading.value = lerpHeadingCappedWorklet(heading.value, segmentHdg, maxHdgStep);
+  }, false);
+
+  const pushTarget = useCallback((target: NavigationTarget) => {
+    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+
+    const tgtHdg = Number.isFinite(target.headingDeg)
+      ? normalizeHeadingJs(target.headingDeg)
+      : (Number.isFinite(heading.value) ? heading.value : 0);
+
+    const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
+    const blend = Math.max(0, Math.min(1, target.roadBlend));
+    const feedSpeed = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
+
+    speedMs.value = feedSpeed;
+    targetLat.value = target.lat;
+    targetLng.value = target.lng;
+    targetHdg.value = tgtHdg;
+    rawTargetLat.value = target.rawLat;
+    rawTargetLng.value = target.rawLng;
+    onRoadSv.value = onRoad ? 1 : 0;
+    roadBlendSv.value = blend;
+
+    const arcFeed = onRoad && target.arcWindow && target.polylineKey
+      ? packArcWindowFeed(target.arcWindow, target.polylineKey)
+      : null;
+    const useArc = onRoad
+      && arcFeed != null
+      && target.targetArcM != null
+      && Number.isFinite(target.targetArcM);
+
+    const allowInstant = target.allowInstant === true;
+
+    if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value) || allowInstant) {
+      if (useArc && arcFeed) {
+        roadPtsFlat.value = arcFeed.ptsFlat;
+        roadCumM.value = arcFeed.cumM;
+        baseArcM.value = arcFeed.baseArcM;
+        polylineKeySv.value = arcFeed.polylineKey;
+        const arcM = target.targetArcM as number;
+        const localM = arcM - arcFeed.baseArcM;
+        const pose = pointAtWindowArcLocalJs(arcFeed.ptsFlat, arcFeed.cumM, localM);
+        const rawLat = target.rawLat;
+        const rawLng = target.rawLng;
+        const blended = blendPositionJs(
+          Number.isFinite(pose.lat) ? pose.lat : target.lat,
+          Number.isFinite(pose.lng) ? pose.lng : target.lng,
+          rawLat,
+          rawLng,
+          blend,
+        );
+        applyInstantPose(
+          blended.lat,
+          blended.lng,
+          Number.isFinite(pose.heading) ? normalizeHeadingJs(pose.heading) : tgtHdg,
+          arcM,
+          true,
+          blend,
+          rawLat,
+          rawLng,
+        );
+      } else {
+        onRoadSv.value = 0;
+        applyInstantPose(target.lat, target.lng, tgtHdg, 0, false, blend, target.rawLat, target.rawLng);
+      }
+      return;
+    }
+
+    if (useArc && arcFeed) {
+      const key = arcFeed.polylineKey;
+      const keyChanged = key.length > 0 && key !== polylineKeySv.value;
+      roadPtsFlat.value = arcFeed.ptsFlat;
+      roadCumM.value = arcFeed.cumM;
+      baseArcM.value = arcFeed.baseArcM;
+      polylineKeySv.value = key;
+      onRoadSv.value = 1;
+      const arcM = target.targetArcM as number;
+      targetArcM.value = arcM;
+
+      if (keyChanged) {
+        const gapBeforeKey = arcM - displayArcM.value;
+        const localM = arcM - arcFeed.baseArcM;
+        const pose = pointAtWindowArcLocalJs(arcFeed.ptsFlat, arcFeed.cumM, localM);
+        if (Math.abs(gapBeforeKey) >= POLYLINE_KEY_HARD_SNAP_M) {
+          displayArcM.value = arcM;
+          if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
+            const blended = blendPositionJs(
+              pose.lat,
+              pose.lng,
+              target.rawLat,
+              target.rawLng,
+              blend,
+            );
+            lat.value = blended.lat;
+            lng.value = blended.lng;
+            heading.value = Number.isFinite(pose.heading) ? normalizeHeadingJs(pose.heading) : tgtHdg;
+          }
+        } else if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
+          const reprojGapM = haversineMJs(lat.value, lng.value, pose.lat, pose.lng);
+          if (reprojGapM < POLYLINE_KEY_HARD_SNAP_M) {
+            displayArcM.value = arcM - reprojGapM * 0.15;
+          }
+        }
+      }
+    } else {
+      onRoadSv.value = 0;
+      roadPtsFlat.value = [];
+      roadCumM.value = [];
+      polylineKeySv.value = '';
+      displayArcM.value = 0;
+      targetArcM.value = 0;
+      baseArcM.value = 0;
+    }
+  }, [
+    applyInstantPose,
+    baseArcM,
+    displayArcM,
+    heading,
+    lat,
+    lng,
+    onRoadSv,
+    polylineKeySv,
+    rawTargetLat,
+    rawTargetLng,
+    roadBlendSv,
+    roadCumM,
+    roadPtsFlat,
+    speedMs,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
+  ]);
+
+  const reset = useCallback((anchor?: { lat: number; lng: number; headingDeg?: number }) => {
+    bootstrapped.value = 0;
+    onRoadSv.value = 0;
+    roadBlendSv.value = 0;
+    roadPtsFlat.value = [];
+    roadCumM.value = [];
+    polylineKeySv.value = '';
+    displayArcM.value = 0;
+    targetArcM.value = 0;
+    baseArcM.value = 0;
+    speedMs.value = 0;
+    lastFrameTimestamp.value = 0;
+
+    if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
+      const hdg = Number.isFinite(anchor.headingDeg) ? anchor.headingDeg! : 0;
+      lat.value = anchor.lat;
+      lng.value = anchor.lng;
+      heading.value = hdg;
+      targetLat.value = anchor.lat;
+      targetLng.value = anchor.lng;
+      targetHdg.value = hdg;
+      rawTargetLat.value = anchor.lat;
+      rawTargetLng.value = anchor.lng;
+      bootstrapped.value = 1;
+    } else {
+      lat.value = NaN;
+      lng.value = NaN;
+      heading.value = 0;
+      targetLat.value = NaN;
+      targetLng.value = NaN;
+      targetHdg.value = 0;
+      rawTargetLat.value = NaN;
+      rawTargetLng.value = NaN;
+    }
+  }, [
+    baseArcM,
+    bootstrapped,
+    displayArcM,
+    heading,
+    lat,
+    lastFrameTimestamp,
+    lng,
+    onRoadSv,
+    polylineKeySv,
+    rawTargetLat,
+    rawTargetLng,
+    roadBlendSv,
+    roadCumM,
+    roadPtsFlat,
+    speedMs,
+    targetArcM,
+    targetHdg,
+    targetLat,
+    targetLng,
+  ]);
+
+  const resetTo = useCallback((targetLatVal: number, targetLngVal: number, hdg: number) => {
+    if (!Number.isFinite(targetLatVal) || !Number.isFinite(targetLngVal)) return;
+    const normHdg = Number.isFinite(hdg) ? normalizeHeadingJs(hdg) : 0;
+    applyInstantPose(
+      targetLatVal,
+      targetLngVal,
+      normHdg,
+      0,
+      false,
+      0,
+      targetLatVal,
+      targetLngVal,
+    );
+    onRoadSv.value = 0;
+    roadPtsFlat.value = [];
+    roadCumM.value = [];
+    polylineKeySv.value = '';
+    displayArcM.value = 0;
+    targetArcM.value = 0;
+    baseArcM.value = 0;
+    lastFrameTimestamp.value = 0;
+  }, [
+    applyInstantPose,
+    baseArcM,
+    displayArcM,
+    lastFrameTimestamp,
+    onRoadSv,
+    polylineKeySv,
+    roadCumM,
+    roadPtsFlat,
+    targetArcM,
+  ]);
+
+  const ensureFrameActive = useCallback(() => {
+    enabledSv.value = enabled ? 1 : 0;
+    frameCallback.setActive(enabled);
+  }, [enabled, enabledSv, frameCallback]);
+
+  useEffect(() => {
+    enabledSv.value = enabled ? 1 : 0;
+    frameCallback.setActive(enabled);
+    return () => {
+      frameCallback.setActive(false);
+    };
+  }, [enabled, enabledSv, frameCallback]);
+
+  return useMemo(
+    () => ({
+      lat,
+      lng,
+      heading,
+      pushTarget,
+      reset,
+      resetTo,
+      ensureFrameActive,
+    }),
+    [ensureFrameActive, heading, lat, lng, pushTarget, reset, resetTo],
+  );
+}
+
+export function snapResultToNavigationTarget(
+  snap: {
+    lat: number;
+    lng: number;
+    rawLat: number;
+    rawLng: number;
+    headingDeg: number;
+    pathMode: PathMode;
+    roadBlend: number;
+    arcM: number | null;
+    arcWindow: ArcWindowSlice | null;
+    polylineKey: string | null;
+  },
+  speedMs: number,
+  allowInstant = false,
+): NavigationTarget {
+  return {
+    lat: snap.lat,
+    lng: snap.lng,
+    headingDeg: snap.headingDeg,
+    speedMs: Math.max(0, speedMs),
+    pathMode: snap.pathMode,
+    roadBlend: snap.roadBlend,
+    rawLat: snap.rawLat,
+    rawLng: snap.rawLng,
+    targetArcM: snap.arcM,
+    arcWindow: snap.arcWindow,
+    polylineKey: snap.polylineKey,
+    allowInstant,
+  };
+}
