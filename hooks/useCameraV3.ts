@@ -17,6 +17,10 @@ import {
   lerpHeadingWithMaxStep,
   normalizeHeading,
 } from '../lib/driveCore/travelHeading';
+import {
+  alignBearingToReference,
+  bearingBetween,
+} from '../scripts/navigationUtils';
 
 export type UseCameraV3Options = {
   cameraRef: RefObject<Mapbox.Camera>;
@@ -43,6 +47,9 @@ const SPEED_DEADZONE_KMH = NAV_V3.CAMERA_SPEED_DEADZONE_KMH;
 const POS_EMA_ALPHA = 0.16;
 const MIN_CENTER_MOVE_M = 0.12;
 const MIN_HEADING_DEG = 0.22;
+/** Min. ruch do wyliczenia kursu kamery z wektora ruchu (naprawia odwrócony bearing). */
+const MIN_COURSE_MOVE_M = 0.35;
+const MIN_COURSE_SPEED_KMH = 2.5;
 
 function clampNum(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -91,6 +98,40 @@ function applySpeedHysteresis(nextKmh: number, prevKmh: number): number {
   return prev * 0.92 + next * 0.08;
 }
 
+/**
+ * Kamera patrzy w kierunku jazdy — segment/polyline może być odwrócony o 180°.
+ * Gdy jedziemy, wektor ruchu ma pierwszeństwo przed surowym headingiem markera.
+ */
+function resolveCameraCourseHeading(
+  markerHeading: number,
+  fromLat: number | null,
+  fromLng: number | null,
+  toLat: number,
+  toLng: number,
+  speedKmh: number,
+): number {
+  const markerHdg = normalizeHeading(markerHeading);
+  if (
+    fromLat == null
+    || fromLng == null
+    || !Number.isFinite(fromLat)
+    || !Number.isFinite(fromLng)
+    || speedKmh < MIN_COURSE_SPEED_KMH
+  ) {
+    return markerHdg;
+  }
+  const movedM = haversineM(fromLat, fromLng, toLat, toLng);
+  if (movedM < MIN_COURSE_MOVE_M) {
+    return markerHdg;
+  }
+  const moveBearing = bearingBetween(fromLat, fromLng, toLat, toLng);
+  const aligned = alignBearingToReference(markerHdg, moveBearing);
+  if (Math.abs(headingDelta(aligned, moveBearing)) > 35) {
+    return moveBearing;
+  }
+  return aligned;
+}
+
 function maxHeadingRateDegPerSec(speedKmh: number): number {
   const s = Math.max(0, speedKmh);
   if (s < 2.5) return 18;
@@ -125,6 +166,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const followEnabledSv = useSharedValue(enabled ? 1 : 0);
 
   const displayHeadingRef = useRef(0);
+  const displayHeadingReadyRef = useRef(false);
+  const prevCourseLatRef = useRef<number | null>(null);
+  const prevCourseLngRef = useRef<number | null>(null);
   const smoothedLatRef = useRef<number | null>(null);
   const smoothedLngRef = useRef<number | null>(null);
   const smoothedSpeedRef = useRef(0);
@@ -144,6 +188,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const release = useCallback(() => {
     followEnabledSv.value = 0;
     displayHeadingRef.current = 0;
+    displayHeadingReadyRef.current = false;
+    prevCourseLatRef.current = null;
+    prevCourseLngRef.current = null;
     smoothedLatRef.current = null;
     smoothedLngRef.current = null;
     smoothedSpeedRef.current = 0;
@@ -202,11 +249,40 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const hudKmh = Math.max(0, speedKmhRef?.current ?? 0);
     smoothedSpeedRef.current = applySpeedHysteresis(hudKmh, smoothedSpeedRef.current);
 
-    const markerHdg = normalizeHeading(markerHeading);
+    const courseFromMotion = resolveCameraCourseHeading(
+      markerHeading,
+      prevCourseLatRef.current,
+      prevCourseLngRef.current,
+      smoothLat,
+      smoothLng,
+      smoothedSpeedRef.current,
+    );
+    prevCourseLatRef.current = smoothLat;
+    prevCourseLngRef.current = smoothLng;
+
+    const targetHdg = courseFromMotion;
     const maxHdgStep = maxHeadingRateDegPerSec(smoothedSpeedRef.current) * dtSec;
-    displayHeadingRef.current = displayHeadingRef.current <= 0.01
-      ? markerHdg
-      : lerpHeadingWithMaxStep(displayHeadingRef.current, markerHdg, maxHdgStep);
+    const hdgFlip = displayHeadingReadyRef.current
+      ? Math.abs(headingDelta(displayHeadingRef.current, targetHdg))
+      : 180;
+    if (!displayHeadingReadyRef.current) {
+      displayHeadingRef.current = targetHdg;
+      displayHeadingReadyRef.current = true;
+    } else if (hdgFlip > 90) {
+      displayHeadingRef.current = targetHdg;
+    } else if (hdgFlip > 25) {
+      displayHeadingRef.current = lerpHeadingWithMaxStep(
+        displayHeadingRef.current,
+        targetHdg,
+        Math.max(maxHdgStep, hdgFlip * 0.65),
+      );
+    } else {
+      displayHeadingRef.current = lerpHeadingWithMaxStep(
+        displayHeadingRef.current,
+        targetHdg,
+        maxHdgStep,
+      );
+    }
 
     const sinceLastApply = lastNativeApplyRef.current > 0
       ? now - lastNativeApplyRef.current
@@ -337,10 +413,21 @@ export function useCameraV3(opts: UseCameraV3Options) {
   ) => {
     if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) return;
 
-    const hdg = normalizeHeading(opts?.heading ?? displayHeadingRef.current);
+    const rawHdg = normalizeHeading(opts?.heading ?? displayHeadingRef.current);
+    const hdg = resolveCameraCourseHeading(
+      rawHdg,
+      prevCourseLatRef.current,
+      prevCourseLngRef.current,
+      center.latitude,
+      center.longitude,
+      opts?.speedKmh ?? speedKmhRef?.current ?? 0,
+    );
     displayHeadingRef.current = hdg;
+    displayHeadingReadyRef.current = true;
     smoothedLatRef.current = center.latitude;
     smoothedLngRef.current = center.longitude;
+    prevCourseLatRef.current = center.latitude;
+    prevCourseLngRef.current = center.longitude;
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
 

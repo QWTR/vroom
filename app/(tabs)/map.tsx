@@ -5303,7 +5303,9 @@ function MapScreenInner() {
           entryLat = snapped.latitude;
           entryLng = snapped.longitude;
           if (Number.isFinite(snapped.targetHeading)) {
-            entryHeading = snapped.targetHeading;
+            const refHdg = lastGpsDeviceHeadingRef.current
+              ?? (Number.isFinite(lastHeadingRef.current) ? lastHeadingRef.current : entryHeading);
+            entryHeading = alignBearingToReference(snapped.targetHeading, refHdg);
           }
         }
       }
@@ -5379,13 +5381,6 @@ function MapScreenInner() {
       setUserLocation({ latitude: displayEntryLat, longitude: displayEntryLng });
       lastGoodLocRef.current = { lat: entryLat, lng: entryLng };
       lastAcceptedFixWallClockRef.current = Date.now();
-      recenterTo({
-        center: { latitude: displayEntryLat, longitude: displayEntryLng },
-        heading: entryHeading,
-        speedKmh: Math.max(0, speedKmhRef.current),
-        active: true,
-        entryAnim: true,
-      });
       setFollowMode('drivingFollow');
       recordDrivingTracePoint(entryLat, entryLng, { speedKmh: speedKmhRef.current }).catch(() => {});
       drivingManualEntryBusyRef.current = false;
@@ -9265,13 +9260,6 @@ if (shouldNukeGeometry) {
             tripBootstrapPose(entryLat, entryLng, drivingHeading, { animateCamera: true });
             setIsDriving(true);
             recordDrivingTracePoint(entryLat, entryLng, { speedKmh: kmh }).catch(() => {});
-            recenterTo({
-              center: { latitude: entryLat, longitude: entryLng },
-              heading: drivingHeading,
-              speedKmh: kmh > 0 ? kmh : 0,
-              active: true,
-              entryAnim: true,
-            });
             setFollowMode('drivingFollow');
             publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta });
 
@@ -12020,17 +12008,17 @@ if (pts.length >= 2) {
     }
     if (isNavigating || isDriving) {
       setFollowMode(isNavigating ? 'navigationFollow' : 'drivingFollow');
-      recenterTo({
-        center: liveCenter,
-        heading: lastHeadingRef.current,
-        speedKmh: speedKmhRef.current,
-        active: true,
-        isNavigating,
-      });
+      const hdg = Number.isFinite(driveMarker.heading.value)
+        ? driveMarker.heading.value
+        : lastHeadingRef.current;
+      cameraV3.recenter(
+        liveCenter,
+        { heading: hdg, speedKmh: speedKmhRef.current, animate: true },
+      );
       return;
     }
     resetBrowseCamera(liveCenter);
-  }, [userLocation, isNavigating, isDriving, recenterTo, resetBrowseCamera, refreshLocationOneShot, setFollowMode]);
+  }, [userLocation, isNavigating, isDriving, resetBrowseCamera, refreshLocationOneShot, setFollowMode, cameraV3, driveMarker]);
 
   // ── transitionFromApproachToRouteRun ─────────────────────
   const transitionFromApproachToRouteRun = useCallback(() => {
@@ -12392,11 +12380,20 @@ if (pts.length >= 2) {
     if (routeAnchor) {
       bootLat = routeAnchor.lat;
       bootLng = routeAnchor.lng;
-      bootHdg = routeAnchor.headingDeg;
+      bootHdg = alignBearingToReference(
+        routeAnchor.headingDeg,
+        lastGpsDeviceHeadingRef.current ?? bootHdg,
+      );
     } else if (routePointsRef.current.length > 1) {
       const bootSnapped = snapToRoute(bootLat, bootLng, routePointsRef.current, NAV_ROUTE_SNAP_M);
       bootLat = bootSnapped.latitude;
       bootLng = bootSnapped.longitude;
+      if (Number.isFinite(bootSnapped.targetHeading)) {
+        bootHdg = alignBearingToReference(
+          bootSnapped.targetHeading,
+          lastGpsDeviceHeadingRef.current ?? bootHdg,
+        );
+      }
     }
     lastSetLocRef.current = { lat: bootLat, lng: bootLng };
     lastGoodLocRef.current = { lat: bootLat, lng: bootLng };
@@ -12438,14 +12435,6 @@ if (pts.length >= 2) {
       pendingRouteRef.current = null;
     }
 
-    recenterTo({
-      center: { latitude: bootLat, longitude: bootLng },
-      heading: bootHdg,
-      speedKmh: Math.max(speedKmhRef.current, 20),
-      active: true,
-      isNavigating: true,
-      entryAnim: true,
-    });
     setFollowMode('navigationFollow');
 
     driveTraceSession('nav_start', {
