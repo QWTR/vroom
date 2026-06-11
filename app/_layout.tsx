@@ -5,7 +5,7 @@ import { StatusBar }  from 'expo-status-bar';
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View, StyleSheet, Animated, Easing,
-  Dimensions, Text,
+  Text,
   Image,
   NativeModules,
   AppState,
@@ -47,7 +47,6 @@ function AppPresenceHeartbeat() {
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const { width, height } = Dimensions.get('window');
 const R = '#e33835';
 const { UsersModule } = NativeModules;
 
@@ -186,8 +185,10 @@ function StatusLine() {
 
   return (
     <Animated.View style={[s.statusRow, { opacity }]}>
-      <View style={[s.statusDot, isDone && { backgroundColor: '#4de926' }]} />
-      <Text style={[s.statusTxt, isDone && { color: '#4de926' }]}>{STATUS_LINES[idx]}</Text>
+      <View style={[s.statusDot, isDone && s.statusDotDone]} />
+      <Text style={[s.statusTxt, isDone && s.statusTxtDone]}>
+        {STATUS_LINES[idx].toUpperCase()}
+      </Text>
     </Animated.View>
   );
 }
@@ -561,7 +562,6 @@ function RootLayoutInner() {
     }, 350);
   };
 
-  const spinDeg  = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const barWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const toastConfig = useMemo(() => createToastConfig(isDark), [isDark]);
 
@@ -606,101 +606,55 @@ function RootLayoutInner() {
 
       {phase !== 'done' && (
         <Animated.View
-          style={[s.splash, { opacity: splashOpacity, backgroundColor: theme.bg }]}
+          style={[s.splash, { opacity: splashOpacity, backgroundColor: '#000000' }]}
           pointerEvents="none"
         >
-          {/* ── Tło ── */}
           <LinearGradient
-            colors={isDark ? ['#160303', '#0e0202', theme.bg, '#050505'] : [theme.bgAlt, theme.bg, theme.surface, theme.surface2]}
-            start={{ x: 0.15, y: 0 }} end={{ x: 0.85, y: 1 }}
+            colors={['#000000', '#0a0000', '#2a0505']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
 
-          {/* Dekoracyjne kółka — ten sam trick co w HomeScreen */}
-          <View style={s.deco1} />
-          <View style={s.deco2} />
-          <View style={s.deco3} />
-
-          {/* Subtelne poziome linie (jak w hero) */}
-          {Array.from({ length: 10 }).map((_, i) => (
-            <View key={i} style={[s.scanLine, { top: (height / 10) * i }]} />
-          ))}
-
           <Animated.View style={[s.inner, { opacity: masterFade }]}>
 
-            {/* ── LOGO AREA ── */}
             <Animated.View style={[s.logoWrap, { opacity: logoFade, transform: [{ scale: logoScale }] }]}>
-
-              {/* Obracający się pierścień */}
-              <Animated.View style={[s.ring, { transform: [{ rotate: spinDeg }] }]}>
-                <View style={s.ringDot} />
-                <View style={[s.ringDot, { top: undefined, bottom: -5 }]} />
-              </Animated.View>
-
-              {/* Ikona — styl identyczny z HomeScreen logo box */}
               <Animated.View style={[s.iconBox, { transform: [{ scale: pulseAnim }] }]}>
-                <LinearGradient
-                  colors={isDark ? ['#2a0707', '#160303', theme.bg] : [theme.primaryBg, theme.surface2, theme.surface]}
-                  style={StyleSheet.absoluteFill}
-                />
+                <View style={s.iconBoxInner} />
                 <Image
-                    source={require('../assets/images/logotypRed.png')}
-                    style={{ width: 54, height: 54, resizeMode: 'contain' }}
-                  />
-              {/* wewnętrzny blask */}
-                <View style={s.iconGlow} />
+                  source={require('../assets/images/logotypRed.png')}
+                  style={s.logoImg}
+                />
               </Animated.View>
             </Animated.View>
 
-            {/* ── TYTUŁ ── */}
-            <Animated.Text style={[s.title, { opacity: logoFade, color: theme.text }]}>
+            <Animated.Text style={[s.title, { opacity: logoFade }]}>
               VROOM
             </Animated.Text>
-            <Animated.Text style={[s.subtitle, { opacity: logoFade, color: theme.textDim }]}>
+            <Animated.Text style={[s.subtitle, { opacity: logoFade }]}>
               AUTOMOTIVE OS
             </Animated.Text>
+            <Animated.View style={[s.titleAccent, { opacity: logoFade }]} />
 
-            {/* ── KARTA — styl 1:1 z kartami z HomeScreen ── */}
-            <Animated.View style={[s.card, {
+            <Animated.View style={[s.hudPanel, {
               opacity: cardFade,
               transform: [{ translateY: cardSlide }],
             }]}>
-              <LinearGradient
-                colors={isDark ? ['#1a0808', '#100404', theme.bg] : [theme.surface2, theme.bgAlt, theme.bg]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              {/* dekoracja w rogu karty */}
-              <View style={s.cardDeco1} />
-              <View style={s.cardDeco2} />
-
-              {/* Status */}
-              <View style={s.cardTop}>
-                <View style={s.cardLabel}>
-                  <View style={s.cardLabelDot} />
-                  <Text style={s.cardLabelTxt}>INICJALIZACJA</Text>
-                </View>
+              <View style={s.hudTop}>
+                <Text style={s.hudLabel}>INICJALIZACJA</Text>
                 <StatusLine />
               </View>
 
-              {/* Pasek postępu — ten sam look co w TopSpeed card */}
               <View style={s.progressTrack}>
                 <Animated.View style={[s.progressFill, { width: barWidth }]}>
-                  <LinearGradient
-                    colors={[R, '#c02020']}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  {/* Świecący tip */}
                   <View style={s.progressTip} />
                 </Animated.View>
               </View>
 
-              {/* Bottom row */}
-              <View style={s.cardBottom}>
-                <View style={s.onlinePill}>
-                  <MaterialCommunityIcons name="shield-check-outline" size={10} color={`${R}99`} />
-                  <Text style={s.onlineTxt}>SECURE BOOT</Text>
+              <View style={s.hudBottom}>
+                <View style={s.secureRow}>
+                  <MaterialCommunityIcons name="shield-check-outline" size={11} color="rgba(227, 56, 53, 0.8)" />
+                  <Text style={s.secureTxt}>SECURE BOOT</Text>
                 </View>
                 <Text style={s.versionTxt}>V1.0.21</Text>
               </View>
@@ -722,157 +676,168 @@ const s = StyleSheet.create({
     zIndex: 9999,
   },
 
-  // Dekoracje tła (identyczne proporcje jak w HomeScreen hero)
-  deco1: {
-    position: 'absolute', top: -100, right: -80,
-    width: 380, height: 380, borderRadius: 190,
-    backgroundColor: '#e3383506', borderWidth: 1, borderColor: '#e3383518',
-  },
-  deco2: {
-    position: 'absolute', top: -50, right: -30,
-    width: 220, height: 220, borderRadius: 110,
-    backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383828',
-  },
-  deco3: {
-    position: 'absolute', bottom: -80, left: -60,
-    width: 280, height: 280, borderRadius: 140,
-    backgroundColor: '#e3383506',
-  },
-  scanLine: {
-    position: 'absolute', left: 0, right: 0,
-    height: 1, backgroundColor: '#ffffff04',
-  },
-
   inner: {
     width: '100%',
     alignItems: 'center',
-    paddingHorizontal: 28,
   },
 
-  // Logo
   logoWrap: {
-    width: 130, height: 130,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 28,
-  },
-  ring: {
-    position: 'absolute',
-    width: 128, height: 128, borderRadius: 64,
-    borderWidth: 1, borderColor: '#e3383535',
-    borderStyle: 'dashed',
-  },
-  ringDot: {
-    position: 'absolute', top: -5, left: '50%',
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: R, marginLeft: -5,
+    width: 120,
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   iconBox: {
-    width: 90, height: 90, borderRadius: 26,
-    borderWidth: 1.5, borderColor: '#e3383545',
-    alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
+    width: 96,
+    height: 96,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: 'rgba(227, 56, 53, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(10, 0, 0, 0.85)',
+    shadowColor: '#e33835',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 35,
+    elevation: 15,
   },
-  iconGlow: {
-    position: 'absolute',
-    width: 70, height: 70, borderRadius: 35,
-    backgroundColor: R, opacity: 0.06,
+  iconBoxInner: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 26,
+    backgroundColor: 'rgba(227, 56, 53, 0.08)',
+  },
+  logoImg: {
+    width: 54,
+    height: 54,
+    resizeMode: 'contain',
   },
 
-  // Tytuł
   title: {
     fontFamily: 'OrbitronBold',
-    fontSize: 48, color: '#fff',
-    letterSpacing: 14, marginBottom: 6,
+    fontSize: 48,
+    color: '#ffffff',
+    letterSpacing: 14,
+    marginBottom: 4,
   },
   subtitle: {
     fontFamily: 'Orbitron',
-    fontSize: 9, color: '#ffffff30',
-    letterSpacing: 5, marginBottom: 40,
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 6,
+  },
+  titleAccent: {
+    width: 120,
+    height: 1,
+    backgroundColor: '#e33835',
+    opacity: 0.5,
+    marginTop: 10,
+    marginBottom: 36,
   },
 
-  // Karta — bliźniaczka kart z HomeScreen
-  card: {
-    width: '100%',
-    borderRadius: 24,
-    borderWidth: 1, borderColor: '#e3383535',
-    padding: 20,
-    overflow: 'hidden',
+  hudPanel: {
+    alignSelf: 'stretch',
+    marginHorizontal: 20,
+    backgroundColor: 'transparent',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(227, 56, 53, 0.3)',
+    paddingVertical: 18,
+    paddingHorizontal: 4,
   },
-  cardDeco1: {
-    position: 'absolute', top: -30, right: -30,
-    width: 160, height: 160, borderRadius: 80,
-    backgroundColor: '#e3383510',
-  },
-  cardDeco2: {
-    position: 'absolute', top: -10, right: -10,
-    width: 90, height: 90, borderRadius: 45,
-    backgroundColor: '#e3383518',
-  },
-  cardTop: {
+  hudTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 16,
   },
-  cardLabel: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-  },
-  cardLabelDot: {
-    width: 6, height: 6, borderRadius: 3,
-    backgroundColor: R,
-  },
-  cardLabelTxt: {
-    fontFamily: 'Orbitron', fontSize: 8,
-    color: '#e33835bb', letterSpacing: 3,
+  hudLabel: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    color: 'rgba(227, 56, 53, 0.8)',
+    letterSpacing: 4,
   },
 
-  // Status row (prawa strona karty)
   statusRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   statusDot: {
-    width: 5, height: 5, borderRadius: 2.5,
-    backgroundColor: R,
+    width: 4,
+    height: 4,
+    borderRadius: 0,
+    backgroundColor: 'rgba(227, 56, 53, 0.6)',
+  },
+  statusDotDone: {
+    backgroundColor: '#4de926',
   },
   statusTxt: {
-    fontFamily: 'Orbitron', fontSize: 8,
-    color: '#ffffff55', letterSpacing: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 7,
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 2,
+  },
+  statusTxtDone: {
+    color: '#4de926',
   },
 
-  // Pasek postępu — styl jak w TopSpeed card
   progressTrack: {
-    height: 4, backgroundColor: '#ffffff0d',
-    borderRadius: 2, overflow: 'visible',
-    marginBottom: 18,
+    height: 6,
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    borderRadius: 0,
+    overflow: 'visible',
+    marginBottom: 16,
   },
   progressFill: {
-    position: 'absolute', left: 0, top: 0,
-    height: 4, borderRadius: 2, overflow: 'hidden',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    height: 6,
+    backgroundColor: '#e33835',
+    borderRadius: 0,
+    overflow: 'visible',
+    shadowColor: '#ff0000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 15,
+    elevation: 10,
   },
   progressTip: {
-    position: 'absolute', right: -1, top: -3,
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: '#fff', opacity: 0.7,
+    position: 'absolute',
+    right: -2,
+    top: -4,
+    width: 4,
+    height: 14,
+    backgroundColor: '#fff',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 8,
   },
 
-  // Dół karty
-  cardBottom: {
+  hudBottom: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  onlinePill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#e3383512', borderWidth: 1,
-    borderColor: '#e3383530', paddingHorizontal: 10,
-    paddingVertical: 5, borderRadius: 20,
+  secureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  onlineTxt: {
-    fontFamily: 'Orbitron', fontSize: 8,
-    color: `${R}99`, letterSpacing: 2,
+  secureTxt: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    color: 'rgba(227, 56, 53, 0.8)',
+    letterSpacing: 4,
   },
   versionTxt: {
-    fontFamily: 'Orbitron', fontSize: 8,
-    color: '#ffffff20', letterSpacing: 2,
+    fontFamily: 'Orbitron',
+    fontSize: 7,
+    color: 'rgba(255,255,255,0.25)',
+    letterSpacing: 3,
   },
 });
