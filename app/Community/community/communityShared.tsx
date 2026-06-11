@@ -848,6 +848,17 @@ export const ComposeBox = ({
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const pillBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+  const pillSolidBg = isDark ? 'rgba(15, 15, 15, 0.95)' : 'rgba(250, 250, 250, 0.95)';
+  const pillShadow = Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.5,
+      shadowRadius: 10,
+    },
+    android: { elevation: 10 },
+    default: {},
+  });
   const [text,    setText]    = useState('');
   const [inputH,  setInputH]  = useState(50);
   const [photos,  setPhotos]  = useState<string[]>([]);
@@ -1092,28 +1103,33 @@ export const ComposeBox = ({
         </View>
       )}
 
-      <View style={{
-        marginHorizontal: 16,
-        marginBottom: 16,
-        height: pillHeight,
-        borderRadius: 25,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: pillBorder,
-      }}>
-        <BlurView
-          intensity={isDark ? 20 : 40}
-          tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-        />
+      <View style={{ marginHorizontal: 16, marginBottom: 16, ...pillShadow }}>
         <View style={{
-          flex: 1,
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingLeft: 16,
-          paddingRight: 6,
-          gap: 8,
+          height: pillHeight,
+          borderRadius: 25,
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: pillBorder,
         }}>
+          <BlurView
+            intensity={100}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: pillSolidBg },
+            ]}
+          />
+          <View style={{
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingLeft: 16,
+            paddingRight: 6,
+            gap: 8,
+          }}>
           <TextInput
             style={{
               flex: 1,
@@ -1150,6 +1166,7 @@ export const ComposeBox = ({
               : <MaterialIcons name="send" size={16} color="#fff" />
             }
           </TouchableOpacity>
+          </View>
         </View>
       </View>
 

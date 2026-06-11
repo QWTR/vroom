@@ -485,6 +485,17 @@ export default function PublicChatScreen() {
     : Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 16);
 
   const pillBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+  const pillSolidBg = isDark ? 'rgba(15, 15, 15, 0.95)' : 'rgba(250, 250, 250, 0.95)';
+  const pillShadow = Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.5,
+      shadowRadius: 10,
+    },
+    android: { elevation: 10 },
+    default: {},
+  });
   const pillHeight = Math.min(Math.max(50, inputHeight + 10), 60);
   const canSendInput = editingMsg
     ? text.trim() || editingMsg.photos.length || editingMsg.videos.length
@@ -824,28 +835,33 @@ export default function PublicChatScreen() {
             </View>
           )}
 
-          <View style={{
-            marginHorizontal: 16,
-            marginBottom: 16,
-            height: pillHeight,
-            borderRadius: 25,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: pillBorder,
-          }}>
-            <BlurView
-              intensity={isDark ? 20 : 40}
-              tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
-            />
+          <View style={{ marginHorizontal: 16, marginBottom: 16, ...pillShadow }}>
             <View style={{
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingLeft: 10,
-              paddingRight: 6,
-              gap: 4,
+              height: pillHeight,
+              borderRadius: 25,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: pillBorder,
             }}>
+              <BlurView
+                intensity={100}
+                tint={isDark ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <View
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  { backgroundColor: pillSolidBg },
+                ]}
+              />
+              <View style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingLeft: 10,
+                paddingRight: 6,
+                gap: 4,
+              }}>
               <TouchableOpacity
                 onPress={pickPhotos}
                 disabled={!!editingMsg || !!video || photos.length >= 4}
@@ -898,6 +914,7 @@ export default function PublicChatScreen() {
                   : <Feather name={editingMsg ? 'check' : 'send'} size={15} color="#fff" />
                 }
               </TouchableOpacity>
+              </View>
             </View>
           </View>
 
