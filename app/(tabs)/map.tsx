@@ -203,7 +203,9 @@ import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
 import { useRouteBuilder } from '../../hooks/useRouteBuilder';
 import { useRouteLeaderboard } from '../../hooks/useRouteLeaderboard';
 import { useRouteTimer } from '../../hooks/useRouteTimer';
-import { useSnapCameras } from '../../hooks/useSnapCameras';
+import { SPEED_CAMERA_MIN_ZOOM } from '../../constants/speedCameraMap';
+import { SpeedCameraMapLayers } from '../../components/map/SpeedCameraMapLayers';
+import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useSpeedCameras } from '../../hooks/useSpeedCamera';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
@@ -236,8 +238,6 @@ import { RouteEndpointRenderer } from '@/components/markers/RouteEndpointRendere
 import { ArrowMarkerRenderer } from '../../components/markers/ArrowMarkerRenderer';
 import { CarMarkerRenderer } from '../../components/markers/CarMarkerRenderer';
 import { RoutePinRenderer } from '../../components/markers/RoutePinRenderer';
-import { SpeedCameraMarker } from '../../components/markers/SpeedCameraMarker';
-import { SpeedCameraRenderer } from '../../components/markers/SpeedCameraRenderer';
 import { AddSpeedCameraModal, type CameraType } from '../../components/modals/AddSpeedCameraModal';
 import { ReportModal } from '../../components/modals/ReportModal';
 import { RouteLeaderboardModal } from '../../components/modals/RouteLeaderboardModal';
@@ -2795,7 +2795,6 @@ function MapScreenInner() {
   >([]);
   const [selectedRouteIndex,   setSelectedRouteIndex]   = useState(0);
   const [tripStatsVisible,     setTripStatsVisible]     = useState(false);
-  const [cameraImages,         setCameraImages]         = useState<Record<string, string>>({});
   const [addCameraVisible,     setAddCameraVisible]     = useState(false);
   const [cameraPickMode,       setCameraPickMode]       = useState(false);
   const [manualTargetPickMode, setManualTargetPickMode] = useState(false);
@@ -2805,10 +2804,8 @@ function MapScreenInner() {
     description: string | null;
   } | null>(null);
   const pickCenterRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
-  const [selectedCamera,       setSelectedCamera]       = useState<any>(null);
+  const [selectedCamera,       setSelectedCamera]       = useState<SpeedCamera | null>(null);
   const [cameraDetailVisible,  setCameraDetailVisible]  = useState(false);
-  const { snapCameras } = useSnapCameras();
-  const [snappedCameras, setSnappedCameras] = useState<any[]>([]);
   const lastPreviewOriginBumpRef = useRef(0);
   const lastPreviewOriginCoordRef = useRef<{ lat: number; lng: number } | null>(null);
   const [livePreviewOriginTick, setLivePreviewOriginTick] = useState(0);
@@ -3467,8 +3464,6 @@ function MapScreenInner() {
   const speedKmh = (speed ?? 0) * 3.6;
   /** OSM + sticky — bez mieszania z limitem fotoradaru (eliminuje mruganie znaku). */
   const effectiveSpeedLimit = speedLimit;
-  const showCameras = true;
-
   const ALERT_DIST = 400;
   const cameraAlertVisible = nearestCamera !== null && nearestCamera.distanceM <= ALERT_DIST;
 
@@ -3487,15 +3482,6 @@ function MapScreenInner() {
       speak(msg);
     }
   }, [nearestCamera?.id, nearestCamera?.distanceM, isSpeechEnabled, checkAlert, markAlerted]);
-
-  useEffect(() => {
-    const activeIds = new Set(cameras.map(c => String(c.id)));
-    setCameraImages(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => { if (!activeIds.has(k)) delete next[k]; });
-      return next;
-    });
-  }, [cameras]);
 
   // ── mapType persistence ────────────────────────────────────
   useEffect(() => {
@@ -4798,6 +4784,11 @@ function MapScreenInner() {
     setPendingAddCameraParams(null);
   }, []);
 
+  const handleSelectCamera = useCallback((camera: SpeedCamera) => {
+    setSelectedCamera(camera);
+    setCameraDetailVisible(true);
+  }, []);
+
   const confirmCameraPick = useCallback(async () => {
     if (!pendingAddCameraParams) return;
     const { lat, lng } = pickCenterRef.current;
@@ -4870,15 +4861,6 @@ function MapScreenInner() {
       setMyUsername(user.username ?? '');
     });
   }, []);
-
-  useEffect(() => {
-    if (!cameras.length) { setSnappedCameras([]); return; }
-    if (speedKmh < 5 && !isNavigating) {
-      setSnappedCameras(cameras);
-      return;
-    }
-    snapCameras(cameras, setSnappedCameras);
-  }, [cameras, isNavigating]);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -12819,6 +12801,19 @@ if (pts.length >= 2) {
 
   const effectiveVisibleUsers = visibleUsers;
   const effectiveWarnings = clusteredWarnings;
+  const effectiveCameras = useMemo(() => {
+    if (currentZoom < SPEED_CAMERA_MIN_ZOOM) return [];
+    if (!Array.isArray(cameras) || cameras.length === 0) return [];
+    const zoomCap =
+      currentZoom >= 16 ? 1200
+      : currentZoom >= 14.5 ? 600
+      : currentZoom >= 13 ? 250
+      : 80;
+    if (cameras.length <= zoomCap) return cameras;
+    return [...cameras]
+      .sort((a, b) => (a.distanceM ?? 0) - (b.distanceM ?? 0))
+      .slice(0, zoomCap);
+  }, [currentZoom, cameras]);
   const effectiveFuelStations = useMemo(() => {
     // Keep stations visible on normal city zoom; declutter only when far out.
     if (currentZoom < 12.8) return [];
@@ -12884,7 +12879,7 @@ if (pts.length >= 2) {
     builderRoutePoints: snappedRoute,
     visibleUsers: effectiveVisibleUsers,
     warnings: effectiveWarnings,
-    speedCameras: snappedCameras,
+    speedCameras: effectiveCameras,
     fuelStations: effectiveFuelStations,
     onStopRequested: () => { stopNavigation(); },
     onReportRequested: () => { setReportVisible(true); },
@@ -13089,15 +13084,6 @@ if (pts.length >= 2) {
           />
         ))}
 
-        {showCameras && snappedCameras.map(c => (
-          <SpeedCameraRenderer
-            key={`camrender_${String(c.id)}_${c.type}_${Math.floor(c.distanceM / 500)}`}
-            camera={c}
-            userSpeed={speedKmh}
-            onCapture={uri => setCameraImages(prev => ({ ...prev, [String(c.id)]: uri }))}
-          />
-        ))}
-
         {/* ── Baner tworzenia trasy ────────────────────────── */}
         {isBuilding && (
           <View style={{
@@ -13294,14 +13280,10 @@ if (pts.length >= 2) {
             )
           ))}
 
-          {showCameras && snappedCameras.map(c => (
-            <SpeedCameraMarker
-              key={`cam_${String(c.id)}`}
-              camera={c}
-              imageUri={cameraImages[String(c.id)] ?? null}
-              onPress={() => { setSelectedCamera(c); setCameraDetailVisible(true); }}
-            />
-          ))}
+          <SpeedCameraMapLayers
+            cameras={effectiveCameras}
+            onSelectCamera={handleSelectCamera}
+          />
 
           {effectiveFuelStations.map(station => (
             <FuelStationMarker
@@ -14226,11 +14208,6 @@ if (pts.length >= 2) {
           onDelete={async (id) => {
             const ok = await deleteCamera(id);
             if (ok) {
-              setCameraImages(prev => {
-                const next = { ...prev };
-                delete next[String(id)];
-                return next;
-              });
               Toast.show({ type: 'success', text1: '🗑️ USUNIĘTO' });
             } else {
               Toast.show({ type: 'error', text1: 'Błąd usuwania' });
