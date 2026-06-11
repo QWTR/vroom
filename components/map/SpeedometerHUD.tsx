@@ -19,6 +19,7 @@ import {
 } from '../../lib/driveUi/driveUiScheduler';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { AppTheme } from '../../constants/theme';
+import { sanitizeDisplaySpeedLimit } from '../../lib/navigation/osmMaxSpeed';
 
 export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 
@@ -120,27 +121,33 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.3,
       shadowRadius: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      minWidth: 148,
-    },
-    speedTileRow: {
-      flexDirection: 'row',
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      minWidth: 72,
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
     },
-    speedValueCol: {
-      flex: 1,
-      minWidth: 0,
+    speedTileCol: {
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 72,
+    },
+    speedValueWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 72,
+      width: 72,
+      marginTop: 6,
     },
     speedNumber: {
       fontFamily: 'Orbitron',
-      fontSize: 38,
+      fontSize: 36,
       fontWeight: '900',
       color: theme.text,
-      letterSpacing: -2,
-      lineHeight: 42,
+      letterSpacing: -1,
+      lineHeight: 40,
+      width: '100%',
+      textAlign: 'center',
     },
     speedNumberOver: {
       color: theme.danger,
@@ -152,11 +159,11 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       marginTop: 2,
     },
     limitRing: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       backgroundColor: isDark ? '#f5f5f5' : '#ffffff',
-      borderWidth: 3,
+      borderWidth: 2.5,
       borderColor: isDark ? '#1a1a1a' : '#222222',
       alignItems: 'center',
       justifyContent: 'center',
@@ -167,7 +174,7 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
     },
     limitText: {
       fontFamily: 'Orbitron',
-      fontSize: 15,
+      fontSize: 13,
       fontWeight: '900',
       color: '#111111',
     },
@@ -340,26 +347,35 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
   const hud = makeHudStyles(theme, isDark);
   const liveKmh = useSpeedometerKmh(initialKmh);
   const valueKmh = resolveHudSpeedKmh(kmh, liveKmh);
-  const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
-  const limitSmall = speedLimit != null && speedLimit >= 100;
+  const displayLimit = sanitizeDisplaySpeedLimit(speedLimit);
+  const overLimit = displayLimit !== null && valueKmh > displayLimit + tolerance;
+  const limitSmall = displayLimit != null && displayLimit >= 100;
 
   return (
-    <View style={hud.speedTileRow}>
-      <View style={hud.speedValueCol}>
-        <Text style={[hud.speedNumber, overLimit && hud.speedNumberOver]}>
-          {Math.round(valueKmh)}
-        </Text>
-        <Text style={hud.speedUnit}>km/h</Text>
-      </View>
+    <View style={hud.speedTileCol}>
       <View style={[hud.limitRing, overLimit && hud.limitRingOver]}>
         <Text
           style={[
-            limitSmall ? { fontSize: 13, fontFamily: 'Orbitron', fontWeight: '900' } : hud.limitText,
+            limitSmall ? { fontSize: 11, fontFamily: 'Orbitron', fontWeight: '900' } : hud.limitText,
             overLimit && hud.limitTextOver,
           ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
         >
-          {speedLimit ?? '—'}
+          {displayLimit ?? '—'}
         </Text>
+      </View>
+      <View style={hud.speedValueWrap}>
+        <Text
+          style={[hud.speedNumber, overLimit && hud.speedNumberOver]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.65}
+        >
+          {Math.round(valueKmh)}
+        </Text>
+        <Text style={hud.speedUnit}>km/h</Text>
       </View>
     </View>
   );
@@ -462,7 +478,12 @@ export const SpeedValueText = memo(function SpeedValueText({
   const valueKmh = resolveHudSpeedKmh(kmh, liveKmh);
   const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
   return (
-    <Text style={[style, overLimit && { color: theme.danger }]}>
+    <Text
+      style={[style, overLimit && { color: theme.danger }]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.65}
+    >
       {Math.round(valueKmh)}
       {showUnit ? (
         <Text style={unitStyle ?? { fontSize: 13, fontWeight: '700', color: theme.textMuted }}>
@@ -493,8 +514,9 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
   const { theme, isDark } = useTheme();
   const liveKmh = useSpeedometerKmh(initialKmh);
   const valueKmh = resolveHudSpeedKmh(kmh, liveKmh);
-  const overLimit = speedLimit !== null && valueKmh > speedLimit + tolerance;
-  const smallFont = speedLimit != null && speedLimit >= smallFontAt;
+  const displayLimit = sanitizeDisplaySpeedLimit(speedLimit);
+  const overLimit = displayLimit !== null && valueKmh > displayLimit + tolerance;
+  const smallFont = displayLimit != null && displayLimit >= smallFontAt;
 
   return (
     <View
@@ -521,7 +543,7 @@ export const SpeedLimitBadge = memo(function SpeedLimitBadge({
           color: overLimit ? theme.danger : '#111111',
         }}
       >
-        {speedLimit ?? '—'}
+        {displayLimit ?? '—'}
       </Text>
     </View>
   );

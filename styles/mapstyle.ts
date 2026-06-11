@@ -76,12 +76,26 @@ export function makeMapStyles(
     // ═══════════════════════════════════════════
     // HUD — premium driving / navigation overlay
     // ═══════════════════════════════════════════
+    /** Lewy margines + warunkowy `top` ustawiany w map.tsx (nawigacja vs swobodna jazda). */
     hudSpeedTilePos: {
       position: 'absolute',
-      bottom: 24,
       left: 16,
-      zIndex: 30,
+      zIndex: 95,
       backgroundColor: 'transparent',
+      alignItems: 'flex-start',
+      pointerEvents: 'box-none',
+    },
+    /** Nawigacja — pod panelem instrukcji skrętu. */
+    hudSpeedTilePosNav: {
+      top: 188,
+    },
+    /** Swobodna jazda — tuż pod paskiem wyszukiwania (wyżej niż przy nawigacji). */
+    hudSpeedTilePosFreeDrive: {
+      top: 160,
+    },
+    /** Pod czerwonym banerem trybu tworzenia trasy. */
+    hudSpeedTilePosBuilding: {
+      top: 56,
     },
     hudOffRouteBanner: {
       position: 'absolute',
@@ -113,7 +127,14 @@ export function makeMapStyles(
     // ═══════════════════════════════════════════
     // SIDE CONTROLS
     // ═══════════════════════════════════════════
-    rightBottomControls: { position: 'absolute', right: 14, bottom: 24, gap: 10, zIndex: 100 },
+    /** bottom nadpisywany w map.tsx: insets.bottom + 80 (nad tab barem). */
+    rightBottomControls: {
+      position: 'absolute',
+      right: 14,
+      bottom: 16,
+      gap: 10,
+      zIndex: 100,
+    },
     sideBtn: {
       backgroundColor: SURF,
       width: 48,

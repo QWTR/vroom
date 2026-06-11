@@ -1,5 +1,4 @@
 import {
-  alignBearingToReference,
   bearingBetween,
   densifyPolyline,
   haversineKm,
@@ -195,11 +194,6 @@ export type TravelHeadingResult = {
   lockedTravelHeadingDeg: number;
 };
 
-/** true gdy brak wcześniejszego kursu (cold start na postoju). */
-function stateLockedNeedsSegment(locked: number): boolean {
-  return !Number.isFinite(locked) || locked < 0;
-}
-
 /** Zawsze zwraca skończony kąt 0–360 — nigdy NaN. */
 export function safeHeadingDeg(h: unknown, fallback = 0): number {
   if (typeof h === 'number' && Number.isFinite(h) && h >= 0) {
@@ -246,13 +240,7 @@ export function computeTravelHeadingDeg(
   }
 
   if (tripActive) {
-    const useSegmentAtStandstill =
-      segFallback > 0
-      && speedKmh < NAV_V3.TRAVEL_HEADING_LOCK_SPEED_KMH
-      && stateLockedNeedsSegment(rawLocked);
-    const hdg = useSegmentAtStandstill
-      ? segFallback
-      : safeHeadingDeg(locked, segFallback);
+    const hdg = safeHeadingDeg(locked, safeHeadingDeg(fallbackDeg, 0));
     return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
   }
 
@@ -638,11 +626,8 @@ function buildOffRoadStickyResult(
   crossTrackM: number,
 ): { result: SnapResult; state: SnapEngineState } {
   const headingDeg = safeHeadingDeg(
-    alignBearingToReference(
-      travelHeadingDeg,
-      state.lastSegmentHeadingDeg || travelHeadingDeg,
-    ),
-    safeHeadingDeg(travelHeadingDeg, 0),
+    travelHeadingDeg,
+    safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
   );
 
   if (!prev || crossTrackM >= 200) {
@@ -763,17 +748,10 @@ export function resolveSnap(
   const pathMode: SnapResult['pathMode'] = roadBlend > cfg.onRoadBlendEps ? 'onRoad' : 'offRoad';
 
   const segHeading = safeHeadingDeg(projection.headingDeg, travelHeadingDeg);
-  const movedM = prev
-    ? distanceM(prev.lat, prev.lng, raw.lat, raw.lng)
-    : 0;
-  if (tripActive && movedM < NAV_V3.TRAVEL_HEADING_MIN_MOVE_M) {
-    travelHeadingDeg = segHeading;
-    state.lockedTravelHeadingDeg = segHeading;
-  }
 
   const headingDeg = safeHeadingDeg(
-    alignBearingToReference(projection.headingDeg, travelHeadingDeg),
-    segHeading,
+    travelHeadingDeg,
+    safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
   );
 
   const intersectionTurnDetected = detectIntersectionTurn(

@@ -4,9 +4,14 @@ export function buildV3GeometryFromRefs(input: {
   matchedGeometry: { latitude: number; longitude: number }[];
   routePoints: { latitude: number; longitude: number }[];
   isNavigating: boolean;
+  /** Poza trasą — nie snapuj do starej polilinii (swobodny GPS do nowej trasy). */
+  suppressRouteSnap?: boolean;
   mirrorPolylines: { latitude: number; longitude: number }[][];
 }): { roadPolylines: RoadPolyline[]; routePolyline: { lat: number; lng: number }[] | null } {
   if (input.isNavigating) {
+    if (input.suppressRouteSnap) {
+      return { roadPolylines: [], routePolyline: null };
+    }
     const route = input.routePoints.length >= 2
       ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))
       : null;

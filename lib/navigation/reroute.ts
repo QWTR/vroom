@@ -1,7 +1,7 @@
 import { bearingBetween, haversineKm } from '../../scripts/navigationUtils';
 
 /** Mapbox bearings: kierunek ± zakres (°) — preferuj jazdę do przodu bez zawracania. */
-export const REROUTE_BEARING_RANGE_DEG = 85;
+export const REROUTE_BEARING_RANGE_DEG = 60;
 export const REROUTE_HEADING_QUANTIZE_DEG = 12;
 
 export function quantizeHeading(headingDeg: number, stepDeg = REROUTE_HEADING_QUANTIZE_DEG): number {

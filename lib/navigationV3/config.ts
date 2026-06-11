@@ -3,6 +3,8 @@ export const NAV_V3 = {
   MARKER_MAX_HEADING_DPS: 90,
   MARKER_MIN_CRUISE_MS: 0.5,
   MARKER_HEADING_EMA: 0.22,
+  /** Cross-track > tego progu → natychmiastowy snap release (swobodny GPS). */
+  OFF_ROUTE_SNAP_RELEASE_M: 35,
   SNAP_ATTACH_M: 40,
   SNAP_DETACH_START_M: 60,
   SNAP_DETACH_FULL_M: 100,

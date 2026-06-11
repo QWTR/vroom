@@ -1,5 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { vroomGpsLog, vroomGpsLogNow } from '../lib/vroomGpsLog';
+import {
+  resolveOsmSpeedLimit,
+  sanitizeDisplaySpeedLimit,
+} from '../lib/navigation/osmMaxSpeed';
 
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -13,6 +17,9 @@ const REFETCH_DIST_NAV_DEG = 0.00045; // ~50 m — nawigacja / jazda
 const MIN_INTERVAL_MS = 20_000;       // 20 s — browsing
 const MIN_INTERVAL_NAV_MS = 6_000;    // 6 s — nawigacja / jazda
 const SEARCH_RADIUS_M = 140;
+/** Sticky: trzymaj ostatni limit gdy OSM chwilowo nie zwraca segmentu. */
+const STICKY_LIMIT_MS = 10_000;
+const STICKY_LIMIT_DISTANCE_M = 150;
 
 type OverpassElement = {
   tags?: { maxspeed?: string; highway?: string };
@@ -24,6 +31,13 @@ export type SpeedLimitUpdateOpts = {
   nav?: boolean;
 };
 
+type StickyLimitState = {
+  limit: number;
+  sinceMs: number;
+  anchorLat: number;
+  anchorLng: number;
+};
+
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -33,52 +47,6 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
     Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function parseLimit(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === 'signals' || normalized === 'variable') return null;
-  const n = parseInt(normalized, 10);
-  if (!isNaN(n) && n > 0 && n <= 250) return n;
-  if (normalized.includes('mph')) {
-    const mph = parseInt(normalized.replace(/[^\d]/g, ''), 10);
-    if (!isNaN(mph)) return Math.round(mph * 1.60934);
-  }
-  if (normalized === 'pl:urban') return 50;
-  if (normalized === 'pl:rural') return 90;
-  if (normalized === 'pl:motorway') return 140;
-  if (normalized === 'pl:expressway') return 120;
-  if (normalized === 'pl:living_street') return 20;
-  return null;
-}
-
-function highwayFallback(highway: string | undefined): number | null {
-  switch (highway) {
-    case 'motorway':
-    case 'motorway_link':
-      return 140;
-    case 'trunk':
-    case 'trunk_link':
-      return 120;
-    case 'primary':
-    case 'primary_link':
-      return 90;
-    case 'secondary':
-    case 'secondary_link':
-      return 90;
-    case 'tertiary':
-    case 'tertiary_link':
-      return 70;
-    case 'residential':
-      return 30;
-    case 'living_street':
-      return 20;
-    case 'service':
-      return 20;
-    default:
-      return null;
-  }
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
@@ -138,13 +106,7 @@ function resolveLimitFromElements(
   const ordered = withCenter.length > 0 ? withCenter : els;
 
   for (const el of ordered) {
-    const limit = parseLimit(el.tags?.maxspeed);
-    if (limit != null) {
-      return { limit, highway: el.tags?.highway ?? null };
-    }
-  }
-  for (const el of ordered) {
-    const limit = highwayFallback(el.tags?.highway);
+    const limit = resolveOsmSpeedLimit(el.tags?.maxspeed, el.tags?.highway);
     if (limit != null) {
       return { limit, highway: el.tags?.highway ?? null };
     }
@@ -157,9 +119,53 @@ export function useSpeedLimit(isActive: boolean) {
   const lastFetchRef = useRef(0);
   const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const fetchingRef = useRef(false);
+  const stickyRef = useRef<StickyLimitState | null>(null);
+
+  const isStickyValid = useCallback((lat: number, lng: number, now = Date.now()): boolean => {
+    const sticky = stickyRef.current;
+    if (!sticky) return false;
+    const ageMs = now - sticky.sinceMs;
+    const distM = haversineMeters(lat, lng, sticky.anchorLat, sticky.anchorLng);
+    return ageMs <= STICKY_LIMIT_MS && distM <= STICKY_LIMIT_DISTANCE_M;
+  }, []);
+
+  const expireStickyIfNeeded = useCallback((lat: number, lng: number) => {
+    if (!stickyRef.current) return;
+    if (!isStickyValid(lat, lng)) {
+      stickyRef.current = null;
+      setSpeedLimit(null);
+    }
+  }, [isStickyValid]);
+
+  const commitSpeedLimit = useCallback((rawLimit: number | null, lat: number, lng: number) => {
+    const limit = sanitizeDisplaySpeedLimit(rawLimit);
+    const now = Date.now();
+
+    if (limit != null) {
+      stickyRef.current = {
+        limit,
+        sinceMs: now,
+        anchorLat: lat,
+        anchorLng: lng,
+      };
+      setSpeedLimit(limit);
+      return;
+    }
+
+    if (isStickyValid(lat, lng, now)) {
+      const sticky = stickyRef.current!;
+      setSpeedLimit(sticky.limit);
+      return;
+    }
+
+    stickyRef.current = null;
+    setSpeedLimit(null);
+  }, [isStickyValid]);
 
   const update = useCallback(async (lat: number, lng: number, opts?: SpeedLimitUpdateOpts) => {
     if (!isActive) return;
+
+    expireStickyIfNeeded(lat, lng);
 
     const nav = !!opts?.nav;
     const minIntervalMs = nav ? MIN_INTERVAL_NAV_MS : MIN_INTERVAL_MS;
@@ -172,6 +178,7 @@ export function useSpeedLimit(isActive: boolean) {
         nav,
         ageMs: now - lastFetchRef.current,
         minIntervalMs,
+        sticky: stickyRef.current?.limit ?? null,
       }, 8000);
       return;
     }
@@ -185,6 +192,7 @@ export function useSpeedLimit(isActive: boolean) {
           nav,
           dLatM: Math.round(dLat * 111000),
           dLngM: Math.round(dLng * 71000),
+          sticky: stickyRef.current?.limit ?? null,
         }, 8000);
         return;
       }
@@ -240,24 +248,28 @@ export function useSpeedLimit(isActive: boolean) {
           nav,
           reason: 'no_data',
         });
+        commitSpeedLimit(null, lat, lng);
         return;
       }
 
       const els: OverpassElement[] = data.elements ?? [];
       const { limit, highway } = resolveLimitFromElements(lat, lng, els);
 
+      lastFetchRef.current = now;
+      lastPosRef.current = { lat, lng };
+
       if (limit != null) {
-        setSpeedLimit(limit);
-        lastFetchRef.current = now;
-        lastPosRef.current = { lat, lng };
+        commitSpeedLimit(limit, lat, lng);
         vroomGpsLogNow('SPEED_LIMIT_OK', {
           limit,
           highway,
           elements: els.length,
           nav,
           endpoint: endpointUsed,
+          sticky: false,
         });
       } else {
+        commitSpeedLimit(null, lat, lng);
         vroomGpsLogNow('SPEED_LIMIT_FAIL', {
           lat: Number(lat.toFixed(5)),
           lng: Number(lng.toFixed(5)),
@@ -266,21 +278,24 @@ export function useSpeedLimit(isActive: boolean) {
           elements: els.length,
           highway,
           endpoint: endpointUsed,
+          stickyHeld: stickyRef.current?.limit ?? null,
         });
       }
     } catch (err) {
+      commitSpeedLimit(null, lat, lng);
       vroomGpsLogNow('SPEED_LIMIT_FAIL', {
         lat: Number(lat.toFixed(5)),
         lng: Number(lng.toFixed(5)),
         nav,
         reason: 'error',
         message: err instanceof Error ? err.message : String(err),
+        stickyHeld: stickyRef.current?.limit ?? null,
       });
     } finally {
       clearTimeout(fetchGuard);
       fetchingRef.current = false;
     }
-  }, [isActive]);
+  }, [isActive, commitSpeedLimit, expireStickyIfNeeded]);
 
   return { speedLimit, updateSpeedLimit: update };
 }

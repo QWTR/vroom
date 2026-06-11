@@ -116,7 +116,7 @@ describe('resolveSnap', () => {
     expect(out.lockedTravelHeadingDeg).toBe(45);
   });
 
-  it('uses segment heading at cold start standstill in trip mode', () => {
+  it('ignores segment heading at cold start standstill in trip mode', () => {
     const out = computeTravelHeadingDeg(
       {
         lat: 52.0,
@@ -132,8 +132,8 @@ describe('resolveSnap', () => {
       true,
       127,
     );
-    expect(out.headingDeg).toBe(127);
-    expect(out.lockedTravelHeadingDeg).toBe(127);
+    expect(out.headingDeg).toBe(0);
+    expect(out.lockedTravelHeadingDeg).toBe(0);
   });
 
   it('safeHeadingDeg never returns NaN', () => {

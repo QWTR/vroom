@@ -231,14 +231,29 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       const isNavigating = state.mode === 'navigation';
       const tripActive = state.mode === 'navigation' || state.mode === 'freeDrive';
 
-      const { result: snap } = snapEngine.resolve({
+      let snap = snapEngine.resolve({
         raw: fix,
         prev: state.displayPrev,
         polylines,
         isNavigating,
         tripActive,
         travelHeadingDeg: fix.headingDeg ?? undefined,
-      });
+      }).result;
+
+      if (
+        isNavigating
+        && polylines.length > 0
+        && snap.crossTrackM > NAV_V3.OFF_ROUTE_SNAP_RELEASE_M
+      ) {
+        snap = snapEngine.resolve({
+          raw: fix,
+          prev: state.displayPrev,
+          polylines: [],
+          isNavigating,
+          tripActive,
+          travelHeadingDeg: fix.headingDeg ?? undefined,
+        }).result;
+      }
 
       const feedSpeedMs = resolveFeedSpeedMs(fix, state.prevAccepted, hudSpeedKmh);
       const allowInstant = state.sessionFirstFix || state.hardResetPending;

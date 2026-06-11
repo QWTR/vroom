@@ -470,7 +470,7 @@ export function useDriveMarkerV3(
         const blended = blendPositionWorklet(roadPose.lat, roadPose.lng, rawLat, rawLng, blend);
         nextLat = blended.lat;
         nextLng = blended.lng;
-        segmentHdg = safeHeadingWorklet(roadPose.heading, targetHdg.value);
+        segmentHdg = safeHeadingWorklet(targetHdg.value, heading.value);
       }
     } else {
       const tLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
@@ -500,18 +500,7 @@ export function useDriveMarkerV3(
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
     lastTargetJsRef.current = target;
 
-    const arcSegHdg = target.arcWindow && target.arcWindow.points.length >= 2
-      ? bearingBetweenJs(
-        target.arcWindow.points[0]!.lat,
-        target.arcWindow.points[0]!.lng,
-        target.arcWindow.points[1]!.lat,
-        target.arcWindow.points[1]!.lng,
-      )
-      : null;
-    const tgtHdg = safeHeadingJs(
-      target.headingDeg,
-      safeHeadingJs(arcSegHdg, safeHeadingJs(heading.value, 0)),
-    );
+    const tgtHdg = safeHeadingJs(target.headingDeg, safeHeadingJs(heading.value, 0));
 
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
@@ -557,7 +546,7 @@ export function useDriveMarkerV3(
         applyInstantPose(
           blended.lat,
           blended.lng,
-          Number.isFinite(pose.heading) ? normalizeHeadingJs(pose.heading) : tgtHdg,
+          tgtHdg,
           arcM,
           true,
           blend,
@@ -598,7 +587,7 @@ export function useDriveMarkerV3(
             );
             lat.value = blended.lat;
             lng.value = blended.lng;
-            heading.value = Number.isFinite(pose.heading) ? normalizeHeadingJs(pose.heading) : tgtHdg;
+            heading.value = tgtHdg;
           }
         } else if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
           const reprojGapM = haversineMJs(lat.value, lng.value, pose.lat, pose.lng);

@@ -95,6 +95,7 @@ import { clearTelemetry, logTelemetry } from '../../lib/telemetryLogger';
 import {
   buildRerouteOrigin,
   quantizeHeading,
+  REROUTE_BEARING_RANGE_DEG,
   resolveRerouteTravelHeadingDeg,
 } from '../../lib/navigation/reroute';
 
@@ -267,6 +268,8 @@ import { LiveUsersFleetLayer } from '../../components/map/LiveUsersFleetLayer';
 // v10: zwiekszony z 40 do 100 — w polaczeniu z NAV_ROUTE_SNAP_M=80 marker
 // zostaje na trasie az do realnego zjazdu w bok. Mniej falszywych reroute'ow.
 const REROUTE_THRESHOLD_M = 80;
+/** Natychmiastowy snap release + isOffRoute gdy cross-track przekroczy ten próg. */
+const OFF_ROUTE_SNAP_RELEASE_M = 35;
 const NAV_PITCH           = 62;
 const BROWSE_3D_PITCH     = 52;
 const BUILDINGS_3D_MIN_ZOOM = 13;
@@ -2915,6 +2918,7 @@ function MapScreenInner() {
     matchedGeometry: drivingSnapGeometryRef.current,
     routePoints: routePointsRef.current,
     isNavigating: isNavigatingRef.current,
+    suppressRouteSnap: isNavigatingRef.current && offRouteRef.current,
     mirrorPolylines: localRoadGeometryMirror.getPolylines(),
   }), []);
 
@@ -2929,6 +2933,24 @@ function MapScreenInner() {
     ),
     getGeometry: buildV3Geometry,
     onTarget: (out) => {
+      if (
+        !out.rejected
+        && isNavigatingRef.current
+        && !isOffroadRef.current
+        && out.snap.crossTrackM > OFF_ROUTE_SNAP_RELEASE_M
+      ) {
+        if (!offRouteRef.current) {
+          offRouteRef.current = true;
+          setOffRoute(true);
+          visionEvent('NAV_OFF_ROUTE', {
+            crossTrackM: Math.round(out.snap.crossTrackM),
+            speedKmh: Math.round(out.hudSpeedKmh),
+            lat: Number(out.target.lat.toFixed(6)),
+            lng: Number(out.target.lng.toFixed(6)),
+          });
+        }
+      }
+
       speedKmhRef.current = out.hudSpeedKmh;
       rawGpsKmhRef.current = out.hudSpeedKmh;
       if (out.hudSpeedKmh >= 1) {
@@ -3443,7 +3465,8 @@ function MapScreenInner() {
     updateSpeedLimitRef.current = updateSpeedLimit;
   }, [updateSpeedLimit]);
   const speedKmh = (speed ?? 0) * 3.6;
-  const effectiveSpeedLimit = speedLimit ?? (nearestCamera?.maxspeed ?? null);
+  /** OSM + sticky — bez mieszania z limitem fotoradaru (eliminuje mruganie znaku). */
+  const effectiveSpeedLimit = speedLimit;
   const showCameras = true;
 
   const ALERT_DIST = 400;
@@ -4723,7 +4746,11 @@ function MapScreenInner() {
     rerouteOrigin ? endLocation : null,
     undefined,
     rerouteHeadingForApi,
-    { isReroute: true, continueStraight: true },
+    {
+      isReroute: true,
+      continueStraight: true,
+      headingRangeDeg: REROUTE_BEARING_RANGE_DEG,
+    },
   );
 
   const clusteredWarnings = useMemo(
@@ -12948,6 +12975,11 @@ if (pts.length >= 2) {
   const showSpeedPanel =
     !isRoutePreviewOpen
     && (isNavigating || isDriving || speedKmh > 5 || speedLimit !== null);
+  const showSideControls =
+    isNavigating
+    || isDriving
+    || (!isRoutePreviewOpen && !isBuilding);
+  const sideControlsBottom = insets.bottom + 16;
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -13638,7 +13670,11 @@ if (pts.length >= 2) {
             pointerEvents="box-none"
             style={[
               styles.hudSpeedTilePos,
-              !isNavigating && !isDriving && { bottom: 200 },
+              isBuilding
+                ? styles.hudSpeedTilePosBuilding
+                : isNavigating
+                  ? styles.hudSpeedTilePosNav
+                  : styles.hudSpeedTilePosFreeDrive,
             ]}
           >
             <DriveSpeedTile
@@ -13650,13 +13686,8 @@ if (pts.length >= 2) {
         )}
 
         {/* ── Przyciski boczne + FAB (akcje w modalu) ─────── */}
-        <View style={[
-          styles.rightBottomControls,
-          !isNavigating && !isDriving && {
-            bottom: startLocation && endLocation && routeInfo ? 248 : 188,
-          },
-          (isDriving || isNavigating) && { bottom: 28 },
-        ]}>
+        {showSideControls && (
+        <View style={[styles.rightBottomControls, { bottom: sideControlsBottom }]}>
           {(isDriving || isNavigating) && (
             <HudQuickReportButton onPress={() => setReportVisible(true)} />
           )}
@@ -13751,6 +13782,7 @@ if (pts.length >= 2) {
             <MaterialCommunityIcons name="widgets-outline" size={24} color={theme.textMuted} />
           </TouchableOpacity>
         </View>
+        )}
 
         <Modal
           visible={mapFabModalVisible}
@@ -13783,6 +13815,21 @@ if (pts.length >= 2) {
                     icon: 'alt-route' as const,
                     lib: 'mi' as const,
                     onPress: () => { setMapFabModalVisible(false); setSearchModalVisible(true); },
+                  },
+                  {
+                    key: 'createRoute',
+                    label: 'Twórz Trasę',
+                    icon: 'map-marker-path' as const,
+                    lib: 'mci' as const,
+                    onPress: () => {
+                      setMapFabModalVisible(false);
+                      startBuilding();
+                      Toast.show({
+                        type: 'info',
+                        text1: 'Tworzenie trasy',
+                        text2: 'Dotykaj mapę, aby dodać punkty.',
+                      });
+                    },
                   },
                   {
                     key: 'fuel',

@@ -181,7 +181,7 @@ export function useGoogleDirections(
   const destLng   = destination ? round4(destination.longitude): null;
 
   const isReroute = !!fetchOpts?.isReroute;
-  const headingRangeDeg = fetchOpts?.headingRangeDeg ?? (isReroute ? 85 : 45);
+  const headingRangeDeg = fetchOpts?.headingRangeDeg ?? (isReroute ? 60 : 45);
   const headingQuantizeDeg = fetchOpts?.headingQuantizeDeg ?? (isReroute ? 12 : 45);
   const continueStraight = fetchOpts?.continueStraight !== false;
 
