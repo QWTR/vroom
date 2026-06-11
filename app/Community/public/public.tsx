@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, FlatList, TextInput, TouchableOpacity,
-  Image, StatusBar, Platform, ActivityIndicator, Modal, Pressable, Dimensions,
+  Image, StatusBar, Platform, ActivityIndicator, Modal, Pressable, Dimensions, StyleSheet,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -483,6 +484,12 @@ export default function PublicChatScreen() {
     ? chatInputPad
     : Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 16);
 
+  const pillBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+  const pillHeight = Math.min(Math.max(50, inputHeight + 10), 60);
+  const canSendInput = editingMsg
+    ? text.trim() || editingMsg.photos.length || editingMsg.videos.length
+    : text.trim() || photos.length || !!video;
+
   const renderMessage = useCallback(({ item, index }: { item: PublicMessage; index: number }) => {
     const isMe = item.senderId === myId;
     const prev = messages[index - 1];
@@ -492,20 +499,32 @@ export default function PublicChatScreen() {
     const hasMedia = hasPhotos || hasVideos;
     const hasText = !!item.content?.trim();
 
-    const bubbleRadius = {
-      borderTopLeftRadius:  showName && !isMe ? 4 : 16,
-      borderTopRightRadius: showName && isMe ? 4 : 16,
-      borderBottomLeftRadius: 16,
-      borderBottomRightRadius: 16,
+    const myBubbleRadius = {
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: showName ? 4 : 20,
+      borderBottomLeftRadius: 20,
+      borderBottomRightRadius: 4,
     };
 
-    const bubbleStyle = {
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      gap: 4,
-      backgroundColor: isMe ? '#e33835' : theme.surface2,
-      borderWidth: isMe ? 0 : 1,
-      borderColor: theme.border,
+    const theirBubbleRadius = {
+      borderTopLeftRadius: showName ? 4 : 20,
+      borderTopRightRadius: 20,
+      borderBottomLeftRadius: 20,
+      borderBottomRightRadius: 20,
+    };
+
+    const bubblePadding = { paddingHorizontal: 16, paddingVertical: 12, gap: 6 };
+
+    const myBubbleStyle = {
+      backgroundColor: 'rgba(227, 56, 53, 0.15)',
+      borderWidth: 1,
+      borderColor: 'rgba(227, 56, 53, 0.4)',
+    };
+
+    const theirBubbleStyle = {
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
     };
 
     const timeRow = (onBubble: boolean) => (
@@ -513,7 +532,7 @@ export default function PublicChatScreen() {
         {!!item.editedAt && (
           <Text style={{
             fontSize: 8,
-            color: onBubble && isMe ? '#ffffff50' : theme.textDim,
+            color: onBubble && isMe ? 'rgba(255,255,255,0.55)' : theme.textDim,
             fontStyle: 'italic',
           }}>
             edytowano
@@ -521,7 +540,7 @@ export default function PublicChatScreen() {
         )}
         <Text style={{
           fontSize: 9,
-          color: onBubble && isMe ? '#ffffff60' : theme.textDim,
+          color: onBubble && isMe ? 'rgba(255,255,255,0.65)' : theme.textDim,
         }}>
           {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
         </Text>
@@ -530,23 +549,24 @@ export default function PublicChatScreen() {
 
     const replyQuote = item.replyTo ? (
       <View style={{
-        backgroundColor: isMe && !hasMedia ? '#00000020' : (isDark ? '#ffffff10' : '#00000008'),
+        backgroundColor: 'rgba(0, 0, 0, 0.2)',
         borderRadius: 8,
         borderLeftWidth: 3,
-        borderLeftColor: isMe && !hasMedia ? '#ffffff90' : '#e3383560',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        marginBottom: hasMedia && !hasText ? 0 : 4,
+        borderLeftColor: theme.primary,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        marginBottom: hasMedia && !hasText ? 0 : 6,
       }}>
         <Text style={{
-          color: isMe && !hasMedia ? '#ffffffaa' : '#e33835aa',
+          color: isMe ? '#fff' : theme.primary,
           fontFamily: 'Orbitron',
           fontSize: 8,
-          fontWeight: '700',
+          fontWeight: '600',
+          letterSpacing: 0,
         }}>
           {item.replyTo.sender.username}
         </Text>
-        <Text style={{ color: isMe && !hasMedia ? '#ffffff70' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
+        <Text style={{ color: isMe ? 'rgba(255,255,255,0.75)' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
           {replyPreviewLabel(item.replyTo)}
         </Text>
       </View>
@@ -560,8 +580,13 @@ export default function PublicChatScreen() {
               item.sender.avatarUrl
                 ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: 28, height: 28, borderRadius: 14 }} />
                 : (
-                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border }}>
-                    <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                  <View style={{
+                    width: 28, height: 28, borderRadius: 14,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1, borderColor: 'rgba(150, 150, 150, 0.2)',
+                  }}>
+                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
                       {item.sender.username.slice(0, 2).toUpperCase()}
                     </Text>
                   </View>
@@ -574,7 +599,7 @@ export default function PublicChatScreen() {
           {showName && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
               <TouchableOpacity onPress={() => router.push(`/profile/${item.sender.id}` as any)}>
-                <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
+                <Text style={{ color: item.sender.nickColor || theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '600', letterSpacing: 0 }}>
                   {item.sender.username}
                 </Text>
               </TouchableOpacity>
@@ -617,7 +642,11 @@ export default function PublicChatScreen() {
 
           {(hasText || (item.replyTo && !hasMedia)) && (
             <TouchableOpacity
-              style={[bubbleStyle, bubbleRadius]}
+              style={[
+                isMe ? myBubbleRadius : theirBubbleRadius,
+                bubblePadding,
+                isMe ? myBubbleStyle : theirBubbleStyle,
+              ]}
               onLongPress={() => setMenuMsg(item)}
               activeOpacity={0.85}
             >
@@ -646,18 +675,18 @@ export default function PublicChatScreen() {
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 3,
-                    backgroundColor: r.myReaction ? '#e3383530' : theme.surface2,
-                    borderRadius: 12,
-                    paddingHorizontal: 7,
-                    paddingVertical: 3,
-                    borderWidth: 1,
-                    borderColor: r.myReaction ? '#e33835' : theme.border,
+                    backgroundColor: r.myReaction
+                      ? (isDark ? '#e3383528' : '#e3383518')
+                      : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'),
+                    borderRadius: 14,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
                   }}
                 >
                   <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
                   <Text style={{
                     fontSize: 10,
-                    color: r.myReaction ? '#e33835' : theme.textDim,
+                    color: r.myReaction ? theme.primary : theme.textDim,
                     fontFamily: 'Orbitron',
                     fontWeight: '700',
                   }}>
@@ -727,7 +756,7 @@ export default function PublicChatScreen() {
               title="Napisz pierwszą wiadomość!"
             />
           }
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: chatListPad, flexGrow: 1 }}
+          contentContainerStyle={{ paddingTop: 8, paddingBottom: chatListPad + 80, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
@@ -739,153 +768,171 @@ export default function PublicChatScreen() {
         />
 
         <View style={{
-          backgroundColor: theme.surface,
-          borderTopWidth: 1,
-          borderTopColor: theme.border,
-          paddingBottom: inputBottomPad,
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: inputBottomPad,
         }}>
-          {replyTo && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
-              <View style={{ width: 3, borderRadius: 2, alignSelf: 'stretch', backgroundColor: '#e33835' }} />
+          {(replyTo || editingMsg) && (
+            <View style={{
+              marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8,
+              flexDirection: 'row', alignItems: 'center', gap: 8,
+              borderLeftWidth: 3, borderLeftColor: theme.primary,
+              backgroundColor: 'rgba(0,0,0,0.15)',
+              borderRadius: 10,
+            }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{replyTo.sender.username}</Text>
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '600' }}>
+                  {replyTo ? replyTo.sender.username : 'EDYTUJESZ WIADOMOŚĆ'}
+                </Text>
                 <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {replyPreviewLabel(replyTo)}
+                  {replyTo ? replyPreviewLabel(replyTo) : replyPreviewLabel(editingMsg!)}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setReplyTo(null)}>
-                <Feather name="x" size={16} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {editingMsg && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
-              <Feather name="edit-2" size={14} color="#e33835" />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>EDYTUJESZ WIADOMOŚĆ</Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {replyPreviewLabel(editingMsg)}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={cancelEdit}>
+              <TouchableOpacity onPress={replyTo ? () => setReplyTo(null) : cancelEdit}>
                 <Feather name="x" size={16} color={theme.textDim} />
               </TouchableOpacity>
             </View>
           )}
 
           {!editingMsg && (photos.length > 0 || video) && (
-            <View style={{ flexDirection: 'row', paddingHorizontal: 14, paddingTop: 10, gap: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 8 }}>
               {photos.map((uri, i) => (
                 <View key={i} style={{ position: 'relative' }}>
-                  <Image source={{ uri }} style={{ width: 58, height: 58, borderRadius: 10, borderWidth: 1, borderColor: theme.border }} />
+                  <Image source={{ uri }} style={{ width: 48, height: 48, borderRadius: 10 }} />
                   <TouchableOpacity
-                    style={{ position: 'absolute', top: -5, right: -5, width: 20, height: 20, borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' }}
                     onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
                   >
-                    <Feather name="x" size={10} color="#fff" />
+                    <Feather name="x" size={9} color="#fff" />
                   </TouchableOpacity>
                 </View>
               ))}
               {video && (
                 <View style={{ position: 'relative' }}>
-                  <View style={{ width: 58, height: 58, borderRadius: 10, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border }}>
-                    <MaterialIcons name="videocam" size={22} color="#fff" />
+                  <View style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+                    <MaterialIcons name="videocam" size={18} color="#fff" />
                   </View>
                   <TouchableOpacity
-                    style={{ position: 'absolute', top: -5, right: -5, width: 20, height: 20, borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' }}
                     onPress={() => setVideo(null)}
                   >
-                    <Feather name="x" size={10} color="#fff" />
+                    <Feather name="x" size={9} color="#fff" />
                   </TouchableOpacity>
                 </View>
               )}
             </View>
           )}
 
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 10, gap: 8, position: 'relative' }}>
-            <TouchableOpacity
-              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', opacity: editingMsg ? 0.35 : 1 }}
-              onPress={pickPhotos}
-              disabled={!!editingMsg || !!video || photos.length >= 4}
-            >
-              <Feather name="image" size={18} color={theme.textDim} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', opacity: editingMsg ? 0.35 : 1 }}
-              onPress={pickVideo}
-              disabled={!!editingMsg || photos.length > 0 || !!video}
-            >
-              <MaterialIcons name="videocam" size={18} color={theme.textDim} />
-            </TouchableOpacity>
-
-            <TextInput
-              style={{
-                flex: 1, color: theme.text, fontSize: 14, lineHeight: 20,
-                backgroundColor: theme.surface2, borderRadius: 20,
-                paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
-                borderWidth: 1, borderColor: editingMsg ? '#e33835' : theme.border,
-                height: Math.max(INPUT_MIN_HEIGHT, inputHeight),
-              }}
-              value={text}
-              onChangeText={onInputChange}
-              onContentSizeChange={e => setInputHeight(Math.min(e.nativeEvent.contentSize.height, INPUT_MAX_HEIGHT))}
-              placeholder={editingMsg ? 'Edytuj treść...' : 'Napisz wiadomość... (@nick)'}
-              placeholderTextColor={theme.textDim}
-              multiline
-              maxLength={2000}
+          <View style={{
+            marginHorizontal: 16,
+            marginBottom: 16,
+            height: pillHeight,
+            borderRadius: 25,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: pillBorder,
+          }}>
+            <BlurView
+              intensity={isDark ? 20 : 40}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
             />
+            <View style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingLeft: 10,
+              paddingRight: 6,
+              gap: 4,
+            }}>
+              <TouchableOpacity
+                onPress={pickPhotos}
+                disabled={!!editingMsg || !!video || photos.length >= 4}
+                style={{ padding: 6, opacity: editingMsg ? 0.3 : 1 }}
+                hitSlop={4}
+              >
+                <Feather name="image" size={16} color={theme.textDim} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={pickVideo}
+                disabled={!!editingMsg || photos.length > 0 || !!video}
+                style={{ padding: 6, opacity: editingMsg ? 0.3 : 1 }}
+                hitSlop={4}
+              >
+                <MaterialIcons name="videocam" size={16} color={theme.textDim} />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: (editingMsg ? text.trim() : (text.trim() || photos.length || video)) ? '#e33835' : '#e3383530',
-                alignItems: 'center', justifyContent: 'center',
-              }}
-              onPress={() => void handleSend()}
-              disabled={sending || (editingMsg ? !text.trim() && !editingMsg.photos.length && !editingMsg.videos.length : (!text.trim() && !photos.length && !video))}
-            >
-              {sending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name={editingMsg ? 'check' : 'send'} size={17} color="#fff" />}
-            </TouchableOpacity>
+              <TextInput
+                style={{
+                  flex: 1,
+                  color: theme.text,
+                  fontSize: 14,
+                  lineHeight: 18,
+                  backgroundColor: 'transparent',
+                  borderWidth: 0,
+                  paddingVertical: 0,
+                  maxHeight: 44,
+                }}
+                value={text}
+                onChangeText={onInputChange}
+                onContentSizeChange={e => setInputHeight(Math.min(e.nativeEvent.contentSize.height, INPUT_MAX_HEIGHT))}
+                placeholder={editingMsg ? 'Edytuj treść...' : 'Napisz wiadomość...'}
+                placeholderTextColor={theme.textDim}
+                multiline
+                maxLength={2000}
+              />
 
-            {!!mentionQuery && mentionUsers.length > 0 && (
-              <View style={{
-                position: 'absolute', left: 48, right: 48, bottom: 48,
-                backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
-                borderRadius: 12, maxHeight: 160, overflow: 'hidden',
-              }}>
-                {mentionUsers.map(u => (
-                  <TouchableOpacity
-                    key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
-                    onPress={() => insertMention(u)}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }}
-                  >
-                    {u.type === 'user' ? (
-                      u.avatarUrl
-                        ? <Image source={{ uri: u.avatarUrl }} style={{ width: 26, height: 26, borderRadius: 13 }} />
-                        : (
-                          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>{u.username.slice(0, 1).toUpperCase()}</Text>
-                          </View>
-                        )
-                    ) : (
-                      <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#7cb34222', alignItems: 'center', justifyContent: 'center' }}>
-                        <MaterialIcons name="map" size={14} color="#7cb342" />
-                      </View>
-                    )}
-                    <View>
-                      <Text style={{ color: theme.text, fontSize: 13 }}>
-                        {u.type === 'province' ? `@${u.mention}` : `@${u.username}`}
-                      </Text>
-                      {u.type === 'province' && (
-                        <Text style={{ color: theme.textDim, fontSize: 10 }}>{u.label}</Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
+              <TouchableOpacity
+                style={{
+                  width: 36, height: 36, borderRadius: 18,
+                  backgroundColor: theme.primary,
+                  alignItems: 'center', justifyContent: 'center',
+                  opacity: canSendInput ? 1 : 0.35,
+                }}
+                onPress={() => void handleSend()}
+                disabled={sending || !canSendInput}
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather name={editingMsg ? 'check' : 'send'} size={15} color="#fff" />
+                }
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {!!mentionQuery && mentionUsers.length > 0 && (
+            <View style={{
+              position: 'absolute',
+              left: 16, right: 16, bottom: pillHeight + 24,
+              backgroundColor: isDark ? 'rgba(22,22,22,0.96)' : 'rgba(255,255,255,0.96)',
+              borderRadius: 14, maxHeight: 140, overflow: 'hidden',
+              borderWidth: 1, borderColor: pillBorder,
+            }}>
+              {mentionUsers.map(u => (
+                <TouchableOpacity
+                  key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
+                  onPress={() => insertMention(u)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
+                >
+                  {u.type === 'user' ? (
+                    u.avatarUrl
+                      ? <Image source={{ uri: u.avatarUrl }} style={{ width: 24, height: 24, borderRadius: 12 }} />
+                      : (
+                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>{u.username.slice(0, 1).toUpperCase()}</Text>
+                        </View>
+                      )
+                  ) : (
+                    <MaterialIcons name="map" size={14} color="#7cb342" />
+                  )}
+                  <Text style={{ color: theme.text, fontSize: 13 }}>
+                    {u.type === 'province' ? `@${u.mention}` : `@${u.username}`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </View>
 

@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  RefreshControl, Alert, ActivityIndicator, ScrollView,
+  RefreshControl, Alert, ActivityIndicator, ScrollView, Platform,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage            from '@react-native-async-storage/async-storage';
 import Toast                   from 'react-native-toast-message';
 import { formatDistanceToNow } from 'date-fns';
@@ -169,15 +170,37 @@ const PostCard = React.memo(({
     );
   };
 
+  const cardGradient = isDark
+    ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] as const
+    : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.00)'] as const;
+  const cardBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const cardShadow = Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+    },
+    android: { elevation: 6 },
+    default: {},
+  });
+
   return (
     <>
       <View style={{
-        marginHorizontal: 12, marginBottom: 12,
-        backgroundColor: theme.surface,
+        marginHorizontal: 16, marginBottom: 16,
         borderRadius: 20,
-        borderWidth: 1, borderColor: theme.border2,
         overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: cardBorder,
+        ...cardShadow,
       }}>
+        <LinearGradient
+          colors={cardGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={{ overflow: 'hidden' }}
+        >
         {/* Header — nick w osobnej linii; odznaki + akcje nie ściskają się w jednym rzędzie */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: 14, paddingBottom: 10, gap: 10 }}>
           <TouchableOpacity onPress={() => onProfile(post.author.id)} style={{ flexShrink: 0 }}>
@@ -205,11 +228,11 @@ const PostCard = React.memo(({
               <UserBadges isAdmin={post.author.isAdmin} isPremium={post.author.isPremium} compact />
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 2,
-                backgroundColor: '#e3383515', borderRadius: 8,
-                paddingHorizontal: 6, paddingVertical: 2, flexShrink: 0,
+                backgroundColor: isDark ? '#e3383520' : '#e3383510', borderRadius: 10,
+                paddingHorizontal: 7, paddingVertical: 3, flexShrink: 0,
               }}>
-                <MaterialIcons name="bolt" size={10} color="#e33835" />
-                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{post.author.points}</Text>
+                <MaterialIcons name="bolt" size={10} color={theme.primary} />
+                <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 9 }}>{post.author.points}</Text>
               </View>
             </View>
 
@@ -220,11 +243,11 @@ const PostCard = React.memo(({
             <View style={{ flexDirection: 'row', marginTop: 5 }}>
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4,
-                borderRadius: 8, borderWidth: 1, borderColor: '#e3383535',
-                backgroundColor: '#e3383518', paddingHorizontal: 7, paddingVertical: 2,
+                borderRadius: 10,
+                backgroundColor: isDark ? '#e3383520' : '#e3383510', paddingHorizontal: 8, paddingVertical: 3,
               }}>
-                <MaterialIcons name={categoryMeta.icon as any} size={10} color="#e33835" />
-                <Text style={{ color: '#e33835', fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
+                <MaterialIcons name={categoryMeta.icon as any} size={10} color={theme.primary} />
+                <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
               </View>
             </View>
           </View>
@@ -274,91 +297,109 @@ const PostCard = React.memo(({
           </View>
         </View>
 
-        {/* Treść */}
-        <TouchableOpacity
-          activeOpacity={0.95}
-          onPress={() => onComment(post)}
-          onLongPress={() => onOpenReactionPicker(post)}
-          delayLongPress={400}
-        >
-          {!!caption?.length && (
-            <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 8 }}>
-              {renderDiscussionBody(caption, theme, {
-                onMentionPress: async (username) => {
-                  const uid = await resolveMentionUserId(username);
-                  if (uid) onProfile(uid);
-                },
-                onHashtagPress,
-              })}
-            </Text>
-          )}
-          {!!plainText?.length && !routeData && (
-            <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 14, paddingBottom: 12 }}>
-              {renderDiscussionBody(plainText, theme, {
-                onMentionPress: async (username) => {
-                  const uid = await resolveMentionUserId(username);
-                  if (uid) onProfile(uid);
-                },
-                onHashtagPress,
-              })}
-            </Text>
-          )}
-          {!!routeData && (
-            <RoutePreviewCard data={routeData} onNavigate={onNavigateRoute} fullWidth />
-          )}
-          {!!clubInviteData && (
-            <View
-              style={{
-                marginHorizontal: 14,
-                marginBottom: 12,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: '#e3383550',
-                backgroundColor: '#e3383514',
-                padding: 12,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <MaterialCommunityIcons name="shield-crown" size={16} color="#e33835" />
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1 }} numberOfLines={1}>
-                  {clubInviteData.clubName}
-                </Text>
-              </View>
-              <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
-                {clubInviteData.memberCount ? `Członków: ${clubInviteData.memberCount}` : 'Zaproszenie do klubu'}
+        {/* Treść + media + ankieta */}
+        <View style={{ gap: 12 }}>
+          <TouchableOpacity
+            activeOpacity={0.95}
+            onPress={() => onComment(post)}
+            onLongPress={() => onOpenReactionPicker(post)}
+            delayLongPress={400}
+            style={{ gap: 8 }}
+          >
+            {!!caption?.length && (
+              <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 16, paddingBottom: 4 }}>
+                {renderDiscussionBody(caption, theme, {
+                  onMentionPress: async (username) => {
+                    const uid = await resolveMentionUserId(username);
+                    if (uid) onProfile(uid);
+                  },
+                  onHashtagPress,
+                })}
               </Text>
-              <TouchableOpacity
-                style={{ borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', paddingVertical: 9 }}
-                onPress={handleJoinClub}
-                disabled={joiningClub}
+            )}
+            {!!plainText?.length && !routeData && (
+              <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 16 }}>
+                {renderDiscussionBody(plainText, theme, {
+                  onMentionPress: async (username) => {
+                    const uid = await resolveMentionUserId(username);
+                    if (uid) onProfile(uid);
+                  },
+                  onHashtagPress,
+                })}
+              </Text>
+            )}
+            {!!routeData && (
+              <View style={{ paddingHorizontal: 16 }}>
+                <RoutePreviewCard data={routeData} onNavigate={onNavigateRoute} fullWidth />
+              </View>
+            )}
+            {!!clubInviteData && (
+              <View
+                style={{
+                  marginHorizontal: 16,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: '#e3383550',
+                  backgroundColor: '#e3383514',
+                  padding: 12,
+                }}
               >
-                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>
-                  {joiningClub ? 'DOŁĄCZANIE...' : 'DOŁĄCZ DO KLUBU'}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <MaterialCommunityIcons name="shield-crown" size={16} color="#e33835" />
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                    {clubInviteData.clubName}
+                  </Text>
+                </View>
+                <Text style={{ color: theme.textDim, fontSize: 11, marginBottom: 10 }}>
+                  {clubInviteData.memberCount ? `Członków: ${clubInviteData.memberCount}` : 'Zaproszenie do klubu'}
                 </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
-            {!!linkUrl && <LinkPreviewCard url={linkUrl} isMe={isOwn} theme={theme} />}
-            <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim }}>
-              {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-          {(post.photos?.length > 0 || post.videos?.length > 0) && (
-            <View style={{ paddingHorizontal: post.photos.length === 1 ? 0 : 14 }}>
-              <MediaGrid photos={post.photos ?? []} videos={post.videos ?? []} />
-            </View>
-          )}
-        </TouchableOpacity>
-        {hasPoll && post.poll && (
-          <DiscussionPollCard postId={post.id} poll={post.poll} onVote={onPollVote} />
-        )}
+                <TouchableOpacity
+                  style={{ borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', paddingVertical: 9 }}
+                  onPress={handleJoinClub}
+                  disabled={joiningClub}
+                >
+                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10 }}>
+                    {joiningClub ? 'DOŁĄCZANIE...' : 'DOŁĄCZ DO KLUBU'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {(!!linkUrl || !(post.photos?.length || post.videos?.length)) && (
+              <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
+                {!!linkUrl && <LinkPreviewCard url={linkUrl} isMe={isOwn} theme={theme} />}
+                {!(post.photos?.length || post.videos?.length) && (
+                  <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim, marginTop: linkUrl ? 6 : 0 }}>
+                    {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
 
-        {!!post.reactions?.length && (
-          <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
-            <ReactionChips reactions={post.reactions} onToggle={(emoji) => onReact(post.id, emoji)} />
-          </View>
-        )}
+          {(post.photos?.length > 0 || post.videos?.length > 0) && (
+            <TouchableOpacity
+              activeOpacity={0.95}
+              onPress={() => onComment(post)}
+              onLongPress={() => onOpenReactionPicker(post)}
+              delayLongPress={400}
+            >
+              <MediaGrid photos={post.photos ?? []} videos={post.videos ?? []} />
+              <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim, marginRight: 16, marginTop: 4 }}>
+                {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {hasPoll && post.poll && (
+            <DiscussionPollCard postId={post.id} poll={post.poll} onVote={onPollVote} />
+          )}
+
+          {!!post.reactions?.length && (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              <ReactionChips reactions={post.reactions} onToggle={(emoji) => onReact(post.id, emoji)} />
+            </View>
+          )}
+        </View>
 
         {/* Repost badge */}
         {post.isReposted && (
@@ -370,21 +411,25 @@ const PostCard = React.memo(({
 
         {/* Akcje */}
         <View style={{
-          flexDirection: 'row', alignItems: 'center',
-          paddingHorizontal: 14, paddingBottom: 12, paddingTop: 6,
-          gap: 4,
-          borderTopWidth: 1, borderTopColor: theme.border,
+          flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',
+          paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10,
+          gap: 8,
         }}>
           <ActionBtn icon="comment-outline" count={post.commentsCount} active={false} onPress={() => onComment(post)} />
           <ActionBtn icon="repeat" count={post.repostsCount} active={post.isReposted} activeColor="#4de926" onPress={() => onRepost(post.id)} />
           <ActionBtn icon={post.isLiked ? 'heart' : 'heart-outline'} count={post.likesCount} active={post.isLiked} activeColor="#e33835" onPress={() => onLike(post.id)} />
           <TouchableOpacity
             onPress={() => onOpenReactionPicker(post)}
-            style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}
+            style={{
+              paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            }}
           >
-            <Text style={{ fontSize: 16 }}>😀</Text>
+            <Text style={{ fontSize: 14 }}>😀</Text>
           </TouchableOpacity>
         </View>
+        </LinearGradient>
       </View>
       <DeleteModal visible={showDelete} onCancel={() => setShowDelete(false)} onConfirm={() => { setShowDelete(false); onDelete(post.id); }} />
     </>
@@ -439,7 +484,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   isAdmin?: boolean;
   onUpgradePremium: () => void;
 }) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [composeHeight, setComposeHeight] = useState(120);
   const restoredRef = React.useRef(false);
   type FeedItem = Post | { _adType: 'native'; _adKey: string };
@@ -499,28 +544,29 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 12, gap: 6, paddingBottom: 8 }}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 4, paddingBottom: 4 }}
           >
-            {[{ id: DISCUSSION_ALL_CATEGORIES, label: 'Wszystkie', icon: 'view-list' as const }, ...DISCUSSION_CATEGORIES].map((cat) => {
+            {[{ id: DISCUSSION_ALL_CATEGORIES, label: 'Wszystkie' }, ...DISCUSSION_CATEGORIES].map((cat) => {
               const active = selectedCategory === cat.id;
               return (
                 <TouchableOpacity
                   key={cat.id}
                   onPress={() => onSelectCategory(cat.id)}
                   style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 5,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: active ? '#e33835' : theme.border,
-                    backgroundColor: active ? '#e3383520' : theme.surface,
-                    paddingHorizontal: 10,
-                    paddingVertical: 7,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderBottomWidth: 2,
+                    borderBottomColor: active ? theme.primary : 'transparent',
+                    marginBottom: -1,
                   }}
                 >
-                  <MaterialIcons name={cat.icon as any} size={13} color={active ? '#e33835' : theme.textDim} />
-                  <Text style={{ color: active ? '#e33835' : theme.textDim, fontSize: 10, fontFamily: 'Orbitron' }}>
+                  <Text style={{
+                    color: active ? theme.primary : theme.textDim,
+                    fontSize: 10,
+                    fontFamily: 'Orbitron',
+                    fontWeight: active ? '700' : '500',
+                    letterSpacing: 0.3,
+                  }}>
                     {cat.label}
                   </Text>
                 </TouchableOpacity>

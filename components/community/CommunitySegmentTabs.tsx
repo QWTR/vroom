@@ -22,44 +22,44 @@ export function CommunitySegmentTabs({ tabs, activeKey, onChange, compact }: Pro
   return (
     <View style={{
       flexDirection: 'row',
-      marginHorizontal: 12,
-      marginTop: 10,
-      marginBottom: 6,
-      backgroundColor: theme.surface2,
-      borderRadius: 16,
-      padding: 4,
-      borderWidth: 1,
-      borderColor: theme.border,
+      marginHorizontal: 16,
+      marginTop: 8,
+      marginBottom: 4,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
     }}>
       {tabs.map(tab => {
         const active = activeKey === tab.key;
         return (
           <TouchableOpacity
             key={tab.key}
-            style={[{
+            style={{
               flex: 1,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 5,
-              paddingVertical: compact ? 8 : 10,
-              borderRadius: 12,
-            }, active && { backgroundColor: theme.primary }]}
+              gap: 4,
+              paddingVertical: compact ? 10 : 12,
+              borderBottomWidth: 2,
+              borderBottomColor: active ? theme.primary : 'transparent',
+              marginBottom: -1,
+            }}
             onPress={() => onChange(tab.key)}
-            activeOpacity={0.85}
+            activeOpacity={0.7}
           >
             {tab.icon ? (
               <MaterialIcons
                 name={tab.icon as any}
-                size={14}
-                color={active ? theme.onPrimary : theme.textDim}
+                size={13}
+                color={active ? theme.primary : theme.textDim}
               />
             ) : null}
             <Text style={{
               fontFamily: 'Orbitron',
               fontSize: compact ? 8 : 9,
-              fontWeight: '700',
-              color: active ? theme.onPrimary : theme.textDim,
+              fontWeight: active ? '700' : '500',
+              color: active ? theme.primary : theme.textDim,
+              letterSpacing: 0.5,
             }}>
               {tab.label}
             </Text>

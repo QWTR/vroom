@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, Linking, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Modal, ScrollView, Dimensions,
-  Platform, Keyboard, KeyboardAvoidingView, Pressable,
+  Platform, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
@@ -423,19 +424,25 @@ export const PhotoViewer = ({
 // AVATAR
 // ─────────────────────────────────────────────────────────
 export const Avatar = ({ user, size = 40 }: { user: { username: string; avatarUrl: string | null }; size?: number }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   return (
     <View style={{
       width: size, height: size, borderRadius: size / 2,
       overflow: 'hidden',
-      backgroundColor: '#e3383518',
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
       justifyContent: 'center', alignItems: 'center',
-      borderWidth: 1.5, borderColor: '#e3383530',
+      borderWidth: 1,
+      borderColor: 'rgba(150, 150, 150, 0.2)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.25 : 0.08,
+      shadowRadius: 4,
+      elevation: 2,
     }}>
       {user.avatarUrl
         ? <Image source={{ uri: user.avatarUrl }} style={{ width: size, height: size }} resizeMode="cover" />
         : <Text style={{
-            color: '#e33835',
+            color: theme.primary,
             fontFamily: 'Orbitron',
             fontSize: size * 0.3,
             fontWeight: '700',
@@ -446,6 +453,10 @@ export const Avatar = ({ user, size = 40 }: { user: { username: string; avatarUr
     </View>
   );
 };
+
+// Wyrównanie mediów do treści posta w karcie dyskusji
+export const POST_CONTENT_INSET = 16;
+const POST_MEDIA_MAX_HEIGHT = 350;
 
 // ─────────────────────────────────────────────────────────
 // MEDIA GRID — z podglądem po kliknięciu
@@ -463,43 +474,78 @@ export const MediaGrid = ({ photos, videos }: { photos: string[]; videos: string
     setViewerOpen(true);
   };
 
+  const photoCount = photos.length;
+  const singlePhoto = photoCount === 1 && videos.length === 0;
+
   return (
     <>
       <View style={{
-        flexDirection: 'row', flexWrap: 'wrap', gap: 3,
-        marginBottom: 10, borderRadius: 14, overflow: 'hidden',
+        marginHorizontal: POST_CONTENT_INSET,
+        marginTop: 10,
+        marginBottom: 10,
+        borderRadius: 16,
+        overflow: 'hidden',
       }}>
         {videos.map((uri, i) => (
           <Video
-            key={`v${i}`} source={{ uri }}
-            style={{ width: '100%', height: 200, borderRadius: 12 }}
-            resizeMode={ResizeMode.COVER} useNativeControls isLooping={false}
+            key={`v${i}`}
+            source={{ uri }}
+            style={{ width: '100%', height: 200, maxHeight: POST_MEDIA_MAX_HEIGHT }}
+            resizeMode={ResizeMode.COVER}
+            useNativeControls
+            isLooping={false}
           />
         ))}
-        {photos.map((uri, i) => {
-          const total = photos.length;
-          let w: any = '100%';
-          let h = 220;
-          if (total === 2) { w = '49.5%'; h = 150; }
-          if (total === 3) { w = i === 0 ? '100%' : '49.5%'; h = i === 0 ? 170 : 110; }
-          if (total >= 4) { w = '49.5%'; h = 120; }
-          const isLast = total > 4 && i === 3;
-          return (
-            <TouchableOpacity
-              key={`p${i}`}
-              activeOpacity={0.88}
-              onPress={() => openViewer(photos, i)}
-              style={{ width: w, height: h, borderRadius: total === 1 ? 14 : 4, overflow: 'hidden', position: 'relative' }}
-            >
-              <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-              {isLast && total > 4 && (
-                <View style={{ position: 'absolute', inset: 0, backgroundColor: '#000000bb', justifyContent: 'center', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>+{total - 4}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
+        {photoCount > 0 && (
+          <View style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: photoCount > 1 ? 4 : 0,
+            maxHeight: singlePhoto ? POST_MEDIA_MAX_HEIGHT : undefined,
+            overflow: 'hidden',
+          }}>
+            {photos.map((uri, i) => {
+              const total = photos.length;
+              let w: any = '100%';
+              let h = singlePhoto ? 280 : 220;
+              if (total === 2) { w = '48.5%'; h = 150; }
+              if (total === 3) { w = i === 0 ? '100%' : '48.5%'; h = i === 0 ? 170 : 110; }
+              if (total >= 4) { w = '48.5%'; h = 120; }
+              const isLast = total > 4 && i === 3;
+              return (
+                <TouchableOpacity
+                  key={`p${i}`}
+                  activeOpacity={0.88}
+                  onPress={() => openViewer(photos, i)}
+                  style={{
+                    width: w,
+                    height: h,
+                    maxHeight: singlePhoto ? POST_MEDIA_MAX_HEIGHT : h,
+                    overflow: 'hidden',
+                    position: 'relative',
+                  }}
+                >
+                  <Image
+                    source={{ uri }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                  {isLast && total > 4 && (
+                    <View style={{
+                      position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: '#000000bb',
+                      justifyContent: 'center', alignItems: 'center',
+                    }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>
+                        +{total - 4}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </View>
       <PhotoViewer
         photos={viewerPhotos}
@@ -571,14 +617,16 @@ export const DeleteModal = ({
 export const ActionBtn = ({
   icon, count, active, activeColor = '#e33835', onPress,
 }: { icon: string; count: number; active: boolean; activeColor?: string; onPress: () => void }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  const chipBg = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)';
   return (
     <TouchableOpacity
       onPress={onPress}
+      activeOpacity={0.75}
       style={{
-        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        gap: 5, paddingVertical: 7, borderRadius: 10,
-        backgroundColor: active ? `${activeColor}15` : 'transparent',
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 4, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14,
+        backgroundColor: active ? `${activeColor}22` : chipBg,
       }}
     >
       <MaterialCommunityIcons
@@ -601,8 +649,9 @@ export const ReactionChips = ({
   reactions?: DiscussionReaction[];
   onToggle: (emoji: string) => void;
 }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   if (!reactions?.length) return null;
+  const chipBg = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)';
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
       {reactions.map(r => (
@@ -611,13 +660,12 @@ export const ReactionChips = ({
           onPress={() => onToggle(r.emoji)}
           style={{
             flexDirection: 'row', alignItems: 'center', gap: 3,
-            backgroundColor: r.myReaction ? '#e3383530' : theme.surface2,
-            borderRadius: 12, paddingHorizontal: 7, paddingVertical: 3,
-            borderWidth: 1, borderColor: r.myReaction ? '#e33835' : theme.border,
+            backgroundColor: r.myReaction ? (isDark ? '#e3383528' : '#e3383518') : chipBg,
+            borderRadius: 14, paddingHorizontal: 8, paddingVertical: 4,
           }}
         >
           <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
-          <Text style={{ fontSize: 10, color: r.myReaction ? '#e33835' : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>
+          <Text style={{ fontSize: 10, color: r.myReaction ? theme.primary : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>
             {r.count}
           </Text>
         </TouchableOpacity>
@@ -679,9 +727,13 @@ export const DiscussionPollCard = ({
 
   return (
     <View style={{
-      marginHorizontal: 14, marginBottom: 12,
-      borderRadius: 14, overflow: 'hidden',
-      borderWidth: 1, borderColor: `${POLL_ACCENT}35`,
+      marginHorizontal: POST_CONTENT_INSET,
+      marginTop: 2,
+      marginBottom: 12,
+      borderRadius: 14,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: `${POLL_ACCENT}35`,
       backgroundColor: isDark ? '#ffffff06' : '#00000004',
     }}>
       <View style={{ height: 2, backgroundColor: POLL_ACCENT }} />
@@ -793,9 +845,11 @@ export const ComposeBox = ({
   isAdmin?: boolean;
   onUpgradePremium?: () => void;
 }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const pillBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
   const [text,    setText]    = useState('');
+  const [inputH,  setInputH]  = useState(50);
   const [photos,  setPhotos]  = useState<string[]>([]);
   const [video,   setVideo]   = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
@@ -918,23 +972,21 @@ export const ComposeBox = ({
     setMentionUsers([]);
   };
 
+  const pillHeight = Math.min(Math.max(50, inputH), 60);
+
   return (
     <View
       onLayout={e => onHeightChange?.(e.nativeEvent.layout.height)}
       style={{
-        borderTopWidth: 1,
-        borderTopColor: theme.border,
-        backgroundColor: theme.surface,
-        paddingHorizontal: 12,
-        paddingTop: 10,
         paddingBottom: restingBottom,
         marginBottom: keyboardLift,
       }}
     >
       {pollDraft && (
         <View style={{
-          marginBottom: 8, borderRadius: 12, borderWidth: 1, borderColor: `${POLL_ACCENT}30`,
-          backgroundColor: theme.surface2, padding: 10,
+          marginHorizontal: 16, marginBottom: 8, borderRadius: 12,
+          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          padding: 10,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
             <View style={{
@@ -971,9 +1023,8 @@ export const ComposeBox = ({
         </View>
       )}
 
-      {/* Podgląd mediów */}
       {(photos.length > 0 || video) && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: 16, marginBottom: 8 }} contentContainerStyle={{ gap: 8 }}>
           {video && (
             <View style={{ position: 'relative' }}>
               <Video source={{ uri: video }} style={{ width: 64, height: 64, borderRadius: 12 }} resizeMode={ResizeMode.COVER} shouldPlay={false} />
@@ -1006,8 +1057,9 @@ export const ComposeBox = ({
 
       {mentionsEnabled && mentionUsers.length > 0 && (
         <View style={{
-          marginBottom: 8, maxHeight: 140, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
-          backgroundColor: theme.surface2, overflow: 'hidden',
+          marginHorizontal: 16, marginBottom: 8, maxHeight: 140, borderRadius: 14,
+          backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+          overflow: 'hidden',
         }}>
           <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
             {mentionUsers.map(u => (
@@ -1040,79 +1092,89 @@ export const ComposeBox = ({
         </View>
       )}
 
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-        <TextInput
-          style={{
-            flex: 1,
-            backgroundColor: theme.surface2,
-            borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10,
-            color: theme.text, fontSize: 14, maxHeight: 100, minHeight: 42,
-            borderWidth: 1, borderColor: focused ? '#e3383540' : theme.border,
-          }}
-          value={text}
-          onChangeText={mentionsEnabled ? onChangeText : setText}
-          onFocus={() => setFocused(true)}
-          onBlur={() => { setFocused(false); if (mentionsEnabled) setTimeout(() => setMentionUsers([]), 200); }}
-          placeholder="Co słychać w garażu?"
-          placeholderTextColor={theme.textDim}
-          multiline maxLength={500}
+      <View style={{
+        marginHorizontal: 16,
+        marginBottom: 16,
+        height: pillHeight,
+        borderRadius: 25,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: pillBorder,
+      }}>
+        <BlurView
+          intensity={isDark ? 20 : 40}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
         />
-        <TouchableOpacity
-          style={[{
-            width: 40, height: 40, borderRadius: 20,
-            backgroundColor: '#e33835',
-            justifyContent: 'center', alignItems: 'center',
-          }, !canSend && { opacity: 0.3 }]}
-          onPress={handleSend}
-          disabled={posting || !canSend}
-        >
-          {posting
-            ? <ActivityIndicator size={14} color="#fff" />
-            : <MaterialIcons name="send" size={17} color="#fff" />
-          }
-        </TouchableOpacity>
-      </View>
-      <TouchableOpacity
-        onPress={() => setCategoryModal(true)}
-        style={{
-          marginTop: 8,
+        <View style={{
+          flex: 1,
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: 12,
-          paddingVertical: 9,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: selectedCategory ? '#e3383555' : theme.border,
-          backgroundColor: theme.surface2,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          paddingLeft: 16,
+          paddingRight: 6,
+          gap: 8,
+        }}>
+          <TextInput
+            style={{
+              flex: 1,
+              backgroundColor: 'transparent',
+              borderWidth: 0,
+              color: theme.text,
+              fontSize: 14,
+              lineHeight: 18,
+              paddingVertical: 0,
+              maxHeight: 44,
+            }}
+            value={text}
+            onChangeText={mentionsEnabled ? onChangeText : setText}
+            onContentSizeChange={e => setInputH(e.nativeEvent.contentSize.height + 28)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => { setFocused(false); if (mentionsEnabled) setTimeout(() => setMentionUsers([]), 200); }}
+            placeholder="Co słychać w garażu?"
+            placeholderTextColor={theme.textDim}
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={{
+              width: 36, height: 36, borderRadius: 18,
+              backgroundColor: theme.primary,
+              justifyContent: 'center', alignItems: 'center',
+              opacity: canSend ? 1 : 0.35,
+            }}
+            onPress={handleSend}
+            disabled={posting || !canSend}
+          >
+            {posting
+              ? <ActivityIndicator size={14} color="#fff" />
+              : <MaterialIcons name="send" size={16} color="#fff" />
+            }
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={{ marginHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <TouchableOpacity onPress={() => setCategoryModal(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <MaterialIcons
             name={selectedCategory ? (getDiscussionCategoryMeta(selectedCategory).icon as any) : 'category'}
-            size={16}
-            color={selectedCategory ? '#e33835' : theme.textDim}
+            size={14}
+            color={selectedCategory ? theme.primary : theme.textDim}
           />
-          <Text style={{ color: selectedCategory ? theme.text : theme.textDim, fontSize: 12 }}>
-            {selectedCategory ? getDiscussionCategoryMeta(selectedCategory).label : 'Wybierz kategorię posta'}
+          <Text style={{ color: selectedCategory ? theme.primary : theme.textDim, fontSize: 11 }}>
+            {selectedCategory ? getDiscussionCategoryMeta(selectedCategory).label : 'Kategoria'}
           </Text>
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video} hitSlop={8}>
+            <MaterialIcons name="add-photo-alternate" size={18} color={photos.length >= 4 || !!video ? theme.textDim : theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={pickVideo} disabled={photos.length > 0 || !!video || !!pollDraft} hitSlop={8}>
+            <MaterialIcons name="videocam" size={18} color={photos.length > 0 || !!video || pollDraft ? theme.textDim : theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openPollEditor} disabled={!!video || photos.length > 0} hitSlop={8}>
+            <MaterialCommunityIcons name="poll" size={18} color={video || photos.length > 0 ? theme.textDim : (pollDraft ? POLL_ACCENT : theme.textMuted)} />
+          </TouchableOpacity>
         </View>
-        <MaterialIcons name="expand-more" size={18} color={theme.textDim} />
-      </TouchableOpacity>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 8, paddingLeft: 2, paddingBottom: 2 }}>
-        <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <MaterialIcons name="add-photo-alternate" size={20} color={photos.length >= 4 || !!video ? theme.textDim : '#e33835'} />
-          <Text style={{ fontSize: 11, color: photos.length >= 4 || !!video ? theme.textDim : theme.textMuted }}>Zdjęcie</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={pickVideo} disabled={photos.length > 0 || !!video || !!pollDraft} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <MaterialIcons name="videocam" size={20} color={photos.length > 0 || !!video || pollDraft ? theme.textDim : theme.textMuted} />
-          <Text style={{ fontSize: 11, color: photos.length > 0 || !!video || pollDraft ? theme.textDim : theme.textMuted }}>Film</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={openPollEditor} disabled={!!video || photos.length > 0} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <MaterialCommunityIcons name="poll" size={20} color={video || photos.length > 0 ? theme.textDim : (pollDraft ? POLL_ACCENT : theme.textMuted)} />
-          <Text style={{ fontSize: 11, color: video || photos.length > 0 ? theme.textDim : (pollDraft ? POLL_ACCENT : theme.textMuted) }}>Ankieta</Text>
-        </TouchableOpacity>
       </View>
 
       <PhotoViewer
@@ -1243,9 +1305,9 @@ export const ComposeBox = ({
                 }}
                 style={{
                   borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: selectedCategory === cat.id ? '#e33835' : theme.border,
-                  backgroundColor: selectedCategory === cat.id ? '#e3383518' : theme.surface2,
+                  backgroundColor: selectedCategory === cat.id
+                    ? (isDark ? 'rgba(227,56,53,0.12)' : 'rgba(227,56,53,0.08)')
+                    : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
                   paddingHorizontal: 12,
                   paddingVertical: 10,
                   flexDirection: 'row',
@@ -1253,7 +1315,7 @@ export const ComposeBox = ({
                   gap: 8,
                 }}
               >
-                <MaterialIcons name={cat.icon as any} size={16} color={selectedCategory === cat.id ? '#e33835' : theme.textDim} />
+                <MaterialIcons name={cat.icon as any} size={16} color={selectedCategory === cat.id ? theme.primary : theme.textDim} />
                 <Text style={{ color: theme.text, fontSize: 13 }}>{cat.label}</Text>
               </TouchableOpacity>
             ))}
