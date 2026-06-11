@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, RefreshControl, ActivityIndicator,
 } from 'react-native';
@@ -35,20 +35,28 @@ export default function BugReportsListScreen() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const loadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 20_000);
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/bug-reports/my`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: ac.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Błąd');
       setRows(Array.isArray(data) ? data : []);
-    } catch {
-      Toast.show({ type: 'error', text1: 'Nie udało się pobrać zgłoszeń' });
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        Toast.show({ type: 'error', text1: 'Nie udało się pobrać zgłoszeń' });
+      }
       setRows([]);
     } finally {
+      clearTimeout(timer);
       setLoading(false);
       setRefreshing(false);
     }
@@ -56,8 +64,8 @@ export default function BugReportsListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      load();
+      load({ silent: loadedOnceRef.current });
+      loadedOnceRef.current = true;
     }, [load]),
   );
 

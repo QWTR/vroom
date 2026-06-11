@@ -9,20 +9,27 @@ import {
   SPEED_CAMERA_CLUSTER_RADIUS,
   SPEED_CAMERA_ICON_SIZE,
   SPEED_CAMERA_CLUSTER_ICON_SIZE,
+  SPEED_CAMERA_SPRITE_PX,
 } from '../../constants/speedCameraMap';
 
 function SpeedCameraMapIconSprite() {
+  const r = SPEED_CAMERA_SPRITE_PX / 2;
   return (
     <View
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: SPEED_CAMERA_SPRITE_PX,
+        height: SPEED_CAMERA_SPRITE_PX,
+        borderRadius: r,
         backgroundColor: '#e33835',
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 2,
+        borderWidth: 2.5,
         borderColor: '#fff',
+        shadowColor: '#000',
+        shadowOpacity: 0.35,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 5,
       }}
     >
       <MaterialCommunityIcons name="cctv" size={18} color="#fff" />
@@ -106,7 +113,7 @@ export function SpeedCameraMapLayers({ cameras, onSelectCamera }: Props) {
         clusterRadius={SPEED_CAMERA_CLUSTER_RADIUS}
         clusterMaxZoomLevel={SPEED_CAMERA_CLUSTER_MAX_ZOOM}
         onPress={handlePress}
-        hitbox={{ width: 36, height: 36 }}
+        hitbox={{ width: 40, height: 40 }}
       >
         <Mapbox.SymbolLayer
           id="vroom-speed-cameras-cluster"
@@ -118,7 +125,7 @@ export function SpeedCameraMapLayers({ cameras, onSelectCamera }: Props) {
             iconIgnorePlacement: true,
             iconAnchor: 'center',
             textField: ['get', 'point_count_abbreviated'],
-            textSize: 11,
+            textSize: 12,
             textColor: '#ffffff',
             textFont: ['Open Sans Bold', 'Arial Unicode MS Bold'],
             textOffset: [0, 0],

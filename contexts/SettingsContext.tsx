@@ -40,9 +40,19 @@ async function fetchServerPremiumActive(
 ): Promise<boolean> {
   if (signal?.aborted) return false;
   try {
-    return await resolveBackendPremium(token);
+    return await resolveBackendPremium(token, signal);
   } catch {
     return false;
+  }
+}
+
+async function hydrateSettingsFromCache(): Promise<Partial<AppSettings> | null> {
+  try {
+    const cachedRaw = await AsyncStorage.getItem('app_settings');
+    if (!cachedRaw) return null;
+    return JSON.parse(cachedRaw) as Partial<AppSettings>;
+  } catch {
+    return null;
   }
 }
 
@@ -292,6 +302,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const ac = new AbortController();
 
     (async () => {
+      try {
+        const backgroundLocationAccepted = await hasAcceptedBackgroundLocationDisclosure();
+        const cachedParsed = await hydrateSettingsFromCache();
+        if (!cancelled && cachedParsed) {
+          setSettings(prev => ({
+            ...DEFAULTS,
+            ...cachedParsed,
+            ...prev,
+            backgroundTracking: backgroundLocationAccepted
+              ? !!(cachedParsed.backgroundTracking ?? DEFAULTS.backgroundTracking)
+              : false,
+          }));
+          setLoading(false);
+        }
+      } catch { /* ignore */ }
+
       try {
         await fetchSettingsCore(ac.signal);
       } finally {

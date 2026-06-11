@@ -13,18 +13,10 @@ import { API_URL } from '../../../constants/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
+import { useBugReportSocket, type BugReportMsg } from '../../../hooks/useBugReportSocket';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
-
-type Msg = {
-  id: number;
-  authorKind: string;
-  body: string;
-  photos: string[];
-  videos: string[];
-  createdAt: string;
-};
 
 export default function BugReportThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,37 +25,72 @@ export default function BugReportThreadScreen() {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
   const scrollRef = useRef<ScrollView>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<BugReportMsg[]>([]);
   const [meta, setMeta] = useState<{ category: string; status: string } | null>(null);
+  const [staffLastReadAt, setStaffLastReadAt] = useState<string | null>(null);
+  const [staffTyping, setStaffTyping] = useState(false);
   const [body, setBody] = useState('');
   const [pending, setPending] = useState<{ uri: string; type: string; name: string }[]>([]);
   const [sending, setSending] = useState(false);
 
-  const load = useCallback(async () => {
+  const appendMessage = useCallback((msg: BugReportMsg) => {
+    if (!msg?.id) return;
+    setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+  }, []);
+
+  const { emitTyping } = useBugReportSocket(id, {
+    onMessage: appendMessage,
+    onRead: ({ readerType, readAt }) => {
+      if (readerType === 'staff') setStaffLastReadAt(readAt);
+    },
+    onTyping: ({ userType, isTyping }) => {
+      if (userType === 'owner' || userType === 'support') {
+        setStaffTyping(!!isTyping);
+      }
+    },
+  });
+
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 20_000);
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/bug-reports/my/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: ac.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Błąd');
       setMessages(data.messages || []);
       setMeta({ category: data.category, status: data.status });
-    } catch {
-      Toast.show({ type: 'error', text1: 'Nie udało się wczytać wątku' });
+      setStaffLastReadAt(data.staffLastReadAt ?? null);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        Toast.show({ type: 'error', text1: 'Nie udało się wczytać wątku' });
+      }
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }, [id]);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
       load();
     }, [load]),
   );
+
+  const handleBodyChange = (text: string) => {
+    setBody(text);
+    emitTyping(true);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => emitTyping(false), 2000);
+  };
 
   const pickMedia = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
@@ -85,6 +112,7 @@ export default function BugReportThreadScreen() {
       return;
     }
     setSending(true);
+    emitTyping(false);
     try {
       const token = await getToken();
       const form = new FormData();
@@ -101,11 +129,11 @@ export default function BugReportThreadScreen() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const errData = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(errData.error || 'Błąd wysyłania');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Błąd wysyłania');
+      appendMessage(data);
       setBody('');
       setPending([]);
-      await load();
       Toast.show({ type: 'success', text1: 'Wysłano' });
     } catch (e: any) {
       Toast.show({ type: 'error', text1: e.message ?? 'Błąd' });
@@ -113,6 +141,13 @@ export default function BugReportThreadScreen() {
       setSending(false);
     }
   };
+
+  const lastUserMsg = [...messages].reverse().find(m => m.authorKind === 'user');
+  const userMsgReadByStaff = Boolean(
+    lastUserMsg &&
+    staffLastReadAt &&
+    new Date(staffLastReadAt) >= new Date(lastUserMsg.createdAt),
+  );
 
   if (loading) {
     return (
@@ -154,6 +189,7 @@ export default function BugReportThreadScreen() {
         {messages.map(m => {
           const mine = m.authorKind === 'user';
           const label = mine ? 'TY' : m.authorKind === 'support' ? 'SUPPORT' : 'ADMIN';
+          const isLastUser = lastUserMsg?.id === m.id;
           return (
             <View
               key={m.id}
@@ -168,9 +204,18 @@ export default function BugReportThreadScreen() {
                 marginBottom: 10,
               }}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 6 }}>
-                {label} · {new Date(m.createdAt).toLocaleString('pl-PL')}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>
+                  {label} · {new Date(m.createdAt).toLocaleString('pl-PL')}
+                </Text>
+                {isLastUser && mine && (
+                  <MaterialIcons
+                    name="done-all"
+                    size={14}
+                    color={userMsgReadByStaff ? '#4de926' : theme.textDim}
+                  />
+                )}
+              </View>
               {!!m.body && (
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, lineHeight: 18 }}>{m.body}</Text>
               )}
@@ -190,6 +235,12 @@ export default function BugReportThreadScreen() {
           );
         })}
       </ScrollView>
+
+      {staffTyping && (
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, paddingHorizontal: '5%', marginBottom: 6, fontStyle: 'italic' }}>
+          Support pisze…
+        </Text>
+      )}
 
       {pending.length > 0 && (
         <View style={{ paddingHorizontal: '5%', flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
@@ -213,7 +264,7 @@ export default function BugReportThreadScreen() {
       >
         <TextInput
           value={body}
-          onChangeText={setBody}
+          onChangeText={handleBodyChange}
           placeholder="Napisz do supportu…"
           placeholderTextColor={theme.textDim}
           multiline
@@ -237,6 +288,7 @@ export default function BugReportThreadScreen() {
             onPress={() => {
               Keyboard.dismiss();
               setBody('');
+              emitTyping(false);
             }}
             style={{ paddingHorizontal: 10, paddingVertical: 10, backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border }}
           >

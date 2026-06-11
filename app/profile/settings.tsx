@@ -116,6 +116,16 @@ export default function SettingsScreen() {
   const deleteKeyboardInset = useKeyboardInset(deleteModal);
   const [logoutModal,        setLogoutModal]        = useState(false);
   const [bugModal,           setBugModal]           = useState(false);
+  const [loadTimedOut,       setLoadTimedOut]       = useState(false);
+
+  useEffect(() => {
+    if (!settingsLoading) {
+      setLoadTimedOut(false);
+      return;
+    }
+    const t = setTimeout(() => setLoadTimedOut(true), 4_000);
+    return () => clearTimeout(t);
+  }, [settingsLoading]);
 
   useEffect(() => {
     if (openBugHandledRef.current) return;
@@ -599,8 +609,8 @@ export default function SettingsScreen() {
 
   // ── Sub-components (module-level SettingsLayout — stable identity for TextInput focus) ─
 
-  // ── Loading ────────────────────────────────────────────
-  if (settingsLoading) {
+  // ── Loading (max 4s — potem pokaż UI z cache) ──
+  if (settingsLoading && !loadTimedOut) {
     return (
       <View style={{ flex: 1, backgroundColor: bg, justifyContent: 'center', alignItems: 'center', gap: 14 }}>
         <MaterialCommunityIcons name="car-sports" size={44} color={RED} />

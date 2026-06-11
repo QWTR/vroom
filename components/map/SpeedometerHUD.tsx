@@ -26,6 +26,15 @@ export const SPEEDOMETER_EVENT = 'vroom:speedometer:update';
 /** Twardy sufit HUD — realna jazda max ~200; 250 tylko jako clamp resztek błędu. */
 const HUD_SPEED_CAP_KMH = 200;
 
+/** Dystans bieżącej sesji jazdy — jedna cyfra po przecinku, zawsze z jednostką. */
+export function formatTripDistanceKm(km: number | null | undefined): string {
+  const n = Number(km);
+  if (!Number.isFinite(n) || n < 0) return '0.0 km';
+  if (n < 10) return `${n.toFixed(1)} km`;
+  if (n < 100) return `${n.toFixed(1)} km`;
+  return `${Math.round(n)} km`;
+}
+
 /** Zawsze zwraca skończoną prędkość ≥ 0 — 0 km/h to poprawna wartość, nie brak sygnału. */
 export function normalizeHudSpeedKmh(value: unknown): number {
   if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
@@ -157,6 +166,13 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       fontWeight: '700',
       color: theme.textMuted,
       marginTop: 2,
+    },
+    tripMeter: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.textMuted,
+      marginTop: 5,
+      letterSpacing: 0.2,
     },
     limitRing: {
       width: 40,
@@ -337,11 +353,15 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
   kmh,
   speedLimit,
   tolerance,
+  tripDistanceKm,
+  showTripMeter = false,
 }: {
   initialKmh?: number;
   kmh?: number;
   speedLimit: number | null;
   tolerance: number;
+  tripDistanceKm?: number | null;
+  showTripMeter?: boolean;
 }) {
   const { theme, isDark } = useTheme();
   const hud = makeHudStyles(theme, isDark);
@@ -376,6 +396,9 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
           {Math.round(valueKmh)}
         </Text>
         <Text style={hud.speedUnit}>km/h</Text>
+        {showTripMeter ? (
+          <Text style={hud.tripMeter}>{formatTripDistanceKm(tripDistanceKm)}</Text>
+        ) : null}
       </View>
     </View>
   );
@@ -387,6 +410,8 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
   kmh,
   speedLimit,
   tolerance,
+  tripDistanceKm,
+  showTripMeter = false,
   style,
   onLongPress,
 }: {
@@ -394,6 +419,8 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
   kmh?: number;
   speedLimit: number | null;
   tolerance: number;
+  tripDistanceKm?: number | null;
+  showTripMeter?: boolean;
   style?: StyleProp<ViewStyle>;
   onLongPress?: () => void;
 }) {
@@ -418,6 +445,8 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
         kmh={kmh}
         speedLimit={speedLimit}
         tolerance={tolerance}
+        tripDistanceKm={tripDistanceKm}
+        showTripMeter={showTripMeter}
       />
     </View>
   );

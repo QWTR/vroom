@@ -126,6 +126,14 @@ export function useTripStats() {
     resetSegmentDiag();
   }, [resetSegmentDiag]);
 
+  /** Kontynuacja trasy (np. jazda → nawigacja) — dystans bez resetu. */
+  const updateTripEstimate = useCallback((estimatedDurationSec: number) => {
+    estSecRef.current = estimatedDurationSec;
+    if (startTimeRef.current == null) {
+      startTimeRef.current = Date.now();
+    }
+  }, []);
+
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
@@ -363,5 +371,14 @@ export function useTripStats() {
     setLiveDistanceKm(0);
   }, []);
 
-  return { startTrip, feedSpeed, feedPosition, finishTrip, clearStats, stats, liveDistanceKm };
+  return {
+    startTrip,
+    updateTripEstimate,
+    feedSpeed,
+    feedPosition,
+    finishTrip,
+    clearStats,
+    stats,
+    liveDistanceKm,
+  };
 }

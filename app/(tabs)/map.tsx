@@ -3521,7 +3521,7 @@ function MapScreenInner() {
   }, []);
 
   const {
-    startTrip, feedSpeed, feedPosition,
+    startTrip, updateTripEstimate, feedSpeed, feedPosition,
     finishTrip, clearStats, stats: tripStats, liveDistanceKm,
   } = useTripStats();
   feedPositionRef.current = feedPosition;
@@ -12529,7 +12529,11 @@ if (pts.length >= 2) {
     lastTripMarkerPoseRef.current = null;
     setIsDriving(false);
 
-    startTrip(routeInfo?.duration ?? 0);
+    if (passiveTripStartedRef.current) {
+      updateTripEstimate(routeInfo?.duration ?? 0);
+    } else {
+      startTrip(routeInfo?.duration ?? 0);
+    }
     passiveTripStartedRef.current = true;
     navStatsFlushedRef.current = false;
 
@@ -12648,7 +12652,8 @@ if (pts.length >= 2) {
 
     speak('Nawigacja rozpoczęta. Dobrej drogi!');
   }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, setFollowMode,
-      activeRoute, startGPS, navV3, driveMarker, readLiveTripPose, tripBootstrapPose]);
+      activeRoute, startGPS, navV3, driveMarker, readLiveTripPose, tripBootstrapPose,
+      startTrip, updateTripEstimate]);
 
   // ── startNavigation ───────────────────────────────────────
   const startNavigation = useCallback(() => {
@@ -12729,13 +12734,17 @@ if (pts.length >= 2) {
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
     const finalStats = finishTrip();
+    tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
     profileTotalDistanceKmRef.current += Math.max(
       0,
       Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
     );
-    void checkLiveAchievements('trip_end');
+    void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
     passiveTripStartedRef.current = false;
     flushNavigationStatsOnce(finalStats);
+    tripCheckpointSavedKmRef.current = 0;
+    clearStats();
+    tripPeakSpeedRef.current = 0;
 
     const wasApproaching = approachingRouteStartRef.current;
     approachingRouteStartRef.current = false;
@@ -12777,7 +12786,7 @@ if (pts.length >= 2) {
   }, [
     userLocation, setFollowMode, onNavigationCancel, flushNavigationStatsOnce,
     timerRunning, stopTimer, resetTimer, formatElapsed,
-    resetDRRefs, checkLiveAchievements,
+    resetDRRefs, checkLiveAchievements, finishTrip, clearStats,
   ]);
 
   useEffect(() => {
@@ -13662,6 +13671,8 @@ if (pts.length >= 2) {
             <DriveSpeedTile
               speedLimit={effectiveSpeedLimit}
               tolerance={SPEED_LIMIT_TOLERANCE}
+              tripDistanceKm={liveDistanceKm}
+              showTripMeter={isTripActiveMap}
               onLongPress={isTripActiveMap ? exportNavDriveTrace : undefined}
             />
           </View>
