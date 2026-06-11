@@ -22,6 +22,8 @@ import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants
 import { linearGradientFromSpec } from '../../components/profile/profileGradientUtils';
 import { useTheme } from '../../contexts/ThemeContext';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
+import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
 import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
 import ShopEntranceOverlay from '../../components/shop/ShopEntranceOverlay';
@@ -429,9 +431,14 @@ export default function PublicProfileScreen() {
   const resolvedNickColor = premiumActive ? (profile?.nickColor ?? null) : null;
   const resolvedFramePreset = premiumActive ? (profile?.avatarFramePreset ?? 'vroom') : 'vroom';
   const resolvedBannerUrl = premiumActive ? (profile?.bannerUrl ?? null) : null;
+  const shopBannerUri = profile?.shopCosmetics?.profileBanner?.assetUrl ?? null;
+  const heroBannerUri = shopBannerUri || resolvedBannerUrl;
   const resolvedPremiumUi = premiumActive
     ? mergeProfilePremiumExtras(profile?.profilePremiumExtras)
     : null;
+  const heroBannerFocus: ProfileBannerFocusPoint = shopBannerUri
+    ? 'center'
+    : (resolvedPremiumUi?.bannerFocusPoint ?? 'center');
 
   const palette = useMemo(
     () =>
@@ -557,38 +564,23 @@ export default function PublicProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ══ HERO HEADER ══════════════════════════════════ */}
-        <View style={{ height: height * 0.36, position: 'relative', overflow: 'hidden' }}>
-          {(profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl) ? (
-            <Image
-              source={{ uri: profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl! }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-            />
-          ) : (
-            <LinearGradient
-              colors={heroLinResolved.colors as [string, string, ...string[]]}
-              start={heroLinResolved.start}
-              end={heroLinResolved.end}
-              style={StyleSheet.absoluteFill}
-            />
-          )}
-          {!!(profile.shopCosmetics?.profileBanner?.assetUrl || resolvedBannerUrl) && (
-            <LinearGradient
-              colors={(heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) as any}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-          )}
+        <View style={{ position: 'relative', overflow: 'hidden' }}>
+          <ProfileHeroBannerFrame
+            uri={heroBannerUri ?? undefined}
+            gradient={!heroBannerUri ? heroLinResolved : null}
+            focusPoint={heroBannerFocus}
+            overlayColors={heroBannerUri ? (heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) : null}
+          />
 
           {/* Dekoracje */}
+          <View style={{ ...StyleSheet.absoluteFillObject, pointerEvents: 'none' }}>
           <View style={{ position: 'absolute', top: -70, right: -70, width: 260, height: 260, borderRadius: 130, backgroundColor: RED + '10', borderWidth: 1, borderColor: RED + '20' }} />
           <View style={{ position: 'absolute', top: -20, right: -20, width: 140, height: 140, borderRadius: 70, backgroundColor: RED + '18' }} />
           <View style={{ position: 'absolute', bottom: -50, left: -50, width: 200, height: 200, borderRadius: 100, backgroundColor: RED + '06' }} />
 
           {/* Scan lines */}
           {Array.from({ length: 10 }).map((_, i) => (
-            <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * (height * 0.36 / 10), height: 1, backgroundColor: '#ffffff04' }} />
+            <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: `${i * 10}%` as any, height: 1, backgroundColor: '#ffffff04' }} />
           ))}
 
           {/* HUD corners */}
@@ -671,6 +663,7 @@ export default function PublicProfileScreen() {
               </View>
             </View>
           </Animated.View>
+          </View>
 
           <LinearGradient colors={['transparent', palette.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 }} />
         </View>

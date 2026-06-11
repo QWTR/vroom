@@ -12,11 +12,11 @@ import { useTheme }                 from '../../contexts/ThemeContext';
 
 import { UserBadges }               from '../user/UserBadges';
 import { ProvinceBadge }            from '../user/ProvinceBadge';
-import AvatarCircle                 from './AvatarCircle';
-import StatBox                      from './StatBox';
 import CarCard                      from './CarCard';
+import { GLASS_SHADOW, GLASS_BORDER, glassSurface } from './profileCardTheme';
 import AchievementBox               from './AchievementBox';
 import SpotPreviewCard              from './SpotPreviewCard';
+import { SpotifyProfileTrackRow }   from './SpotifyProfileTrackRow';
 import { SpotDetailModal }          from '../spots/SpotDetailModal';
 import type { Achievement }         from '../../hooks/useAchievements';
 import type { UserProfile, Car, SpotPreview } from '../../constants/profile';
@@ -43,7 +43,8 @@ import { NitroShopPromoCard } from '../shop/NitroShopPromoCard';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { linearGradientFromSpec } from './profileGradientUtils';
-import { SpotifyProfileTrackRow } from './SpotifyProfileTrackRow';
+import ProfileHeroBannerFrame from './ProfileHeroBannerFrame';
+import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
 const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -61,6 +62,40 @@ function groupByRarity(list: Achievement[]) {
     const items = list.filter(a => (a.rarity ?? 'common') === rarity);
     return items.length ? [...acc, { rarity, items }] : acc;
   }, [] as { rarity: string; items: Achievement[] }[]);
+}
+
+type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string; border2?: string; primaryBg?: string };
+
+function glassCard(t: ProfileSurface, extra?: Record<string, unknown>) {
+  return {
+    backgroundColor: t.surface,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: t.border,
+    marginBottom: 16,
+    ...GLASS_SHADOW,
+    ...extra,
+  };
+}
+
+function profileLabel(t: ProfileSurface) {
+  return { fontFamily: 'Orbitron' as const, fontSize: 10, color: t.textDim, letterSpacing: 1.5 };
+}
+
+function widgetGlass(t: ProfileSurface, extra?: Record<string, unknown>) {
+  return {
+    backgroundColor: glassSurface(t.surface, '80'),
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    ...GLASS_SHADOW,
+    ...extra,
+  };
+}
+
+function socialRowDivider(isLast: boolean) {
+  return isLast ? {} : { borderBottomWidth: 1, borderBottomColor: GLASS_BORDER };
 }
 
 
@@ -339,6 +374,17 @@ export default function ProfileView({
   const shopBannerUri = shopCosmetics?.profileBanner?.assetUrl ?? null;
   const heroBannerUri = shopBannerUri || premiumBannerUrl;
 
+  const bannerFocusPoint = React.useMemo((): ProfileBannerFocusPoint => {
+    if (!hasPremiumProfileUi) return 'center';
+    const extras = mergeProfilePremiumExtras(
+      isOwner ? settings.profilePremiumExtras : profile?.profilePremiumExtras,
+    );
+    return extras.bannerFocusPoint ?? 'center';
+  }, [hasPremiumProfileUi, isOwner, settings.profilePremiumExtras, profile?.profilePremiumExtras]);
+
+  /** Focus point dotyczy wgranego banera użytkownika — banery Nitro Shop zawsze center. */
+  const heroBannerFocus = shopBannerUri ? 'center' as ProfileBannerFocusPoint : bannerFocusPoint;
+
   const heroLinResolved = React.useMemo(() => {
     const fallback = heroPresetGradients[profileThemePreset] || heroPresetGradients.default;
     const noBanner = !heroBannerUri;
@@ -422,57 +468,58 @@ export default function ProfileView({
     myRank?: { name: string; color: string } | null;
   } | null | undefined;
 
+  const HERO_BANNER_HEIGHT = Dimensions.get('window').height * 0.7;
+
   return (
     <>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {/* ══ KINOWY BANER — 70% ekranu, absolute, fade w theme.bg ══ */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: HERO_BANNER_HEIGHT,
+          zIndex: 0,
+          overflow: 'hidden',
+        }}
+        pointerEvents="none"
+      >
+        <ProfileHeroBannerFrame
+          fixedHeight={HERO_BANNER_HEIGHT}
+          uri={heroBannerUri ?? undefined}
+          gradient={!heroBannerUri ? heroLinResolved : null}
+          focusPoint={heroBannerFocus}
+          overlayColors={heroBannerUri ? (heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) : null}
+        />
+        <LinearGradient
+          colors={['transparent', theme.bg]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      </View>
+
       <ScrollView
-        style={{ flex: 1, backgroundColor: theme.bg }}
+        style={{ flex: 1, backgroundColor: 'transparent', zIndex: 1 }}
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={onRefresh} tintColor="#e33835" colors={['#e33835']} />}
       >
 
-        {/* ══════════════════════════════════════════════ */}
-        {/* HERO HEADER                                    */}
-        {/* ══════════════════════════════════════════════ */}
+        {/* ══ HERO — avatar nad banerem, dolna część kadru ══ */}
         <Animated.View
           style={{
-            height:                  240,
+            minHeight:             HERO_BANNER_HEIGHT,
             position:              'relative',
-            overflow:              'hidden',
+            justifyContent:        'flex-end',
+            alignItems:            'center',
+            paddingTop:            52,
+            paddingBottom:         28,
             transform:             premiumUi?.heroMotion === 'float' ? [{ translateY: heroFloatY }] : [],
           }}
         >
-          {heroBannerUri ? (
-            <Image
-              source={{ uri: heroBannerUri }}
-              style={{ ...StyleSheet.absoluteFillObject }}
-              resizeMode="cover"
-            />
-          ) : (
-            <LinearGradient
-              colors={heroLinResolved.colors as [string, string, ...string[]]}
-              start={heroLinResolved.start}
-              end={heroLinResolved.end}
-              style={{ ...StyleSheet.absoluteFillObject }}
-            />
-          )}
-          {!!heroBannerUri && (
-            <LinearGradient
-              colors={(heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) as any}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ ...StyleSheet.absoluteFillObject }}
-            />
-          )}
-          {/* Decorative rings */}
-          <View style={{ position: 'absolute', top: -60, right: -60, width: 260, height: 260, borderRadius: 130, borderWidth: 1, borderColor: '#e3383518' }} />
-          <View style={{ position: 'absolute', top: -20, right: -20, width: 150, height: 150, borderRadius: 75, borderWidth: 1, borderColor: '#e3383530', backgroundColor: '#e3383508' }} />
-          {/* Scanlines */}
-          {Array.from({ length: 8 }).map((_, i) => (
-            <View key={i} style={{ position: 'absolute', left: 0, right: 0, top: i * 30, height: 1, backgroundColor: isDark ? '#ffffff04' : '#00000003' }} />
-          ))}
           {premiumUi?.heroMotion === 'shimmer' && (
             <Animated.View
               pointerEvents="none"
@@ -480,6 +527,8 @@ export default function ProfileView({
                 position: 'absolute',
                 top: 0,
                 bottom: 0,
+                left: 0,
+                right: 0,
                 width: 100,
                 opacity: 0.28,
                 transform: [{
@@ -510,12 +559,12 @@ export default function ProfileView({
           )}
 
           {/* Top bar */}
-          <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {onBack ? (
                 <TouchableOpacity
                   onPress={onBack}
-                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff12' : '#00000012', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: GLASS_BORDER, alignItems: 'center', justifyContent: 'center' }}
                 >
                   <MaterialIcons name="arrow-back" size={20} color={theme.text} />
                 </TouchableOpacity>
@@ -563,7 +612,7 @@ export default function ProfileView({
                   <MaterialIcons name="bolt" size={18} color="#FFD700" />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#ffffff10' : '#00000010', borderWidth: 1, borderColor: isDark ? '#ffffff20' : '#00000015', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: GLASS_BORDER, alignItems: 'center', justifyContent: 'center' }}
                   onPress={onSettings}
                 >
                   <Ionicons name="settings-outline" size={18} color={theme.textDim} />
@@ -572,18 +621,17 @@ export default function ProfileView({
             )}
           </View>
 
-          {/* Avatar + Name */}
-          <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
-            {/* Avatar */}
-            <View style={{ position: 'relative', width: 80, height: 80 }}>
+          {/* Avatar + tożsamość — nad fade, przy dolnej krawędzi banera */}
+          <View style={{ alignItems: 'center', paddingHorizontal: 24, width: '100%' }}>
+            <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14 }}>
               {premiumActive && avatarRingLin ? (
                 <Animated.View
                   pointerEvents="none"
                   style={{
                     position: 'absolute',
-                    width: 80,
-                    height: 80,
-                    borderRadius: 40,
+                    width: 96,
+                    height: 96,
+                    borderRadius: 48,
                     opacity: premiumUi?.avatarRingAnim === 'pulse' ? avatarPulse : 1,
                     transform: [
                       ...(premiumUi?.avatarRingAnim === 'rotate'
@@ -604,131 +652,173 @@ export default function ProfileView({
                     colors={avatarRingLin.colors as [string, string, ...string[]]}
                     start={avatarRingLin.start}
                     end={avatarRingLin.end}
-                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                    style={{ width: 96, height: 96, borderRadius: 48 }}
                   />
                 </Animated.View>
               ) : null}
               <View style={{
-                width: 74,
-                height: 74,
-                borderRadius: 37,
-                margin: 3,
+                width: 88,
+                height: 88,
+                borderRadius: 44,
+                margin: 4,
                 borderWidth: 1.5,
                 borderColor: premiumActive ? '#0f0f0fcc' : '#e33835',
                 overflow: 'hidden',
                 backgroundColor: theme.surface,
               }}>
                 {profile?.avatarUrl
-                  ? <Image key={profile.avatarUrl} source={{ uri: profile.avatarUrl }} style={{ width: 74, height: 74 }} />
+                  ? <Image key={profile.avatarUrl} source={{ uri: profile.avatarUrl }} style={{ width: 88, height: 88 }} />
                   : (
                     <View style={{ flex: 1, backgroundColor: '#e3383515', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: '#e33835', fontWeight: '900' }}>{initials}</Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 28, color: '#e33835', fontWeight: '900' }}>{initials}</Text>
                     </View>
                   )
                 }
               </View>
-              <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={80} />
+              <ShopAvatarDecoration item={shopCosmetics?.avatarFrame} size={96} />
             </View>
 
-            {/* Name + info */}
-            <View style={{ flex: 1, paddingBottom: 4 }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', letterSpacing: 3, marginBottom: 3 }}>
-                {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], letterSpacing: 2.5, marginBottom: 6 }}>
+              {isOwner ? 'TWÓJ PROFIL' : 'PROFIL GRACZA'}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' }} numberOfLines={1}>
+                {profile?.username ?? '—'}
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: profileNickColor || theme.text, fontWeight: '900', letterSpacing: 0.5 }} numberOfLines={1}>
-                  {profile?.username ?? '—'}
-                </Text>
-                <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={premiumActive} compact />
-              </View>
-              {!!profile?.location && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
-                  <MaterialIcons name="location-on" size={11} color={theme.textDim} />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>{profile.location}</Text>
-                </View>
-              )}
-              {!!profile?.province && (
-                <View style={{ marginTop: 5 }}>
-                  <ProvinceBadge province={profile.province} compact theme={theme} />
-                </View>
-              )}
+              <UserBadges isAdmin={isAdmin ?? profile?.isAdmin} isPremium={premiumActive} compact />
             </View>
-
-            {/* Pozycja badge */}
+            {!!profile?.location && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
+                <MaterialIcons name="location-on" size={12} color={theme.textDim} />
+                <Text style={{ ...profileLabel(theme), textAlign: 'center' }}>{profile.location}</Text>
+              </View>
+            )}
+            {!!profile?.province && (
+              <View style={{ marginTop: 8 }}>
+                <ProvinceBadge province={profile.province} compact theme={theme} />
+              </View>
+            )}
             {!!profile?.position && (
-              <View style={{ backgroundColor: '#e3383518', borderRadius: 12, borderWidth: 1, borderColor: '#e3383540', paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', marginBottom: 4 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: '#e33835', fontWeight: '900' }}>#{profile.position}</Text>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 2, marginTop: 1 }}>RANKING</Text>
+              <View style={{ marginTop: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, borderWidth: 1, borderColor: GLASS_BORDER, paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="podium" size={14} color={pillAccentColors[2]} />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: pillAccentColors[2], fontWeight: '900' }}>#{profile.position}</Text>
+                <Text style={{ ...profileLabel(theme) }}>RANKING</Text>
+              </View>
+            )}
+          </View>
+        </Animated.View>
+
+        <View style={{ paddingHorizontal: 20, marginTop: -28 }}>
+
+          {/* ══ O MNIE + SPOTIFY + QUICK ACTIONS ══ */}
+          <View style={{ ...widgetGlass(theme), padding: 16, marginBottom: 16 }}>
+            {(!!profile?.bio || !!profile?.spotifyProfileTrack) && (
+              <Text style={{ ...profileLabel(theme), marginBottom: 10 }}>O MNIE</Text>
+            )}
+            {!!profile?.bio && (
+              <Text style={{ color: theme.text, fontSize: 13, lineHeight: 20, marginBottom: profile?.spotifyProfileTrack ? 4 : 12 }}>{profile.bio}</Text>
+            )}
+            {!!profile?.spotifyProfileTrack && (
+              <SpotifyProfileTrackRow
+                track={profile.spotifyProfileTrack}
+                theme={{ text: theme.text, textDim: theme.textDim, surface: theme.surface, border: theme.border }}
+                embedded
+              />
+            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
+              <MaterialIcons name="calendar-today" size={14} color={theme.textDim} />
+              <Text style={{ ...profileLabel(theme) }}>Dołączył {joinedLabel}</Text>
+            </View>
+            {isOwner && (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginTop: 14,
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                borderRadius: 30,
+                borderWidth: 1,
+                borderColor: theme.border,
+                overflow: 'hidden',
+              }}>
+                {([
+                  { icon: 'edit' as const, label: 'Edytuj', onPress: onEdit, lib: 'material' as const },
+                  { icon: 'settings-outline' as const, label: 'Ustawienia', onPress: onSettings, lib: 'ion' as const },
+                  { icon: 'car-plus' as const, label: 'Auto', onPress: onAddCar, lib: 'mci' as const },
+                ]).map((action, idx, arr) => (
+                  <React.Fragment key={action.label}>
+                    <TouchableOpacity
+                      onPress={action.onPress}
+                      activeOpacity={0.8}
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11 }}
+                    >
+                      {action.lib === 'material' && <MaterialIcons name={action.icon as any} size={16} color={theme.textDim} />}
+                      {action.lib === 'ion' && <Ionicons name={action.icon as any} size={16} color={theme.textDim} />}
+                      {action.lib === 'mci' && <MaterialCommunityIcons name={action.icon as any} size={16} color={pillAccentColors[2]} />}
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: action.lib === 'mci' ? pillAccentColors[2] : theme.textDim, letterSpacing: 1 }}>{action.label}</Text>
+                    </TouchableOpacity>
+                    {idx < arr.length - 1 && (
+                      <View style={{ width: 1, height: 22, backgroundColor: GLASS_BORDER }} />
+                    )}
+                  </React.Fragment>
+                ))}
               </View>
             )}
           </View>
 
-          {/* Bottom fade */}
-          <LinearGradient colors={['transparent', theme.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 }} />
-        </Animated.View>
-
-        <View style={{ paddingHorizontal: 20 }}>
-
-          {/* BIO */}
-          {!!profile?.bio && (
-            <View style={{ marginBottom: 20, backgroundColor: theme.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: theme.border }}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, letterSpacing: 3, marginBottom: 8 }}>O MNIE</Text>
-              <Text style={{ color: theme.text, fontSize: 13, lineHeight: 20 }}>{profile.bio}</Text>
+          {/* ══ BENTO STATS GRID ══ */}
+          <View style={{ marginBottom: 16, gap: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {([
+                { icon: 'trophy' as const, value: String(unlocked.length), label: 'Osiągnięcia', color: pillAccentColors[0], tall: true },
+                { icon: 'map-marker-distance' as const, value: String(Math.round(profile?.totalDistance ?? 0)), label: 'Kilometry', color: pillAccentColors[1], tall: true },
+              ]).map(w => (
+                <TouchableOpacity
+                  key={w.label}
+                  onPress={openStats}
+                  activeOpacity={0.82}
+                  style={{
+                    flex: 1,
+                    height: 118,
+                    ...widgetGlass(theme),
+                    padding: 14,
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <MaterialCommunityIcons name={w.icon} size={22} color={w.color} />
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 24, color: w.color, fontWeight: '900', letterSpacing: -0.5 }}>{w.value}</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
             </View>
-          )}
-
-          {!!profile?.spotifyProfileTrack && (
-            <SpotifyProfileTrackRow
-              track={profile.spotifyProfileTrack}
-              theme={{ text: theme.text, textDim: theme.textDim, surface: theme.surface }}
-            />
-          )}
-
-          {/* Dołączył */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.surface, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: theme.border, marginBottom: 20 }}>
-            <MaterialIcons name="calendar-today" size={13} color={theme.textDim} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>Dołączył: {joinedLabel}</Text>
-          </View>
-
-          {/* ══ 3 KEY STAT PILLS + ACTION BUTTONS ══ */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            {/* Pts pill */}
-            <TouchableOpacity
-              onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[0]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
-            >
-              <Text style={{ fontSize: 14 }}>🏆</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[0], fontWeight: '900' }}>{unlocked.length}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>OSIĄGN.</Text>
-            </TouchableOpacity>
-            {/* km pill */}
-            <TouchableOpacity
-              onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[1]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
-            >
-              <Text style={{ fontSize: 14 }}>🛣️</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[1], fontWeight: '900' }}>{Math.round(profile?.totalDistance ?? 0)}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>KM</Text>
-            </TouchableOpacity>
-            {/* ranking pill */}
-            <TouchableOpacity
-              onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[2]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', gap: 3 }}
-            >
-              <Text style={{ fontSize: 14 }}>📍</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: pillAccentColors[2], fontWeight: '900' }}>
-                {profile?.position ? `#${profile.position}` : '—'}
-              </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, letterSpacing: 1 }}>RANKING</Text>
-            </TouchableOpacity>
-            {/* Stats button */}
-            <TouchableOpacity
-              onPress={openStats} activeOpacity={0.75}
-              style={{ flex: 1.2, backgroundColor: `${pillAccentColors[3]}15`, borderRadius: 14, borderWidth: 1, borderColor: `${pillAccentColors[3]}40`, paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 3 }}
-            >
-              <MaterialIcons name="bar-chart" size={18} color={pillAccentColors[3]} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: pillAccentColors[3], letterSpacing: 1, textAlign: 'center' }}>STATYSTYKI</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {([
+                { icon: 'podium' as const, value: profile?.position ? `#${profile.position}` : '—', label: 'Ranking', color: pillAccentColors[2] },
+                { icon: 'chart-bar' as const, value: '→', label: 'Statystyki', color: pillAccentColors[3] },
+              ]).map(w => (
+                <TouchableOpacity
+                  key={w.label}
+                  onPress={openStats}
+                  activeOpacity={0.82}
+                  style={{
+                    flex: 1,
+                    height: 88,
+                    ...widgetGlass(theme),
+                    padding: 14,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: w.color, fontWeight: '900' }}>{w.value}</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 4 }}>{w.label}</Text>
+                  </View>
+                  <MaterialCommunityIcons name={w.icon} size={20} color={w.color} />
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {isOwner && (
@@ -738,171 +828,124 @@ export default function ProfileView({
             />
           )}
 
-          {/* ══ ACTION BUTTONS ROW ══ */}
-          {isOwner && (
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: '#e33835', borderRadius: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                onPress={onEdit} activeOpacity={0.85}
-              >
-                <MaterialIcons name="edit" size={13} color="#fff" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>EDYTUJ</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 12, paddingVertical: 11, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                onPress={onSettings} activeOpacity={0.85}
-              >
-                <Ionicons name="settings-outline" size={13} color={theme.textDim} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, fontWeight: '700' }}>USTAWIENIA</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: '#4de92615', borderRadius: 12, paddingVertical: 11, borderWidth: 1, borderColor: '#4de92630', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                onPress={onAddCar} activeOpacity={0.85}
-              >
-                <MaterialCommunityIcons name="car-plus" size={13} color="#4de926" />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '700' }}>DODAJ AUTO</Text>
-              </TouchableOpacity>
+          {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
+          <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700', letterSpacing: 2 }}>SPOŁECZNOŚĆ</Text>
             </View>
-          )}
 
-          {/* ══ OBSERWACJE ══ */}
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-            {[
-              { label: 'OBSERWUJĄCY', value: profile?.followersCount ?? 0, color: '#4de926', icon: 'visibility'   as const },
-              { label: 'OBSERWACJE',  value: profile?.followingCount ?? 0, color: '#a855f7', icon: 'person-add'   as const },
-            ].map(item => (
-              <View key={item.label} style={{ flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: item.color + '18', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name={item.icon} size={16} color={item.color} />
-                </View>
+            <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(false) }}>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <MaterialIcons name="visibility" size={18} color={pillAccentColors[2]} />
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: theme.text, fontWeight: '900' }}>{item.value}</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: item.color, letterSpacing: 1, marginTop: 2 }}>{item.label}</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
+                  <Text style={{ ...profileLabel(theme) }}>Obserwujący</Text>
                 </View>
               </View>
-            ))}
-          </View>
-
-          {/* ══ KLUB ══ */}
-          {!club ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 20 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: isDark ? '#ffffff08' : '#00000008', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialCommunityIcons name="shield-off-outline" size={18} color={theme.textDim} />
-                </View>
+              <View style={{ width: 1, backgroundColor: GLASS_BORDER, marginHorizontal: 8 }} />
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <MaterialIcons name="person-add" size={18} color={pillAccentColors[1]} />
                 <View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>KLUB</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 2 }}>
-                    {isOwner ? 'Nie należysz do żadnego klubu' : 'Brak klubu'}
-                  </Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
+                  <Text style={{ ...profileLabel(theme) }}>Obserwacje</Text>
                 </View>
               </View>
-              {isOwner && (
-                <TouchableOpacity
-                  style={{ backgroundColor: '#e33835', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 }}
-                  onPress={() => router.push('/Community/clubs/clubs' as any)}
-                >
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>ZNAJDŹ KLUB</Text>
-                </TouchableOpacity>
-              )}
             </View>
-          ) : (
-            <TouchableOpacity
-              style={{ backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#e3383530', marginBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              onPress={() => router.push('/Community/clubs/clubs' as any)}
-              activeOpacity={0.85}
-            >
-              <View style={{ width: 46, height: 46, borderRadius: 13, overflow: 'hidden', backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' }}>
-                {club.avatarUrl
-                  ? <Image source={{ uri: club.avatarUrl }} style={{ width: 46, height: 46 }} />
-                  : <MaterialCommunityIcons name="shield-crown-outline" size={22} color="#e33835" />
-                }
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '700', marginBottom: 5 }} numberOfLines={1}>{club.name}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={{ backgroundColor: (club.myRole === 'owner' ? '#e33835' : club.myRank?.color ?? '#4de926') + '20', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: (club.myRole === 'owner' ? '#e33835' : club.myRank?.color ?? '#4de926') + '40' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: club.myRole === 'owner' ? '#e33835' : club.myRank?.color ?? '#4de926', fontWeight: '700' }}>
-                      {club.myRole === 'owner' ? 'ZAŁOŻYCIEL' : (club.myRank?.name?.toUpperCase() ?? 'CZŁONEK')}
-                    </Text>
-                  </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>{club.memberCount} członków</Text>
-                </View>
-              </View>
-              <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
-            </TouchableOpacity>
-          )}
 
-          {/* ══ ZAPROSZENIA ══ */}
-          {isOwner && (
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: requests.length > 0 ? '#e3383530' : theme.border, marginBottom: 12 }}
-              onPress={() => setInvitesModalVisible(true)} activeOpacity={0.8}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#e3383515', borderWidth: 1, borderColor: '#e3383530', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="person-add" size={18} color="#e33835" />
-                </View>
-                <View>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }}>ZAPROSZENIA DO ZNAJOMYCH</Text>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }}>{requests.length} oczekujących</Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {requests.length > 0 && (
-                  <View style={{ backgroundColor: '#e3383520', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: '#e3383540' }}>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#e33835', fontWeight: '700' }}>{requests.length}</Text>
+            {!club ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <MaterialCommunityIcons name="shield-off-outline" size={20} color={theme.textDim} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Klub</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{isOwner ? 'Nie należysz do klubu' : 'Brak klubu'}</Text>
                   </View>
+                </View>
+                {isOwner && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/Community/clubs/clubs' as any)}
+                    style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}
+                  >
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], fontWeight: '700' }}>Szukaj</Text>
+                  </TouchableOpacity>
                 )}
-                <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
               </View>
-            </TouchableOpacity>
-          )}
-
-          {/* ══ ZNAJOMI ══ */}
-          {isOwner && (
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 20 }}
-              onPress={() => setFriendsModalVisible(true)} activeOpacity={0.8}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#268bff15', borderWidth: 1, borderColor: '#268bff30', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="people" size={18} color="#268bff" />
-                </View>
-                <View>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }}>ZNAJOMI</Text>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }}>{friends.length} osób</Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ backgroundColor: '#268bff15', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: '#268bff30' }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#268bff', fontWeight: '700' }}>{friends.length}</Text>
-                </View>
-                <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* ══ LOKALIZACJA TYLKO DLA ZNAJOMYCH (Premium) ══ */}
-          {isOwner && premiumActive && onLocationFriendsOnlyChange && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 20 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFD70015', borderWidth: 1, borderColor: '#FFD70030', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="location-on" size={18} color="#FFD700" />
+            ) : (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(isOwner) }}
+                onPress={() => router.push('/Community/clubs/clubs' as any)}
+                activeOpacity={0.85}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: GLASS_BORDER, alignItems: 'center', justifyContent: 'center' }}>
+                  {club.avatarUrl
+                    ? <Image source={{ uri: club.avatarUrl }} style={{ width: 40, height: 40 }} />
+                    : <MaterialCommunityIcons name="shield-crown-outline" size={20} color={pillAccentColors[0]} />
+                  }
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, fontWeight: '700' }}>LOK. TYLKO DLA ZNAJOMYCH</Text>
-                  <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 7, marginTop: 2 }}>Twoja pozycja widoczna tylko dla znajomych</Text>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }} numberOfLines={1}>{club.name}</Text>
+                  <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{club.memberCount} członków · {club.myRole === 'owner' ? 'Założyciel' : (club.myRank?.name ?? 'Członek')}</Text>
                 </View>
+                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+              </TouchableOpacity>
+            )}
+
+            {isOwner && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(true) }}
+                onPress={() => setInvitesModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <MaterialIcons name="person-add" size={20} color={pillAccentColors[0]} />
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Zaproszenia</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{requests.length} oczekujących</Text>
+                  </View>
+                </View>
+                {requests.length > 0 && (
+                  <View style={{ backgroundColor: pillAccentColors[0] + '22', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: pillAccentColors[0] + '40' }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[0], fontWeight: '700' }}>{requests.length}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {isOwner && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(!!(premiumActive && onLocationFriendsOnlyChange)) }}
+                onPress={() => setFriendsModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <MaterialIcons name="people" size={20} color={pillAccentColors[1]} />
+                  <View>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Znajomi</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>{friends.length} osób</Text>
+                  </View>
+                </View>
+                <MaterialIcons name="chevron-right" size={18} color={theme.textDim} />
+              </TouchableOpacity>
+            )}
+
+            {isOwner && premiumActive && onLocationFriendsOnlyChange && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <MaterialIcons name="location-on" size={20} color="#FFD700" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }}>Lok. tylko dla znajomych</Text>
+                    <Text style={{ ...profileLabel(theme), marginTop: 2 }}>Pozycja widoczna tylko dla znajomych</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={!!locationFriendsOnly}
+                  onValueChange={onLocationFriendsOnlyChange}
+                  trackColor={{ false: theme.border2, true: '#FFD70060' }}
+                  thumbColor={locationFriendsOnly ? '#FFD700' : theme.textDim}
+                />
               </View>
-              <Switch
-                value={!!locationFriendsOnly}
-                onValueChange={onLocationFriendsOnlyChange}
-                trackColor={{ false: theme.border2, true: '#FFD70060' }}
-                thumbColor={locationFriendsOnly ? '#FFD700' : theme.textDim}
-              />
-            </View>
-          )}
+            )}
+          </View>
 
           {/* ══ AUTA ══ */}
           <Section
@@ -912,13 +955,23 @@ export default function ProfileView({
             count={cars.length}
             right={isOwner ? (
               <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>+ DODAJ</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
               </TouchableOpacity>
             ) : null}
           >
             {cars.length === 0
               ? <EmptyState surfaceTheme={theme} text="Brak dodanych aut" />
-              : cars.map(car => <CarCard key={car.id} brand={car.brand} specs={car.specs} isMain={car.isMain} firstPhoto={car.photos?.[0]} onPress={() => onCarPress(car.id)} />)
+              : cars.map(car => (
+                <CarCard
+                  key={car.id}
+                  brand={car.brand}
+                  specs={car.specs}
+                  isMain={car.isMain}
+                  firstPhoto={car.photos?.[0]}
+                  onPress={() => onCarPress(car.id)}
+                  theme={theme}
+                />
+              ))
             }
           </Section>
           {isOwner && carLimitBanner}
@@ -937,7 +990,24 @@ export default function ProfileView({
                           <View key={rarity} style={{ marginBottom: 16 }}>
                             <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                              {items.map(a => <AchievementBox key={a.key} icon={a.icon} label={a.label} active rarity={a.rarity} progress={100} points={a.points} description={a.description} category={a.category} currentValue={a.currentValue} conditionValue={a.conditionValue} conditionField={a.conditionField} unlockedAt={a.unlockedAt} />)}
+                              {items.map(a => (
+                                <AchievementBox
+                                  key={a.key}
+                                  icon={a.icon}
+                                  label={a.label}
+                                  active
+                                  rarity={a.rarity}
+                                  progress={100}
+                                  points={a.points}
+                                  description={a.description}
+                                  category={a.category}
+                                  currentValue={a.currentValue}
+                                  conditionValue={a.conditionValue}
+                                  conditionField={a.conditionField}
+                                  unlockedAt={a.unlockedAt}
+                                  theme={theme}
+                                />
+                              ))}
                             </View>
                           </View>
                         );
@@ -946,10 +1016,10 @@ export default function ProfileView({
                   {locked.length > 0 && (
                     <>
                       <TouchableOpacity
-                        style={{ marginVertical: 10, paddingVertical: 12, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
+                        style={{ ...glassCard(theme, { marginVertical: 0, alignItems: 'center' }) }}
                         onPress={() => setShowAllAchs(p => !p)} activeOpacity={0.75}
                       >
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1 }}>
+                        <Text style={{ ...profileLabel(theme), textAlign: 'center' }}>
                           {showAllAchs ? '▲  UKRYJ ZABLOKOWANE' : `▼  ZABLOKOWANE (${locked.length})`}
                         </Text>
                       </TouchableOpacity>
@@ -959,7 +1029,24 @@ export default function ProfileView({
                           <View key={rarity} style={{ marginBottom: 16 }}>
                             <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                              {items.map(a => <AchievementBox key={a.key} icon={a.icon} label={a.label} active={false} rarity={a.rarity} progress={a.progress} points={a.points} description={a.description} category={a.category} currentValue={a.currentValue} conditionValue={a.conditionValue} conditionField={a.conditionField} unlockedAt={a.unlockedAt} />)}
+                              {items.map(a => (
+                                <AchievementBox
+                                  key={a.key}
+                                  icon={a.icon}
+                                  label={a.label}
+                                  active={false}
+                                  rarity={a.rarity}
+                                  progress={a.progress}
+                                  points={a.points}
+                                  description={a.description}
+                                  category={a.category}
+                                  currentValue={a.currentValue}
+                                  conditionValue={a.conditionValue}
+                                  conditionField={a.conditionField}
+                                  unlockedAt={a.unlockedAt}
+                                  theme={theme}
+                                />
+                              ))}
                             </View>
                           </View>
                         );
@@ -985,14 +1072,14 @@ export default function ProfileView({
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title={isOwner ? 'MOJE TRASY' : 'TRASY'} count={displayRoutes.length}>
             {isOwner && !premiumActive && hiddenRoutesCount > 0 && (
               <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD70010', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#FFD70030', marginBottom: 10 }}
+                style={{ ...glassCard(theme, { flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: '#FFD70030', backgroundColor: '#FFD70010' }) }}
                 onPress={() => router.push('/premium' as any)}
                 activeOpacity={0.8}
               >
                 <MaterialIcons name="workspace-premium" size={18} color="#FFD700" />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#FFD700', fontWeight: '700' }}>HISTORIA OGRANICZONA DO 30 DNI</Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 2 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700', letterSpacing: 1 }}>HISTORIA OGRANICZONA DO 30 DNI</Text>
+                  <Text style={{ ...profileLabel(theme), marginTop: 2 }}>
                     {hiddenRoutesCount} {hiddenRoutesCount === 1 ? 'trasa ukryta' : 'tras ukrytych'} · Odblokuj Premium
                   </Text>
                 </View>
@@ -1008,11 +1095,11 @@ export default function ProfileView({
                   ))}
                   {displayRoutes.length > ROUTES_PREVIEW && (
                     <TouchableOpacity
-                      style={{ marginVertical: 10, paddingVertical: 14, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                      style={{ ...glassCard(theme, { marginVertical: 0, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }) }}
                       onPress={() => setRoutesModalVisible(true)} activeOpacity={0.75}
                     >
                       <MaterialIcons name="route" size={16} color="#e33835" />
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 9, letterSpacing: 1 }}>WSZYSTKIE TRASY ({displayRoutes.length})</Text>
+                      <Text style={{ ...profileLabel(theme), color: theme.text }}>WSZYSTKIE TRASY ({displayRoutes.length})</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -1026,18 +1113,18 @@ export default function ProfileView({
               <EmptyState surfaceTheme={theme} text="Brak zapisanych przejazdów z trasą." />
             ) : (
               <TouchableOpacity
-                style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                style={{ ...glassCard(theme, { marginBottom: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }) }}
                 onPress={() => router.push('/profile/history-rides' as any)}
                 activeOpacity={0.8}
               >
-                <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: '#268bff18', borderWidth: 1, borderColor: '#268bff30', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="map" size={17} color="#268bff" />
+                <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: `${pillAccentColors[1]}18`, borderWidth: 1, borderColor: `${pillAccentColors[1]}30`, alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialIcons name="map" size={17} color={pillAccentColors[1]} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '700' }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700', letterSpacing: 1 }}>
                     OTWÓRZ HISTORIĘ PRZEJAZDÓW
                   </Text>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 3 }}>
+                  <Text style={{ ...profileLabel(theme), marginTop: 3 }}>
                     Trasy z mapą: {historyWithRoute.length} · otwórz pełny ekran historii.
                   </Text>
                 </View>
@@ -1054,15 +1141,22 @@ export default function ProfileView({
                 <>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
                     {(showAllSpots ? localSpots : localSpots.slice(0, SPOTS_PREVIEW)).map(spot => (
-                      <SpotPreviewCard key={spot.id} spot={spot} isOwner={isOwner} onPress={() => setSelectedSpot(toSpot(spot))} onDeleted={id => setLocalSpots(prev => prev.filter(s => s.id !== id))} />
+                      <SpotPreviewCard
+                        key={spot.id}
+                        spot={spot}
+                        isOwner={isOwner}
+                        onPress={() => setSelectedSpot(toSpot(spot))}
+                        onDeleted={id => setLocalSpots(prev => prev.filter(s => s.id !== id))}
+                        theme={theme}
+                      />
                     ))}
                   </View>
                   {localSpots.length > SPOTS_PREVIEW && (
                     <TouchableOpacity
-                      style={{ marginTop: 10, paddingVertical: 12, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
+                      style={{ ...glassCard(theme, { marginTop: 0, marginBottom: 0, alignItems: 'center' }) }}
                       onPress={() => setShowAllSpots(p => !p)} activeOpacity={0.75}
                     >
-                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1 }}>
+                      <Text style={{ ...profileLabel(theme), textAlign: 'center' }}>
                         {showAllSpots ? '▲  UKRYJ' : `▼  ZOBACZ WIĘCEJ (${localSpots.length - SPOTS_PREVIEW})`}
                       </Text>
                     </TouchableOpacity>
@@ -1278,8 +1372,6 @@ export default function ProfileView({
 
 // ── Helpers ───────────────────────────────────────────────
 
-type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string };
-
 function Section({
   title,
   count,
@@ -1298,7 +1390,7 @@ function Section({
   const { theme } = useTheme();
   const t = surfaceTheme ?? theme;
   return (
-    <View style={{ marginBottom: 24 }}>
+    <View style={{ marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 }}>
         {accentStrip?.kind === 'gradient' ? (
           <LinearGradient
@@ -1312,8 +1404,8 @@ function Section({
         ) : null}
         <Text style={{ fontFamily: 'Orbitron', color: t.text, fontSize: 13, fontWeight: '700', letterSpacing: 1, flex: 1 }}>{title}</Text>
         {count !== undefined && (
-          <View style={{ backgroundColor: t.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: t.border }}>
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>{count}</Text>
+          <View style={{ backgroundColor: t.surface, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: t.border, ...GLASS_SHADOW }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim, letterSpacing: 1 }}>{count}</Text>
           </View>
         )}
         {right}
@@ -1327,8 +1419,8 @@ function EmptyState({ text, surfaceTheme }: { text: string; surfaceTheme?: Profi
   const { theme } = useTheme();
   const t = surfaceTheme ?? theme;
   return (
-    <View style={{ paddingVertical: 20, alignItems: 'center', backgroundColor: t.surface, borderRadius: 14, borderWidth: 1, borderColor: t.border }}>
-      <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 10 }}>{text}</Text>
+    <View style={{ ...widgetGlass(t), paddingVertical: 24, alignItems: 'center', marginBottom: 16 }}>
+      <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 10, letterSpacing: 1.5 }}>{text}</Text>
     </View>
   );
 }

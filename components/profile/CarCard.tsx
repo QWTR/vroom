@@ -2,6 +2,7 @@ import React from 'react';
 import { TouchableOpacity, View, Image, Text } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { GLASS_SHADOW, resolveProfileCardTheme, type ProfileCardTheme } from './profileCardTheme';
 
 interface Props {
   brand:      string;
@@ -9,16 +10,40 @@ interface Props {
   isMain:     boolean;
   firstPhoto?: string;
   onPress?:   () => void;
+  theme?:     ProfileCardTheme;
 }
 
-export default function CarCard({ brand, specs, isMain, firstPhoto, onPress }: Props) {
-  const { theme } = useTheme();
+export default function CarCard({ brand, specs, isMain, firstPhoto, onPress, theme: profileTheme }: Props) {
+  const { theme: globalTheme } = useTheme();
+  const theme = resolveProfileCardTheme(globalTheme, profileTheme);
+
   return (
     <TouchableOpacity
-      style={{ backgroundColor: theme.surface3, borderRadius: 12, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: theme.border }}
+      style={{
+        backgroundColor: theme.surface,
+        borderRadius: 20,
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: theme.border,
+        ...GLASS_SHADOW,
+      }}
       onPress={onPress}
     >
-      <View style={{ backgroundColor: theme.surface4, width: 48, height: 48, borderRadius: 10, marginRight: 15, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+      <View style={{
+        backgroundColor: theme.surface3,
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        marginRight: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: theme.border,
+      }}>
         {firstPhoto
           ? <Image source={{ uri: firstPhoto }} style={{ width: 48, height: 48 }} />
           : <MaterialIcons name="directions-car" size={24} color={isMain ? theme.primary : theme.textDim} />
@@ -28,14 +53,22 @@ export default function CarCard({ brand, specs, isMain, firstPhoto, onPress }: P
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14 }}>{brand}</Text>
           {isMain && (
-            <View style={{ backgroundColor: theme.primaryBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginLeft: 10, borderWidth: 1, borderColor: theme.primaryBorder }}>
-              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 8 }}>GŁÓWNE</Text>
+            <View style={{
+              backgroundColor: theme.primaryBg,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 8,
+              marginLeft: 10,
+              borderWidth: 1,
+              borderColor: theme.primaryBorder,
+            }}>
+              <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 10, letterSpacing: 1 }}>GŁÓWNE</Text>
             </View>
           )}
         </View>
         <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 11, marginTop: 4 }}>{specs}</Text>
       </View>
-      <MaterialIcons name="chevron-right" size={24} color={theme.textDim} />
+      <MaterialIcons name="chevron-right" size={22} color={theme.textDim} />
     </TouchableOpacity>
   );
 }

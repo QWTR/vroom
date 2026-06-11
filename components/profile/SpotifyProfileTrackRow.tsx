@@ -5,30 +5,30 @@ import { Audio } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type { SpotifyProfileTrack } from '../../constants/profile';
+import { GLASS_BORDER } from './profileCardTheme';
 
 type ThemeBits = {
   text: string;
   textDim: string;
   surface: string;
+  border?: string;
 };
 
 type Props = {
   track: SpotifyProfileTrack;
   theme: ThemeBits;
-  /** Spotify section label (e.g. "SPOTIFY W PROFILU") */
   label?: string;
-  /**
-   * Gdy true (np. publiczny profil) — po wejściu automatycznie odtwarzany jest podgląd (~30 s).
-   * Na własnym profilu zostaw false / nie ustawiaj — żeby nie grało przy każdym otwarciu „konto”.
-   */
   autoplayOnVisit?: boolean;
+  /** Wewnątrz karty Bio — rozmyta pod-karta bez własnego cienia. */
+  embedded?: boolean;
 };
 
 export function SpotifyProfileTrackRow({
   track,
   theme,
-  label = 'SPOTIFY W PROFILU',
+  label = 'SPOTIFY',
   autoplayOnVisit = false,
+  embedded = false,
 }: Props) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -40,7 +40,6 @@ export function SpotifyProfileTrackRow({
     };
   }, [sound]);
 
-  /** Autoodtwarzanie dla gości (publiczny profil). */
   useEffect(() => {
     if (!autoplayOnVisit || !track.previewUrl) return;
     let cancelled = false;
@@ -67,7 +66,7 @@ export function SpotifyProfileTrackRow({
         setSound(s);
         setPlaying(true);
       } catch {
-        /* brak autoodtwarzenia — użytkownik może nacisnąć play */
+        /* brak autoodtwarzenia */
       }
     })();
     return () => {
@@ -147,12 +146,13 @@ export function SpotifyProfileTrackRow({
   return (
     <View
       style={{
-        marginBottom: 20,
-        backgroundColor: theme.surface,
-        borderRadius: 16,
-        padding: 14,
+        marginBottom: embedded ? 0 : 16,
+        marginTop: embedded ? 12 : 0,
+        backgroundColor: embedded ? 'rgba(255,255,255,0.05)' : theme.surface,
+        borderRadius: embedded ? 16 : 20,
+        padding: embedded ? 12 : 16,
         borderWidth: 1,
-        borderColor: '#1DB95455',
+        borderColor: embedded ? GLASS_BORDER : (theme.border ?? theme.textDim),
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
@@ -163,10 +163,10 @@ export function SpotifyProfileTrackRow({
         style={{
           width: 44,
           height: 44,
-          borderRadius: 10,
-          backgroundColor: '#1DB95422',
+          borderRadius: 12,
+          backgroundColor: 'rgba(255,255,255,0.06)',
           borderWidth: 1,
-          borderColor: '#1DB95455',
+          borderColor: GLASS_BORDER,
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
@@ -198,25 +198,31 @@ export function SpotifyProfileTrackRow({
         )}
       </TouchableOpacity>
       <TouchableOpacity onPress={hasPreview ? togglePreview : openSpotify} activeOpacity={0.85} style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#1DB954', letterSpacing: 2, marginBottom: 4 }}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#1DB954', letterSpacing: 1.5, marginBottom: 4 }}>
           {label}
         </Text>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text, fontWeight: '700' }} numberOfLines={1}>
           {track.trackName}
         </Text>
         {!!track.artistName && (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginTop: 3 }} numberOfLines={1}>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1, marginTop: 3 }} numberOfLines={1}>
             {track.artistName}
           </Text>
         )}
-        {hasPreview ? (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 5, opacity: 0.85 }}>
-            {autoplayOnVisit
-              ? 'Podgląd ~30 s · start dla gości · dotknij pause/play'
-              : 'Podgląd ~30 s · dotknij aby odtworzyć'}
-          </Text>
-        ) : (
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 5, opacity: 0.85 }}>
+        {hasPreview && (
+          <View style={{ marginTop: 8, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <View
+              style={{
+                height: '100%',
+                width: playing ? '45%' : '0%',
+                backgroundColor: '#1DB954',
+                borderRadius: 2,
+              }}
+            />
+          </View>
+        )}
+        {!hasPreview && (
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1, marginTop: 5, opacity: 0.85 }}>
             Brak podglądu · otwórz w Spotify
           </Text>
         )}

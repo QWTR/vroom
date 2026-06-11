@@ -8,6 +8,8 @@ export type ProfileVisitEntranceAnim =
   | 'glow'
   | 'sweep';
 export type ProfileHeroMotion = 'none' | 'shimmer' | 'float' | 'pulse';
+/** Punkt kadrowania wgranego banera (zdjęcie użytkownika). */
+export type ProfileBannerFocusPoint = 'top' | 'center' | 'bottom';
 
 export type ProfileGradientSpec = {
   colors: string[];
@@ -25,6 +27,8 @@ export type ProfilePremiumExtras = {
   avatarRingAnim: ProfileAvatarRingAnim;
   visitEntranceAnim: ProfileVisitEntranceAnim;
   heroMotion: ProfileHeroMotion;
+  /** Kadrowanie banera Premium (POST /profile/banner) — top / center / bottom. */
+  bannerFocusPoint: ProfileBannerFocusPoint;
 };
 
 export const DEFAULT_PROFILE_PREMIUM_EXTRAS: ProfilePremiumExtras = {
@@ -36,6 +40,7 @@ export const DEFAULT_PROFILE_PREMIUM_EXTRAS: ProfilePremiumExtras = {
   avatarRingAnim:         'none',
   visitEntranceAnim:      'none',
   heroMotion:             'none',
+  bannerFocusPoint:       'center',
 };
 
 export function mergeProfilePremiumExtras(raw: unknown): ProfilePremiumExtras {
@@ -59,5 +64,8 @@ export function mergeProfilePremiumExtras(raw: unknown): ProfilePremiumExtras {
     ...(typeof o.avatarRingAnim === 'string' ? { avatarRingAnim: o.avatarRingAnim as ProfileAvatarRingAnim } : {}),
     ...(typeof o.visitEntranceAnim === 'string' ? { visitEntranceAnim: o.visitEntranceAnim as ProfileVisitEntranceAnim } : {}),
     ...(typeof o.heroMotion === 'string' ? { heroMotion: o.heroMotion as ProfileHeroMotion } : {}),
+    ...(o.bannerFocusPoint === 'top' || o.bannerFocusPoint === 'center' || o.bannerFocusPoint === 'bottom'
+      ? { bannerFocusPoint: o.bannerFocusPoint as ProfileBannerFocusPoint }
+      : {}),
   };
 }

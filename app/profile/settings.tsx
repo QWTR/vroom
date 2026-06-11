@@ -44,7 +44,15 @@ import type {
   ProfileAvatarRingAnim,
   ProfileVisitEntranceAnim,
   ProfileHeroMotion,
+  ProfileBannerFocusPoint,
 } from '../../constants/profilePremiumExtras';
+import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
+import {
+  BANNER_ASPECT,
+  prepareBannerForUpload,
+  uploadProfileBanner,
+  deleteProfileBanner,
+} from '../../lib/profileBanner';
 const RED = '#e33835';
 
 const getToken = async () =>
@@ -71,6 +79,11 @@ const MARKER_STYLES = [
 const NICK_COLORS = ['#FFFFFF', '#FFD700', '#4DE926', '#38A5E3', '#A855F7', '#FF6B35'];
 const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon', 'royal', 'cyber', 'gold', 'forest', 'custom'] as const;
 const FRAME_PRESETS = ['vroom', 'sunrise', 'ocean', 'lime'] as const;
+const BANNER_FOCUS_OPTIONS: { key: ProfileBannerFocusPoint; label: string }[] = [
+  { key: 'top', label: 'GÓRA' },
+  { key: 'center', label: 'ŚRODEK' },
+  { key: 'bottom', label: 'DÓŁ' },
+];
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -84,6 +97,10 @@ export default function SettingsScreen() {
   const { skins: cursorSkins, activeSkin, setActiveSkinId } = useCursorSkin();
   const { wallet: nitroWallet } = useNitroWallet();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
+  const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
+  const [bannerPreviewVisible, setBannerPreviewVisible] = useState(false);
+  const [bannerFocusDraft, setBannerFocusDraft] = useState<ProfileBannerFocusPoint>('center');
+  const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
   const { scrollPaddingBottom } = useFormKeyboardPadding(88);
   const scrollBottomPad =
     Platform.OS === 'ios'
@@ -186,9 +203,71 @@ export default function SettingsScreen() {
           text2: 'Aktywne Premium i internet są wymagane.',
         });
       }
+      return ok;
     },
     [premiumExtras, settings.profileThemePreset, updateSetting, fetchProfile],
   );
+
+  const pickBannerForPreview = useCallback(async () => {
+    if (!effectivePremium) {
+      Toast.show({ type: 'info', text1: 'VROOM Premium', text2: 'Baner profilu wymaga Premium.' });
+      router.push('/premium');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: BANNER_ASPECT,
+      quality: 1,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    setBannerPreviewUri(result.assets[0].uri);
+    setBannerFocusDraft(premiumExtras.bannerFocusPoint ?? 'center');
+    setBannerPreviewVisible(true);
+  }, [effectivePremium, premiumExtras.bannerFocusPoint, router]);
+
+  const confirmBannerUpload = useCallback(async () => {
+    if (!bannerPreviewUri) return;
+    setBannerUploadBusy(true);
+    try {
+      const focus = bannerFocusDraft;
+      await persistPremiumExtras({ bannerFocusPoint: focus }, { okMessage: 'Kadrowanie zapisane' });
+      const prepared = await prepareBannerForUpload(bannerPreviewUri, focus);
+      const result = await uploadProfileBanner(prepared.uri);
+      if (!result.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: result.error });
+        return;
+      }
+      await fetchProfile();
+      Toast.show({ type: 'success', text1: 'Baner zaktualizowany' });
+      setBannerPreviewVisible(false);
+      setBannerPreviewUri(null);
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się wgrać banera.' });
+    } finally {
+      setBannerUploadBusy(false);
+    }
+  }, [bannerPreviewUri, bannerFocusDraft, persistPremiumExtras, fetchProfile]);
+
+  const handleBannerFocusChange = useCallback(async (focus: ProfileBannerFocusPoint) => {
+    setBannerFocusDraft(focus);
+    await persistPremiumExtras({ bannerFocusPoint: focus }, { okMessage: 'Kadrowanie banera zapisane' });
+  }, [persistPremiumExtras]);
+
+  const handleDeleteBanner = useCallback(async () => {
+    setBannerUploadBusy(true);
+    try {
+      const result = await deleteProfileBanner();
+      if (!result.ok) {
+        Toast.show({ type: 'error', text1: 'BŁĄD', text2: result.error ?? 'Nie udało się usunąć banera.' });
+        return;
+      }
+      await fetchProfile();
+      Toast.show({ type: 'success', text1: 'Baner usunięty' });
+    } finally {
+      setBannerUploadBusy(false);
+    }
+  }, [fetchProfile]);
 
   const [heroC1, setHeroC1] = useState('#E33835');
   const [heroC2, setHeroC2] = useState('#268BFF');
@@ -1153,6 +1232,112 @@ export default function SettingsScreen() {
 												</Text>
 											</TouchableOpacity>
 										))}
+									</View>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+										Baner profilu (21:9)
+									</Text>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+										Wgraj zdjęcie i ustaw punkt kadrowania — na profilu baner zawsze wypełnia proporcje 21:9.
+									</Text>
+									{profile?.bannerUrl ? (
+										<ProfileHeroBannerFrame
+											uri={profile.bannerUrl}
+											focusPoint={premiumExtras.bannerFocusPoint ?? 'center'}
+											style={{ borderRadius: 12, borderWidth: 1, borderColor: inputBorder }}
+										/>
+									) : (
+										<View
+											style={{
+												width: '100%',
+												aspectRatio: 21 / 9,
+												borderRadius: 12,
+												borderWidth: 1,
+												borderColor: inputBorder,
+												backgroundColor: rowAlt,
+												alignItems: 'center',
+												justifyContent: 'center',
+											}}>
+											<MaterialCommunityIcons name="image-outline" size={28} color={textDim} />
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 6 }}>
+												Brak banera
+											</Text>
+										</View>
+									)}
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain }}>
+										Punkt kadrowania (Focus)
+									</Text>
+									<View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+										{BANNER_FOCUS_OPTIONS.map(({ key, label }) => (
+											<TouchableOpacity
+												key={key}
+												onPress={() => void handleBannerFocusChange(key)}
+												style={{
+													paddingHorizontal: 10,
+													paddingVertical: 7,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor:
+														(premiumExtras.bannerFocusPoint ?? 'center') === key ? RED : inputBorder,
+													backgroundColor:
+														(premiumExtras.bannerFocusPoint ?? 'center') === key ? RED + '22' : rowAlt,
+												}}>
+												<Text
+													style={{
+														fontFamily: 'Orbitron',
+														fontSize: 8,
+														color: (premiumExtras.bannerFocusPoint ?? 'center') === key ? RED : textDim,
+													}}>
+													{label}
+												</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+									<View style={{ flexDirection: 'row', gap: 8 }}>
+										<TouchableOpacity
+											onPress={() => void pickBannerForPreview()}
+											disabled={bannerUploadBusy}
+											style={{
+												flex: 1,
+												backgroundColor: RED,
+												borderRadius: 10,
+												paddingVertical: 12,
+												alignItems: 'center',
+												opacity: bannerUploadBusy ? 0.6 : 1,
+											}}>
+											{bannerUploadBusy ? (
+												<ActivityIndicator color="#fff" size="small" />
+											) : (
+												<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+													{profile?.bannerUrl ? 'ZMIEN BANER' : 'WGRAJ BANER'}
+												</Text>
+											)}
+										</TouchableOpacity>
+										{profile?.bannerUrl ? (
+											<TouchableOpacity
+												onPress={() => void handleDeleteBanner()}
+												disabled={bannerUploadBusy}
+												style={{
+													paddingHorizontal: 14,
+													borderRadius: 10,
+													borderWidth: 1,
+													borderColor: inputBorder,
+													backgroundColor: rowAlt,
+													justifyContent: 'center',
+													opacity: bannerUploadBusy ? 0.6 : 1,
+												}}>
+												<MaterialIcons name="delete-outline" size={20} color={RED} />
+											</TouchableOpacity>
+										) : null}
 									</View>
 								</View>
 								<View
@@ -2890,6 +3075,106 @@ export default function SettingsScreen() {
 						>
 							<Text style={{ color: textMuted, fontWeight: '700' }}>Zamknij</Text>
 						</TouchableOpacity>
+					</View>
+				</View>
+			</Modal>
+
+			<Modal
+				visible={bannerPreviewVisible}
+				transparent
+				animationType="fade"
+				onRequestClose={() => {
+					if (bannerUploadBusy) return;
+					setBannerPreviewVisible(false);
+					setBannerPreviewUri(null);
+				}}>
+				<View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: 20 }}>
+					<View style={{
+						backgroundColor: cardBg,
+						borderRadius: 16,
+						borderWidth: 1,
+						borderColor: cardBorder,
+						padding: 16,
+						gap: 14,
+					}}>
+						<Text style={{ fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', color: textMain }}>
+							PODGLĄD BANERA
+						</Text>
+						<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
+							Sprawdź kadrowanie przed wysłaniem na serwer.
+						</Text>
+						{bannerPreviewUri ? (
+							<ProfileHeroBannerFrame
+								uri={bannerPreviewUri}
+								focusPoint={bannerFocusDraft}
+								style={{ borderRadius: 12, borderWidth: 1, borderColor: inputBorder }}
+							/>
+						) : null}
+						<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain }}>
+							Punkt kadrowania
+						</Text>
+						<View style={{ flexDirection: 'row', gap: 8 }}>
+							{BANNER_FOCUS_OPTIONS.map(({ key, label }) => (
+								<TouchableOpacity
+									key={key}
+									onPress={() => setBannerFocusDraft(key)}
+									style={{
+										flex: 1,
+										paddingVertical: 8,
+										borderRadius: 10,
+										borderWidth: 1,
+										borderColor: bannerFocusDraft === key ? RED : inputBorder,
+										backgroundColor: bannerFocusDraft === key ? RED + '22' : rowAlt,
+										alignItems: 'center',
+									}}>
+									<Text style={{
+										fontFamily: 'Orbitron',
+										fontSize: 8,
+										color: bannerFocusDraft === key ? RED : textDim,
+									}}>
+										{label}
+									</Text>
+								</TouchableOpacity>
+							))}
+						</View>
+						<View style={{ flexDirection: 'row', gap: 10 }}>
+							<TouchableOpacity
+								onPress={() => {
+									if (bannerUploadBusy) return;
+									setBannerPreviewVisible(false);
+									setBannerPreviewUri(null);
+								}}
+								disabled={bannerUploadBusy}
+								style={{
+									flex: 1,
+									paddingVertical: 12,
+									borderRadius: 10,
+									borderWidth: 1,
+									borderColor: inputBorder,
+									alignItems: 'center',
+								}}>
+								<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>ANULUJ</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								onPress={() => void confirmBannerUpload()}
+								disabled={bannerUploadBusy || !bannerPreviewUri}
+								style={{
+									flex: 1,
+									paddingVertical: 12,
+									borderRadius: 10,
+									backgroundColor: RED,
+									alignItems: 'center',
+									opacity: bannerUploadBusy || !bannerPreviewUri ? 0.6 : 1,
+								}}>
+								{bannerUploadBusy ? (
+									<ActivityIndicator color="#fff" size="small" />
+								) : (
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
+										WYŚLIJ
+									</Text>
+								)}
+							</TouchableOpacity>
+						</View>
 					</View>
 				</View>
 			</Modal>
