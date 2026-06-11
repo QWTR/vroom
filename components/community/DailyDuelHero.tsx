@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Image, ActivityIndicator,
+  Dimensions, StyleSheet,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
@@ -11,27 +13,14 @@ import {
   carDisplayLabel,
 } from './dailyDuelTypes';
 
+const SCREEN_W = Dimensions.get('window').width;
+
 interface Props {
   duel: DailyDuelData | null;
   loading?: boolean;
   onPressVote?: () => void;
   compact?: boolean;
 }
-
-const cardShell = (isDark: boolean, theme: ReturnType<typeof useTheme>['theme']) => ({
-  marginHorizontal: 16,
-  marginBottom: 28,
-  backgroundColor: theme.bgAlt,
-  borderRadius: 24,
-  borderWidth: 1,
-  borderColor: isDark ? '#ffffff10' : theme.border2,
-  overflow: 'hidden' as const,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: isDark ? 0.4 : 0.06,
-  shadowRadius: 8,
-  elevation: 2,
-});
 
 export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
   const { theme, isDark } = useTheme();
@@ -42,21 +31,57 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  const shellBg = isDark ? '#0a0a0a' : theme.surface;
+  const shellGradient = isDark
+    ? ['#0a0a0a', '#120505', '#1a0505']
+    : ['#ffffff', '#f8f8f8', '#fff0f0'];
+  const headerBg = isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.88)';
+  const headerBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.border2;
+  const footerBg = isDark ? '#141414' : theme.surface2;
+  const footerBorder = isDark ? 'rgba(255,255,255,0.06)' : theme.border2;
+  const progressTrack = isDark ? '#333333' : '#e0e0e0';
+  const progressRemainder = isDark ? '#555555' : '#cccccc';
+  const placeholderGradientA = isDark ? ['#1a1a1a', '#0d0d0d'] : ['#e8e8e8', '#f5f5f5'];
+  const placeholderGradientB = isDark ? ['#0d0d0d', '#1a1a1a'] : ['#f5f5f5', '#e8e8e8'];
+  const placeholderIcon = isDark ? theme.textFaint : theme.textDim;
+  const imageOverlay = isDark
+    ? ['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.95)']
+    : ['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.75)'];
+  const slashBlend = isDark
+    ? ['transparent', 'rgba(0,0,0,0.4)', 'transparent']
+    : ['transparent', 'rgba(255,255,255,0.35)', 'transparent'];
+  const vsBadgeBg = isDark ? '#0a0a0a' : '#ffffff';
+
+  const shellStyle = {
+    marginHorizontal: 0,
+    marginBottom: 28,
+    overflow: 'hidden' as const,
+    backgroundColor: shellBg,
+  };
+
   if (loading) {
     return (
-      <View style={{ ...cardShell(isDark, theme), padding: 28, alignItems: 'center' }}>
-        <ActivityIndicator color={theme.primary} />
+      <View style={[shellStyle, { height: compact ? 200 : 280, alignItems: 'center', justifyContent: 'center' }]}>
+        <LinearGradient colors={shellGradient} style={StyleSheet.absoluteFillObject} />
+        <ActivityIndicator color={theme.primary} size="large" />
       </View>
     );
   }
 
   if (!duel) {
     return (
-      <View style={{ ...cardShell(isDark, theme), padding: 20 }}>
-        <Text style={{ fontSize: 11, color: theme.textDim, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' }}>
+      <View style={[shellStyle, { padding: 24 }]}>
+        <LinearGradient colors={shellGradient} style={StyleSheet.absoluteFillObject} />
+        <Text style={{
+          fontSize: 11,
+          color: theme.text,
+          fontWeight: '900',
+          letterSpacing: 2,
+          textTransform: 'uppercase',
+        }}>
           Pojedynek dnia
         </Text>
-        <Text style={{ fontSize: 13, color: theme.textMuted, marginTop: 8, lineHeight: 18 }}>
+        <Text style={{ fontSize: 13, color: theme.textDim, marginTop: 10, lineHeight: 18, fontWeight: '500' }}>
           Brak pojedynku — za mało aut z mocą i zdjęciem w bazie.
         </Text>
       </View>
@@ -65,133 +90,213 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
 
   const endsMs = new Date(duel.endsAt).getTime();
   const timer = formatDuelTimer(endsMs - nowMs);
-  const imageH = compact ? 120 : 150;
+  const imageH = compact ? 160 : 190;
   const voted = duel.myVoteCarId != null;
+  const labelA = carDisplayLabel(duel.carA);
+  const labelB = carDisplayLabel(duel.carB);
 
   return (
     <TouchableOpacity
-      activeOpacity={onPressVote ? 0.92 : 1}
+      activeOpacity={onPressVote ? 0.94 : 1}
       onPress={onPressVote}
       disabled={!onPressVote}
-      style={cardShell(isDark, theme)}
+      style={shellStyle}
     >
       <View style={{
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
+        justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 12,
+        paddingVertical: 12,
+        backgroundColor: headerBg,
         borderBottomWidth: 1,
-        borderBottomColor: isDark ? '#ffffff08' : theme.border2,
+        borderBottomColor: headerBorder,
       }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
           <MaterialCommunityIcons name="sword-cross" size={14} color={theme.primary} />
-          <Text style={{ fontSize: 11, color: theme.text, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          <Text style={{
+            fontSize: 10,
+            color: theme.text,
+            fontWeight: '900',
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+          }}>
             Pojedynek dnia
           </Text>
         </View>
-        <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+        <Text style={{
+          fontSize: 12,
+          color: theme.primary,
+          fontWeight: '800',
+          fontVariant: ['tabular-nums'],
+        }}>
           {timer}
         </Text>
       </View>
 
-      <View style={{ flexDirection: 'row', height: imageH, position: 'relative' }}>
-        <View style={{ flex: 1, backgroundColor: theme.surface }}>
-          {duel.carA.photo ? (
-            <Image source={{ uri: duel.carA.photo }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-          ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name="car-sports" size={36} color={theme.textFaint} />
-            </View>
-          )}
+      <View style={{ height: imageH, position: 'relative' }}>
+        <View style={{ flexDirection: 'row', height: imageH, overflow: 'hidden' }}>
+          <View style={{ flex: 1, overflow: 'hidden' }}>
+            {duel.carA.photo ? (
+              <Image source={{ uri: duel.carA.photo }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            ) : (
+              <LinearGradient colors={placeholderGradientA} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialCommunityIcons name="car-sports" size={40} color={placeholderIcon} />
+              </LinearGradient>
+            )}
+          </View>
+
+          <View style={{ flex: 1, overflow: 'hidden', marginLeft: -SCREEN_W * 0.06 }}>
+            {duel.carB.photo ? (
+              <Image
+                source={{ uri: duel.carB.photo }}
+                style={{ width: '108%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : (
+              <LinearGradient colors={placeholderGradientB} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialCommunityIcons name="car-sports" size={40} color={placeholderIcon} />
+              </LinearGradient>
+            )}
+          </View>
+
+          <LinearGradient
+            colors={slashBlend}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              position: 'absolute',
+              left: '42%',
+              width: '16%',
+              top: 0,
+              bottom: 0,
+              zIndex: 2,
+            }}
+            pointerEvents="none"
+          />
+
           <View style={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingVertical: 8,
-            paddingHorizontal: 10,
-            backgroundColor: theme.overlay,
+            left: '50%',
+            top: -30,
+            bottom: -30,
+            width: 3,
+            marginLeft: -1.5,
+            backgroundColor: theme.primary,
+            transform: [{ rotate: '12deg' }],
+            zIndex: 3,
+          }} />
+
+          <View style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            marginLeft: -22,
+            marginTop: -22,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: vsBadgeBg,
+            borderWidth: 2,
+            borderColor: theme.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 4,
           }}>
-            <Text style={{ fontSize: 10, color: theme.text, fontWeight: '600' }} numberOfLines={1}>
-              {carDisplayLabel(duel.carA)}
-            </Text>
+            <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>
           </View>
         </View>
+
+        <LinearGradient
+          colors={imageOverlay}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 72,
+            zIndex: 5,
+          }}
+          pointerEvents="none"
+        />
 
         <View style={{
           position: 'absolute',
-          left: '50%',
-          top: '50%',
-          marginLeft: -20,
-          marginTop: -20,
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: theme.bg,
-          borderWidth: 1,
-          borderColor: isDark ? '#ffffff15' : theme.border2,
+          left: 0,
+          right: 0,
+          bottom: 10,
+          zIndex: 6,
+          flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 2,
+          paddingHorizontal: 12,
+          gap: 8,
         }}>
-          <Text style={{ fontSize: 10, color: theme.primary, fontWeight: '800' }}>VS</Text>
+          <Text style={{
+            flex: 1,
+            fontSize: 11,
+            color: '#ffffff',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            paddingRight: 28,
+          }} numberOfLines={1} ellipsizeMode="tail">
+            {labelA}
+          </Text>
+          <Text style={{
+            flex: 1,
+            fontSize: 11,
+            color: '#ffffff',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            textAlign: 'right',
+            paddingLeft: 28,
+          }} numberOfLines={1} ellipsizeMode="tail">
+            {labelB}
+          </Text>
+        </View>
+      </View>
+
+      <View style={{
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 16,
+        backgroundColor: footerBg,
+        borderTopWidth: 1,
+        borderTopColor: footerBorder,
+      }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}>
+          <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600' }}>
+            {duel.percentA}% · {formatDuelCount(duel.votesA)}
+          </Text>
+          <Text style={{
+            fontSize: 12,
+            color: theme.text,
+            fontWeight: '900',
+            letterSpacing: 0.5,
+            textTransform: 'uppercase',
+          }}>
+            {voted ? 'Zagłosowano ✓' : 'Głosuj →'}
+          </Text>
+          <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600' }}>
+            {duel.percentB}% · {formatDuelCount(duel.votesB)}
+          </Text>
         </View>
 
-        <View style={{ flex: 1, backgroundColor: theme.surface }}>
-          {duel.carB.photo ? (
-            <Image source={{ uri: duel.carB.photo }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-          ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name="car-sports" size={36} color={theme.textFaint} />
-            </View>
-          )}
-          <View style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingVertical: 8,
-            paddingHorizontal: 10,
-            backgroundColor: theme.overlay,
-          }}>
-            <Text style={{ fontSize: 10, color: theme.text, fontWeight: '600' }} numberOfLines={1}>
-              {carDisplayLabel(duel.carB)}
-            </Text>
+        <View style={{
+          height: 8,
+          borderRadius: 4,
+          overflow: 'hidden',
+          backgroundColor: progressTrack,
+        }}>
+          <View style={{ flexDirection: 'row', height: '100%' }}>
+            <View style={{ flex: duel.percentA || 1, backgroundColor: theme.primary }} />
+            <View style={{ flex: duel.percentB || 1, backgroundColor: progressRemainder }} />
           </View>
         </View>
-      </View>
-
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-      }}>
-        <Text style={{ fontSize: 11, color: theme.textDim, fontWeight: '600' }}>
-          {duel.percentA}% · {formatDuelCount(duel.votesA)}
-        </Text>
-        <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '700' }}>
-          {voted ? 'Zagłosowano ✓' : 'Głosuj →'}
-        </Text>
-        <Text style={{ fontSize: 11, color: theme.textDim, fontWeight: '600' }}>
-          {duel.percentB}% · {formatDuelCount(duel.votesB)}
-        </Text>
-      </View>
-
-      <View style={{
-        flexDirection: 'row',
-        height: 3,
-        marginHorizontal: 16,
-        marginBottom: 16,
-        borderRadius: 2,
-        overflow: 'hidden',
-        backgroundColor: isDark ? '#ffffff08' : theme.border2,
-      }}>
-        <View style={{ flex: duel.percentA || 1, backgroundColor: theme.primary }} />
-        <View style={{ flex: duel.percentB || 1, backgroundColor: isDark ? '#ffffff18' : theme.surface4 }} />
       </View>
     </TouchableOpacity>
   );
