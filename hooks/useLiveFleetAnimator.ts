@@ -10,7 +10,6 @@ import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteV
 import { buildPinSpriteSignature } from './useLiveUserPinSprites';
 import {
   EMPTY_VIEWPORT,
-  isInViewport,
   type ViewportBounds,
 } from './liveFleetSpatialIndex';
 import type { LiveMapStore } from './liveMapStore';
@@ -176,7 +175,6 @@ function buildGeoJson(slots: FleetSlot[], bounds: ViewportBounds): LiveFleetGeoJ
     const s = slots[i];
     const display = resolveFleetDisplayCoord(s);
     if (!display) continue;
-    if (!isInViewport(display.lat, display.lng, bounds)) continue;
     features.push({
       type: 'Feature',
       id: s.id,

@@ -11,7 +11,6 @@ import {
   CommunitySectionLabel,
   CommunityModuleCardGrid,
   CommunityModuleCardList,
-  COMMUNITY_ACCENTS,
   type CommunityModuleItem,
 } from '../../components/community';
 
@@ -25,7 +24,6 @@ const QUICK_ACCESS: CommunityModuleItem[] = [
     route: '/Community/community/community',
     icon: 'forum',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.primary,
   },
   {
     label: 'CHAT',
@@ -33,7 +31,6 @@ const QUICK_ACCESS: CommunityModuleItem[] = [
     route: '/Community/chats/chats',
     icon: 'account-group-outline',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.primary,
   },
   {
     label: 'WYDARZENIA',
@@ -41,7 +38,6 @@ const QUICK_ACCESS: CommunityModuleItem[] = [
     route: '/Community/meets/events',
     icon: 'calendar',
     iconLib: 'feather',
-    accent: COMMUNITY_ACCENTS.primary,
   },
   {
     label: 'RANKINGI',
@@ -49,7 +45,6 @@ const QUICK_ACCESS: CommunityModuleItem[] = [
     route: '/Community/Ranks/stats',
     icon: 'bar-chart-2',
     iconLib: 'feather',
-    accent: COMMUNITY_ACCENTS.primary,
   },
 ];
 
@@ -60,7 +55,6 @@ const RIVALRY: CommunityModuleItem[] = [
     route: '/Community/grid/grid',
     icon: 'flag-checkered',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.grid,
     tag: 'ARENA',
   },
 ];
@@ -72,7 +66,6 @@ const SOCIAL: CommunityModuleItem[] = [
     route: '/Community/clubs/clubs',
     icon: 'shield-crown-outline',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.clubs,
     tag: 'NOWE',
   },
   {
@@ -81,7 +74,6 @@ const SOCIAL: CommunityModuleItem[] = [
     route: '/Community/public/public',
     icon: 'earth',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.public,
     tag: 'LIVE',
   },
 ];
@@ -93,7 +85,6 @@ const TRADE: CommunityModuleItem[] = [
     route: '/Community/market/market',
     icon: 'tag-multiple-outline',
     iconLib: 'material',
-    accent: COMMUNITY_ACCENTS.primary,
   },
 ];
 
@@ -108,17 +99,17 @@ export default function Community() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: insets.top + 12 }}
+        contentContainerStyle={{ paddingBottom: 120, paddingTop: insets.top + 16 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+        <View style={{ paddingHorizontal: 20, paddingBottom: 28 }}>
           <Text style={{
-            color: theme.primary,
-            fontFamily: 'Orbitron',
-            fontSize: 10,
-            letterSpacing: 6,
-            opacity: 0.7,
-            marginBottom: 6,
+            color: theme.textDim,
+            fontSize: 11,
+            fontWeight: '500',
+            letterSpacing: 3,
+            textTransform: 'uppercase',
+            marginBottom: 8,
           }}>
             VROOM
           </Text>
@@ -133,16 +124,15 @@ export default function Community() {
           </Text>
           <Text style={{
             color: theme.textDim,
-            fontFamily: 'Orbitron',
-            fontSize: 9,
-            letterSpacing: 1,
-            marginTop: 6,
+            fontSize: 13,
+            marginTop: 8,
+            lineHeight: 18,
           }}>
             Rywalizuj, rozmawiaj, odkrywaj
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, gap: 10 }}>
-            <View style={{ width: 32, height: 3, backgroundColor: theme.primary, borderRadius: 2 }} />
-            <View style={{ flex: 1, height: 1, backgroundColor: theme.border2 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 10 }}>
+            <View style={{ width: 28, height: 2, backgroundColor: theme.primary, borderRadius: 1 }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : theme.border2 }} />
           </View>
         </View>
 
@@ -158,7 +148,7 @@ export default function Community() {
           flexDirection: 'row',
           flexWrap: 'wrap',
           gap: 12,
-          marginBottom: 8,
+          marginBottom: 20,
         }}>
           {QUICK_ACCESS.map(item => (
             <View key={item.route} style={{ width: QUICK_CARD_W }}>
@@ -168,21 +158,21 @@ export default function Community() {
         </View>
 
         <CommunitySectionLabel label="RYWALIZACJA" icon="trophy" iconLib="material" />
-        <View style={{ paddingHorizontal: 16, gap: 10, marginBottom: 8 }}>
+        <View style={{ paddingHorizontal: 16, gap: 12, marginBottom: 20 }}>
           {RIVALRY.map(item => (
             <CommunityModuleCardList key={item.route} item={item} />
           ))}
         </View>
 
         <CommunitySectionLabel label="SPOŁECZNOŚĆ" icon="users" />
-        <View style={{ paddingHorizontal: 16, gap: 10, marginBottom: 8 }}>
+        <View style={{ paddingHorizontal: 16, gap: 12, marginBottom: 20 }}>
           {SOCIAL.map(item => (
             <CommunityModuleCardList key={item.route} item={item} />
           ))}
         </View>
 
         <CommunitySectionLabel label="HANDEL" icon="shopping-bag" />
-        <View style={{ paddingHorizontal: 16, gap: 10 }}>
+        <View style={{ paddingHorizontal: 16, gap: 12, marginBottom: 8 }}>
           {TRADE.map(item => (
             <CommunityModuleCardList key={item.route} item={item} />
           ))}

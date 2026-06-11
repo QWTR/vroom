@@ -16,7 +16,7 @@ export const MAPBOX_STYLE_HYBRID    = 'mapbox://styles/mapbox/satellite-streets-
 export const MAPBOX_STYLE_LIGHT_LEGACY = 'mapbox://styles/mapbox/light-v11';
 export const MAPBOX_STYLE_DARK_LEGACY  = 'mapbox://styles/mapbox/dark-v11';
 
-export const MAX_NEARBY_USERS_DISTANCE = 120;
+export const MAX_NEARBY_USERS_DISTANCE = 350;
 export const API_URL                = 'https://v-room.app';
 
 export type MapTypeId = 'standard' | 'satellite' | 'hybrid';

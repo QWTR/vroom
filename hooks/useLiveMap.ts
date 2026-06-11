@@ -57,8 +57,8 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 const PROXIMITY_THRESHOLD_M     = 500;
 const FETCH_TIMEOUT_MS          = 8000;
 const WARNING_VISIBLE_RADIUS_KM = 25;
-const LIVE_USERS_RADIUS_KM = 35;
-const LIVE_USERS_TAKE = 220;
+const LIVE_USERS_RADIUS_KM = 350;
+const LIVE_USERS_TAKE = 400;
 /** Brak aktualizacji pozycji — usuń zombie (snapshot / prune). */
 const LIVE_USER_STALE_MS = 60_000;
 /** Opóźnienie przed usunięciem po user:offline (chroni przed miganiem). */

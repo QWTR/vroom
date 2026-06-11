@@ -11,28 +11,31 @@ interface Props {
 }
 
 export function CommunitySectionLabel({ label, icon, iconLib = 'feather' }: Props) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   return (
     <View style={{
       paddingHorizontal: 20,
-      marginBottom: 14,
+      marginBottom: 16,
+      marginTop: 4,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     }}>
       {icon ? (
         iconLib === 'material'
-          ? <MaterialCommunityIcons name={icon as any} size={12} color={theme.textDim} />
-          : <Feather name={icon as any} size={12} color={theme.textDim} />
+          ? <MaterialCommunityIcons name={icon as any} size={13} color={theme.textDim} />
+          : <Feather name={icon as any} size={13} color={theme.textDim} />
       ) : null}
       <Text style={{
-        fontFamily: 'Orbitron',
-        fontSize: 9,
+        fontSize: 11,
         color: theme.textDim,
-        letterSpacing: 2,
+        fontWeight: '600',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
       }}>
         {label}
       </Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: isDark ? '#ffffff08' : theme.border2, marginLeft: 4 }} />
     </View>
   );
 }

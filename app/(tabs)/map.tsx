@@ -4101,12 +4101,12 @@ function MapScreenInner() {
     userLocation,
     isSpeechEnabled,
     settings.backgroundTracking || isSharing,
-    liveMapEnabled && isMapFocused,
-    isSharing && liveMapEnabled && isMapFocused,
+    liveMapEnabled && sharingHydrated,
+    isSharing && sharingHydrated,
   );
 
-  const mapSessionActive = liveMapEnabled && isMapFocused;
-  const liveUsersEnabled = isSharing && mapSessionActive;
+  const mapSessionActive = liveMapEnabled && sharingHydrated;
+  const liveUsersEnabled = isSharing && sharingHydrated;
   const stickyFleetIdsRef = useRef<number[]>([]);
 
   useEffect(() => {
@@ -4200,14 +4200,14 @@ function MapScreenInner() {
   }, [resumeLiveSession]);
 
   useEffect(() => {
-    if (!isMapFocused || !sharingHydrated) return;
+    if (!sharingHydrated) return;
     void (async () => {
       const optedOut = await AsyncStorage.getItem(LIVE_SHARING_USER_PREF_KEY);
       if (optedOut === 'false') return;
       setIsSharing(true);
       await resumeLiveSession();
     })();
-  }, [isMapFocused, sharingHydrated, resumeLiveSession]);
+  }, [sharingHydrated, resumeLiveSession]);
 
   const {
     isBuilding, pins, saving, snapping, snappedRoute, displaySnappedRoute,
