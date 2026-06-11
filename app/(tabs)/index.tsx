@@ -488,24 +488,42 @@ export default function HomeScreen() {
 	const gridVoteBannerW = width - 40;
 
 	const pageBg = isDark
-		? (["#0a0505", "#050505", "#0f0a0a"] as const)
+		? (["#140404", "#050505", "#0f0202"] as const)
 		: (["#ffffff", "#fcfcfc", "#fcfcfc"] as const);
-	const glassCardBg = isDark
-		? (["rgba(255,255,255,0.03)", "rgba(255,255,255,0.01)"] as const)
-		: (["rgba(0,0,0,0.02)", "transparent"] as const);
-	const glassBorder = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)";
-	const mapCardBg = isDark
-		? (["rgba(227, 56, 53, 0.15)", "rgba(20, 20, 20, 0.8)"] as const)
-		: (["rgba(227, 56, 53, 0.1)", "rgba(255, 255, 255, 0.9)"] as const);
-	const pillBg = isDark ? "rgba(22, 22, 22, 0.55)" : "rgba(242, 242, 242, 0.75)";
+	const glassCardFill = isDark
+		? "rgba(20, 5, 5, 0.4)"
+		: "rgba(255, 255, 255, 0.8)";
+	const glassBorder = "rgba(227, 56, 53, 0.2)";
+	const pillBg = glassCardFill;
+	const iconGlowStyle = {
+		width: 44,
+		height: 44,
+		borderRadius: 22,
+		backgroundColor: "rgba(227, 56, 53, 0.15)",
+		alignItems: "center" as const,
+		justifyContent: "center" as const,
+	};
+	const goldGlowStyle = {
+		...iconGlowStyle,
+		backgroundColor: "rgba(255, 215, 0, 0.15)",
+	};
+	const sectionAccent = {
+		width: 3,
+		height: 12,
+		backgroundColor: "#e33835",
+		borderRadius: 2,
+		marginRight: 8,
+	};
 	const statNumColor = isDark ? "#ffffff" : "#000000";
-	const statDivider = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)";
+	const statDivider = isDark
+		? "rgba(227, 56, 53, 0.2)"
+		: "rgba(227, 56, 53, 0.12)";
 	const glassShadow = {
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 8 } as const,
-		shadowOpacity: isDark ? 0.35 : 0.08,
-		shadowRadius: isDark ? 20 : 12,
-		elevation: 8,
+		shadowOffset: { width: 0, height: 4 } as const,
+		shadowOpacity: 0.4,
+		shadowRadius: 10,
+		elevation: 4,
 	};
 	const mapTextColor = isDark ? "#ffffff" : "#000000";
 	const mapSubtextColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
@@ -972,7 +990,7 @@ export default function HomeScreen() {
 
 					{/* Bottom fade */}
 					<LinearGradient
-						colors={["transparent", isDark ? "#0f0a0a" : "#fcfcfc"]}
+						colors={["transparent", isDark ? "#0f0202" : "#fcfcfc"]}
 						pointerEvents="none"
 						style={{
 							position: "absolute",
@@ -995,11 +1013,9 @@ export default function HomeScreen() {
 					<TouchableOpacity
 						onPress={() => setShowAnnouncements(true)}
 						activeOpacity={0.85}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1010,17 +1026,7 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 46,
-									height: 46,
-									borderRadius: 23,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: t.primary,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+							<View style={iconGlowStyle}>
 								<MaterialIcons name="campaign" size={22} color={t.primary} />
 							</View>
 
@@ -1071,7 +1077,7 @@ export default function HomeScreen() {
 								size={13}
 								color={t.primary}
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 				</Animated.View>
 				{/* ══════════════════════════════════════════════ */}
@@ -1084,17 +1090,24 @@ export default function HomeScreen() {
 							paddingHorizontal: 20,
 							marginBottom: 20,
 						}}>
-						<Text
+						<View
 							style={{
-								fontFamily: "Orbitron",
-								fontSize: 8,
-								letterSpacing: 3,
-								color: t.textDim,
+								flexDirection: "row",
+								alignItems: "center",
 								marginBottom: 8,
 								marginLeft: 2,
 							}}>
-							THE GRID · GŁOSOWANIE
-						</Text>
+							<View style={sectionAccent} />
+							<Text
+								style={{
+									fontFamily: "Orbitron",
+									fontSize: 8,
+									letterSpacing: 3,
+									color: t.textDim,
+								}}>
+								THE GRID · GŁOSOWANIE
+							</Text>
+						</View>
 						{activeGridVotes.length === 1 ? (
 							<TouchableOpacity
 								activeOpacity={0.85}
@@ -1107,11 +1120,9 @@ export default function HomeScreen() {
 												`/Community/grid/category?slug=${activeGridVotes[0].categorySlug}` as any,
 										  )
 								}>
-								<LinearGradient
-									colors={glassCardBg}
-									start={{ x: 0, y: 0 }}
-									end={{ x: 1, y: 1 }}
+								<View
 									style={{
+										backgroundColor: glassCardFill,
 										borderRadius: 20,
 										borderWidth: 1,
 										borderColor: glassBorder,
@@ -1122,17 +1133,7 @@ export default function HomeScreen() {
 										overflow: "hidden",
 										...glassShadow,
 									}}>
-									<View
-										style={{
-											width: 48,
-											height: 48,
-											borderRadius: 24,
-											backgroundColor: "transparent",
-											borderWidth: 1,
-											borderColor: t.primary,
-											alignItems: "center",
-											justifyContent: "center",
-										}}>
+									<View style={iconGlowStyle}>
 										<Text style={{ fontSize: 22 }}>
 											{activeGridVotes[0].categoryIcon}
 										</Text>
@@ -1195,7 +1196,7 @@ export default function HomeScreen() {
 										size={18}
 										color={t.primary}
 									/>
-								</LinearGradient>
+								</View>
 							</TouchableOpacity>
 						) : (
 							<View>
@@ -1238,11 +1239,9 @@ export default function HomeScreen() {
 															`/Community/grid/category?slug=${item.categorySlug}` as any,
 													  )
 											}>
-											<LinearGradient
-												colors={glassCardBg}
-												start={{ x: 0, y: 0 }}
-												end={{ x: 1, y: 1 }}
+											<View
 												style={{
+													backgroundColor: glassCardFill,
 													borderRadius: 20,
 													borderWidth: 1,
 													borderColor: glassBorder,
@@ -1253,17 +1252,7 @@ export default function HomeScreen() {
 													overflow: "hidden",
 													...glassShadow,
 												}}>
-												<View
-													style={{
-														width: 48,
-														height: 48,
-														borderRadius: 24,
-														backgroundColor: "transparent",
-														borderWidth: 1,
-														borderColor: t.primary,
-														alignItems: "center",
-														justifyContent: "center",
-													}}>
+												<View style={iconGlowStyle}>
 													<Text style={{ fontSize: 22 }}>
 														{item.categoryIcon}
 													</Text>
@@ -1326,7 +1315,7 @@ export default function HomeScreen() {
 													size={18}
 													color={t.primary}
 												/>
-											</LinearGradient>
+											</View>
 										</TouchableOpacity>
 									)}
 								/>
@@ -1372,11 +1361,9 @@ export default function HomeScreen() {
 					<TouchableOpacity
 						onPress={() => router.push("/premium" as any)}
 						activeOpacity={0.86}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1388,18 +1375,11 @@ export default function HomeScreen() {
 								...glassShadow,
 							}}>
 							<View
-								style={{
-									width: 48,
-									height: 48,
-									borderRadius: 24,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: premiumLoading
-										? glassBorder
-										: "#FFD700",
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+								style={
+									premiumLoading
+										? { ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }
+										: goldGlowStyle
+								}>
 								<MaterialIcons
 									name={effectivePremium ? "workspace-premium" : "lock-open"}
 									size={22}
@@ -1468,7 +1448,7 @@ export default function HomeScreen() {
 								size={13}
 								color={premiumLoading ? t.textDim : "#FFD700"}
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 				</Animated.View>
 
@@ -1484,11 +1464,9 @@ export default function HomeScreen() {
 					<TouchableOpacity
 						onPress={() => Linking.openURL("https://buycoffee.to/vroom")}
 						activeOpacity={0.85}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1499,17 +1477,7 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 46,
-									height: 46,
-									borderRadius: 23,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: "#FFD700",
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+							<View style={goldGlowStyle}>
 								<Text style={{ fontSize: 20 }}>☕</Text>
 							</View>
 							<View style={{ flex: 1 }}>
@@ -1536,7 +1504,7 @@ export default function HomeScreen() {
 								size={13}
 								color='#FFD700'
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 				</Animated.View>
 
@@ -1556,27 +1524,32 @@ export default function HomeScreen() {
 						paddingHorizontal: 20,
 						marginBottom: 16,
 					}}>
-					<Text
+					<View
 						style={{
-							fontFamily: "Orbitron",
-							fontSize: 8,
-							color: t.textDim,
-							letterSpacing: 4,
+							flexDirection: "row",
+							alignItems: "center",
 							marginBottom: 14,
 						}}>
-						SZYBKA NAWIGACJA
-					</Text>
+						<View style={sectionAccent} />
+						<Text
+							style={{
+								fontFamily: "Orbitron",
+								fontSize: 8,
+								color: t.textDim,
+								letterSpacing: 4,
+							}}>
+							SZYBKA NAWIGACJA
+						</Text>
+					</View>
 
 					{/* MAPA — szklana karta */}
 					<TouchableOpacity
 						onPress={() => router.push("/map")}
 						activeOpacity={0.85}
 						style={{ marginBottom: 10 }}>
-						<LinearGradient
-							colors={mapCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1587,17 +1560,7 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 54,
-									height: 54,
-									borderRadius: 27,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: t.primary,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+							<View style={iconGlowStyle}>
 								<MaterialIcons name='map' size={26} color={t.primary} />
 							</View>
 							<View style={{ flex: 1 }}>
@@ -1625,7 +1588,7 @@ export default function HomeScreen() {
 								size={18}
 								color={t.primary}
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 
 					{/* Rząd 3 pigułek */}
@@ -1668,19 +1631,21 @@ export default function HomeScreen() {
 									alignItems: "center",
 									gap: 8,
 								}}>
-								{item.lib === "mci" ? (
-									<MaterialCommunityIcons
-										name={item.icon as any}
-										size={22}
-										color={t.primary}
-									/>
-								) : (
-									<MaterialIcons
-										name={item.icon as any}
-										size={22}
-										color={t.primary}
-									/>
-								)}
+								<View style={iconGlowStyle}>
+									{item.lib === "mci" ? (
+										<MaterialCommunityIcons
+											name={item.icon as any}
+											size={22}
+											color={t.primary}
+										/>
+									) : (
+										<MaterialIcons
+											name={item.icon as any}
+											size={22}
+											color={t.primary}
+										/>
+									)}
+								</View>
 								<Text
 									style={{
 										fontFamily: "Orbitron",
@@ -1712,11 +1677,9 @@ export default function HomeScreen() {
 					<TouchableOpacity
 						onPress={() => router.push({ pathname: "/profile/settings", params: { openBug: "1" } })}
 						activeOpacity={0.85}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1726,18 +1689,8 @@ export default function HomeScreen() {
 								gap: 10,
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 36,
-									height: 36,
-									borderRadius: 18,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: t.primary,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
-								<MaterialIcons name="bug-report" size={18} color={t.primary} />
+							<View style={iconGlowStyle}>
+								<MaterialIcons name="bug-report" size={20} color={t.primary} />
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text style={{ fontFamily: "Orbitron", fontSize: 11, color: t.text, fontWeight: "700" }}>
@@ -1748,7 +1701,7 @@ export default function HomeScreen() {
 								</Text>
 							</View>
 							<MaterialIcons name="arrow-forward-ios" size={12} color={t.primary} />
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 				</Animated.View>
 
@@ -1779,11 +1732,9 @@ export default function HomeScreen() {
 						<TouchableOpacity
 							onPress={() => router.navigate('/(tabs)/account' as any)}
 							activeOpacity={0.85}>
-							<LinearGradient
-								colors={glassCardBg}
-								start={{ x: 0, y: 0 }}
-								end={{ x: 1, y: 1 }}
+							<View
 								style={{
+									backgroundColor: glassCardFill,
 									borderRadius: 20,
 									borderWidth: 1,
 									borderColor: glassBorder,
@@ -1793,17 +1744,7 @@ export default function HomeScreen() {
 									gap: 14,
 									...glassShadow,
 								}}>
-								<View
-									style={{
-										width: 50,
-										height: 50,
-										borderRadius: 25,
-										backgroundColor: "transparent",
-										borderWidth: 1,
-										borderColor: "#FFD700",
-										alignItems: "center",
-										justifyContent: "center",
-									}}>
+								<View style={goldGlowStyle}>
 									<MaterialIcons
 										name='emoji-events'
 										size={26}
@@ -1836,7 +1777,7 @@ export default function HomeScreen() {
 									size={14}
 									color='#FFD700'
 								/>
-							</LinearGradient>
+							</View>
 						</TouchableOpacity>
 					</Animated.View>
 				)}
@@ -1851,25 +1792,30 @@ export default function HomeScreen() {
 						gap: 10,
 						marginBottom: 16,
 					}}>
-					<Text
+					<View
 						style={{
-							fontFamily: "Orbitron",
-							fontSize: 8,
-							color: t.textDim,
-							letterSpacing: 4,
+							flexDirection: "row",
+							alignItems: "center",
 							marginBottom: 4,
 						}}>
-						SPOŁECZNOŚĆ
-					</Text>
+						<View style={sectionAccent} />
+						<Text
+							style={{
+								fontFamily: "Orbitron",
+								fontSize: 8,
+								color: t.textDim,
+								letterSpacing: 4,
+							}}>
+							SPOŁECZNOŚĆ
+						</Text>
+					</View>
 
 					<TouchableOpacity
 						onPress={() => router.push("/(tabs)/community")}
 						activeOpacity={0.85}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1880,17 +1826,7 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 50,
-									height: 50,
-									borderRadius: 25,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: t.primary,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+							<View style={iconGlowStyle}>
 								<MaterialIcons
 									name='chat-bubble-outline'
 									size={24}
@@ -1921,17 +1857,15 @@ export default function HomeScreen() {
 								size={13}
 								color={t.primary}
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 
 					<TouchableOpacity
 						onPress={() => router.push("/(tabs)/spotmap")}
 						activeOpacity={0.85}>
-						<LinearGradient
-							colors={glassCardBg}
-							start={{ x: 0, y: 0 }}
-							end={{ x: 1, y: 1 }}
+						<View
 							style={{
+								backgroundColor: glassCardFill,
 								borderRadius: 20,
 								borderWidth: 1,
 								borderColor: glassBorder,
@@ -1942,17 +1876,7 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View
-								style={{
-									width: 50,
-									height: 50,
-									borderRadius: 25,
-									backgroundColor: "transparent",
-									borderWidth: 1,
-									borderColor: t.primary,
-									alignItems: "center",
-									justifyContent: "center",
-								}}>
+							<View style={iconGlowStyle}>
 								<MaterialIcons
 									name='place'
 									size={24}
@@ -1983,7 +1907,7 @@ export default function HomeScreen() {
 								size={13}
 								color={t.primary}
 							/>
-						</LinearGradient>
+						</View>
 					</TouchableOpacity>
 				</Animated.View>
 			</ScrollView>

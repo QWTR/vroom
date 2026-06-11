@@ -12,6 +12,8 @@ import { LiveCountdownText } from './LiveCountdownText';
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
+const VROOM_RED = '#e33835';
+
 type TaskRow = { key: string; label: string; points: number; premiumPoints?: number; done: boolean; earned: number };
 
 function tasksEqual(a: TaskRow[], b: TaskRow[]) {
@@ -33,8 +35,23 @@ interface Props {
 
 export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
   const router = useRouter();
-  const { theme: themeObj } = useTheme();
-  const primary = themeObj.primary;
+  const { isDark } = useTheme();
+  const glassBorder = 'rgba(227, 56, 53, 0.2)';
+  const cardBg = isDark ? 'rgba(20, 5, 5, 0.4)' : 'rgba(255, 255, 255, 0.8)';
+  const glassShadow = {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 4,
+  };
+  const sectionAccent = {
+    width: 3,
+    height: 12,
+    backgroundColor: VROOM_RED,
+    borderRadius: 2,
+    marginRight: 8,
+  };
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [weeklyPoints, setWeekly] = useState(0);
@@ -92,9 +109,12 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
     <Animated.View style={{ opacity: fadeAnim, paddingHorizontal: 20, marginBottom: 18 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <View>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4 }}>
-            TYGODNIOWY TOR VROOM
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            <View style={sectionAccent} />
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: t.textDim, letterSpacing: 4 }}>
+              TYGODNIOWY TOR VROOM
+            </Text>
+          </View>
           <LiveCountdownText
             targetIso={nextResetAt}
             prefix="Reset za: "
@@ -116,21 +136,22 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
           }
           style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
         >
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: primary, fontWeight: '700' }}>RANKING MIES.</Text>
-          <MaterialIcons name="emoji-events" size={14} color={primary} />
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: VROOM_RED, fontWeight: '700' }}>RANKING MIES.</Text>
+          <MaterialIcons name="emoji-events" size={14} color={VROOM_RED} />
         </TouchableOpacity>
       </View>
 
       <View style={{
-        backgroundColor: t.surface,
-        borderRadius: 18,
+        backgroundColor: cardBg,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: t.border,
+        borderColor: glassBorder,
         padding: 14,
+        ...glassShadow,
       }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>Punkty w tym tygodniu</Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: primary, fontWeight: '900' }}>{weeklyPoints} pkt</Text>
+          <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: VROOM_RED, fontWeight: '900' }}>{weeklyPoints} pkt</Text>
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: t.textDim }}>Punkty w tym miesiącu</Text>
@@ -138,7 +159,7 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
         </View>
 
         {loading && tasks.length === 0 ? (
-          <ActivityIndicator color={primary} style={{ marginVertical: 16 }} />
+          <ActivityIndicator color={VROOM_RED} style={{ marginVertical: 16 }} />
         ) : (
           tasks.map(task => (
             <View
@@ -148,14 +169,14 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
                 alignItems: 'center',
                 paddingVertical: 8,
                 borderTopWidth: 1,
-                borderTopColor: t.border2,
+                borderTopColor: isDark ? 'rgba(227, 56, 53, 0.15)' : 'rgba(227, 56, 53, 0.1)',
                 gap: 10,
               }}
             >
               <MaterialIcons
                 name={task.done ? 'check-circle' : 'radio-button-unchecked'}
                 size={20}
-                color={task.done ? '#4de926' : t.textDim}
+                color={task.done ? '#4de926' : 'rgba(227, 56, 53, 0.3)'}
               />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: t.text, fontWeight: '600' }} numberOfLines={2}>
@@ -165,7 +186,7 @@ export function QuestTrackSection({ theme: t, fadeAnim, onSynced }: Props) {
               <Text style={{
                 fontFamily: 'Orbitron',
                 fontSize: 10,
-                color: task.done ? '#4de926' : primary,
+                color: task.done ? '#4de926' : VROOM_RED,
                 fontWeight: '800',
               }}>
                 {task.done
