@@ -487,12 +487,35 @@ export default function HomeScreen() {
     : null;
 	const gridVoteBannerW = width - 40;
 
+	const pageBg = isDark
+		? (["#0a0505", "#050505", "#0f0a0a"] as const)
+		: (["#ffffff", "#fcfcfc", "#fcfcfc"] as const);
+	const glassCardBg = isDark
+		? (["rgba(255,255,255,0.03)", "rgba(255,255,255,0.01)"] as const)
+		: (["rgba(0,0,0,0.02)", "transparent"] as const);
+	const glassBorder = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)";
+	const mapCardBg = isDark
+		? (["rgba(227, 56, 53, 0.15)", "rgba(20, 20, 20, 0.8)"] as const)
+		: (["rgba(227, 56, 53, 0.1)", "rgba(255, 255, 255, 0.9)"] as const);
+	const pillBg = isDark ? "rgba(22, 22, 22, 0.55)" : "rgba(242, 242, 242, 0.75)";
+	const statNumColor = isDark ? "#ffffff" : "#000000";
+	const statDivider = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)";
+	const glassShadow = {
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 8 } as const,
+		shadowOpacity: isDark ? 0.35 : 0.08,
+		shadowRadius: isDark ? 20 : 12,
+		elevation: 8,
+	};
+	const mapTextColor = isDark ? "#ffffff" : "#000000";
+	const mapSubtextColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
+
 	if (loading || !user) {
 		return (
-			<View
+			<LinearGradient
+				colors={pageBg}
 				style={{
 					flex: 1,
-					backgroundColor: "#080808",
 					justifyContent: "center",
 					alignItems: "center",
 					gap: 12,
@@ -515,19 +538,20 @@ export default function HomeScreen() {
 					color='#e3383560'
 					style={{ marginTop: 16 }}
 				/>
-			</View>
+			</LinearGradient>
 		);
 	}
 
 	return (
 		<>
 			<StatusBar
-				barStyle='light-content'
+				barStyle={isDark ? "light-content" : "dark-content"}
 				backgroundColor='transparent'
 				translucent
 			/>
+			<LinearGradient colors={pageBg} style={{ flex: 1 }}>
 			<ScrollView
-				style={{ flex: 1, backgroundColor: t.bg }}
+				style={{ flex: 1, backgroundColor: "transparent" }}
 				contentContainerStyle={{ paddingBottom: 40 }}
 				showsVerticalScrollIndicator={false}
 				refreshControl={
@@ -554,15 +578,15 @@ export default function HomeScreen() {
 					<LinearGradient
 						colors={
 							isDark
-								? ["#1a0404", "#0d0d0d", "#080808"]
-								: ["#fce8e8", "#f5f5f5", t.bg]
+								? ["#0a0505", "#070707", "transparent"]
+								: ["#ffffff", "#fafafa", "transparent"]
 						}
 						start={{ x: 0.2, y: 0 }}
 						end={{ x: 1, y: 1 }}
 						style={StyleSheet.absoluteFill}
 					/>
 
-					{/* Decorative circles */}
+					{/* Decorative glass orbs */}
 					<View
 						pointerEvents="none"
 						style={{
@@ -572,9 +596,9 @@ export default function HomeScreen() {
 							width: 320,
 							height: 320,
 							borderRadius: 160,
-							backgroundColor: "#e3383508",
+							backgroundColor: "rgba(227, 56, 53, 0.04)",
 							borderWidth: 1,
-							borderColor: "#e3383520",
+							borderColor: "rgba(255, 255, 255, 0.06)",
 						}}
 					/>
 					<View
@@ -586,9 +610,9 @@ export default function HomeScreen() {
 							width: 200,
 							height: 200,
 							borderRadius: 100,
-							backgroundColor: "#e3383512",
+							backgroundColor: "rgba(255, 255, 255, 0.02)",
 							borderWidth: 1,
-							borderColor: "#e3383530",
+							borderColor: "rgba(255, 255, 255, 0.05)",
 						}}
 					/>
 					<View
@@ -600,7 +624,7 @@ export default function HomeScreen() {
 							width: 240,
 							height: 240,
 							borderRadius: 120,
-							backgroundColor: "#e3383506",
+							backgroundColor: "rgba(227, 56, 53, 0.03)",
 						}}
 					/>
 
@@ -647,14 +671,16 @@ export default function HomeScreen() {
 							style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
 							<View
 								style={{
-									backgroundColor: "#e33835",
+									backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
 									borderRadius: 8,
+									borderWidth: 1,
+									borderColor: glassBorder,
 									padding: 5,
 								}}>
 								<MaterialCommunityIcons
 									name='car-sports'
 									size={16}
-									color='#fff'
+									color={t.primary}
 								/>
 							</View>
 							<Text
@@ -687,16 +713,16 @@ export default function HomeScreen() {
 									width: 36,
 									height: 36,
 									borderRadius: 18,
-									backgroundColor: effectivePremium ? "#FFD70018" : t.surface,
+									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
 									borderWidth: 1,
-									borderColor: effectivePremium ? "#FFD70055" : t.border2,
+									borderColor: effectivePremium ? "rgba(255,215,0,0.35)" : glassBorder,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
 								<MaterialIcons
 									name="workspace-premium"
 									size={22}
-									color={effectivePremium ? "#FFD700" : "#e33835"}
+									color={effectivePremium ? "#FFD700" : t.primary}
 								/>
 							</TouchableOpacity>
 							<TouchableOpacity
@@ -706,9 +732,9 @@ export default function HomeScreen() {
 									width: 36,
 									height: 36,
 									borderRadius: 18,
-									backgroundColor: t.surface,
+									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
 									borderWidth: 1,
-									borderColor: t.border2,
+									borderColor: glassBorder,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
@@ -741,9 +767,9 @@ export default function HomeScreen() {
 									gap: 5,
 									flexShrink: 1,
 									minWidth: 0,
-									backgroundColor: "#4de92612",
+									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
 									borderWidth: 1,
-									borderColor: "#4de92635",
+									borderColor: glassBorder,
 									paddingHorizontal: 8,
 									paddingVertical: 5,
 									borderRadius: 20,
@@ -753,7 +779,7 @@ export default function HomeScreen() {
 										width: 6,
 										height: 6,
 										borderRadius: 3,
-										backgroundColor: "#4de926",
+										backgroundColor: t.primary,
 										transform: [{ scale: pulseAnim }],
 									}}
 								/>
@@ -762,7 +788,7 @@ export default function HomeScreen() {
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 8,
-										color: "#4de926",
+										color: t.textDim,
 										letterSpacing: 1,
 										flexShrink: 1,
 									}}>
@@ -777,9 +803,9 @@ export default function HomeScreen() {
 									height: 36,
 									borderRadius: 18,
 									flexShrink: 0,
-									backgroundColor: t.primaryBg,
-									borderWidth: 2,
-									borderColor: "#e33835",
+									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									borderWidth: 1,
+									borderColor: glassBorder,
 									overflow: "hidden",
 									alignItems: "center",
 									justifyContent: "center",
@@ -816,13 +842,13 @@ export default function HomeScreen() {
 						}}>
 						<Text
 							style={{
-								fontFamily: "Orbitron",
-								fontSize: 10,
-								color: "#e33835",
+								fontSize: 9,
+								color: t.textDim,
 								letterSpacing: 4,
 								marginBottom: 6,
+								textTransform: "uppercase",
 							}}>
-							WITAMY Z POWROTEM
+							Witamy z powrotem
 						</Text>
 
 						<Text
@@ -846,9 +872,9 @@ export default function HomeScreen() {
 									gap: 6,
 									marginTop: 10,
 									alignSelf: "flex-start",
-									backgroundColor: "#e3383515",
+									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
 									borderWidth: 1,
-									borderColor: "#e3383535",
+									borderColor: glassBorder,
 									paddingHorizontal: 12,
 									paddingVertical: 6,
 									borderRadius: 20,
@@ -856,122 +882,89 @@ export default function HomeScreen() {
 								<MaterialCommunityIcons
 									name='car-sports'
 									size={12}
-									color='#e33835'
+									color={t.primary}
 								/>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 9,
-										color: "#e33835aa",
+										fontSize: 10,
+										color: t.textDim,
 									}}>
 									{user.mainCar.brand} · {user.mainCar.specs}
 								</Text>
 							</View>
 						)}
 
-						{/* MEGA STATS ROW */}
-						<View style={{ flexDirection: "row", gap: 10, marginTop: 24 }}>
-							{/* Position */}
-							<View
-								style={{
-									flex: 1,
-									backgroundColor: "#e3383512",
-									borderRadius: 16,
-									borderWidth: 1,
-									borderColor: "#e3383530",
-									padding: 14,
-									alignItems: "center",
-								}}>
+						{/* STATS ROW — glass dividers */}
+						<View
+							style={{
+								flexDirection: "row",
+								alignItems: "center",
+								marginTop: 28,
+								paddingVertical: 8,
+							}}>
+							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
+								<MaterialIcons name="leaderboard" size={14} color={t.primary} />
 								<Text
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 22,
-										color: "#e33835",
+										color: statNumColor,
 										fontWeight: "900",
 									}}>
 									#{user.position ?? "—"}
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 7,
+										fontSize: 8,
 										color: t.textDim,
 										letterSpacing: 2,
-										marginTop: 3,
+										textTransform: "uppercase",
 									}}>
-									POZYCJA
+									Pozycja
 								</Text>
 							</View>
-							{/* Points */}
-							<View
-								style={{
-									flex: 1,
-									backgroundColor: isDark ? "#ffffff08" : "#00000008",
-									borderRadius: 16,
-									borderWidth: 1,
-									borderColor: isDark ? "#ffffff12" : "#00000012",
-									padding: 14,
-									alignItems: "center",
-								}}>
+							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
+							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
+								<MaterialIcons name="stars" size={14} color={t.primary} />
 								<Text
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 22,
-										color: t.text,
+										color: statNumColor,
 										fontWeight: "900",
 									}}>
 									{user.points ?? 0}
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 7,
+										fontSize: 8,
 										color: t.textDim,
 										letterSpacing: 2,
-										marginTop: 3,
+										textTransform: "uppercase",
 									}}>
-									PUNKTY
+									Punkty
 								</Text>
 							</View>
-							{/* Streak */}
-							<View
-								style={{
-									flex: 1,
-									backgroundColor:
-										user.streak > 0
-											? "#ff922b12"
-											: isDark
-												? "#ffffff08"
-												: "#00000008",
-									borderRadius: 16,
-									borderWidth: 1,
-									borderColor:
-										user.streak > 0
-											? "#ff922b35"
-											: isDark
-												? "#ffffff12"
-												: "#00000012",
-									padding: 14,
-									alignItems: "center",
-								}}>
+							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
+							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
+								<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
 								<Text
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 22,
-										color: user.streak > 0 ? "#ff922b" : t.text,
+										color: statNumColor,
 										fontWeight: "900",
 									}}>
 									{user.streak ?? 0}
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 7,
+										fontSize: 8,
 										color: t.textDim,
 										letterSpacing: 2,
-										marginTop: 3,
+										textTransform: "uppercase",
 									}}>
-									🔥 STREAK
+									Streak
 								</Text>
 							</View>
 						</View>
@@ -979,7 +972,7 @@ export default function HomeScreen() {
 
 					{/* Bottom fade */}
 					<LinearGradient
-						colors={["transparent", t.bg]}
+						colors={["transparent", isDark ? "#0f0a0a" : "#fcfcfc"]}
 						pointerEvents="none"
 						style={{
 							position: "absolute",
@@ -1003,43 +996,32 @@ export default function HomeScreen() {
 						onPress={() => setShowAnnouncements(true)}
 						activeOpacity={0.85}>
 						<LinearGradient
-							colors={isDark ? ["#1a0a1a", "#0f0f0f"] : ["#f8f0ff", "#f5f5f5"]}
+							colors={glassCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
-								borderRadius: 18,
+								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: unseenCount > 0 ? "#a855f750" : t.border2,
+								borderColor: glassBorder,
 								padding: 18,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 14,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -20,
-									top: -20,
-									width: 100,
-									height: 100,
-									borderRadius: 50,
-									backgroundColor: "#a855f710",
-								}}
-							/>
-
 							<View
 								style={{
 									width: 46,
 									height: 46,
-									borderRadius: 14,
-									backgroundColor: "#a855f720",
+									borderRadius: 23,
+									backgroundColor: "transparent",
 									borderWidth: 1,
-									borderColor: "#a855f740",
+									borderColor: t.primary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
-								<Text style={{ fontSize: 22 }}>📢</Text>
+								<MaterialIcons name="campaign" size={22} color={t.primary} />
 							</View>
 
 							<View style={{ flex: 1 }}>
@@ -1055,19 +1037,17 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontSize: 10,
 										color: t.textDim,
 									}}>
 									Nowości · Aktualizacje · Eventy
 								</Text>
 							</View>
 
-							{/* Badge z liczbą nieprzeczytanych */}
 							{unseenCount > 0 && (
 								<View
 									style={{
-										backgroundColor: "#a855f7",
+										backgroundColor: t.primary,
 										borderRadius: 10,
 										paddingHorizontal: 8,
 										paddingVertical: 4,
@@ -1086,20 +1066,11 @@ export default function HomeScreen() {
 								</View>
 							)}
 
-							<View
-								style={{
-									backgroundColor: "#a855f715",
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: "#a855f730",
-								}}>
-								<MaterialIcons
-									name='arrow-forward-ios'
-									size={13}
-									color='#a855f7'
-								/>
-							</View>
+							<MaterialIcons
+								name='arrow-forward-ios'
+								size={13}
+								color={t.primary}
+							/>
 						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
@@ -1137,42 +1108,28 @@ export default function HomeScreen() {
 										  )
 								}>
 								<LinearGradient
-									colors={
-										isDark
-											? ["#2a1f05", "#161208", "#0c0c0c"]
-											: ["#fff9e8", "#fff3d0", "#faf6ef"]
-									}
+									colors={glassCardBg}
 									start={{ x: 0, y: 0 }}
 									end={{ x: 1, y: 1 }}
 									style={{
-										borderRadius: 18,
+										borderRadius: 20,
 										borderWidth: 1,
-										borderColor: `${t.gold}55`,
+										borderColor: glassBorder,
 										padding: 18,
 										flexDirection: "row",
 										alignItems: "center",
 										gap: 14,
 										overflow: "hidden",
+										...glassShadow,
 									}}>
-									<View
-										style={{
-											position: "absolute",
-											right: -24,
-											top: -24,
-											width: 100,
-											height: 100,
-											borderRadius: 50,
-											backgroundColor: `${t.gold}14`,
-										}}
-									/>
 									<View
 										style={{
 											width: 48,
 											height: 48,
-											borderRadius: 14,
-											backgroundColor: `${t.gold}22`,
+											borderRadius: 24,
+											backgroundColor: "transparent",
 											borderWidth: 1,
-											borderColor: `${t.gold}44`,
+											borderColor: t.primary,
 											alignItems: "center",
 											justifyContent: "center",
 										}}>
@@ -1185,7 +1142,7 @@ export default function HomeScreen() {
 											style={{
 												fontFamily: "Orbitron",
 												fontSize: 8,
-												color: t.gold,
+												color: t.primary,
 												letterSpacing: 2,
 												marginBottom: 4,
 											}}>
@@ -1229,24 +1186,15 @@ export default function HomeScreen() {
 											}}
 										/>
 									</View>
-									<View
-										style={{
-											backgroundColor: `${t.gold}18`,
-											borderRadius: 10,
-											padding: 8,
-											borderWidth: 1,
-											borderColor: `${t.gold}40`,
-										}}>
-										<MaterialIcons
-											name={
-												activeGridVotes[0].status === "active"
-													? "how-to-vote"
-													: "playlist-add-check"
-											}
-											size={18}
-											color={t.gold}
-										/>
-									</View>
+									<MaterialIcons
+										name={
+											activeGridVotes[0].status === "active"
+												? "how-to-vote"
+												: "playlist-add-check"
+										}
+										size={18}
+										color={t.primary}
+									/>
 								</LinearGradient>
 							</TouchableOpacity>
 						) : (
@@ -1291,42 +1239,28 @@ export default function HomeScreen() {
 													  )
 											}>
 											<LinearGradient
-												colors={
-													isDark
-														? ["#2a1f05", "#161208", "#0c0c0c"]
-														: ["#fff9e8", "#fff3d0", "#faf6ef"]
-												}
+												colors={glassCardBg}
 												start={{ x: 0, y: 0 }}
 												end={{ x: 1, y: 1 }}
 												style={{
-													borderRadius: 18,
+													borderRadius: 20,
 													borderWidth: 1,
-													borderColor: `${t.gold}55`,
+													borderColor: glassBorder,
 													padding: 18,
 													flexDirection: "row",
 													alignItems: "center",
 													gap: 14,
 													overflow: "hidden",
+													...glassShadow,
 												}}>
-												<View
-													style={{
-														position: "absolute",
-														right: -24,
-														top: -24,
-														width: 100,
-														height: 100,
-														borderRadius: 50,
-														backgroundColor: `${t.gold}14`,
-													}}
-												/>
 												<View
 													style={{
 														width: 48,
 														height: 48,
-														borderRadius: 14,
-														backgroundColor: `${t.gold}22`,
+														borderRadius: 24,
+														backgroundColor: "transparent",
 														borderWidth: 1,
-														borderColor: `${t.gold}44`,
+														borderColor: t.primary,
 														alignItems: "center",
 														justifyContent: "center",
 													}}>
@@ -1339,7 +1273,7 @@ export default function HomeScreen() {
 														style={{
 															fontFamily: "Orbitron",
 															fontSize: 8,
-															color: t.gold,
+															color: t.primary,
 															letterSpacing: 2,
 															marginBottom: 4,
 														}}>
@@ -1383,24 +1317,15 @@ export default function HomeScreen() {
 														}}
 													/>
 												</View>
-												<View
-													style={{
-														backgroundColor: `${t.gold}18`,
-														borderRadius: 10,
-														padding: 8,
-														borderWidth: 1,
-														borderColor: `${t.gold}40`,
-													}}>
-													<MaterialIcons
-														name={
-															item.status === "active"
-																? "how-to-vote"
-																: "playlist-add-check"
-														}
-														size={18}
-														color={t.gold}
-													/>
-												</View>
+												<MaterialIcons
+													name={
+														item.status === "active"
+															? "how-to-vote"
+															: "playlist-add-check"
+													}
+													size={18}
+													color={t.primary}
+												/>
 											</LinearGradient>
 										</TouchableOpacity>
 									)}
@@ -1422,10 +1347,10 @@ export default function HomeScreen() {
 												borderRadius: 4,
 												backgroundColor:
 													gridCarouselIndex === i
-														? t.gold
+														? t.primary
 														: isDark
-															? "#ffffff28"
-															: "#00000028",
+															? "rgba(255,255,255,0.15)"
+															: "rgba(0,0,0,0.12)",
 											}}
 										/>
 									))}
@@ -1448,71 +1373,30 @@ export default function HomeScreen() {
 						onPress={() => router.push("/premium" as any)}
 						activeOpacity={0.86}>
 						<LinearGradient
-							colors={
-								premiumLoading
-									? isDark
-										? ["#141414", "#0d0d0d"]
-										: ["#f5f5f5", "#efefef"]
-									: effectivePremium
-										? ["#2a2000", "#1a1500", "#0a0a0a"]
-										: isDark
-											? ["#1a0808", "#100404", "#0a0a0a"]
-											: ["#fff5f5", "#fff0f0", "#fafafa"]
-							}
+							colors={glassCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
 								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: premiumLoading
-									? t.border
-									: effectivePremium
-										? "#FFD70040"
-										: "#e3383540",
+								borderColor: glassBorder,
 								padding: 18,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 14,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -18,
-									top: -22,
-									width: 110,
-									height: 110,
-									borderRadius: 55,
-									backgroundColor: premiumLoading
-										? isDark
-											? "#ffffff08"
-											: "#00000006"
-										: effectivePremium
-											? "#FFD70018"
-											: "#e3383510",
-								}}
-							/>
-
 							<View
 								style={{
 									width: 48,
 									height: 48,
-									borderRadius: 14,
-									backgroundColor: premiumLoading
-										? isDark
-											? "#ffffff10"
-											: "#00000010"
-										: effectivePremium
-											? "#FFD70020"
-											: "#e3383520",
+									borderRadius: 24,
+									backgroundColor: "transparent",
 									borderWidth: 1,
 									borderColor: premiumLoading
-										? isDark
-											? "#ffffff20"
-											: "#00000020"
-										: effectivePremium
-											? "#FFD70040"
-											: "#e3383540",
+										? glassBorder
+										: "#FFD700",
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
@@ -1522,9 +1406,7 @@ export default function HomeScreen() {
 									color={
 										premiumLoading
 											? t.textDim
-											: effectivePremium
-												? "#FFD700"
-												: "#e33835"
+											: "#FFD700"
 									}
 								/>
 							</View>
@@ -1534,11 +1416,7 @@ export default function HomeScreen() {
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 8,
-										color: premiumLoading
-											? t.textDim
-											: effectivePremium
-												? "#FFD700"
-												: "#e33835",
+										color: premiumLoading ? t.textDim : "#FFD700",
 										letterSpacing: 2.2,
 										marginBottom: 4,
 									}}>
@@ -1564,61 +1442,32 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontSize: 10,
 										color: t.textDim,
 									}}>
 									{effectivePremium
 										? "Dziękujemy za wsparcie projektu"
 										: "Dotknij, aby przejść do zakupu"}
 								</Text>
-                {effectivePremium && (
-                  <Text
-                    style={{
-                      fontFamily: "Orbitron",
-                      fontSize: 7,
-                      color: t.textDim,
-                      marginTop: 4,
-                    }}>
-                    {premiumEndLabel
-                      ? `Koniec okresu: ${premiumEndLabel}`
-                      : "Korzyści Premium aktywne"}
-                  </Text>
-                )}
+								{effectivePremium && (
+									<Text
+										style={{
+											fontSize: 9,
+											color: t.textDim,
+											marginTop: 4,
+										}}>
+										{premiumEndLabel
+											? `Koniec okresu: ${premiumEndLabel}`
+											: "Korzyści Premium aktywne"}
+									</Text>
+								)}
 							</View>
 
-							<View
-								style={{
-									backgroundColor: premiumLoading
-										? isDark
-											? "#ffffff10"
-											: "#00000010"
-										: effectivePremium
-											? "#FFD70018"
-											: "#e3383515",
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: premiumLoading
-										? isDark
-											? "#ffffff20"
-											: "#00000020"
-										: effectivePremium
-											? "#FFD70040"
-											: "#e3383535",
-								}}>
-								<MaterialIcons
-									name={effectivePremium ? "check" : "arrow-forward-ios"}
-									size={13}
-									color={
-										premiumLoading
-											? t.textDim
-											: effectivePremium
-												? "#FFD700"
-												: "#e33835"
-									}
-								/>
-							</View>
+							<MaterialIcons
+								name={effectivePremium ? "check" : "arrow-forward-ios"}
+								size={13}
+								color={premiumLoading ? t.textDim : "#FFD700"}
+							/>
 						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
@@ -1636,42 +1485,32 @@ export default function HomeScreen() {
 						onPress={() => Linking.openURL("https://buycoffee.to/vroom")}
 						activeOpacity={0.85}>
 						<LinearGradient
-							colors={["#f5c51820", "#f5c51808", "transparent"]}
+							colors={glassCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
-								borderRadius: 18,
+								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: "#f5c51840",
+								borderColor: glassBorder,
 								padding: 18,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 14,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									left: -10,
-									top: -10,
-									width: 80,
-									height: 80,
-									borderRadius: 40,
-									backgroundColor: "#f5c51808",
-								}}
-							/>
 							<View
 								style={{
 									width: 46,
 									height: 46,
-									borderRadius: 14,
-									backgroundColor: "#f5c51820",
+									borderRadius: 23,
+									backgroundColor: "transparent",
 									borderWidth: 1,
-									borderColor: "#f5c51840",
+									borderColor: "#FFD700",
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
-								<Text style={{ fontSize: 22 }}>☕</Text>
+								<Text style={{ fontSize: 20 }}>☕</Text>
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text
@@ -1686,27 +1525,17 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontSize: 10,
 										color: t.textDim,
 									}}>
 									Podoba Ci się VROOM? Wesprzyj projekt!
 								</Text>
 							</View>
-							<View
-								style={{
-									backgroundColor: "#f5c51815",
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: "#f5c51835",
-								}}>
-								<MaterialIcons
-									name='arrow-forward-ios'
-									size={13}
-									color='#f5c518'
-								/>
-							</View>
+							<MaterialIcons
+								name='arrow-forward-ios'
+								size={13}
+								color='#FFD700'
+							/>
 						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
@@ -1738,72 +1567,54 @@ export default function HomeScreen() {
 						SZYBKA NAWIGACJA
 					</Text>
 
-					{/* MAPA — duży przycisk */}
+					{/* MAPA — szklana karta */}
 					<TouchableOpacity
 						onPress={() => router.push("/map")}
 						activeOpacity={0.85}
 						style={{ marginBottom: 10 }}>
 						<LinearGradient
-							colors={["#e33835", "#c02020"]}
+							colors={mapCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
 								borderRadius: 20,
+								borderWidth: 1,
+								borderColor: glassBorder,
 								padding: 22,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 16,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -20,
-									top: -20,
-									width: 130,
-									height: 130,
-									borderRadius: 65,
-									backgroundColor: "#ffffff15",
-								}}
-							/>
-							<View
-								style={{
-									position: "absolute",
-									right: 20,
-									top: 20,
-									width: 60,
-									height: 60,
-									borderRadius: 30,
-									backgroundColor: "#ffffff10",
-								}}
-							/>
 							<View
 								style={{
 									width: 54,
 									height: 54,
-									borderRadius: 16,
-									backgroundColor: "#ffffff20",
+									borderRadius: 27,
+									backgroundColor: "transparent",
+									borderWidth: 1,
+									borderColor: t.primary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
-								<MaterialIcons name='map' size={28} color='#fff' />
+								<MaterialIcons name='map' size={26} color={t.primary} />
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 18,
-										color: "#fff",
+										color: mapTextColor,
 										fontWeight: "900",
 										letterSpacing: 1,
 									}}>
-									MAPA{" "}
+									MAPA
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 9,
-										color: "#ffffff80",
+										fontSize: 10,
+										color: mapSubtextColor,
 										marginTop: 3,
 									}}>
 									Nawigacja · Live tracking · Trasy
@@ -1812,12 +1623,12 @@ export default function HomeScreen() {
 							<MaterialIcons
 								name='arrow-forward-ios'
 								size={18}
-								color='#ffffff60'
+								color={t.primary}
 							/>
 						</LinearGradient>
 					</TouchableOpacity>
 
-					{/* Rząd 3 przycisków */}
+					{/* Rząd 3 pigułek */}
 					<View style={{ flexDirection: "row", gap: 10 }}>
 						{[
 							{
@@ -1826,7 +1637,6 @@ export default function HomeScreen() {
 								label: "MEETY",
 								sub: "Wydarzenia",
 								route: "/Community/meets/events",
-								color: "#ff6b35",
 							},
 							{
 								icon: "leaderboard",
@@ -1834,7 +1644,6 @@ export default function HomeScreen() {
 								label: "RANKING",
 								sub: "Top gracze",
 								route: "/Community/Ranks/stats",
-								color: "#4de926",
 							},
 							{
 								icon: "chat-bubble",
@@ -1842,7 +1651,6 @@ export default function HomeScreen() {
 								label: "CZAT",
 								sub: "Znajomi",
 								route: "/Community/chats/chats",
-								color: "#268bff",
 							},
 						].map(item => (
 							<TouchableOpacity
@@ -1851,37 +1659,28 @@ export default function HomeScreen() {
 								activeOpacity={0.8}
 								style={{
 									flex: 1,
-									backgroundColor: t.surface,
-									borderRadius: 18,
+									backgroundColor: pillBg,
+									borderRadius: 20,
 									borderWidth: 1,
-									borderColor: t.border,
-									padding: 16,
+									borderColor: glassBorder,
+									paddingVertical: 16,
+									paddingHorizontal: 8,
 									alignItems: "center",
 									gap: 8,
 								}}>
-								<View
-									style={{
-										width: 42,
-										height: 42,
-										borderRadius: 12,
-										backgroundColor: item.color + "20",
-										alignItems: "center",
-										justifyContent: "center",
-									}}>
-									{item.lib === "mci" ? (
-										<MaterialCommunityIcons
-											name={item.icon as any}
-											size={20}
-											color={item.color}
-										/>
-									) : (
-										<MaterialIcons
-											name={item.icon as any}
-											size={20}
-											color={item.color}
-										/>
-									)}
-								</View>
+								{item.lib === "mci" ? (
+									<MaterialCommunityIcons
+										name={item.icon as any}
+										size={22}
+										color={t.primary}
+									/>
+								) : (
+									<MaterialIcons
+										name={item.icon as any}
+										size={22}
+										color={t.primary}
+									/>
+								)}
 								<Text
 									style={{
 										fontFamily: "Orbitron",
@@ -1894,8 +1693,7 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 7,
+										fontSize: 8,
 										color: t.textDim,
 									}}>
 									{item.sub}
@@ -1915,40 +1713,41 @@ export default function HomeScreen() {
 						onPress={() => router.push({ pathname: "/profile/settings", params: { openBug: "1" } })}
 						activeOpacity={0.85}>
 						<LinearGradient
-							colors={isDark ? ["#2a1208", "#160b06"] : ["#fff4ef", "#ffe9df"]}
+							colors={glassCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
-								borderRadius: 16,
+								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: "#ff704360",
+								borderColor: glassBorder,
 								padding: 14,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 10,
+								...glassShadow,
 							}}>
 							<View
 								style={{
 									width: 36,
 									height: 36,
-									borderRadius: 10,
-									backgroundColor: "#ff704320",
+									borderRadius: 18,
+									backgroundColor: "transparent",
 									borderWidth: 1,
-									borderColor: "#ff704350",
+									borderColor: t.primary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
-								<MaterialIcons name="bug-report" size={18} color="#ff7043" />
+								<MaterialIcons name="bug-report" size={18} color={t.primary} />
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text style={{ fontFamily: "Orbitron", fontSize: 11, color: t.text, fontWeight: "700" }}>
 									Zgłoś błąd
 								</Text>
-								<Text style={{ fontFamily: "Orbitron", fontSize: 8, color: t.textDim, marginTop: 2 }}>
+								<Text style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
 									Stały skrót do formularza zgłoszeń
 								</Text>
 							</View>
-							<MaterialIcons name="arrow-forward-ios" size={12} color="#ff7043" />
+							<MaterialIcons name="arrow-forward-ios" size={12} color={t.primary} />
 						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
@@ -1981,33 +1780,34 @@ export default function HomeScreen() {
 							onPress={() => router.navigate('/(tabs)/account' as any)}
 							activeOpacity={0.85}>
 							<LinearGradient
-								colors={["#f5c51820", "#f5c51808", "transparent"]}
+								colors={glassCardBg}
 								start={{ x: 0, y: 0 }}
 								end={{ x: 1, y: 1 }}
 								style={{
-									borderRadius: 18,
+									borderRadius: 20,
 									borderWidth: 1,
-									borderColor: "#f5c51840",
+									borderColor: glassBorder,
 									padding: 18,
 									flexDirection: "row",
 									alignItems: "center",
 									gap: 14,
+									...glassShadow,
 								}}>
 								<View
 									style={{
 										width: 50,
 										height: 50,
 										borderRadius: 25,
-										backgroundColor: "#f5c51820",
-										borderWidth: 2,
-										borderColor: "#f5c51840",
+										backgroundColor: "transparent",
+										borderWidth: 1,
+										borderColor: "#FFD700",
 										alignItems: "center",
 										justifyContent: "center",
 									}}>
 									<MaterialIcons
 										name='emoji-events'
 										size={26}
-										color='#f5c518'
+										color='#FFD700'
 									/>
 								</View>
 								<View style={{ flex: 1 }}>
@@ -2015,7 +1815,7 @@ export default function HomeScreen() {
 										style={{
 											fontFamily: "Orbitron",
 											fontSize: 8,
-											color: "#f5c518",
+											color: "#FFD700",
 											letterSpacing: 3,
 											marginBottom: 4,
 										}}>
@@ -2034,7 +1834,7 @@ export default function HomeScreen() {
 								<MaterialIcons
 									name='arrow-forward-ios'
 									size={14}
-									color='#f5c51860'
+									color='#FFD700'
 								/>
 							</LinearGradient>
 						</TouchableOpacity>
@@ -2066,45 +1866,35 @@ export default function HomeScreen() {
 						onPress={() => router.push("/(tabs)/community")}
 						activeOpacity={0.85}>
 						<LinearGradient
-							colors={["#268bff18", "#268bff08", "transparent"]}
+							colors={glassCardBg}
 							start={{ x: 0, y: 0 }}
 							end={{ x: 1, y: 1 }}
 							style={{
-								borderRadius: 18,
+								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: "#268bff30",
+								borderColor: glassBorder,
 								padding: 18,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 14,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -20,
-									top: -20,
-									width: 100,
-									height: 100,
-									borderRadius: 50,
-									backgroundColor: "#268bff08",
-								}}
-							/>
 							<View
 								style={{
 									width: 50,
 									height: 50,
-									borderRadius: 16,
-									backgroundColor: "#268bff20",
+									borderRadius: 25,
+									backgroundColor: "transparent",
 									borderWidth: 1,
-									borderColor: "#268bff40",
+									borderColor: t.primary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
 								<MaterialIcons
 									name='chat-bubble-outline'
 									size={24}
-									color='#268bff'
+									color={t.primary}
 								/>
 							</View>
 							<View style={{ flex: 1 }}>
@@ -2120,71 +1910,53 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontSize: 10,
 										color: t.textDim,
 									}}>
 									Napisz do kogoś · Sprawdź co słychać
 								</Text>
 							</View>
-							<View
-								style={{
-									backgroundColor: "#268bff15",
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: "#268bff30",
-								}}>
-								<MaterialIcons
-									name='arrow-forward-ios'
-									size={13}
-									color='#268bff'
-								/>
-							</View>
+							<MaterialIcons
+								name='arrow-forward-ios'
+								size={13}
+								color={t.primary}
+							/>
 						</LinearGradient>
 					</TouchableOpacity>
 
 					<TouchableOpacity
 						onPress={() => router.push("/(tabs)/spotmap")}
 						activeOpacity={0.85}>
-						<View
+						<LinearGradient
+							colors={glassCardBg}
+							start={{ x: 0, y: 0 }}
+							end={{ x: 1, y: 1 }}
 							style={{
-								borderRadius: 18,
+								borderRadius: 20,
 								borderWidth: 1,
-								borderColor: t.border,
-								backgroundColor: t.surface,
+								borderColor: glassBorder,
 								padding: 18,
 								flexDirection: "row",
 								alignItems: "center",
 								gap: 14,
 								overflow: "hidden",
+								...glassShadow,
 							}}>
-							<View
-								style={{
-									position: "absolute",
-									right: -20,
-									top: -20,
-									width: 100,
-									height: 100,
-									borderRadius: 50,
-									backgroundColor: isDark ? "#ffffff05" : "#00000005",
-								}}
-							/>
 							<View
 								style={{
 									width: 50,
 									height: 50,
-									borderRadius: 16,
-									backgroundColor: t.primaryBg,
+									borderRadius: 25,
+									backgroundColor: "transparent",
 									borderWidth: 1,
-									borderColor: t.primaryBorder,
+									borderColor: t.primary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
 								<MaterialIcons
 									name='place'
 									size={24}
-									color={t.primary ?? "#e33835"}
+									color={t.primary}
 								/>
 							</View>
 							<View style={{ flex: 1 }}>
@@ -2200,31 +1972,22 @@ export default function HomeScreen() {
 								</Text>
 								<Text
 									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
+										fontSize: 10,
 										color: t.textDim,
 									}}>
 									Znajdź miejsca · Dodaj nowy spot
 								</Text>
 							</View>
-							<View
-								style={{
-									backgroundColor: t.surface,
-									borderRadius: 10,
-									padding: 8,
-									borderWidth: 1,
-									borderColor: t.border,
-								}}>
-								<MaterialIcons
-									name='arrow-forward-ios'
-									size={13}
-									color={t.textDim}
-								/>
-							</View>
-						</View>
+							<MaterialIcons
+								name='arrow-forward-ios'
+								size={13}
+								color={t.primary}
+							/>
+						</LinearGradient>
 					</TouchableOpacity>
 				</Animated.View>
 			</ScrollView>
+			</LinearGradient>
 
 			{campaign && campaignVisible && (
 				<CampaignFlowModal
