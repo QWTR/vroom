@@ -47,9 +47,9 @@ import type {
   ProfileBannerFocusPoint,
 } from '../../constants/profilePremiumExtras';
 import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
+import ProfileBannerCropModal from '../../components/profile/ProfileBannerCropModal';
 import {
-  BANNER_ASPECT,
-  prepareBannerForUpload,
+  getHeroBannerHeight,
   uploadProfileBanner,
   deleteProfileBanner,
 } from '../../lib/profileBanner';
@@ -98,8 +98,8 @@ export default function SettingsScreen() {
   const { wallet: nitroWallet } = useNitroWallet();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
   const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
+  const [bannerPreviewSize, setBannerPreviewSize] = useState<{ w: number; h: number } | null>(null);
   const [bannerPreviewVisible, setBannerPreviewVisible] = useState(false);
-  const [bannerFocusDraft, setBannerFocusDraft] = useState<ProfileBannerFocusPoint>('center');
   const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
   const { scrollPaddingBottom } = useFormKeyboardPadding(88);
   const scrollBottomPad =
@@ -216,24 +216,29 @@ export default function SettingsScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: BANNER_ASPECT,
+      allowsEditing: false,
       quality: 1,
     });
     if (result.canceled || !result.assets?.[0]?.uri) return;
-    setBannerPreviewUri(result.assets[0].uri);
-    setBannerFocusDraft(premiumExtras.bannerFocusPoint ?? 'center');
+    const asset = result.assets[0];
+    setBannerPreviewUri(asset.uri);
+    setBannerPreviewSize(
+      asset.width && asset.height ? { w: asset.width, h: asset.height } : null,
+    );
     setBannerPreviewVisible(true);
-  }, [effectivePremium, premiumExtras.bannerFocusPoint, router]);
+  }, [effectivePremium, router]);
 
-  const confirmBannerUpload = useCallback(async () => {
-    if (!bannerPreviewUri) return;
+  const handleBannerCropConfirm = useCallback(async ({
+    croppedUri,
+    focusPoint,
+  }: {
+    croppedUri: string;
+    focusPoint: ProfileBannerFocusPoint;
+  }) => {
     setBannerUploadBusy(true);
     try {
-      const focus = bannerFocusDraft;
-      await persistPremiumExtras({ bannerFocusPoint: focus }, { okMessage: 'Kadrowanie zapisane' });
-      const prepared = await prepareBannerForUpload(bannerPreviewUri, focus);
-      const result = await uploadProfileBanner(prepared.uri);
+      await persistPremiumExtras({ bannerFocusPoint: focusPoint });
+      const result = await uploadProfileBanner(croppedUri);
       if (!result.ok) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: result.error });
         return;
@@ -242,15 +247,15 @@ export default function SettingsScreen() {
       Toast.show({ type: 'success', text1: 'Baner zaktualizowany' });
       setBannerPreviewVisible(false);
       setBannerPreviewUri(null);
+      setBannerPreviewSize(null);
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie udało się wgrać banera.' });
     } finally {
       setBannerUploadBusy(false);
     }
-  }, [bannerPreviewUri, bannerFocusDraft, persistPremiumExtras, fetchProfile]);
+  }, [persistPremiumExtras, fetchProfile]);
 
   const handleBannerFocusChange = useCallback(async (focus: ProfileBannerFocusPoint) => {
-    setBannerFocusDraft(focus);
     await persistPremiumExtras({ bannerFocusPoint: focus }, { okMessage: 'Kadrowanie banera zapisane' });
   }, [persistPremiumExtras]);
 
@@ -1244,22 +1249,23 @@ export default function SettingsScreen() {
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
-										Baner profilu (21:9)
+										Baner profilu
 									</Text>
 									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
-										Wgraj zdjęcie i ustaw punkt kadrowania — na profilu baner zawsze wypełnia proporcje 21:9.
+										Wybierz zdjęcie — otworzy się edytor z podglądem jak na profilu.
 									</Text>
 									{profile?.bannerUrl ? (
 										<ProfileHeroBannerFrame
 											uri={profile.bannerUrl}
 											focusPoint={premiumExtras.bannerFocusPoint ?? 'center'}
+											fixedHeight={getHeroBannerHeight() * 0.38}
 											style={{ borderRadius: 12, borderWidth: 1, borderColor: inputBorder }}
 										/>
 									) : (
 										<View
 											style={{
 												width: '100%',
-												aspectRatio: 21 / 9,
+												height: getHeroBannerHeight() * 0.38,
 												borderRadius: 12,
 												borderWidth: 1,
 												borderColor: inputBorder,
@@ -3079,105 +3085,21 @@ export default function SettingsScreen() {
 				</View>
 			</Modal>
 
-			<Modal
+			<ProfileBannerCropModal
 				visible={bannerPreviewVisible}
-				transparent
-				animationType="fade"
-				onRequestClose={() => {
+				imageUri={bannerPreviewUri}
+				imageWidth={bannerPreviewSize?.w}
+				imageHeight={bannerPreviewSize?.h}
+				themeBg={theme.bg}
+				busy={bannerUploadBusy}
+				onClose={() => {
 					if (bannerUploadBusy) return;
 					setBannerPreviewVisible(false);
 					setBannerPreviewUri(null);
-				}}>
-				<View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: 20 }}>
-					<View style={{
-						backgroundColor: cardBg,
-						borderRadius: 16,
-						borderWidth: 1,
-						borderColor: cardBorder,
-						padding: 16,
-						gap: 14,
-					}}>
-						<Text style={{ fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', color: textMain }}>
-							PODGLĄD BANERA
-						</Text>
-						<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
-							Sprawdź kadrowanie przed wysłaniem na serwer.
-						</Text>
-						{bannerPreviewUri ? (
-							<ProfileHeroBannerFrame
-								uri={bannerPreviewUri}
-								focusPoint={bannerFocusDraft}
-								style={{ borderRadius: 12, borderWidth: 1, borderColor: inputBorder }}
-							/>
-						) : null}
-						<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain }}>
-							Punkt kadrowania
-						</Text>
-						<View style={{ flexDirection: 'row', gap: 8 }}>
-							{BANNER_FOCUS_OPTIONS.map(({ key, label }) => (
-								<TouchableOpacity
-									key={key}
-									onPress={() => setBannerFocusDraft(key)}
-									style={{
-										flex: 1,
-										paddingVertical: 8,
-										borderRadius: 10,
-										borderWidth: 1,
-										borderColor: bannerFocusDraft === key ? RED : inputBorder,
-										backgroundColor: bannerFocusDraft === key ? RED + '22' : rowAlt,
-										alignItems: 'center',
-									}}>
-									<Text style={{
-										fontFamily: 'Orbitron',
-										fontSize: 8,
-										color: bannerFocusDraft === key ? RED : textDim,
-									}}>
-										{label}
-									</Text>
-								</TouchableOpacity>
-							))}
-						</View>
-						<View style={{ flexDirection: 'row', gap: 10 }}>
-							<TouchableOpacity
-								onPress={() => {
-									if (bannerUploadBusy) return;
-									setBannerPreviewVisible(false);
-									setBannerPreviewUri(null);
-								}}
-								disabled={bannerUploadBusy}
-								style={{
-									flex: 1,
-									paddingVertical: 12,
-									borderRadius: 10,
-									borderWidth: 1,
-									borderColor: inputBorder,
-									alignItems: 'center',
-								}}>
-								<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>ANULUJ</Text>
-							</TouchableOpacity>
-							<TouchableOpacity
-								onPress={() => void confirmBannerUpload()}
-								disabled={bannerUploadBusy || !bannerPreviewUri}
-								style={{
-									flex: 1,
-									paddingVertical: 12,
-									borderRadius: 10,
-									backgroundColor: RED,
-									alignItems: 'center',
-									opacity: bannerUploadBusy || !bannerPreviewUri ? 0.6 : 1,
-								}}>
-								{bannerUploadBusy ? (
-									<ActivityIndicator color="#fff" size="small" />
-								) : (
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
-										WYŚLIJ
-									</Text>
-								)}
-							</TouchableOpacity>
-						</View>
-					</View>
-				</View>
-			</Modal>
+					setBannerPreviewSize(null);
+				}}
+				onConfirm={handleBannerCropConfirm}
+			/>
 		</>
 	);
 }

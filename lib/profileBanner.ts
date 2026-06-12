@@ -1,12 +1,41 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Image as RNImage } from 'react-native';
+import { Dimensions, Image as RNImage } from 'react-native';
 import type { ImageContentPosition } from 'expo-image';
 import { API_URL } from '../constants/config';
 import type { ProfileBannerFocusPoint } from '../constants/profilePremiumExtras';
 
-export const BANNER_ASPECT: [number, number] = [21, 9];
-export const BANNER_ASPECT_RATIO = 21 / 9;
+/** Ułamek wysokości ekranu zajmowany przez hero baner w ProfileView. */
+export const HERO_BANNER_HEIGHT_RATIO = 0.7;
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+/** Wysokość hero banera (px) — ta sama formuła co w ProfileView. */
+export function getHeroBannerHeight(
+  screenHeight = Dimensions.get('window').height,
+): number {
+  return screenHeight * HERO_BANNER_HEIGHT_RATIO;
+}
+
+/** width / height — proporcja kontenera hero (cover). */
+export function getHeroBannerAspectRatio(): number {
+  const { width, height } = Dimensions.get('window');
+  return width / getHeroBannerHeight(height);
+}
+
+/**
+ * Proporcje dla expo-image-picker `aspect` — dopasowane do hero (nie 21:9).
+ * Np. telefon ~9:19 → ok. [10, 15].
+ */
+export function getHeroBannerCropAspect(): [number, number] {
+  const { width, height } = Dimensions.get('window');
+  const w = Math.round(width);
+  const h = Math.round(getHeroBannerHeight(height));
+  const g = gcd(w, h);
+  return [Math.max(1, Math.round(w / g)), Math.max(1, Math.round(h / g))];
+}
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -22,7 +51,7 @@ function computeBannerCropRect(
   srcH: number,
   focusPoint: ProfileBannerFocusPoint,
 ): { originX: number; originY: number; width: number; height: number } {
-  const targetRatio = BANNER_ASPECT_RATIO;
+  const targetRatio = getHeroBannerAspectRatio();
   const srcRatio = srcW / srcH;
 
   let cropW: number;
@@ -71,7 +100,117 @@ export function resolveBannerContentPosition(
   }
 }
 
-/** Przygotowanie pliku przed uploadem — crop 21:9 wg focus point + kompresja JPEG. */
+export type BannerCropTransform = {
+  /** Mnożnik na bazowy scale „cover” (≥ 1). */
+  scale: number;
+  translateX: number;
+  translateY: number;
+};
+
+export function getCoverBaseScale(
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+): number {
+  return Math.max(frameW / imgW, frameH / imgH);
+}
+
+export function clampBannerCropTransform(
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+  transform: BannerCropTransform,
+): BannerCropTransform {
+  const userScale = Math.max(1, Math.min(4, transform.scale));
+  const baseScale = getCoverBaseScale(imgW, imgH, frameW, frameH);
+  const totalScale = baseScale * userScale;
+  const dispW = imgW * totalScale;
+  const dispH = imgH * totalScale;
+
+  let tx = transform.translateX;
+  let ty = transform.translateY;
+
+  if (dispW >= frameW) {
+    const max = (dispW - frameW) / 2;
+    tx = Math.max(-max, Math.min(max, tx));
+  } else {
+    tx = 0;
+  }
+
+  if (dispH >= frameH) {
+    const max = (dispH - frameH) / 2;
+    ty = Math.max(-max, Math.min(max, ty));
+  } else {
+    ty = 0;
+  }
+
+  return { scale: userScale, translateX: tx, translateY: ty };
+}
+
+/** Mapuje widoczny obszar kadru (px ekranu modala) na prostokąt crop w pikselach źródła. */
+export function computeBannerCropFromViewport(
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+  transform: BannerCropTransform,
+): { originX: number; originY: number; width: number; height: number } {
+  const t = clampBannerCropTransform(imgW, imgH, frameW, frameH, transform);
+  const totalScale = getCoverBaseScale(imgW, imgH, frameW, frameH) * t.scale;
+  const cropW = frameW / totalScale;
+  const cropH = frameH / totalScale;
+
+  const imageLeft = (frameW - imgW * totalScale) / 2 + t.translateX;
+  const imageTop = (frameH - imgH * totalScale) / 2 + t.translateY;
+
+  let originX = (-imageLeft) / totalScale;
+  let originY = (-imageTop) / totalScale;
+
+  originX = Math.max(0, Math.min(originX, imgW - cropW));
+  originY = Math.max(0, Math.min(originY, imgH - cropH));
+
+  return {
+    originX: Math.round(originX),
+    originY: Math.round(originY),
+    width: Math.round(Math.min(cropW, imgW - originX)),
+    height: Math.round(Math.min(cropH, imgH - originY)),
+  };
+}
+
+export function focusPointFromCrop(
+  imgH: number,
+  crop: { originY: number; height: number },
+): ProfileBannerFocusPoint {
+  const mid = crop.originY + crop.height / 2;
+  if (mid < imgH * 0.33) return 'top';
+  if (mid > imgH * 0.67) return 'bottom';
+  return 'center';
+}
+
+export async function prepareBannerFromViewport(
+  uri: string,
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+  transform: BannerCropTransform,
+): Promise<{ uri: string; width: number; height: number; focusPoint: ProfileBannerFocusPoint }> {
+  const crop = computeBannerCropFromViewport(imgW, imgH, frameW, frameH, transform);
+  try {
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ crop }],
+      { compress: 0.88, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    return { uri: out.uri, width: out.width, height: out.height, focusPoint: 'center' };
+  } catch {
+    return { uri, width: imgW, height: imgH, focusPoint: 'center' };
+  }
+}
+
+/** @deprecated Użyj prepareBannerFromViewport — zostaje dla kompatybilności. */
 export async function prepareBannerForUpload(
   uri: string,
   focusPoint: ProfileBannerFocusPoint = 'center',

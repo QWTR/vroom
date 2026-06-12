@@ -12,15 +12,15 @@ import { useAchievements } from '../../hooks/useAchievements';
 import { useProfileSpots } from '../../hooks/useProfileSpots';
 import { useMyRoutes }     from '../../hooks/useMyRoutes';
 import ProfileView         from '../../components/profile/ProfileView';
+import ProfileBannerCropModal from '../../components/profile/ProfileBannerCropModal';
 import type { MyRoute }    from '../../hooks/useMyRoutes';
 import { ShareRouteModal } from '../../components/modals/ShareRouteModal';
 import { useParticipatedRoutes } from '../../hooks/useParticipatedRoutes';
 import type { ParticipatedRoute } from '../../hooks/useParticipatedRoutes';
 import { useSettings } from '../../contexts/SettingsContext';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import {
-  BANNER_ASPECT,
-  prepareBannerForUpload,
   uploadProfileBanner,
   deleteProfileBanner,
 } from '../../lib/profileBanner';
@@ -52,6 +52,9 @@ export default function ProfileScreen() {
   const [shareRoute,          setShareRoute]          = useState<MyRoute | null>(null);
   const [myId,                setMyId]                = useState<number | null>(null);
   const [bannerLoading, setBannerLoading] = useState(false);
+  const [bannerCropUri, setBannerCropUri] = useState<string | null>(null);
+  const [bannerCropSize, setBannerCropSize] = useState<{ w: number; h: number } | null>(null);
+  const [bannerCropVisible, setBannerCropVisible] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -72,8 +75,8 @@ export default function ProfileScreen() {
 
   const handleBannerChange = async (mode?: 'delete') => {
     try {
-      setBannerLoading(true);
       if (mode === 'delete') {
+        setBannerLoading(true);
         const result = await deleteProfileBanner();
         if (result.ok) {
           await fetchProfile();
@@ -86,20 +89,47 @@ export default function ProfileScreen() {
       const ImagePicker = await import('expo-image-picker');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: BANNER_ASPECT,
+        allowsEditing: false,
         quality: 1,
       });
       if (result.canceled || !result.assets?.[0]) return;
-      const focus = mergeProfilePremiumExtras(settings.profilePremiumExtras).bannerFocusPoint ?? 'center';
-      const prepared = await prepareBannerForUpload(result.assets[0].uri, focus);
-      const upload = await uploadProfileBanner(prepared.uri);
+      const asset = result.assets[0];
+      setBannerCropUri(asset.uri);
+      setBannerCropSize(
+        asset.width && asset.height ? { w: asset.width, h: asset.height } : null,
+      );
+      setBannerCropVisible(true);
+    } catch {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
+    } finally {
+      setBannerLoading(false);
+    }
+  };
+
+  const handleBannerCropConfirm = async ({
+    croppedUri,
+    focusPoint,
+  }: {
+    croppedUri: string;
+    focusPoint: ProfileBannerFocusPoint;
+  }) => {
+    setBannerLoading(true);
+    try {
+      const merged = mergeProfilePremiumExtras({
+        ...settings.profilePremiumExtras,
+        bannerFocusPoint: focusPoint,
+      });
+      await updateSetting('profilePremiumExtras', merged);
+      const upload = await uploadProfileBanner(croppedUri);
       if (!upload.ok) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: upload.error });
         return;
       }
       await fetchProfile();
       Toast.show({ type: 'success', text1: '✅ Baner zaktualizowany!' });
+      setBannerCropVisible(false);
+      setBannerCropUri(null);
+      setBannerCropSize(null);
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
     } finally {
@@ -269,6 +299,21 @@ export default function ProfileScreen() {
         visible={shareRoute !== null} route={shareRoute}
         onClose={() => setShareRoute(null)} onSent={() => setShareRoute(null)}
         myId={myId}
+      />
+      <ProfileBannerCropModal
+        visible={bannerCropVisible}
+        imageUri={bannerCropUri}
+        imageWidth={bannerCropSize?.w}
+        imageHeight={bannerCropSize?.h}
+        themeBg={theme.bg}
+        busy={bannerLoading}
+        onClose={() => {
+          if (bannerLoading) return;
+          setBannerCropVisible(false);
+          setBannerCropUri(null);
+          setBannerCropSize(null);
+        }}
+        onConfirm={handleBannerCropConfirm}
       />
     </>
   );

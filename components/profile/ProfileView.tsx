@@ -44,6 +44,7 @@ import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { linearGradientFromSpec } from './profileGradientUtils';
 import ProfileHeroBannerFrame from './ProfileHeroBannerFrame';
+import { getHeroBannerHeight } from '../../lib/profileBanner';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
@@ -468,7 +469,7 @@ export default function ProfileView({
     myRank?: { name: string; color: string } | null;
   } | null | undefined;
 
-  const HERO_BANNER_HEIGHT = Dimensions.get('window').height * 0.7;
+  const HERO_BANNER_HEIGHT = getHeroBannerHeight();
 
   return (
     <>

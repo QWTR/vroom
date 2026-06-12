@@ -3,7 +3,7 @@ import { View, StyleSheet, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  BANNER_ASPECT_RATIO,
+  getHeroBannerAspectRatio,
   resolveBannerContentPosition,
 } from '../../lib/profileBanner';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
@@ -35,7 +35,7 @@ export function ProfileHeroBannerFrame({
 }: Props) {
   const frameStyle = fixedHeight != null
     ? { width: '100%' as const, height: fixedHeight, overflow: 'hidden' as const }
-    : { width: '100%' as const, aspectRatio: BANNER_ASPECT_RATIO, overflow: 'hidden' as const };
+    : { width: '100%' as const, aspectRatio: getHeroBannerAspectRatio(), overflow: 'hidden' as const };
 
   return (
     <View style={[frameStyle, style]}>
