@@ -16,6 +16,7 @@ import {
   carDisplayLabel,
   getCarPhotos,
 } from './dailyDuelTypes';
+import { DailyDuelHistorySection } from './DailyDuelHistorySection';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CAROUSEL_W = SCREEN_W - 64;
@@ -134,13 +135,23 @@ const DailyDuelCarBlock = React.memo(function DailyDuelCarBlock({
 
 interface Props {
   duel: DailyDuelData | null;
+  history?: DailyDuelData[];
+  historyLoading?: boolean;
   loading?: boolean;
   voting?: boolean;
   onVote: (carId: number) => void;
   onRefresh?: () => void;
 }
 
-export function DailyDuelVotePanel({ duel, loading, voting, onVote, onRefresh }: Props) {
+export function DailyDuelVotePanel({
+  duel,
+  history = [],
+  historyLoading = false,
+  loading,
+  voting,
+  onVote,
+  onRefresh,
+}: Props) {
   const { theme } = useTheme();
   const gold = COMMUNITY_ACCENTS.duel;
   const red = COMMUNITY_ACCENTS.duelAlt;
@@ -231,6 +242,8 @@ export function DailyDuelVotePanel({ duel, loading, voting, onVote, onRefresh }:
             Łącznie {duel.totalVotes} głosów · przesuń zdjęcia palcem, aby zobaczyć więcej
           </Text>
         </View>
+
+        <DailyDuelHistorySection history={history} loading={historyLoading} />
       </ScrollView>
     </View>
   );

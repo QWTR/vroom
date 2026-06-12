@@ -1,6 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePremium } from '../contexts/PremiumContext';
 import { useSettings } from './useSettings';
+import { USER_IS_PREMIUM_KEY } from './useBackgroundTracking';
 
 type PremiumProfileSlice = {
   isPremium?: boolean;
@@ -36,6 +38,10 @@ export function useEffectivePremium(profile?: PremiumProfileSlice) {
     ?? settings.premiumExpiresAt
     ?? profile?.premiumExpiresAt
     ?? null;
+
+  useEffect(() => {
+    AsyncStorage.setItem(USER_IS_PREMIUM_KEY, isPremium ? 'true' : 'false').catch(() => {});
+  }, [isPremium]);
 
   const refresh = useCallback(async () => {
     const [active] = await Promise.all([

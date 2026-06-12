@@ -698,11 +698,11 @@ export default function ClubChatScreen() {
     if (!memberModal) return;
     const token = await getToken() ?? '';
     const isMuted = !!memberModal.isMuted;
-    const endpoint = isMuted ? 'unmute' : 'mute';
-    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/${endpoint}`, {
-      method: 'POST',
+    const method = isMuted ? 'DELETE' : 'POST';
+    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/mute`, {
+      method,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      ...(isMuted ? {} : { body: JSON.stringify({ durationMinutes: 60 }) }),
+      body: method === 'POST' ? JSON.stringify({ durationMinutes: 60 }) : undefined,
     });
     await refreshClub();
   };

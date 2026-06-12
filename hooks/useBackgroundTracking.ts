@@ -78,6 +78,8 @@ const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
 export const BG_IS_SHARING_KEY  = 'bg_is_sharing';
 /** Preferencja użytkownika (przełącznik na mapie). Domyślnie brak klucza = ON. */
 export const LIVE_SHARING_USER_PREF_KEY = 'vroom_live_sharing_user_pref';
+/** Mirror premium for BACKGROUND_LOCATION_TASK (React state unavailable in headless task). */
+export const USER_IS_PREMIUM_KEY = 'USER_IS_PREMIUM';
 /** Mirror of settings.backgroundTracking — read by BACKGROUND_LOCATION_TASK (defense in depth). */
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
@@ -339,6 +341,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 
   if (!(await isBgTripTaskAllowed())) return;
 
+  const premiumStatus = await AsyncStorage.getItem(USER_IS_PREMIUM_KEY);
+  if (premiumStatus !== 'true') {
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+    if (isRegistered) {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
+    }
+    return;
+  }
+
   const locations = Array.isArray(data.locations) ? data.locations : [];
   const location = locations[locations.length - 1];
   if (!location) return;
@@ -519,6 +530,10 @@ export function useBackgroundTracking(
     forceStarts: 0,
   });
   const bgEnabledRef = useRef(bgEnabled);
+
+  useEffect(() => {
+    AsyncStorage.setItem(USER_IS_PREMIUM_KEY, isPremium ? 'true' : 'false').catch(() => {});
+  }, [isPremium]);
 
   // Mirror user setting + sharing flag for the BG task handler
   useEffect(() => {
@@ -938,21 +953,23 @@ export function useBackgroundTracking(
     };
   }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, isPremium, startBackgroundTracking, stopBackgroundTracking]);
 
-  // ── Flush passive stats when app returns to foreground ───────────────────
+  // ── Flush passive stats when app goes to background (not on foreground return) ─
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
-      if ((prev === 'background' || prev === 'inactive') && nextState === 'active') {
-        // Skip passive flush while foreground navigation is active — the nav end
-        // handler calls flushPendingKm(true) which consolidates bg+fg distances
-        // without double-saving the same km to the API.
+      if (
+        (nextState === 'background' || nextState === 'inactive')
+        && prev === 'active'
+      ) {
         Promise.all([
           AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
           AsyncStorage.getItem(BG_IS_DRIVING_KEY),
         ])
           .then(([navFlag, drivingFlag]) => {
-            if (navFlag !== 'true' && drivingFlag !== 'true') flushPendingKm(false);
+            // Aktywna jazda/nawigacja — jeden zapis na koniec trasy, bez chunków w tle.
+            if (navFlag === 'true' || drivingFlag === 'true') return;
+            flushPendingKm(false);
           })
           .catch(() => { flushPendingKm(false); });
       }

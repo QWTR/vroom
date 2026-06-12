@@ -326,7 +326,7 @@ export function useProfile() {
       if (!token) return;
       const page = opts?.page ?? 1;
       const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
-      const includeRoute = opts?.includeRoute ? 'true' : 'false';
+      const includeRoute = (opts?.includeRoute ?? true) ? 'true' : 'false';
       if (opts?.allPages) {
         const allItems: any[] = [];
         let nextPage = 1;

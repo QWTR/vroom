@@ -9,9 +9,29 @@ const getToken = async () =>
 
 export function useDailyDuel(pollMs = 30000) {
   const [duel, setDuel] = useState<DailyDuelData | null>(null);
+  const [history, setHistory] = useState<DailyDuelData[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState(false);
   const mounted = useRef(true);
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${API_URL}/api/daily-duel/history?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (mounted.current) setHistory(Array.isArray(data.history) ? data.history : []);
+    } catch {
+      /* ignore */
+    } finally {
+      if (mounted.current) setHistoryLoading(false);
+    }
+  }, []);
 
   const fetchDuel = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -77,12 +97,13 @@ export function useDailyDuel(pollMs = 30000) {
   useEffect(() => {
     mounted.current = true;
     void fetchDuel();
+    void fetchHistory();
     const id = setInterval(() => { void fetchDuel(true); }, pollMs);
     return () => {
       mounted.current = false;
       clearInterval(id);
     };
-  }, [fetchDuel, pollMs]);
+  }, [fetchDuel, fetchHistory, pollMs]);
 
-  return { duel, loading, voting, refresh: fetchDuel, vote };
+  return { duel, history, historyLoading, loading, voting, refresh: fetchDuel, refreshHistory: fetchHistory, vote };
 }

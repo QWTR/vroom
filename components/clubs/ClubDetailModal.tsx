@@ -83,12 +83,11 @@ export default function ClubDetailModal({
   const toggleMute = async (userId: number, username: string, isMuted: boolean) => {
     const token = await getAuthToken();
     if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
-    const path  = isMuted ? 'unmute' : 'mute';
-    const body  = isMuted ? undefined : JSON.stringify({ durationMinutes: 60 });
-    await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/${path}`, {
-      method: 'POST',
+    const method = isMuted ? 'DELETE' : 'POST';
+    await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/mute`, {
+      method,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body,
+      body: method === 'POST' ? JSON.stringify({ durationMinutes: 60 }) : undefined,
     });
     Toast.show({ type: 'success', text1: isMuted ? `${username} odciszony` : `${username} wyciszony na 1h` });
     onRefresh();

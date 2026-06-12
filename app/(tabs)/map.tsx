@@ -1148,7 +1148,9 @@ const LIVE_ACHIEVEMENT_DISTANCE_DELTA_TRIGGER_KM = 0.4;
 const LIVE_ACHIEVEMENT_MIN_MOVING_DISTANCE_KM = 1.0;
 const DRIVE_HEALTH_LOG_MS = 15_000;
 /** Co tyle km zapisujemy postęp trasy na serwer (profil nie „zamraża się” na długiej jeździe). */
-const TRIP_CHECKPOINT_KM = 2.0;
+const TRIP_CHECKPOINT_KM = 50.0;
+/** Wyłączone: checkpoint co N km dzielił trasę na wiele Activity bez routePoints. */
+const ENABLE_TRIP_DISTANCE_CHECKPOINT = false;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
 const GPS_INIT_MAX_ACCURACY_M = 150;
 /** OS last-known starszy niż tyle traktujemy jako nieaktualny (nie ustawia kotwicy anty-teleportu). */
@@ -3992,8 +3994,12 @@ function MapScreenInner() {
     }
   }, [isDriving, isNavigating, liveDistanceKm, checkLiveAchievements]);
 
-  /** Checkpoint km w trakcie jazdy — profil i serwer nie czekają na koniec trasy. */
+  /** Checkpoint km w trakcie jazdy — domyślnie wyłączony; zapis tylko na koniec trasy / tło. */
   useEffect(() => {
+    if (!ENABLE_TRIP_DISTANCE_CHECKPOINT) {
+      tripCheckpointSavedKmRef.current = 0;
+      return;
+    }
     if (!(isDriving || isNavigating)) {
       tripCheckpointSavedKmRef.current = 0;
       return;
