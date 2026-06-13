@@ -229,10 +229,10 @@ export function useGoogleDirections(
 
     (async () => {
       try {
-        const bearingParam = roundedHeading != null
+        const continueParam = continueStraight ? '&continue_straight=true' : '';
+        const bearingParam = (!isReroute && roundedHeading != null)
           ? `&bearings=${roundedHeading},${headingRangeDeg};`
           : '';
-        const continueParam = continueStraight ? '&continue_straight=true' : '';
 
         const url =
           `https://api.mapbox.com/directions/v5/mapbox/driving/` +
@@ -254,7 +254,7 @@ export function useGoogleDirections(
             steps: true,
             language: 'pl',
             continue_straight: continueStraight,
-            bearings: roundedHeading != null
+            bearings: !isReroute && roundedHeading != null
               ? [`${roundedHeading},${headingRangeDeg}`, '']
               : undefined,
           },

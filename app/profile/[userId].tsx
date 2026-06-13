@@ -137,6 +137,11 @@ export default function PublicProfileScreen() {
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/community');
+  }, [router]);
+
   const runEntrance = () => {
     Animated.parallel([
       Animated.timing(fadeAnim,  { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -486,7 +491,7 @@ export default function PublicProfileScreen() {
         <MaterialIcons name="person-off" size={52} color="#ffffff20" />
         <Text style={{ fontFamily: 'Orbitron', color: '#ffffff40', fontSize: 13 }}>Nie znaleziono profilu</Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBack}
           style={{ backgroundColor: RED + '20', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: RED + '40' }}
         >
           <Text style={{ fontFamily: 'Orbitron', color: RED, fontSize: 11 }}>← WRÓĆ</Text>
@@ -587,23 +592,6 @@ export default function PublicProfileScreen() {
           <View style={[s.cTL]}><View style={s.cH} /><View style={s.cV} /></View>
           <View style={[s.cTR]}><View style={s.cH} /><View style={[s.cV, { left: undefined, right: 0 }]} /></View>
 
-          {/* Nawigacja */}
-          <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <TouchableOpacity
-              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: '#ffffff10', borderWidth: 1, borderColor: '#ffffff15', alignItems: 'center', justifyContent: 'center' }}
-              onPress={() => router.back()}
-            >
-              <MaterialIcons name="arrow-back" size={20} color="#fff" />
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#ffffff08', borderWidth: 1, borderColor: '#ffffff12', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 }}>
-              <View style={{ backgroundColor: RED, borderRadius: 6, padding: 4 }}>
-                <MaterialCommunityIcons name="car-sports" size={11} color="#fff" />
-              </View>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '900', letterSpacing: 3 }}>VROOM</Text>
-            </View>
-            <View style={{ width: 38 }} />
-          </View>
-
           {/* Avatar + nazwa */}
           <Animated.View style={{
             position: 'absolute', bottom: 32, left: 20, right: 20,
@@ -665,7 +653,26 @@ export default function PublicProfileScreen() {
           </Animated.View>
           </View>
 
-          <LinearGradient colors={['transparent', palette.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 }} />
+          {/* Nawigacja — poza warstwą dekoracji (pointerEvents: none) */}
+          <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10, elevation: 10 }}>
+            <TouchableOpacity
+              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: '#ffffff10', borderWidth: 1, borderColor: '#ffffff15', alignItems: 'center', justifyContent: 'center' }}
+              onPress={handleBack}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="arrow-back" size={20} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#ffffff08', borderWidth: 1, borderColor: '#ffffff12', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 }}>
+              <View style={{ backgroundColor: RED, borderRadius: 6, padding: 4 }}>
+                <MaterialCommunityIcons name="car-sports" size={11} color="#fff" />
+              </View>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '900', letterSpacing: 3 }}>VROOM</Text>
+            </View>
+            <View style={{ width: 38 }} />
+          </View>
+
+          <LinearGradient colors={['transparent', palette.bg]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 }} pointerEvents="none" />
         </View>
 
         {/* ══ CONTENT ══════════════════════════════════════ */}

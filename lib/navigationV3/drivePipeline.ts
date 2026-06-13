@@ -24,6 +24,8 @@ export type DrivePipelineGeometry = {
   roadPolylines: RoadPolyline[];
   /** Trasa nawigacyjna — SSOT w trybie navigation. */
   routePolyline: { lat: number; lng: number }[] | null;
+  /** false = wolny GPS (off-route); polilinia trasy pozostaje w geometrii. */
+  shouldSnapToRoute?: boolean;
 };
 
 type PipelineInternalState = {
@@ -96,6 +98,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
   let geometry: DrivePipelineGeometry = {
     roadPolylines: [],
     routePolyline: null,
+    shouldSnapToRoute: true,
   };
 
   const state: PipelineInternalState = {
@@ -151,6 +154,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
         routePolyline: next.routePolyline !== undefined
           ? next.routePolyline
           : geometry.routePolyline,
+        shouldSnapToRoute: next.shouldSnapToRoute !== undefined
+          ? next.shouldSnapToRoute
+          : geometry.shouldSnapToRoute,
       };
     },
 
@@ -227,14 +233,16 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       const isMoving = isMovingEvidence(fix, state.prevAccepted, hudSpeedKmh);
       state.lastHudSpeedKmh = hudSpeedKmh;
 
-      const polylines = collectPolylines(geometry, state.mode);
+      const shouldSnapToRoute = geometry.shouldSnapToRoute !== false;
+      const routePolylines = collectPolylines(geometry, state.mode);
+      const snapPolylines = shouldSnapToRoute ? routePolylines : [];
       const isNavigating = state.mode === 'navigation';
       const tripActive = state.mode === 'navigation' || state.mode === 'freeDrive';
 
       let snap = snapEngine.resolve({
         raw: fix,
         prev: state.displayPrev,
-        polylines,
+        polylines: snapPolylines,
         isNavigating,
         tripActive,
         travelHeadingDeg: fix.headingDeg ?? undefined,
@@ -249,8 +257,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           : NAV_V3.OFF_ROUTE_SNAP_RELEASE_M;
 
       if (
-        isNavigating
-        && polylines.length > 0
+        shouldSnapToRoute
+        && isNavigating
+        && routePolylines.length > 0
         && snap.crossTrackM > dynamicSnapReleaseThreshold
       ) {
         snap = snapEngine.resolve({

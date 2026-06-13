@@ -5705,7 +5705,6 @@ function MapScreenInner() {
               movedM: Math.round(movedM),
               hardJumpM: Math.round(hardJumpM),
             });
-            return;
           }
         }
       }
@@ -11584,13 +11583,6 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
         navV3.setRoutePolyline(
           rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
         );
-        const snapPt = rerouteResult.points[idx] ?? rerouteResult.points[0];
-        let snapHdg = Number.isFinite(drHdgRef.current) ? drHdgRef.current : 0;
-        if (idx < rerouteResult.points.length - 1) {
-          const next = rerouteResult.points[idx + 1];
-          snapHdg = bearingBetween(snapPt.latitude, snapPt.longitude, next.latitude, next.longitude);
-        }
-        hardResetOnRouteChange(snapPt.latitude, snapPt.longitude, snapHdg, 'reroute');
         vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
           pts: rerouteResult.points.length,
           at: now,
@@ -11601,10 +11593,13 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
         });
       }
       navRouteIdxRef.current = idx;
-      setRemainingRoutePoints([
+      const remainingPts = [
         { latitude: curLat, longitude: curLng },
         ...rerouteResult.points.slice(idx + 1),
-      ]);
+      ];
+      requestAnimationFrame(() => {
+        setRemainingRoutePoints(remainingPts);
+      });
       lastRerouteMotionAnchorRef.current = { lat: curLat, lng: curLng };
     }
     setCurrentStep(0);
@@ -11619,7 +11614,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       type: 'info',
       text2: 'Nowa trasa od Twojej pozycji (w kierunku jazdy).',
     });
-  }, [rerouteResult, offRoute, userLocation, navV3, hardResetOnRouteChange]);
+  }, [rerouteResult, offRoute, userLocation, navV3]);
 
   useEffect(() => {
     if (!offRoute || !reroutePendingRef.current) return;
@@ -12968,14 +12963,16 @@ if (pts.length >= 2) {
     ? (() => {
       if (Number.isFinite(drLatRef.current) && drLatRef.current !== 0) return drLatRef.current;
       const snap = lastSetLocRef.current;
-      return snap ? snap.lat : NaN;
+      if (snap) return snap.lat;
+      return userLocation?.latitude ?? NaN;
     })()
     : (userLocation?.latitude ?? NaN);
   const markerLng = isTripActive
     ? (() => {
       if (Number.isFinite(drLngRef.current) && drLngRef.current !== 0) return drLngRef.current;
       const snap = lastSetLocRef.current;
-      return snap ? snap.lng : NaN;
+      if (snap) return snap.lng;
+      return userLocation?.longitude ?? NaN;
     })()
     : (userLocation?.longitude ?? NaN);
   const markerHdg = lastHeadingRef.current !== 0 ? lastHeadingRef.current : heading;
@@ -13410,7 +13407,7 @@ if (pts.length >= 2) {
             avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
             cursorSkin={cursorSkinOverlay}
           />
-          {(!isTripActive || !driveMarker.isBootstrapped)
+          {(!driveMarker.isBootstrapped || !isTripActive)
             && Number.isFinite(markerLat)
             && Number.isFinite(markerLng) && (
             <DrPositionMarker

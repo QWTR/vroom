@@ -438,7 +438,17 @@ export function useDriveMarkerV3(
     lastFrameTimestamp.value = frameInfo.timestamp;
 
     const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
-    const stepM = cruiseMs * dt;
+    let stepM = cruiseMs * dt;
+
+    const catchLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
+    const catchLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
+    if (Number.isFinite(catchLat) && Number.isFinite(catchLng)) {
+      const distToTarget = haversineMWorklet(lat.value, lng.value, catchLat, catchLng);
+      if (distToTarget > 15 && distToTarget < 100) {
+        stepM = Math.max(stepM, distToTarget * 3.0 * dt);
+      }
+    }
+
     const maxHdgStep = MAX_HEADING_RATE_DPS * dt;
 
     const blend = clampWorklet(roadBlendSv.value, 0, 1);

@@ -300,8 +300,48 @@ function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
+const PL_FALLBACK_DICTIONARY: Record<string, string> = {
+  depart: 'Ruszaj',
+  'turn straight': 'Jedź prosto',
+  'continue straight': 'Kontynuuj prosto',
+  merge: 'Włącz się do ruchu',
+  'head north': 'Jedź na północ',
+  'head south': 'Jedź na południe',
+  'head east': 'Jedź na wschód',
+  'head west': 'Jedź na zachód',
+  'turn left': 'Skręć w lewo',
+  'turn right': 'Skręć w prawo',
+  'slight left': 'Skręć lekko w lewo',
+  'slight right': 'Skręć lekko w prawo',
+  'sharp left': 'Skręć ostro w lewo',
+  'sharp right': 'Skręć ostro w prawo',
+  'u-turn': 'Zawróć',
+  uturn: 'Zawróć',
+  'keep left': 'Trzymaj się lewej',
+  'keep right': 'Trzymaj się prawej',
+  'take the ramp': 'Wjedź na rampę',
+  'take the exit': 'Zjedź zjazdem',
+  arrive: 'Dotrzyj do celu',
+  'you have arrived': 'Dotarłeś do celu',
+  roundabout: 'rondo',
+  'enter the roundabout': 'Wjedź na rondo',
+  'exit the roundabout': 'Zjedź z ronda',
+  fork: 'na rozwidleniu',
+  ramp: 'wjazd',
+  ferry: 'prom',
+  destination: 'cel',
+};
+
 function humanizeInstruction(text: string): string {
-  return text
+  if (!text) return '';
+  let out = text;
+  const entries = Object.entries(PL_FALLBACK_DICTIONARY)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [en, pl] of entries) {
+    const pattern = new RegExp(`\\b${en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    out = out.replace(pattern, pl);
+  }
+  return out
     .replace(/\bjedź prosto\b/i, 'kontynuuj prosto')
     .replace(/\bkieruj się\b/i, 'jedź')
     .replace(/\bna skrzyżowaniu\b/i, 'na najbliższym skrzyżowaniu')
@@ -310,19 +350,14 @@ function humanizeInstruction(text: string): string {
 
 function speechDistancePrefix(distanceM: number, phase: NavigationSpeechPhase): string {
   if (phase === 'now') return 'teraz';
-  if (phase === 'near') {
-    const rounded = Math.max(50, Math.round(Math.max(distanceM, 88) / 10) * 10);
-    return `za ${rounded} metrów`;
+  if (phase === 'near' || phase === 'far') {
+    const rounded = Math.max(50, Math.round(distanceM / 50) * 50);
+    return `Za ${rounded} metrów`;
   }
-  if (phase === 'far300') return 'za 300 metrów';
-  if (phase === 'far') {
-    if (distanceM >= 1000) return formatDistanceForSpeech(Math.max(distanceM, 250));
-    const rounded = Math.max(150, Math.round(Math.max(distanceM, 235) / 50) * 50);
-    return `za ${rounded} metrów`;
-  }
+  if (phase === 'far300') return 'Za 300 metrów';
   if (distanceM > 50) {
     const rounded = Math.max(50, Math.round(distanceM / 50) * 50);
-    return `za ${rounded} metrów`;
+    return `Za ${rounded} metrów`;
   }
   return 'za chwilę';
 }
@@ -345,7 +380,7 @@ export function buildNavigationSpeech(
     const roundaboutInstruction = exitNo != null
       ? `na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`
       : 'na rondzie zjedź odpowiednim zjazdem';
-    if (phase === 'now') return `teraz ${roundaboutInstruction}`;
+    if (phase === 'now') return `Teraz ${roundaboutInstruction}`;
     const distPrefix = speechDistancePrefix(distanceM, phase);
     return `${distPrefix}, ${roundaboutInstruction}`;
   }
@@ -354,14 +389,15 @@ export function buildNavigationSpeech(
   const street = step.streetName?.trim() || extractStreetName(rawInstruction);
 
   if (phase === 'now') {
-    if (turn && street) return `teraz skręć ${turn} na ${street}`;
-    if (turn) return `teraz skręć ${turn}`;
-    return `teraz ${lowerFirst(baseInstruction)}`;
+    if (turn && street) return `Teraz skręć ${turn} na ${street}`;
+    if (turn) return `Teraz skręć ${turn}`;
+    return `Teraz ${lowerFirst(baseInstruction)}`;
   }
 
   const distPrefix = speechDistancePrefix(distanceM, phase);
 
   if (turn) {
+    if (street) return `${distPrefix}, skręć ${turn} na ${street}`;
     return `${distPrefix}, skręć ${turn}`;
   }
   return `${distPrefix}, ${lowerFirst(baseInstruction)}`;

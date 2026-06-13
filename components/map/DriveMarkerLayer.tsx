@@ -164,7 +164,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             id="tripDriveMarkerSymbol"
             style={{
               iconImage: DRIVE_MARKER_IMAGE_KEY,
-              iconSize: ICON_SIZE,
+              iconSize: ['interpolate', ['linear'], ['zoom'], 10, 0.5, 15, ICON_SIZE],
               iconRotate: ['get', 'heading'],
               iconRotationAlignment: 'map',
               iconAllowOverlap: true,

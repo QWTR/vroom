@@ -56,6 +56,7 @@ export function useDriveNavigationV3(opts: UseDriveNavigationV3Options) {
     const geometry = getGeometryRef.current?.() ?? {
       roadPolylines: [] as RoadPolyline[],
       routePolyline: null,
+      shouldSnapToRoute: true,
     };
     pipeline.setGeometry(geometry);
 

@@ -3,6 +3,9 @@ import Mapbox from '@rnmapbox/maps';
 
 type Coord = { latitude: number; longitude: number };
 
+const ROUTE_LINE_COLOR = '#3887be';
+const ROUTE_HALO_COLOR = '#3887be55';
+
 function toLineCoords(points: Coord[]): [number, number][] {
   return points.map((c) => [c.longitude, c.latitude]);
 }
@@ -38,8 +41,10 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
   if (coords.length < 2) return null;
 
   const navRoute = isNavigating;
-  const routeCoreColor = navRoute ? '#FFF200' : '#00bfff';
-  const routeHaloColor = navRoute ? '#FFFFFF' : '#ffffff55';
+  const routeCoreColor = navRoute ? ROUTE_LINE_COLOR : '#00bfff';
+  const routeHaloColor = navRoute ? ROUTE_HALO_COLOR : '#ffffff55';
+
+  const lineCapJoin = { lineCap: 'round' as const, lineJoin: 'round' as const };
 
   return (
     <>
@@ -51,14 +56,16 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
               lineColor: routeHaloColor,
               lineWidth: 14,
               lineOpacity: 0.92,
-              lineCap: 'round',
-              lineJoin: 'round',
+              ...lineCapJoin,
             }}
           />
         </Mapbox.ShapeSource>
       ) : (
         <Mapbox.ShapeSource id="routeShadowSource" shape={shadowShape}>
-          <Mapbox.LineLayer id="routeShadowLayer" style={{ lineColor: '#00000055', lineWidth: 11, lineCap: 'round', lineJoin: 'round' }} />
+          <Mapbox.LineLayer
+            id="routeShadowLayer"
+            style={{ lineColor: '#00000055', lineWidth: 11, ...lineCapJoin }}
+          />
         </Mapbox.ShapeSource>
       )}
       <Mapbox.ShapeSource id="routeMainSource" shape={mainShape}>
@@ -67,8 +74,7 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
           style={{
             lineColor: routeCoreColor,
             lineWidth: navRoute ? 9 : 6,
-            lineCap: 'round',
-            lineJoin: 'round',
+            ...lineCapJoin,
           }}
         />
       </Mapbox.ShapeSource>
@@ -77,10 +83,9 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
           <Mapbox.LineLayer
             id="routeGlowLayer"
             style={{
-              lineColor: navRoute ? '#FFF20055' : '#ffffff15',
+              lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
               lineWidth: navRoute ? 12 : 8,
-              lineCap: 'round',
-              lineJoin: 'round',
+              ...lineCapJoin,
             }}
           />
         </Mapbox.ShapeSource>

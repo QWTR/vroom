@@ -1,21 +1,27 @@
 import { makeRoadPolyline, type RoadPolyline } from '../navigationV3';
 
+export type V3GeometryResult = {
+  roadPolylines: RoadPolyline[];
+  routePolyline: { lat: number; lng: number }[] | null;
+  /** false = wolny GPS (off-route), ale polilinia trasy nadal dostępna do renderu. */
+  shouldSnapToRoute: boolean;
+};
+
 export function buildV3GeometryFromRefs(input: {
   matchedGeometry: { latitude: number; longitude: number }[];
   routePoints: { latitude: number; longitude: number }[];
   isNavigating: boolean;
-  /** Poza trasą — nie snapuj do starej polilinii (swobodny GPS do nowej trasy). */
+  /** Poza trasą — wyłącz snap do polilinii, ale zachowaj geometrię trasy. */
   suppressRouteSnap?: boolean;
   mirrorPolylines: { latitude: number; longitude: number }[][];
-}): { roadPolylines: RoadPolyline[]; routePolyline: { lat: number; lng: number }[] | null } {
+}): V3GeometryResult {
+  const shouldSnapToRoute = !input.suppressRouteSnap;
+
   if (input.isNavigating) {
-    if (input.suppressRouteSnap) {
-      return { roadPolylines: [], routePolyline: null };
-    }
     const route = input.routePoints.length >= 2
       ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))
       : null;
-    return { roadPolylines: [], routePolyline: route };
+    return { roadPolylines: [], routePolyline: route, shouldSnapToRoute };
   }
 
   const roadPolylines: RoadPolyline[] = [];
@@ -38,5 +44,5 @@ export function buildV3GeometryFromRefs(input: {
     addPolyline(`mirror_${i}`, input.mirrorPolylines[i]!);
   }
 
-  return { roadPolylines, routePolyline: null };
+  return { roadPolylines, routePolyline: null, shouldSnapToRoute: true };
 }
