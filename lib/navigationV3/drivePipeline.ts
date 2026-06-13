@@ -240,10 +240,18 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
         travelHeadingDeg: fix.headingDeg ?? undefined,
       }).result;
 
+      const feedSpeedMs = resolveFeedSpeedMs(fix, state.prevAccepted, hudSpeedKmh);
+      const speedKmhForRelease = Math.max(hudSpeedKmh, feedSpeedMs * 3.6);
+      const dynamicSnapReleaseThreshold = speedKmhForRelease > 80
+        ? 60
+        : speedKmhForRelease > 50
+          ? 48
+          : NAV_V3.OFF_ROUTE_SNAP_RELEASE_M;
+
       if (
         isNavigating
         && polylines.length > 0
-        && snap.crossTrackM > NAV_V3.OFF_ROUTE_SNAP_RELEASE_M
+        && snap.crossTrackM > dynamicSnapReleaseThreshold
       ) {
         snap = snapEngine.resolve({
           raw: fix,
@@ -255,7 +263,6 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
         }).result;
       }
 
-      const feedSpeedMs = resolveFeedSpeedMs(fix, state.prevAccepted, hudSpeedKmh);
       const allowInstant = state.sessionFirstFix || state.hardResetPending;
       const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant);
 

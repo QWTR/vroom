@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useFrameCallback,
   useSharedValue,
@@ -28,6 +28,8 @@ export type DriveMarkerSeedPose = {
 };
 
 export type UseDriveMarkerV3Return = DriveMarkerV3Values & {
+  /** React-side — true gdy worklet ma pierwszą poprawną pozycję (unika migania markera przy wejściu w trip). */
+  isBootstrapped: boolean;
   pushTarget: (target: NavigationTarget) => void;
   reset: (anchor?: { lat: number; lng: number; headingDeg?: number }) => void;
   resetTo: (lat: number, lng: number, headingDeg: number) => void;
@@ -332,6 +334,7 @@ export function useDriveMarkerV3(
   getSeedPoseRef.current = getSeedPose;
   const bootstrappedJsRef = useRef(false);
   const lastTargetJsRef = useRef<NavigationTarget | null>(null);
+  const [isBootstrapped, setIsBootstrapped] = useState(false);
 
   const lat = useSharedValue(NaN);
   const lng = useSharedValue(NaN);
@@ -386,6 +389,7 @@ export function useDriveMarkerV3(
     roadBlendSv.value = blend;
     bootstrapped.value = 1;
     bootstrappedJsRef.current = true;
+    setIsBootstrapped(true);
   }, [
     baseArcM,
     bootstrapped,
@@ -628,6 +632,7 @@ export function useDriveMarkerV3(
 
   const reset = useCallback((anchor?: { lat: number; lng: number; headingDeg?: number }) => {
     bootstrappedJsRef.current = false;
+    setIsBootstrapped(false);
     bootstrapped.value = 0;
     onRoadSv.value = 0;
     roadBlendSv.value = 0;
@@ -652,6 +657,7 @@ export function useDriveMarkerV3(
       rawTargetLng.value = anchor.lng;
       bootstrapped.value = 1;
       bootstrappedJsRef.current = true;
+      setIsBootstrapped(true);
     } else {
       lat.value = NaN;
       lng.value = NaN;
@@ -762,6 +768,7 @@ export function useDriveMarkerV3(
     frameCallback.setActive(enabled);
     if (!enabled) {
       bootstrappedJsRef.current = false;
+      setIsBootstrapped(false);
     }
     return () => {
       frameCallback.setActive(false);
@@ -800,13 +807,14 @@ export function useDriveMarkerV3(
       lat,
       lng,
       heading,
+      isBootstrapped,
       pushTarget,
       reset,
       resetTo,
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [ensureFrameActive, heading, lat, lng, pushTarget, reset, resetTo, resumeFromBackground],
+    [ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground],
   );
 }
 

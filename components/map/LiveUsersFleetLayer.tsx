@@ -74,6 +74,8 @@ function LiveUsersFleetLayerInner({
             iconIgnorePlacement: true,
             iconAnchor: 'bottom',
             iconOptional: true,
+            iconPitchAlignment: 'map',
+            iconRotationAlignment: 'map',
           }}
         />
       </ReanimatedShapeSource>

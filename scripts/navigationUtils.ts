@@ -262,7 +262,8 @@ export function resolveAnnouncementTarget(
     const upcoming = steps[idx + 1];
     const upcomingText = cleanInstruction(upcoming.html_instructions);
     if (!isMinorManeuver(upcoming.maneuver, upcomingText)) {
-      return { step: upcoming, stepIndex: idx + 1, distanceM: distToEndM };
+      const distToUpcomingM = distanceToStepMeters(userLat, userLon, upcoming);
+      return { step: upcoming, stepIndex: idx + 1, distanceM: distToUpcomingM };
     }
   }
 
@@ -307,6 +308,25 @@ function humanizeInstruction(text: string): string {
     .trim();
 }
 
+function speechDistancePrefix(distanceM: number, phase: NavigationSpeechPhase): string {
+  if (phase === 'now') return 'teraz';
+  if (phase === 'near') {
+    const rounded = Math.max(50, Math.round(Math.max(distanceM, 88) / 10) * 10);
+    return `za ${rounded} metrów`;
+  }
+  if (phase === 'far300') return 'za 300 metrów';
+  if (phase === 'far') {
+    if (distanceM >= 1000) return formatDistanceForSpeech(Math.max(distanceM, 250));
+    const rounded = Math.max(150, Math.round(Math.max(distanceM, 235) / 50) * 50);
+    return `za ${rounded} metrów`;
+  }
+  if (distanceM > 50) {
+    const rounded = Math.max(50, Math.round(distanceM / 50) * 50);
+    return `za ${rounded} metrów`;
+  }
+  return 'za chwilę';
+}
+
 export function buildNavigationSpeech(
   step: Step,
   distanceM: number,
@@ -326,11 +346,7 @@ export function buildNavigationSpeech(
       ? `na rondzie zjedź ${exitOrdinalWord(exitNo)} zjazdem`
       : 'na rondzie zjedź odpowiednim zjazdem';
     if (phase === 'now') return `teraz ${roundaboutInstruction}`;
-    const distPrefix = phase === 'near'
-      ? 'za 100 metrów'
-      : phase === 'far300'
-        ? 'za 300 metrów'
-        : formatDistanceForSpeech(Math.max(distanceM, 250));
+    const distPrefix = speechDistancePrefix(distanceM, phase);
     return `${distPrefix}, ${roundaboutInstruction}`;
   }
 
@@ -343,11 +359,7 @@ export function buildNavigationSpeech(
     return `teraz ${lowerFirst(baseInstruction)}`;
   }
 
-  const distPrefix = phase === 'near'
-    ? 'za 100 metrów'
-    : phase === 'far300'
-      ? 'za 300 metrów'
-      : formatDistanceForSpeech(Math.max(distanceM, 250));
+  const distPrefix = speechDistancePrefix(distanceM, phase);
 
   if (turn) {
     return `${distPrefix}, skręć ${turn}`;

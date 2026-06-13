@@ -13403,25 +13403,24 @@ if (pts.length >= 2) {
             })
           }
 
-          {isTripActive ? (
-            <DriveMarkerLayer
-              enabled={isTripActive}
-              marker={driveMarker}
-              imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
+          <DriveMarkerLayer
+            enabled={isTripActive}
+            marker={driveMarker}
+            imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
+            avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
+            cursorSkin={cursorSkinOverlay}
+          />
+          {(!isTripActive || !driveMarker.isBootstrapped)
+            && Number.isFinite(markerLat)
+            && Number.isFinite(markerLng) && (
+            <DrPositionMarker
+              latitude={markerLat}
+              longitude={markerLng}
+              heading={markerHdg}
               avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
+              imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
               cursorSkin={cursorSkinOverlay}
             />
-          ) : (
-            Number.isFinite(markerLat) && Number.isFinite(markerLng) && (
-              <DrPositionMarker
-                latitude={markerLat}
-                longitude={markerLng}
-                heading={markerHdg}
-                avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
-                imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
-                cursorSkin={cursorSkinOverlay}
-              />
-            )
           )}
         </MapCanvas>
         </View>
