@@ -403,12 +403,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     duration: number,
     animationMode: 'linear' | 'linearTo' | 'easeTo' = 'linear',
   ) => {
-    if (
-      tripActiveRef.current
-      && (Date.now() < userPanUntilRef.current || modeRef.current === 'userPanning')
-    ) {
-      return;
-    }
+    // Trip follow — wyłącznie useCameraV3 (heading-up).
+    if (tripActiveRef.current) return;
     const effectivePose = userZoomOverrideRef.current != null
       ? { ...pose, zoom: userZoomOverrideRef.current }
       : pose;
@@ -678,6 +674,7 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
     softReturn?: boolean;
   }) => {
     if (!Number.isFinite(params.center.latitude) || !Number.isFinite(params.center.longitude)) return;
+    if (tripActiveRef.current && params.active) return;
 
     userZoomOverrideRef.current = null;
     if (params.softReturn) {
@@ -759,6 +756,8 @@ export function useCameraAnimation(cameraRef: RefObject<Mapbox.Camera>) {
   }, [recenterTo, releaseTripCameraState]);
 
   const updateCameraFrame = useCallback((input: CameraFrameInput) => {
+    if (tripActiveRef.current) return;
+
     const now = input.timestamp ?? Date.now();
     speedKmhRef.current = input.speedKmh;
     lastFrameInputRef.current = input;

@@ -10,7 +10,8 @@ export function quantizeHeading(headingDeg: number, stepDeg = REROUTE_HEADING_QU
 }
 
 /**
- * Kierunek jazdy do bearings w Directions — wektor ruchu ma pierwszeństwo przed kompasem.
+ * Kierunek jazdy do bearings w Directions — wektor ruchu (COG/bearing z surowego GPS)
+ * ma pierwszeństwo przed kompasem / snapped heading.
  */
 export function resolveRerouteTravelHeadingDeg(
   lat: number,

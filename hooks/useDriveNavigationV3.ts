@@ -70,20 +70,8 @@ export function useDriveNavigationV3(opts: UseDriveNavigationV3Options) {
     };
 
     const out = pipeline.processGpsFix(input);
-    if (out) {
-      if (!out.rejected) {
-        onTargetRef.current?.(out);
-      } else {
-        // Słaby GPS / postój: utrzymaj marker na ostatnim kotwicy (hardReset / bootstrap).
-        onTargetRef.current?.({
-          ...out,
-          target: {
-            ...out.target,
-            allowInstant: true,
-            speedMs: 0,
-          },
-        });
-      }
+    if (out && !out.rejected) {
+      onTargetRef.current?.(out);
     }
     return out;
   }, [pipeline]);

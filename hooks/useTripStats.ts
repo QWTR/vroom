@@ -1,6 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
+import {
+  clearEmergencyTripSave,
+  writeEmergencyTripSave,
+  type EmergencyTripSavePayload,
+} from './useBackgroundTracking';
 
 export interface TripStats {
   maxSpeedKmh:   number;
@@ -60,6 +65,7 @@ export function useTripStats() {
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
   const lastLiveKmEmitRef = useRef(0);
   const lastLiveKmValueRef = useRef(0);
+  const lastEmergencyKmRef = useRef(0);
   const segmentDiagRef = useRef({
     rejected: {
       invalid_time: 0,
@@ -89,6 +95,43 @@ export function useTripStats() {
   const [stats, setStats] = useState<TripStats | null>(null);
   /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
+
+  const maybeEmergencyCheckpoint = useCallback(() => {
+    const floorKm = Math.floor(distanceRef.current);
+    if (floorKm < 1 || floorKm <= lastEmergencyKmRef.current) return;
+    lastEmergencyKmRef.current = floorKm;
+    void writeEmergencyTripSave({
+      distanceKm: parseFloat(distanceRef.current.toFixed(3)),
+      trackedPoints: [...trackedPts.current],
+      speedSamples: [...speedSamples.current],
+      startTimeMs: startTimeRef.current,
+      estimatedSec: estSecRef.current,
+      floorKm,
+      savedAt: Date.now(),
+    });
+  }, []);
+
+  const restoreTripSnapshot = useCallback((snapshot: EmergencyTripSavePayload) => {
+    const dist = Number(snapshot.distanceKm);
+    if (!Number.isFinite(dist) || dist < 0) return;
+    distanceRef.current = dist;
+    trackedPts.current = snapshot.trackedPoints?.length
+      ? [...snapshot.trackedPoints]
+      : [];
+    speedSamples.current = snapshot.speedSamples?.length
+      ? [...snapshot.speedSamples]
+      : [];
+    startTimeRef.current = snapshot.startTimeMs ?? Date.now();
+    estSecRef.current = Number(snapshot.estimatedSec) || 0;
+    lastEmergencyKmRef.current = Math.floor(dist);
+    const lastPt = trackedPts.current[trackedPts.current.length - 1];
+    lastPointRef.current = lastPt
+      ? { latitude: lastPt.latitude, longitude: lastPt.longitude, time: Date.now() }
+      : null;
+    const rounded = parseFloat(dist.toFixed(2));
+    lastLiveKmValueRef.current = rounded;
+    setLiveDistanceKm(rounded);
+  }, []);
 
   const resetSegmentDiag = useCallback(() => {
     const d = segmentDiagRef.current;
@@ -121,9 +164,11 @@ export function useTripStats() {
     lastPointRef.current = null;
     lastLiveKmEmitRef.current = 0;
     lastLiveKmValueRef.current = 0;
+    lastEmergencyKmRef.current = 0;
     setStats(null);
     setLiveDistanceKm(0);
     resetSegmentDiag();
+    void clearEmergencyTripSave();
   }, [resetSegmentDiag]);
 
   /** Kontynuacja trasy (np. jazda → nawigacja) — dystans bez resetu. */
@@ -246,6 +291,7 @@ export function useTripStats() {
             }
             segmentDiagRef.current.fallbackAccepted += 1;
             segmentDiagRef.current.fallbackKm += fallbackKm;
+            maybeEmergencyCheckpoint();
             return fallbackKm;
           }
         }
@@ -294,8 +340,9 @@ export function useTripStats() {
     }
     segmentDiagRef.current.acceptedMain += 1;
     segmentDiagRef.current.acceptedMainKm += segment.distanceKm;
+    maybeEmergencyCheckpoint();
     return segment.distanceKm;
-  }, []);
+  }, [maybeEmergencyCheckpoint]);
 
   useEffect(() => {
     if (!TRIP_STATS_DIAGNOSTICS) return undefined;
@@ -368,7 +415,9 @@ export function useTripStats() {
     distanceRef.current  = 0;
     startTimeRef.current = null;
     lastPointRef.current = null;
+    lastEmergencyKmRef.current = 0;
     setLiveDistanceKm(0);
+    void clearEmergencyTripSave();
   }, []);
 
   return {
@@ -378,6 +427,7 @@ export function useTripStats() {
     feedPosition,
     finishTrip,
     clearStats,
+    restoreTripSnapshot,
     stats,
     liveDistanceKm,
   };

@@ -14,6 +14,15 @@ const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
 const POLYLINE_KEY_HARD_SNAP_M = 45;
 const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
 const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
+const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
+const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
+const MARKER_HEADING_TARGET_TAU_SEC = NAV_V3.MARKER_HEADING_TARGET_TIMING_MS / 1000;
+const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
+const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
+const TARGET_ARC_SMOOTH_ALPHA = NAV_V3.MARKER_TARGET_ARC_SMOOTH_ALPHA;
+const TARGET_ARC_MAX_BACK_M = NAV_V3.MARKER_TARGET_ARC_MAX_BACK_M;
+const TARGET_ARC_MAX_FWD_M = NAV_V3.MARKER_TARGET_ARC_MAX_FWD_M;
+const MARKER_POS_TAU_SEC = NAV_V3.MARKER_POS_TIMING_MS / 1000;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -163,6 +172,56 @@ function pointAtWindowArcLocalJs(
   return { lat, lng, heading: hdg };
 }
 
+function lookAheadHeadingJs(
+  ptsFlat: number[],
+  cumM: number[],
+  localM: number,
+  fromLat: number,
+  fromLng: number,
+  fallbackHdg: number,
+): number {
+  const total = cumM.length > 0 ? cumM[cumM.length - 1] : 0;
+  const aheadLocalM = Math.min(total, localM + HEADING_LOOKAHEAD_M);
+  const ahead = pointAtWindowArcLocalJs(ptsFlat, cumM, aheadLocalM);
+  if (!Number.isFinite(fromLat) || !Number.isFinite(fromLng) || !Number.isFinite(ahead.lat)) {
+    return safeHeadingJs(fallbackHdg, 0);
+  }
+  const spanM = haversineMJs(fromLat, fromLng, ahead.lat, ahead.lng);
+  if (spanM < 3) return safeHeadingJs(fallbackHdg, 0);
+  const raw = bearingBetweenJs(fromLat, fromLng, ahead.lat, ahead.lng);
+  const reversed = (raw + 180) % 360;
+  const fwdDiff = Math.abs(((raw - fallbackHdg + 540) % 360) - 180);
+  const revDiff = Math.abs(((reversed - fallbackHdg + 540) % 360) - 180);
+  const aligned = revDiff < fwdDiff ? reversed : raw;
+  return safeHeadingJs(aligned, fallbackHdg);
+}
+
+function smoothTargetArcMJs(
+  prevArcM: number,
+  incomingArcM: number,
+  displayArcM: number,
+  speedMs: number,
+): number {
+  if (!Number.isFinite(incomingArcM)) return prevArcM;
+  if (!Number.isFinite(prevArcM)) return incomingArcM;
+
+  const delta = incomingArcM - prevArcM;
+  const maxFwd = Math.max(TARGET_ARC_MAX_FWD_M, speedMs * 1.2);
+  let next = incomingArcM;
+
+  if (delta > maxFwd) {
+    next = prevArcM + maxFwd * TARGET_ARC_SMOOTH_ALPHA;
+  } else if (delta < -TARGET_ARC_MAX_BACK_M) {
+    next = Math.max(incomingArcM, displayArcM - TARGET_ARC_MAX_BACK_M);
+  } else if (Math.abs(delta) > 0.05) {
+    next = prevArcM + delta * TARGET_ARC_SMOOTH_ALPHA;
+  } else {
+    next = prevArcM;
+  }
+
+  return next;
+}
+
 function blendPositionJs(
   roadLat: number,
   roadLng: number,
@@ -300,6 +359,57 @@ function pointAtWindowArcLocal(
   return { lat, lng, heading };
 }
 
+function alignBearingWorklet(segmentBearing: number, referenceBearing: number): number {
+  'worklet';
+  const seg = normalizeHeadingW(segmentBearing);
+  const ref = normalizeHeadingW(referenceBearing);
+  const reversed = normalizeHeadingW(seg + 180);
+  const fwdDiff = Math.abs(headingDeltaW(seg, ref));
+  const revDiff = Math.abs(headingDeltaW(reversed, ref));
+  return revDiff < fwdDiff ? reversed : seg;
+}
+
+function bearingAheadFromDisplayWorklet(
+  ptsFlat: number[],
+  cum: number[],
+  localM: number,
+  fromLat: number,
+  fromLng: number,
+  referenceHdg: number,
+): number {
+  'worklet';
+  const total = cum.length > 0 ? cum[cum.length - 1] : 0;
+  const aheadLocalM = Math.min(total, localM + HEADING_LOOKAHEAD_M);
+  const ahead = pointAtWindowArcLocal(ptsFlat, cum, aheadLocalM);
+  if (!Number.isFinite(fromLat) || !Number.isFinite(fromLng) || !Number.isFinite(ahead.lat)) {
+    return safeHeadingWorklet(referenceHdg, 0);
+  }
+  const spanM = haversineMWorklet(fromLat, fromLng, ahead.lat, ahead.lng);
+  if (spanM < 3) {
+    return safeHeadingWorklet(referenceHdg, 0);
+  }
+  const raw = bearingBetweenWorklet(fromLat, fromLng, ahead.lat, ahead.lng);
+  return alignBearingWorklet(raw, referenceHdg);
+}
+
+function stepHeadingSmoothWorklet(
+  cur: number,
+  target: number,
+  dtSec: number,
+  tauSec: number,
+  maxDps: number,
+): number {
+  'worklet';
+  const delta = headingDeltaW(cur, target);
+  const tauStep = delta * Math.min(1, dtSec / Math.max(0.05, tauSec));
+  const maxStep = maxDps * dtSec;
+  let step = tauStep;
+  if (Math.abs(step) > maxStep) {
+    step = Math.sign(step) * maxStep;
+  }
+  return normalizeHeadingW(cur + step);
+}
+
 function blendPositionWorklet(
   roadLat: number,
   roadLng: number,
@@ -355,6 +465,7 @@ export function useDriveMarkerV3(
   const targetLat = useSharedValue(NaN);
   const targetLng = useSharedValue(NaN);
   const targetHdg = useSharedValue(0);
+  const segmentHdgTargetSv = useSharedValue(0);
   const rawTargetLat = useSharedValue(NaN);
   const rawTargetLng = useSharedValue(NaN);
 
@@ -383,6 +494,7 @@ export function useDriveMarkerV3(
     targetLat.value = safeLat;
     targetLng.value = safeLng;
     targetHdg.value = safeHdg;
+    segmentHdgTargetSv.value = safeHdg;
     rawTargetLat.value = safeCoordJs(rawLat, safeLat);
     rawTargetLng.value = safeCoordJs(rawLng, safeLng);
     onRoadSv.value = onRoad ? 1 : 0;
@@ -401,6 +513,7 @@ export function useDriveMarkerV3(
     rawTargetLat,
     rawTargetLng,
     roadBlendSv,
+    segmentHdgTargetSv,
     targetArcM,
     targetHdg,
     targetLat,
@@ -415,13 +528,10 @@ export function useDriveMarkerV3(
     if (skipCatchUpSv.value >= 0.5) {
       skipCatchUpSv.value = 0;
       lastFrameTimestamp.value = frameInfo.timestamp;
-      if (Number.isFinite(targetLat.value) && Number.isFinite(targetLng.value)) {
-        lat.value = targetLat.value;
-        lng.value = targetLng.value;
-        heading.value = safeHeadingWorklet(targetHdg.value, heading.value);
-        if (Number.isFinite(targetArcM.value)) {
-          displayArcM.value = targetArcM.value;
-        }
+      heading.value = safeHeadingWorklet(targetHdg.value, heading.value);
+      segmentHdgTargetSv.value = heading.value;
+      if (Number.isFinite(targetArcM.value)) {
+        displayArcM.value = targetArcM.value;
       }
       return;
     }
@@ -440,25 +550,32 @@ export function useDriveMarkerV3(
     const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
     let stepM = cruiseMs * dt;
 
-    const catchLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
-    const catchLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
-    if (Number.isFinite(catchLat) && Number.isFinite(catchLng)) {
-      const distToTarget = haversineMWorklet(lat.value, lng.value, catchLat, catchLng);
-      if (distToTarget > 15 && distToTarget < 100) {
-        stepM = Math.max(stepM, distToTarget * 3.0 * dt);
-      }
-    }
-
-    const maxHdgStep = MAX_HEADING_RATE_DPS * dt;
-
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
     const pts = roadPtsFlat.value;
     const cum = roadCumM.value;
     const hasArc = pts.length >= 4 && cum.length >= 2;
 
+    if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
+      const arcGap = targetArcM.value - displayArcM.value;
+      if (arcGap > 15 && arcGap < 100) {
+        stepM = Math.max(stepM, arcGap * 0.55 * dt);
+      }
+    } else {
+      const catchLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
+      const catchLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
+      if (Number.isFinite(catchLat) && Number.isFinite(catchLng)) {
+        const distToTarget = haversineMWorklet(lat.value, lng.value, catchLat, catchLng);
+        if (distToTarget > 15 && distToTarget < 100) {
+          stepM = Math.max(stepM, distToTarget * 1.2 * dt);
+        }
+      }
+    }
+
     let nextLat = lat.value;
     let nextLng = lng.value;
+    const prevLat = lat.value;
+    const prevLng = lng.value;
     let segmentHdg = targetHdg.value;
 
     if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
@@ -467,8 +584,7 @@ export function useDriveMarkerV3(
 
       if (stepM > 0.001) {
         if (gap >= 0) {
-          const arcStep = stepM * Math.max(ON_ROAD_BLEND_EPS, blend);
-          nextArcM = Math.min(displayArcM.value + arcStep, targetArcM.value);
+          nextArcM = Math.min(displayArcM.value + stepM, targetArcM.value);
         } else if (gap < -0.5) {
           nextArcM = Math.max(displayArcM.value - stepM * 0.35, targetArcM.value);
         }
@@ -479,12 +595,17 @@ export function useDriveMarkerV3(
       const roadPose = pointAtWindowArcLocal(pts, cum, localM);
 
       if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
-        const rawLat = Number.isFinite(rawTargetLat.value) ? rawTargetLat.value : targetLat.value;
-        const rawLng = Number.isFinite(rawTargetLng.value) ? rawTargetLng.value : targetLng.value;
-        const blended = blendPositionWorklet(roadPose.lat, roadPose.lng, rawLat, rawLng, blend);
-        nextLat = blended.lat;
-        nextLng = blended.lng;
-        segmentHdg = safeHeadingWorklet(targetHdg.value, heading.value);
+        nextLat = roadPose.lat;
+        nextLng = roadPose.lng;
+        const roadHdg = bearingAheadFromDisplayWorklet(
+          pts,
+          cum,
+          localM,
+          nextLat,
+          nextLng,
+          targetHdg.value,
+        );
+        segmentHdg = blend > ON_ROAD_BLEND_EPS ? roadHdg : safeHeadingWorklet(targetHdg.value, heading.value);
       }
     } else {
       const tLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
@@ -496,17 +617,39 @@ export function useDriveMarkerV3(
         nextLat = stepped.lat;
         nextLng = stepped.lng;
       }
-      segmentHdg = safeHeadingWorklet(targetHdg.value, heading.value);
+      const movedM = haversineMWorklet(prevLat, prevLng, nextLat, nextLng);
+      if (movedM >= 0.35) {
+        segmentHdg = bearingBetweenWorklet(prevLat, prevLng, nextLat, nextLng);
+      } else {
+        segmentHdg = safeHeadingWorklet(targetHdg.value, heading.value);
+      }
     }
 
-    lat.value = Number.isFinite(nextLat) ? nextLat : lat.value;
-    lng.value = Number.isFinite(nextLng) ? nextLng : lng.value;
-    const hdgStep = maxHdgStep * (1 - MARKER_HEADING_EMA * 0.55);
-    const emaStep = Math.max(1.2, MAX_HEADING_RATE_DPS * dt * MARKER_HEADING_EMA * 2.5);
-    const blendedHdg = lerpHeadingCappedWorklet(heading.value, segmentHdg, hdgStep);
-    heading.value = safeHeadingWorklet(
-      lerpHeadingCappedWorklet(heading.value, blendedHdg, emaStep),
-      0,
+    let outLat = Number.isFinite(nextLat) ? nextLat : lat.value;
+    let outLng = Number.isFinite(nextLng) ? nextLng : lng.value;
+    if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
+      const posAlpha = Math.min(1, dt / MARKER_POS_TAU_SEC);
+      if (posAlpha < 0.999) {
+        outLat = lat.value + (outLat - lat.value) * posAlpha;
+        outLng = lng.value + (outLng - lng.value) * posAlpha;
+      }
+    }
+    lat.value = outLat;
+    lng.value = outLng;
+
+    const prevSegmentTarget = segmentHdgTargetSv.value;
+    const targetAlpha = Math.min(1, dt / MARKER_HEADING_TARGET_TAU_SEC);
+    const smoothedSegmentHdg = normalizeHeadingW(
+      prevSegmentTarget + headingDeltaW(prevSegmentTarget, segmentHdg) * targetAlpha,
+    );
+    segmentHdgTargetSv.value = smoothedSegmentHdg;
+
+    heading.value = stepHeadingSmoothWorklet(
+      heading.value,
+      smoothedSegmentHdg,
+      dt,
+      MARKER_HEADING_TAU_SEC,
+      MARKER_HEADING_MAX_DPS,
     );
   }, false);
 
@@ -537,7 +680,14 @@ export function useDriveMarkerV3(
     rawTargetLat.value = target.rawLat;
     rawTargetLng.value = target.rawLng;
     onRoadSv.value = onRoad ? 1 : 0;
-    roadBlendSv.value = blend;
+    const prevBlend = roadBlendSv.value;
+    if (onRoad && prevBlend >= ON_ROAD_FULL_BLEND) {
+      roadBlendSv.value = Math.max(blend, ON_ROAD_FULL_BLEND);
+    } else if (prevBlend > ON_ROAD_BLEND_EPS && blend > ON_ROAD_BLEND_EPS) {
+      roadBlendSv.value = Math.max(blend, prevBlend * 0.88);
+    } else {
+      roadBlendSv.value = blend;
+    }
 
     const arcFeed = onRoad && target.arcWindow && target.polylineKey
       ? packArcWindowFeed(target.arcWindow, target.polylineKey)
@@ -567,10 +717,19 @@ export function useDriveMarkerV3(
           rawLng,
           blend,
         );
-        applyInstantPose(
+        const poseHdg = lookAheadHeadingJs(
+          arcFeed.ptsFlat,
+          arcFeed.cumM,
+          localM,
           blended.lat,
           blended.lng,
           tgtHdg,
+        );
+        const instantHdg = onRoad && blend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
+        applyInstantPose(
+          blended.lat,
+          blended.lng,
+          instantHdg,
           arcM,
           true,
           blend,
@@ -593,7 +752,14 @@ export function useDriveMarkerV3(
       polylineKeySv.value = key;
       onRoadSv.value = 1;
       const arcM = target.targetArcM as number;
-      targetArcM.value = arcM;
+      const prevTargetArc = targetArcM.value;
+      const displayArc = displayArcM.value;
+      targetArcM.value = smoothTargetArcMJs(
+        Number.isFinite(prevTargetArc) ? prevTargetArc : arcM,
+        arcM,
+        Number.isFinite(displayArc) ? displayArc : arcM,
+        resolvedSpeedMs,
+      );
 
       if (keyChanged) {
         const gapBeforeKey = arcM - displayArcM.value;
@@ -611,7 +777,17 @@ export function useDriveMarkerV3(
             );
             lat.value = blended.lat;
             lng.value = blended.lng;
-            heading.value = tgtHdg;
+            const poseHdg = lookAheadHeadingJs(
+              arcFeed.ptsFlat,
+              arcFeed.cumM,
+              localM,
+              blended.lat,
+              blended.lng,
+              tgtHdg,
+            );
+            const snappedHdg = blend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
+            heading.value = snappedHdg;
+            segmentHdgTargetSv.value = snappedHdg;
           }
         } else if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
           const reprojGapM = haversineMJs(lat.value, lng.value, pose.lat, pose.lng);
@@ -673,6 +849,7 @@ export function useDriveMarkerV3(
       targetLat.value = anchor.lat;
       targetLng.value = anchor.lng;
       targetHdg.value = hdg;
+      segmentHdgTargetSv.value = hdg;
       rawTargetLat.value = anchor.lat;
       rawTargetLng.value = anchor.lng;
       bootstrapped.value = 1;
@@ -685,6 +862,7 @@ export function useDriveMarkerV3(
       targetLat.value = NaN;
       targetLng.value = NaN;
       targetHdg.value = 0;
+      segmentHdgTargetSv.value = 0;
       rawTargetLat.value = NaN;
       rawTargetLng.value = NaN;
     }
@@ -703,6 +881,7 @@ export function useDriveMarkerV3(
     roadBlendSv,
     roadCumM,
     roadPtsFlat,
+    segmentHdgTargetSv,
     speedMs,
     targetArcM,
     targetHdg,

@@ -625,12 +625,11 @@ function buildOffRoadStickyResult(
   cfg: SnapEngineConfig,
   crossTrackM: number,
 ): { result: SnapResult; state: SnapEngineState } {
-  const headingDeg = safeHeadingDeg(
-    travelHeadingDeg,
-    safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
-  );
-
   if (!prev || crossTrackM >= 200) {
+    const headingDeg = safeHeadingDeg(
+      travelHeadingDeg,
+      safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
+    );
     const nextState: SnapEngineState = {
       ...state,
       lastRoadBlend: 0,
@@ -665,6 +664,16 @@ function buildOffRoadStickyResult(
   );
   const roadBlend = sticky.blend;
   const onRoad = roadBlend > cfg.onRoadBlendEps;
+  const stickyHeading = safeHeadingDeg(
+    state.lastSegmentHeadingDeg,
+    safeHeadingDeg(state.lockedTravelHeadingDeg, travelHeadingDeg),
+  );
+  const headingDeg = onRoad
+    ? stickyHeading
+    : safeHeadingDeg(
+      travelHeadingDeg,
+      safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
+    );
   const nextState: SnapEngineState = {
     ...state,
     lastRoadBlend: roadBlend,
@@ -748,14 +757,16 @@ export function resolveSnap(
   const pathMode: SnapResult['pathMode'] = roadBlend > cfg.onRoadBlendEps ? 'onRoad' : 'offRoad';
 
   const segHeading = safeHeadingDeg(projection.headingDeg, travelHeadingDeg);
-
-  const headingDeg = safeHeadingDeg(
-    travelHeadingDeg,
-    safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
-  );
+  const onRoadSnap = roadBlend > cfg.onRoadBlendEps;
+  const headingDeg = onRoadSnap
+    ? segHeading
+    : safeHeadingDeg(
+      travelHeadingDeg,
+      safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
+    );
 
   const intersectionTurnDetected = detectIntersectionTurn(
-    travelHeadingDeg,
+    onRoadSnap ? segHeading : travelHeadingDeg,
     state.lastSegmentHeadingDeg,
     projection.crossTrackM,
   );
@@ -764,7 +775,7 @@ export function resolveSnap(
     ...state,
     lastSegmentIndex: projection.segmentIndex,
     lastPolylineKey: projection.polylineKey,
-    lastSegmentHeadingDeg: headingDeg,
+    lastSegmentHeadingDeg: onRoadSnap ? segHeading : headingDeg,
     lockedTravelHeadingDeg: safeHeadingDeg(state.lockedTravelHeadingDeg, headingDeg),
     lastRoadBlend: roadBlend,
     offRoadStickTicks: sticky.stickTicks,

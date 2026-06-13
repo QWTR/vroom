@@ -20,7 +20,6 @@ import {
   IDLE_STALE_MS,
   WATCHDOG_POLL_MS,
 } from '../lib/driveLocation/gpsWatchdog';
-import { showGpsLocationErrorToast } from '../lib/gpsErrorToast';
 
 export type DriveLocationFix = {
   latitude: number;
@@ -493,7 +492,7 @@ export function useDriveLocationWatch({
     } catch (e) {
       console.warn('useDriveLocationWatch subscribe error:', e);
       if (isActiveGpsProfile(profile)) {
-        showGpsLocationErrorToast();
+        applyLockState(false);
       }
       scheduleRestart('subscribe_error');
     }

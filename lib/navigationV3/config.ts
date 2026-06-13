@@ -55,6 +55,30 @@ export const NAV_V3 = {
   CAMERA_BEARING_SMOOTH_DPS_LOW: 38,
   CAMERA_BEARING_SMOOTH_DPS_MID: 62,
   CAMERA_BEARING_SMOOTH_DPS_HIGH: 88,
+  /** Czas interpolacji obrotu kamery (withTiming, shortest-path). */
+  CAMERA_BEARING_SMOOTH_MS: 250,
+  /** easeTo heading na zakrętach — ms na stopień (rondo ≈ 300–450 ms). */
+  CAMERA_HEADING_ANIM_PER_DEG_MS: 14,
+  CAMERA_HEADING_ANIM_MIN_MS: 120,
+  CAMERA_HEADING_ANIM_MAX_MS: 480,
+  /** Look-ahead bearing na polilinii (m) — dłuższy wektor = mniej skoków na łukach. */
+  SNAP_HEADING_LOOKAHEAD_M: 28,
+  /** Wygładzanie obrotu markera (tau, shortest-path, 60 FPS). */
+  MARKER_HEADING_TIMING_MS: 520,
+  /** Wygładzanie surowego bearingu z geometrii przed interpolacją obrotu. */
+  MARKER_HEADING_TARGET_TIMING_MS: 380,
+  /** Max prędkość obrotu markera (°/s) — łuki bez stop-motion. */
+  MARKER_HEADING_MAX_DPS: 72,
+  /** Pełny snap drogi — bez blendu z surowym GPS (eliminuje lateral jitter). */
+  MARKER_ON_ROAD_FULL_BLEND: 1,
+  /** Wygładzanie targetArcM z GPS (0–1) — mniej skoków wzdłuż polilinii. */
+  MARKER_TARGET_ARC_SMOOTH_ALPHA: 0.42,
+  /** Max cofka targetArcM przy korekcie (m). */
+  MARKER_TARGET_ARC_MAX_BACK_M: 2,
+  /** Max skok do przodu targetArcM na tick GPS (m). */
+  MARKER_TARGET_ARC_MAX_FWD_M: 18,
+  /** Lekkie wygładzenie pozycji na arc (tau ms) — anty lateral jitter. */
+  MARKER_POS_TIMING_MS: 72,
   GPS_IMPOSSIBLE_JUMP_M: 150,
   GPS_IMPOSSIBLE_JUMP_MAX_KMH: 300,
   GPS_MAX_ACCURACY_REJECT_M: 120,

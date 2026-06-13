@@ -897,25 +897,65 @@ export function findClosestPointIndex(
 }
 
 /**
+ * Cross-track w oknie ±~1 km wokół hintIndex (O(window) zamiast O(n)).
+ */
+export function distanceToPolylineWindowM(
+  userLat: number,
+  userLon: number,
+  routePoints: { latitude: number; longitude: number }[],
+  hintIndex?: number,
+): number {
+  if (routePoints.length < 2) return 0;
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) return 0;
+
+  const hint = hintIndex != null && hintIndex >= 0 ? hintIndex : 0;
+  const windowSeg = 120;
+  const startSeg = Math.max(0, Math.min(hint - windowSeg, routePoints.length - 2));
+  const endSeg = Math.min(routePoints.length - 2, hint + windowSeg);
+
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = startSeg; i <= endSeg; i += 1) {
+    const a = routePoints[i];
+    const b = routePoints[i + 1];
+    const d = distanceToSegmentMeters(
+      userLat,
+      userLon,
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+    if (d < best) best = d;
+  }
+  return Number.isFinite(best) ? best : Number.POSITIVE_INFINITY;
+}
+
+/**
  * Off-route detection — geoprzestrzenna odległość od polilinii (Turf Haversine).
- * Skanuje całą trasę w jednym przebiegu (pointToLineDistance).
+ * Skanuje okno wokół ostatniego indeksu; pełna polilinia tylko jako fallback.
  */
 export function isOnRoute(
   userLat: number,
   userLon: number,
   routePoints: { latitude: number; longitude: number }[],
   thresholdMeters = 35,
+  hintIndex?: number,
 ): boolean {
   if (routePoints.length < 2) return true;
   if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) return true;
 
-  const line = toTurfLineString(routePoints);
-  const distM = turf.pointToLineDistance(
-    turfPoint(userLon, userLat),
-    line,
-    { units: 'meters' },
+  const windowDistM = distanceToPolylineWindowM(
+    userLat,
+    userLon,
+    routePoints,
+    hintIndex,
   );
-  return Number.isFinite(distM) && distM <= thresholdMeters;
+  if (Number.isFinite(windowDistM) && windowDistM <= thresholdMeters) {
+    return true;
+  }
+
+  const fullDistM = distanceToPolylineMeters(userLat, userLon, routePoints);
+  return Number.isFinite(fullDistM) && fullDistM <= thresholdMeters;
 }
 
 /** Dystans cross-track od polilinii (m) — do diagnostyki reroute. */

@@ -3,8 +3,8 @@ import Mapbox from '@rnmapbox/maps';
 import {
   runOnJS,
   useAnimatedReaction,
+  useFrameCallback,
   useSharedValue,
-  withSpring,
 } from 'react-native-reanimated';
 import { NAV_V3 } from '../lib/navigationV3/config';
 import type { NavMode } from '../lib/navigationV3/types';
@@ -30,7 +30,7 @@ export type UseCameraV3Options = {
   enabled: boolean;
   mode: NavMode;
   speedKmhRef?: React.MutableRefObject<number>;
-  /** Surowy GPS — wyłącznie z tego COG dla bearingu kamery (nie polilinia / marker). */
+  /** Opcjonalny ref surowego GPS (nie używany do bearingu kamery w trybie trip). */
   rawGpsRef?: RawGpsCourseRef;
   isUserExploring?: () => boolean;
   /** Wstrzymaj kamerę podczas reroute (off-route + pending API). */
@@ -59,12 +59,52 @@ const DELTA_MIN_DIST_M = NAV_V3.CAMERA_DELTA_MIN_DIST_M;
 const DELTA_MIN_HEADING_DEG = NAV_V3.CAMERA_DELTA_MIN_HEADING_DEG;
 const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
 const NATIVE_ANIM_BUFFER_MS = NAV_V3.CAMERA_NATIVE_ANIM_BUFFER_MS;
-const CAMERA_EASE_DURATION_MS = NAV_V3.CAMERA_EASE_DURATION_MS;
 
-const HEADING_SPRING = {
-  stiffness: NAV_V3.CAMERA_HEADING_SPRING_STIFFNESS,
-  damping: NAV_V3.CAMERA_HEADING_SPRING_DAMPING,
-};
+const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
+/** Min. odstęp między heading-only setCamera (ms) — płynny obrót bez kolejki Mapbox. */
+const HEADING_ONLY_MIN_MS = 32;
+const CAMERA_HDG_TAU_SEC = NAV_V3.CAMERA_BEARING_SMOOTH_MS / 1000;
+const CAMERA_HDG_MAX_DPS = NAV_V3.CAMERA_MAX_HEADING_DPS;
+/** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
+const PAUSE_FOLLOW_MAX_DRIFT_M = 35;
+/** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
+const RECENTER_ANIM_MS = 420;
+
+/** Czas animacji easeTo — maślany, ≤ throttle (50–100 ms), bez dławienia kolejki Mapbox. */
+function resolveFollowAnimMs(throttleMs: number): number {
+  const interval = Math.max(THROTTLE_FAST_MS, Math.ceil(throttleMs));
+  return Math.min(100, Math.max(50, interval));
+}
+
+/** Długa easeTo na ostrych łukach — rozsmarowuje obrót kamery (rondo). */
+function resolveHeadingAnimMs(headingDeltaDeg: number, throttleMs: number): number {
+  const base = resolveFollowAnimMs(throttleMs);
+  const byAngle = Math.ceil(
+    headingDeltaDeg * NAV_V3.CAMERA_HEADING_ANIM_PER_DEG_MS,
+  );
+  return Math.min(
+    NAV_V3.CAMERA_HEADING_ANIM_MAX_MS,
+    Math.max(NAV_V3.CAMERA_HEADING_ANIM_MIN_MS, base, byAngle),
+  );
+}
+
+function stepCameraHeadingWorklet(
+  cur: number,
+  target: number,
+  dtSec: number,
+  tauSec: number,
+  maxDps: number,
+): number {
+  'worklet';
+  const delta = headingDelta(cur, target);
+  const tauStep = delta * Math.min(1, dtSec / Math.max(0.05, tauSec));
+  const maxStep = maxDps * dtSec;
+  let step = tauStep;
+  if (Math.abs(step) > maxStep) {
+    step = Math.sign(step) * maxStep;
+  }
+  return normalizeHeading(cur + step);
+}
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -132,7 +172,7 @@ function applySpeedHysteresis(nextKmh: number, prevKmh: number): number {
 }
 
 /**
- * Bearing kamery — wyłącznie Course Over Ground z surowego GPS (dwa ostatnie fixy).
+ * Legacy COG helper (reroute / telemetry). Kamera trip używa markera V3, nie tego.
  */
 export function resolveCameraCourseHeading(
   lockedHeading: number,
@@ -175,7 +215,7 @@ type SentPose = {
 };
 
 /**
- * V3 camera — translacja natychmiastowa (lat/lng), obrót niezależny (withSpring SV).
+ * V3 camera — heading-up: bearing z wygładzonego markera V3 (nie surowy GPS COG).
  */
 export function useCameraV3(opts: UseCameraV3Options) {
   const {
@@ -184,7 +224,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
     enabled,
     mode,
     speedKmhRef,
-    rawGpsRef,
     isUserExploring,
     shouldPauseFollow,
   } = opts;
@@ -196,9 +235,12 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const targetCameraHeadingSv = useSharedValue(0);
   const smoothedCameraHeadingSv = useSharedValue(0);
   const headingSpringReadySv = useSharedValue(0);
+  const displayCameraHdgSv = useSharedValue(0);
+  const displayCameraHdgReadySv = useSharedValue(0);
 
   const speedKmhSv = useSharedValue(0);
   const lastCameraPushMsSv = useSharedValue(0);
+  const lastHeadingOnlyPushMsSv = useSharedValue(0);
   const lastSentReadySv = useSharedValue(0);
   const lastSentLatSv = useSharedValue(0);
   const lastSentLngSv = useSharedValue(0);
@@ -216,6 +258,10 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const userZoomOverrideRef = useRef<number | null>(null);
   const userPanningRef = useRef(false);
   const cachedPaddingRef = useRef<ReturnType<typeof getTripCameraPadding> | null>(null);
+  /** Pierwszy setCamera po starcie / peek → GPS: twardy snap (animationDuration 0). */
+  const coldStartFollowPendingRef = useRef(false);
+  /** Bootstrap przed React enabled — nie czyść lastSent w useEffect. */
+  const tripFollowPrearmedRef = useRef(false);
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
@@ -224,14 +270,20 @@ export function useCameraV3(opts: UseCameraV3Options) {
     targetCameraHeadingSv.value = 0;
     smoothedCameraHeadingSv.value = 0;
     headingSpringReadySv.value = 0;
+    displayCameraHdgSv.value = 0;
+    displayCameraHdgReadySv.value = 0;
     lastCameraPushMsSv.value = 0;
+    lastHeadingOnlyPushMsSv.value = 0;
     lastSentReadySv.value = 0;
     lastSentLatSv.value = 0;
     lastSentLngSv.value = 0;
     lastSentHdgSv.value = 0;
   }, [
+    displayCameraHdgReadySv,
+    displayCameraHdgSv,
     headingSpringReadySv,
     lastCameraPushMsSv,
+    lastHeadingOnlyPushMsSv,
     lastSentHdgSv,
     lastSentLatSv,
     lastSentLngSv,
@@ -255,15 +307,53 @@ export function useCameraV3(opts: UseCameraV3Options) {
     userPanningRef.current = false;
     cachedPaddingRef.current = null;
     speedKmhSv.value = 0;
+    coldStartFollowPendingRef.current = false;
     resetHeadingSpringState();
   }, [followEnabledSv, resetHeadingSpringState, speedKmhSv]);
 
-  useEffect(() => {
-    followEnabledSv.value = enabled && isTripMode ? 1 : 0;
-    if (!enabled || !isTripMode) {
-      release();
+  const armTripFollow = useCallback((heading?: number) => {
+    tripFollowPrearmedRef.current = true;
+    followEnabledSv.value = 1;
+    userPanningRef.current = false;
+    userExploreUntilRef.current = 0;
+    if (heading != null && Number.isFinite(heading)) {
+      const h = normalizeHeading(heading);
+      lockedCourseHeadingRef.current = h;
+      lockedCourseReadyRef.current = true;
+      targetCameraHeadingSv.value = h;
+      smoothedCameraHeadingSv.value = h;
+      displayCameraHdgSv.value = h;
+      displayCameraHdgReadySv.value = 1;
+      headingSpringReadySv.value = 1;
     }
-  }, [enabled, isTripMode, followEnabledSv, release]);
+  }, [
+    displayCameraHdgReadySv,
+    displayCameraHdgSv,
+    followEnabledSv,
+    headingSpringReadySv,
+    smoothedCameraHeadingSv,
+    targetCameraHeadingSv,
+  ]);
+
+  useEffect(() => {
+    if (!enabled || !isTripMode) {
+      followEnabledSv.value = 0;
+      tripFollowPrearmedRef.current = false;
+      release();
+      return;
+    }
+    followEnabledSv.value = 1;
+    userPanningRef.current = false;
+    userExploreUntilRef.current = 0;
+    if (tripFollowPrearmedRef.current) {
+      tripFollowPrearmedRef.current = false;
+      return;
+    }
+    lastSentRef.current = null;
+    lastSentReadySv.value = 0;
+    lastCameraPushMsSv.value = 0;
+    coldStartFollowPendingRef.current = true;
+  }, [enabled, isTripMode, followEnabledSv, lastCameraPushMsSv, lastSentReadySv, release]);
 
   /** Utrzymuj speedKmhSv dla adaptacyjnego throttlingu na worklecie. */
   useEffect(() => {
@@ -294,61 +384,23 @@ export function useCameraV3(opts: UseCameraV3Options) {
     smoothedSpeedRef.current = applySpeedHysteresis(hudKmh, smoothedSpeedRef.current);
     speedKmhSv.value = smoothedSpeedRef.current;
 
-    const rawGps = rawGpsRef?.current;
-    const hasRawGps = rawGps != null
-      && Number.isFinite(rawGps.lat)
-      && Number.isFinite(rawGps.lng);
-    const currGpsLat = hasRawGps ? rawGps!.lat : NaN;
-    const currGpsLng = hasRawGps ? rawGps!.lng : NaN;
-
-    const targetBearing = hasRawGps
-      ? resolveCameraCourseHeading(
-        lockedCourseHeadingRef.current,
-        prevRawGpsLatRef.current,
-        prevRawGpsLngRef.current,
-        currGpsLat,
-        currGpsLng,
-        smoothedSpeedRef.current,
-      )
+    const hdg = Number.isFinite(markerHeading) && markerHeading >= 0
+      ? normalizeHeading(markerHeading)
       : lockedCourseHeadingRef.current;
 
-    const movedForLock = hasRawGps
-      && prevRawGpsLatRef.current != null
-      && prevRawGpsLngRef.current != null
-      ? haversineM(prevRawGpsLatRef.current, prevRawGpsLngRef.current, currGpsLat, currGpsLng)
-      : 0;
-    if (
-      smoothedSpeedRef.current >= MIN_COURSE_SPEED_KMH
-      && movedForLock >= MIN_COURSE_MOVE_M
-    ) {
-      lockedCourseHeadingRef.current = targetBearing;
-      lockedCourseReadyRef.current = true;
-    } else if (!lockedCourseReadyRef.current) {
-      const coldHdg = Number.isFinite(markerHeading) && markerHeading >= 0
-        ? markerHeading
-        : 0;
-      lockedCourseHeadingRef.current = normalizeHeading(coldHdg);
-      lockedCourseReadyRef.current = true;
-    }
-
-    if (hasRawGps) {
-      prevRawGpsLatRef.current = currGpsLat;
-      prevRawGpsLngRef.current = currGpsLng;
-    }
-
-    const courseTarget = normalizeHeading(lockedCourseHeadingRef.current);
+    lockedCourseHeadingRef.current = hdg;
+    lockedCourseReadyRef.current = true;
 
     if (headingSpringReadySv.value < 0.5) {
-      targetCameraHeadingSv.value = courseTarget;
-      smoothedCameraHeadingSv.value = courseTarget;
+      targetCameraHeadingSv.value = hdg;
+      smoothedCameraHeadingSv.value = hdg;
       headingSpringReadySv.value = 1;
       return;
     }
 
-    targetCameraHeadingSv.value = courseTarget;
+    targetCameraHeadingSv.value = hdg;
   }, [
     headingSpringReadySv,
-    rawGpsRef,
     smoothedCameraHeadingSv,
     speedKmhRef,
     speedKmhSv,
@@ -358,18 +410,33 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const syncCourseHeadingTargetRef = useRef(syncCourseHeadingTarget);
   syncCourseHeadingTargetRef.current = syncCourseHeadingTarget;
 
-  useAnimatedReaction(
-    () => targetCameraHeadingSv.value,
-    (target, prev) => {
-      if (headingSpringReadySv.value < 0.5) return;
-      if (prev != null && Math.abs(headingDelta(prev, target)) < 0.02) return;
-
-      const cur = smoothedCameraHeadingSv.value;
-      const springTarget = cur + headingDelta(cur, target);
-      smoothedCameraHeadingSv.value = withSpring(springTarget, HEADING_SPRING);
-    },
-    [headingSpringReadySv, smoothedCameraHeadingSv, targetCameraHeadingSv],
-  );
+  /** 60 FPS — wygładzony bearing kamery (krótszy tau niż marker = mniej lag na łukach). */
+  useFrameCallback((frameInfo) => {
+    'worklet';
+    if (followEnabledSv.value < 0.5) return;
+    const raw = marker.heading.value;
+    if (!Number.isFinite(raw)) return;
+    const target = normalizeHeading(raw);
+    targetCameraHeadingSv.value = target;
+    if (displayCameraHdgReadySv.value < 0.5) {
+      displayCameraHdgSv.value = target;
+      smoothedCameraHeadingSv.value = target;
+      displayCameraHdgReadySv.value = 1;
+      return;
+    }
+    const tspf = frameInfo.timeSincePreviousFrame;
+    const dtMs = tspf != null && tspf > 0 ? Math.min(50, tspf) : 16;
+    const dt = dtMs / 1000;
+    const next = stepCameraHeadingWorklet(
+      displayCameraHdgSv.value,
+      target,
+      dt,
+      CAMERA_HDG_TAU_SEC,
+      CAMERA_HDG_MAX_DPS,
+    );
+    displayCameraHdgSv.value = next;
+    smoothedCameraHeadingSv.value = next;
+  }, false);
 
   const markSentPose = useCallback((
     lat: number,
@@ -389,27 +456,42 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lat: number,
     lng: number,
     heading: number,
-    markerHeading: number,
     throttleMs: number,
+    opts?: { headingAnimMs?: number; headingOnly?: boolean },
   ) => {
-    if (!enabled || !isTripMode) return;
+    if (!isTripMode) return;
+    if (!enabled && !tripFollowPrearmedRef.current && followEnabledSv.value < 0.5) return;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return;
+
+    const prevSent = lastSentRef.current;
+    let centerDeltaM = 999;
+    if (prevSent) {
+      centerDeltaM = haversineM(prevSent.lat, prevSent.lng, lat, lng);
+    }
+
+    if (shouldPauseFollowRef.current?.()) {
+      if (centerDeltaM < PAUSE_FOLLOW_MAX_DRIFT_M) return;
+    }
     if (isPaused()) return;
 
-    syncCourseHeadingTargetRef.current(markerHeading);
+    syncCourseHeadingTargetRef.current(heading);
 
     const now = Date.now();
     const hudKmh = Math.max(0, speedKmhRef?.current ?? 0);
     const speedKmh = smoothedSpeedRef.current > 0 ? smoothedSpeedRef.current : hudKmh;
 
-    const prevSent = lastSentRef.current;
-    let centerDeltaM = 999;
     let headingDeltaDeg = 999;
     if (prevSent) {
-      centerDeltaM = haversineM(prevSent.lat, prevSent.lng, lat, lng);
       headingDeltaDeg = Math.abs(headingDelta(prevSent.heading, heading));
-      if (centerDeltaM < DELTA_MIN_DIST_M && headingDeltaDeg < DELTA_MIN_HEADING_DEG) {
+      if (
+        !opts?.headingOnly
+        && centerDeltaM < DELTA_MIN_DIST_M
+        && headingDeltaDeg < DELTA_MIN_HEADING_DEG
+      ) {
+        return;
+      }
+      if (opts?.headingOnly && headingDeltaDeg < DELTA_MIN_HEADING_DEG) {
         return;
       }
     }
@@ -444,10 +526,17 @@ export function useCameraV3(opts: UseCameraV3Options) {
     }
     const padding = cachedPaddingRef.current;
     const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
-    const animMs = Math.max(
-      CAMERA_EASE_DURATION_MS,
-      Math.ceil(throttleMs) + NATIVE_ANIM_BUFFER_MS,
-    );
+    const isColdStart = coldStartFollowPendingRef.current;
+    const animMs = isColdStart
+      ? 0
+      : (opts?.headingAnimMs != null
+        ? (opts.headingAnimMs <= 0
+          ? 0
+          : Math.min(
+            NAV_V3.CAMERA_HEADING_ANIM_MAX_MS,
+            Math.max(NAV_V3.CAMERA_HEADING_ANIM_MIN_MS, opts.headingAnimMs),
+          ))
+        : resolveHeadingAnimMs(headingDeltaDeg, throttleMs));
     const displayHeading = normalizeHeading(heading);
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
@@ -457,13 +546,18 @@ export function useCameraV3(opts: UseCameraV3Options) {
       pitch,
       padding,
       animationDuration: animMs,
-      animationMode: 'easeTo',
+      animationMode: animMs > 0 ? 'easeTo' : 'linearTo',
     });
+
+    if (isColdStart) {
+      coldStartFollowPendingRef.current = false;
+    }
 
     markSentPose(lat, lng, displayHeading, effectiveZoom, now);
   }, [
     cameraRef,
     enabled,
+    followEnabledSv,
     isNavigating,
     isPaused,
     isTripMode,
@@ -478,24 +572,33 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lat: number,
     lng: number,
     heading: number,
-    markerHeading: number,
     throttleMs: number,
   ) => {
-    emitCameraKeyframeRef.current(lat, lng, heading, markerHeading, throttleMs);
+    emitCameraKeyframeRef.current(lat, lng, heading, throttleMs);
+  }, []);
+
+  const onEmitCameraHeadingOnly = useCallback((
+    lat: number,
+    lng: number,
+    heading: number,
+    headingAnimMs: number,
+  ) => {
+    emitCameraKeyframeRef.current(lat, lng, heading, THROTTLE_FAST_MS, {
+      headingAnimMs,
+      headingOnly: true,
+    });
   }, []);
 
   useAnimatedReaction(
     () => ({
       lat: marker.lat.value,
       lng: marker.lng.value,
-      markerHdg: marker.heading.value,
-      camHdg: normalizeHeading(smoothedCameraHeadingSv.value),
+      camHdg: normalizeHeading(displayCameraHdgSv.value),
       follow: followEnabledSv.value,
       speed: speedKmhSv.value,
     }),
     (next) => {
       if (next.follow < 0.5) return;
-      if (shouldPauseFollowRef.current?.()) return;
       if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
 
@@ -518,11 +621,17 @@ export function useCameraV3(opts: UseCameraV3Options) {
         }
       }
 
+      const headingUrgent = hdgD >= HEADING_URGENT_DEG;
+
       if (speed <= THROTTLE_STAND_KMH) {
         if (lastSentReadySv.value >= 0.5 && hdgD < STAND_HEADING_DEG && distM < DELTA_MIN_DIST_M) {
           return;
         }
-      } else if (lastCameraPushMsSv.value > 0 && now - lastCameraPushMsSv.value < throttleMs) {
+      } else if (
+        lastCameraPushMsSv.value > 0
+        && now - lastCameraPushMsSv.value < throttleMs
+        && !headingUrgent
+      ) {
         return;
       }
 
@@ -531,7 +640,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
         next.lat,
         next.lng,
         next.camHdg,
-        next.markerHdg,
         throttleMs,
       );
     },
@@ -542,46 +650,94 @@ export function useCameraV3(opts: UseCameraV3Options) {
       lastSentLatSv,
       lastSentLngSv,
       lastSentReadySv,
-      marker.heading,
+      displayCameraHdgSv,
       marker.lat,
       marker.lng,
       onEmitCameraKeyframe,
-      smoothedCameraHeadingSv,
       speedKmhSv,
+    ],
+  );
+
+  /** Płynny obrót na łukach — heading-only, także gdy pozycja się przesuwa (rondo). */
+  useAnimatedReaction(
+    () => ({
+      camHdg: normalizeHeading(displayCameraHdgSv.value),
+      lat: marker.lat.value,
+      lng: marker.lng.value,
+      follow: followEnabledSv.value,
+    }),
+    (next) => {
+      if (next.follow < 0.5) return;
+      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
+      if (lastSentReadySv.value < 0.5) return;
+
+      const hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.camHdg));
+      if (hdgD < DELTA_MIN_HEADING_DEG) return;
+
+      const now = Date.now();
+      if (
+        lastHeadingOnlyPushMsSv.value > 0
+        && now - lastHeadingOnlyPushMsSv.value < HEADING_ONLY_MIN_MS
+      ) {
+        return;
+      }
+      if (now - lastCameraPushMsSv.value < 12) return;
+
+      lastHeadingOnlyPushMsSv.value = now;
+      lastCameraPushMsSv.value = now;
+      runOnJS(onEmitCameraHeadingOnly)(
+        next.lat,
+        next.lng,
+        next.camHdg,
+        0,
+      );
+    },
+    [
+      displayCameraHdgSv,
+      followEnabledSv,
+      lastCameraPushMsSv,
+      lastHeadingOnlyPushMsSv,
+      lastSentHdgSv,
+      lastSentLatSv,
+      lastSentLngSv,
+      lastSentReadySv,
+      marker.lat,
+      marker.lng,
+      onEmitCameraHeadingOnly,
     ],
   );
 
   const recenter = useCallback((
     center: { latitude: number; longitude: number },
-    opts?: { heading?: number; speedKmh?: number; animate?: boolean },
+    opts?: { heading?: number; speedKmh?: number; animate?: boolean; coldStart?: boolean },
   ) => {
     if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) return;
 
-    const rawGps = rawGpsRef?.current;
-    const gpsLat = rawGps != null && Number.isFinite(rawGps.lat) ? rawGps.lat : center.latitude;
-    const gpsLng = rawGps != null && Number.isFinite(rawGps.lng) ? rawGps.lng : center.longitude;
-    const hdg = resolveCameraCourseHeading(
-      lockedCourseHeadingRef.current,
-      prevRawGpsLatRef.current,
-      prevRawGpsLngRef.current,
-      gpsLat,
-      gpsLng,
-      opts?.speedKmh ?? speedKmhRef?.current ?? 0,
-    );
+    const markerHdg = normalizeHeading(marker.heading.value);
+    const smoothedHdg = displayCameraHdgReadySv.value >= 0.5
+      ? normalizeHeading(displayCameraHdgSv.value)
+      : NaN;
     const finalHdg = normalizeHeading(
       opts?.heading != null && Number.isFinite(opts.heading)
         ? opts.heading
-        : hdg,
+        : Number.isFinite(smoothedHdg)
+          ? smoothedHdg
+          : markerHdg >= 0
+            ? markerHdg
+            : lockedCourseHeadingRef.current,
     );
     lockedCourseHeadingRef.current = finalHdg;
     lockedCourseReadyRef.current = true;
     targetCameraHeadingSv.value = finalHdg;
     smoothedCameraHeadingSv.value = finalHdg;
+    displayCameraHdgSv.value = finalHdg;
+    displayCameraHdgReadySv.value = 1;
     headingSpringReadySv.value = 1;
-    prevRawGpsLatRef.current = gpsLat;
-    prevRawGpsLngRef.current = gpsLng;
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
+    lastSentRef.current = null;
+    lastSentReadySv.value = 0;
+    lastCameraPushMsSv.value = 0;
 
     const speedKmh = opts?.speedKmh ?? speedKmhRef?.current ?? 0;
     smoothedSpeedRef.current = speedKmh;
@@ -591,7 +747,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lastZoomTickRef.current = Date.now();
     cachedPaddingRef.current = getTripCameraPadding(isNavigating);
 
-    const animate = opts?.animate === true;
+    if (opts?.coldStart) {
+      coldStartFollowPendingRef.current = true;
+    }
+    const hardSnap = opts?.coldStart === true || coldStartFollowPendingRef.current;
+    const animate = !hardSnap && opts?.animate === true;
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
       centerCoordinate: [center.longitude, center.latitude],
@@ -599,19 +759,25 @@ export function useCameraV3(opts: UseCameraV3Options) {
       zoomLevel: zoom,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
       padding: cachedPaddingRef.current,
-      animationDuration: animate ? 480 : 0,
-      animationMode: animate ? 'easeTo' : 'linearTo',
+      animationDuration: hardSnap ? 0 : (animate ? RECENTER_ANIM_MS : 0),
+      animationMode: hardSnap ? 'linearTo' : (animate ? 'easeTo' : 'linearTo'),
     });
+
+    if (hardSnap) {
+      coldStartFollowPendingRef.current = false;
+    }
 
     markSentPose(center.latitude, center.longitude, finalHdg, zoom, Date.now());
     lastCameraPushMsSv.value = Date.now();
   }, [
     cameraRef,
+    displayCameraHdgReadySv,
+    displayCameraHdgSv,
     headingSpringReadySv,
     isNavigating,
     lastCameraPushMsSv,
     markSentPose,
-    rawGpsRef,
+    marker.heading,
     smoothedCameraHeadingSv,
     speedKmhRef,
     speedKmhSv,
@@ -662,12 +828,31 @@ export function useCameraV3(opts: UseCameraV3Options) {
     }
   }, []);
 
+  /** Przycisk „Wyśrodkuj” w trip — tylko wznów V3 follow (bez natywnego trackingu Mapbox). */
+  const resumeFollow = useCallback(() => {
+    const mHdg = Number.isFinite(marker.heading.value)
+      ? normalizeHeading(marker.heading.value)
+      : lockedCourseHeadingRef.current;
+    armTripFollow(mHdg);
+    userZoomOverrideRef.current = null;
+    lastSentRef.current = null;
+    lastSentReadySv.value = 0;
+    lastCameraPushMsSv.value = 0;
+  }, [
+    armTripFollow,
+    lastCameraPushMsSv,
+    lastSentReadySv,
+    marker.heading,
+  ]);
+
   return {
     recenter,
+    armTripFollow,
     resetBrowseCamera,
     setUserExploring,
     notifyUserMapInteraction,
     clearUserZoomOverride,
+    resumeFollow,
     release,
     resumeFromBackground,
     isUserExploring: isPaused,

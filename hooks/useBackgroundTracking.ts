@@ -71,6 +71,8 @@ function flushSpeedStatsSync(): { avgSpeed: number; maxSpeed: number; distKm: nu
 const BG_SPEED_SAMPLES_KEY      = 'nav_speed_samples';
 const BG_SPEED_MAX_KEY          = 'nav_speed_max';
 export const BG_PENDING_KM_KEY  = 'bg_pending_km';
+/** Lokalny snapshot statystyk trasy po każdym pełnym km (Android kill recovery). */
+export const EMERGENCY_TRIP_SAVE_KEY = 'vroom_emergency_trip_save';
 const BG_PENDING_ACTIVITY_SAVE_KEY = 'bg_pending_activity_save';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
@@ -87,9 +89,9 @@ export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
 const BG_APP_ACTIVE_STALE_MS = 90_000;
 const BG_APP_ACTIVE_HEARTBEAT_MS = 30_000;
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
-const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
+export const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
-const BG_IS_DRIVING_KEY         = 'bg_is_driving';
+export const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
 const BG_MAX_PLAUSIBLE_KMH      = 360;
 const BG_MIN_SEGMENT_KM         = 0.003;
@@ -158,6 +160,40 @@ export async function flushTracePendingKmToStorage(): Promise<void> {
     await AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + _tracePendingKm));
     _tracePendingKm = 0;
     _traceLastPendingFlushAt = Date.now();
+  } catch { /* ignore */ }
+}
+
+export type EmergencyTripSavePayload = {
+  distanceKm: number;
+  trackedPoints: { latitude: number; longitude: number }[];
+  speedSamples: number[];
+  startTimeMs: number | null;
+  estimatedSec: number;
+  floorKm: number;
+  savedAt: number;
+};
+
+export async function writeEmergencyTripSave(payload: EmergencyTripSavePayload): Promise<void> {
+  try {
+    await AsyncStorage.setItem(EMERGENCY_TRIP_SAVE_KEY, JSON.stringify(payload));
+  } catch { /* ignore */ }
+}
+
+export async function readEmergencyTripSave(): Promise<EmergencyTripSavePayload | null> {
+  try {
+    const raw = await AsyncStorage.getItem(EMERGENCY_TRIP_SAVE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as EmergencyTripSavePayload;
+    if (!parsed || !Number.isFinite(parsed.distanceKm)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearEmergencyTripSave(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY);
   } catch { /* ignore */ }
 }
 
@@ -690,6 +726,7 @@ export function useBackgroundTracking(
                 AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
                 AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
                 AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
+                AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
                 AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
               ]);
               void syncProfileStatsFromServer();
@@ -711,6 +748,7 @@ export function useBackgroundTracking(
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
           AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
+          AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
         void syncProfileStatsFromServer();
@@ -770,6 +808,7 @@ export function useBackgroundTracking(
           AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+          AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
         ]);
       }
     } catch (e) {

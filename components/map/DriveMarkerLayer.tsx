@@ -22,8 +22,9 @@ const EMPTY_SHAPE = JSON.stringify({
   features: [],
 });
 
-/** Min. zmiana współrzędnych zanim odświeżamy GeoJSON (unika zbędnych parse w Mapbox). */
-const COORD_EPS = 1e-7;
+/** Min. zmiana pozycji (~2 cm) zanim odświeżamy GeoJSON — płynny slide bez ~1 m skoków. */
+const COORD_QUANT = 2e-7;
+const COORD_EPS = 3e-7;
 
 function spriteCacheKey(data: DriveMarkerSpriteData): string {
   return [
@@ -75,13 +76,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const lastShape = useSharedValue(EMPTY_SHAPE);
   const lastLat = useSharedValue(NaN);
   const lastLng = useSharedValue(NaN);
-  const lastHdg = useSharedValue(NaN);
 
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';
     let la = marker.lat.value;
     let ln = marker.lng.value;
-    let h = marker.heading.value;
 
     const hasValidCoords = Number.isFinite(la) && Number.isFinite(ln)
       && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
@@ -92,7 +91,6 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       if (hasLastCoords) {
         la = lastLat.value;
         ln = lastLng.value;
-        h = Number.isFinite(h) ? h : lastHdg.value;
       } else {
         if (lastShape.value !== EMPTY_SHAPE) {
           lastShape.value = EMPTY_SHAPE;
@@ -101,30 +99,27 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
       }
     }
 
-    const hdg = Number.isFinite(h)
-      ? ((h % 360) + 360) % 360
-      : (Number.isFinite(lastHdg.value) ? lastHdg.value : 0);
+    la = Math.round(la / COORD_QUANT) * COORD_QUANT;
+    ln = Math.round(ln / COORD_QUANT) * COORD_QUANT;
+
     const prevLa = lastLat.value;
     const prevLn = lastLng.value;
-    const prevH = lastHdg.value;
     if (
       Number.isFinite(prevLa)
       && Number.isFinite(prevLn)
       && Math.abs(la - prevLa) <= COORD_EPS
       && Math.abs(ln - prevLn) <= COORD_EPS
-      && Math.abs(hdg - prevH) < 0.15
     ) {
       return { shape: lastShape.value };
     }
     lastLat.value = la;
     lastLng.value = ln;
-    lastHdg.value = hdg;
     const nextShape = JSON.stringify({
       type: 'FeatureCollection',
       features: [{
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [ln, la] },
-        properties: { heading: hdg },
+        properties: { heading: 0 },
       }],
     });
     lastShape.value = nextShape;
@@ -165,7 +160,8 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             style={{
               iconImage: DRIVE_MARKER_IMAGE_KEY,
               iconSize: ['interpolate', ['linear'], ['zoom'], 10, 0.5, 15, ICON_SIZE],
-              iconRotate: ['get', 'heading'],
+              /** viewport + rotate 0: heading-up na kamerze — ikona zawsze „do góry” ekranu */
+              iconRotate: 0,
               iconPitchAlignment: 'viewport',
               iconRotationAlignment: 'viewport',
               iconAllowOverlap: true,
