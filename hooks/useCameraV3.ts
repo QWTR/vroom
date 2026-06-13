@@ -33,6 +33,8 @@ export type UseCameraV3Options = {
   /** Surowy GPS — wyłącznie z tego COG dla bearingu kamery (nie polilinia / marker). */
   rawGpsRef?: RawGpsCourseRef;
   isUserExploring?: () => boolean;
+  /** Wstrzymaj kamerę podczas reroute (off-route + pending API). */
+  shouldPauseFollow?: () => boolean;
 };
 
 const BROWSE_ZOOM = 15;
@@ -57,6 +59,7 @@ const DELTA_MIN_DIST_M = NAV_V3.CAMERA_DELTA_MIN_DIST_M;
 const DELTA_MIN_HEADING_DEG = NAV_V3.CAMERA_DELTA_MIN_HEADING_DEG;
 const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
 const NATIVE_ANIM_BUFFER_MS = NAV_V3.CAMERA_NATIVE_ANIM_BUFFER_MS;
+const CAMERA_EASE_DURATION_MS = NAV_V3.CAMERA_EASE_DURATION_MS;
 
 const HEADING_SPRING = {
   stiffness: NAV_V3.CAMERA_HEADING_SPRING_STIFFNESS,
@@ -183,7 +186,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
     speedKmhRef,
     rawGpsRef,
     isUserExploring,
+    shouldPauseFollow,
   } = opts;
+
+  const shouldPauseFollowRef = useRef(shouldPauseFollow);
+  shouldPauseFollowRef.current = shouldPauseFollow;
 
   const followEnabledSv = useSharedValue(enabled ? 1 : 0);
   const targetCameraHeadingSv = useSharedValue(0);
@@ -437,7 +444,10 @@ export function useCameraV3(opts: UseCameraV3Options) {
     }
     const padding = cachedPaddingRef.current;
     const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
-    const animMs = Math.ceil(throttleMs) + NATIVE_ANIM_BUFFER_MS;
+    const animMs = Math.max(
+      CAMERA_EASE_DURATION_MS,
+      Math.ceil(throttleMs) + NATIVE_ANIM_BUFFER_MS,
+    );
     const displayHeading = normalizeHeading(heading);
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
@@ -447,7 +457,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       pitch,
       padding,
       animationDuration: animMs,
-      animationMode: 'linearTo',
+      animationMode: 'easeTo',
     });
 
     markSentPose(lat, lng, displayHeading, effectiveZoom, now);
@@ -485,6 +495,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     }),
     (next) => {
       if (next.follow < 0.5) return;
+      if (shouldPauseFollowRef.current?.()) return;
       if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
 

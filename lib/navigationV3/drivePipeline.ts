@@ -273,7 +273,10 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       }
 
       const allowInstant = state.sessionFirstFix || state.hardResetPending;
-      const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant);
+      const gpsIntervalMs = state.prevAccepted
+        ? Math.min(5000, Math.max(200, fix.timestampMs - state.prevAccepted.timestampMs))
+        : undefined;
+      const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant, gpsIntervalMs);
 
       state.prevAccepted = fix;
       state.displayPrev = { lat: snap.lat, lng: snap.lng };

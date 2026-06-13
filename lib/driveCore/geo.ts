@@ -3,6 +3,7 @@ import {
   bearingBetween,
   densifyPolyline,
   distanceToSegmentMeters,
+  nearestPointOnSegmentMeters,
   haversineKm,
   stepTowardSnapOnPolyline,
 } from '../../scripts/navigationUtils';
@@ -281,31 +282,18 @@ export function closestPointOnSegment(
   a: RoadPoint,
   b: RoadPoint,
 ): { lat: number; lng: number; crossTrackM: number } {
-  const aLat = a.latitude;
-  const aLng = a.longitude;
-  const bLat = b.latitude;
-  const bLng = b.longitude;
-  const crossTrackM = distanceToSegmentMeters(lat, lng, aLat, aLng, bLat, bLng);
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const ax = R * Math.cos(toRad(aLat)) * toRad(aLng);
-  const ay = R * toRad(aLat);
-  const bx = R * Math.cos(toRad(bLat)) * toRad(bLng);
-  const by = R * toRad(bLat);
-  const px = R * Math.cos(toRad(lat)) * toRad(lng);
-  const py = R * toRad(lat);
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  let t = 0;
-  if (lenSq > 0) {
-    t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-    t = Math.max(0, Math.min(1, t));
-  }
+  const nearest = nearestPointOnSegmentMeters(
+    lat,
+    lng,
+    a.latitude,
+    a.longitude,
+    b.latitude,
+    b.longitude,
+  );
   return {
-    lat: aLat + t * (bLat - aLat),
-    lng: aLng + t * (bLng - aLng),
-    crossTrackM,
+    lat: nearest.latitude,
+    lng: nearest.longitude,
+    crossTrackM: nearest.distM,
   };
 }
 

@@ -519,8 +519,18 @@ export function useDriveMarkerV3(
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
     const feedSpeed = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
+    let resolvedSpeedMs = feedSpeed;
+    if (target.gpsIntervalMs && target.gpsIntervalMs > 0) {
+      const fromLat = Number.isFinite(lat.value) ? lat.value : target.lat;
+      const fromLng = Number.isFinite(lng.value) ? lng.value : target.lng;
+      const distM = haversineMJs(fromLat, fromLng, target.lat, target.lng);
+      if (distM > 0.4) {
+        const intervalSec = target.gpsIntervalMs / 1000;
+        resolvedSpeedMs = Math.max(resolvedSpeedMs, distM / intervalSec);
+      }
+    }
 
-    speedMs.value = feedSpeed;
+    speedMs.value = resolvedSpeedMs;
     targetLat.value = target.lat;
     targetLng.value = target.lng;
     targetHdg.value = tgtHdg;

@@ -1,4 +1,15 @@
+import * as turf from '@turf/turf';
 import { Step } from '../hooks/useGoogleDirections';
+
+type LatLngPoint = { latitude: number; longitude: number };
+
+function toTurfLineString(points: LatLngPoint[]): turf.helpers.Feature<turf.helpers.LineString> {
+  return turf.lineString(points.map((p) => [p.longitude, p.latitude]));
+}
+
+function turfPoint(lon: number, lat: number): turf.helpers.Feature<turf.helpers.Point> {
+  return turf.point([lon, lat]);
+}
 
 const polylineCache = new Map<string, { latitude: number; longitude: number }[]>();
 
@@ -417,8 +428,8 @@ export function formatSpeed(ms: number | null): string {
 }
 
 /**
- * Oblicza odległość punktu od odcinka (nie od punktu końcowego!).
- * To kluczowa funkcja dla snap-to-road i isOnRoute.
+ * Geoprzestrzenna odległość punktu od odcinka (Haversine via Turf).
+ * Używana przez snap-to-road, isOnRoute i driveCore/geo.
  */
 export function distanceToSegmentMeters(
   userLat: number,
@@ -428,31 +439,32 @@ export function distanceToSegmentMeters(
   bLat: number,
   bLon: number,
 ): number {
-  // Konwertuj na pseudometryczne współrzędne (wystarczy dla małych dystansów)
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-
-  const ax = R * Math.cos(toRad(aLat)) * toRad(aLon);
-  const ay = R * toRad(aLat);
-  const bx = R * Math.cos(toRad(bLat)) * toRad(bLon);
-  const by = R * toRad(bLat);
-  const px = R * Math.cos(toRad(userLat)) * toRad(userLon);
-  const py = R * toRad(userLat);
-
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-
-  let t = 0;
-  if (lenSq > 0) {
-    t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-    t = Math.max(0, Math.min(1, t));
+  if (
+    !Number.isFinite(userLat) || !Number.isFinite(userLon)
+    || !Number.isFinite(aLat) || !Number.isFinite(aLon)
+    || !Number.isFinite(bLat) || !Number.isFinite(bLon)
+  ) {
+    return Number.POSITIVE_INFINITY;
   }
+  const line = turf.lineString([[aLon, aLat], [bLon, bLat]]);
+  return turf.pointToLineDistance(turfPoint(userLon, userLat), line, { units: 'meters' });
+}
 
-  const nearestX = ax + t * dx;
-  const nearestY = ay + t * dy;
-
-  return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
+/** Najbliższy punkt na odcinku + dystans cross-track (metry). */
+export function nearestPointOnSegmentMeters(
+  userLat: number,
+  userLon: number,
+  aLat: number,
+  aLon: number,
+  bLat: number,
+  bLon: number,
+): { latitude: number; longitude: number; distM: number } {
+  const line = turf.lineString([[aLon, aLat], [bLon, bLat]]);
+  const pt = turfPoint(userLon, userLat);
+  const nearest = turf.nearestPointOnLine(line, pt);
+  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
+  const [lng, lat] = nearest.geometry.coordinates;
+  return { latitude: lat, longitude: lng, distM };
 }
 
 function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
@@ -520,6 +532,9 @@ function distanceToStepMeters(userLat: number, userLon: number, step: Step): num
  * Snap-to-road: przyciąga pozycję użytkownika do najbliższego odcinka trasy.
  * Eliminuje "jazdę po polu" bez potrzeby Roads API.
  */
+/**
+ * Snap-to-route via turf.nearestPointOnLine — marker na polilinii, nie na surowym GPS.
+ */
 export function snapToRoute(
   userLat: number,
   userLon: number,
@@ -527,56 +542,21 @@ export function snapToRoute(
   maxSnapMeters = 35,
 ): { latitude: number; longitude: number } {
   if (points.length < 2) return { latitude: userLat, longitude: userLon };
-
-  let minDist = Infinity;
-  let bestLat = userLat;
-  let bestLon = userLon;
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const aLat = points[i].latitude;
-    const aLon = points[i].longitude;
-    const bLat = points[i + 1].latitude;
-    const bLon = points[i + 1].longitude;
-
-    const dist = distanceToSegmentMeters(userLat, userLon, aLat, aLon, bLat, bLon);
-
-    if (dist < minDist) {
-      minDist = dist;
-
-      // Oblicz dokładny punkt na odcinku
-      const R = 6371000;
-      const toRad = (d: number) => (d * Math.PI) / 180;
-
-      const ax = R * Math.cos(toRad(aLat)) * toRad(aLon);
-      const ay = R * toRad(aLat);
-      const bx = R * Math.cos(toRad(bLat)) * toRad(bLon);
-      const by = R * toRad(bLat);
-      const px = R * Math.cos(toRad(userLat)) * toRad(userLon);
-      const py = R * toRad(userLat);
-
-      const dx = bx - ax;
-      const dy = by - ay;
-      const lenSq = dx * dx + dy * dy;
-
-      let t = 0;
-      if (lenSq > 0) {
-        t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-        t = Math.max(0, Math.min(1, t));
-      }
-
-      // Interpolacja współrzędnych geograficznych
-      bestLat = aLat + t * (bLat - aLat);
-      bestLon = aLon + t * (bLon - aLon);
-    }
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) {
+    return { latitude: userLat, longitude: userLon };
   }
 
-  // Snap tylko jeśli jesteśmy wystarczająco blisko trasy
-  if (minDist <= maxSnapMeters) {
-    return { latitude: bestLat, longitude: bestLon };
+  const line = toTurfLineString(points);
+  const pt = turfPoint(userLon, userLat);
+  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
+
+  if (!Number.isFinite(distM) || distM > maxSnapMeters) {
+    return { latitude: userLat, longitude: userLon };
   }
 
-  // Za daleko od trasy — zwróć oryginalną pozycję (rerouting się zajmie)
-  return { latitude: userLat, longitude: userLon };
+  const nearest = turf.nearestPointOnLine(line, pt);
+  const [lng, lat] = nearest.geometry.coordinates;
+  return { latitude: lat, longitude: lng };
 }
 
 export type PolylineProjection = {
@@ -594,45 +574,24 @@ export function projectOntoPolylineWithIndex(
   maxRadiusM = 120,
 ): PolylineProjection | null {
   if (pts.length < 2) return null;
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  let minDist = Infinity;
-  let bestLat = userLat;
-  let bestLng = userLng;
-  let bestSegIdx = 0;
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return null;
 
-  for (let i = 0; i < pts.length - 1; i++) {
-    const aLat = pts[i].latitude;
-    const aLon = pts[i].longitude;
-    const bLat = pts[i + 1].latitude;
-    const bLon = pts[i + 1].longitude;
-    const dist = distanceToSegmentMeters(userLat, userLng, aLat, aLon, bLat, bLon);
-    if (dist >= minDist) continue;
-    minDist = dist;
-    bestSegIdx = i;
-    const ax = R * Math.cos(toRad(aLat)) * toRad(aLon);
-    const ay = R * toRad(aLat);
-    const bx = R * Math.cos(toRad(bLat)) * toRad(bLon);
-    const by = R * toRad(bLat);
-    const px = R * Math.cos(toRad(userLat)) * toRad(userLng);
-    const py = R * toRad(userLat);
-    const dx = bx - ax;
-    const dy = by - ay;
-    const lenSq = dx * dx + dy * dy;
-    let t = 0;
-    if (lenSq > 0) {
-      t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-      t = Math.max(0, Math.min(1, t));
-    }
-    bestLat = aLat + t * (bLat - aLat);
-    bestLng = aLon + t * (bLon - aLon);
-  }
-  if (!Number.isFinite(minDist) || minDist > maxRadiusM) return null;
+  const line = toTurfLineString(pts);
+  const pt = turfPoint(userLng, userLat);
+  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
+  if (!Number.isFinite(distM) || distM > maxRadiusM) return null;
+
+  const nearest = turf.nearestPointOnLine(line, pt);
+  const [lng, lat] = nearest.geometry.coordinates;
+  const segIdx = typeof nearest.properties?.index === 'number'
+    ? nearest.properties.index
+    : 0;
+
   return {
-    latitude: bestLat,
-    longitude: bestLng,
-    segmentIndex: bestSegIdx,
-    distM: minDist,
+    latitude: lat,
+    longitude: lng,
+    segmentIndex: segIdx,
+    distM,
   };
 }
 
@@ -916,43 +875,62 @@ export function findClosestPointIndex(
   points: { latitude: number; longitude: number }[],
 ): number {
   if (!points.length) return 0;
-
-  let minDist = Infinity;
-  let minIdx = 0;
-
-  for (let i = 0; i < points.length; i++) {
-    const d = haversineKm(userLat, userLng, points[i].latitude, points[i].longitude);
-    if (d < minDist) {
-      minDist = d;
-      minIdx = i;
+  if (points.length < 2 || !Number.isFinite(userLat) || !Number.isFinite(userLng)) {
+    let minDist = Infinity;
+    let minIdx = 0;
+    for (let i = 0; i < points.length; i++) {
+      const d = haversineKm(userLat, userLng, points[i].latitude, points[i].longitude);
+      if (d < minDist) {
+        minDist = d;
+        minIdx = i;
+      }
     }
+    return Math.max(0, minIdx - 2);
   }
 
-  // Cofnij się trochę żeby nie ucinać za agresywnie
-  return Math.max(0, minIdx - 2);
+  const line = toTurfLineString(points);
+  const nearest = turf.nearestPointOnLine(line, turfPoint(userLng, userLat));
+  const segIdx = typeof nearest.properties?.index === 'number'
+    ? nearest.properties.index
+    : 0;
+  return Math.max(0, segIdx - 2);
 }
 
 /**
- * Sprawdza czy użytkownik jest na trasie.
- * ULEPSZONA — sprawdza odległość od ODCINKÓW (nie punktów).
+ * Off-route detection — geoprzestrzenna odległość od polilinii (Turf Haversine).
+ * Skanuje całą trasę w jednym przebiegu (pointToLineDistance).
  */
 export function isOnRoute(
   userLat: number,
   userLon: number,
   routePoints: { latitude: number; longitude: number }[],
-  thresholdMeters = 40,
+  thresholdMeters = 35,
 ): boolean {
   if (routePoints.length < 2) return true;
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) return true;
 
-  for (let i = 0; i < routePoints.length - 1; i++) {
-    const dist = distanceToSegmentMeters(
-      userLat, userLon,
-      routePoints[i].latitude,     routePoints[i].longitude,
-      routePoints[i + 1].latitude, routePoints[i + 1].longitude,
-    );
-    if (dist <= thresholdMeters) return true;
-  }
-  return false;
+  const line = toTurfLineString(routePoints);
+  const distM = turf.pointToLineDistance(
+    turfPoint(userLon, userLat),
+    line,
+    { units: 'meters' },
+  );
+  return Number.isFinite(distM) && distM <= thresholdMeters;
+}
+
+/** Dystans cross-track od polilinii (m) — do diagnostyki reroute. */
+export function distanceToPolylineMeters(
+  userLat: number,
+  userLon: number,
+  routePoints: { latitude: number; longitude: number }[],
+): number {
+  if (routePoints.length < 2) return 0;
+  const line = toTurfLineString(routePoints);
+  return turf.pointToLineDistance(
+    turfPoint(userLon, userLat),
+    line,
+    { units: 'meters' },
+  );
 }
 
 /**

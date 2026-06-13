@@ -71,6 +71,8 @@ export type NavigationTarget = {
   arcWindow: ArcWindowSlice | null;
   polylineKey: string | null;
   allowInstant: boolean;
+  /** Czas od poprzedniego fixu GPS (ms) — synchronizacja animacji markera. */
+  gpsIntervalMs?: number;
 };
 
 export type GpsFilterVerdict = 'accept' | 'reject';

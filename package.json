@@ -28,6 +28,7 @@
     "@react-three/fiber": "^9.5.0",
     "@rnmapbox/maps": "^10.3.0",
     "@shopify/react-native-skia": "2.2.12",
+    "@turf/turf": "^7.3.5",
     "apple-signin-auth": "^2.0.0",
     "axios": "^1.13.5",
     "date-fns": "^4.1.0",

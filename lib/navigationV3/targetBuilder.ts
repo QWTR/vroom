@@ -4,7 +4,11 @@ export function buildNavigationTarget(
   snap: SnapResult,
   speedMs: number,
   allowInstant: boolean,
+  gpsIntervalMs?: number,
 ): NavigationTarget {
+  const intervalMs = Number.isFinite(gpsIntervalMs) && gpsIntervalMs! > 0
+    ? gpsIntervalMs!
+    : undefined;
   return {
     lat: snap.lat,
     lng: snap.lng,
@@ -18,5 +22,6 @@ export function buildNavigationTarget(
     arcWindow: snap.arcWindow,
     polylineKey: snap.polylineKey,
     allowInstant,
+    gpsIntervalMs: intervalMs,
   };
 }

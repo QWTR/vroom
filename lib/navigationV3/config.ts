@@ -5,7 +5,7 @@ export const NAV_V3 = {
   MARKER_HEADING_EMA: 0.22,
   /** Cross-track > tego progu → natychmiastowy snap release (swobodny GPS). */
   OFF_ROUTE_SNAP_RELEASE_M: 35,
-  SNAP_ATTACH_M: 40,
+  SNAP_ATTACH_M: 35,
   SNAP_DETACH_START_M: 60,
   SNAP_DETACH_FULL_M: 100,
   SNAP_MAX_RADIUS_M: 80,
@@ -42,6 +42,8 @@ export const NAV_V3 = {
   CAMERA_HEADING_SPRING_DAMPING: 15,
   /** animationDuration = throttle + buffer (Mapbox native interp). */
   CAMERA_NATIVE_ANIM_BUFFER_MS: 5,
+  /** Płynna rotacja kamery na zakrętach (easeTo). */
+  CAMERA_EASE_DURATION_MS: 1000,
   /** Max dt workletu markera po wybudzeniu z tła (ms). */
   MARKER_MAX_FRAME_DT_MS: 50,
   MARKER_STALE_FRAME_MS: 60,
