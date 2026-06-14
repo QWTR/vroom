@@ -32,7 +32,7 @@ function pointAtArcWindow(
   };
 }
 
-/** Look-ahead bearing: wyłącznie geometria polilinii (snap → punkt +18 m wzdłuż łuku). */
+/** Look-ahead bearing: wyłącznie geometria polilinii (snap → punkt +15 m wzdłuż łuku). */
 function bearingLookAheadFromSnap(snap: SnapResult): number | null {
   if (!snap.arcWindow || snap.arcM == null || !Number.isFinite(snap.arcM)) {
     return null;
@@ -44,24 +44,40 @@ function bearingLookAheadFromSnap(snap: SnapResult): number | null {
 
   const lookaheadM = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
   const aheadM = Math.min(total, localM + lookaheadM);
+  const snapLat = Number.isFinite(snap.lat) ? snap.lat : null;
+  const snapLng = Number.isFinite(snap.lng) ? snap.lng : null;
   const curPt = pointAtArcWindow(snap.arcWindow, localM);
   const aheadPt = pointAtArcWindow(snap.arcWindow, aheadM);
   if (!curPt || !aheadPt) return null;
 
-  const spanM = aheadM - localM;
-  if (spanM < 1.5) return null;
-
-  const fromLat = Number.isFinite(snap.lat) ? snap.lat : curPt.lat;
-  const fromLng = Number.isFinite(snap.lng) ? snap.lng : curPt.lng;
-
-  if (spanM < 4) {
-    return bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng);
-  }
-  return bearingBetween(curPt.lat, curPt.lng, aheadPt.lat, aheadPt.lng);
+  const fromLat = snapLat ?? curPt.lat;
+  const fromLng = snapLng ?? curPt.lng;
+  return bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng);
 }
 
-/** Heading markera — ON-ROAD: 100% polilinia; off-road: wektor ruchu (bez kompasu). */
+/** ON-ROAD (blend=1): wyłącznie geometria trasy; off-road: wektor ruchu z snapEngine. */
 export function resolveSnapHeadingForTarget(snap: SnapResult): number {
+  const onRoadFull = snap.roadBlend >= NAV_V3.MARKER_ON_ROAD_FULL_BLEND - 1e-6;
+  if (onRoadFull) {
+    const lookAhead = bearingLookAheadFromSnap(snap);
+    if (lookAhead != null && Number.isFinite(lookAhead)) {
+      return lookAhead;
+    }
+    if (snap.arcWindow && snap.arcM != null && Number.isFinite(snap.arcM)) {
+      const localM = snap.arcM - snap.arcWindow.baseArcM;
+      const aheadM = Math.min(
+        snap.arcWindow.cumM[snap.arcWindow.cumM.length - 1],
+        localM + NAV_V3.SNAP_HEADING_LOOKAHEAD_M,
+      );
+      const curPt = pointAtArcWindow(snap.arcWindow, localM);
+      const aheadPt = pointAtArcWindow(snap.arcWindow, aheadM);
+      if (curPt && aheadPt) {
+        return bearingBetween(curPt.lat, curPt.lng, aheadPt.lat, aheadPt.lng);
+      }
+    }
+    return snap.headingDeg;
+  }
+
   if (snap.roadBlend <= NAV_V3.ON_ROAD_BLEND_EPS) {
     return snap.headingDeg;
   }

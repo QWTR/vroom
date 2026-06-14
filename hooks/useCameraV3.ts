@@ -60,8 +60,11 @@ const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
 const NATIVE_ANIM_BUFFER_MS = NAV_V3.CAMERA_NATIVE_ANIM_BUFFER_MS;
 
 const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
-/** Trip follow — brak natywnego easeTo obrotu; płynność z 60 FPS Reanimated. */
-const TRIP_CAMERA_ANIM_MS = 0;
+/** Mapbox linearTo — zsynchronizowany z throttle (50–100 ms), nie 0 ms. */
+function resolveTripCameraAnimMs(throttleMs: number, isColdStart: boolean): number {
+  if (isColdStart) return 0;
+  return Math.min(100, Math.max(50, Math.ceil(throttleMs)));
+}
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 const PAUSE_FOLLOW_MAX_DRIFT_M = 35;
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
@@ -457,7 +460,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const padding = cachedPaddingRef.current;
     const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
     const isColdStart = coldStartFollowPendingRef.current;
-    const animMs = isColdStart ? 0 : TRIP_CAMERA_ANIM_MS;
+    const animMs = resolveTripCameraAnimMs(throttleMs, isColdStart);
     const displayHeading = normalizeHeading(heading);
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({

@@ -98,6 +98,7 @@ import {
   buildRerouteOrigin,
   quantizeHeading,
   REROUTE_BEARING_RANGE_DEG,
+  resolveRerouteApiHeadingDeg,
   resolveRerouteTravelHeadingDeg,
 } from '../../lib/navigation/reroute';
 
@@ -5472,6 +5473,9 @@ function MapScreenInner() {
   }, [driveMarker]);
 
   const exitDrivingMode = useCallback((opts?: { skipFlush?: boolean; reason?: string }) => {
+    const handoffLat = drLatRef.current;
+    const handoffLng = drLngRef.current;
+
     mapMatchCoord.invalidateCoordinatorRequests();
     passiveTripStartedRef.current = false;
     const finalStats = finishTrip();
@@ -5524,7 +5528,6 @@ function MapScreenInner() {
       lastTripMarkerPoseRef.current = null;
     }
 
-    resetDRRefs();
     resetMapMatch();
     drivingNoSnapStreakRef.current = 0;
     lastSnapSuccessAtRef.current = 0;
@@ -5538,30 +5541,21 @@ function MapScreenInner() {
     drivingSnapGeometryRef.current = [];
     drivingSnapUsesMatchedRef.current = false;
     drivingManualModeRef.current = false;
-    {
-      const handoffLat = drLatRef.current;
-      const handoffLng = drLngRef.current;
-      if (
-        Number.isFinite(handoffLat)
-        && Number.isFinite(handoffLng)
-        && !(Math.abs(handoffLat) < 1e-6 && Math.abs(handoffLng) < 1e-6)
-      ) {
-        setUserLocation(prev => (
-          prev
-            ? { ...prev, latitude: handoffLat, longitude: handoffLng }
-            : { latitude: handoffLat, longitude: handoffLng, accuracy: 10, timestamp: Date.now() }
-        ));
-        lastGoodLocRef.current = { lat: handoffLat, lng: handoffLng };
-        lastSetLocRef.current = { lat: handoffLat, lng: handoffLng };
-        currentLocRef.current = {
-          latitude: handoffLat,
-          longitude: handoffLng,
-          accuracy: 10,
-          timestamp: Date.now(),
-        };
-        rememberMapLastLocation(handoffLat, handoffLng, 10);
-      }
+    if (Number.isFinite(handoffLat) && Number.isFinite(handoffLng) && handoffLat !== 0) {
+      setUserLocation(prev => (
+        prev ? { ...prev, latitude: handoffLat, longitude: handoffLng } : null
+      ));
+      lastSetLocRef.current = { lat: handoffLat, lng: handoffLng };
+      lastGoodLocRef.current = { lat: handoffLat, lng: handoffLng };
+      currentLocRef.current = {
+        latitude: handoffLat,
+        longitude: handoffLng,
+        accuracy: 10,
+        timestamp: Date.now(),
+      };
+      rememberMapLastLocation(handoffLat, handoffLng, 10);
     }
+    resetDRRefs();
     setIsDriving(false);
     if (!opts?.skipFlush) {
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
@@ -11884,41 +11878,27 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       const snapped = snapToRoute(curLat, curLng, rerouteResult.points, NAV_ROUTE_SNAP_M);
       const syncLat = snapped.latitude;
       const syncLng = snapped.longitude;
-      const deviceHdg = lastGpsDeviceHeadingRef.current;
-      const syncHdg = deviceHdg != null && Number.isFinite(deviceHdg) && deviceHdg >= 0
-        ? normalizeHeading(deviceHdg)
-        : normalizeHeading(lastHeadingRef.current || 0);
+      const syncHdg = normalizeHeading(lastHeadingRef.current || 0);
 
+      offRouteRef.current = false;
+      setOffRoute(false);
       navV3.setRoutePolyline(
         rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
       );
       navV3.hardReset(syncLat, syncLng, syncHdg);
-      offRouteRef.current = false;
-
-      const rerouteFix = navV3.processGpsFix({
-        latitude: curLat,
-        longitude: curLng,
-        accuracy: 12,
-        timestamp: Date.now(),
-        speed: Math.max(0, speedKmhRef.current / 3.6),
-        heading: deviceHdg ?? syncHdg,
+      driveMarker.resetTo(syncLat, syncLng, syncHdg);
+      driveMarker.pushTarget({
+        ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
+        pathMode: 'onRoad',
+        roadBlend: 1,
+        allowInstant: true,
       });
-      if (rerouteFix && !rerouteFix.rejected) {
-        driveMarker.pushTarget({ ...rerouteFix.target, allowInstant: true });
-        drLatRef.current = rerouteFix.target.lat;
-        drLngRef.current = rerouteFix.target.lng;
-        drHdgRef.current = rerouteFix.target.headingDeg;
-        lastHeadingRef.current = rerouteFix.target.headingDeg;
-      } else {
-        driveMarker.resetTo(syncLat, syncLng, syncHdg);
-        driveMarker.pushTarget({
-          ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
-          pathMode: 'onRoad',
-          roadBlend: 1,
-          allowInstant: true,
-        });
-      }
       driveMarker.ensureFrameActive?.();
+      drLatRef.current = syncLat;
+      drLngRef.current = syncLng;
+      drHdgRef.current = syncHdg;
+      lastHeadingRef.current = syncHdg;
+      lastSetLocRef.current = { lat: syncLat, lng: syncLng };
       setFollowMode('navigationFollow');
       vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
         pts: rerouteResult.points.length,
@@ -11943,8 +11923,6 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
     lastSpokenRef.current    = '';
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
-    offRouteRef.current = false;
-    setOffRoute(false);
     setRerouteOrigin(null);
     setRerouteHeadingForApi(undefined);
     Toast.show({
@@ -12010,16 +11988,20 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
     }
 
     const rawHdg = lastGpsDeviceHeadingRef.current;
-    const travelHdg = rawHdg != null && Number.isFinite(rawHdg) && rawHdg >= 0
-      ? rawHdg
-      : (lastHeadingRef.current ?? 0);
+    const travelHdg = resolveRerouteApiHeadingDeg(
+      rawHdg,
+      vehicleLat,
+      vehicleLng,
+      lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
+      lastHeadingRef.current ?? 0,
+    );
 
     if (DEBUG_NETWORK) console.log('[reroute] triggering new reroute request', { travelHdg });
     reroutePendingRef.current = true;
     reroutePendingSinceRef.current = now;
     lastRerouteTimeRef.current = now;
     lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
-    setRerouteHeadingForApi(quantizeHeading(travelHdg));
+    setRerouteHeadingForApi(travelHdg);
     setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
     visionEvent('NAV_REROUTE_REQUEST', {
       vehicleLat: Number(vehicleLat.toFixed(6)),
@@ -12835,6 +12817,55 @@ if (pts.length >= 2) {
                 lat: Number(lat.toFixed(6)),
                 lng: Number(lng.toFixed(6)),
               });
+              if (
+                endLocationRef.current
+                && !reroutePendingRef.current
+                && Date.now() >= rerouteBlockedUntilRef.current
+                && speedKmhRef.current >= 5
+              ) {
+                const drFresh =
+                  drLatRef.current !== 0
+                  && drLngRef.current !== 0
+                  && Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
+                const fallbackLoc = currentLocRef.current;
+                const vehicleLat = drFresh ? drLatRef.current : (fallbackLoc?.latitude ?? currentLat);
+                const vehicleLng = drFresh ? drLngRef.current : (fallbackLoc?.longitude ?? currentLng);
+                if (Number.isFinite(vehicleLat) && Number.isFinite(vehicleLng)) {
+                  const nowReroute = Date.now();
+                  const sinceReroute = nowReroute - lastRerouteTimeRef.current;
+                  let allowReroute = true;
+                  if (sinceReroute < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
+                    const movedM = haversineKm(
+                      vehicleLat,
+                      vehicleLng,
+                      lastRerouteLocRef.current.lat,
+                      lastRerouteLocRef.current.lng,
+                    ) * 1000;
+                    if (movedM < REROUTE_MIN_MOVED_M) allowReroute = false;
+                  }
+                  if (allowReroute) {
+                    const travelHdg = resolveRerouteApiHeadingDeg(
+                      lastGpsDeviceHeadingRef.current,
+                      vehicleLat,
+                      vehicleLng,
+                      lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
+                      lastHeadingRef.current ?? 0,
+                    );
+                    reroutePendingRef.current = true;
+                    reroutePendingSinceRef.current = nowReroute;
+                    lastRerouteTimeRef.current = nowReroute;
+                    lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
+                    setRerouteHeadingForApi(travelHdg);
+                    setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
+                    visionEvent('NAV_REROUTE_REQUEST', {
+                      vehicleLat: Number(vehicleLat.toFixed(6)),
+                      vehicleLng: Number(vehicleLng.toFixed(6)),
+                      travelHdg: Math.round(travelHdg),
+                      speedKmh: Math.round(speedKmhRef.current),
+                    });
+                  }
+                }
+              }
             }
           }
         }

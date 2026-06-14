@@ -52,3 +52,32 @@ export function buildRerouteOrigin(input: RerouteOriginInput): {
     name: input.name ?? 'Moja pozycja',
   };
 }
+
+/**
+ * Heading do Directions API — TYLKO tu: fizyczny kompas urządzenia,
+ * ewentualnie wektor z ostatnich ~10 m jazdy.
+ */
+export function resolveRerouteApiHeadingDeg(
+  deviceHeadingDeg: number | null | undefined,
+  vehicleLat: number,
+  vehicleLng: number,
+  motionAnchor: { lat: number; lng: number } | null | undefined,
+  fallbackHeadingDeg: number,
+): number {
+  if (
+    deviceHeadingDeg != null
+    && Number.isFinite(deviceHeadingDeg)
+    && deviceHeadingDeg >= 0
+  ) {
+    return quantizeHeading(deviceHeadingDeg);
+  }
+  return quantizeHeading(
+    resolveRerouteTravelHeadingDeg(
+      vehicleLat,
+      vehicleLng,
+      fallbackHeadingDeg,
+      motionAnchor ?? null,
+      10,
+    ),
+  );
+}

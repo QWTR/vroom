@@ -61,8 +61,8 @@ export const NAV_V3 = {
   CAMERA_HEADING_ANIM_PER_DEG_MS: 14,
   CAMERA_HEADING_ANIM_MIN_MS: 120,
   CAMERA_HEADING_ANIM_MAX_MS: 480,
-  /** Look-ahead bearing na polilinii (m) — wektor drogi 15–20 m przed autem. */
-  SNAP_HEADING_LOOKAHEAD_M: 18,
+  /** Look-ahead bearing na polilinii (m) — punkt wyprzedzający 15 m. */
+  SNAP_HEADING_LOOKAHEAD_M: 15,
   /** Jedyne centralne wygładzanie heading (marker); kamera czyta SV bez drugiego tau. */
   MARKER_HEADING_TIMING_MS: 200,
   /** @deprecated — usunięte drugie EMA; zostawione dla kompatybilności typów. */
