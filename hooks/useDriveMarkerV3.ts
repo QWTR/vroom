@@ -22,10 +22,6 @@ const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
 const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
 const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
-/** Liniowy ruch między tickami GPS (~1 Hz). */
-const GPS_TARGET_ANIM_MS = 1000;
-const HEADING_TARGET_ANIM_MS = 500;
-const ARC_JUMP_TELEPORT_M = 100;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -509,110 +505,66 @@ export function useDriveMarkerV3(
     targetLng,
   ]);
 
-  /** ON-ROAD: liniowy withTiming na arcM (natywny silnik C++, bez LERP klatkowego). */
-  useAnimatedReaction(
-    () => ({
-      arc: targetArcM.value,
-      onRoad: onRoadSv.value,
-    }),
-    (curr, prev) => {
-      'worklet';
-      if (curr.onRoad < 0.5) return;
-      if (!Number.isFinite(curr.arc)) return;
-      const newTarget = curr.arc;
-      const prevTarget = prev?.arc;
-      if (prev != null && newTarget === prevTarget) return;
-      const isJump =
-        prevTarget == null
-        || !Number.isFinite(prevTarget)
-        || Math.abs(newTarget - prevTarget) > ARC_JUMP_TELEPORT_M;
-      cancelAnimation(displayArcM);
-      displayArcM.value = isJump
-        ? newTarget
-        : withTiming(newTarget, { duration: GPS_TARGET_ANIM_MS, easing: Easing.linear });
-    },
-    [targetArcM, onRoadSv, displayArcM],
-  );
-
-  /** OFF-ROAD: liniowy withTiming na współrzędne docelowe z GPS. */
-  useAnimatedReaction(
-    () => ({
-      lat: targetLat.value,
-      onRoad: onRoadSv.value,
-    }),
-    (curr, prev) => {
-      'worklet';
-      if (curr.onRoad >= 0.5) return;
-      if (!Number.isFinite(curr.lat)) return;
-      if (prev != null && curr.lat === prev.lat) return;
-      cancelAnimation(lat);
-      lat.value = withTiming(curr.lat, { duration: GPS_TARGET_ANIM_MS, easing: Easing.linear });
-    },
-    [targetLat, onRoadSv, lat],
-  );
-
-  useAnimatedReaction(
-    () => ({
-      lng: targetLng.value,
-      onRoad: onRoadSv.value,
-    }),
-    (curr, prev) => {
-      'worklet';
-      if (curr.onRoad >= 0.5) return;
-      if (!Number.isFinite(curr.lng)) return;
-      if (prev != null && curr.lng === prev.lng) return;
-      cancelAnimation(lng);
-      lng.value = withTiming(curr.lng, { duration: GPS_TARGET_ANIM_MS, easing: Easing.linear });
-    },
-    [targetLng, onRoadSv, lng],
-  );
-
-  /** Heading: shortest-path + szybszy ease (500 ms). */
-  useAnimatedReaction(
-    () => targetHdg.value,
-    (newHdg, prevHdg) => {
-      'worklet';
-      if (!Number.isFinite(newHdg)) return;
-      if (prevHdg != null && newHdg === prevHdg) return;
-      const current = Number.isFinite(heading.value) ? heading.value : newHdg;
-      const diff = ((newHdg - current + 540) % 360) - 180;
-      cancelAnimation(heading);
-      heading.value = withTiming(
-        current + diff,
-        { duration: HEADING_TARGET_ANIM_MS, easing: Easing.out(Easing.quad) },
-      );
-    },
-    [targetHdg, heading],
-  );
-
-  /** 60 FPS — tylko projekcja displayArcM → lat/lng na krzywej (bez LERP). */
-  const frameCallback = useFrameCallback((frameInfo) => {
+  const frameCallback = useFrameCallback(() => {
     'worklet';
     if (enabledSv.value < 0.5 || bootstrapped.value < 0.5) return;
 
-    if (skipCatchUpSv.value >= 0.5) {
-      skipCatchUpSv.value = 0;
-      lastFrameTimestamp.value = frameInfo.timestamp;
-      return;
-    }
-
-    lastFrameTimestamp.value = frameInfo.timestamp;
-
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
-    const pts = roadPtsFlat.value;
-    const cum = roadCumM.value;
-    const hasArc = pts.length >= 4 && cum.length >= 2;
 
-    if (onRoad && hasArc && Number.isFinite(displayArcM.value)) {
+    if (onRoad && roadPtsFlat.value.length >= 4 && Number.isFinite(displayArcM.value)) {
       const localM = displayArcM.value - baseArcM.value;
-      const roadPose = pointAtWindowArcLocal(pts, cum, localM);
+      const roadPose = pointAtWindowArcLocal(roadPtsFlat.value, roadCumM.value, localM);
+
       if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
         lat.value = roadPose.lat;
         lng.value = roadPose.lng;
       }
     }
   }, false);
+
+  // Płynne podążanie za polilinią (Nawigacja)
+  useAnimatedReaction(
+    () => targetArcM.value,
+    (newTarget, prevTarget) => {
+      if (newTarget !== null && Number.isFinite(newTarget) && newTarget !== prevTarget) {
+        const isJump = prevTarget === null || Math.abs(newTarget - prevTarget) > 150;
+        displayArcM.value = isJump
+          ? newTarget
+          : withTiming(newTarget, { duration: 1000, easing: Easing.linear });
+      }
+    },
+  );
+
+  // Płynne podążanie w trybie OFF-ROAD
+  useAnimatedReaction(
+    () => targetLat.value,
+    (newLat, prevLat) => {
+      if (onRoadSv.value < 0.5 && newLat !== null && Number.isFinite(newLat)) {
+        lat.value = withTiming(newLat, { duration: 1000, easing: Easing.linear });
+      }
+    },
+  );
+  useAnimatedReaction(
+    () => targetLng.value,
+    (newLng, prevLng) => {
+      if (onRoadSv.value < 0.5 && newLng !== null && Number.isFinite(newLng)) {
+        lng.value = withTiming(newLng, { duration: 1000, easing: Easing.linear });
+      }
+    },
+  );
+
+  // Interpolacja Kąta (Shortest Path)
+  useAnimatedReaction(
+    () => targetHdg.value,
+    (newHdg, prevHdg) => {
+      if (newHdg !== null && Number.isFinite(newHdg) && newHdg !== prevHdg) {
+        const current = heading.value;
+        const diff = ((newHdg - current + 540) % 360) - 180;
+        heading.value = withTiming(current + diff, { duration: 400, easing: Easing.out(Easing.quad) });
+      }
+    },
+  );
 
   const pushTarget = useCallback((target: NavigationTarget) => {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
