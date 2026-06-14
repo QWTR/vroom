@@ -248,16 +248,6 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       const isNavigating = state.mode === 'navigation';
       const tripActive = state.mode === 'navigation' || state.mode === 'freeDrive';
 
-      let snap = snapEngine.resolve({
-        raw: fix,
-        prev: state.displayPrev,
-        polylines: snapPolylines,
-        isNavigating,
-        tripActive,
-        // Trip: kurs z wektora ruchu + lock — NIE kompas (zakłócenia w karoserii).
-        travelHeadingDeg: undefined,
-      }).result;
-
       const feedSpeedMs = resolveFeedSpeedMs(fix, state.prevAccepted, hudSpeedKmh);
       const speedKmhForRelease = Math.max(hudSpeedKmh, feedSpeedMs * 3.6);
       const dynamicSnapReleaseThreshold = speedKmhForRelease > 80
@@ -266,21 +256,18 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           ? 48
           : NAV_V3.OFF_ROUTE_SNAP_RELEASE_M;
 
-      if (
-        shouldSnapToRoute
-        && isNavigating
-        && routePolylines.length > 0
-        && snap.crossTrackM > dynamicSnapReleaseThreshold
-      ) {
-        snap = snapEngine.resolve({
-          raw: fix,
-          prev: state.displayPrev,
-          polylines: [],
-          isNavigating,
-          tripActive,
-          travelHeadingDeg: undefined,
-        }).result;
-      }
+      const snap = snapEngine.resolve({
+        raw: fix,
+        prev: state.displayPrev,
+        polylines: snapPolylines,
+        isNavigating,
+        tripActive,
+        // Trip: kurs z wektora ruchu + lock — NIE kompas (zakłócenia w karoserii).
+        travelHeadingDeg: undefined,
+        maxCrossTrackToSnap: (shouldSnapToRoute && isNavigating && routePolylines.length > 0)
+          ? dynamicSnapReleaseThreshold
+          : undefined,
+      }).result;
 
       const allowInstant = state.sessionFirstFix || state.hardResetPending;
       const gpsIntervalMs = state.prevAccepted

@@ -610,6 +610,8 @@ export type SnapResolveInput = {
   /** freeDrive lub navigation — bez fallbacku do kompasu. */
   tripActive?: boolean;
   travelHeadingDeg?: number;
+  /** Powyżej progu — ignoruj projekcję na trasę (off-road bez drugiego resolve). */
+  maxCrossTrackToSnap?: number;
   state: SnapEngineState;
 };
 
@@ -626,7 +628,8 @@ function buildOffRoadStickyResult(
   cfg: SnapEngineConfig,
   crossTrackM: number,
 ): { result: SnapResult; state: SnapEngineState } {
-  if (!prev || crossTrackM >= 200) {
+  const instantBreakM = cfg.detachFullM + 10;
+  if (!prev || crossTrackM >= instantBreakM) {
     const headingDeg = safeHeadingDeg(
       travelHeadingDeg,
       safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
@@ -744,6 +747,10 @@ export function resolveSnap(
 
   if (!projection) {
     return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999);
+  }
+
+  if (input.maxCrossTrackToSnap && projection.crossTrackM > input.maxCrossTrackToSnap) {
+    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, projection.crossTrackM);
   }
 
   const rawBlend = computeRoadBlend(projection.crossTrackM, cfg);

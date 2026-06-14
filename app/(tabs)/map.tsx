@@ -2817,6 +2817,8 @@ function MapScreenInner() {
   const [offRoute,     setOffRoute]     = useState(false);
   const offRouteRef = useRef(false);
   offRouteRef.current = offRoute;
+  /** V3: natychmiast wyłącz snap do starej trasy (ref — bez czekania na React state). */
+  const v3SnapToRouteSuppressedRef = useRef(false);
   // rerouteOrigin is set (with cooldown) when user goes off-route.
   // Using a dedicated state instead of `userLocation` prevents the
   // reroute Directions hook from re-firing on every GPS tick while off-route.
@@ -3036,7 +3038,11 @@ function MapScreenInner() {
       matchedGeometry,
       routePoints: routePointsRef.current,
       isNavigating: isNavigatingRef.current,
-      suppressRouteSnap: isNavigatingRef.current && offRouteRef.current,
+      suppressRouteSnap: isNavigatingRef.current && (
+        offRouteRef.current
+        || v3SnapToRouteSuppressedRef.current
+        || reroutePendingRef.current
+      ),
       mirrorPolylines: localRoadGeometryMirror.getPolylines(),
     });
   }, []);
@@ -3052,21 +3058,26 @@ function MapScreenInner() {
     ),
     getGeometry: buildV3Geometry,
     onTarget: (out) => {
-      if (
-        !out.rejected
-        && isNavigatingRef.current
-        && !isOffroadRef.current
-        && out.snap.crossTrackM > OFF_ROUTE_SNAP_RELEASE_M
-      ) {
-        if (!offRouteRef.current) {
-          offRouteRef.current = true;
-          setOffRoute(true);
-          visionEvent('NAV_OFF_ROUTE', {
-            crossTrackM: Math.round(out.snap.crossTrackM),
-            speedKmh: Math.round(out.hudSpeedKmh),
-            lat: Number(out.target.lat.toFixed(6)),
-            lng: Number(out.target.lng.toFixed(6)),
-          });
+      if (!out.rejected && isNavigatingRef.current && !isOffroadRef.current) {
+        if (out.snap.pathMode === 'offRoad') {
+          v3SnapToRouteSuppressedRef.current = true;
+          if (!offRouteRef.current) {
+            offRouteRef.current = true;
+            setOffRoute(true);
+            visionEvent('NAV_OFF_ROUTE', {
+              crossTrackM: Math.round(out.snap.crossTrackM),
+              speedKmh: Math.round(out.hudSpeedKmh),
+              lat: Number(out.target.lat.toFixed(6)),
+              lng: Number(out.target.lng.toFixed(6)),
+              pathMode: out.snap.pathMode,
+            });
+          }
+        } else if (
+          out.snap.pathMode === 'onRoad'
+          && !offRouteRef.current
+          && !reroutePendingRef.current
+        ) {
+          v3SnapToRouteSuppressedRef.current = false;
         }
       }
 
@@ -11881,6 +11892,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       const syncHdg = normalizeHeading(lastHeadingRef.current || 0);
 
       offRouteRef.current = false;
+      v3SnapToRouteSuppressedRef.current = false;
       setOffRoute(false);
       navV3.setRoutePolyline(
         rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
@@ -12119,6 +12131,7 @@ if (pts.length >= 2) {
         setCurrentStep(Math.max(0, data.currentStep ?? 0));
         setArrived(false);
         setOffRoute(false);
+        v3SnapToRouteSuppressedRef.current = false;
         announcedPhasesRef.current = new Set();
         lastSpokenRef.current = '';
 
@@ -12579,19 +12592,9 @@ if (pts.length >= 2) {
     void 0;
     setIsNavigating(false);
     setOffRoute(false);
+    v3SnapToRouteSuppressedRef.current = false;
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
-    setArrived(false);
-    setNavStartLoc(null);
-    setNavRouteOverride(null);
-    setRerouteOrigin(null);
-    setDistToTurnM(null);
-    setRemainingDistKm(null);
-    notifThrottleRef.current = 0;
-    dismissNavigationNotification();
-    Speech.stop().catch(() => {});
-    clearTimeout(rerouteTimerRef.current);
-    onNavigationCancel();
 
     const approachStats = finishTrip();
     flushNavigationStatsOnce(approachStats);
@@ -12791,6 +12794,7 @@ if (pts.length >= 2) {
           offRouteStreakRef.current = 0;
           if (offRouteRef.current) {
             offRouteRef.current = false;
+            v3SnapToRouteSuppressedRef.current = false;
             setOffRoute(false);
           }
         } else if (
@@ -12809,6 +12813,7 @@ if (pts.length >= 2) {
               && !offRouteRef.current
             ) {
               offRouteRef.current = true;
+              v3SnapToRouteSuppressedRef.current = true;
               setOffRoute(true);
               visionEvent('NAV_OFF_ROUTE', {
                 streak: offRouteStreakRef.current,
@@ -13042,6 +13047,7 @@ if (pts.length >= 2) {
     setCurrentStep(0);
     setArrived(false);
     setOffRoute(false);
+    v3SnapToRouteSuppressedRef.current = false;
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
 
@@ -13132,6 +13138,7 @@ if (pts.length >= 2) {
     setFollowMode('idleBrowse');
     setIsNavigating(false);
     setOffRoute(false);
+    v3SnapToRouteSuppressedRef.current = false;
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
     setArrived(false);
