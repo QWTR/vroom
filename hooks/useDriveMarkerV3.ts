@@ -544,7 +544,11 @@ export function useDriveMarkerV3(
     () => targetLat.value,
     (newLat, prevLat) => {
       if (onRoadSv.value < 0.5 && newLat !== null && Number.isFinite(newLat)) {
-        lat.value = withTiming(newLat, { duration: 1000, easing: Easing.linear });
+        if (prevLat == null || !Number.isFinite(prevLat)) {
+          lat.value = newLat;
+        } else {
+          lat.value = withTiming(newLat, { duration: 1000, easing: Easing.linear });
+        }
       }
     },
   );
@@ -552,7 +556,11 @@ export function useDriveMarkerV3(
     () => targetLng.value,
     (newLng, prevLng) => {
       if (onRoadSv.value < 0.5 && newLng !== null && Number.isFinite(newLng)) {
-        lng.value = withTiming(newLng, { duration: 1000, easing: Easing.linear });
+        if (prevLng == null || !Number.isFinite(prevLng)) {
+          lng.value = newLng;
+        } else {
+          lng.value = withTiming(newLng, { duration: 1000, easing: Easing.linear });
+        }
       }
     },
   );
@@ -562,9 +570,13 @@ export function useDriveMarkerV3(
     () => targetHdg.value,
     (newHdg, prevHdg) => {
       if (newHdg !== null && Number.isFinite(newHdg) && newHdg !== prevHdg) {
-        const current = heading.value;
-        const diff = ((newHdg - current + 540) % 360) - 180;
-        heading.value = withTiming(current + diff, { duration: 400, easing: Easing.out(Easing.quad) });
+        if (prevHdg == null || !Number.isFinite(prevHdg)) {
+          heading.value = newHdg;
+        } else {
+          const current = heading.value;
+          const diff = ((newHdg - current + 540) % 360) - 180;
+          heading.value = withTiming(current + diff, { duration: 400, easing: Easing.out(Easing.quad) });
+        }
       }
     },
   );

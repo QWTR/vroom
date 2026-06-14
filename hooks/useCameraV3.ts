@@ -277,6 +277,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     followEnabledSv.value = 1;
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
+    coldStartFollowPendingRef.current = true;
     if (heading != null && Number.isFinite(heading)) {
       const h = normalizeHeading(heading);
       lockedCourseHeadingRef.current = h;

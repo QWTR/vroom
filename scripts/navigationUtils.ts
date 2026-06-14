@@ -442,18 +442,10 @@ export function distanceToSegmentMeters(
   bLat: number,
   bLon: number,
 ): number {
-  if (
-    !Number.isFinite(userLat) || !Number.isFinite(userLon)
-    || !Number.isFinite(aLat) || !Number.isFinite(aLon)
-    || !Number.isFinite(bLat) || !Number.isFinite(bLon)
-  ) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const line = turf.lineString([[aLon, aLat], [bLon, bLat]]);
-  return turf.pointToLineDistance(turfPoint(userLon, userLat), line, { units: 'meters' });
+  return nearestPointOnSegmentMeters(userLat, userLon, aLat, aLon, bLat, bLon).distM;
 }
 
-/** Najbliższy punkt na odcinku + dystans cross-track (metry). */
+/** Najbliższy punkt na odcinku + dystans cross-track (metry). (Brak Turf) */
 export function nearestPointOnSegmentMeters(
   userLat: number,
   userLon: number,
@@ -462,12 +454,40 @@ export function nearestPointOnSegmentMeters(
   bLat: number,
   bLon: number,
 ): { latitude: number; longitude: number; distM: number } {
-  const line = turf.lineString([[aLon, aLat], [bLon, bLat]]);
-  const pt = turfPoint(userLon, userLat);
-  const nearest = turf.nearestPointOnLine(line, pt);
-  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
-  const [lng, lat] = nearest.geometry.coordinates;
-  return { latitude: lat, longitude: lng, distM };
+  if (
+    !Number.isFinite(userLat) || !Number.isFinite(userLon)
+    || !Number.isFinite(aLat) || !Number.isFinite(aLon)
+    || !Number.isFinite(bLat) || !Number.isFinite(bLon)
+  ) {
+    return { latitude: userLat, longitude: userLon, distM: Number.POSITIVE_INFINITY };
+  }
+
+  const d2r = Math.PI / 180;
+  // Flat earth approximation centered on the segment
+  const midLat = (aLat + bLat) / 2;
+  const cosLat = Math.cos(midLat * d2r);
+
+  const dx = (bLon - aLon) * cosLat;
+  const dy = (bLat - aLat);
+  const lenSq = dx * dx + dy * dy;
+
+  if (lenSq === 0) {
+    return { latitude: aLat, longitude: aLon, distM: haversineKm(userLat, userLon, aLat, aLon) * 1000 };
+  }
+
+  const px = (userLon - aLon) * cosLat;
+  const py = (userLat - aLat);
+
+  const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+
+  const projLat = aLat + t * dy;
+  const projLon = aLon + t * (bLon - aLon);
+
+  return {
+    latitude: projLat,
+    longitude: projLon,
+    distM: haversineKm(userLat, userLon, projLat, projLon) * 1000,
+  };
 }
 
 function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
@@ -549,17 +569,29 @@ export function snapToRoute(
     return { latitude: userLat, longitude: userLon };
   }
 
-  const line = toTurfLineString(points);
-  const pt = turfPoint(userLon, userLat);
-  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
+  let bestDist = Infinity;
+  let bestLat = userLat;
+  let bestLng = userLon;
 
-  if (!Number.isFinite(distM) || distM > maxSnapMeters) {
-    return { latitude: userLat, longitude: userLon };
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const nearest = nearestPointOnSegmentMeters(
+      userLat, userLon,
+      a.latitude, a.longitude,
+      b.latitude, b.longitude
+    );
+    if (nearest.distM < bestDist) {
+      bestDist = nearest.distM;
+      bestLat = nearest.latitude;
+      bestLng = nearest.longitude;
+    }
   }
 
-  const nearest = turf.nearestPointOnLine(line, pt);
-  const [lng, lat] = nearest.geometry.coordinates;
-  return { latitude: lat, longitude: lng };
+  if (bestDist > maxSnapMeters) {
+    return { latitude: userLat, longitude: userLon };
+  }
+  return { latitude: bestLat, longitude: bestLng };
 }
 
 export type PolylineProjection = {
@@ -579,22 +611,34 @@ export function projectOntoPolylineWithIndex(
   if (pts.length < 2) return null;
   if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return null;
 
-  const line = toTurfLineString(pts);
-  const pt = turfPoint(userLng, userLat);
-  const distM = turf.pointToLineDistance(pt, line, { units: 'meters' });
-  if (!Number.isFinite(distM) || distM > maxRadiusM) return null;
+  let bestDist = Infinity;
+  let bestLat = userLat;
+  let bestLng = userLng;
+  let bestIdx = 0;
 
-  const nearest = turf.nearestPointOnLine(line, pt);
-  const [lng, lat] = nearest.geometry.coordinates;
-  const segIdx = typeof nearest.properties?.index === 'number'
-    ? nearest.properties.index
-    : 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const nearest = nearestPointOnSegmentMeters(
+      userLat, userLng,
+      a.latitude, a.longitude,
+      b.latitude, b.longitude
+    );
+    if (nearest.distM < bestDist) {
+      bestDist = nearest.distM;
+      bestLat = nearest.latitude;
+      bestLng = nearest.longitude;
+      bestIdx = i;
+    }
+  }
+
+  if (bestDist > maxRadiusM) return null;
 
   return {
-    latitude: lat,
-    longitude: lng,
-    segmentIndex: segIdx,
-    distM,
+    latitude: bestLat,
+    longitude: bestLng,
+    segmentIndex: bestIdx,
+    distM: bestDist,
   };
 }
 
@@ -877,26 +921,27 @@ export function findClosestPointIndex(
   userLng: number,
   points: { latitude: number; longitude: number }[],
 ): number {
-  if (!points.length) return 0;
-  if (points.length < 2 || !Number.isFinite(userLat) || !Number.isFinite(userLng)) {
-    let minDist = Infinity;
-    let minIdx = 0;
-    for (let i = 0; i < points.length; i++) {
-      const d = haversineKm(userLat, userLng, points[i].latitude, points[i].longitude);
-      if (d < minDist) {
-        minDist = d;
-        minIdx = i;
-      }
+  if (points.length < 2) return 0;
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return 0;
+
+  let bestDist = Infinity;
+  let bestIdx = 0;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const d = distanceToSegmentMeters(
+      userLat, userLng,
+      a.latitude, a.longitude,
+      b.latitude, b.longitude
+    );
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
     }
-    return Math.max(0, minIdx - 2);
   }
 
-  const line = toTurfLineString(points);
-  const nearest = turf.nearestPointOnLine(line, turfPoint(userLng, userLat));
-  const segIdx = typeof nearest.properties?.index === 'number'
-    ? nearest.properties.index
-    : 0;
-  return Math.max(0, segIdx - 2);
+  return Math.max(0, bestIdx - 2);
 }
 
 /**
@@ -968,12 +1013,21 @@ export function distanceToPolylineMeters(
   routePoints: { latitude: number; longitude: number }[],
 ): number {
   if (routePoints.length < 2) return 0;
-  const line = toTurfLineString(routePoints);
-  return turf.pointToLineDistance(
-    turfPoint(userLon, userLat),
-    line,
-    { units: 'meters' },
-  );
+  
+  let bestDist = Infinity;
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const a = routePoints[i];
+    const b = routePoints[i + 1];
+    const d = distanceToSegmentMeters(
+      userLat, userLon,
+      a.latitude, a.longitude,
+      b.latitude, b.longitude
+    );
+    if (d < bestDist) {
+      bestDist = d;
+    }
+  }
+  return bestDist;
 }
 
 /**

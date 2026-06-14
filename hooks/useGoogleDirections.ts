@@ -230,7 +230,7 @@ export function useGoogleDirections(
     (async () => {
       try {
         const continueParam = continueStraight ? '&continue_straight=true' : '';
-        const bearingParam = (!isReroute && roundedHeading != null)
+        const bearingParam = (roundedHeading != null)
           ? `&bearings=${roundedHeading},${headingRangeDeg};`
           : '';
 
@@ -254,7 +254,7 @@ export function useGoogleDirections(
             steps: true,
             language: 'pl',
             continue_straight: continueStraight,
-            bearings: !isReroute && roundedHeading != null
+            bearings: roundedHeading != null
               ? [`${roundedHeading},${headingRangeDeg}`, '']
               : undefined,
           },
