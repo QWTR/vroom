@@ -520,9 +520,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
       smoothedCameraHeadingSv.value = next.hdg;
       displayCameraHdgReadySv.value = 1;
 
-      const speed = Math.max(0, next.speed);
-      
-      // Send the camera to target coordinates with a 1000ms sync duration
       const throttleMs = 1000;
       const now = Date.now();
 
@@ -543,7 +540,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
       if (
         lastCameraPushMsSv.value > 0
-        && now - lastCameraPushMsSv.value < 800 // Give it a little leeway before next target
+        && now - lastCameraPushMsSv.value < 800
       ) {
         return;
       }

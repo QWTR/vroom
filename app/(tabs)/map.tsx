@@ -3042,15 +3042,18 @@ function MapScreenInner() {
     const matchedGeometry = liveGeom.length >= 2
       ? liveGeom
       : lastGoodDrivingSnapGeometryRef.current;
+    
+    const suppressSnap = isNavigatingRef.current && (
+      offRouteRef.current
+      || v3SnapToRouteSuppressedRef.current
+      || reroutePendingRef.current
+    );
+
     return buildV3GeometryFromRefs({
       matchedGeometry,
-      routePoints: routePointsRef.current,
+      routePoints: suppressSnap ? [] : routePointsRef.current, // Clear route points instantly if suppressing snap
       isNavigating: isNavigatingRef.current,
-      suppressRouteSnap: isNavigatingRef.current && (
-        offRouteRef.current
-        || v3SnapToRouteSuppressedRef.current
-        || reroutePendingRef.current
-      ),
+      suppressRouteSnap: suppressSnap,
       mirrorPolylines: localRoadGeometryMirror.getPolylines(),
     });
   }, []);
@@ -4928,8 +4931,9 @@ function MapScreenInner() {
     },
     coords?: { lat: number; lng: number } | null,
   ) => {
-    const lat = coords?.lat ?? userLocation?.latitude;
-    const lng = coords?.lng ?? userLocation?.longitude;
+    const acc = getCurrentAccurateLocation();
+    const lat = coords?.lat ?? acc.lat;
+    const lng = coords?.lng ?? acc.lng;
     if (lat == null || lng == null) {
       Toast.show({ type: 'error', text1: 'GPS', text2: 'Brak pozycji — włącz lokalizację lub wskaż na mapie.' });
       return;
@@ -4944,16 +4948,16 @@ function MapScreenInner() {
     if (result) {
       Toast.show({ type: 'success', text1: '📷 FOTORADAR DODANY', text2: 'Dziękujemy za zgłoszenie!' });
       invalidate();
-      const refLat = userLocation?.latitude ?? lat;
-      const refLng = userLocation?.longitude ?? lng;
+      const refLat = acc.lat ?? lat;
+      const refLng = acc.lng ?? lng;
       updateCameras(refLat, refLng, {
-        headingDeg: lastHeadingRef.current,
+        headingDeg: acc.heading,
         speedKmh,
       });
     } else {
       Toast.show({ type: 'info', text1: 'Fotoradar już istnieje w tym miejscu' });
     }
-  }, [userLocation, addCamera, invalidate, updateCameras, speedKmh]);
+  }, [getCurrentAccurateLocation, addCamera, invalidate, updateCameras, speedKmh]);
 
   const cancelCameraPick = useCallback(() => {
     setCameraPickMode(false);
@@ -5015,6 +5019,30 @@ function MapScreenInner() {
   useEffect(() => {
     isOffroadRef.current = isOffroadRoute;
   }, [isOffroadRoute]);
+
+  const getCurrentAccurateLocation = useCallback(() => {
+    let lat = userLocation?.latitude;
+    let lng = userLocation?.longitude;
+    let heading = lastHeadingRef.current;
+
+    if (isDrivingRef.current || isNavigatingRef.current) {
+      const mLat = driveMarker.lat.value;
+      const mLng = driveMarker.lng.value;
+      const mHdg = driveMarker.heading.value;
+      const drLat = drLatRef.current;
+      const drLng = drLngRef.current;
+
+      if (Number.isFinite(mLat) && Number.isFinite(mLng)) {
+        lat = mLat;
+        lng = mLng;
+        if (Number.isFinite(mHdg)) heading = mHdg;
+      } else if (Number.isFinite(drLat) && drLat !== 0) {
+        lat = drLat;
+        lng = drLng;
+      }
+    }
+    return { lat, lng, heading };
+  }, [userLocation, driveMarker]);
 
   useEffect(() => {
     isSpeechRef.current = isSpeechEnabled;
@@ -5548,6 +5576,17 @@ function MapScreenInner() {
     if (hasFinalPose) {
       navV3.hardReset(finalLat, finalLng, finalHdg);
       driveMarker.reset({ lat: finalLat, lng: finalLng, headingDeg: finalHdg });
+      if (
+        Number.isFinite(finalLat)
+        && Number.isFinite(finalLng)
+        && !(Math.abs(finalLat) < 1e-6 && Math.abs(finalLng) < 1e-6)
+      ) {
+        // Natywna kamera
+        cameraV3.recenter(
+          { latitude: finalLat, longitude: finalLng },
+          { heading: finalHdg, speedKmh: speedKmhRef.current, animate: true },
+        );
+      }
     } else {
       navV3.hardReset(0, 0, 0);
       driveMarker.reset();
@@ -12528,16 +12567,20 @@ if (pts.length >= 2) {
   }, [toggleSharing, isSharing, settings.backgroundTracking, resumeLiveSession]);
 
   const handleReport = useCallback(async (type: any) => {
-    if (!userLocation) { Toast.show({ type: 'error', text1: 'Brak lokalizacji GPS' }); return; }
+    const acc = getCurrentAccurateLocation();
+    if (acc.lat == null || acc.lng == null) { 
+      Toast.show({ type: 'error', text1: 'Brak lokalizacji GPS' }); 
+      return; 
+    }
     setIsSubmittingWarning(true);
     try {
       const routePoints = activeRoute?.points ?? [];
-      await addWarning(type, userLocation.latitude, userLocation.longitude, undefined, routePoints);
+      await addWarning(type, acc.lat, acc.lng, undefined, routePoints);
       Toast.show({ type: 'success', text1: '✅ ZGŁOSZONO', text2: getWarningLabel(type) });
     } finally {
       setIsSubmittingWarning(false);
     }
-  }, [userLocation, addWarning, activeRoute]);
+  }, [getCurrentAccurateLocation, addWarning, activeRoute]);
 
   const handleCenterOnUser = useCallback(() => {
     if (isDrivingRef.current || isNavigatingRef.current) {
@@ -12553,6 +12596,7 @@ if (pts.length >= 2) {
         && Number.isFinite(mLng)
         && !(Math.abs(mLat) < 1e-6 && Math.abs(mLng) < 1e-6)
       ) {
+        // Natywna kamera
         cameraV3.recenter(
           { latitude: mLat, longitude: mLng },
           { heading: mHdg, speedKmh: speedKmhRef.current, animate: true },
@@ -12745,7 +12789,7 @@ if (pts.length >= 2) {
       if (!currentLat || !currentLng) return;
 
       const snapped = points.length
-        ? snapToRoute(currentLat, currentLng, points, NAV_ROUTE_SNAP_M)
+        ? snapToRoute(currentLat, currentLng, points, NAV_ROUTE_SNAP_M, navRouteIdxRef.current)
         : { latitude: currentLat, longitude: currentLng };
       const { latitude: lat, longitude: lng } = snapped;
 
@@ -12804,7 +12848,7 @@ if (pts.length >= 2) {
           navRouteIdxRef.current,
         );
         const nowOff = Date.now();
-        if (onRoad) {
+        if (onRoad && !reroutePendingRef.current) {
           offRouteSinceRef.current = 0;
           offRouteStreakRef.current = 0;
           if (offRouteRef.current) {
@@ -12864,14 +12908,20 @@ if (pts.length >= 2) {
                     if (movedM < REROUTE_MIN_MOVED_M) allowReroute = false;
                   }
                   if (allowReroute) {
-                    const travelHdg = resolveRerouteApiHeadingDeg(
-                      lastGpsDeviceHeadingRef.current,
-                      vehicleLat,
-                      vehicleLng,
-                      lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
-                      lastHeadingRef.current ?? 0,
-                    );
+                    // Update bearing to current driveMarker heading to prevent u-turns
+                    const currentMarkerHeading = driveMarker.heading.value;
+                    const travelHdg = Number.isFinite(currentMarkerHeading) 
+                      ? normalizeHeading(currentMarkerHeading) 
+                      : resolveRerouteApiHeadingDeg(
+                          lastGpsDeviceHeadingRef.current,
+                          vehicleLat,
+                          vehicleLng,
+                          lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
+                          lastHeadingRef.current ?? 0,
+                        );
+
                     reroutePendingRef.current = true;
+                    v3SnapToRouteSuppressedRef.current = true; // Supress snapping during reroute to prevent dragging back to old route
                     reroutePendingSinceRef.current = nowReroute;
                     lastRerouteTimeRef.current = nowReroute;
                     lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
@@ -12892,7 +12942,7 @@ if (pts.length >= 2) {
       }
 
       if (points.length > 1 && !offRouteRef.current) {
-        const idx = findClosestPointIndex(lat, lng, points);
+        const idx = findClosestPointIndex(lat, lng, points, navRouteIdxRef.current);
         const prevIdx = navRouteIdxRef.current;
         const idxDelta = prevIdx >= 0 ? Math.abs(idx - prevIdx) : 0;
         if (idx !== prevIdx && (prevIdx < 0 || idxDelta <= 8)) {

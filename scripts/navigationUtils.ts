@@ -563,6 +563,7 @@ export function snapToRoute(
   userLon: number,
   points: { latitude: number; longitude: number }[],
   maxSnapMeters = 35,
+  hintIndex?: number,
 ): { latitude: number; longitude: number } {
   if (points.length < 2) return { latitude: userLat, longitude: userLon };
   if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) {
@@ -573,7 +574,12 @@ export function snapToRoute(
   let bestLat = userLat;
   let bestLng = userLon;
 
-  for (let i = 0; i < points.length - 1; i++) {
+  const hint = hintIndex != null && hintIndex >= 0 ? hintIndex : 0;
+  const windowSeg = 150; 
+  const startSeg = hintIndex != null ? Math.max(0, Math.min(hint - 30, points.length - 2)) : 0;
+  const endSeg = hintIndex != null ? Math.min(points.length - 2, hint + windowSeg) : Math.min(points.length - 2, 400);
+
+  for (let i = startSeg; i <= endSeg; i++) {
     const a = points[i];
     const b = points[i + 1];
     const nearest = nearestPointOnSegmentMeters(
@@ -616,7 +622,10 @@ export function projectOntoPolylineWithIndex(
   let bestLng = userLng;
   let bestIdx = 0;
 
-  for (let i = 0; i < pts.length - 1; i++) {
+  // Reduced max iteration cap to prevent freezes on large polylines during project
+  const maxSegments = Math.min(pts.length - 1, 400);
+
+  for (let i = 0; i < maxSegments; i++) {
     const a = pts[i];
     const b = pts[i + 1];
     const nearest = nearestPointOnSegmentMeters(
@@ -654,9 +663,9 @@ export function densifyPolyline(
   const out: { latitude: number; longitude: number }[] = [
     { latitude: pts[0].latitude, longitude: pts[0].longitude },
   ];
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1];
-    const b = pts[i];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
     const segM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
     if (segM > capM) {
       const steps = Math.min(48, Math.ceil(segM / capM));
@@ -675,12 +684,12 @@ export function densifyPolyline(
 
 function polylinePathLengthM(path: { latitude: number; longitude: number }[]): number {
   let total = 0;
-  for (let i = 1; i < path.length; i++) {
+  for (let i = 0; i < path.length - 1; i++) {
     total += haversineKm(
-      path[i - 1].latitude,
-      path[i - 1].longitude,
       path[i].latitude,
       path[i].longitude,
+      path[i + 1].latitude,
+      path[i + 1].longitude,
     ) * 1000;
   }
   return total;
@@ -696,9 +705,9 @@ export function getPointAtDistanceAlongPath(
     return { latitude: path[0].latitude, longitude: path[0].longitude };
   }
   let remaining = distanceM;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1];
-    const b = path[i];
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
     const segM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
     if (segM <= 0) continue;
     if (remaining <= segM) {
@@ -854,6 +863,7 @@ export function snapStepTowardRoad(
 ): { latitude: number; longitude: number } | null {
   if (points.length < 2 || !Number.isFinite(maxStepM) || maxStepM <= 0) return null;
   const snapped = snapToRoute(lat, lng, points, maxSnapMeters);
+  // Using haversineKm directly rather than point distance
   const moveM = haversineKm(lat, lng, snapped.latitude, snapped.longitude) * 1000;
   if (moveM < 0.3 || moveM > maxSnapMeters) return null;
   if (moveM <= maxStepM) return snapped;
@@ -892,7 +902,7 @@ export function detectCurrentStep(
 
   // 2) Lookahead: wybierz najbliższy segment kroku w krótkim oknie do przodu.
   // Dzięki temu manewr nie "wisi" na poprzednim kroku po szybkich skrzyżowaniach.
-  const LOOKAHEAD_STEPS = 10;
+  const LOOKAHEAD_STEPS = 4; // reduced from 10 to 4 since segments are well defined and 10 iterations is expensive
   let bestStep = resolved;
   let bestDist = Number.POSITIVE_INFINITY;
 
@@ -920,6 +930,7 @@ export function findClosestPointIndex(
   userLat: number,
   userLng: number,
   points: { latitude: number; longitude: number }[],
+  hintIndex?: number,
 ): number {
   if (points.length < 2) return 0;
   if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return 0;
@@ -927,7 +938,12 @@ export function findClosestPointIndex(
   let bestDist = Infinity;
   let bestIdx = 0;
 
-  for (let i = 0; i < points.length - 1; i++) {
+  const hint = hintIndex != null && hintIndex >= 0 ? hintIndex : 0;
+  const windowSeg = 150; 
+  const startSeg = hintIndex != null ? Math.max(0, Math.min(hint - 30, points.length - 2)) : 0;
+  const endSeg = hintIndex != null ? Math.min(points.length - 2, hint + windowSeg) : Math.min(points.length - 2, 400);
+
+  for (let i = startSeg; i <= endSeg; i++) {
     const a = points[i];
     const b = points[i + 1];
     const d = distanceToSegmentMeters(
@@ -957,8 +973,8 @@ export function distanceToPolylineWindowM(
   if (!Number.isFinite(userLat) || !Number.isFinite(userLon)) return 0;
 
   const hint = hintIndex != null && hintIndex >= 0 ? hintIndex : 0;
-  const windowSeg = 120;
-  const startSeg = Math.max(0, Math.min(hint - windowSeg, routePoints.length - 2));
+  const windowSeg = 150; // Increased window from 120 to 150
+  const startSeg = Math.max(0, Math.min(hint - 30, routePoints.length - 2)); // look backwards less
   const endSeg = Math.min(routePoints.length - 2, hint + windowSeg);
 
   let best = Number.POSITIVE_INFINITY;
@@ -1002,8 +1018,16 @@ export function isOnRoute(
     return true;
   }
 
-  const fullDistM = distanceToPolylineMeters(userLat, userLon, routePoints);
-  return Number.isFinite(fullDistM) && fullDistM <= thresholdMeters;
+  // Instead of scanning the entire polyline, scan up to ~300 segments ahead
+  // If we don't find it within 300 segments, the user is almost certainly off-route.
+  const lookaheadDistM = distanceToPolylineWindowM(
+    userLat,
+    userLon,
+    routePoints,
+    hintIndex != null ? hintIndex + 150 : 150
+  );
+
+  return Number.isFinite(lookaheadDistM) && lookaheadDistM <= thresholdMeters;
 }
 
 /** Dystans cross-track od polilinii (m) — do diagnostyki reroute. */
@@ -1011,11 +1035,21 @@ export function distanceToPolylineMeters(
   userLat: number,
   userLon: number,
   routePoints: { latitude: number; longitude: number }[],
+  hintIndex?: number,
 ): number {
   if (routePoints.length < 2) return 0;
   
+  if (hintIndex != null) {
+    const wDist = distanceToPolylineWindowM(userLat, userLon, routePoints, hintIndex);
+    if (wDist < 100) return wDist;
+    const fwDist = distanceToPolylineWindowM(userLat, userLon, routePoints, hintIndex + 150);
+    return Math.min(wDist, fwDist);
+  }
+
   let bestDist = Infinity;
-  for (let i = 0; i < routePoints.length - 1; i++) {
+  // Fallback limits to 400 segments instead of full route to prevent extreme lag
+  const maxSegments = Math.min(routePoints.length - 1, 400);
+  for (let i = 0; i < maxSegments; i++) {
     const a = routePoints[i];
     const b = routePoints[i + 1];
     const d = distanceToSegmentMeters(

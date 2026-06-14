@@ -16,14 +16,16 @@ const REFETCH_DIST_NAV_DEG = 0.00045; // ~50 m — nawigacja / jazda
 // Minimum time between Overpass requests regardless of movement.
 const MIN_INTERVAL_MS = 20_000;       // 20 s — browsing
 const MIN_INTERVAL_NAV_MS = 6_000;    // 6 s — nawigacja / jazda
-const SEARCH_RADIUS_M = 140;
+const SEARCH_RADIUS_M = 25;
 /** Sticky: trzymaj ostatni limit gdy OSM chwilowo nie zwraca segmentu. */
-const STICKY_LIMIT_MS = 10_000;
-const STICKY_LIMIT_DISTANCE_M = 150;
+const STICKY_LIMIT_MS = 20_000;
+const STICKY_LIMIT_DISTANCE_M = 400;
 
 type OverpassElement = {
+  type: string;
+  id: number;
   tags?: { maxspeed?: string; highway?: string };
-  center?: { lat: number; lon: number };
+  geometry?: { lat: number; lon: number }[];
 };
 
 export type SpeedLimitUpdateOpts = {
@@ -97,13 +99,46 @@ function resolveLimitFromElements(
   lng: number,
   els: OverpassElement[],
 ): { limit: number | null; highway: string | null } {
-  const withCenter = els
-    .filter((el) => Number.isFinite(el.center?.lat) && Number.isFinite(el.center?.lon))
-    .sort((a, b) =>
-      haversineMeters(lat, lng, a.center!.lat, a.center!.lon) -
-      haversineMeters(lat, lng, b.center!.lat, b.center!.lon)
-    );
-  const ordered = withCenter.length > 0 ? withCenter : els;
+  const elementsWithDistance = els
+    .filter(el => el.geometry && el.geometry.length > 0)
+    .map(el => {
+      let minDist = Infinity;
+      for (let i = 0; i < el.geometry!.length - 1; i++) {
+        const p1 = el.geometry![i];
+        const p2 = el.geometry![i + 1];
+        
+        // Approximate point-to-segment distance
+        const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+        const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+        const lat1R = p1.lat * Math.PI / 180;
+        const lat2R = p2.lat * Math.PI / 180;
+        
+        const dx = (p2.lon - p1.lon) * Math.cos(lat1R);
+        const dy = (p2.lat - p1.lat);
+        const lenSq = dx * dx + dy * dy;
+        
+        let projLat, projLon;
+        if (lenSq === 0) {
+          projLat = p1.lat;
+          projLon = p1.lon;
+        } else {
+          const px = (lng - p1.lon) * Math.cos(lat1R);
+          const py = (lat - p1.lat);
+          const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+          projLat = p1.lat + t * dy;
+          projLon = p1.lon + t * (p2.lon - p1.lon);
+        }
+        
+        const distM = haversineMeters(lat, lng, projLat, projLon);
+        if (distM < minDist) minDist = distM;
+      }
+      return { el, minDist };
+    })
+    .sort((a, b) => a.minDist - b.minDist);
+
+  const ordered = elementsWithDistance.length > 0 
+    ? elementsWithDistance.map(item => item.el) 
+    : els;
 
   for (const el of ordered) {
     const limit = resolveOsmSpeedLimit(el.tags?.maxspeed, el.tags?.highway);
@@ -225,7 +260,7 @@ export function useSpeedLimit(isActive: boolean) {
       const query = `
         [out:json][timeout:10];
         way(around:${SEARCH_RADIUS_M},${lat},${lng})[highway~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|living_street|service|unclassified)$"];
-        out center tags 80;
+        out geom tags 80;
       `;
 
       let data: any = null;
