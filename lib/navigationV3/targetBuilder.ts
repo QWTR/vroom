@@ -32,8 +32,8 @@ function pointAtArcWindow(
   };
 }
 
-/** Look-ahead bearing: snap → punkt 15–20 m przed na polilinii (nie segment pod maską). */
-function bearingLookAheadFromSnap(snap: SnapResult): number | null {
+/** Look-ahead bearing: snap → punkt przed na polilinii, wyrównany do kursu jazdy. */
+function bearingLookAheadFromSnap(snap: SnapResult, travelRefDeg: number): number | null {
   if (!snap.arcWindow || snap.arcM == null || !Number.isFinite(snap.arcM)) {
     return null;
   }
@@ -55,22 +55,23 @@ function bearingLookAheadFromSnap(snap: SnapResult): number | null {
   if (spanM < 4) {
     return alignBearingToReference(
       bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng),
-      snap.headingDeg,
+      travelRefDeg,
     );
   }
   return alignBearingToReference(
     bearingBetween(curPt.lat, curPt.lng, aheadPt.lat, aheadPt.lng),
-    snap.headingDeg,
+    travelRefDeg,
   );
 }
 
-/** Heading markera — przy snapu look-ahead z geometrii drogi, nie surowy COG GPS. */
+/** Heading markera — przy snapu look-ahead z geometrii drogi, wyrównany do kursu jazdy. */
 export function resolveSnapHeadingForTarget(snap: SnapResult): number {
+  const travelRef = snap.headingDeg;
   if (snap.roadBlend <= NAV_V3.ON_ROAD_BLEND_EPS) {
-    return snap.headingDeg;
+    return travelRef;
   }
 
-  const lookAhead = bearingLookAheadFromSnap(snap);
+  const lookAhead = bearingLookAheadFromSnap(snap, travelRef);
   if (lookAhead != null && Number.isFinite(lookAhead)) {
     return lookAhead;
   }

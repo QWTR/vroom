@@ -1,4 +1,5 @@
 import {
+  alignBearingToReference,
   bearingBetween,
   densifyPolyline,
   haversineKm,
@@ -756,17 +757,27 @@ export function resolveSnap(
   const roadBlend = sticky.blend;
   const pathMode: SnapResult['pathMode'] = roadBlend > cfg.onRoadBlendEps ? 'onRoad' : 'offRoad';
 
-  const segHeading = safeHeadingDeg(projection.headingDeg, travelHeadingDeg);
+  const segAligned = safeHeadingDeg(
+    alignBearingToReference(projection.headingDeg, travelHeadingDeg),
+    travelHeadingDeg,
+  );
   const onRoadSnap = roadBlend > cfg.onRoadBlendEps;
-  const headingDeg = onRoadSnap
-    ? segHeading
+  const segMismatch = headingDeltaAbs(segAligned, travelHeadingDeg);
+  /** freeDrive: segment prostopadły do ruchu (np. błędny snap na polu) → wektor jazdy. */
+  const preferTravelHeading =
+    !isNavigating
+    && onRoadSnap
+    && segMismatch > 45
+    && speedMs * 3.6 >= NAV_V3.PIPELINE_MOVING_KMH;
+  const headingDeg = onRoadSnap && !preferTravelHeading
+    ? segAligned
     : safeHeadingDeg(
       travelHeadingDeg,
-      safeHeadingDeg(state.lockedTravelHeadingDeg, 0),
+      safeHeadingDeg(state.lockedTravelHeadingDeg, segAligned),
     );
 
   const intersectionTurnDetected = detectIntersectionTurn(
-    onRoadSnap ? segHeading : travelHeadingDeg,
+    onRoadSnap && !preferTravelHeading ? segAligned : travelHeadingDeg,
     state.lastSegmentHeadingDeg,
     projection.crossTrackM,
   );
@@ -775,7 +786,7 @@ export function resolveSnap(
     ...state,
     lastSegmentIndex: projection.segmentIndex,
     lastPolylineKey: projection.polylineKey,
-    lastSegmentHeadingDeg: onRoadSnap ? segHeading : headingDeg,
+    lastSegmentHeadingDeg: onRoadSnap && !preferTravelHeading ? segAligned : headingDeg,
     lockedTravelHeadingDeg: safeHeadingDeg(state.lockedTravelHeadingDeg, headingDeg),
     lastRoadBlend: roadBlend,
     offRoadStickTicks: sticky.stickTicks,
@@ -809,6 +820,15 @@ export function createSnapEngine(config?: Partial<SnapEngineConfig>) {
   return {
     reset(): void {
       state = createDefaultSnapEngineState();
+    },
+    /** Bootstrap trip — zablokuj kurs z wejścia (nie kompas / zero). */
+    seedTravelHeading(headingDeg: number): void {
+      const h = safeHeadingDeg(headingDeg, 0);
+      state = {
+        ...createDefaultSnapEngineState(),
+        lastSegmentHeadingDeg: h,
+        lockedTravelHeadingDeg: h,
+      };
     },
     getState(): SnapEngineState {
       return { ...state, branchCandidate: state.branchCandidate ? { ...state.branchCandidate } : null };

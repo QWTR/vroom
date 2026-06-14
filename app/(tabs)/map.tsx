@@ -8,6 +8,7 @@ import * as Speech from 'expo-speech';
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1012,6 +1013,51 @@ function round1(n: number): number {
 
 function round6(n: number): number {
   return Number.isFinite(n) ? Number(n.toFixed(6)) : n;
+}
+
+/**
+ * Początkowy heading trip — ta sama hierarchia co GPS tick i przycisk „Centruj”
+ * (ruch → kompas → poprzedni kurs), zanim polyline wybierze stronę segmentu.
+ */
+function resolveTripBootstrapHeadingHint(
+  lat: number,
+  lng: number,
+  hintHdg: number,
+  opts: {
+    gpsDeviceHdg: number | null;
+    lastHeading: number;
+    lastSetLoc: { lat: number; lng: number } | null;
+    lastGoodLoc: { lat: number; lng: number } | null;
+    speedKmh: number;
+  },
+): number {
+  const normalizedHint = normalizeHeading(hintHdg);
+  const gpsHdg = opts.gpsDeviceHdg != null && Number.isFinite(opts.gpsDeviceHdg)
+    ? normalizeHeading(opts.gpsDeviceHdg)
+    : null;
+  const prevHdg = Number.isFinite(opts.lastHeading) && opts.lastHeading !== 0
+    ? normalizeHeading(opts.lastHeading)
+    : normalizedHint;
+
+  const anchor = opts.lastSetLoc ?? opts.lastGoodLoc;
+  let moveHdg: number | null = null;
+  if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
+    const movedM = haversineKm(anchor.lat, anchor.lng, lat, lng) * 1000;
+    if (movedM >= 2) {
+      moveHdg = bearingBetween(anchor.lat, anchor.lng, lat, lng);
+    }
+  }
+
+  const refHdg = moveHdg ?? (opts.speedKmh < TRIP_COMPASS_HEADING_MAX_KMH ? gpsHdg : null) ?? prevHdg;
+  const compassForResolve = opts.speedKmh < TRIP_COMPASS_HEADING_MAX_KMH ? gpsHdg : null;
+
+  return resolveUnifiedHeading({
+    snapHeading: null,
+    movementHeading: moveHdg,
+    gpsHeading: compassForResolve,
+    previousHeading: refHdg,
+    speedKmh: opts.speedKmh,
+  });
 }
 
 /** Heading startu trip — look-ahead na polilinii (nie segment pod maską). */
@@ -2954,10 +3000,22 @@ function MapScreenInner() {
       lastSetLoc: lastSetLocRef.current,
       lastGoodLoc: lastGoodLocRef.current,
       userLocation: currentLocRef.current ?? userLocation,
-      headingFallback: lastHeadingRef.current,
+      headingFallback: lastGpsDeviceHeadingRef.current ?? lastHeadingRef.current,
     });
     if (!pose) return null;
-    return { lat: pose.latitude, lng: pose.longitude, headingDeg: pose.headingDeg };
+    const headingDeg = resolveTripBootstrapHeadingHint(
+      pose.latitude,
+      pose.longitude,
+      pose.headingDeg,
+      {
+        gpsDeviceHdg: lastGpsDeviceHeadingRef.current,
+        lastHeading: lastHeadingRef.current,
+        lastSetLoc: lastSetLocRef.current,
+        lastGoodLoc: lastGoodLocRef.current,
+        speedKmh: speedKmhRef.current,
+      },
+    );
+    return { lat: pose.latitude, lng: pose.longitude, headingDeg };
   }, [userLocation]);
 
   /** V3: marker 60 FPS — useDriveMarkerV3 SV + DriveMarkerLayer. */
@@ -3116,7 +3174,13 @@ function MapScreenInner() {
     heading: number,
     opts?: { animateCamera?: boolean },
   ) => {
-    let hdg = normalizeHeading(heading);
+    let hdg = resolveTripBootstrapHeadingHint(lat, lng, heading, {
+      gpsDeviceHdg: lastGpsDeviceHeadingRef.current,
+      lastHeading: lastHeadingRef.current,
+      lastSetLoc: lastSetLocRef.current,
+      lastGoodLoc: lastGoodLocRef.current,
+      speedKmh: speedKmhRef.current,
+    });
     const navPts = routePointsRef.current;
     const roadPts = isNavigatingRef.current && navPts.length >= 2
       ? navPts
@@ -3144,11 +3208,15 @@ function MapScreenInner() {
     drLngRef.current = lng;
     drHdgRef.current = hdg;
     lastHeadingRef.current = hdg;
-    cameraV3.armTripFollow(hdg);
+    // Ten sam bearing co przycisk „Centruj” — marker SV po resetTo.
+    const cameraHdg = Number.isFinite(driveMarker.heading.value)
+      ? normalizeHeading(driveMarker.heading.value)
+      : hdg;
+    cameraV3.armTripFollow(cameraHdg);
     cameraV3.recenter(
       { latitude: lat, longitude: lng },
       {
-        heading: hdg,
+        heading: cameraHdg,
         speedKmh: speedKmhRef.current,
         animate: false,
         coldStart: true,
@@ -4665,8 +4733,9 @@ function MapScreenInner() {
     setDrivingFlag(isDriving).catch(() => {});
   }, [isDriving]);
 
-  // Bootstrap markera raz na wejście w trip (driveMarker w deps powodował reset co re-render HUD).
-  useEffect(() => {
+  // Bootstrap markera raz na wejście w trip — useLayoutEffect przed pierwszą klatką
+  // (useEffect uruchamiał seed markera z heading=0 zanim tripBootstrapPose zdążył).
+  useLayoutEffect(() => {
     const tripActive = isDriving || isNavigating;
     if (!tripActive) {
       tripMarkerV2BootstrappedRef.current = false;
@@ -4681,16 +4750,16 @@ function MapScreenInner() {
       lastSetLoc: lastSetLocRef.current,
       lastGoodLoc: lastGoodLocRef.current,
       userLocation: currentLocRef.current ?? userLocation,
-      headingFallback: lastHeadingRef.current,
+      headingFallback: lastGpsDeviceHeadingRef.current ?? lastHeadingRef.current,
     });
     const plat = best?.latitude ?? drLatRef.current;
     const plng = best?.longitude ?? drLngRef.current;
     if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
     if (Math.abs(plat) < 1e-6 && Math.abs(plng) < 1e-6) return;
     tripMarkerV2BootstrappedRef.current = true;
-    const hdg = best?.headingDeg
+    const hdgHint = best?.headingDeg
       ?? (Number.isFinite(drHdgRef.current) ? drHdgRef.current : (lastHeadingRef.current || 0));
-    tripBootstrapPose(plat, plng, hdg, { animateCamera: true });
+    tripBootstrapPose(plat, plng, hdgHint, { animateCamera: true });
   }, [isDriving, isNavigating, tripBootstrapPose, userLocation]);
 
 
@@ -9619,6 +9688,7 @@ if (shouldNukeGeometry) {
             drivingEntryAnchorRef.current = { lat: entryLat, lng: entryLng };
             drivingEntryGraceUntilRef.current = Date.now() + DRIVING_ENTRY_GRACE_MS;
 
+            tripMarkerV2BootstrappedRef.current = true;
             tripBootstrapPose(entryLat, entryLng, drivingHeading, { animateCamera: true });
             setIsDriving(true);
             recordDrivingTracePoint(entryLat, entryLng, { speedKmh: kmh }).catch(() => {});

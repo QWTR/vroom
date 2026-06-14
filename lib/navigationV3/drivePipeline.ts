@@ -123,14 +123,18 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
     },
 
     hardReset(lat: number, lng: number, _headingDeg?: number): void {
-      snapEngine.reset();
+      if (_headingDeg != null && Number.isFinite(_headingDeg)) {
+        snapEngine.seedTravelHeading(_headingDeg);
+      } else {
+        snapEngine.reset();
+      }
       state.prevAccepted = {
         lat,
         lng,
         accuracyM: 12,
         timestampMs: Date.now(),
         speedMs: 0,
-        headingDeg: _headingDeg ?? null,
+        headingDeg: null,
       };
       state.displayPrev = { lat, lng };
       state.sessionFirstFix = true;
@@ -250,7 +254,8 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
         polylines: snapPolylines,
         isNavigating,
         tripActive,
-        travelHeadingDeg: fix.headingDeg ?? undefined,
+        // Trip: kurs z wektora ruchu + lock — NIE kompas (zakłócenia w karoserii).
+        travelHeadingDeg: undefined,
       }).result;
 
       const feedSpeedMs = resolveFeedSpeedMs(fix, state.prevAccepted, hudSpeedKmh);
@@ -273,7 +278,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           polylines: [],
           isNavigating,
           tripActive,
-          travelHeadingDeg: fix.headingDeg ?? undefined,
+          travelHeadingDeg: undefined,
         }).result;
       }
 
