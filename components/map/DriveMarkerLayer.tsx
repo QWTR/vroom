@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { View, PixelRatio } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
@@ -14,8 +14,8 @@ import {
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
-/** Mapbox iconSize = mnożnik względem rozmiaru tekstury (1.0 = natywny rozmiar PNG). */
-const ICON_SIZE = 1.0;
+/** Mapbox iconSize = mnożnik względem rozmiaru tekstury. Dzielimy przez PixelRatio by cofnąć powiększenie z Capture i uzyskać ostrość */
+const ICON_SIZE = 1.0 / PixelRatio.get();
 
 const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',

@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { View, PixelRatio } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as ImageManipulator from 'expo-image-manipulator';
 import {
@@ -19,10 +19,14 @@ type Props = {
 
 async function normalizeSpriteUri(rawUri: string): Promise<string> {
   const size = DRIVE_MARKER_SPRITE_SIZE;
+  // Use PixelRatio to get high res texture on retina displays instead of blurry 40x40
+  const pr = PixelRatio.get();
+  const targetSize = size * pr;
+  
   const out = await ImageManipulator.manipulateAsync(
     rawUri,
-    [{ resize: { width: size, height: size } }],
-    { format: ImageManipulator.SaveFormat.PNG, compress: 0.92 },
+    [{ resize: { width: targetSize, height: targetSize } }],
+    { format: ImageManipulator.SaveFormat.PNG, compress: 1.0 },
   );
   return out.uri;
 }
@@ -117,8 +121,8 @@ export const DriveMarkerSpriteCapture = memo(function DriveMarkerSpriteCapture({
         options={{
           format: 'png',
           quality: 1,
-          width: size,
-          height: size,
+          width: size * PixelRatio.get(),
+          height: size * PixelRatio.get(),
         }}
         style={{ backgroundColor: 'transparent' }}
       >

@@ -137,7 +137,7 @@ function formatDistanceForSpeech(distanceM: number): string {
   return `za ${kmTxt} ${unit}`;
 }
 
-export type NavigationSpeechPhase = 'far300' | 'far' | 'near' | 'now';
+export type NavigationSpeechPhase = 'far1000' | 'far400' | 'far150' | 'far50' | 'now';
 
 function isMinorManeuver(maneuver?: string, instruction = ''): boolean {
   const m = (maneuver ?? '').toLowerCase();
@@ -189,6 +189,9 @@ function maneuverPhrase(step: Step): string | null {
   if (combined.includes('slight-right') || mod === 'slight-right' || combined.includes('fork-right') || combined.includes('ramp-right')) {
     return 'łagodnie w prawo';
   }
+  if (combined.includes('keep-left') || mod === 'keep-left') return 'trzymaj się lewego pasa';
+  if (combined.includes('keep-right') || mod === 'keep-right') return 'trzymaj się prawego pasa';
+  if (combined.includes('merge')) return 'włącz się do ruchu';
   if (combined.includes('left') || mod === 'left') return 'w lewo';
   if (combined.includes('right') || mod === 'right') return 'w prawo';
   return null;
@@ -283,10 +286,11 @@ export function resolveAnnouncementTarget(
 
 /** Faza zapowiedzi wg odległości do manewru (wąskie pasma — jedna zapowiedź na fazę). */
 export function getNavigationSpeechPhase(distanceM: number): NavigationSpeechPhase | null {
-  if (distanceM <= 40) return 'now';
-  if (distanceM >= 88 && distanceM <= 112) return 'near';
-  if (distanceM >= 235 && distanceM <= 265) return 'far';
-  if (distanceM >= 285 && distanceM <= 315) return 'far300';
+  if (distanceM <= 55) return 'now';
+  if (distanceM > 55 && distanceM <= 95) return 'far50';
+  if (distanceM > 130 && distanceM <= 180) return 'far150';
+  if (distanceM > 370 && distanceM <= 450) return 'far400';
+  if (distanceM > 950 && distanceM <= 1100) return 'far1000';
   return null;
 }
 
@@ -361,11 +365,10 @@ function humanizeInstruction(text: string): string {
 
 function speechDistancePrefix(distanceM: number, phase: NavigationSpeechPhase): string {
   if (phase === 'now') return 'teraz';
-  if (phase === 'near' || phase === 'far') {
-    const rounded = Math.max(50, Math.round(distanceM / 50) * 50);
-    return `Za ${rounded} metrów`;
-  }
-  if (phase === 'far300') return 'Za 300 metrów';
+  if (phase === 'far1000') return 'Za kilometr';
+  if (phase === 'far400') return 'Za 400 metrów';
+  if (phase === 'far150') return 'Za 150 metrów';
+  if (phase === 'far50') return 'Za 50 metrów';
   if (distanceM > 50) {
     const rounded = Math.max(50, Math.round(distanceM / 50) * 50);
     return `Za ${rounded} metrów`;
@@ -376,7 +379,7 @@ function speechDistancePrefix(distanceM: number, phase: NavigationSpeechPhase): 
 export function buildNavigationSpeech(
   step: Step,
   distanceM: number,
-  phase: NavigationSpeechPhase = 'near',
+  phase: NavigationSpeechPhase = 'far150',
 ): string {
   const rawInstruction = cleanInstruction(step.html_instructions);
   const baseInstruction = humanizeInstruction(normalizeForSpeech(rawInstruction));
