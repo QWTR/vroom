@@ -161,7 +161,7 @@ import {
 import { useSettings } from '../../hooks/useSettings';
 import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
 import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
-import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
+import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS, setDynamicHudPadding } from '../../hooks/useCameraAnimation';
 import { preferRoadHeading, TripHeadingFilter } from '../../lib/driveCore/headingFilter';
 import {
   isZeroVelocityLock,
@@ -1911,6 +1911,13 @@ type LoadedRouteContext = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 function MapScreenInner() {
+  const [hudTopHeight, setHudTopHeight] = useState(0);
+  const [hudBottomHeight, setHudBottomHeight] = useState(0);
+
+  useEffect(() => {
+    setDynamicHudPadding(hudTopHeight, hudBottomHeight);
+  }, [hudTopHeight, hudBottomHeight]);
+
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
   const cameraRef            = useRef<Mapbox.Camera>(null);
@@ -1921,6 +1928,7 @@ function MapScreenInner() {
   const snapLockHdgRef       = useRef(0);
   const snapLockStreakRef    = useRef(0);
   const snapLockLastAtRef    = useRef(0);
+  const routePrefixSumsRef   = useRef<{ points: any[], sums: number[] }>({ points: [], sums: [] });
   const locationReadyRef     = useRef(false);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const isOffroadRef         = useRef(false);
@@ -4507,13 +4515,20 @@ function MapScreenInner() {
   }, []);
 
 
+  const navMappedPointsRef = useRef<{lat: number, lng: number}[]>([]);
+  const navPrevPtsRef = useRef<any[]>([]);
+
   useEffect(() => {
     if (!isNavigating) return;
     const pts = routePointsRef.current;
     if (pts.length >= 2) {
-      navV3.setRoutePolyline(pts.map(p => ({ lat: p.latitude, lng: p.longitude })));
+      if (navPrevPtsRef.current !== pts) {
+         navMappedPointsRef.current = pts.map(p => ({ lat: p.latitude, lng: p.longitude }));
+         navPrevPtsRef.current = pts;
+      }
+      navV3.setRoutePolyline(navMappedPointsRef.current);
     }
-  }, [isNavigating, navV3, remainingRoutePoints]);
+  }, [isNavigating, navV3, routePointsRef.current]);
 
 
   /** Wejście w jazdę: padding HUD + marker na dole ekranu (recenter wymusza setCamera padding). */
@@ -12888,16 +12903,26 @@ if (pts.length >= 2) {
           ]);
         }
 
-        let remKm = 0;
-        const remStart = idx;
-        for (let i = remStart; i < points.length - 1; i++) {
-          remKm += haversineKm(
-            i === remStart ? lat : points[i].latitude,
-            i === remStart ? lng : points[i].longitude,
-            points[i + 1].latitude,
-            points[i + 1].longitude,
-          );
+        if (routePrefixSumsRef.current.points !== points) {
+          const sums = new Array(points.length).fill(0);
+          for (let i = points.length - 2; i >= 0; i--) {
+            sums[i] = sums[i + 1] + haversineKm(
+              points[i].latitude, points[i].longitude,
+              points[i + 1].latitude, points[i + 1].longitude
+            );
+          }
+          routePrefixSumsRef.current = { points, sums };
         }
+        
+        let remKm = 0;
+        if (idx < points.length - 1) {
+          const distToNextPoint = haversineKm(
+            lat, lng,
+            points[idx + 1].latitude, points[idx + 1].longitude
+          );
+          remKm = distToNextPoint + routePrefixSumsRef.current.sums[idx + 1];
+        }
+
         const roundedRem = parseFloat(remKm.toFixed(2));
         if (lastRemainingKmUiRef.current == null || Math.abs(roundedRem - lastRemainingKmUiRef.current) >= 0.08) {
           lastRemainingKmUiRef.current = roundedRem;
@@ -13965,7 +13990,7 @@ if (pts.length >= 2) {
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (
-          <View pointerEvents="box-none" style={styles.navigationPanelTop}>
+          <View pointerEvents="box-none" style={styles.navigationPanelTop} onLayout={(e) => setHudTopHeight(e.nativeEvent.layout.height)}>
             <HudPanelShell>
               {isOffroadRef.current ? (
                 <View style={styles.instructionBox}>
@@ -14106,6 +14131,7 @@ if (pts.length >= 2) {
                   ? styles.hudSpeedTilePosNav
                   : styles.hudSpeedTilePosFreeDrive,
             ]}
+            onLayout={(e) => setHudBottomHeight(e.nativeEvent.layout.height)}
           >
             <DriveSpeedTile
               speedLimit={effectiveSpeedLimit}

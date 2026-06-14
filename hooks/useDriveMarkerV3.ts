@@ -27,6 +27,9 @@ export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
   lng: SharedValue<number>;
   heading: SharedValue<number>;
+  targetLat: SharedValue<number>;
+  targetLng: SharedValue<number>;
+  targetHdg: SharedValue<number>;
 };
 
 export type DriveMarkerSeedPose = {
@@ -922,6 +925,9 @@ export function useDriveMarkerV3(
       lat,
       lng,
       heading,
+      targetLat,
+      targetLng,
+      targetHdg,
       isBootstrapped,
       pushTarget,
       reset,
@@ -929,7 +935,7 @@ export function useDriveMarkerV3(
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground],
+    [ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, targetLat, targetLng, targetHdg],
   );
 }
 

@@ -63,7 +63,7 @@ const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
 /** Mapbox linearTo — zsynchronizowany z throttle (50–100 ms), nie 0 ms. */
 function resolveTripCameraAnimMs(throttleMs: number, isColdStart: boolean): number {
   if (isColdStart) return 0;
-  return Math.min(100, Math.max(50, Math.ceil(throttleMs)));
+  return Math.max(50, Math.ceil(throttleMs));
 }
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 const PAUSE_FOLLOW_MAX_DRIFT_M = 35;
@@ -503,9 +503,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   useAnimatedReaction(
     () => ({
-      lat: marker.lat.value,
-      lng: marker.lng.value,
-      hdg: normalizeHeading(marker.heading.value),
+      lat: marker.targetLat.value,
+      lng: marker.targetLng.value,
+      hdg: normalizeHeading(marker.targetHdg.value),
       follow: followEnabledSv.value,
       speed: speedKmhSv.value,
     }),
@@ -520,7 +520,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
       displayCameraHdgReadySv.value = 1;
 
       const speed = Math.max(0, next.speed);
-      const throttleMs = resolveCameraThrottleMsWorklet(speed);
+      
+      // Send the camera to target coordinates with a 1000ms sync duration
+      const throttleMs = 1000;
       const now = Date.now();
 
       let distM = 999;
@@ -533,21 +535,14 @@ export function useCameraV3(opts: UseCameraV3Options) {
           next.lng,
         );
         hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.hdg));
-        if (distM < DELTA_MIN_DIST_M && hdgD < DELTA_MIN_HEADING_DEG) {
+        if (distM < 0.1 && hdgD < 0.1) {
           return;
         }
       }
 
-      const headingUrgent = hdgD >= HEADING_URGENT_DEG;
-
-      if (speed <= THROTTLE_STAND_KMH) {
-        if (lastSentReadySv.value >= 0.5 && hdgD < STAND_HEADING_DEG && distM < DELTA_MIN_DIST_M) {
-          return;
-        }
-      } else if (
+      if (
         lastCameraPushMsSv.value > 0
-        && now - lastCameraPushMsSv.value < throttleMs
-        && !headingUrgent
+        && now - lastCameraPushMsSv.value < 800 // Give it a little leeway before next target
       ) {
         return;
       }

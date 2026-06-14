@@ -170,7 +170,18 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
 
     setRoutePolyline(points: { lat: number; lng: number }[] | null): void {
       const prev = geometry.routePolyline;
-      const changed = JSON.stringify(prev) !== JSON.stringify(points);
+      let changed = false;
+      if (prev !== points) {
+        if (!prev || !points || prev.length !== points.length) {
+          changed = true;
+        } else if (points.length > 0) {
+          const pStart = prev[0];
+          const nStart = points[0];
+          const pEnd = prev[prev.length - 1];
+          const nEnd = points[points.length - 1];
+          changed = pStart.lat !== nStart.lat || pStart.lng !== nStart.lng || pEnd.lat !== nEnd.lat || pEnd.lng !== nEnd.lng;
+        }
+      }
       geometry = { ...geometry, routePolyline: points };
       if (changed) {
         snapEngine.reset();

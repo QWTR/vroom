@@ -61,6 +61,14 @@ const ZERO_PADDING: MapCameraPadding = {
   paddingBottom: 0,
 };
 
+let dynamicHudTop = 0;
+let dynamicHudBottom = 0;
+
+export function setDynamicHudPadding(top: number, bottom: number) {
+  dynamicHudTop = top;
+  dynamicHudBottom = bottom;
+}
+
 /**
  * Mapbox: punkt follow ląduje w GEOMETRICZNYM ŚRODKU obszaru [paddingTop .. height-paddingBottom].
  * Duży paddingBottom + duży paddingTop = cienki pasek na ŚRODKU ekranu = marker na środku (bug).
@@ -69,16 +77,22 @@ const ZERO_PADDING: MapCameraPadding = {
 export function getTripCameraPadding(isNavigating: boolean): MapCameraPadding {
   const h = Dimensions.get('window').height;
   const tabBarPx = 88;
+  const bottom = dynamicHudBottom > 0 ? dynamicHudBottom : Math.round(clampNum(tabBarPx + (isNavigating ? 4 : 6), 60, 96));
+  
   /** Środek markera ~2–3 cm nad dolną krawędzią ekranu. */
   const markerBottomInsetPx = isNavigating ? 108 : 98;
-  const bottom = Math.round(clampNum(tabBarPx + (isNavigating ? 4 : 6), 60, 96));
-  const top = Math.round(
+  let top = Math.round(
     clampNum(
       h - 2 * markerBottomInsetPx + bottom,
       h * 0.52,
       h * 0.86,
     ),
   );
+  
+  if (dynamicHudTop > 0 && top < dynamicHudTop) {
+    top = dynamicHudTop + 20;
+  }
+
   return {
     paddingTop: top,
     paddingBottom: bottom,
