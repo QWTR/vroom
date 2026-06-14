@@ -351,8 +351,8 @@ const CAMERA_SPEED_LIMIT_GATE_M = 30; // meters
 const CAMERA_SPEED_LIMIT_GATE_NAV_M = 10; // meters in driving/navigation
 
 // Reroute cooldown — avoids hammering Directions API while continuously off-route
-const REROUTE_COOLDOWN_MS = 8_000; // max cooldown między requestami Directions przy reroute
-const REROUTE_MIN_MOVED_M = 30;    // 30 m po złej drodze wystarczy do przeliczenia trasy
+const REROUTE_COOLDOWN_MS = 5_000;
+const REROUTE_MIN_MOVED_M = 20;
 /** 2 × NAV_PROGRESS_UI_MS — potwierdzenie zjazdu po ~2 s stałego odchylenia. */
 const OFF_ROUTE_CONFIRM_STREAK = 2;
 /** Snap-to-route: marker na polilinii gdy cross-track ≤ ten próg (m). */
@@ -5538,6 +5538,30 @@ function MapScreenInner() {
     drivingSnapGeometryRef.current = [];
     drivingSnapUsesMatchedRef.current = false;
     drivingManualModeRef.current = false;
+    {
+      const handoffLat = drLatRef.current;
+      const handoffLng = drLngRef.current;
+      if (
+        Number.isFinite(handoffLat)
+        && Number.isFinite(handoffLng)
+        && !(Math.abs(handoffLat) < 1e-6 && Math.abs(handoffLng) < 1e-6)
+      ) {
+        setUserLocation(prev => (
+          prev
+            ? { ...prev, latitude: handoffLat, longitude: handoffLng }
+            : { latitude: handoffLat, longitude: handoffLng, accuracy: 10, timestamp: Date.now() }
+        ));
+        lastGoodLocRef.current = { lat: handoffLat, lng: handoffLng };
+        lastSetLocRef.current = { lat: handoffLat, lng: handoffLng };
+        currentLocRef.current = {
+          latitude: handoffLat,
+          longitude: handoffLng,
+          accuracy: 10,
+          timestamp: Date.now(),
+        };
+        rememberMapLastLocation(handoffLat, handoffLng, 10);
+      }
+    }
     setIsDriving(false);
     if (!opts?.skipFlush) {
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
@@ -11860,17 +11884,40 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       const snapped = snapToRoute(curLat, curLng, rerouteResult.points, NAV_ROUTE_SNAP_M);
       const syncLat = snapped.latitude;
       const syncLng = snapped.longitude;
-      const syncHdg = lastHeadingRef.current || 0;
+      const deviceHdg = lastGpsDeviceHeadingRef.current;
+      const syncHdg = deviceHdg != null && Number.isFinite(deviceHdg) && deviceHdg >= 0
+        ? normalizeHeading(deviceHdg)
+        : normalizeHeading(lastHeadingRef.current || 0);
+
       navV3.setRoutePolyline(
         rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
       );
       navV3.hardReset(syncLat, syncLng, syncHdg);
-      driveMarker.resetTo(syncLat, syncLng, syncHdg);
-      driveMarker.pushTarget({
-        ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
-        pathMode: 'onRoad',
-        roadBlend: 1,
+      offRouteRef.current = false;
+
+      const rerouteFix = navV3.processGpsFix({
+        latitude: curLat,
+        longitude: curLng,
+        accuracy: 12,
+        timestamp: Date.now(),
+        speed: Math.max(0, speedKmhRef.current / 3.6),
+        heading: deviceHdg ?? syncHdg,
       });
+      if (rerouteFix && !rerouteFix.rejected) {
+        driveMarker.pushTarget({ ...rerouteFix.target, allowInstant: true });
+        drLatRef.current = rerouteFix.target.lat;
+        drLngRef.current = rerouteFix.target.lng;
+        drHdgRef.current = rerouteFix.target.headingDeg;
+        lastHeadingRef.current = rerouteFix.target.headingDeg;
+      } else {
+        driveMarker.resetTo(syncLat, syncLng, syncHdg);
+        driveMarker.pushTarget({
+          ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
+          pathMode: 'onRoad',
+          roadBlend: 1,
+          allowInstant: true,
+        });
+      }
       driveMarker.ensureFrameActive?.();
       setFollowMode('navigationFollow');
       vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
@@ -11963,15 +12010,9 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
     }
 
     const rawHdg = lastGpsDeviceHeadingRef.current;
-    const fallbackHdg = rawHdg != null && speedKmhRef.current >= 5
+    const travelHdg = rawHdg != null && Number.isFinite(rawHdg) && rawHdg >= 0
       ? rawHdg
-      : lastHeadingRef.current;
-    const travelHdg = resolveRerouteTravelHeadingDeg(
-      vehicleLat,
-      vehicleLng,
-      fallbackHdg,
-      lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
-    );
+      : (lastHeadingRef.current ?? 0);
 
     if (DEBUG_NETWORK) console.log('[reroute] triggering new reroute request', { travelHdg });
     reroutePendingRef.current = true;

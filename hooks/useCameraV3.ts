@@ -3,7 +3,6 @@ import Mapbox from '@rnmapbox/maps';
 import {
   runOnJS,
   useAnimatedReaction,
-  useFrameCallback,
   useSharedValue,
 } from 'react-native-reanimated';
 import { NAV_V3 } from '../lib/navigationV3/config';
@@ -61,50 +60,12 @@ const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
 const NATIVE_ANIM_BUFFER_MS = NAV_V3.CAMERA_NATIVE_ANIM_BUFFER_MS;
 
 const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
-/** Min. odstęp między heading-only setCamera (ms) — płynny obrót bez kolejki Mapbox. */
-const HEADING_ONLY_MIN_MS = 32;
-const CAMERA_HDG_TAU_SEC = NAV_V3.CAMERA_BEARING_SMOOTH_MS / 1000;
-const CAMERA_HDG_MAX_DPS = NAV_V3.CAMERA_MAX_HEADING_DPS;
+/** Trip follow — brak natywnego easeTo obrotu; płynność z 60 FPS Reanimated. */
+const TRIP_CAMERA_ANIM_MS = 0;
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 const PAUSE_FOLLOW_MAX_DRIFT_M = 35;
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
-
-/** Czas animacji easeTo — maślany, ≤ throttle (50–100 ms), bez dławienia kolejki Mapbox. */
-function resolveFollowAnimMs(throttleMs: number): number {
-  const interval = Math.max(THROTTLE_FAST_MS, Math.ceil(throttleMs));
-  return Math.min(100, Math.max(50, interval));
-}
-
-/** Długa easeTo na ostrych łukach — rozsmarowuje obrót kamery (rondo). */
-function resolveHeadingAnimMs(headingDeltaDeg: number, throttleMs: number): number {
-  const base = resolveFollowAnimMs(throttleMs);
-  const byAngle = Math.ceil(
-    headingDeltaDeg * NAV_V3.CAMERA_HEADING_ANIM_PER_DEG_MS,
-  );
-  return Math.min(
-    NAV_V3.CAMERA_HEADING_ANIM_MAX_MS,
-    Math.max(NAV_V3.CAMERA_HEADING_ANIM_MIN_MS, base, byAngle),
-  );
-}
-
-function stepCameraHeadingWorklet(
-  cur: number,
-  target: number,
-  dtSec: number,
-  tauSec: number,
-  maxDps: number,
-): number {
-  'worklet';
-  const delta = headingDelta(cur, target);
-  const tauStep = delta * Math.min(1, dtSec / Math.max(0.05, tauSec));
-  const maxStep = maxDps * dtSec;
-  let step = tauStep;
-  if (Math.abs(step) > maxStep) {
-    step = Math.sign(step) * maxStep;
-  }
-  return normalizeHeading(cur + step);
-}
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -240,7 +201,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const speedKmhSv = useSharedValue(0);
   const lastCameraPushMsSv = useSharedValue(0);
-  const lastHeadingOnlyPushMsSv = useSharedValue(0);
   const lastSentReadySv = useSharedValue(0);
   const lastSentLatSv = useSharedValue(0);
   const lastSentLngSv = useSharedValue(0);
@@ -273,7 +233,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
     displayCameraHdgSv.value = 0;
     displayCameraHdgReadySv.value = 0;
     lastCameraPushMsSv.value = 0;
-    lastHeadingOnlyPushMsSv.value = 0;
     lastSentReadySv.value = 0;
     lastSentLatSv.value = 0;
     lastSentLngSv.value = 0;
@@ -283,7 +242,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
     displayCameraHdgSv,
     headingSpringReadySv,
     lastCameraPushMsSv,
-    lastHeadingOnlyPushMsSv,
     lastSentHdgSv,
     lastSentLatSv,
     lastSentLngSv,
@@ -410,34 +368,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const syncCourseHeadingTargetRef = useRef(syncCourseHeadingTarget);
   syncCourseHeadingTargetRef.current = syncCourseHeadingTarget;
 
-  /** 60 FPS — wygładzony bearing kamery (krótszy tau niż marker = mniej lag na łukach). */
-  useFrameCallback((frameInfo) => {
-    'worklet';
-    if (followEnabledSv.value < 0.5) return;
-    const raw = marker.heading.value;
-    if (!Number.isFinite(raw)) return;
-    const target = normalizeHeading(raw);
-    targetCameraHeadingSv.value = target;
-    if (displayCameraHdgReadySv.value < 0.5) {
-      displayCameraHdgSv.value = target;
-      smoothedCameraHeadingSv.value = target;
-      displayCameraHdgReadySv.value = 1;
-      return;
-    }
-    const tspf = frameInfo.timeSincePreviousFrame;
-    const dtMs = tspf != null && tspf > 0 ? Math.min(50, tspf) : 16;
-    const dt = dtMs / 1000;
-    const next = stepCameraHeadingWorklet(
-      displayCameraHdgSv.value,
-      target,
-      dt,
-      CAMERA_HDG_TAU_SEC,
-      CAMERA_HDG_MAX_DPS,
-    );
-    displayCameraHdgSv.value = next;
-    smoothedCameraHeadingSv.value = next;
-  }, false);
-
   const markSentPose = useCallback((
     lat: number,
     lng: number,
@@ -527,16 +457,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const padding = cachedPaddingRef.current;
     const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
     const isColdStart = coldStartFollowPendingRef.current;
-    const animMs = isColdStart
-      ? 0
-      : (opts?.headingAnimMs != null
-        ? (opts.headingAnimMs <= 0
-          ? 0
-          : Math.min(
-            NAV_V3.CAMERA_HEADING_ANIM_MAX_MS,
-            Math.max(NAV_V3.CAMERA_HEADING_ANIM_MIN_MS, opts.headingAnimMs),
-          ))
-        : resolveHeadingAnimMs(headingDeltaDeg, throttleMs));
+    const animMs = isColdStart ? 0 : TRIP_CAMERA_ANIM_MS;
     const displayHeading = normalizeHeading(heading);
 
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
@@ -546,7 +467,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       pitch,
       padding,
       animationDuration: animMs,
-      animationMode: animMs > 0 ? 'easeTo' : 'linearTo',
+      animationMode: 'linearTo',
     });
 
     if (isColdStart) {
@@ -577,23 +498,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
     emitCameraKeyframeRef.current(lat, lng, heading, throttleMs);
   }, []);
 
-  const onEmitCameraHeadingOnly = useCallback((
-    lat: number,
-    lng: number,
-    heading: number,
-    headingAnimMs: number,
-  ) => {
-    emitCameraKeyframeRef.current(lat, lng, heading, THROTTLE_FAST_MS, {
-      headingAnimMs,
-      headingOnly: true,
-    });
-  }, []);
-
   useAnimatedReaction(
     () => ({
       lat: marker.lat.value,
       lng: marker.lng.value,
-      camHdg: normalizeHeading(displayCameraHdgSv.value),
+      hdg: normalizeHeading(marker.heading.value),
       follow: followEnabledSv.value,
       speed: speedKmhSv.value,
     }),
@@ -601,6 +510,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
       if (next.follow < 0.5) return;
       if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
+      if (!Number.isFinite(next.hdg)) return;
+
+      displayCameraHdgSv.value = next.hdg;
+      smoothedCameraHeadingSv.value = next.hdg;
+      displayCameraHdgReadySv.value = 1;
 
       const speed = Math.max(0, next.speed);
       const throttleMs = resolveCameraThrottleMsWorklet(speed);
@@ -615,7 +529,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
           next.lat,
           next.lng,
         );
-        hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.camHdg));
+        hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.hdg));
         if (distM < DELTA_MIN_DIST_M && hdgD < DELTA_MIN_HEADING_DEG) {
           return;
         }
@@ -639,7 +553,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       runOnJS(onEmitCameraKeyframe)(
         next.lat,
         next.lng,
-        next.camHdg,
+        next.hdg,
         throttleMs,
       );
     },
@@ -651,59 +565,13 @@ export function useCameraV3(opts: UseCameraV3Options) {
       lastSentLngSv,
       lastSentReadySv,
       displayCameraHdgSv,
+      displayCameraHdgReadySv,
+      smoothedCameraHeadingSv,
       marker.lat,
       marker.lng,
+      marker.heading,
       onEmitCameraKeyframe,
       speedKmhSv,
-    ],
-  );
-
-  /** Płynny obrót na łukach — heading-only, także gdy pozycja się przesuwa (rondo). */
-  useAnimatedReaction(
-    () => ({
-      camHdg: normalizeHeading(displayCameraHdgSv.value),
-      lat: marker.lat.value,
-      lng: marker.lng.value,
-      follow: followEnabledSv.value,
-    }),
-    (next) => {
-      if (next.follow < 0.5) return;
-      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
-      if (lastSentReadySv.value < 0.5) return;
-
-      const hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.camHdg));
-      if (hdgD < DELTA_MIN_HEADING_DEG) return;
-
-      const now = Date.now();
-      if (
-        lastHeadingOnlyPushMsSv.value > 0
-        && now - lastHeadingOnlyPushMsSv.value < HEADING_ONLY_MIN_MS
-      ) {
-        return;
-      }
-      if (now - lastCameraPushMsSv.value < 12) return;
-
-      lastHeadingOnlyPushMsSv.value = now;
-      lastCameraPushMsSv.value = now;
-      runOnJS(onEmitCameraHeadingOnly)(
-        next.lat,
-        next.lng,
-        next.camHdg,
-        0,
-      );
-    },
-    [
-      displayCameraHdgSv,
-      followEnabledSv,
-      lastCameraPushMsSv,
-      lastHeadingOnlyPushMsSv,
-      lastSentHdgSv,
-      lastSentLatSv,
-      lastSentLngSv,
-      lastSentReadySv,
-      marker.lat,
-      marker.lng,
-      onEmitCameraHeadingOnly,
     ],
   );
 
@@ -714,17 +582,12 @@ export function useCameraV3(opts: UseCameraV3Options) {
     if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) return;
 
     const markerHdg = normalizeHeading(marker.heading.value);
-    const smoothedHdg = displayCameraHdgReadySv.value >= 0.5
-      ? normalizeHeading(displayCameraHdgSv.value)
-      : NaN;
     const finalHdg = normalizeHeading(
       opts?.heading != null && Number.isFinite(opts.heading)
         ? opts.heading
-        : Number.isFinite(smoothedHdg)
-          ? smoothedHdg
-          : markerHdg >= 0
-            ? markerHdg
-            : lockedCourseHeadingRef.current,
+        : markerHdg >= 0
+          ? markerHdg
+          : lockedCourseHeadingRef.current,
     );
     lockedCourseHeadingRef.current = finalHdg;
     lockedCourseReadyRef.current = true;

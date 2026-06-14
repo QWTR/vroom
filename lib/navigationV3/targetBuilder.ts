@@ -1,6 +1,6 @@
 import { NAV_V3 } from './config';
 import type { ArcWindowSlice, NavigationTarget, SnapResult } from './types';
-import { bearingBetween, alignBearingToReference } from '../../scripts/navigationUtils';
+import { bearingBetween } from '../../scripts/navigationUtils';
 
 function pointAtArcWindow(
   window: ArcWindowSlice,
@@ -32,8 +32,8 @@ function pointAtArcWindow(
   };
 }
 
-/** Look-ahead bearing: snap → punkt przed na polilinii, wyrównany do kursu jazdy. */
-function bearingLookAheadFromSnap(snap: SnapResult, travelRefDeg: number): number | null {
+/** Look-ahead bearing: wyłącznie geometria polilinii (snap → punkt +18 m wzdłuż łuku). */
+function bearingLookAheadFromSnap(snap: SnapResult): number | null {
   if (!snap.arcWindow || snap.arcM == null || !Number.isFinite(snap.arcM)) {
     return null;
   }
@@ -49,29 +49,24 @@ function bearingLookAheadFromSnap(snap: SnapResult, travelRefDeg: number): numbe
   if (!curPt || !aheadPt) return null;
 
   const spanM = aheadM - localM;
+  if (spanM < 1.5) return null;
+
   const fromLat = Number.isFinite(snap.lat) ? snap.lat : curPt.lat;
   const fromLng = Number.isFinite(snap.lng) ? snap.lng : curPt.lng;
 
   if (spanM < 4) {
-    return alignBearingToReference(
-      bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng),
-      travelRefDeg,
-    );
+    return bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng);
   }
-  return alignBearingToReference(
-    bearingBetween(curPt.lat, curPt.lng, aheadPt.lat, aheadPt.lng),
-    travelRefDeg,
-  );
+  return bearingBetween(curPt.lat, curPt.lng, aheadPt.lat, aheadPt.lng);
 }
 
-/** Heading markera — przy snapu look-ahead z geometrii drogi, wyrównany do kursu jazdy. */
+/** Heading markera — ON-ROAD: 100% polilinia; off-road: wektor ruchu (bez kompasu). */
 export function resolveSnapHeadingForTarget(snap: SnapResult): number {
-  const travelRef = snap.headingDeg;
   if (snap.roadBlend <= NAV_V3.ON_ROAD_BLEND_EPS) {
-    return travelRef;
+    return snap.headingDeg;
   }
 
-  const lookAhead = bearingLookAheadFromSnap(snap, travelRef);
+  const lookAhead = bearingLookAheadFromSnap(snap);
   if (lookAhead != null && Number.isFinite(lookAhead)) {
     return lookAhead;
   }

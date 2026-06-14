@@ -16,13 +16,9 @@ const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
 const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
 const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
 const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
-const MARKER_HEADING_TARGET_TAU_SEC = NAV_V3.MARKER_HEADING_TARGET_TIMING_MS / 1000;
 const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
-const TARGET_ARC_SMOOTH_ALPHA = NAV_V3.MARKER_TARGET_ARC_SMOOTH_ALPHA;
-const TARGET_ARC_MAX_BACK_M = NAV_V3.MARKER_TARGET_ARC_MAX_BACK_M;
-const TARGET_ARC_MAX_FWD_M = NAV_V3.MARKER_TARGET_ARC_MAX_FWD_M;
-const MARKER_POS_TAU_SEC = NAV_V3.MARKER_POS_TIMING_MS / 1000;
+const OFF_ROAD_APPROACH_TAU_SEC = 0.28;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -199,27 +195,10 @@ function lookAheadHeadingJs(
 function smoothTargetArcMJs(
   prevArcM: number,
   incomingArcM: number,
-  displayArcM: number,
-  speedMs: number,
 ): number {
   if (!Number.isFinite(incomingArcM)) return prevArcM;
   if (!Number.isFinite(prevArcM)) return incomingArcM;
-
-  const delta = incomingArcM - prevArcM;
-  const maxFwd = Math.max(TARGET_ARC_MAX_FWD_M, speedMs * 1.2);
-  let next = incomingArcM;
-
-  if (delta > maxFwd) {
-    next = prevArcM + maxFwd * TARGET_ARC_SMOOTH_ALPHA;
-  } else if (delta < -TARGET_ARC_MAX_BACK_M) {
-    next = Math.max(incomingArcM, displayArcM - TARGET_ARC_MAX_BACK_M);
-  } else if (Math.abs(delta) > 0.05) {
-    next = prevArcM + delta * TARGET_ARC_SMOOTH_ALPHA;
-  } else {
-    next = prevArcM;
-  }
-
-  return next;
+  return incomingArcM;
 }
 
 function blendPositionJs(
@@ -548,29 +527,13 @@ export function useDriveMarkerV3(
     lastFrameTimestamp.value = frameInfo.timestamp;
 
     const cruiseMs = speedMs.value >= MIN_CRUISE_MS ? speedMs.value : 0;
-    let stepM = cruiseMs * dt;
+    const stepM = cruiseMs * dt;
 
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
     const pts = roadPtsFlat.value;
     const cum = roadCumM.value;
     const hasArc = pts.length >= 4 && cum.length >= 2;
-
-    if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
-      const arcGap = targetArcM.value - displayArcM.value;
-      if (arcGap > 15 && arcGap < 100) {
-        stepM = Math.max(stepM, arcGap * 0.55 * dt);
-      }
-    } else {
-      const catchLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
-      const catchLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
-      if (Number.isFinite(catchLat) && Number.isFinite(catchLng)) {
-        const distToTarget = haversineMWorklet(lat.value, lng.value, catchLat, catchLng);
-        if (distToTarget > 15 && distToTarget < 100) {
-          stepM = Math.max(stepM, distToTarget * 1.2 * dt);
-        }
-      }
-    }
 
     let nextLat = lat.value;
     let nextLng = lng.value;
@@ -611,11 +574,14 @@ export function useDriveMarkerV3(
       const tLat = Number.isFinite(targetLat.value) ? targetLat.value : lat.value;
       const tLng = Number.isFinite(targetLng.value) ? targetLng.value : lng.value;
       if (Number.isFinite(tLat) && Number.isFinite(tLng)) {
-        const stepped = stepM > 0.001
+        const distToTarget = haversineMWorklet(lat.value, lng.value, tLat, tLng);
+        const physical = stepM > 0.001
           ? stepTowardWorklet(lat.value, lng.value, tLat, tLng, stepM)
           : { lat: lat.value, lng: lng.value };
-        nextLat = stepped.lat;
-        nextLng = stepped.lng;
+        const approachAlpha = 1 - Math.exp(-dt / OFF_ROAD_APPROACH_TAU_SEC);
+        const blendAlpha = distToTarget > 25 ? approachAlpha * 0.55 : approachAlpha;
+        nextLat = lat.value + (physical.lat - lat.value) * blendAlpha;
+        nextLng = lng.value + (physical.lng - lng.value) * blendAlpha;
       }
       const movedM = haversineMWorklet(prevLat, prevLng, nextLat, nextLng);
       if (movedM >= 0.35) {
@@ -625,28 +591,12 @@ export function useDriveMarkerV3(
       }
     }
 
-    let outLat = Number.isFinite(nextLat) ? nextLat : lat.value;
-    let outLng = Number.isFinite(nextLng) ? nextLng : lng.value;
-    if (onRoad && hasArc && Number.isFinite(targetArcM.value)) {
-      const posAlpha = Math.min(1, dt / MARKER_POS_TAU_SEC);
-      if (posAlpha < 0.999) {
-        outLat = lat.value + (outLat - lat.value) * posAlpha;
-        outLng = lng.value + (outLng - lng.value) * posAlpha;
-      }
-    }
-    lat.value = outLat;
-    lng.value = outLng;
-
-    const prevSegmentTarget = segmentHdgTargetSv.value;
-    const targetAlpha = Math.min(1, dt / MARKER_HEADING_TARGET_TAU_SEC);
-    const smoothedSegmentHdg = normalizeHeadingW(
-      prevSegmentTarget + headingDeltaW(prevSegmentTarget, segmentHdg) * targetAlpha,
-    );
-    segmentHdgTargetSv.value = smoothedSegmentHdg;
+    lat.value = Number.isFinite(nextLat) ? nextLat : lat.value;
+    lng.value = Number.isFinite(nextLng) ? nextLng : lng.value;
 
     heading.value = stepHeadingSmoothWorklet(
       heading.value,
-      smoothedSegmentHdg,
+      segmentHdg,
       dt,
       MARKER_HEADING_TAU_SEC,
       MARKER_HEADING_MAX_DPS,
@@ -752,14 +702,7 @@ export function useDriveMarkerV3(
       polylineKeySv.value = key;
       onRoadSv.value = 1;
       const arcM = target.targetArcM as number;
-      const prevTargetArc = targetArcM.value;
-      const displayArc = displayArcM.value;
-      targetArcM.value = smoothTargetArcMJs(
-        Number.isFinite(prevTargetArc) ? prevTargetArc : arcM,
-        arcM,
-        Number.isFinite(displayArc) ? displayArc : arcM,
-        resolvedSpeedMs,
-      );
+      targetArcM.value = arcM;
 
       if (keyChanged) {
         const gapBeforeKey = arcM - displayArcM.value;
