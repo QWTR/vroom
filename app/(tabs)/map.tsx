@@ -133,6 +133,8 @@ import {
   sanitizeSpeedMs,
   clampSpeedKmhToGeometry,
   MAX_SPEED_HUD_KMH,
+  GPS_ACCURACY_HIGH_SPEED_MAX_M,
+  GPS_DOPPLER_HIGH_SPEED_TRUST_KMH,
   sustainedTripSpeedFromSamples,
   type TripMoveSample,
 } from '../../scripts/speedSanitizer';
@@ -1248,9 +1250,9 @@ const LIVE_ACHIEVEMENT_DISTANCE_DELTA_TRIGGER_KM = 0.4;
 const LIVE_ACHIEVEMENT_MIN_MOVING_DISTANCE_KM = 1.0;
 const DRIVE_HEALTH_LOG_MS = 15_000;
 /** Co tyle km zapisujemy postęp trasy na serwer (profil nie „zamraża się” na długiej jeździe). */
-const TRIP_CHECKPOINT_KM = 50.0;
-/** Wyłączone: checkpoint co N km dzielił trasę na wiele Activity bez routePoints. */
-const ENABLE_TRIP_DISTANCE_CHECKPOINT = false;
+const TRIP_CHECKPOINT_KM = 10.0;
+/** Checkpoint dystansu w trakcie jazdy — zapis co N km niezależnie od końca sesji. */
+const ENABLE_TRIP_DISTANCE_CHECKPOINT = true;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
 const GPS_INIT_MAX_ACCURACY_M = 150;
 /** OS last-known starszy niż tyle traktujemy jako nieaktualny (nie ustawia kotwicy anty-teleportu). */
@@ -1973,6 +1975,7 @@ function MapScreenInner() {
   const startIsMyLocationRef = useRef(false);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
   const loadedRouteRef       = useRef<LoadedRouteContext | null>(null);
+  const routeStartZoneEnteredRef = useRef(false);
   /** Dojazd do punktu startowego trasy — bez liczenia czasu / zapisu w rankingu. */
   const approachingRouteStartRef = useRef(false);
   const autoStartRouteAfterApproachRef = useRef(false);
@@ -3130,6 +3133,19 @@ function MapScreenInner() {
         }
       }
 
+      // LIVE map: sendLocation reads userLocation/currentLocRef — sync raw GPS while trip active.
+      if (
+        !out.rejected
+        && (isDrivingRef.current || isNavigatingRef.current)
+        && appStateRef.current === 'active'
+      ) {
+        const liveLat = Number.isFinite(out.snap.rawLat) ? out.snap.rawLat : markerTarget.lat;
+        const liveLng = Number.isFinite(out.snap.rawLng) ? out.snap.rawLng : markerTarget.lng;
+        if (Number.isFinite(liveLat) && Number.isFinite(liveLng)) {
+          publishUserLocation({ latitude: liveLat, longitude: liveLng });
+        }
+      }
+
       if (isDrivingRef.current && !isNavigatingRef.current && endLocationRef.current) {
         const now = Date.now();
         const prev = lastPreviewOriginCoordRef.current;
@@ -3904,12 +3920,9 @@ function MapScreenInner() {
           }, 1200);
           if (
             massiveAbsoluteJump
-            && rawGpsKmh >= 15
-            && netMoveM >= 14
-            && motionKmh >= 10
+            || standstillHallucination
+            || impossibleHud
           ) {
-            reliableSpeedKmh = Math.min(MAX_SPEED_HUD_KMH, rawGpsKmh);
-          } else {
             reliableSpeedKmh = standstillHallucination
               || massiveAbsoluteJump
               || impossibleHud
@@ -4168,7 +4181,7 @@ function MapScreenInner() {
     }
   }, [isDriving, isNavigating, liveDistanceKm, checkLiveAchievements]);
 
-  /** Checkpoint km w trakcie jazdy — domyślnie wyłączony; zapis tylko na koniec trasy / tło. */
+  /** Checkpoint km w trakcie jazdy — zapis co TRIP_CHECKPOINT_KM na serwer. */
   useEffect(() => {
     if (!ENABLE_TRIP_DISTANCE_CHECKPOINT) {
       tripCheckpointSavedKmRef.current = 0;
@@ -4190,6 +4203,7 @@ function MapScreenInner() {
         const ok = await saveIncrementalTripKm({
           distanceKm: chunkKm,
           maxSpeedKmh: tripPeakSpeedRef.current,
+          source: isNavigating ? 'navigation' : 'driving',
         });
         if (ok) {
           tripCheckpointSavedKmRef.current += chunkKm;
@@ -7258,6 +7272,13 @@ publishSpeed(0, {
           : lngFilter.filter(rawLng, acc);
 
       let rawGpsKmhForSpike = rawSpeedMs != null ? rawSpeedMs * 3.6 : 0;
+      if (
+        rawGpsKmhForSpike > GPS_DOPPLER_HIGH_SPEED_TRUST_KMH
+        && Number.isFinite(acc)
+        && acc > GPS_ACCURACY_HIGH_SPEED_MAX_M
+      ) {
+        rawGpsKmhForSpike = 0;
+      }
       const tripSpeedWarmupActive = Date.now() < tripSpeedWarmupUntilRef.current;
       if (tripSpeedWarmupActive) {
         const physicallyMoving =
@@ -11705,7 +11726,8 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
         void (async () => {
           const optedOut = await AsyncStorage.getItem(LIVE_SHARING_USER_PREF_KEY);
           if (optedOut === 'false') return;
-          setIsSharing(true);
+          if (!tripActive) return;
+          if (!isSharingRef.current) return;
           await resumeLiveSession();
         })();
       }
@@ -12678,14 +12700,14 @@ if (pts.length >= 2) {
 
     setStartLocation(loaded.start);
     setEndLocation(loaded.end);
-    autoStartRouteAfterApproachRef.current = true;
+    autoStartRouteAfterApproachRef.current = false;
 
     Toast.show({
       type: 'success',
-      text1: '🏁 START TRASY',
-      text2: 'Rozpoczynam pomiar czasu trasy',
+      text1: '🏁 TRYB GOTOWOŚCI',
+      text2: 'Rozpocznij jazdę lub kliknij Ruszaj',
     });
-    speak('Dotarłeś do startu. Rozpoczynam pomiar czasu trasy.');
+    speak('Jesteś w strefie startowej. Ruszaj by rozpocząć pomiar czasu.');
 
     transitioningToRouteRunRef.current = false;
   }, [
@@ -12795,7 +12817,8 @@ if (pts.length >= 2) {
 
       if (endLocation) {
         const distToEnd = haversineKm(lat, lng, endLocation.latitude, endLocation.longitude) * 1000;
-        if (distToEnd < 30 && !arrivedRef.current) { handleArrived(); return; }
+        const arriveThreshold = approachingRouteStartRef.current ? 75 : 30;
+        if (distToEnd < arriveThreshold && !arrivedRef.current) { handleArrived(); return; }
       }
 
       const prevStep = currentStepRef.current;
@@ -13172,24 +13195,9 @@ if (pts.length >= 2) {
       startLocation.latitude, startLocation.longitude,
     ) * 1000;
     if (distToStart > 100 && !(isDrivingRef.current || isNavigatingRef.current)) {
-      Alert.alert(
-        'Daleko od startu',
-        `Jesteś ${Math.round(distToStart)}m od punktu startowego.`,
-        [
-          { text: 'Anuluj', style: 'cancel' },
-          { text: 'Nawiguj do startu', onPress: () => {
-            approachingRouteStartRef.current = true;
-            setEndLocation(startLocation);
-            setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
-          }},
-          { text: 'Startuj z mojej pozycji', onPress: () => {
-            approachingRouteStartRef.current = false;
-            setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
-            startIsMyLocationRef.current = true;
-            beginNavigation();
-          }},
-        ],
-      );
+      approachingRouteStartRef.current = true;
+      setEndLocation(startLocation);
+      setStartLocation({ ...navUserLoc, name: 'Moja pozycja' });
       return;
     }
     beginNavigation();
@@ -13302,6 +13310,30 @@ if (pts.length >= 2) {
     isOffroadRoute,
     beginNavigation,
   ]);
+
+  // ── AUTO START Z TRYBU GOTOWOŚCI ───────────────────────
+  useEffect(() => {
+    if (isNavigating || !loadedRouteRef.current || !userLocation) return;
+    if (approachingRouteStartRef.current) return;
+    
+    const startPt = loadedRouteRef.current.start;
+    const pts = loadedRouteRef.current.points;
+    if (!startPt || pts.length < 2) return;
+
+    const distToStartM = haversineKm(userLocation.latitude, userLocation.longitude, startPt.latitude, startPt.longitude) * 1000;
+
+    if (distToStartM <= 75) {
+      routeStartZoneEnteredRef.current = true;
+    } else if (distToStartM > 75 && distToStartM < 250 && routeStartZoneEnteredRef.current) {
+      const distToSecondM = haversineKm(userLocation.latitude, userLocation.longitude, pts[1].latitude, pts[1].longitude) * 1000;
+      const startToSecondM = haversineKm(startPt.latitude, startPt.longitude, pts[1].latitude, pts[1].longitude) * 1000;
+      if (distToSecondM < startToSecondM) {
+         routeStartZoneEnteredRef.current = false;
+         beginNavigation();
+         Toast.show({ type: 'success', text1: '🏁 START TRASY', text2: 'Rozpoczęto pomiar czasu' });
+      }
+    }
+  }, [userLocation, isNavigating, beginNavigation]);
 
   const effectiveVisibleUsers = visibleUsers;
   const effectiveWarnings = clusteredWarnings;
@@ -14193,8 +14225,54 @@ if (pts.length >= 2) {
           </View>
         )}
 
+        {/* ── Przycisk Zatwierdź Trasę ─────────────────────── */}
+        {isBuilding && (
+          <View style={{
+            position: 'absolute',
+            bottom: showSideControls ? sideControlsBottom : (insets.bottom + 20),
+            left: 16,
+            right: 16,
+            zIndex: 100,
+          }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.primary,
+                paddingVertical: 14,
+                borderRadius: 12,
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+                elevation: 6,
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+              onPress={() => {
+                if (pins.length < 2) {
+                  Toast.show({ type: 'info', text1: 'Wymagane min. 2 punkty trasy' });
+                  return;
+                }
+                setSaveRouteVisible(true);
+              }}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <MaterialIcons name="check" size={20} color="#fff" />
+              )}
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700', color: '#fff' }}>
+                Zatwierdź trasę
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Przyciski boczne + FAB (akcje w modalu) ─────── */}
-        {showSideControls && (
+        {showSideControls && !isBuilding && (
         <View style={[styles.rightBottomControls, { bottom: sideControlsBottom }]}>
           {(isDriving || isNavigating) && (
             <HudQuickReportButton onPress={() => setReportVisible(true)} />
@@ -14585,17 +14663,21 @@ if (pts.length >= 2) {
 
               <View style={styles.bottomSheetButtons}>
                 <TouchableOpacity
-                  style={[styles.navigateButton, ((!isOffroadRoute && previewLoading) || !routeInfo) && { opacity: 0.5 }]}
+                  style={[styles.navigateButton, ((!isOffroadRoute && previewLoading) || (!routeInfo && !isOffroadRoute)) && { opacity: 0.5 }]}
                   onPress={startNavigation}
                   activeOpacity={0.85}
-                  disabled={(!isOffroadRoute && previewLoading) || !routeInfo}
+                  disabled={(!isOffroadRoute && previewLoading) || (!routeInfo && !isOffroadRoute)}
                 >
                   {!isOffroadRoute && previewLoading
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <MaterialIcons name="navigation" size={18} color="#fff" />
                   }
                   <Text style={styles.navigateButtonText}>
-                    {!isOffroadRoute && previewLoading ? 'OBLICZAM...' : 'NAWIGUJ'}
+                    {!isOffroadRoute && previewLoading ? 'OBLICZAM...' : (
+                      pendingRouteRef.current && !approachingRouteStartRef.current && userLocation && startLocation && (haversineKm(userLocation.latitude, userLocation.longitude, startLocation.latitude, startLocation.longitude) * 1000 <= 100)
+                        ? 'RUSZAJ'
+                        : 'NAWIGUJ'
+                    )}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.editButton} onPress={() => setSearchModalVisible(true)} activeOpacity={0.8}>

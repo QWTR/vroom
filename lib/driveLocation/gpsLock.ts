@@ -1,5 +1,5 @@
 /** Progi lock GPS — współdzielone z hookiem i testami. */
-export const GPS_LOCK_MAX_ACC_M = 20;
+export const GPS_LOCK_MAX_ACC_M = 65;
 export const GPS_LOCK_CONSECUTIVE_FIXES = 2;
 export const GPS_LOCK_MIN_GAP_MS = 300;
 export const GPS_LOCK_TIMEOUT_MS = 15_000;

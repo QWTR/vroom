@@ -208,7 +208,13 @@ export default function PublicProfileScreen() {
       }
       if (fsRes.ok) {
         const s = await fsRes.json();
-        setFriendStatus(s.status ?? 'none');
+        let mappedStatus: FriendStatus = 'none';
+        if (s.status === 'accepted') {
+          mappedStatus = 'accepted';
+        } else if (s.status === 'pending') {
+          mappedStatus = s.isSender ? 'pending_sent' : 'pending_received';
+        }
+        setFriendStatus(mappedStatus);
         setFriendshipId(s.friendshipId ?? null);
       }
       if (followRes.ok) {
@@ -598,7 +604,7 @@ export default function PublicProfileScreen() {
         </>
       );
     }
-    return pillBtn(handleSendRequest, 'person-add', 'Znajomy');
+    return pillBtn(handleSendRequest, 'person-add', 'Dodaj');
   };
 
   return (

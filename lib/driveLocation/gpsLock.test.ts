@@ -10,9 +10,15 @@ import {
 describe('gpsLock', () => {
   it('does not emit before lock when accuracy is poor', () => {
     const state = createGpsLockState(1000);
-    updateGpsLock(state, 80, 1100);
+    updateGpsLock(state, 95, 1100);
     expect(state.established).toBe(false);
-    expect(shouldEmitLocationFix(state, 80)).toBe(false);
+    expect(shouldEmitLocationFix(state, 95)).toBe(false);
+  });
+
+  it('emits typical in-vehicle fixes before lock (30-60 m)', () => {
+    const state = createGpsLockState(1000);
+    expect(shouldEmitLocationFix(state, 45)).toBe(true);
+    expect(shouldEmitLocationFix(state, 60)).toBe(true);
   });
 
   it('establishes lock after two consecutive good fixes', () => {

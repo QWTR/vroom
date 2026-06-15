@@ -161,7 +161,7 @@ export function useLiveMap(
     const prevSeq = liveUserLastSeqRef.current.get(id);
     const prevAt = liveUserLastServerAtRef.current.get(id);
     if (Number.isFinite(seq) && prevSeq != null) {
-      return Number(seq) > prevSeq;
+      return Number(seq) >= prevSeq;
     }
     if (Number.isFinite(serverAt) && prevAt != null) {
       return Number(serverAt) >= prevAt;
@@ -549,7 +549,7 @@ export function useLiveMap(
         if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
         if (Date.now() - serverAt > LIVE_USER_EVENT_STALE_MS) return;
         const prevSeq = liveUserLastSeqRef.current.get(id);
-        if (Number.isFinite(seq) && prevSeq != null && seq <= prevSeq) return;
+        if (Number.isFinite(seq) && prevSeq != null && seq < prevSeq) return;
         const prevServerAt = liveUserLastServerAtRef.current.get(id);
         if (prevServerAt != null && serverAt < prevServerAt) return;
         if (Number.isFinite(seq)) liveUserLastSeqRef.current.set(id, seq);
@@ -591,6 +591,7 @@ export function useLiveMap(
             lat: Number(u?.lat),
             lng: Number(u?.lng),
             online: u?.online !== false,
+            isFriend: u?.isFriend === true,
             isPremium: !!u?.isPremium,
             serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
             seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,

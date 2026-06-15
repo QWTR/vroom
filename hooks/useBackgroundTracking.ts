@@ -93,7 +93,7 @@ export const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 export const BG_IS_DRIVING_KEY         = 'bg_is_driving';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
-const BG_MAX_PLAUSIBLE_KMH      = 360;
+const BG_MAX_PLAUSIBLE_KMH      = 200;
 const BG_MIN_SEGMENT_KM         = 0.003;
 const BG_MAX_SEGMENT_KM         = 12;
 const BG_ROUTE_MAX_POINTS       = 1500;
@@ -201,9 +201,10 @@ export async function saveIncrementalTripKm(payload: {
   distanceKm: number;
   maxSpeedKmh?: number;
   avgSpeedKmh?: number;
+  source?: 'navigation' | 'driving' | 'trip-checkpoint';
 }): Promise<boolean> {
   const dist = Number(payload.distanceKm);
-  if (!Number.isFinite(dist) || dist < 0.5) return false;
+  if (!Number.isFinite(dist) || dist < 0.1) return false;
   const token = await getAuthToken();
   if (!token) return false;
   try {
@@ -215,7 +216,7 @@ export async function saveIncrementalTripKm(payload: {
         maxSpeed: Math.round((payload.maxSpeedKmh ?? 0) * 10) / 10,
         avgSpeed: Math.round((payload.avgSpeedKmh ?? 0) * 10) / 10,
         duration: null,
-        source: 'trip-checkpoint',
+        source: payload.source ?? 'trip-checkpoint',
       }),
     });
     if (!res.ok) return false;
@@ -338,7 +339,7 @@ export async function recordDrivingTracePoint(
       }
     }
 
-    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= 360) {
+    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= MAX_FEED_SPEED_KMH) {
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
       const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
@@ -379,11 +380,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
 
   const premiumStatus = await AsyncStorage.getItem(USER_IS_PREMIUM_KEY);
   if (premiumStatus !== 'true') {
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-    if (isRegistered) {
-      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
-    }
-    return;
+    // Allow tracking for non-premium too!
   }
 
   const locations = Array.isArray(data.locations) ? data.locations : [];
@@ -409,7 +406,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate speed stats ────────────────────────────────────────────
-    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= 360) {
+    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= MAX_FEED_SPEED_KMH) {
       const kmh        = speed * 3.6;
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples    = samplesRaw ? JSON.parse(samplesRaw) : [];
@@ -426,7 +423,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     // ── Accumulate distance ───────────────────────────────────────────────
     const nowMs = Date.now();
     const appActiveRaw = await AsyncStorage.getItem(BG_APP_ACTIVE_KEY);
-    const shouldAccumulateDistance = !isAppLikelyActive(appActiveRaw, nowMs);
+    // REMOVED checking appActiveRaw to accumulate distance even when app is active!
+    // The previous logic dropped foreground background task events for distance because they are
+    // supposed to be handled by TripStats, but if that isn't working we want this as a fallback.
+    const shouldAccumulateDistance = true;
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
     if (lastRaw && shouldAccumulateDistance) {
       const last = JSON.parse(lastRaw);
@@ -566,6 +566,11 @@ export function useBackgroundTracking(
     forceStarts: 0,
   });
   const bgEnabledRef = useRef(bgEnabled);
+  const forceEnabledRef = useRef(forceEnabled);
+
+  useEffect(() => {
+    forceEnabledRef.current = forceEnabled;
+  }, [forceEnabled]);
 
   useEffect(() => {
     AsyncStorage.setItem(USER_IS_PREMIUM_KEY, isPremium ? 'true' : 'false').catch(() => {});
@@ -671,7 +676,7 @@ export function useBackgroundTracking(
           : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
         const routePointsToSave = trimRoutePointsForActivitySave(routePointsRaw);
 
-        if (distanceToSave < 0.05) return;
+    if (distanceToSave < 0.05) return;
 
         const payload = {
           distance: distanceToSave,
@@ -796,7 +801,7 @@ export function useBackgroundTracking(
         if (!saveRes.ok) {
           let details = '';
           try { details = await saveRes.text(); } catch {}
-          console.log('flushPendingKm(passive) save failed:', saveRes.status, details?.slice(0, 200));
+          console.log('flushPendingKm(passive) save failed — BG_PENDING_KM preserved for retry:', saveRes.status, details?.slice(0, 200));
           telemetryRef.current.flushFail += 1;
           return;
         }
@@ -845,17 +850,13 @@ export function useBackgroundTracking(
       const appIsActive = AppState.currentState === 'active';
       // Free: brak śledzenia po zminimalizowaniu — mapa/nawigacja w foreground bez limitów.
       if (!isPremium && !appIsActive) {
-        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-        if (isRegistered) {
-          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-          telemetryRef.current.bgStops += 1;
-        }
-        return;
+        // Allow passive free tracking for some distance
       }
       // Hard rule: jeśli użytkownik wyłączył „Śledzenie w tle" w ustawieniach,
       // NIE startujemy BG location task w tle. forceEnabled (jazda/nawigacja)
       // może podtrzymać task w foreground (do live share), ale NIE w tle.
-      const shouldTrack = sharingHydrated && bgEnabled;
+      // Śledzenie w tle tylko podczas aktywnej jazdy/nawigacji (świadomy start z UI).
+      const shouldTrack = sharingHydrated && bgEnabled && forceEnabled;
       if (!shouldTrack) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
@@ -926,18 +927,18 @@ export function useBackgroundTracking(
     }
   }, []);
 
-  // ── Auto-start when bgEnabled is on (independent of isSharing) ───────────
+  // ── Auto-start tylko podczas aktywnej jazdy/nawigacji ───────────────────
   useEffect(() => {
-    // During app cold start we may not yet know the real shareLocation value from API.
-    // Avoid stopping an already running background task before sharing hydrates.
     if (!sharingHydrated) return;
 
-    if (bgEnabled) {
+    if (forceEnabled && bgEnabled) {
       const timer = setTimeout(() => startBackgroundTracking(), 300);
       return () => clearTimeout(timer);
     }
-    stopBackgroundTracking().then(() => flushPendingKm(false));
-  }, [bgEnabled, sharingHydrated, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
+    stopBackgroundTracking().then(() => {
+      if (!forceEnabled) flushPendingKm(false);
+    });
+  }, [bgEnabled, sharingHydrated, forceEnabled, startBackgroundTracking, stopBackgroundTracking, flushPendingKm]);
 
   // Recover BG task on foreground only when user enabled background work
   useEffect(() => {
@@ -964,25 +965,31 @@ export function useBackgroundTracking(
             persistAppActive(true);
           }, BG_APP_ACTIVE_HEARTBEAT_MS);
         }
-      } else if (activeHeartbeat) {
-        clearInterval(activeHeartbeat);
-        activeHeartbeat = null;
-      }
-      if (s === 'background' || s === 'inactive') {
-        void flushTracePendingKmToStorage();
-        persistAppActive(false);
-        if (sharingHydrated && bgEnabled) {
+        void flushPendingKm(false);
+        if (sharingHydrated && bgEnabled && forceEnabledRef.current) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
         }
         return;
       }
-      if (s === 'active') {
-        if (sharingHydrated && bgEnabled) {
+      if (activeHeartbeat) {
+        clearInterval(activeHeartbeat);
+        activeHeartbeat = null;
+      }
+      if (s === 'inactive') {
+        // Powiadomienia / panel sterowania — nie restartuj FG service.
+        persistAppActive(false);
+        return;
+      }
+      if (s === 'background') {
+        void flushTracePendingKmToStorage();
+        persistAppActive(false);
+        if (sharingHydrated && bgEnabled && forceEnabledRef.current) {
           startBackgroundTracking();
         } else {
           stopBackgroundTracking();
+          void Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
         }
       }
     });

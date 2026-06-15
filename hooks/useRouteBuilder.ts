@@ -79,71 +79,31 @@ export function useRouteBuilder() {
     setSnapping(true);
 
     try {
-      const segments: { latitude: number; longitude: number }[][] = [];
+      const coordinates = pinsToSnap.map(p => [p.longitude, p.latitude]);
+      
+      const json = await fetchDirectionsViaProxy<any>(
+        {
+          coordinates,
+          profile: 'driving',
+          alternatives: false,
+          geometries: 'polyline',
+          steps: false,
+          overview: 'full',
+          language: 'pl',
+        },
+        '' // No Mapbox fallback url needed
+      );
 
-      for (let i = 0; i < pinsToSnap.length - 1; i++) {
-        const origin      = pinsToSnap[i];
-        const destination = pinsToSnap[i + 1];
-
-        const url =
-          `https://api.mapbox.com/directions/v5/mapbox/driving/` +
-          `${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}` +
-          `?geometries=polyline&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
-
-        const segKey =
-          `${Math.round(origin.latitude * 10000) / 10000},${Math.round(origin.longitude * 10000) / 10000}` +
-          `->${Math.round(destination.latitude * 10000) / 10000},${Math.round(destination.longitude * 10000) / 10000}`;
-        const cached = segmentCacheRef.current.get(segKey);
-        if (cached && Date.now() - cached.at < 10 * 60_000) {
-          segments.push(cached.points);
-          continue;
-        }
-
-        let segPoints: { latitude: number; longitude: number }[];
-        try {
-          const json = await fetchDirectionsViaProxy<any>(
-            {
-              coordinates: [
-                [origin.longitude, origin.latitude],
-                [destination.longitude, destination.latitude],
-              ],
-              profile: 'driving',
-              alternatives: false,
-              geometries: 'polyline',
-              steps: false,
-              overview: 'full',
-              language: 'pl',
-            },
-            url,
-          );
-          if (!json.routes?.[0]) {
-            segPoints = [
-              { latitude: origin.latitude, longitude: origin.longitude },
-              { latitude: destination.latitude, longitude: destination.longitude },
-            ];
-          } else {
-            segPoints = decodePolyline(json.routes[0].geometry);
-            segmentCacheRef.current.set(segKey, { at: Date.now(), points: segPoints });
-          }
-        } catch {
-          segPoints = [
-            { latitude: origin.latitude, longitude: origin.longitude },
-            { latitude: destination.latitude, longitude: destination.longitude },
-          ];
-        }
-        segments.push(segPoints);
+      if (json.routes?.[0]) {
+        const segPoints = decodePolyline(json.routes[0].geometry);
+        const compacted = compactRoutePolyline(segPoints, MAX_DISPLAY_POINTS).map((p) => ({
+          latitude: p.lat,
+          longitude: p.lng,
+        }));
+        setSnappedRoute(compacted);
+      } else {
+        setSnappedRoute(pinsToSnap.map(p => ({ latitude: p.latitude, longitude: p.longitude })));
       }
-
-      const merged: { latitude: number; longitude: number }[] = [];
-      for (let i = 0; i < segments.length; i++) {
-        merged.push(...(i === 0 ? segments[i] : segments[i].slice(1)));
-      }
-
-      const compacted = compactRoutePolyline(merged, MAX_DISPLAY_POINTS).map((p) => ({
-        latitude: p.lat,
-        longitude: p.lng,
-      }));
-      setSnappedRoute(compacted);
     } catch (e) {
       console.log('snapToRoad error:', e);
       setSnappedRoute(pinsToSnap.map(p => ({ latitude: p.latitude, longitude: p.longitude })));

@@ -785,9 +785,9 @@ export default function HomeScreen() {
 									gap: 5,
 									flexShrink: 1,
 									minWidth: 0,
-									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									backgroundColor: "rgba(77, 233, 38, 0.15)", // Green background with opacity
 									borderWidth: 1,
-									borderColor: glassBorder,
+									borderColor: "rgba(77, 233, 38, 0.3)", // Light green border
 									paddingHorizontal: 8,
 									paddingVertical: 5,
 									borderRadius: 20,
@@ -797,7 +797,7 @@ export default function HomeScreen() {
 										width: 6,
 										height: 6,
 										borderRadius: 3,
-										backgroundColor: t.primary,
+										backgroundColor: "#4de926",
 										transform: [{ scale: pulseAnim }],
 									}}
 								/>
@@ -806,7 +806,8 @@ export default function HomeScreen() {
 									style={{
 										fontFamily: "Orbitron",
 										fontSize: 8,
-										color: t.textDim,
+										color: "#4de926",
+										fontWeight: "700",
 										letterSpacing: 1,
 										flexShrink: 1,
 									}}>
@@ -984,6 +985,16 @@ export default function HomeScreen() {
 									}}>
 									Streak
 								</Text>
+								<LiveCountdownText 
+									targetDate={new Date(new Date().setHours(24, 0, 0, 0)).toISOString()}
+									style={{
+										fontSize: 7,
+										color: t.primary,
+										fontFamily: "Orbitron",
+										letterSpacing: 1,
+										marginTop: 2
+									}}
+								/>
 							</View>
 						</View>
 					</Animated.View>

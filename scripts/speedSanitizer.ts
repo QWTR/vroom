@@ -1,11 +1,24 @@
 import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 import { haversineKm } from './navigationUtils';
 
-/** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 250. */
-export const MAX_SPEED_HUD_KMH = 250;
+/** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 200. */
+export const MAX_SPEED_HUD_KMH = 200;
 export const MAX_SPEED_BROWSE_KMH = 150;
 /** Statystyki trasy: osobny sufit (peak z kilku próbek). */
-export const MAX_SPEED_TRIP_STATS_KMH = 280;
+export const MAX_SPEED_TRIP_STATS_KMH = 200;
+/** Powyżej tej prędkości wymagamy dokładnego GPS (metry). */
+export const GPS_ACCURACY_HIGH_SPEED_MAX_M = 30;
+/** Doppler powyżej tego progu odrzucamy przy słabej dokładności. */
+export const GPS_DOPPLER_HIGH_SPEED_TRUST_KMH = 150;
+
+function rejectHighSpeedWithPoorAccuracy(
+  kmh: number,
+  accuracyM: number | null | undefined,
+): boolean {
+  if (!Number.isFinite(kmh) || kmh <= GPS_DOPPLER_HIGH_SPEED_TRUST_KMH) return false;
+  if (accuracyM == null || !Number.isFinite(accuracyM)) return false;
+  return accuracyM > GPS_ACCURACY_HIGH_SPEED_MAX_M;
+}
 
 export type TripMoveSample = { lat: number; lng: number; t: number };
 
@@ -119,6 +132,7 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const sustained = input.sustainedKmh ?? 0;
     const hasPhysicalMotion = netM >= 6 || pathM >= 8 || sustained >= 3;
     if (hasPhysicalMotion) {
+      if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
       return Math.min(gpsKmh, maxKmh);
     }
   }
@@ -181,6 +195,7 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
         && geoKmh < 8
         && sustained >= 2.5;
       if (frozenCoordsDriving) {
+        if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
         return Math.min(gpsKmh, maxKmh);
       }
       if (derivedKmh >= 3 && derivedKmh <= 24 && netM >= 4 && sustained >= 2.5) {
@@ -199,6 +214,7 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
         && geoKmh < 8
         && sustained < 8;
       if (dopplerLiveCoordsFrozen) {
+        if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
         return Math.min(gpsKmh, maxKmh);
       }
       if (netM < 22 && geoKmh < 5 && sustained < 5 && !slowCrawl) {
@@ -209,6 +225,7 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
           && pathM >= 8
           && (input.pathMoveM ?? 0) / Math.max(netM, 0.5) >= 0.35;
         if (dopplerWithoutGeometry) {
+          if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
           return Math.min(gpsKmh, maxKmh);
         }
         if (pathM >= 6 && (gpsKmh >= 2.5 || derivedKmh >= 2.5)) {
@@ -313,6 +330,9 @@ export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
     && gpsKmh >= kmh * 1.55
     && ((input.netMoveM ?? 0) >= 4 || (input.pathMoveM ?? 0) >= 6 || (input.sustainedKmh ?? 0) >= 2.5);
   if (accelLagDetected) {
+    if (rejectHighSpeedWithPoorAccuracy(gpsKmh, input.accuracyM)) {
+      return kmh > 0 ? kmh / 3.6 : null;
+    }
     const boostedKmh = Math.max(kmh, gpsKmh * 0.92, (input.sustainedKmh ?? 0) * 1.08);
     return Math.min(boostedKmh, MAX_SPEED_HUD_KMH) / 3.6;
   }

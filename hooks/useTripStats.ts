@@ -51,7 +51,11 @@ function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
 
 function percentile95(samples: number[]): number {
   if (!samples.length) return 0;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const filtered = samples.filter(
+    (s) => Number.isFinite(s) && s > 2 && s <= TRIP_MAX_PLAUSIBLE_KMH,
+  );
+  if (!filtered.length) return 0;
+  const sorted = [...filtered].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
   return sorted[idx];
 }
@@ -182,7 +186,7 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (kmh > 1 && kmh <= 360) {
+    if (kmh > 1 && kmh <= TRIP_MAX_PLAUSIBLE_KMH) {
       speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
       if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
         speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -389,7 +393,9 @@ export function useTripStats() {
     const elapsed  = startTimeRef.current
       ? Math.round((Date.now() - startTimeRef.current) / 1000)
       : 0;
-    const samples  = speedSamples.current.filter((s: number) => s > 2);
+    const samples  = speedSamples.current.filter(
+      (s: number) => s > 2 && s <= TRIP_MAX_PLAUSIBLE_KMH,
+    );
     const maxSpeed = samples.length ? percentile95(samples) : 0;
     const avgSpeed = samples.length
       ? samples.reduce((a: number, b: number) => a + b, 0) / samples.length
