@@ -1,0 +1,26 @@
+
+request to https://api.expo.dev/graphql failed, reason: 
+CombinedError: [Network] request to https://api.expo.dev/graphql failed, reason: 
+    at makeErrorResult (/home/vroom/.nvm/versions/node/v20.20.2/lib/node_modules/eas-cli/node_modules/@urql/core/dist/urql-core-chunk.js:495:10)
+    at fetchOperation (/home/vroom/.nvm/versions/node/v20.20.2/lib/node_modules/eas-cli/node_modules/@urql/core/dist/urql-core-chunk.js:756:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async /home/vroom/.nvm/versions/node/v20.20.2/lib/node_modules/eas-cli/node_modules/wonka/dist/wonka.js:346:20 {
+  graphQLErrors: [],
+  networkError: FetchError: request to https://api.expo.dev/graphql failed, reason: 
+      at ClientRequest.<anonymous> (/home/vroom/.nvm/versions/node/v20.20.2/lib/node_modules/eas-cli/node_modules/node-fetch/lib/index.js:1491:11)
+      at ClientRequest.emit (node:events:524:28)
+      at ClientRequest.emit (node:domain:489:12)
+      at emitErrorEvent (node:_http_client:101:11)
+      at TLSSocket.socketErrorListener (node:_http_client:504:5)
+      at TLSSocket.emit (node:events:524:28)
+      at TLSSocket.emit (node:domain:489:12)
+      at emitErrorNT (node:internal/streams/destroy:169:8)
+      at emitErrorCloseNT (node:internal/streams/destroy:128:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+    type: 'system',
+    errno: 'ETIMEDOUT',
+    code: 'ETIMEDOUT'
+  },
+  response: undefined
+}
+    Error: GraphQL request failed.
