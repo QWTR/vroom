@@ -247,6 +247,35 @@ function RootLayoutInner() {
     initMapbox().catch(() => {});
     void initNavDriveTraceStore();
     vroomGpsLogPing('app_layout_mount');
+
+    // Inicjalizacja CarPlay / Android Auto (tylko gdy moduł natywny jest dostępny)
+    if (NativeModules.RNCarPlay) {
+      try {
+        const { CarPlay, ListTemplate } = require('react-native-carplay');
+        CarPlay.registerOnConnect(() => {
+          try {
+            const template = new ListTemplate({
+              title: 'VROOM Auto',
+              sections: [
+                {
+                  items: [
+                    {
+                      text: 'Połączono z systemem pojazdu.',
+                      detailText: 'Trwa ładowanie mapy...',
+                    },
+                  ],
+                },
+              ],
+            });
+            CarPlay.setRootTemplate(template);
+          } catch (e) {
+            console.warn('Błąd podczas ustawiania szablonu Android Auto:', e);
+          }
+        });
+      } catch (err) {
+        console.warn('Błąd inicjalizacji react-native-carplay:', err);
+      }
+    }
   }, []);
 
   useEffect(() => {

@@ -57,6 +57,7 @@
       "favicon": "./assets/images/iconVR.png"
     },
     "plugins": [
+      "./plugins/withAndroidAuto",
       [
         "@rnmapbox/maps",
         {
