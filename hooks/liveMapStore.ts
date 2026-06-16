@@ -10,15 +10,25 @@ export type LiveUserMeta = {
   isPremium?: boolean;
   serverAt?: number | null;
   seq?: number | null;
+  heading?: number | null;
+  speedKmh?: number | null;
+  speedMps?: number | null;
 };
 
-export type LiveUserSnapshot = LiveUserMeta & { lat: number; lng: number };
+export type LiveUserPosition = {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  speedMps: number | null;
+};
+
+export type LiveUserSnapshot = LiveUserMeta & LiveUserPosition;
 
 export type LiveMapStore = ReturnType<typeof createLiveMapStore>;
 
 export function createLiveMapStore() {
   const metaById = new Map<number, LiveUserMeta>();
-  const positions = new Map<number, { lat: number; lng: number }>();
+  const positions = new Map<number, LiveUserPosition>();
   let userIds: number[] = [];
   let userIdsSnapshot: number[] = [];
 
@@ -33,23 +43,83 @@ export function createLiveMapStore() {
     positionListeners.get(id)?.forEach((l) => l());
   };
 
-  const syncUserIdsArray = () => {
+  const publishUserIds = () => {
+    userIdsSnapshot = [...userIds];
+    notifyUserIds();
+  };
+
+  const insertUserIdSorted = (id: number): boolean => {
+    if (userIds.includes(id)) return false;
+    let lo = 0;
+    let hi = userIds.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (userIds[mid] < id) lo = mid + 1;
+      else hi = mid;
+    }
+    userIds.splice(lo, 0, id);
+    return true;
+  };
+
+  const removeUserIdFromList = (id: number): boolean => {
+    const idx = userIds.indexOf(id);
+    if (idx < 0) return false;
+    userIds.splice(idx, 1);
+    return true;
+  };
+
+  /** Pełny rebuild — tylko clear() / recovery; nie wołać na każdy socket tick. */
+  const rebuildUserIdsFromMeta = () => {
     const next = Array.from(metaById.keys()).sort((a, b) => a - b);
     if (next.length === userIds.length && next.every((id, i) => id === userIds[i])) return;
     userIds = next;
-    userIdsSnapshot = [...next];
-    notifyUserIds();
+    publishUserIds();
+  };
+
+  const syncUserIdsArray = () => {
+    rebuildUserIdsFromMeta();
+  };
+
+  const registerUserId = (id: number): boolean => {
+    if (!Number.isFinite(id) || !metaById.has(id)) return false;
+    if (!insertUserIdSorted(id)) return false;
+    publishUserIds();
+    return true;
   };
 
   const setMeta = (meta: LiveUserMeta) => {
     metaById.set(meta.id, meta);
   };
 
-  const setPosition = (id: number, lat: number, lng: number, notify = true) => {
+  const setPosition = (
+    id: number,
+    lat: number,
+    lng: number,
+    notify = true,
+    motion?: { heading?: number | null; speedMps?: number | null },
+  ) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const prev = positions.get(id);
-    if (prev && prev.lat === lat && prev.lng === lng) return;
-    positions.set(id, { lat, lng });
+    const nextHeading = motion?.heading !== undefined
+      ? (Number.isFinite(Number(motion.heading)) ? Number(motion.heading) : null)
+      : (prev?.heading ?? null);
+    const nextSpeedMps = motion?.speedMps !== undefined
+      ? (Number.isFinite(Number(motion.speedMps)) ? Number(motion.speedMps) : null)
+      : (prev?.speedMps ?? null);
+    const samePos = prev && prev.lat === lat && prev.lng === lng;
+    const sameMotion = prev
+      && prev.heading === nextHeading
+      && prev.speedMps === nextSpeedMps;
+    if (samePos && sameMotion) {
+      if (notify) notifyPosition(id);
+      return;
+    }
+    positions.set(id, {
+      lat,
+      lng,
+      heading: nextHeading,
+      speedMps: nextSpeedMps,
+    });
     if (notify) notifyPosition(id);
   };
 
@@ -58,12 +128,13 @@ export function createLiveMapStore() {
     metaById.delete(id);
     positions.delete(id);
     positionListeners.delete(id);
+    removeUserIdFromList(id);
     return true;
   };
 
   const removeUser = (id: number) => {
     if (!removeUserInPlace(id)) return;
-    syncUserIdsArray();
+    publishUserIds();
   };
 
   const pruneUsersInPlace = (ids: number[]) => {
@@ -71,47 +142,64 @@ export function createLiveMapStore() {
     for (const id of ids) {
       if (removeUserInPlace(id)) removed = true;
     }
-    if (removed) syncUserIdsArray();
+    if (removed) publishUserIds();
   };
 
   type MergeUserBatchEntry = {
     meta: LiveUserMeta;
     lat: number;
     lng: number;
+    heading?: number | null;
+    speedMps?: number | null;
   };
 
   const mergeUsersBatch = (
     entries: MergeUserBatchEntry[],
     pruneIds: number[] = [],
   ): number[] => {
-    const changedPositionIds: number[] = [];
+    const notifyIds: number[] = [];
+    let idsChanged = false;
 
-    for (const { meta, lat, lng } of entries) {
+    for (const { meta, lat, lng, heading, speedMps } of entries) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const isNewUser = !metaById.has(meta.id);
       setMeta(meta);
-      const prev = positions.get(meta.id);
-      const posChanged = !prev || prev.lat !== lat || prev.lng !== lng;
-      setPosition(meta.id, lat, lng, false);
-      if (posChanged) changedPositionIds.push(meta.id);
+      if (isNewUser && insertUserIdSorted(meta.id)) {
+        idsChanged = true;
+      }
+      setPosition(meta.id, lat, lng, false, { heading, speedMps });
+      notifyIds.push(meta.id);
     }
 
     for (const id of pruneIds) {
-      removeUserInPlace(id);
+      if (removeUserInPlace(id)) {
+        idsChanged = true;
+      }
     }
-    syncUserIdsArray();
 
-    for (const id of changedPositionIds) {
+    if (idsChanged) {
+      publishUserIds();
+    }
+
+    for (const id of notifyIds) {
       notifyPosition(id);
     }
 
-    return changedPositionIds;
+    return notifyIds;
   };
 
   const getLiveUsersArray = (): LiveUserSnapshot[] => {
     return userIds.map((id) => {
       const meta = metaById.get(id)!;
-      const pos = positions.get(id) ?? { lat: 0, lng: 0 };
-      return { ...meta, lat: pos.lat, lng: pos.lng };
+      const pos = positions.get(id) ?? { lat: 0, lng: 0, heading: null, speedMps: null };
+      return {
+        ...meta,
+        lat: pos.lat,
+        lng: pos.lng,
+        heading: pos.heading,
+        speedMps: pos.speedMps,
+        speedKmh: pos.speedMps != null ? pos.speedMps * 3.6 : null,
+      };
     });
   };
 
@@ -140,6 +228,7 @@ export function createLiveMapStore() {
     pruneUsersInPlace,
     mergeUsersBatch,
     syncUserIdsArray,
+    registerUserId,
     getLiveUsersArray,
 
     clear() {

@@ -70,6 +70,7 @@ function LiveUsersFleetLayerInner({
           style={{
             iconImage: ['concat', 'avatar_', ['to-string', ['get', 'id']]],
             iconSize,
+            iconRotate: 0,
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconAnchor: 'bottom',

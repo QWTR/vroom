@@ -5,9 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
-import { Image } from 'expo-image';
 import { API_URL } from '../constants/mapConfig';
-import { normalizeMediaUri } from '../lib/mediaUri';
 import { snapToRoute } from '../scripts/navigationUtils';
 import {
   createLiveMapStore,
@@ -28,7 +26,15 @@ export interface LiveUser {
   isPremium?: boolean;
   serverAt?: number | null;
   seq?: number | null;
+  heading?: number | null;
+  speedKmh?: number | null;
+  speedMps?: number | null;
 }
+
+export type LiveLocationMotion = {
+  heading?: number;
+  speedKmh?: number;
+};
 
 export interface LiveWarning {
   id:           number;
@@ -40,6 +46,23 @@ export interface LiveWarning {
   expiresAt:    string;
   confirmCount: number;
   user:         { id: number; username: string; avatarUrl: string | null };
+}
+
+function parseIncomingMotion(u: Partial<LiveUser>): {
+  heading: number | null;
+  speedMps: number | null;
+} {
+  const headingRaw = Number(u?.heading);
+  const speedMpsRaw = Number(u?.speedMps);
+  const speedKmhRaw = Number(u?.speedKmh);
+  const heading = Number.isFinite(headingRaw) ? headingRaw : null;
+  let speedMps: number | null = null;
+  if (Number.isFinite(speedMpsRaw) && speedMpsRaw >= 0) {
+    speedMps = speedMpsRaw;
+  } else if (Number.isFinite(speedKmhRaw) && speedKmhRaw >= 0) {
+    speedMps = speedKmhRaw / 3.6;
+  }
+  return { heading, speedMps };
 }
 
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -121,6 +144,7 @@ export function useLiveMap(
   const lastSnapshotAtRef  = useRef(0);
   const hasUsersFromSocketRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mergeGenerationRef = useRef(0);
 
   useEffect(() => {
     allowBgRef.current = allowBackgroundWork;
@@ -218,20 +242,30 @@ export function useLiveMap(
     }
   }, [store, removeLiveUser]);
 
-  /** Scal listę użytkowników — batch merge bez flicker; prune zombie in-place. */
-  const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
-    const now = Date.now();
-    const incomingById = new Set<number>();
-    const batchEntries: { meta: LiveUserMeta; lat: number; lng: number }[] = [];
+  /** Scal listę użytkowników — natychmiastowy zapis do store, prune po flocie. */
+  const applyLiveUsersMerge = useCallback((
+    incoming: LiveUser[],
+    cancelToken: number,
+  ): boolean => {
+    if (cancelToken !== mergeGenerationRef.current) return false;
 
-    for (const u of incoming) {
+    const batchEntries: {
+      meta: LiveUserMeta;
+      lat: number;
+      lng: number;
+      heading?: number | null;
+      speedMps?: number | null;
+    }[] = [];
+
+    for (let i = 0; i < incoming.length; i++) {
+      const u = incoming[i];
       if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
-      incomingById.add(u.id);
       touchLiveUser(u.id);
 
       const prevMeta = store.getMeta(u.id);
       const prevPos = store.getPosition(u.id);
       const coords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
+      const motion = parseIncomingMotion(u);
 
       if (Number.isFinite(Number(u?.seq))) {
         const seq = Number(u.seq);
@@ -248,23 +282,45 @@ export function useLiveMap(
         }
       }
 
-      const meta: LiveUserMeta = {
-        id: u.id,
-        username: u.username,
-        avatarUrl: u.avatarUrl ?? prevMeta?.avatarUrl ?? null,
-        avatarFrameUrl: u.avatarFrameUrl ?? prevMeta?.avatarFrameUrl ?? null,
-        online: u.online,
-        isFriend: u.isFriend ?? prevMeta?.isFriend,
-        isPremium: u.isPremium ?? prevMeta?.isPremium,
-        serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
-        seq: u.seq ?? prevMeta?.seq ?? null,
-      };
-      batchEntries.push({ meta, lat: coords.lat, lng: coords.lng });
-
-      const avatarUri = normalizeMediaUri(meta.avatarUrl);
-      if (avatarUri) Image.prefetch(avatarUri).catch(() => {});
+      batchEntries.push({
+        meta: {
+          id: u.id,
+          username: u.username,
+          avatarUrl: u.avatarUrl ?? prevMeta?.avatarUrl ?? null,
+          avatarFrameUrl: u.avatarFrameUrl ?? prevMeta?.avatarFrameUrl ?? null,
+          online: u.online,
+          isFriend: u.isFriend ?? prevMeta?.isFriend,
+          isPremium: u.isPremium ?? prevMeta?.isPremium,
+          serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
+          seq: u.seq ?? prevMeta?.seq ?? null,
+          heading: motion.heading ?? prevMeta?.heading ?? null,
+          speedKmh: motion.speedMps != null ? motion.speedMps * 3.6 : (prevMeta?.speedKmh ?? null),
+          speedMps: motion.speedMps ?? prevMeta?.speedMps ?? null,
+        },
+        lat: coords.lat,
+        lng: coords.lng,
+        heading: motion.heading,
+        speedMps: motion.speedMps,
+      });
     }
 
+    if (cancelToken !== mergeGenerationRef.current) return false;
+
+    // Natychmiastowy render — awatary ładuje Mapbox / sprite pipeline osobno.
+    store.mergeUsersBatch(batchEntries, []);
+
+    if (__DEV__) {
+      console.log(
+        '[LIVE_MERGE] instant store write — merged=',
+        batchEntries.length,
+        'storeIds=',
+        store.getUserIdsSnapshot().length,
+      );
+    }
+
+    // Prune zombie po zapisie floty — nie blokuje pierwszej klatki markerów.
+    const now = Date.now();
+    const incomingById = new Set(batchEntries.map((e) => e.meta.id));
     const pruneIds: number[] = [];
     for (const id of store.getUserIdsSnapshot()) {
       if (incomingById.has(id)) continue;
@@ -281,9 +337,16 @@ export function useLiveMap(
         pruneIds.push(id);
       }
     }
+    if (pruneIds.length > 0) {
+      store.pruneUsersInPlace(pruneIds);
+    }
 
-    store.mergeUsersBatch(batchEntries, pruneIds);
+    return true;
   }, [touchLiveUser, store, pickCoords]);
+
+  const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
+    applyLiveUsersMerge(incoming, mergeGenerationRef.current);
+  }, [applyLiveUsersMerge]);
 
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -426,6 +489,7 @@ export function useLiveMap(
   const lastUsersGeoRefreshRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
 
   const clearLiveUsersFleetState = useCallback(() => {
+    mergeGenerationRef.current += 1;
     clearUsersFallbackTimer();
     pendingOfflineRef.current.forEach((t) => clearTimeout(t));
     pendingOfflineRef.current.clear();
@@ -557,6 +621,7 @@ export function useLiveMap(
         touchLiveUser(id);
 
         const existingMeta = store.getMeta(id);
+        const motion = parseIncomingMotion(data);
         const meta: LiveUserMeta = {
           id,
           username: typeof data?.username === 'string'
@@ -573,15 +638,31 @@ export function useLiveMap(
           isPremium: data?.isPremium ?? existingMeta?.isPremium,
           serverAt,
           seq: Number.isFinite(seq) ? seq : null,
+          heading: motion.heading ?? existingMeta?.heading ?? null,
+          speedKmh: motion.speedMps != null ? motion.speedMps * 3.6 : (existingMeta?.speedKmh ?? null),
+          speedMps: motion.speedMps ?? existingMeta?.speedMps ?? null,
         };
         store.setMeta(meta);
-        store.setPosition(id, rawLat, rawLng, true);
-        store.syncUserIdsArray();
+        store.setPosition(id, rawLat, rawLng, true, {
+          heading: motion.heading,
+          speedMps: motion.speedMps,
+        });
+        if (!existingMeta) store.registerUserId(id);
         lastSnapshotAtRef.current = Date.now();
       });
 
       socket.on('live:users:snapshot', (data: any) => {
-        if (!liveUsersEnabledRef.current) return;
+        const rawCount = Array.isArray(data) ? data.length : -1;
+        console.log(
+          '[LIVE_SNAPSHOT] received rawCount=',
+          rawCount,
+          'liveUsersEnabled=',
+          liveUsersEnabledRef.current,
+        );
+        if (!liveUsersEnabledRef.current) {
+          console.log('[LIVE_SNAPSHOT] skipped — liveUsersEnabled is false');
+          return;
+        }
         const users: LiveUser[] = (Array.isArray(data) ? data : [])
           .map((u) => ({
             id: Number(u?.id),
@@ -595,12 +676,20 @@ export function useLiveMap(
             isPremium: !!u?.isPremium,
             serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
             seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
+            heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,
+            speedKmh: Number.isFinite(Number(u?.speedKmh)) ? Number(u.speedKmh) : null,
+            speedMps: Number.isFinite(Number(u?.speedMps)) ? Number(u.speedMps) : null,
           }))
           .filter((u) =>
             Number.isFinite(u.id)
             && Number.isFinite(u.lat)
             && Number.isFinite(u.lng),
           );
+        console.log(
+          '[LIVE_SNAPSHOT] parsed users=',
+          users.length,
+          '→ mergeLiveUsersFromApi',
+        );
         hasUsersFromSocketRef.current = true;
         lastSnapshotAtRef.current = Date.now();
         clearUsersFallbackTimer();
@@ -802,6 +891,7 @@ export function useLiveMap(
     lat:          number,
     lng:          number,
     routePoints?: { latitude: number; longitude: number }[],
+    motion?:      LiveLocationMotion,
   ) => {
     if (!isSharing) return;
     if (!allowBgRef.current && !isForegroundActive()) return;
@@ -809,9 +899,14 @@ export function useLiveMap(
     if (!socket?.connected) return;
 
     if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
-    // Live sharing must reflect raw current position. Snapping to stale route
-    // points can broadcast an old road point and look like teleportation.
-    socket.emit('location:update', { lat, lng });
+    const payload: Record<string, number> = { lat, lng };
+    if (motion?.heading != null && Number.isFinite(motion.heading)) {
+      payload.heading = motion.heading;
+    }
+    if (motion?.speedKmh != null && Number.isFinite(motion.speedKmh) && motion.speedKmh >= 0) {
+      payload.speedKmh = motion.speedKmh;
+    }
+    socket.emit('location:update', payload);
   }, [isSharing]);
 
   // ── Toggle sharing ────────────────────────────────────

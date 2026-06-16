@@ -10,6 +10,7 @@ import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteV
 import { buildPinSpriteSignature } from './useLiveUserPinSprites';
 import {
   EMPTY_VIEWPORT,
+  isInViewport,
   type ViewportBounds,
 } from './liveFleetSpatialIndex';
 import type { LiveMapStore } from './liveMapStore';
@@ -18,9 +19,11 @@ import type { LiveMapStore } from './liveMapStore';
 const LERP_RATE = 10;
 const MAX_DT_SEC = 0.05;
 const ARRIVE_EPS_M = 0.4;
-const COAST_MAX_MS = 2000;
-const MIN_COAST_SPEED_MPS = 0.8;
+/** Czas coasting między pakietami (~15 s cadence wysyłki). */
+const COAST_MAX_MS = 17_000;
+const MIN_COAST_SPEED_MPS = 0.5;
 const MAX_SPEED_MPS = 55;
+const HEADING_LERP_RATE = 8;
 
 type FleetSlot = {
   id: number;
@@ -138,6 +141,12 @@ function bearingDeg(aLat: number, aLng: number, bLat: number, bLng: number): num
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
+function lerpAngle(from: number, to: number, t: number): number {
+  'worklet';
+  let delta = ((to - from + 540) % 360) - 180;
+  return (from + delta * t + 360) % 360;
+}
+
 function moveAlongBearing(lat: number, lng: number, heading: number, distM: number) {
   'worklet';
   if (distM <= 0) return { lat, lng };
@@ -175,6 +184,7 @@ function buildGeoJson(slots: FleetSlot[], bounds: ViewportBounds): LiveFleetGeoJ
     const s = slots[i];
     const display = resolveFleetDisplayCoord(s);
     if (!display) continue;
+    if (!isInViewport(display.lat, display.lng, bounds)) continue;
     features.push({
       type: 'Feature',
       id: s.id,
@@ -256,24 +266,49 @@ function mergeSlotFromStore(
   const targetChanged = !isNew
     && (prev.targetLat !== pos.lat || prev.targetLng !== pos.lng);
 
+  const serverHeading = pos.heading != null && Number.isFinite(pos.heading)
+    ? pos.heading
+    : null;
+  const serverSpeedMps = pos.speedMps != null && Number.isFinite(pos.speedMps) && pos.speedMps >= 0
+    ? Math.min(MAX_SPEED_MPS, pos.speedMps)
+    : null;
+
   let speedMps = prev?.speedMps ?? 0;
   let heading = prev?.heading ?? 0;
 
-  if (targetChanged && prev) {
+  if (serverHeading != null) {
+    heading = serverHeading;
+  } else if (targetChanged && prev) {
+    const dtSec = (now - prev.lastStoreAtMs) / 1000;
+    if (dtSec > 0.05 && dtSec < 30) {
+      const distM = calculateDistance(prev.targetLat, prev.targetLng, pos.lat, pos.lng) * 1000;
+      if (distM / dtSec >= MIN_COAST_SPEED_MPS) {
+        heading = bearingDegJs(prev.targetLat, prev.targetLng, pos.lat, pos.lng);
+      }
+    }
+  } else if (isNew) {
+    heading = 0;
+  }
+
+  if (serverSpeedMps != null) {
+    speedMps = serverSpeedMps;
+  } else if (targetChanged && prev) {
     const dtSec = (now - prev.lastStoreAtMs) / 1000;
     if (dtSec > 0.05 && dtSec < 30) {
       const distM = calculateDistance(prev.targetLat, prev.targetLng, pos.lat, pos.lng) * 1000;
       speedMps = Math.min(MAX_SPEED_MPS, distM / dtSec);
-      if (speedMps >= MIN_COAST_SPEED_MPS) {
-        heading = bearingDegJs(prev.targetLat, prev.targetLng, pos.lat, pos.lng);
-      }
     } else {
       speedMps = 0;
     }
   } else if (isNew) {
     speedMps = 0;
-    heading = 0;
   }
+
+  const motionChanged = !isNew && (
+    (serverHeading != null && Math.abs(((serverHeading - (prev?.heading ?? 0) + 540) % 360) - 180) > 2)
+    || (serverSpeedMps != null && Math.abs((prev?.speedMps ?? 0) - serverSpeedMps) > 0.4)
+  );
+  const packetFresh = targetChanged || motionChanged || isNew;
 
   const avatarUri = normalizeMediaUri(meta.avatarUrl);
   const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
@@ -301,8 +336,8 @@ function mergeSlotFromStore(
     lastGoodLng: isValidFleetCoordJs(lastGoodLat, lastGoodLng) ? lastGoodLng : pos.lng,
     heading,
     speedMps,
-    coastElapsedMs: targetChanged ? 0 : (prev?.coastElapsedMs ?? 0),
-    lastStoreAtMs: targetChanged || isNew ? now : (prev?.lastStoreAtMs ?? now),
+    coastElapsedMs: packetFresh ? 0 : (prev?.coastElapsedMs ?? 0),
+    lastStoreAtMs: packetFresh ? now : (prev?.lastStoreAtMs ?? now),
     isPremium: meta.isPremium ? 1 : 0,
     isFriend: meta.isFriend ? 1 : 0,
     avatarUrl: avatarUri ?? '',
@@ -423,6 +458,7 @@ export function useLiveFleetAnimator(
     const dtMs = frame.timeSincePreviousFrame ?? 16.67;
     const dtSec = Math.min(dtMs / 1000, MAX_DT_SEC);
     const alpha = 1 - Math.exp(-LERP_RATE * dtSec);
+    const headingAlpha = 1 - Math.exp(-HEADING_LERP_RATE * dtSec);
     const bounds = viewportSv.value;
 
     const nextSlots: FleetSlot[] = [];
@@ -432,34 +468,34 @@ export function useLiveFleetAnimator(
       let lng = s.lng;
       let coastElapsedMs = s.coastElapsedMs;
       let heading = s.heading;
+      const serverHeading = Number.isFinite(s.heading) ? s.heading : heading;
 
       const distToTarget = haversineM(lat, lng, s.targetLat, s.targetLng);
-      const coastFinished = coastElapsedMs >= COAST_MAX_MS + 80;
-      const isCoasting = !coastFinished
-        && s.speedMps >= MIN_COAST_SPEED_MPS
-        && coastElapsedMs > 80
-        && coastElapsedMs < COAST_MAX_MS + 80;
+      const coastFinished = coastElapsedMs >= COAST_MAX_MS;
+      const canCoast = s.speedMps >= MIN_COAST_SPEED_MPS;
+      const isCoasting = !coastFinished && canCoast && coastElapsedMs > 0;
 
       if (isCoasting) {
-        const moved = moveAlongBearing(lat, lng, heading, s.speedMps * dtSec);
+        const moved = moveAlongBearing(lat, lng, serverHeading, s.speedMps * dtSec);
         lat = moved.lat;
         lng = moved.lng;
         coastElapsedMs += dtMs;
-      } else if (coastFinished) {
-        lat = s.lat;
-        lng = s.lng;
+        heading = serverHeading;
       } else if (distToTarget < ARRIVE_EPS_M) {
         lat = s.targetLat;
         lng = s.targetLng;
-        coastElapsedMs += dtMs;
+        heading = serverHeading;
+        if (canCoast) {
+          coastElapsedMs += dtMs;
+        } else {
+          coastElapsedMs = 0;
+        }
       } else {
         lat = lat + (s.targetLat - lat) * alpha;
         lng = lng + (s.targetLng - lng) * alpha;
         coastElapsedMs = 0;
-        const moveM = haversineM(s.lat, s.lng, lat, lng);
-        if (moveM > 0.3) {
-          heading = bearingDeg(s.lat, s.lng, lat, lng);
-        }
+        const moveHdg = bearingDeg(s.lat, s.lng, lat, lng);
+        heading = lerpAngle(heading, serverHeading ?? moveHdg, headingAlpha);
       }
 
       let lastGoodLat = s.lastGoodLat;

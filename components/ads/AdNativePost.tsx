@@ -14,6 +14,7 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
+import { bootstrapAdsWithConsent, getAdMobRequestOptions } from '../../lib/adsConsentBootstrap';
 
 /** Dyskusje — native advanced */
 const NATIVE_ID = 'ca-app-pub-1660420496578702/9815615187';
@@ -42,21 +43,31 @@ export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
     }
 
     let ad: NativeAd | null = null;
+    let cancelled = false;
     const forceTestAds = process.env.EXPO_PUBLIC_FORCE_TEST_ADS === '1';
     const unitId = (__DEV__ || forceTestAds) ? TestIds.NATIVE : NATIVE_ID;
 
-    NativeAd.createForAdRequest(unitId, {
-      requestNonPersonalizedAdsOnly: false,
-    }).then(createdAd => {
-      ad = createdAd;
-      setNativeAd(createdAd);
-      setFailed(false);
-    }).catch((e: any) => {
-      setFailed(true);
-      console.warn('[AdNativePost] failed', { unitId, error: e });
-    });
+    void (async () => {
+      await bootstrapAdsWithConsent();
+      const requestOptions = await getAdMobRequestOptions();
+      if (cancelled) return;
+      NativeAd.createForAdRequest(unitId, requestOptions).then(createdAd => {
+        if (cancelled) {
+          createdAd.destroy();
+          return;
+        }
+        ad = createdAd;
+        setNativeAd(createdAd);
+        setFailed(false);
+      }).catch((e: any) => {
+        if (cancelled) return;
+        setFailed(true);
+        console.warn('[AdNativePost] failed', { unitId, error: e });
+      });
+    })();
 
     return () => {
+      cancelled = true;
       ad?.destroy();
     };
   }, [isPremium, premiumLoading, retryTick]);

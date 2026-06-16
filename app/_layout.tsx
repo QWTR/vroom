@@ -38,6 +38,7 @@ import { initMapbox } from '../lib/mapboxInit';
 import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
+import { AdsConsentBootstrap } from '../components/ads/AdsConsentBootstrap';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -577,6 +578,7 @@ function RootLayoutInner() {
         <Stack.Screen name="notifications" />
       </Stack>
       <AppPresenceHeartbeat />
+      <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
       <Toast config={toastConfig} />
       <UpdateModal

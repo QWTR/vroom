@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { haversineKm } from '../scripts/navigationUtils';
+import { BG_GPS_STATIONARY_KEY } from './useBackgroundTracking';
 import { logTelemetry } from '../lib/telemetryLogger';
 import {
   createGpsLockState,
@@ -43,6 +45,10 @@ interface Options {
 }
 
 const DRIVE_SPEED_KMH = 6;
+/** Poniżej tej prędkości liczymy postój (korek, parking). */
+const STATIONARY_SPEED_KMH = 3;
+/** Czas postoju zanim obniżymy profil GPS z activeDrive. */
+const STATIONARY_HOLD_MS = 45_000;
 const MAX_ACCURACY_BROWSING_M = 140;
 const MAX_ACCURACY_ACTIVE_M = 220;
 const MAX_ACCURACY_ACTIVE_HARD_M = GPS_LAYER_A_ACTIVE_REJECT_ACC_M;
@@ -120,9 +126,13 @@ function resolveGpsProfile(
   isDriving: boolean,
   speedKmh: number,
   forceActive: boolean,
+  isStationaryParked: boolean,
 ): GpsProfile {
   if (isNavigating || forceActive) return 'activeNav';
-  if (isDriving || speedKmh > DRIVE_SPEED_KMH) return 'activeDrive';
+  if (isDriving || speedKmh > DRIVE_SPEED_KMH) {
+    if (isDriving && isStationaryParked) return 'browsing';
+    return 'activeDrive';
+  }
   if (!isMapFocused) return 'offMap';
   return 'browsing';
 }
@@ -179,9 +189,42 @@ export function useDriveLocationWatch({
     heading: number | null;
   } | null>(null);
   const lastGpsRestartAtRef = useRef(0);
+  const stationarySinceRef = useRef<number | null>(null);
+  const isStationaryParkedRef = useRef(false);
 
   const [gpsLockEstablished, setGpsLockEstablished] = useState(false);
+  const [isStationaryParked, setIsStationaryParked] = useState(false);
   const gpsLockEstablishedRef = useRef(false);
+
+  const applyStationaryState = useCallback((speed: number, now = Date.now()) => {
+    if (navRef.current || forceActiveRef.current || !drivingRef.current) {
+      stationarySinceRef.current = null;
+      if (isStationaryParkedRef.current) {
+        isStationaryParkedRef.current = false;
+        setIsStationaryParked(false);
+        AsyncStorage.setItem(BG_GPS_STATIONARY_KEY, 'false').catch(() => {});
+      }
+      return;
+    }
+
+    if (speed < STATIONARY_SPEED_KMH) {
+      if (stationarySinceRef.current == null) stationarySinceRef.current = now;
+      const parked = now - stationarySinceRef.current >= STATIONARY_HOLD_MS;
+      if (parked !== isStationaryParkedRef.current) {
+        isStationaryParkedRef.current = parked;
+        setIsStationaryParked(parked);
+        AsyncStorage.setItem(BG_GPS_STATIONARY_KEY, parked ? 'true' : 'false').catch(() => {});
+      }
+      return;
+    }
+
+    stationarySinceRef.current = null;
+    if (isStationaryParkedRef.current) {
+      isStationaryParkedRef.current = false;
+      setIsStationaryParked(false);
+      AsyncStorage.setItem(BG_GPS_STATIONARY_KEY, 'false').catch(() => {});
+    }
+  }, []);
 
   useEffect(() => { onLocRef.current = onLocation; }, [onLocation]);
   useEffect(() => { onLockRef.current = onGpsLockChange; }, [onGpsLockChange]);
@@ -190,6 +233,9 @@ export function useDriveLocationWatch({
   useEffect(() => { drivingRef.current = isDriving ?? false; }, [isDriving]);
   useEffect(() => { mapFocusedRef.current = isMapFocused; }, [isMapFocused]);
   useEffect(() => { forceActiveRef.current = forceActive; }, [forceActive]);
+  useEffect(() => {
+    applyStationaryState(speedKmh);
+  }, [speedKmh, isDriving, isNavigating, forceActive, applyStationaryState]);
 
   const applyLockState = useCallback((locked: boolean) => {
     if (gpsLockEstablishedRef.current === locked) return;
@@ -209,6 +255,7 @@ export function useDriveLocationWatch({
       drivingRef.current,
       speedRef.current,
       forceActiveRef.current,
+      isStationaryParkedRef.current,
     );
   }, []);
 
@@ -460,16 +507,21 @@ export function useDriveLocationWatch({
               gpsLock: lockRef.current.established,
             });
 
+            applyStationaryState(effectiveSpeedKmh, now);
+
             const nextProfile = resolveGpsProfile(
               mapFocusedRef.current,
               navRef.current,
               drivingRef.current,
               effectiveSpeedKmh,
               forceActiveRef.current,
+              isStationaryParkedRef.current,
             );
-            if (isActiveGpsProfile(nextProfile) && !isActiveGpsProfile(profileRef.current)) {
+            if (nextProfile !== profileRef.current) {
+              const resetLock = isActiveGpsProfile(nextProfile)
+                && !isActiveGpsProfile(profileRef.current);
               setTimeout(() => {
-                void subscribeRef.current(nextProfile, true, 'profile_upgrade');
+                void subscribeRef.current(nextProfile, resetLock, 'profile_runtime');
               }, 0);
             }
           } catch (e) {
@@ -498,6 +550,7 @@ export function useDriveLocationWatch({
     }
   }, [
     applyLockState,
+    applyStationaryState,
     clearRestartTimer,
     forceResubscribe,
     markValidFix,
@@ -513,19 +566,26 @@ export function useDriveLocationWatch({
       isDriving ?? false,
       speedKmh,
       forceActive,
+      isStationaryParked,
     );
     if (next !== profileRef.current) {
       const resetLock = isActiveGpsProfile(next) && !isActiveGpsProfile(profileRef.current);
       void subscribe(next, resetLock, 'profile_change');
     }
-  }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, subscribe]);
+  }, [isNavigating, isDriving, isMapFocused, speedKmh, forceActive, isStationaryParked, subscribe]);
 
   const start = useCallback(async () => {
     restartAttemptRef.current = 0;
-    const profile =
-      navRef.current
-        ? 'activeNav'
-        : (drivingRef.current || forceActiveRef.current ? 'activeDrive' : currentProfile());
+    const profile = navRef.current || forceActiveRef.current
+      ? resolveGpsProfile(
+        mapFocusedRef.current,
+        navRef.current,
+        drivingRef.current,
+        speedRef.current,
+        forceActiveRef.current,
+        isStationaryParkedRef.current,
+      )
+      : currentProfile();
     await subscribe(profile, isActiveGpsProfile(profile), 'start');
   }, [currentProfile, subscribe]);
 

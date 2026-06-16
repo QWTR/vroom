@@ -14,8 +14,29 @@ import {
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
-/** Mapbox iconSize = mnożnik względem rozmiaru tekstury. Dzielimy przez PixelRatio by cofnąć powiększenie z Capture i uzyskać ostrość */
-const ICON_SIZE = 1.0 / PixelRatio.get();
+/** Tekstura capture: DRIVE_MARKER_SPRITE_SIZE × PixelRatio (px urządzenia). */
+const MARKER_TEXTURE_PX = DRIVE_MARKER_SPRITE_SIZE * PixelRatio.get();
+/** Docelowy rozmiar markera na ekranie [pt] — ~40 pt. */
+const MARKER_SCREEN_PT = DRIVE_MARKER_SPRITE_SIZE;
+/** Twardy sufit przy zoom out — nigdy więcej niż ~44 pt na ekranie. */
+const MARKER_SCREEN_PT_MAX = 44;
+const ICON_SIZE_NORMAL = MARKER_SCREEN_PT / MARKER_TEXTURE_PX;
+const ICON_SIZE_CLAMP = MARKER_SCREEN_PT_MAX / MARKER_TEXTURE_PX;
+/**
+ * Mapbox `interpolate` nie ekstrapoluje wartości poza podane stopy (zwraca wartość ze skrajnego stopnia).
+ * Ustawiamy twardy clamp przez sztywne wartości dla skrajnych poziomów zoomu.
+ */
+const TRIP_MARKER_ICON_SIZE = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  1, ICON_SIZE_CLAMP,
+  8, ICON_SIZE_CLAMP,
+  13, ICON_SIZE_NORMAL,
+  16, ICON_SIZE_NORMAL,
+  18, ICON_SIZE_NORMAL * 0.92,
+  22, ICON_SIZE_NORMAL * 0.85,
+];
 
 const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',
@@ -159,7 +180,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             id="tripDriveMarkerSymbol"
             style={{
               iconImage: DRIVE_MARKER_IMAGE_KEY,
-              iconSize: ['interpolate', ['linear'], ['zoom'], 10, 0.5, 15, ICON_SIZE],
+              iconSize: TRIP_MARKER_ICON_SIZE,
               /** viewport + rotate 0: heading-up na kamerze — ikona zawsze „do góry” ekranu */
               iconRotate: 0,
               iconPitchAlignment: 'viewport',

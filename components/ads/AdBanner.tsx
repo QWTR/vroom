@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePremium } from '../../contexts/PremiumContext';
+import { bootstrapAdsWithConsent, getAdMobRequestOptions } from '../../lib/adsConsentBootstrap';
 
 /** BanerVroom — domyślna jednostka (strona główna). */
 export const BANNER_ID_VROOM = 'ca-app-pub-1660420496578702/5609918502';
@@ -18,9 +19,27 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
+  const [requestOptions, setRequestOptions] = useState<{ requestNonPersonalizedAdsOnly: boolean }>({
+    requestNonPersonalizedAdsOnly: true,
+  });
+  const [adsReady, setAdsReady] = useState(false);
 
   const forceTestAds = process.env.EXPO_PUBLIC_FORCE_TEST_ADS === '1';
   const unitId = (__DEV__ || forceTestAds) ? TestIds.ADAPTIVE_BANNER : BANNERID;
+
+  useEffect(() => {
+    if (premiumLoading || isPremium) return;
+    let cancelled = false;
+    void (async () => {
+      await bootstrapAdsWithConsent();
+      const opts = await getAdMobRequestOptions();
+      if (!cancelled) {
+        setRequestOptions(opts);
+        setAdsReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isPremium, premiumLoading]);
 
   useEffect(() => {
     if (!failed || isPremium || premiumLoading) return;
@@ -37,8 +56,6 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
     onFailedToLoad?.();
   }, [failed, isPremium, premiumLoading, onFailedToLoad]);
 
-  if (premiumLoading || isPremium) return null;
-
   const shellStyle = {
     marginHorizontal: 20,
     marginVertical: 6,
@@ -52,6 +69,9 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
     minHeight: 44,
   };
 
+  if (premiumLoading || isPremium) return null;
+  if (!adsReady) return <View style={shellStyle} />;
+
   if (failed) return <View style={shellStyle} />;
 
   return (
@@ -60,7 +80,7 @@ export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBanne
         key={`banner-${retryTick}-${unitId}`}
         unitId={unitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        requestOptions={{ requestNonPersonalizedAdsOnly: false }}
+        requestOptions={requestOptions}
         onAdLoaded={() => setLoaded(true)}
         onAdFailedToLoad={(err: any) => {
           setLoaded(false);

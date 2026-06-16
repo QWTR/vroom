@@ -3133,17 +3133,13 @@ function MapScreenInner() {
         }
       }
 
-      // LIVE map: sendLocation reads userLocation/currentLocRef — sync raw GPS while trip active.
+      // LIVE map: publish snapped pose from V3 engine (not raw GPS).
       if (
         !out.rejected
         && (isDrivingRef.current || isNavigatingRef.current)
         && appStateRef.current === 'active'
       ) {
-        const liveLat = Number.isFinite(out.snap.rawLat) ? out.snap.rawLat : markerTarget.lat;
-        const liveLng = Number.isFinite(out.snap.rawLng) ? out.snap.rawLng : markerTarget.lng;
-        if (Number.isFinite(liveLat) && Number.isFinite(liveLng)) {
-          publishUserLocation({ latitude: liveLat, longitude: liveLng });
-        }
+        publishUserLocation({ latitude: markerTarget.lat, longitude: markerTarget.lng });
       }
 
       if (isDrivingRef.current && !isNavigatingRef.current && endLocationRef.current) {
@@ -12280,15 +12276,34 @@ if (pts.length >= 2) {
       return;
     }
     const interval = setInterval(() => {
-      const loc = currentLocRef.current;
-      if (!loc) return;
+      const tripActive = isDrivingRef.current || isNavigatingRef.current;
+      let lat: number;
+      let lng: number;
+      let motion: { heading?: number; speedKmh?: number } | undefined;
+
+      if (tripActive) {
+        const pose = lastTripMarkerPoseRef.current;
+        if (!pose) return;
+        lat = pose.lat;
+        lng = pose.lng;
+        const hdg = drHdgRef.current ?? lastHeadingRef.current;
+        if (Number.isFinite(hdg)) {
+          motion = { heading: hdg, speedKmh: speedKmhRef.current };
+        } else {
+          motion = { speedKmh: speedKmhRef.current };
+        }
+      } else {
+        const loc = currentLocRef.current;
+        if (!loc) return;
+        lat = loc.latitude;
+        lng = loc.longitude;
+      }
 
       const now     = Date.now();
       const elapsed = now - lastSendTimeRef.current;
       const movedM  = lastSendLocRef.current
-        ? haversineKm(loc.latitude, loc.longitude,
-            lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
-        : Infinity; // no previous position → treat as "moved far enough", always send first time
+        ? haversineKm(lat, lng, lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
+        : Infinity;
 
       if (movedM < SEND_MIN_DIST_M && elapsed < SEND_MAX_ELAPSED_MS) {
         if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
@@ -12297,8 +12312,8 @@ if (pts.length >= 2) {
 
       if (DEBUG_NETWORK) console.log('[sendLocation] → sending: moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
       lastSendTimeRef.current = now;
-      lastSendLocRef.current  = { lat: loc.latitude, lng: loc.longitude };
-      sendLocation(loc.latitude, loc.longitude, routePointsRef.current);
+      lastSendLocRef.current  = { lat, lng };
+      sendLocation(lat, lng, routePointsRef.current, motion);
     }, SEND_INTERVAL_MS);
 
     return () => {
@@ -13722,11 +13737,27 @@ if (pts.length >= 2) {
                 const nowVp = Date.now();
                 if (nowVp - lastFleetViewportAtRef.current >= 200) {
                   lastFleetViewportAtRef.current = nowVp;
-                  const zoomForBounds = zoomLive ?? currentZoom;
-                  const padding = isNavigating || isDriving ? 1.05 : 1.2;
-                  setFleetViewportBounds(
-                    boundsFromCenterZoom(cLat, cLng, zoomForBounds, padding),
-                  );
+                  const anchor = liveUsersAnchor;
+                  if (anchor) {
+                    const camDistKm = calculateDistance(
+                      cLat,
+                      cLng,
+                      anchor.latitude,
+                      anchor.longitude,
+                    );
+                    // Dopóki kamera nie jest blisko użytkownika — nie culluj (puste GeoJSON).
+                    if (camDistKm > 40) {
+                      setFleetViewportBounds(EMPTY_VIEWPORT);
+                    } else {
+                      const zoomForBounds = zoomLive ?? currentZoom;
+                      const padding = isNavigating || isDriving ? 1.05 : 1.2;
+                      setFleetViewportBounds(
+                        boundsFromCenterZoom(cLat, cLng, zoomForBounds, padding),
+                      );
+                    }
+                  } else {
+                    setFleetViewportBounds(EMPTY_VIEWPORT);
+                  }
                 }
               }
             }

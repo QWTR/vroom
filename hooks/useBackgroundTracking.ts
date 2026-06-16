@@ -86,6 +86,8 @@ export const USER_IS_PREMIUM_KEY = 'USER_IS_PREMIUM';
 export const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 /** Mirror of app foreground state — prevents BG/FG duplicate km accounting. */
 export const BG_APP_ACTIVE_KEY = 'bg_app_state_active';
+/** Mirror of foreground stationary-parked (driving idle) — lowers BG GPS cadence. */
+export const BG_GPS_STATIONARY_KEY = 'bg_gps_stationary';
 const BG_APP_ACTIVE_STALE_MS = 90_000;
 const BG_APP_ACTIVE_HEARTBEAT_MS = 30_000;
 // Flag: 'true' when foreground navigation is active — suppresses BG auto-flush
@@ -567,6 +569,7 @@ export function useBackgroundTracking(
   });
   const bgEnabledRef = useRef(bgEnabled);
   const forceEnabledRef = useRef(forceEnabled);
+  const lastBgCadenceRef = useRef<'high' | 'low' | null>(null);
 
   useEffect(() => {
     forceEnabledRef.current = forceEnabled;
@@ -873,13 +876,20 @@ export function useBackgroundTracking(
       if (fg !== 'granted') return;
       const { status: bg } = await Location.requestBackgroundPermissionsAsync();
       if (bg !== 'granted') return;
+      const [navFlag, stationaryFlag] = await Promise.all([
+        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+        AsyncStorage.getItem(BG_GPS_STATIONARY_KEY),
+      ]);
+      const isNavigatingBg = navFlag === 'true';
+      const isStationaryBg = stationaryFlag === 'true';
+      const highCadence = isSharing || (forceEnabled && (isNavigatingBg || !isStationaryBg));
+      const cadenceKey: 'high' | 'low' = highCadence ? 'high' : 'low';
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-      const highCadence = isSharing || forceEnabled;
-      if (isRegistered && !highCadence) return;
-      if (isRegistered && highCadence) {
+      if (isRegistered && lastBgCadenceRef.current === cadenceKey) return;
+      if (isRegistered) {
         try {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        } catch { /* restart with high cadence */ }
+        } catch { /* restart with new cadence */ }
       }
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         // BestForNavigation + tight intervals caused native instability on some devices.
@@ -894,7 +904,7 @@ export function useBackgroundTracking(
         },
         ...(Platform.OS === 'ios'
           ? {
-              // Udostępnianie w tle wymaga ciągłych fixów; same statystyki mogą używać pauzy OS.
+              // Udostępnianie w tle wymaga ciągłych fixów; postój w jazdzie może używać pauzy OS.
               pausesUpdatesAutomatically: !highCadence,
               activityType: Location.ActivityType.AutomotiveNavigation,
               deferredUpdatesInterval: highCadence ? 10_000 : 30_000,
@@ -902,6 +912,7 @@ export function useBackgroundTracking(
             }
           : {}),
       });
+      lastBgCadenceRef.current = cadenceKey;
       telemetryRef.current.bgStarts += 1;
       if (forceEnabled) telemetryRef.current.forceStarts += 1;
     } catch (e: any) {
@@ -910,6 +921,15 @@ export function useBackgroundTracking(
       startInFlightRef.current = false;
     }
   }, [bgEnabled, sharingHydrated, isSharing, forceEnabled, isPremium]);
+
+  // Po zmianie postoju (AsyncStorage) — przełącz cadence BG bez czekania na AppState.
+  useEffect(() => {
+    if (!sharingHydrated || !bgEnabled || !forceEnabled) return;
+    const id = setInterval(() => {
+      void startBackgroundTracking();
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [bgEnabled, sharingHydrated, forceEnabled, isSharing, startBackgroundTracking]);
 
   const stopBackgroundTracking = useCallback(async () => {
     if (stopInFlightRef.current) return;
@@ -920,6 +940,7 @@ export function useBackgroundTracking(
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
         telemetryRef.current.bgStops += 1;
       }
+      lastBgCadenceRef.current = null;
     } catch (e: any) {
       console.log('⚠️ stopBackgroundTracking error:', e?.message ?? e);
     } finally {
