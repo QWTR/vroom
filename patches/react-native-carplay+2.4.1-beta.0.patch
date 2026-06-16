@@ -1566,6 +1566,27 @@ index 2235853..13aaf11 100644
  
      } catch (e: Exception) {
        e.printStackTrace()
+diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt
+index f6f441a..653b2b9 100644
+--- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt
++++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt
+@@ -3,6 +3,7 @@ package org.birkir.carplay.parser
+ import androidx.car.app.CarContext
+ import androidx.car.app.model.ListTemplate
+ import androidx.car.app.model.SectionedItemList
++import com.facebook.react.bridge.Arguments
+ import com.facebook.react.bridge.ReadableMap
+ import org.birkir.carplay.screens.CarScreenContext
+ 
+@@ -35,7 +36,7 @@ class RCTListTemplate(
+       // Sections
+       props.getArray("sections")?.let {
+         for (i in 0 until it.size()) {
+-          val section = it.getMap(i)
++          val section = it.getMap(i) ?: Arguments.createMap()
+           val header = section.getString("header")
+           addSectionedList(
+             SectionedItemList.create(
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTPaneTemplate.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTPaneTemplate.kt
 index a153c6c..199d42f 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTPaneTemplate.kt
@@ -1623,10 +1644,18 @@ index 11d8261..ae99c96 100644
  
    companion object {
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTTemplate.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTTemplate.kt
-index 01dbabd..dd73bfb 100644
+index 01dbabd..045f22a 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTTemplate.kt
 +++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTTemplate.kt
-@@ -151,11 +151,14 @@ abstract class RCTTemplate(
+@@ -43,6 +43,7 @@ import com.facebook.drawee.backends.pipeline.Fresco
+ import com.facebook.imagepipeline.image.CloseableBitmap
+ import com.facebook.imagepipeline.image.CloseableImage
+ import com.facebook.imagepipeline.request.ImageRequestBuilder
++import com.facebook.react.bridge.Arguments
+ import com.facebook.react.bridge.ReadableArray
+ import com.facebook.react.bridge.ReadableMap
+ import com.facebook.react.views.imagehelper.ImageSource
+@@ -151,11 +152,14 @@ abstract class RCTTemplate(
      type: String = "row"
    ): ItemList {
      return ItemList.Builder().apply {
@@ -1646,7 +1675,7 @@ index 01dbabd..dd73bfb 100644
          }
        }
      }.build()
-@@ -187,12 +190,12 @@ abstract class RCTTemplate(
+@@ -187,12 +191,12 @@ abstract class RCTTemplate(
        if (titleVariants != null) {
          if (titleVariants.size() > 0) {
            setTitle(parseCarText(
@@ -1661,7 +1690,7 @@ index 01dbabd..dd73bfb 100644
          }
        }
        item.getMap("image")?.let { setImage(parseCarIcon(it)) }
-@@ -206,12 +209,14 @@ abstract class RCTTemplate(
+@@ -206,12 +210,14 @@ abstract class RCTTemplate(
    fun parsePlace(props: ReadableMap): Place {
      val builder = Place.Builder(
        CarLocation.create(
@@ -1679,7 +1708,7 @@ index 01dbabd..dd73bfb 100644
        builder.setMarker(this.build())
  
      }
-@@ -253,13 +258,13 @@ abstract class RCTTemplate(
+@@ -253,13 +259,13 @@ abstract class RCTTemplate(
      val builder = Row.Builder()
      builder.setTitle(
        parseCarText(
@@ -1695,7 +1724,7 @@ index 01dbabd..dd73bfb 100644
        }
      }
      props.getMap("image")?.let {
-@@ -301,7 +306,7 @@ abstract class RCTTemplate(
+@@ -301,12 +307,12 @@ abstract class RCTTemplate(
        }
        item.getArray("actions")?.let {
          for (i in 0 until it.size()) {
@@ -1704,7 +1733,13 @@ index 01dbabd..dd73bfb 100644
          }
        }
        item.getArray("items")?.let {
-@@ -344,7 +349,7 @@ abstract class RCTTemplate(
+         for (i in 0 until it.size()) {
+-          addRow(parseRowItem(it.getMap(i), i))
++          addRow(parseRowItem(it.getMap(i) ?: Arguments.createMap(), i))
+         }
+       }
+     }.build()
+@@ -344,7 +350,7 @@ abstract class RCTTemplate(
    protected fun parseManeuver(map: ReadableMap): Maneuver {
      val type = map.getInt("type")
      val builder = Maneuver.Builder(type)
@@ -1713,7 +1748,7 @@ index 01dbabd..dd73bfb 100644
      if (type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CW_WITH_ANGLE
        || type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW_WITH_ANGLE
      ) {
-@@ -363,17 +368,24 @@ abstract class RCTTemplate(
+@@ -363,17 +369,24 @@ abstract class RCTTemplate(
    }
  
    protected fun parseMessageInfo(map: ReadableMap): MessageInfo {
@@ -1744,7 +1779,7 @@ index 01dbabd..dd73bfb 100644
      val builder = TravelEstimate.Builder(
        Distance.create(
          map.getDouble("distanceRemaining"),
-@@ -395,10 +407,12 @@ abstract class RCTTemplate(
+@@ -395,10 +408,12 @@ abstract class RCTTemplate(
      return RoutingInfo.Builder()
        .apply {
          setLoading(map.isLoading())
@@ -1761,7 +1796,7 @@ index 01dbabd..dd73bfb 100644
          map.getMap("junctionImage")?.let { setJunctionImage(parseCarIcon(it)) }
          map.getMap("nextStep")?.let { setNextStep(parseStep(it)) }
        }.build()
-@@ -407,9 +421,11 @@ abstract class RCTTemplate(
+@@ -407,9 +422,11 @@ abstract class RCTTemplate(
    protected fun parseNavigationInfo(map: ReadableMap): NavigationTemplate.NavigationInfo {
      val type = map.getString("type")
      return if (type == "routingInfo") {

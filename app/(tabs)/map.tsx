@@ -5,6 +5,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
+import { useCarPlayNavigationSync } from '../../hooks/useCarPlayNavigationSync';
 import React, {
   useCallback,
   useEffect,
@@ -12125,6 +12126,23 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
   const activeRoute = isNavigating ? effectiveNavRoute : previewRoute;
   navRouteRef.current = effectiveNavRoute ?? null;
   const activeSteps = effectiveNavRoute?.steps ?? previewRoute?.steps ?? [];
+
+  useCarPlayNavigationSync({
+    isNavigating,
+    currentStep,
+    distToTurnM,
+    routeInfo,
+    routeSteps: effectiveNavRoute?.steps || [],
+  });
+
+  useEffect(() => {
+    import('react-native').then(({ DeviceEventEmitter }) => {
+      const sub = DeviceEventEmitter.addListener('CarPlayReportWarning', (type: string) => {
+        handleReport(type);
+      });
+      return () => sub.remove();
+    });
+  }, [handleReport]);
 
   useEffect(() => {
     const pts = activeRoute?.points?.length

@@ -39,6 +39,7 @@ import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
 import { AdsConsentBootstrap } from '../components/ads/AdsConsentBootstrap';
+import { initCarPlay } from '../lib/carplayInit';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -248,34 +249,8 @@ function RootLayoutInner() {
     void initNavDriveTraceStore();
     vroomGpsLogPing('app_layout_mount');
 
-    // Inicjalizacja CarPlay / Android Auto (tylko gdy moduł natywny jest dostępny)
-    if (NativeModules.RNCarPlay) {
-      try {
-        const { CarPlay, ListTemplate } = require('react-native-carplay');
-        CarPlay.registerOnConnect(() => {
-          try {
-            const template = new ListTemplate({
-              title: 'VROOM Auto',
-              sections: [
-                {
-                  items: [
-                    {
-                      text: 'Połączono z systemem pojazdu.',
-                      detailText: 'Trwa ładowanie mapy...',
-                    },
-                  ],
-                },
-              ],
-            });
-            CarPlay.setRootTemplate(template);
-          } catch (e) {
-            console.warn('Błąd podczas ustawiania szablonu Android Auto:', e);
-          }
-        });
-      } catch (err) {
-        console.warn('Błąd inicjalizacji react-native-carplay:', err);
-      }
-    }
+    // Inicjalizacja CarPlay / Android Auto
+    initCarPlay();
   }, []);
 
   useEffect(() => {
