@@ -84,7 +84,10 @@ class VroomSearchScreen(carContext: CarContext) : Screen(carContext) {
                     Row.Builder()
                         .setTitle(place.name)
                         .addText(place.address.ifBlank { "Cel na mapie" })
-                        .setOnClickListener { startRoute(place) }
+                        .setOnClickListener {
+                            carContext.getCarService(ScreenManager::class.java)
+                                .push(VroomRoutePreviewScreen(carContext, place))
+                        }
                         .build()
                 )
             }
@@ -288,9 +291,227 @@ class VroomSearchScreen(carContext: CarContext) : Screen(carContext) {
     }
 }
 
-private data class AutoPlace(
+class VroomRoutePreviewScreen(
+    carContext: CarContext,
+    private val place: AutoPlace
+) : Screen(carContext) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var loading = false
+    private var loaded = false
+    private var error = false
+    private var plan: AutoRoutePlan? = null
+
+    override fun onGetTemplate(): Template {
+        if (!loading && !loaded && !error) loadPlan()
+
+        val list = ItemList.Builder()
+        val currentPlan = plan
+        when {
+            loading -> list.addItem(infoRow("Wyznaczam trase...", "Licze czas, dystans i pierwszy manewr"))
+            error -> {
+                list.addItem(infoRow("Nie udalo sie wyznaczyc trasy", "Wroc i sprobuj ponownie"))
+                list.addItem(actionRow("Wroc", "Zamknij podglad") {
+                    VroomCarManager.clearNativeRoutePreview()
+                    runCatching { carContext.getCarService(ScreenManager::class.java).pop() }
+                })
+            }
+            currentPlan != null -> {
+                list.addItem(infoRow(place.name, place.address.ifBlank { "Cel na mapie" }))
+                list.addItem(infoRow("Czas: ${currentPlan.durationText}", "Dystans: ${currentPlan.distanceText}"))
+                list.addItem(infoRow("Pierwszy krok", currentPlan.instruction))
+                list.addItem(actionRow("Start", "Rozpocznij nawigacje w Android Auto") {
+                    VroomCarManager.setNativeNavigation(currentPlan.navigationPayload)
+                    runCatching { carContext.getCarService(ScreenManager::class.java).popToRoot() }
+                })
+                list.addItem(actionRow("Anuluj", "Wroc do wyszukiwania") {
+                    VroomCarManager.clearNativeRoutePreview()
+                    runCatching { carContext.getCarService(ScreenManager::class.java).pop() }
+                })
+            }
+        }
+
+        return ListTemplate.Builder()
+            .setTitle("Podglad trasy")
+            .setHeaderAction(Action.BACK)
+            .setSingleList(list.build())
+            .build()
+    }
+
+    private fun loadPlan() {
+        loading = true
+        error = false
+        invalidate()
+        Thread {
+            val result = runCatching { buildRoutePlan(place) }.getOrNull()
+            mainHandler.post {
+                loading = false
+                loaded = result != null
+                error = result == null
+                plan = result
+                result?.let { VroomCarManager.setNativeRoutePreview(it.previewPayload) }
+                invalidate()
+            }
+        }.start()
+    }
+
+    private fun infoRow(title: String, text: String): Row =
+        Row.Builder()
+            .setTitle(title)
+            .addText(text)
+            .build()
+
+    private fun actionRow(title: String, text: String, action: () -> Unit): Row =
+        Row.Builder()
+            .setTitle(title)
+            .addText(text)
+            .setOnClickListener(action)
+            .build()
+}
+
+data class AutoPlace(
     val name: String,
     val address: String,
     val lat: Double,
     val lng: Double
 )
+
+data class AutoRoutePlan(
+    val previewPayload: String,
+    val navigationPayload: String,
+    val distanceText: String,
+    val durationText: String,
+    val instruction: String
+)
+
+private fun buildRoutePlan(place: AutoPlace): AutoRoutePlan {
+    val current = VroomCarManager.latestPayload() ?: throw IllegalStateException("Missing current payload")
+    val fromLat = current.userLat ?: throw IllegalStateException("Missing current latitude")
+    val fromLng = current.userLng ?: throw IllegalStateException("Missing current longitude")
+    val url = "$AUTO_MAPBOX_BASE/directions/v5/mapbox/driving/$fromLng,$fromLat;${place.lng},${place.lat}" +
+        "?alternatives=false&geometries=geojson&steps=true&language=pl&overview=full&access_token=$AUTO_MAPBOX_TOKEN"
+    val json = JSONObject(autoRequest(url))
+    val route = json.optJSONArray("routes")?.optJSONObject(0) ?: throw IllegalStateException("Missing route")
+    val coords = route.optJSONObject("geometry")?.optJSONArray("coordinates") ?: JSONArray()
+    val routePoints = JSONArray()
+    for (i in 0 until coords.length()) {
+        val item = coords.optJSONArray(i) ?: continue
+        routePoints.put(JSONObject().apply {
+            put("lat", item.optDouble(1))
+            put("lng", item.optDouble(0))
+        })
+    }
+    val leg = route.optJSONArray("legs")?.optJSONObject(0)
+    val step = leg?.optJSONArray("steps")?.optJSONObject(0)
+    val maneuver = step?.optJSONObject("maneuver")
+    val instruction = maneuver?.optString("instruction", "Jedz do celu") ?: "Jedz do celu"
+    val distance = route.optDouble("distance", 0.0).toInt().coerceAtLeast(1)
+    val duration = route.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
+    val previewPayload = buildAutoRoutePayload(
+        current = current,
+        place = place,
+        routePoints = routePoints,
+        instruction = instruction,
+        maneuver = maneuver,
+        distance = distance,
+        duration = duration,
+        navigating = false
+    )
+    val navigationPayload = buildAutoRoutePayload(
+        current = current,
+        place = place,
+        routePoints = routePoints,
+        instruction = instruction,
+        maneuver = maneuver,
+        distance = distance,
+        duration = duration,
+        navigating = true
+    )
+    return AutoRoutePlan(
+        previewPayload = previewPayload,
+        navigationPayload = navigationPayload,
+        distanceText = formatDistance(distance),
+        durationText = formatDuration(duration),
+        instruction = instruction
+    )
+}
+
+private fun buildAutoRoutePayload(
+    current: VroomPayload,
+    place: AutoPlace,
+    routePoints: JSONArray,
+    instruction: String,
+    maneuver: JSONObject?,
+    distance: Int,
+    duration: Int,
+    navigating: Boolean
+): String {
+    val fromLat = current.userLat ?: place.lat
+    val fromLng = current.userLng ?: place.lng
+    return JSONObject().apply {
+        put("isNavigating", navigating)
+        put("userLocation", JSONObject().apply {
+            put("latitude", fromLat)
+            put("longitude", fromLng)
+        })
+        put("speed", current.speed ?: 0.0)
+        put("heading", current.heading ?: 0.0)
+        put("destination", JSONObject().apply {
+            put("name", place.name)
+            put("latitude", place.lat)
+            put("longitude", place.lng)
+        })
+        put("dto", JSONObject().apply {
+            put("isNavigating", navigating)
+            put("nextInstruction", instruction)
+            put("maneuver", maneuver?.optString("type", "straight") ?: "straight")
+            put("destinationName", place.name)
+            put("remainingDistanceMeters", distance)
+            put("remainingDurationSec", duration)
+            put("turnDistanceMeters", distance)
+        })
+        put("route", JSONArray(routePoints.toString()))
+        put("users", JSONArray())
+        put("warnings", JSONArray())
+        put("mapState", JSONObject().apply {
+            put("isDriving", true)
+            put("route", JSONArray(routePoints.toString()))
+            put("destinationLat", place.lat)
+            put("destinationLng", place.lng)
+            put("speedKmh", (current.speed ?: 0.0) * 3.6)
+            put("routePreview", !navigating)
+            put("nativeRoadMatch", false)
+        })
+    }.toString()
+}
+
+private fun autoRequest(url: String): String {
+    val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 4500
+        readTimeout = 4500
+        setRequestProperty("Accept", "application/json")
+    }
+    val code = conn.responseCode
+    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+    val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+    if (code !in 200..299) throw IllegalStateException("HTTP $code")
+    return body
+}
+
+private fun formatDistance(meters: Int): String =
+    if (meters >= 1000) {
+        String.format(java.util.Locale.US, "%.1f km", meters / 1000.0)
+    } else {
+        "$meters m"
+    }
+
+private fun formatDuration(seconds: Int): String {
+    val minutes = (seconds / 60).coerceAtLeast(1)
+    return if (minutes >= 60) {
+        val h = minutes / 60
+        val m = minutes % 60
+        if (m == 0) "${h} h" else "${h} h ${m} min"
+    } else {
+        "$minutes min"
+    }
+}

@@ -56,6 +56,14 @@ interface UseAutoNavigationBridgeParams {
     speed: number | null;
     heading: number;
     updatedAt: number;
+    arcWindow?: {
+      points: { lat: number; lng: number }[];
+      baseArcM?: number;
+      totalM?: number;
+    } | null;
+    targetArcM?: number | null;
+    roadBlend?: number | null;
+    pathMode?: string | null;
   } | null;
   speed: number | null;
   heading: number;
@@ -313,6 +321,12 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     isBuilding: !!isBuilding,
     arrived: !!arrived,
     offRoute: !!offRoute,
+    autoPoseActive: hasAutoPose,
+    autoPoseUpdatedAt: hasAutoPose ? autoPose!.updatedAt : null,
+    autoArcWindow: hasAutoPose ? autoPose!.arcWindow ?? null : null,
+    autoTargetArcM: hasAutoPose ? autoPose!.targetArcM ?? null : null,
+    autoRoadBlend: hasAutoPose ? autoPose!.roadBlend ?? null : null,
+    autoPathMode: hasAutoPose ? autoPose!.pathMode ?? null : null,
     speedKmh: (effectiveSpeed ?? 0) * 3.6,
     speedLimitKmh: speedLimitKmh ?? null,
     start: startLocation
@@ -336,6 +350,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     isBuilding,
     arrived,
     offRoute,
+    hasAutoPose,
+    autoPose,
     effectiveSpeed,
     speedLimitKmh,
     startLocation,

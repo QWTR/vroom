@@ -2820,6 +2820,14 @@ function MapScreenInner() {
     speed: number | null;
     heading: number;
     updatedAt: number;
+    arcWindow?: {
+      points: { lat: number; lng: number }[];
+      baseArcM?: number;
+      totalM?: number;
+    } | null;
+    targetArcM?: number | null;
+    roadBlend?: number | null;
+    pathMode?: string | null;
   } | null>(null);
   const autoBridgePoseLastEmitRef = useRef(0);
   const [locationReady, setLocationReady] = useState(() => peekMapLastLocation() != null);
@@ -3122,6 +3130,16 @@ function MapScreenInner() {
           speed: out.hudSpeedKmh > 0 ? out.hudSpeedKmh / 3.6 : 0,
           heading: normalizeHeading(markerTarget.headingDeg),
           updatedAt: autoNow,
+          arcWindow: markerTarget.arcWindow
+            ? {
+                points: markerTarget.arcWindow.points.slice(0, 80),
+                baseArcM: markerTarget.arcWindow.baseArcM,
+                totalM: markerTarget.arcWindow.totalM,
+              }
+            : null,
+          targetArcM: markerTarget.targetArcM,
+          roadBlend: markerTarget.roadBlend,
+          pathMode: markerTarget.pathMode,
         });
       }
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {

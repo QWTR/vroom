@@ -26,6 +26,12 @@ data class AutoRoutePoint(
     val lng: Double
 )
 
+data class AutoArcWindow(
+    val points: List<AutoRoutePoint>,
+    val baseArcM: Double,
+    val totalM: Double
+)
+
 data class MapState(
     val mapStyle: String?,
     val hideLocation: Boolean,
@@ -33,13 +39,19 @@ data class MapState(
     val isBuilding: Boolean,
     val arrived: Boolean,
     val offRoute: Boolean,
+    val routePreview: Boolean,
+    val nativeRoadMatch: Boolean,
     val speedKmh: Double,
     val speedLimitKmh: Double?,
     val locationMarkerStyle: String,
     val currentUserAvatarUrl: String,
     val destinationLat: Double?,
     val destinationLng: Double?,
-    val routePoints: List<AutoRoutePoint>
+    val routePoints: List<AutoRoutePoint>,
+    val autoArcWindow: AutoArcWindow?,
+    val autoTargetArcM: Double?,
+    val autoRoadBlend: Double,
+    val autoPathMode: String?
 )
 
 data class VroomPayload(
@@ -94,13 +106,19 @@ object VroomPayloadParser {
                 isBuilding = msObj?.optBoolean("isBuilding", false) ?: false,
                 arrived = msObj?.optBoolean("arrived", false) ?: false,
                 offRoute = msObj?.optBoolean("offRoute", false) ?: false,
+                routePreview = msObj?.optBoolean("routePreview", false) ?: false,
+                nativeRoadMatch = msObj?.optBoolean("nativeRoadMatch", false) ?: false,
                 speedKmh = finiteOrNull(msObj?.optDouble("speedKmh", Double.NaN)) ?: ((speed ?: 0.0) * 3.6),
                 speedLimitKmh = finiteOrNull(msObj?.optDouble("speedLimitKmh", Double.NaN)),
                 locationMarkerStyle = msObj?.optString("locationMarkerStyle", "profile") ?: "profile",
                 currentUserAvatarUrl = msObj?.optString("currentUserAvatarUrl", "") ?: "",
                 destinationLat = destinationLat,
                 destinationLng = destinationLng,
-                routePoints = routePoints
+                routePoints = routePoints,
+                autoArcWindow = parseArcWindow(msObj?.optJSONObject("autoArcWindow")),
+                autoTargetArcM = finiteOrNull(msObj?.optDouble("autoTargetArcM", Double.NaN)),
+                autoRoadBlend = finiteOrNull(msObj?.optDouble("autoRoadBlend", Double.NaN)) ?: 0.0,
+                autoPathMode = cleanString(msObj?.optString("autoPathMode", ""))
             )
 
             VroomPayload(
@@ -179,6 +197,17 @@ object VroomPayloadParser {
             points.add(AutoRoutePoint(lat, lng))
         }
         return points
+    }
+
+    private fun parseArcWindow(obj: JSONObject?): AutoArcWindow? {
+        if (obj == null) return null
+        val points = parsePoints(obj.optJSONArray("points"))
+        if (points.size < 2) return null
+        return AutoArcWindow(
+            points = points,
+            baseArcM = finiteOrNull(obj.optDouble("baseArcM", Double.NaN)) ?: 0.0,
+            totalM = finiteOrNull(obj.optDouble("totalM", Double.NaN)) ?: 0.0
+        )
     }
 
     private fun finiteOrNull(value: Double?): Double? =
