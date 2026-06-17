@@ -1,95 +1,81 @@
 import { AppRegistry, NativeModules } from 'react-native';
 
+let isCarPlayInitialized = false;
+
 export function initCarPlay() {
-  if (!NativeModules.RNCarPlay) return;
+  console.log('[ANDROID_AUTO_DEBUG] initCarPlay() has been called!');
+  
+  if (isCarPlayInitialized) {
+    console.log('[ANDROID_AUTO_DEBUG] initCarPlay() already initialized. Skipping.');
+    return;
+  }
+  isCarPlayInitialized = true;
+
+  console.log('[ANDROID_AUTO_DEBUG] NativeModules.RNCarPlay exists:', !!NativeModules.RNCarPlay);
 
   try {
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 1] Starting registration of "AndroidAuto" component via AppRegistry...');
+    
     // Rejestracja pustego komponentu AndroidAuto - wymagane przez architekturę CarAppService w react-native-carplay
     AppRegistry.registerComponent('AndroidAuto', () => function AndroidAuto() {
+      console.log('[ANDROID_AUTO_DEBUG] AndroidAuto entry functional component rendered!');
       return null;
     });
+    
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 1] Component "AndroidAuto" successfully registered.');
+  } catch (err: any) {
+    console.error('[ANDROID_AUTO_DEBUG] [STEP 1 ERROR] Failed to register "AndroidAuto" component:', {
+      message: err.message,
+      stack: err.stack
+    });
+  }
 
-    const { CarPlay, NavigationTemplate, ListTemplate, GridTemplate, TabBarTemplate } = require('react-native-carplay');
-    const CarMapScreen = require('../components/carplay/CarMapScreen').default;
+  if (!NativeModules.RNCarPlay) {
+    console.warn('[ANDROID_AUTO_DEBUG] NativeModules.RNCarPlay is undefined! CarPlay/AndroidAuto module is not available in this build.');
+    return;
+  }
 
+  try {
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 2] Requiring "react-native-carplay"...');
+    const { CarPlay, PaneTemplate } = require('react-native-carplay');
+
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 2] Loaded modules successfully.', {
+      CarPlayExists: !!CarPlay,
+      PaneTemplateExists: !!PaneTemplate,
+    });
+
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 3] Registering CarPlay.registerOnConnect listener...');
+    
     CarPlay.registerOnConnect(() => {
+      console.log('[ANDROID_AUTO_DEBUG] Połączono! Generuję PaneTemplate.');
       try {
-        // 1. Ekran mapy / nawigacji (główny widok na Surface)
-        const mapTemplate = new NavigationTemplate({
-          id: 'VroomMap',
-          component: CarMapScreen,
-          actions: [], // Puste na start, zostanie zaktualizowane poźniej
-          mapButtons: [
-            {
-              id: 'report',
-              icon: require('../assets/images/Frame1933.png'), // Tymczasowa ikona, lepiej dać plus/ostrzeżenie
-            }
-          ]
-        });
-
-        // 2. Ekran zgłoszeń (GridTemplate ukryty pod Action)
-        const warningsTemplate = new GridTemplate({
-          title: 'Zgłoś',
-          buttons: [
-            {
-              id: 'police',
-              titleVariants: ['Policja'],
-              image: require('../assets/images/Frame1933.png'),
-            },
-            {
-              id: 'camera',
-              titleVariants: ['Fotoradar'],
-              image: require('../assets/images/Frame1933.png'),
-            },
-            {
-              id: 'hazard',
-              titleVariants: ['Zagrożenie'],
-              image: require('../assets/images/Frame1933.png'),
-            }
-          ]
-        });
-
-        // Eventy dla mapy - np klikniecie przycisku mapy pokaze ekran zgloszen
-        mapTemplate.onMapButtonPressed = ({ id }) => {
-          if (id === 'report') {
-            CarPlay.pushTemplate(warningsTemplate, true);
-          }
-        };
-
-        warningsTemplate.onButtonPressed = ({ id }) => {
-          import('react-native').then(({ DeviceEventEmitter }) => {
-            DeviceEventEmitter.emit('CarPlayReportWarning', id);
-          });
-          CarPlay.popTemplate(true);
-        };
-
-        // 3. Ekran Ekipa (ListTemplate)
-        const friendsTemplate = new ListTemplate({
-          title: 'Ekipa',
-          sections: [
-            {
-              items: [
-                {
-                  text: 'Brak znajomych w pobliżu',
-                  detailText: 'Zaproś znajomych do wspólnej jazdy',
-                }
-              ]
-            }
-          ]
-        });
-
-        // TabBar łączący wszystko
-        const tabBar = new TabBarTemplate({
+        const template = new PaneTemplate({
           title: 'VROOM',
-          templates: [mapTemplate, friendsTemplate]
+          pane: {
+            items: [{ text: 'Most działa! Bridgeless pokonany!' }],
+          },
         });
-
-        CarPlay.setRootTemplate(tabBar);
-      } catch (e) {
-        console.warn('Błąd podczas ustawiania szablonów CarPlay:', e);
+        CarPlay.setRootTemplate(template);
+        console.log('[ANDROID_AUTO_DEBUG] Szablon ustawiony poprawnie.');
+      } catch (error) {
+        console.error('[ANDROID_AUTO_DEBUG] Błąd podczas renderowania szablonu:', error);
       }
     });
-  } catch (err) {
-    console.warn('Błąd inicjalizacji react-native-carplay:', err);
+
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 3] CarPlay.registerOnConnect listener registered successfully.');
+
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 4] Registering CarPlay.registerOnDisconnect listener...');
+    
+    CarPlay.registerOnDisconnect(() => {
+      console.log('[ANDROID_AUTO_DEBUG] === EVENT TRIGGERED: CarPlay.registerOnDisconnect ===');
+    });
+
+    console.log('[ANDROID_AUTO_DEBUG] [STEP 4] CarPlay.registerOnDisconnect listener registered successfully.');
+
+  } catch (err: any) {
+    console.error('[ANDROID_AUTO_DEBUG] [CRITICAL OUTER ERROR during initCarPlay]:', {
+      message: err.message,
+      stack: err.stack
+    });
   }
 }

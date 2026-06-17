@@ -1,7 +1,7 @@
 {
   "name": "expo-template-default",
   "license": "0BSD",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "version": "53.0.43",
   "scripts": {
     "start": "expo start",

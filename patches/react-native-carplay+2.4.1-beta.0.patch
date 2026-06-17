@@ -5118,10 +5118,25 @@ deleted file mode 100644
 index 157d184..0000000
 Binary files a/node_modules/react-native-carplay/android/build/tmp/kotlin-classes/debug/org/birkir/carplay/utils/VirtualRenderer.class and /dev/null differ
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
-index ef6aa04..812fdb2 100644
+index ef6aa04..229c959 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
 +++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
-@@ -71,7 +71,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -42,7 +42,13 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+   private lateinit var parser: Parser;
+ 
+   private var currentCarScreen: CarScreen? = null
+-  private var screenManager: ScreenManager? = null
++  private val screenManager: ScreenManager?
++    get() {
++      if (::carContext.isInitialized) {
++        return carContext.getCarService(ScreenManager::class.java)
++      }
++      return null
++    }
+   private val carScreens: WeakHashMap<String, CarScreen> = WeakHashMap()
+   private val carTemplates: WeakHashMap<String, ReadableMap> = WeakHashMap()
+   private val carScreenContexts: WeakHashMap<CarScreen, CarScreenContext> =
+@@ -71,16 +77,19 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    fun setCarContext(carContext: CarContext, currentCarScreen: CarScreen) {
@@ -5131,8 +5146,34 @@ index ef6aa04..812fdb2 100644
 +    parser = Parser(carContext, CarScreenContext("", emitter, carScreens));
      this.carContext = carContext
      this.currentCarScreen = currentCarScreen
-     screenManager = currentCarScreen.screenManager
-@@ -106,7 +108,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+-    screenManager = currentCarScreen.screenManager
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] setCarContext initialized with screen marker: ${currentCarScreen.marker}")
+     carScreens["root"] = this.currentCarScreen
+     carContext.onBackPressedDispatcher.addCallback(object : OnBackPressedCallback(true) {
+       override fun handleOnBackPressed() {
+         eventEmitter?.backButtonPressed(screenManager?.top?.marker)
+       }
+     })
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] dispatching didConnect event to JS")
+     eventEmitter?.didConnect()
+   }
+ 
+@@ -94,7 +103,13 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+ 
+   @ReactMethod
+   fun checkForConnection() {
+-    eventEmitter?.didConnect()
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] JS checkForConnection() called")
++    if (::carContext.isInitialized) {
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] carContext is initialized. Firing didConnect.")
++      eventEmitter?.didConnect()
++    } else {
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] carContext NOT initialized yet. Ignoring checkForConnection.")
++    }
+   }
+ 
+   @ReactMethod
+@@ -106,7 +121,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
        carTemplates[templateId] = config;
  
        try {
@@ -5143,9 +5184,57 @@ index ef6aa04..812fdb2 100644
          callback?.invoke()
        } catch (err: IllegalArgumentException) {
          val args = Arguments.createMap()
-@@ -166,9 +170,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -134,30 +151,41 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+ 
+   @ReactMethod
+   fun setRootTemplate(templateId: String, animated: Boolean?) {
+-    Log.d(TAG, "set Root Template for $templateId")
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] setRootTemplate called for templateId: $templateId")
+     handler.post {
++      val manager = screenManager
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] screenManager retrieved: $manager")
+       val screen = getScreen(templateId)
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] getScreen for $templateId returned: $screen")
+       if (screen != null) {
+         currentCarScreen = screen
+-        screenManager?.popToRoot()
+-        screenManager?.push(screen)
++        Log.d(TAG, "[ANDROID_AUTO_NATIVE] calling popToRoot on screenManager")
++        manager?.popToRoot()
++        Log.d(TAG, "[ANDROID_AUTO_NATIVE] calling push(screen) on screenManager with screen marker: ${screen.marker}")
++        manager?.push(screen)
++      } else {
++        Log.e(TAG, "[ANDROID_AUTO_NATIVE] getScreen returned null for templateId: $templateId!")
+       }
+     }
+   }
+ 
+   @ReactMethod
+   fun pushTemplate(templateId: String, animated: Boolean?) {
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] pushTemplate called for templateId: $templateId")
+     handler.post {
++      val manager = screenManager
+       val screen = getScreen(templateId)
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] pushTemplate: screenManager=$manager, screen=$screen")
+       if (screen != null) {
+         currentCarScreen = screen;
+-        screenManager?.push(screen)
++        manager?.push(screen)
+       }
+     }
+   }
+ 
+   @ReactMethod
+   fun popToTemplate(templateId: String, animated: Boolean?) {
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] popToTemplate called for templateId: $templateId")
+     handler.post {
+       screenManager?.popTo(templateId);
+     }
+@@ -165,10 +193,11 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+ 
    @ReactMethod
    fun popTemplate(animated: Boolean?) {
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] popTemplate called")
      handler.post {
 -      screenManager!!.pop()
 +      screenManager?.pop()
@@ -5155,7 +5244,7 @@ index ef6aa04..812fdb2 100644
        currentCarScreen?.invalidate()
      }
    }
-@@ -187,14 +191,23 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -187,14 +216,23 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun toast(text: String, duration: Int) {
@@ -5181,7 +5270,7 @@ index ef6aa04..812fdb2 100644
        val duration = props.getInt("duration").toLong();
        val alert = Alert.Builder(id, title, duration).apply {
          setCallback(object : AlertCallback {
-@@ -225,14 +238,18 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -225,14 +263,18 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun dismissAlert(alertId: Int) {
@@ -5202,7 +5291,7 @@ index ef6aa04..812fdb2 100644
          Log.d(TAG, "Invalidated screen $templateId")
          screen.invalidate()
        }
-@@ -247,6 +264,10 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -247,6 +289,10 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun getHostInfo(promise: Promise) {
@@ -5213,7 +5302,7 @@ index ef6aa04..812fdb2 100644
      return promise.resolve(Arguments.createMap().apply {
        carContext.hostInfo?.packageName?.let { putString("packageName", it) }
        carContext.hostInfo?.uid?.let { putInt("uid", it) }
-@@ -266,11 +287,14 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -266,11 +312,14 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    private fun createCarScreenContext(screen: CarScreen): CarScreenContext {
@@ -5229,7 +5318,7 @@ index ef6aa04..812fdb2 100644
      val config = carTemplates[templateId];
      if (config != null) {
        val screen = CarScreen(carContext)
-@@ -291,12 +315,12 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -291,12 +340,12 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    private fun getScreen(name: String): CarScreen? {
@@ -5245,7 +5334,7 @@ index ef6aa04..812fdb2 100644
    }
  
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
-index 2235853..9417980 100644
+index 2235853..438fa04 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
 +++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
 @@ -14,6 +14,7 @@ import androidx.car.app.ScreenManager
@@ -5283,12 +5372,40 @@ index 2235853..9417980 100644
  
      // Run JS
      runJsApplication()
-@@ -77,15 +85,19 @@ class CarPlaySession(private val reactInstanceManager: ReactInstanceManager) : S
+@@ -59,15 +67,21 @@ class CarPlaySession(private val reactInstanceManager: ReactInstanceManager) : S
+             reactInstanceManager.removeReactInstanceEventListener(this)
+           }
+         })
+-      reactInstanceManager.createReactContextInBackground()
++      if (!reactInstanceManager.hasStartedCreatingInitialContext()) {
++        Log.d(TAG, "[ANDROID_AUTO_NATIVE] Creating react context in background since it hasn't started yet.")
++        reactInstanceManager.createReactContextInBackground()
++      } else {
++        Log.d(TAG, "[ANDROID_AUTO_NATIVE] React context initialization has already started. Just waiting for event listener...")
++      }
+     } else {
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] React context already exists. Invoking start task immediately.")
+       invokeStartTask(reactContext)
+     }
+   }
+ 
+   private fun invokeStartTask(reactContext: ReactContext) {
++    Log.d(TAG, "[ANDROID_AUTO_NATIVE] invokeStartTask() started with reactContext=$reactContext")
+     try {
+-      val catalystInstance = reactContext.catalystInstance
+       val jsAppModuleName = "AndroidAuto"
+       val appParams = WritableNativeMap()
+       appParams.putDouble("rootTag", 1.0)
+@@ -76,18 +90,27 @@ class CarPlaySession(private val reactInstanceManager: ReactInstanceManager) : S
+         appParams.putMap("initialProps", Arguments.fromBundle(appProperties))
        }
  
-       catalystInstance.getJSModule(AppRegistry::class.java)
+-      catalystInstance.getJSModule(AppRegistry::class.java)
 -        .runApplication(jsAppModuleName, appParams)
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] Running AppRegistry application \"$jsAppModuleName\"")
++      reactContext.getJSModule(AppRegistry::class.java)
 +        ?.runApplication(jsAppModuleName, appParams)
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] AppRegistry application \"$jsAppModuleName\" executed successfully.")
  
        val timingModule = reactContext.getNativeModule(
          TimingModule::class.java
@@ -5297,15 +5414,20 @@ index 2235853..9417980 100644
          .currentReactContext?.getNativeModule(CarPlayModule::class.java)
 -      carModule!!.setCarContext(carContext, screen)
 -      timingModule!!.onHostResume()
++      Log.d(TAG, "[ANDROID_AUTO_NATIVE] Calling carModule?.setCarContext with carContext=$carContext, screen=$screen")
 +      carModule?.setCarContext(carContext, screen)
 +      try {
 +        val onHostResume = timingModule?.javaClass?.getMethod("onHostResume")
 +        onHostResume?.invoke(timingModule)
-+      } catch (_: Exception) {
++      } catch (ex: Exception) {
++        Log.e(TAG, "[ANDROID_AUTO_NATIVE] Failed to invoke onHostResume on timingModule: ${ex.message}")
 +      }
  
      } catch (e: Exception) {
++      Log.e(TAG, "[ANDROID_AUTO_NATIVE] ERROR in invokeStartTask: ${e.message}")
        e.printStackTrace()
+     }
+   }
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt
 index f6f441a..653b2b9 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/parser/RCTListTemplate.kt
@@ -5567,3 +5689,50 @@ index 586b354..964167a 100644
    }
  
  }
+diff --git a/node_modules/react-native-carplay/lib/templates/Template.js b/node_modules/react-native-carplay/lib/templates/Template.js
+index 5f6a243..8ecd4d4 100644
+--- a/node_modules/react-native-carplay/lib/templates/Template.js
++++ b/node_modules/react-native-carplay/lib/templates/Template.js
+@@ -3,8 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.Template = void 0;
+ const react_native_1 = require("react-native");
+ const CarPlay_1 = require("../CarPlay");
+-// eslint-disable-next-line @typescript-eslint/no-var-requires
+-const resolveAssetSource = require('react-native/Libraries/Image/resolveAssetSource');
+ class Template {
+     config;
+     get type() {
+@@ -62,7 +60,7 @@ class Template {
+                 }
+                 if (String(i).match(/[Ii]mage$/)) {
+                     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+-                    obj[i] = resolveAssetSource(obj[i]);
++                    obj[i] = react_native_1.Image.resolveAssetSource(obj[i]);
+                 }
+             }
+         }
+diff --git a/node_modules/react-native-carplay/src/templates/Template.ts b/node_modules/react-native-carplay/src/templates/Template.ts
+index d39678f..91d5e76 100644
+--- a/node_modules/react-native-carplay/src/templates/Template.ts
++++ b/node_modules/react-native-carplay/src/templates/Template.ts
+@@ -1,10 +1,7 @@
+-import { ImageSourcePropType, Platform } from 'react-native';
++import { Image, ImageSourcePropType, Platform } from 'react-native';
+ import { CarPlay } from '../CarPlay';
+ import { BarButton } from '../interfaces/BarButton';
+ 
+-// eslint-disable-next-line @typescript-eslint/no-var-requires
+-const resolveAssetSource = require('react-native/Libraries/Image/resolveAssetSource');
+-
+ export interface BaseEvent {
+   /**
+    * Template id that fired the event
+@@ -153,7 +150,7 @@ export class Template<P> {
+         }
+         if (String(i).match(/[Ii]mage$/)) {
+           // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+-          obj[i] = resolveAssetSource(obj[i]);
++          obj[i] = Image.resolveAssetSource(obj[i]);
+         }
+       }
+     }
