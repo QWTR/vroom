@@ -170,8 +170,8 @@ dependencies {
     implementation "androidx.car.app:app-projected:1.4.0"
     
     // Mapbox dependencies for compilation only (runtime is provided by @rnmapbox/maps)
-    compileOnly "com.mapbox.maps:android:11.18.2"
-    compileOnly "com.mapbox.common:common:24.11.1"
+    implementation "com.mapbox.maps:android:11.18.2"
+    implementation "com.mapbox.common:common:24.11.1"
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
