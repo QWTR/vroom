@@ -405,6 +405,13 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     const reportSub = DeviceEventEmitter.addListener('onReport', () => {
       callbacksRef.current.onReportRequested?.();
     });
+    const reportTypeSub = DeviceEventEmitter.addListener('onReportType', (type?: string) => {
+      if (type && callbacksRef.current.onReportTypeRequested) {
+        void callbacksRef.current.onReportTypeRequested(type);
+      } else {
+        callbacksRef.current.onReportRequested?.();
+      }
+    });
     const searchSub = DeviceEventEmitter.addListener('onSearch', () => {
       callbacksRef.current.onSearchRequested?.();
     });
@@ -414,6 +421,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
 
     return () => {
       reportSub.remove();
+      reportTypeSub.remove();
       searchSub.remove();
       stopSub.remove();
     };

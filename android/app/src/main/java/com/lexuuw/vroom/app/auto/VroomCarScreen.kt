@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
+import androidx.car.app.ScreenManager
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.Action
@@ -41,10 +42,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
 
         val actionStripBuilder = ActionStrip.Builder()
             .addAction(Action.Builder().setTitle("Zglos").setOnClickListener {
-                VroomCarManager.reportClick()
+                carContext.getCarService(ScreenManager::class.java).push(VroomReportScreen(carContext))
             }.build())
             .addAction(Action.Builder().setTitle("Szukaj").setOnClickListener {
-                VroomCarManager.searchClick()
+                carContext.getCarService(ScreenManager::class.java).push(VroomSearchScreen(carContext))
             }.build())
         if (latestPayload?.isNavigating == true) {
             actionStripBuilder.addAction(Action.Builder().setTitle("Stop").setOnClickListener {
