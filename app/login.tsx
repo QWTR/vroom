@@ -18,7 +18,6 @@ import type { AppTheme } from '../constants/theme';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
-const { UsersModule } = NativeModules;
 
 const API_URL  = 'https://v-room.app/api/auth';
 const SAPI_URL = 'https://v-room.app/sapi';
@@ -119,7 +118,6 @@ export default function LoginScreen() {
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
     await AsyncStorage.setItem('needsUgcTerms', meta?.needsUgcTerms ? '1' : '0');
-    UsersModule?.saveAuthTokenForAuto?.(token);
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();
     router.replace('/(tabs)');

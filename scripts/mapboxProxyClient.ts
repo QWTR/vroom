@@ -8,8 +8,6 @@ import {
   withMatchingClientCache,
 } from '../lib/mapMatch/matchingRequest';
 
-const { UsersModule } = NativeModules;
-
 let cachedAuthToken: string | null = null;
 let tokenFetchedAt = 0;
 const TOKEN_TTL_MS = 60_000;
@@ -143,9 +141,6 @@ async function getAuthToken(): Promise<string | null> {
   const token =
     (await AsyncStorage.getItem('token')) ??
     (await AsyncStorage.getItem('userToken'));
-  if (token) {
-    UsersModule?.saveAuthTokenForAuto?.(token);
-  }
   cachedAuthToken = token ?? null;
   tokenFetchedAt = now;
   return cachedAuthToken;
@@ -167,7 +162,6 @@ async function refreshAuthToken(currentToken: string | null): Promise<string | n
     cachedAuthToken = json.token;
     tokenFetchedAt = Date.now();
     await AsyncStorage.setItem('token', json.token);
-    UsersModule?.saveAuthTokenForAuto?.(json.token);
     return json.token;
   } catch {
     return null;

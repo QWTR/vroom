@@ -9,7 +9,7 @@ import {
   toCarSafeNavigationDto,
 } from '../core/navigationCore';
 
-const { UsersModule } = NativeModules;
+const { VroomBridgeModule } = NativeModules;
 
 interface UseAutoNavigationBridgeParams {
   isNavigating: boolean;
@@ -283,33 +283,34 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   ]);
 
   useEffect(() => {
-    UsersModule?.setNavigatingForAuto?.(isNavigating);
-  }, [isNavigating]);
+    if (!VroomBridgeModule?.sendDataToCar) return;
 
-  useEffect(() => {
-    if (!UsersModule || !userLocation) return;
-    UsersModule.saveMyLocationForAuto?.(userLocation.latitude, userLocation.longitude);
-    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading);
-  }, [userLocation, speed, heading]);
+    const payload = {
+      isNavigating,
+      userLocation,
+      speed,
+      heading,
+      dto,
+      route: compactPolyline,
+      destination: endLocation,
+      users: autoUsers,
+      warnings: autoWarnings,
+      mapState: autoMapState,
+    };
 
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.saveCarSafeNavStateForAuto?.(JSON.stringify(dto));
-  }, [dto]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    (async () => {
-      try {
-        const token =
-          (await AsyncStorage.getItem('token')) ??
-          (await AsyncStorage.getItem('userToken'));
-        if (!token) return;
-        UsersModule.saveAuthTokenForAuto?.(token);
-      } catch {
-      }
-    })();
-  }, []);
+    VroomBridgeModule.sendDataToCar(JSON.stringify(payload));
+  }, [
+    isNavigating,
+    userLocation,
+    speed,
+    heading,
+    dto,
+    compactPolyline,
+    endLocation,
+    autoUsers,
+    autoWarnings,
+    autoMapState,
+  ]);
 
   useEffect(() => {
     if (!isNavigating) return;
@@ -338,64 +339,4 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       }
     })();
   }, [isNavigating, dto, compactPolyline]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    if (compactPolyline.length > 1) {
-      UsersModule.saveRouteForAuto?.(JSON.stringify(compactPolyline));
-    }
-  }, [compactPolyline]);
-
-  useEffect(() => {
-    if (!UsersModule || !endLocation) return;
-    UsersModule.saveDestinationForAuto?.(
-      endLocation.latitude,
-      endLocation.longitude,
-      endLocation.name ?? 'Cel',
-    );
-  }, [endLocation]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.saveVisibleUsersForAuto?.(JSON.stringify(autoUsers));
-  }, [autoUsers]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.saveWarningsForAuto?.(JSON.stringify(autoWarnings));
-  }, [autoWarnings]);
-
-  useEffect(() => {
-    if (!UsersModule) return;
-    UsersModule.saveMapStateForAuto?.(JSON.stringify(autoMapState));
-  }, [autoMapState]);
-
-  useEffect(() => {
-    if (!UsersModule || !isNavigating) return;
-    const interval = setInterval(async () => {
-      try {
-        const stop = await UsersModule.checkNavStopRequested?.();
-        if (stop) onStopRequested();
-      } catch {
-      }
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [isNavigating, onStopRequested]);
-
-  useEffect(() => {
-    if (!UsersModule || (!onReportRequested && !onReportTypeRequested)) return;
-    const interval = setInterval(async () => {
-      try {
-        const report = await UsersModule.checkReportRequested?.();
-        if (!report) return;
-        if (typeof report === 'string' && report !== 'menu') {
-          onReportTypeRequested?.(report);
-        } else {
-          onReportRequested?.();
-        }
-      } catch {
-      }
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [onReportRequested, onReportTypeRequested]);
 }

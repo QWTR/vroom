@@ -39,7 +39,6 @@ import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
 import { AdsConsentBootstrap } from '../components/ads/AdsConsentBootstrap';
-import { initCarPlay } from '../lib/carplayInit';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -50,7 +49,6 @@ function AppPresenceHeartbeat() {
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const R = '#e33835';
-const { UsersModule } = NativeModules;
 
 /** Custom VROOM boot splash — keep short; native expo splash hides as soon as fonts load. */
 const SPLASH_LOGO_MS = 320;
@@ -248,24 +246,7 @@ function RootLayoutInner() {
     initMapbox().catch(() => {});
     void initNavDriveTraceStore();
     vroomGpsLogPing('app_layout_mount');
-
-    // Inicjalizacja CarPlay / Android Auto
-    initCarPlay();
   }, []);
-
-  useEffect(() => {
-    if (!UsersModule?.saveAuthTokenForAuto) return;
-    (async () => {
-      try {
-        const token =
-          (await AsyncStorage.getItem('userToken')) ??
-          (await AsyncStorage.getItem('token'));
-        if (!token) return;
-        UsersModule.saveAuthTokenForAuto(token);
-      } catch {
-      }
-    })();
-  }, [pathname]);
 
   // Notifications
   useEffect(() => {

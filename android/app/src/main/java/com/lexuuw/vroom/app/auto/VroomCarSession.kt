@@ -1,18 +1,20 @@
 package com.lexuuw.vroom.app.auto
 
-import androidx.car.app.AppManager
+import android.content.Intent
 import androidx.car.app.Screen
 import androidx.car.app.Session
 
 class VroomCarSession : Session() {
-  override fun onCreateScreen(intent: android.content.Intent): Screen {
-    runCatching { AutoLocationTracker.start(carContext) }
-    runCatching {
-      carContext
-        .getCarService(AppManager::class.java)
-        .setSurfaceCallback(VroomMapSurfaceRenderer(carContext))
+
+    override fun onCreateScreen(intent: Intent): Screen {
+        val screen = VroomCarScreen(carContext)
+        // Rejestrujemy screen w naszym bridge, aby można było do niego wypychać dane
+        VroomCarManager.setScreen(screen)
+        return screen
     }
 
-    return VroomNavigationScreen(carContext)
-  }
+    override fun onDestroy() {
+        super.onDestroy()
+        VroomCarManager.clearScreen()
+    }
 }
