@@ -4,6 +4,7 @@ import android.util.Log
 
 object VroomCarManager {
     private var currentScreen: VroomCarScreen? = null
+    private var bridgeModule: VroomBridgeModule? = null
 
     fun setScreen(screen: VroomCarScreen) {
         currentScreen = screen
@@ -15,11 +16,23 @@ object VroomCarManager {
         Log.d("VroomCarManager", "Screen cleared")
     }
 
+    fun setBridge(module: VroomBridgeModule) {
+        bridgeModule = module
+    }
+
     fun sendDataToCar(jsonPayload: String) {
         if (currentScreen != null) {
             currentScreen?.updateData(jsonPayload)
         } else {
             Log.w("VroomCarManager", "No active screen to receive data")
         }
+    }
+
+    fun reportClick() {
+        bridgeModule?.sendEvent("onReport", null)
+    }
+
+    fun searchClick() {
+        bridgeModule?.sendEvent("onSearch", null)
     }
 }

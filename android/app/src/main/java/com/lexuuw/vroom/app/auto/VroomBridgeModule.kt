@@ -4,10 +4,25 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 
-class VroomBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+import com.facebook.react.modules.core.DeviceEventManagerModule
+
+class VroomBridgeModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+
+    init {
+        VroomCarManager.setBridge(this)
+    }
 
     override fun getName(): String {
         return "VroomBridgeModule"
+    }
+
+    /**
+     * Wysyła zdarzenie do JS.
+     */
+    fun sendEvent(eventName: String, params: String?) {
+        reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(eventName, params)
     }
 
     /**

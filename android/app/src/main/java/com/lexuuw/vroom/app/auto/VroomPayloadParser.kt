@@ -93,7 +93,7 @@ object VroomPayloadParser {
 
             val msObj = root.optJSONObject("mapState")
             val mapState = MapState(
-                mapStyle = msObj?.optString("mapStyle", null),
+                mapStyle = msObj?.optString("mapStyle", "dark"),
                 hideLocation = msObj?.optBoolean("hideLocation", false) ?: false,
                 isDriving = msObj?.optBoolean("isDriving", false) ?: false,
                 isBuilding = msObj?.optBoolean("isBuilding", false) ?: false,

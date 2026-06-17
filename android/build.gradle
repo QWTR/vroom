@@ -19,6 +19,25 @@ allprojects {
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
   }
+
+  // Global resolution strategy to force Mapbox ndk27 variants and avoid Duplicate Class errors
+  configurations.all {
+    resolutionStrategy {
+      eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'com.mapbox.maps' && !details.requested.name.contains('ndk27')) {
+          if (details.requested.name in ['android', 'android-core', 'base', 'maps-android']) {
+            details.useTarget("${details.requested.group}:${details.requested.name}-ndk27:${details.requested.version}")
+          }
+        }
+        if (details.requested.group == 'com.mapbox.module' && details.requested.name == 'maps-telemetry') {
+          details.useTarget("com.mapbox.module:maps-telemetry-ndk27:${details.requested.version}")
+        }
+        if (details.requested.group == 'com.mapbox.common' && details.requested.name == 'common') {
+          details.useTarget("com.mapbox.common:common-ndk27:${details.requested.version}")
+        }
+      }
+    }
+  }
 }
 
 apply plugin: "expo-root-project"

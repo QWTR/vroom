@@ -22,18 +22,20 @@ import com.mapbox.maps.Style
 import com.mapbox.maps.extension.style.layers.generated.LineLayer
 import com.mapbox.maps.extension.style.sources.generated.GeoJsonSource
 import com.mapbox.maps.plugin.annotation.annotations
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
 import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
 import com.mapbox.maps.plugin.animation.MapAnimationOptions
 import com.mapbox.maps.plugin.animation.camera
 import android.graphics.Color
 import com.mapbox.maps.extension.style.layers.addLayer
+import com.mapbox.maps.extension.style.layers.getLayer
 import com.mapbox.maps.extension.style.layers.properties.generated.LineCap
 import com.mapbox.maps.extension.style.layers.properties.generated.LineJoin
 import com.mapbox.maps.extension.style.sources.addSource
+import com.mapbox.maps.extension.style.sources.getSourceAs
 import com.mapbox.geojson.Feature
 import com.mapbox.geojson.LineString
-import com.mapbox.core.constants.Constants.PRECISION_6
 
 class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifecycleObserver {
 
@@ -41,6 +43,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var mapView: MapView? = null
     private var isMapReady = false
     private var lastMapStyle: String? = null
+    private var pointAnnotationManager: PointAnnotationManager? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -97,11 +100,16 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         // Zmuszamy MapView do poprawnego wymiarowania w środowisku bez pełnego Activity
         mapView?.layout(0, 0, width, height)
         
-        mapView?.getMapboxMap()?.loadStyleUri(Style.DARK) { style ->
+        mapView?.mapboxMap?.loadStyleUri(Style.DARK) { style ->
             isMapReady = true
             lastMapStyle = Style.DARK
             setupRouteLayer(style)
-            Log.d("VroomMapSurfaceRenderer", "Mapbox Style Loaded")
+            
+            // Inicjalizacja managera adnotacji raz
+            val annotationPlugin = mapView?.annotations
+            pointAnnotationManager = annotationPlugin?.createPointAnnotationManager()
+            
+            Log.d("VroomMapSurfaceRenderer", "Mapbox Style Loaded & Annotation Manager Ready")
         }
 
         mapView?.onStart()
@@ -126,7 +134,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         mainHandler.post {
             if (!isMapReady) return@post
             
-            val map = mapView?.getMapboxMap() ?: return@post
+            val map = mapView?.mapboxMap ?: return@post
 
             // Aktualizacja kamery
             if (payload.userLat != null && payload.userLng != null) {
@@ -138,7 +146,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                     .build()
                 
                 val animationOptions = MapAnimationOptions.Builder().duration(1000).build()
-                map.camera.easeTo(cameraOptions, animationOptions)
+                mapView?.camera?.easeTo(cameraOptions, animationOptions)
             }
 
             // Aktualizacja stylu mapy
@@ -147,42 +155,49 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                 map.loadStyleUri(desiredStyle) { style ->
                     lastMapStyle = desiredStyle
                     setupRouteLayer(style)
+                    // Po zmianie stylu manager adnotacji może wymagać ponownego stworzenia 
+                    // lub upewnienia się, że warstwy są na miejscu.
+                    val annotationPlugin = mapView?.annotations
+                    pointAnnotationManager = annotationPlugin?.createPointAnnotationManager()
                 }
             }
 
-            // Rysowanie markera usera
-            val annotationPlugin = mapView?.annotations
-            val pointAnnotationManager = annotationPlugin?.createPointAnnotationManager()
-            pointAnnotationManager?.deleteAll()
+            // Rysowanie markerów
+            val manager = pointAnnotationManager ?: return@post
+            manager.deleteAll()
 
+            val annotations = mutableListOf<PointAnnotationOptions>()
+
+            // Nasz marker
             if (payload.userLat != null && payload.userLng != null) {
-                val point = PointAnnotationOptions()
+                annotations.add(PointAnnotationOptions()
                     .withPoint(Point.fromLngLat(payload.userLng, payload.userLat))
-                    // TODO: Dodać własną ikonę strzałki (iconImage) zamiast domyślnej kropki
-                pointAnnotationManager?.create(point)
+                )
             }
 
             // Inni użytkownicy
             payload.users.forEach { u ->
-                val uPoint = PointAnnotationOptions()
+                annotations.add(PointAnnotationOptions()
                     .withPoint(Point.fromLngLat(u.lng, u.lat))
                     .withTextField(u.label)
-                pointAnnotationManager?.create(uPoint)
+                )
             }
 
             // Radary / Ostrzeżenia
             payload.warnings.forEach { w ->
-                val wPoint = PointAnnotationOptions()
+                annotations.add(PointAnnotationOptions()
                     .withPoint(Point.fromLngLat(w.lng, w.lat))
                     .withTextField(w.label)
-                pointAnnotationManager?.create(wPoint)
+                )
             }
+
+            manager.create(annotations)
 
             // Trasa
             map.getStyle { style ->
                 val routeSource = style.getSourceAs<GeoJsonSource>("vroom-route-source")
                 if (payload.route != null) {
-                    val lineString = LineString.fromPolyline(payload.route, PRECISION_6)
+                    val lineString = LineString.fromPolyline(payload.route, 6)
                     routeSource?.feature(Feature.fromGeometry(lineString))
                 } else {
                     routeSource?.feature(Feature.fromGeometry(LineString.fromLngLats(emptyList())))

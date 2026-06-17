@@ -43,10 +43,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         builder.setActionStrip(
             ActionStrip.Builder()
                 .addAction(Action.Builder().setTitle("Zgłoś").setOnClickListener {
-                    // TODO: Wyślij sygnał do JS o chęci zgłoszenia
+                    VroomCarManager.reportClick()
                 }.build())
                 .addAction(Action.Builder().setTitle("Szukaj").setOnClickListener {
-                    // TODO: Otwarcie ekranu wyszukiwania w Android Auto
+                    VroomCarManager.searchClick()
                 }.build())
                 .addAction(Action.APP_ICON)
                 .build()
@@ -54,11 +54,11 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         
         // Custom message displaying speed
         val step = androidx.car.app.navigation.model.Step.Builder()
-            .setCue(speedLimitText)
+            .setCue("$speedLimitText | $speedText")
             .build()
         
         val routingInfo = androidx.car.app.navigation.model.RoutingInfo.Builder()
-            .setCurrentStep(step, androidx.car.app.navigation.model.Distance.create(1.0, androidx.car.app.navigation.model.Distance.UNIT_KILOMETERS))
+            .setCurrentStep(step, androidx.car.app.model.Distance.create(1.0, androidx.car.app.model.Distance.UNIT_KILOMETERS))
             .build()
             
         builder.setNavigationInfo(routingInfo)

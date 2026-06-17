@@ -88,6 +88,11 @@ packagingOptions {
         pickFirst 'lib/x86_64/libc++_shared.so'
         pickFirst 'lib/arm64-v8a/libc++_shared.so'
         pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+        
+        // Mapbox and Common duplicates
+        pickFirst '**/libmapbox-common.so'
+        pickFirst '**/libmapbox-maps.so'
+        pickFirst '**/libmapbox-telemetry.so'
     }
 // @generated end @rnmapbox/maps-libcpp
     ndkVersion rootProject.ext.ndkVersion
@@ -169,9 +174,9 @@ dependencies {
     implementation "androidx.car.app:app:1.4.0"
     implementation "androidx.car.app:app-projected:1.4.0"
     
-    // Mapbox dependencies for compilation only (runtime is provided by @rnmapbox/maps)
-    implementation "com.mapbox.maps:android:11.18.2"
-    implementation "com.mapbox.common:common:24.11.1"
+    // Mapbox SDK (ndk27 variants for 16KB alignment and Android 15 support)
+    implementation "com.mapbox.maps:android-ndk27:11.18.2"
+    implementation "com.mapbox.common:common-ndk27:24.11.1"
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

@@ -5,7 +5,6 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
-import { useCarPlayNavigationSync } from '../../hooks/useCarPlayNavigationSync';
 import React, {
   useCallback,
   useEffect,
@@ -12127,7 +12126,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
   navRouteRef.current = effectiveNavRoute ?? null;
   const activeSteps = effectiveNavRoute?.steps ?? previewRoute?.steps ?? [];
 
-  useCarPlayNavigationSync({
+  useAutoNavigationBridge({
     isNavigating,
     currentStep,
     distToTurnM,

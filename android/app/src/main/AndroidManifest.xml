@@ -15,6 +15,7 @@
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
   <uses-permission android:name="com.android.vending.BILLING"/>
+  <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -27,6 +28,7 @@
     <meta-data android:name="com.google.android.gms.ads.flag.OPTIMIZE_AD_LOADING" android:value="true" tools:replace="android:value"/>
     <meta-data android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION" android:value="true" tools:replace="android:value"/>
     <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc"/>
+    <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="1" />
     <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="vroom_alerts"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_icon_color"/>
     <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/notification_icon"/>
@@ -56,6 +58,13 @@
         <intent-filter>
             <action android:name="androidx.car.app.CarAppService" />
             <category android:name="androidx.car.app.category.NAVIGATION" />
+        </intent-filter>
+    </service>
+    <service
+        android:name="org.birkir.carplay.CarPlayService"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="androidx.car.app.CarAppService" />
         </intent-filter>
     </service>
   </application>
