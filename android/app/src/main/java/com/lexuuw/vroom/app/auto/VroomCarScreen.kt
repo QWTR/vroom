@@ -4,17 +4,12 @@ import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
-import androidx.car.app.ScreenManager
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
-import androidx.car.app.model.Pane
-import androidx.car.app.model.PaneTemplate
-import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.NavigationTemplate
-import androidx.lifecycle.DefaultLifecycleObserver
 
 class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallback {
 
@@ -37,58 +32,26 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     }
 
     private fun buildNavigationTemplate(): Template {
-        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: ${it.toInt()} km/h" } ?: ""
-        val speedText = latestPayload?.let { "Predkosc: ${it.mapState.speedKmh.toInt()} km/h" } ?: "VROOM"
-
-        val actionStripBuilder = ActionStrip.Builder()
-            .addAction(Action.Builder().setTitle("Zglos").setOnClickListener {
-                carContext.getCarService(ScreenManager::class.java).push(VroomReportScreen(carContext))
-            }.build())
-            .addAction(Action.Builder().setTitle("Szukaj").setOnClickListener {
-                carContext.getCarService(ScreenManager::class.java).push(VroomSearchScreen(carContext))
-            }.build())
-        if (latestPayload?.isNavigating == true) {
-            actionStripBuilder.addAction(Action.Builder().setTitle("Stop").setOnClickListener {
-                VroomCarManager.stopClick()
-            }.build())
-        }
-        actionStripBuilder.addAction(Action.APP_ICON)
-
-        val builder = NavigationTemplate.Builder()
-        builder.setActionStrip(actionStripBuilder.build())
-        
-        // Custom message displaying speed
-        val step = androidx.car.app.navigation.model.Step.Builder()
-            .setCue("$speedLimitText | $speedText")
+        return NavigationTemplate.Builder()
+            .setActionStrip(requiredActionStrip())
             .build()
-        
-        val routingInfo = androidx.car.app.navigation.model.RoutingInfo.Builder()
-            .setCurrentStep(step, androidx.car.app.model.Distance.create(1.0, androidx.car.app.model.Distance.UNIT_KILOMETERS))
-            .build()
-            
-        builder.setNavigationInfo(routingInfo)
-
-        return builder.build()
     }
 
     private fun buildFallbackTemplate(): Template {
-        val paneBuilder = Pane.Builder()
-
-        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: ${it.toInt()} km/h | " } ?: ""
-        val speedText = latestPayload?.let { "Predkosc: ${it.mapState.speedKmh.toInt()} km/h" } ?: "Oczekiwanie na mape..."
-        
-        paneBuilder.addRow(
-            Row.Builder()
-                .setTitle("VROOM")
-                .addText(speedLimitText + speedText)
-                .build()
-        )
-
-        return PaneTemplate.Builder(paneBuilder.build())
-            .setTitle("VROOM")
-            .setHeaderAction(Action.APP_ICON)
+        return NavigationTemplate.Builder()
+            .setActionStrip(requiredActionStrip())
             .build()
     }
+
+    private fun requiredActionStrip(): ActionStrip =
+        ActionStrip.Builder()
+            .addAction(
+                Action.Builder()
+                    .setTitle("\u200B")
+                    .setOnClickListener { }
+                    .build()
+            )
+            .build()
 
     // --- Metoda wywoływana z React Native ---
     fun updateData(jsonPayload: String) {
@@ -118,5 +81,17 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
         mapRenderer.onSurfaceDestroyed(surfaceContainer)
+    }
+
+    override fun onClick(x: Float, y: Float) {
+        mapRenderer.onClick(x, y)
+    }
+
+    override fun onScroll(distanceX: Float, distanceY: Float) {
+        mapRenderer.onScroll(distanceX, distanceY)
+    }
+
+    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
+        mapRenderer.onScale(focusX, focusY, scaleFactor)
     }
 }

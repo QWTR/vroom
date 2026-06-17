@@ -45,10 +45,18 @@ interface UseAutoNavigationBridgeParams {
   distToTurnM: number | null;
   mapStyle?: string;
   locationMarkerStyle?: 'arrow' | 'profile';
+  currentUserAvatarUrl?: string | null;
   hideLocation?: boolean;
   startLocation?: LocationState | null;
   endLocation: LocationState | null;
   userLocation: LocationState | null;
+  autoPose?: {
+    latitude: number;
+    longitude: number;
+    speed: number | null;
+    heading: number;
+    updatedAt: number;
+  } | null;
   speed: number | null;
   heading: number;
   speedLimitKmh?: number | null;
@@ -116,10 +124,12 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     distToTurnM,
     mapStyle,
     locationMarkerStyle,
+    currentUserAvatarUrl,
     hideLocation,
     startLocation,
     endLocation,
     userLocation,
+    autoPose,
     speed,
     heading,
     speedLimitKmh,
@@ -280,15 +290,30 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       }))
   ), [builderPins]);
 
+  const hasAutoPose = !!autoPose
+    && Number.isFinite(autoPose.latitude)
+    && Number.isFinite(autoPose.longitude);
+  const effectiveUserLocation = hasAutoPose
+    ? {
+        ...(userLocation ?? {}),
+        latitude: autoPose!.latitude,
+        longitude: autoPose!.longitude,
+        name: userLocation?.name ?? 'Moja pozycja',
+      }
+    : userLocation;
+  const effectiveSpeed = hasAutoPose ? autoPose!.speed : speed;
+  const effectiveHeading = hasAutoPose ? autoPose!.heading : heading;
+
   const autoMapState = useMemo(() => ({
     mapStyle: mapStyle ?? null,
     locationMarkerStyle: locationMarkerStyle ?? 'profile',
+    currentUserAvatarUrl: currentUserAvatarUrl ?? '',
     hideLocation: !!hideLocation,
     isDriving: !!isDriving,
     isBuilding: !!isBuilding,
     arrived: !!arrived,
     offRoute: !!offRoute,
-    speedKmh: (speed ?? 0) * 3.6,
+    speedKmh: (effectiveSpeed ?? 0) * 3.6,
     speedLimitKmh: speedLimitKmh ?? null,
     start: startLocation
       ? {
@@ -305,12 +330,13 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   }), [
     mapStyle,
     locationMarkerStyle,
+    currentUserAvatarUrl,
     hideLocation,
     isDriving,
     isBuilding,
     arrived,
     offRoute,
-    speed,
+    effectiveSpeed,
     speedLimitKmh,
     startLocation,
     compactPolyline,
@@ -323,9 +349,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   useEffect(() => {
     const payload = {
       isNavigating,
-      userLocation,
-      speed,
-      heading,
+      userLocation: effectiveUserLocation,
+      speed: effectiveSpeed,
+      heading: effectiveHeading,
       dto,
       route: compactPolyline,
       destination: endLocation,
@@ -345,11 +371,11 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     UsersModule.saveMapStateForAuto?.(JSON.stringify(autoMapState));
     UsersModule.saveRouteForAuto?.(JSON.stringify(compactPolyline));
 
-    if (Number.isFinite(userLocation?.latitude) && Number.isFinite(userLocation?.longitude)) {
-      UsersModule.saveMyLocationForAuto?.(userLocation!.latitude, userLocation!.longitude);
+    if (Number.isFinite(effectiveUserLocation?.latitude) && Number.isFinite(effectiveUserLocation?.longitude)) {
+      UsersModule.saveMyLocationForAuto?.(effectiveUserLocation!.latitude, effectiveUserLocation!.longitude);
     }
 
-    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading ?? 0);
+    UsersModule.saveSpeedHeadingForAuto?.(effectiveSpeed ?? 0, effectiveHeading ?? 0);
 
     if (endLocation && Number.isFinite(endLocation.latitude) && Number.isFinite(endLocation.longitude)) {
       UsersModule.saveDestinationForAuto?.(
@@ -366,9 +392,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     );
   }, [
     isNavigating,
-    userLocation,
-    speed,
-    heading,
+    effectiveUserLocation,
+    effectiveSpeed,
+    effectiveHeading,
     dto,
     routeInfo,
     compactPolyline,

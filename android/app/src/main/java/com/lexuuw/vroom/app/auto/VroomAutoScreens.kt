@@ -72,10 +72,11 @@ class VroomSearchScreen(carContext: CarContext) : Screen(carContext) {
             routing -> list.addItem(infoRow("Wyznaczam trase...", "Za moment mapa ruszy do celu"))
             loading -> list.addItem(infoRow("Szukam miejsc...", "Pobieram wyniki z Mapbox"))
             places.isEmpty() && query.trim().length < 2 -> {
-                list.addItem(categoryRow("Stacje paliw", "gas station"))
-                list.addItem(categoryRow("Parking", "parking"))
-                list.addItem(categoryRow("Restauracje", "restaurant"))
-                list.addItem(categoryRow("Kawiarnie", "coffee"))
+                list.addItem(infoRow("VROOM Search", "Wpisz cel albo wybierz szybka kategorie"))
+                list.addItem(categoryRow("Paliwo w poblizu", "gas station"))
+                list.addItem(categoryRow("Parking w poblizu", "parking"))
+                list.addItem(categoryRow("Jedzenie w poblizu", "restaurant"))
+                list.addItem(categoryRow("Kawa w poblizu", "coffee"))
             }
             places.isEmpty() -> list.addItem(infoRow("Brak wynikow", "Sprobuj inna fraze"))
             else -> places.take(6).forEach { place ->
@@ -103,17 +104,17 @@ class VroomSearchScreen(carContext: CarContext) : Screen(carContext) {
             }
         )
             .setInitialSearchText(query)
-            .setSearchHint("Szukaj adresu lub miejsca")
+            .setSearchHint("Wyszukaj adres lub miejsce...")
             .setHeaderAction(Action.BACK)
             .setItemList(list.build())
-            .setShowKeyboardByDefault(true)
+            .setShowKeyboardByDefault(false)
             .build()
     }
 
     private fun categoryRow(title: String, category: String): Row =
         Row.Builder()
             .setTitle(title)
-            .addText("Szukaj w poblizu")
+            .addText("VROOM znajdzie najblizsze miejsce")
             .setOnClickListener {
                 query = category
                 runSearch(category)

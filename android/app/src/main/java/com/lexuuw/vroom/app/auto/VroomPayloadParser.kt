@@ -35,6 +35,8 @@ data class MapState(
     val offRoute: Boolean,
     val speedKmh: Double,
     val speedLimitKmh: Double?,
+    val locationMarkerStyle: String,
+    val currentUserAvatarUrl: String,
     val destinationLat: Double?,
     val destinationLng: Double?,
     val routePoints: List<AutoRoutePoint>
@@ -94,6 +96,8 @@ object VroomPayloadParser {
                 offRoute = msObj?.optBoolean("offRoute", false) ?: false,
                 speedKmh = finiteOrNull(msObj?.optDouble("speedKmh", Double.NaN)) ?: ((speed ?: 0.0) * 3.6),
                 speedLimitKmh = finiteOrNull(msObj?.optDouble("speedLimitKmh", Double.NaN)),
+                locationMarkerStyle = msObj?.optString("locationMarkerStyle", "profile") ?: "profile",
+                currentUserAvatarUrl = msObj?.optString("currentUserAvatarUrl", "") ?: "",
                 destinationLat = destinationLat,
                 destinationLng = destinationLng,
                 routePoints = routePoints
@@ -105,10 +109,10 @@ object VroomPayloadParser {
                 userLng = userLng,
                 speed = speed,
                 heading = heading,
-                destinationName = dto?.optString("destinationName", "")?.takeIf { it.isNotBlank() }
-                    ?: destination?.optString("name", "")?.takeIf { it.isNotBlank() },
-                instruction = dto?.optString("nextInstruction", "")?.takeIf { it.isNotBlank() },
-                maneuver = dto?.optString("maneuver", "")?.takeIf { it.isNotBlank() },
+                destinationName = cleanString(dto?.optString("destinationName", ""))
+                    ?: cleanString(destination?.optString("name", "")),
+                instruction = cleanString(dto?.optString("nextInstruction", "")),
+                maneuver = cleanString(dto?.optString("maneuver", "")),
                 remainingDistanceMeters = nullableInt(dto, "remainingDistanceMeters"),
                 remainingDurationSec = nullableInt(dto, "remainingDurationSec"),
                 turnDistanceMeters = nullableInt(dto, "turnDistanceMeters"),
@@ -179,6 +183,9 @@ object VroomPayloadParser {
 
     private fun finiteOrNull(value: Double?): Double? =
         value?.takeIf { it.isFinite() }
+
+    private fun cleanString(value: String?): String? =
+        value?.trim()?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
 
     private fun nullableInt(obj: JSONObject?, key: String): Int? =
         if (obj != null && obj.has(key) && !obj.isNull(key)) obj.optInt(key) else null

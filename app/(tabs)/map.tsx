@@ -2814,6 +2814,14 @@ function MapScreenInner() {
   });
   const [heading,       setHeading]       = useState(0);
   const [speed,         setSpeed]         = useState<number | null>(null);
+  const [autoBridgePose, setAutoBridgePose] = useState<{
+    latitude: number;
+    longitude: number;
+    speed: number | null;
+    heading: number;
+    updatedAt: number;
+  } | null>(null);
+  const autoBridgePoseLastEmitRef = useRef(0);
   const [locationReady, setLocationReady] = useState(() => peekMapLastLocation() != null);
   /** true tylko gdy nie mamy żadnej pozycji do pokazania — nie blokuje live GPS przy słabszym sygnale. */
   const [gpsAcquiring, setGpsAcquiring] = useState(() => peekMapLastLocation() == null);
@@ -3105,6 +3113,17 @@ function MapScreenInner() {
       let markerTarget = out.target;
       // V3 SSOT — nie nadpisuj lat/lng snapToRoute (inna geometria niż arcWindow → lateral jitter).
       driveMarker.pushTarget(markerTarget);
+      const autoNow = Date.now();
+      if (autoNow - autoBridgePoseLastEmitRef.current >= 220) {
+        autoBridgePoseLastEmitRef.current = autoNow;
+        setAutoBridgePose({
+          latitude: markerTarget.lat,
+          longitude: markerTarget.lng,
+          speed: out.hudSpeedKmh > 0 ? out.hudSpeedKmh / 3.6 : 0,
+          heading: normalizeHeading(markerTarget.headingDeg),
+          updatedAt: autoNow,
+        });
+      }
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
         rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
       }
@@ -3202,6 +3221,13 @@ function MapScreenInner() {
     isUserExploring: () => isUserExploringMapRef.current(),
     shouldPauseFollow: () => reroutePendingRef.current,
   });
+
+  useEffect(() => {
+    if (!isTripActiveMap) {
+      autoBridgePoseLastEmitRef.current = 0;
+      setAutoBridgePose(null);
+    }
+  }, [isTripActiveMap]);
 
   const tripBootstrapPose = useCallback((
     lat: number,
@@ -13425,10 +13451,12 @@ if (pts.length >= 2) {
     distToTurnM,
     mapStyle,
     locationMarkerStyle: settings.locationMarkerStyle,
+    currentUserAvatarUrl: myAvatarUrl,
     hideLocation: settings.hideLocation,
     startLocation,
     endLocation,
     userLocation,
+    autoPose: isTripActiveMap ? autoBridgePose : null,
     speed,
     heading,
     speedLimitKmh: effectiveSpeedLimit,
