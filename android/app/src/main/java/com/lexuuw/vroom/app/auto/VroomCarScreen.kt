@@ -36,21 +36,25 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     }
 
     private fun buildNavigationTemplate(): Template {
-        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: \$it km/h" } ?: ""
-        val speedText = latestPayload?.let { "Prędkość: \${it.speed?.toInt() ?: 0} km/h" } ?: "VROOM"
+        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: ${it.toInt()} km/h" } ?: ""
+        val speedText = latestPayload?.let { "Predkosc: ${it.mapState.speedKmh.toInt()} km/h" } ?: "VROOM"
+
+        val actionStripBuilder = ActionStrip.Builder()
+            .addAction(Action.Builder().setTitle("Zglos").setOnClickListener {
+                VroomCarManager.reportClick()
+            }.build())
+            .addAction(Action.Builder().setTitle("Szukaj").setOnClickListener {
+                VroomCarManager.searchClick()
+            }.build())
+        if (latestPayload?.isNavigating == true) {
+            actionStripBuilder.addAction(Action.Builder().setTitle("Stop").setOnClickListener {
+                VroomCarManager.stopClick()
+            }.build())
+        }
+        actionStripBuilder.addAction(Action.APP_ICON)
 
         val builder = NavigationTemplate.Builder()
-        builder.setActionStrip(
-            ActionStrip.Builder()
-                .addAction(Action.Builder().setTitle("Zgłoś").setOnClickListener {
-                    VroomCarManager.reportClick()
-                }.build())
-                .addAction(Action.Builder().setTitle("Szukaj").setOnClickListener {
-                    VroomCarManager.searchClick()
-                }.build())
-                .addAction(Action.APP_ICON)
-                .build()
-        )
+        builder.setActionStrip(actionStripBuilder.build())
         
         // Custom message displaying speed
         val step = androidx.car.app.navigation.model.Step.Builder()
@@ -69,8 +73,8 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     private fun buildFallbackTemplate(): Template {
         val paneBuilder = Pane.Builder()
 
-        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: \$it km/h | " } ?: ""
-        val speedText = latestPayload?.let { "Prędkość: \${it.speed?.toInt() ?: 0} km/h" } ?: "Oczekiwanie na mapę..."
+        val speedLimitText = latestPayload?.mapState?.speedLimitKmh?.let { "Limit: ${it.toInt()} km/h | " } ?: ""
+        val speedText = latestPayload?.let { "Predkosc: ${it.mapState.speedKmh.toInt()} km/h" } ?: "Oczekiwanie na mape..."
         
         paneBuilder.addRow(
             Row.Builder()

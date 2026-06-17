@@ -12126,14 +12126,6 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
   navRouteRef.current = effectiveNavRoute ?? null;
   const activeSteps = effectiveNavRoute?.steps ?? previewRoute?.steps ?? [];
 
-  useAutoNavigationBridge({
-    isNavigating,
-    currentStep,
-    distToTurnM,
-    routeInfo,
-    routeSteps: effectiveNavRoute?.steps || [],
-  });
-
   useEffect(() => {
     import('react-native').then(({ DeviceEventEmitter }) => {
       const sub = DeviceEventEmitter.addListener('CarPlayReportWarning', (type: string) => {
@@ -13452,6 +13444,7 @@ if (pts.length >= 2) {
     onStopRequested: () => { stopNavigation(); },
     onReportRequested: () => { setReportVisible(true); },
     onReportTypeRequested: (type) => { void handleReport(type); },
+    onSearchRequested: () => { setSearchModalVisible(true); },
   });
 
   const handleReset = useCallback(() => {

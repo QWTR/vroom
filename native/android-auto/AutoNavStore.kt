@@ -73,6 +73,10 @@ object AutoNavStore {
   fun saveMapState(context: Context, mapStateJson: String) { prefs(context).edit().putString(KEY_MAP_STATE, mapStateJson).apply() }
   fun saveAuthToken(context: Context, token: String) { prefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply() }
   fun requestStop(context: Context) { prefs(context).edit().putBoolean(KEY_STOP_REQUESTED, true).apply() }
+  fun stopNavigation(context: Context) {
+    requestStop(context)
+    clearNavigationState(context)
+  }
   fun requestReport(context: Context, type: String = "menu") { prefs(context).edit().putString(KEY_REPORT_REQUESTED, type).apply() }
   fun setMapOption(context: Context, key: String, enabled: Boolean) { prefs(context).edit().putBoolean(key, enabled).apply() }
   fun getMapOption(context: Context, key: String, default: Boolean): Boolean = prefs(context).getBoolean(key, default)
@@ -139,6 +143,10 @@ object AutoNavStore {
         (p.getFloat(KEY_DEST_LAT, 0f).toDouble() != 0.0 || p.getFloat(KEY_DEST_LNG, 0f).toDouble() != 0.0) ||
         ((dto?.optInt("remainingDistanceMeters", 0) ?: 0) > 1)
     val effectiveNavigating = rawNavigating && hasNavSignal
+    val speedMs = p.getFloat(KEY_SPEED, 0f).toDouble()
+    val speedKmh = (mapState?.optDouble("speedKmh", Double.NaN) ?: Double.NaN)
+      .takeIf { it.isFinite() }
+      ?: (speedMs * 3.6)
 
     return AutoNavSnapshot(
       isNavigating = effectiveNavigating,
@@ -149,7 +157,7 @@ object AutoNavStore {
       turnDistanceMeters = if (effectiveNavigating && dto?.has("turnDistanceMeters") == true) dto.optInt("turnDistanceMeters") else null,
       destinationName = dto?.optString("destinationName", fallbackDestName) ?: fallbackDestName,
       mapStyle = mapState?.optString("mapStyle", "") ?: "",
-      isDriving = mapState?.optBoolean("isDriving", false) ?: (p.getFloat(KEY_SPEED, 0f).toDouble() * 3.6 >= DRIVE_SPEED_THRESHOLD_KMH),
+      isDriving = true,
       isBuilding = mapState?.optBoolean("isBuilding", false) ?: false,
       arrived = mapState?.optBoolean("arrived", false) ?: false,
       offRoute = mapState?.optBoolean("offRoute", false) ?: false,
@@ -168,7 +176,7 @@ object AutoNavStore {
       startName = start?.optString("name", "Start") ?: "Start",
       destinationLat = p.getFloat(KEY_DEST_LAT, 0f).toDouble(),
       destinationLng = p.getFloat(KEY_DEST_LNG, 0f).toDouble(),
-      speedKmh = p.getFloat(KEY_SPEED, 0f).toDouble(),
+      speedKmh = speedKmh,
       heading = p.getFloat(KEY_HEADING, 0f).toDouble(),
       currentUserName = p.getString(KEY_PROFILE_NAME, "Ty") ?: "Ty",
       currentUserAvatarUrl = p.getString(KEY_PROFILE_AVATAR, "") ?: "",

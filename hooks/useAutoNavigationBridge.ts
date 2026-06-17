@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { NativeModules } from 'react-native';
+import { DeviceEventEmitter, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LocationState, RouteInfo } from '../constants/types';
 import { Step } from './useGoogleDirections';
@@ -9,7 +9,28 @@ import {
   toCarSafeNavigationDto,
 } from '../core/navigationCore';
 
-const { VroomBridgeModule } = NativeModules;
+const { UsersModule, VroomBridgeModule } = NativeModules as {
+  UsersModule?: {
+    setNavigatingForAuto?: (isNavigating: boolean) => void;
+    saveMyLocationForAuto?: (lat: number, lng: number) => void;
+    saveSpeedHeadingForAuto?: (speed: number, heading: number) => void;
+    saveNavStepForAuto?: (stepText: string, stepDistance: string, etaText: string) => void;
+    saveRouteForAuto?: (routeJson: string) => void;
+    saveDestinationForAuto?: (lat: number, lng: number, name: string) => void;
+    saveCarSafeNavStateForAuto?: (dtoJson: string) => void;
+    saveVisibleUsersForAuto?: (usersJson: string) => void;
+    saveWarningsForAuto?: (warningsJson: string) => void;
+    saveMapStateForAuto?: (mapStateJson: string) => void;
+    saveAuthTokenForAuto?: (token: string) => void;
+    checkNavStopRequested?: () => Promise<boolean>;
+    checkReportRequested?: () => Promise<string>;
+  };
+  VroomBridgeModule?: {
+    sendDataToCar?: (jsonPayload: string) => void;
+  };
+};
+
+const AUTO_REQUEST_POLL_MS = 1000;
 
 interface UseAutoNavigationBridgeParams {
   isNavigating: boolean;
@@ -78,6 +99,7 @@ interface UseAutoNavigationBridgeParams {
   onStopRequested: () => void;
   onReportRequested?: () => void;
   onReportTypeRequested?: (type: string) => void | Promise<void>;
+  onSearchRequested?: () => void;
 }
 
 export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
@@ -113,8 +135,24 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     onStopRequested,
     onReportRequested,
     onReportTypeRequested,
+    onSearchRequested,
   } = params;
   const lastSnapshotAtRef = useRef(0);
+  const callbacksRef = useRef({
+    onStopRequested,
+    onReportRequested,
+    onReportTypeRequested,
+    onSearchRequested,
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onStopRequested,
+      onReportRequested,
+      onReportTypeRequested,
+      onSearchRequested,
+    };
+  }, [onStopRequested, onReportRequested, onReportTypeRequested, onSearchRequested]);
 
   const activeRoutePoints = (remainingRoutePoints?.length ?? 0) > 1
     ? remainingRoutePoints
@@ -283,8 +321,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   ]);
 
   useEffect(() => {
-    if (!VroomBridgeModule?.sendDataToCar) return;
-
     const payload = {
       isNavigating,
       userLocation,
@@ -298,19 +334,129 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       mapState: autoMapState,
     };
 
-    VroomBridgeModule.sendDataToCar(JSON.stringify(payload));
+    VroomBridgeModule?.sendDataToCar?.(JSON.stringify(payload));
+
+    if (!UsersModule) return;
+
+    UsersModule.setNavigatingForAuto?.(isNavigating);
+    UsersModule.saveCarSafeNavStateForAuto?.(JSON.stringify(dto));
+    UsersModule.saveVisibleUsersForAuto?.(JSON.stringify(autoUsers));
+    UsersModule.saveWarningsForAuto?.(JSON.stringify(autoWarnings));
+    UsersModule.saveMapStateForAuto?.(JSON.stringify(autoMapState));
+    UsersModule.saveRouteForAuto?.(JSON.stringify(compactPolyline));
+
+    if (Number.isFinite(userLocation?.latitude) && Number.isFinite(userLocation?.longitude)) {
+      UsersModule.saveMyLocationForAuto?.(userLocation!.latitude, userLocation!.longitude);
+    }
+
+    UsersModule.saveSpeedHeadingForAuto?.(speed ?? 0, heading ?? 0);
+
+    if (endLocation && Number.isFinite(endLocation.latitude) && Number.isFinite(endLocation.longitude)) {
+      UsersModule.saveDestinationForAuto?.(
+        endLocation.latitude,
+        endLocation.longitude,
+        endLocation.name ?? 'Cel',
+      );
+    }
+
+    UsersModule.saveNavStepForAuto?.(
+      dto.nextInstruction ?? '',
+      routeInfo?.distance ?? '',
+      routeInfo?.durationText ?? '',
+    );
   }, [
     isNavigating,
     userLocation,
     speed,
     heading,
     dto,
+    routeInfo,
     compactPolyline,
     endLocation,
     autoUsers,
     autoWarnings,
     autoMapState,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncToken = async () => {
+      try {
+        const token =
+          (await AsyncStorage.getItem('token')) ??
+          (await AsyncStorage.getItem('userToken'));
+        if (!cancelled && token) {
+          UsersModule?.saveAuthTokenForAuto?.(token);
+        }
+      } catch {
+      }
+    };
+
+    syncToken();
+    const interval = setInterval(syncToken, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const reportSub = DeviceEventEmitter.addListener('onReport', () => {
+      callbacksRef.current.onReportRequested?.();
+    });
+    const searchSub = DeviceEventEmitter.addListener('onSearch', () => {
+      callbacksRef.current.onSearchRequested?.();
+    });
+    const stopSub = DeviceEventEmitter.addListener('onStop', () => {
+      callbacksRef.current.onStopRequested();
+    });
+
+    return () => {
+      reportSub.remove();
+      searchSub.remove();
+      stopSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!UsersModule?.checkNavStopRequested && !UsersModule?.checkReportRequested) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const stopRequested = await UsersModule.checkNavStopRequested?.();
+        if (!cancelled && stopRequested) {
+          callbacksRef.current.onStopRequested();
+        }
+
+        const reportType = await UsersModule.checkReportRequested?.();
+        if (!cancelled && reportType) {
+          if (reportType === 'menu') {
+            callbacksRef.current.onReportRequested?.();
+          } else if (callbacksRef.current.onReportTypeRequested) {
+            await callbacksRef.current.onReportTypeRequested(reportType);
+          } else {
+            callbacksRef.current.onReportRequested?.();
+          }
+        }
+      } catch {
+      } finally {
+        if (!cancelled) {
+          timer = setTimeout(poll, AUTO_REQUEST_POLL_MS);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isNavigating) return;

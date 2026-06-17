@@ -35,4 +35,8 @@ object VroomCarManager {
     fun searchClick() {
         bridgeModule?.sendEvent("onSearch", null)
     }
+
+    fun stopClick() {
+        bridgeModule?.sendEvent("onStop", null)
+    }
 }
