@@ -5118,7 +5118,7 @@ deleted file mode 100644
 index 157d184..0000000
 Binary files a/node_modules/react-native-carplay/android/build/tmp/kotlin-classes/debug/org/birkir/carplay/utils/VirtualRenderer.class and /dev/null differ
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
-index ef6aa04..229c959 100644
+index ef6aa04..0791a85 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
 +++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlayModule.kt
 @@ -42,7 +42,13 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
@@ -5136,11 +5136,29 @@ index ef6aa04..229c959 100644
    private val carScreens: WeakHashMap<String, CarScreen> = WeakHashMap()
    private val carTemplates: WeakHashMap<String, ReadableMap> = WeakHashMap()
    private val carScreenContexts: WeakHashMap<CarScreen, CarScreenContext> =
-@@ -71,16 +77,19 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -54,6 +60,15 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+   private var eventEmitter: EventEmitter? = null
+ 
+   init {
++    Log.d(TAG, "CarPlayModule init called. Restoring activeCarContext if available.")
++    if (activeCarContext != null && activeCarScreen != null) {
++      this.carContext = activeCarContext!!
++      this.currentCarScreen = activeCarScreen!!
++      eventEmitter = EventEmitter(reactContext)
++      parser = Parser(carContext, CarScreenContext("", eventEmitter!!, carScreens))
++      carScreens["root"] = this.currentCarScreen
++    }
++
+     reactContext.addLifecycleEventListener(object : LifecycleEventListener {
+       override fun onHostResume() {
+         eventEmitter = EventEmitter(reactContext)
+@@ -71,16 +86,21 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    fun setCarContext(carContext: CarContext, currentCarScreen: CarScreen) {
 -    parser = Parser(carContext, CarScreenContext("", eventEmitter!!, carScreens));
++    activeCarContext = carContext
++    activeCarScreen = currentCarScreen
 +    val emitter = eventEmitter ?: EventEmitter(reactContext)
 +    eventEmitter = emitter
 +    parser = Parser(carContext, CarScreenContext("", emitter, carScreens));
@@ -5158,7 +5176,7 @@ index ef6aa04..229c959 100644
      eventEmitter?.didConnect()
    }
  
-@@ -94,7 +103,13 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -94,7 +114,13 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun checkForConnection() {
@@ -5173,7 +5191,7 @@ index ef6aa04..229c959 100644
    }
  
    @ReactMethod
-@@ -106,7 +121,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -106,7 +132,9 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
        carTemplates[templateId] = config;
  
        try {
@@ -5184,7 +5202,7 @@ index ef6aa04..229c959 100644
          callback?.invoke()
        } catch (err: IllegalArgumentException) {
          val args = Arguments.createMap()
-@@ -134,30 +151,41 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -134,30 +162,41 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun setRootTemplate(templateId: String, animated: Boolean?) {
@@ -5230,7 +5248,7 @@ index ef6aa04..229c959 100644
      handler.post {
        screenManager?.popTo(templateId);
      }
-@@ -165,10 +193,11 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -165,10 +204,11 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun popTemplate(animated: Boolean?) {
@@ -5244,7 +5262,7 @@ index ef6aa04..229c959 100644
        currentCarScreen?.invalidate()
      }
    }
-@@ -187,14 +216,23 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -187,14 +227,23 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun toast(text: String, duration: Int) {
@@ -5270,7 +5288,7 @@ index ef6aa04..229c959 100644
        val duration = props.getInt("duration").toLong();
        val alert = Alert.Builder(id, title, duration).apply {
          setCallback(object : AlertCallback {
-@@ -225,14 +263,18 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -225,14 +274,18 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun dismissAlert(alertId: Int) {
@@ -5291,7 +5309,7 @@ index ef6aa04..229c959 100644
          Log.d(TAG, "Invalidated screen $templateId")
          screen.invalidate()
        }
-@@ -247,6 +289,10 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -247,6 +300,10 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
  
    @ReactMethod
    fun getHostInfo(promise: Promise) {
@@ -5302,7 +5320,7 @@ index ef6aa04..229c959 100644
      return promise.resolve(Arguments.createMap().apply {
        carContext.hostInfo?.packageName?.let { putString("packageName", it) }
        carContext.hostInfo?.uid?.let { putInt("uid", it) }
-@@ -266,11 +312,14 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -266,11 +323,14 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    private fun createCarScreenContext(screen: CarScreen): CarScreenContext {
@@ -5318,7 +5336,7 @@ index ef6aa04..229c959 100644
      val config = carTemplates[templateId];
      if (config != null) {
        val screen = CarScreen(carContext)
-@@ -291,12 +340,12 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
+@@ -291,17 +351,19 @@ class CarPlayModule internal constructor(private val reactContext: ReactApplicat
    }
  
    private fun getScreen(name: String): CarScreen? {
@@ -5333,8 +5351,15 @@ index ef6aa04..229c959 100644
      carScreens.values.remove(screen)
    }
  
+   companion object {
+     const val NAME = "RNCarPlay"
+     const val TAG = "CarPlay"
++    var activeCarContext: CarContext? = null
++    var activeCarScreen: CarScreen? = null
+   }
+ }
 diff --git a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
-index 2235853..438fa04 100644
+index 2235853..8467119 100644
 --- a/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
 +++ b/node_modules/react-native-carplay/android/src/main/java/org/birkir/carplay/CarPlaySession.kt
 @@ -14,6 +14,7 @@ import androidx.car.app.ScreenManager
@@ -5396,7 +5421,7 @@ index 2235853..438fa04 100644
        val jsAppModuleName = "AndroidAuto"
        val appParams = WritableNativeMap()
        appParams.putDouble("rootTag", 1.0)
-@@ -76,18 +90,27 @@ class CarPlaySession(private val reactInstanceManager: ReactInstanceManager) : S
+@@ -76,18 +90,26 @@ class CarPlaySession(private val reactInstanceManager: ReactInstanceManager) : S
          appParams.putMap("initialProps", Arguments.fromBundle(appProperties))
        }
  
@@ -5410,10 +5435,11 @@ index 2235853..438fa04 100644
        val timingModule = reactContext.getNativeModule(
          TimingModule::class.java
        )
-       val carModule = reactInstanceManager
-         .currentReactContext?.getNativeModule(CarPlayModule::class.java)
+-      val carModule = reactInstanceManager
+-        .currentReactContext?.getNativeModule(CarPlayModule::class.java)
 -      carModule!!.setCarContext(carContext, screen)
 -      timingModule!!.onHostResume()
++      val carModule = reactContext.getNativeModule(CarPlayModule::class.java)
 +      Log.d(TAG, "[ANDROID_AUTO_NATIVE] Calling carModule?.setCarContext with carContext=$carContext, screen=$screen")
 +      carModule?.setCarContext(carContext, screen)
 +      try {
