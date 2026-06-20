@@ -5,4 +5,4 @@
 export const DRIVE_SESSION_TRACE_ENABLED = true;
 
 /** V2 worklet follow — ~60 fps (telemetria scheduler; marker/kamera idą z Reanimated). */
-export const DRIVE_FULL_VISION_LOG = true;
+export const DRIVE_FULL_VISION_LOG = false;

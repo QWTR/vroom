@@ -84,4 +84,26 @@ describe('createDrivePipeline', () => {
     expect(out!.rejected).toBe(false);
     expect(out!.snap.polylineKey).toBe('route');
   });
+
+  it('detaches from an old route after two fixes proving a real turn', () => {
+    const pipeline = createDrivePipeline();
+    pipeline.setMode('navigation');
+    pipeline.setRoutePolyline([
+      { lat: 52.2297, lng: 21.0122 },
+      { lat: 52.2327, lng: 21.0122 },
+    ]);
+    const eastRoad = makeRoadPolyline('actual_east', [
+      { lat: 52.2298, lng: 21.0122 },
+      { lat: 52.2298, lng: 21.0182 },
+    ]);
+    pipeline.setRoadPolylines(eastRoad ? [eastRoad] : []);
+
+    pipeline.processGpsFix(gpsFix(52.2298, 21.01225, 0, { speedMs: 12, headingDeg: 90 }));
+    const second = pipeline.processGpsFix(
+      gpsFix(52.2298, 21.01242, 1000, { speedMs: 12, headingDeg: 90 }),
+    );
+
+    expect(second!.rejected).toBe(false);
+    expect(second!.snap.polylineKey).not.toBe('route');
+  });
 });

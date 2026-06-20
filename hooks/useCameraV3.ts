@@ -39,7 +39,7 @@ const BROWSE_ZOOM = 15;
 const BROWSE_PITCH = 52;
 const DRIVE_PITCH = 58;
 const NAV_PITCH = 62;
-const RETURN_FROM_EXPLORE_MS = 3000;
+const RETURN_FROM_EXPLORE_MS = 4000;
 const USER_ZOOM_OVERRIDE_EPS = 0.04;
 
 const ZOOM_UPDATE_MS = NAV_V3.CAMERA_ZOOM_UPDATE_MS;
@@ -56,15 +56,15 @@ const THROTTLE_STAND_KMH = NAV_V3.CAMERA_THROTTLE_STAND_KMH;
 const DELTA_MIN_DIST_M = NAV_V3.CAMERA_DELTA_MIN_DIST_M;
 const DELTA_MIN_HEADING_DEG = NAV_V3.CAMERA_DELTA_MIN_HEADING_DEG;
 const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
-const NATIVE_ANIM_BUFFER_MS = NAV_V3.CAMERA_NATIVE_ANIM_BUFFER_MS;
 
 const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
-/** Mapbox linearTo — zsynchronizowany z throttle (50–100 ms), nie 0 ms. */
+/**
+ * Segmenty celowo zachodzą na siebie. Poprzednio animacja kończyła się przed
+ * następnym keyframe'em, przez co mapa zatrzymywała się i doskakiwała.
+ */
 function resolveTripCameraAnimMs(throttleMs: number, isColdStart: boolean): number {
   if (isColdStart) return 0;
-  // Native interpolation hides the JS/native keyframe cadence. A zero-duration
-  // update makes the camera visibly step even while the marker runs at 60 FPS.
-  return Math.max(55, Math.ceil(throttleMs + NATIVE_ANIM_BUFFER_MS));
+  return Math.max(100, Math.min(180, Math.ceil(throttleMs * 2.4)));
 }
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
@@ -387,42 +387,31 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lng: number,
     heading: number,
     throttleMs: number,
-    opts?: { headingAnimMs?: number; headingOnly?: boolean },
+    opts?: { headingOnly?: boolean },
   ) => {
     if (!isTripMode) return;
     if (!enabled && !tripFollowPrearmedRef.current && followEnabledSv.value < 0.5) return;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return;
+    if (isPaused()) return;
 
     const prevSent = lastSentRef.current;
-    let centerDeltaM = 999;
-    if (prevSent) {
-      centerDeltaM = haversineM(prevSent.lat, prevSent.lng, lat, lng);
-    }
-
-    // Network rerouting must not freeze visual follow. Explicit user gestures
-    // are still respected by isPaused() below.
-    if (isPaused()) return;
+    const centerDeltaM = prevSent
+      ? haversineM(prevSent.lat, prevSent.lng, lat, lng)
+      : 999;
 
     syncCourseHeadingTargetRef.current(heading);
 
     const now = Date.now();
     const hudKmh = Math.max(0, speedKmhRef?.current ?? 0);
     const speedKmh = smoothedSpeedRef.current > 0 ? smoothedSpeedRef.current : hudKmh;
+    const headingDeltaDeg = prevSent
+      ? Math.abs(headingDelta(prevSent.heading, heading))
+      : 999;
 
-    let headingDeltaDeg = 999;
     if (prevSent) {
-      headingDeltaDeg = Math.abs(headingDelta(prevSent.heading, heading));
-      if (
-        !opts?.headingOnly
-        && centerDeltaM < DELTA_MIN_DIST_M
-        && headingDeltaDeg < DELTA_MIN_HEADING_DEG
-      ) {
-        return;
-      }
-      if (opts?.headingOnly && headingDeltaDeg < DELTA_MIN_HEADING_DEG) {
-        return;
-      }
+      if (!opts?.headingOnly && centerDeltaM < DELTA_MIN_DIST_M && headingDeltaDeg < DELTA_MIN_HEADING_DEG) return;
+      if (opts?.headingOnly && headingDeltaDeg < DELTA_MIN_HEADING_DEG) return;
     }
 
     const zoomSpeed = cameraZoomSpeedKmh({
@@ -431,7 +420,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
       frameMoveM: centerDeltaM,
     });
     const rawZoom = zoomFromSpeed(zoomSpeed) - 0.3;
-
     let zoom = smoothedZoomRef.current;
     if (zoom == null || now - lastZoomTickRef.current >= ZOOM_UPDATE_MS) {
       zoom = smoothZoomTarget(smoothedZoomRef.current, rawZoom, speedKmh);
@@ -441,38 +429,23 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
     const effectiveZoom = userZoomOverrideRef.current ?? zoom;
     const zoomChanged = !prevSent || Math.abs(prevSent.zoom - effectiveZoom) >= 0.025;
-    if (
-      prevSent
-      && centerDeltaM < DELTA_MIN_DIST_M
-      && headingDeltaDeg < DELTA_MIN_HEADING_DEG
-      && !zoomChanged
-    ) {
-      return;
-    }
+    if (prevSent && centerDeltaM < DELTA_MIN_DIST_M && headingDeltaDeg < DELTA_MIN_HEADING_DEG && !zoomChanged) return;
 
-    if (!cachedPaddingRef.current) {
-      cachedPaddingRef.current = getTripCameraPadding(isNavigating);
-    }
-    const padding = cachedPaddingRef.current;
-    const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
+    if (!cachedPaddingRef.current) cachedPaddingRef.current = getTripCameraPadding(isNavigating);
     const isColdStart = coldStartFollowPendingRef.current;
-    const animMs = resolveTripCameraAnimMs(throttleMs, isColdStart);
     const displayHeading = normalizeHeading(heading);
 
-    (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
+    cameraRef.current?.setCamera({
       centerCoordinate: [lng, lat],
       heading: displayHeading,
       zoomLevel: effectiveZoom,
-      pitch,
-      padding,
-      animationDuration: animMs,
+      pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
+      padding: cachedPaddingRef.current,
+      animationDuration: resolveTripCameraAnimMs(throttleMs, isColdStart),
       animationMode: 'linearTo',
     });
 
-    if (isColdStart) {
-      coldStartFollowPendingRef.current = false;
-    }
-
+    coldStartFollowPendingRef.current = false;
     markSentPose(lat, lng, displayHeading, effectiveZoom, now);
   }, [
     cameraRef,
@@ -488,12 +461,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const emitCameraKeyframeRef = useRef(emitCameraKeyframe);
   emitCameraKeyframeRef.current = emitCameraKeyframe;
 
-  const onEmitCameraKeyframe = useCallback((
-    lat: number,
-    lng: number,
-    heading: number,
-    throttleMs: number,
-  ) => {
+  const onEmitCameraKeyframe = useCallback((lat: number, lng: number, heading: number, throttleMs: number) => {
     emitCameraKeyframeRef.current(lat, lng, heading, throttleMs);
   }, []);
 
@@ -517,36 +485,15 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
       const throttleMs = resolveCameraThrottleMsWorklet(next.speed);
       const now = Date.now();
-
-      let distM = 999;
-      let hdgD = 999;
       if (lastSentReadySv.value >= 0.5) {
-        distM = haversineMWorklet(
-          lastSentLatSv.value,
-          lastSentLngSv.value,
-          next.lat,
-          next.lng,
-        );
-        hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.hdg));
-        if (distM < 0.1 && hdgD < 0.1) {
-          return;
-        }
+        const distM = haversineMWorklet(lastSentLatSv.value, lastSentLngSv.value, next.lat, next.lng);
+        const hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.hdg));
+        if (distM < 0.1 && hdgD < 0.1) return;
       }
-
-      if (
-        lastCameraPushMsSv.value > 0
-        && now - lastCameraPushMsSv.value < throttleMs
-      ) {
-        return;
-      }
+      if (lastCameraPushMsSv.value > 0 && now - lastCameraPushMsSv.value < throttleMs) return;
 
       lastCameraPushMsSv.value = now;
-      runOnJS(onEmitCameraKeyframe)(
-        next.lat,
-        next.lng,
-        next.hdg,
-        throttleMs,
-      );
+      runOnJS(onEmitCameraKeyframe)(next.lat, next.lng, next.hdg, throttleMs);
     },
     [
       followEnabledSv,

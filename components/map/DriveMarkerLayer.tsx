@@ -19,24 +19,8 @@ const MARKER_TEXTURE_PX = DRIVE_MARKER_SPRITE_SIZE * PixelRatio.get();
 /** Docelowy rozmiar markera na ekranie [pt] — ~40 pt. */
 const MARKER_SCREEN_PT = DRIVE_MARKER_SPRITE_SIZE;
 /** Twardy sufit przy zoom out — nigdy więcej niż ~44 pt na ekranie. */
-const MARKER_SCREEN_PT_MAX = 44;
 const ICON_SIZE_NORMAL = MARKER_SCREEN_PT / MARKER_TEXTURE_PX;
-const ICON_SIZE_CLAMP = MARKER_SCREEN_PT_MAX / MARKER_TEXTURE_PX;
-/**
- * Mapbox `interpolate` nie ekstrapoluje wartości poza podane stopy (zwraca wartość ze skrajnego stopnia).
- * Ustawiamy twardy clamp przez sztywne wartości dla skrajnych poziomów zoomu.
- */
-const TRIP_MARKER_ICON_SIZE = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  1, ICON_SIZE_CLAMP,
-  8, ICON_SIZE_CLAMP,
-  13, ICON_SIZE_NORMAL,
-  16, ICON_SIZE_NORMAL,
-  18, ICON_SIZE_NORMAL * 0.92,
-  22, ICON_SIZE_NORMAL * 0.85,
-];
+const TRIP_MARKER_ICON_SIZE = ICON_SIZE_NORMAL;
 
 const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',
@@ -97,11 +81,13 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   const lastShape = useSharedValue(EMPTY_SHAPE);
   const lastLat = useSharedValue(NaN);
   const lastLng = useSharedValue(NaN);
+  const lastHdg = useSharedValue(NaN);
 
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';
     let la = marker.lat.value;
     let ln = marker.lng.value;
+    let hdg = marker.heading.value;
 
     const hasValidCoords = Number.isFinite(la) && Number.isFinite(ln)
       && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
@@ -122,25 +108,30 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 
     la = Math.round(la / COORD_QUANT) * COORD_QUANT;
     ln = Math.round(ln / COORD_QUANT) * COORD_QUANT;
+    hdg = Number.isFinite(hdg) ? Math.round(hdg * 10) / 10 : 0;
 
     const prevLa = lastLat.value;
     const prevLn = lastLng.value;
+    const prevHdg = lastHdg.value;
     if (
       Number.isFinite(prevLa)
       && Number.isFinite(prevLn)
+      && Number.isFinite(prevHdg)
       && Math.abs(la - prevLa) <= COORD_EPS
       && Math.abs(ln - prevLn) <= COORD_EPS
+      && Math.abs(hdg - prevHdg) <= 0.1
     ) {
       return { shape: lastShape.value };
     }
     lastLat.value = la;
     lastLng.value = ln;
+    lastHdg.value = hdg;
     const nextShape = JSON.stringify({
       type: 'FeatureCollection',
       features: [{
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [ln, la] },
-        properties: { heading: 0 },
+        properties: { heading: hdg },
       }],
     });
     lastShape.value = nextShape;
@@ -181,10 +172,10 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             style={{
               iconImage: DRIVE_MARKER_IMAGE_KEY,
               iconSize: TRIP_MARKER_ICON_SIZE,
-              /** viewport + rotate 0: heading-up na kamerze — ikona zawsze „do góry” ekranu */
-              iconRotate: 0,
-              iconPitchAlignment: 'viewport',
-              iconRotationAlignment: 'viewport',
+              /** map: heading aligns with the map roads */
+              iconRotate: ['get', 'heading'],
+              iconPitchAlignment: 'map',
+              iconRotationAlignment: 'map',
               iconAllowOverlap: true,
               iconIgnorePlacement: true,
               iconAnchor: 'center',

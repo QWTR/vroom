@@ -1,4 +1,4 @@
-import { haversineKm } from '../../scripts/navigationUtils';
+import { bearingBetween, haversineKm } from '../../scripts/navigationUtils';
 import { NAV_V3 } from './config';
 import { filterGpsFix } from './gpsFilter';
 import {
@@ -35,10 +35,37 @@ type PipelineInternalState = {
   lastHudSpeedKmh: number;
   sessionFirstFix: boolean;
   hardResetPending: boolean;
+  routeHeadingMismatchStreak: number;
 };
 
 function normalizeHeading(h: number): number {
   return ((h % 360) + 360) % 360;
+}
+
+function routeHeadingNearFix(
+  route: { lat: number; lng: number }[] | null,
+  lat: number,
+  lng: number,
+  fallback: number,
+): number {
+  if (!route || route.length < 2) return fallback;
+  let bestIndex = 0;
+  let bestDistanceM = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const a = route[i]!;
+    const b = route[i + 1]!;
+    const distanceM = Math.min(
+      haversineKm(lat, lng, a.lat, a.lng),
+      haversineKm(lat, lng, b.lat, b.lng),
+    ) * 1000;
+    if (distanceM < bestDistanceM) {
+      bestDistanceM = distanceM;
+      bestIndex = i;
+    }
+  }
+  const a = route[bestIndex]!;
+  const b = route[bestIndex + 1]!;
+  return bearingBetween(a.lat, a.lng, b.lat, b.lng);
 }
 
 function resolveFeedSpeedMs(
@@ -84,11 +111,13 @@ function isMovingEvidence(
 function collectPolylines(geometry: DrivePipelineGeometry, mode: NavMode): RoadPolyline[] {
   if (mode === 'navigation') {
     const route = geometry.routePolyline;
-    if (route && route.length >= 2) {
+    if (geometry.shouldSnapToRoute !== false && route && route.length >= 2) {
       const packed = makeRoadPolyline('route', route);
-      return packed ? [packed] : [];
+      return packed
+        ? [packed, ...geometry.roadPolylines.filter((p) => p.points.length >= 2)]
+        : geometry.roadPolylines.filter((p) => p.points.length >= 2);
     }
-    return [];
+    return geometry.roadPolylines.filter((p) => p.points.length >= 2);
   }
   return geometry.roadPolylines.filter((p) => p.points.length >= 2);
 }
@@ -108,6 +137,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
     lastHudSpeedKmh: 0,
     sessionFirstFix: true,
     hardResetPending: false,
+    routeHeadingMismatchStreak: 0,
   };
 
   return {
@@ -120,6 +150,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       state.lastHudSpeedKmh = 0;
       state.sessionFirstFix = true;
       state.hardResetPending = false;
+      state.routeHeadingMismatchStreak = 0;
     },
 
     hardReset(lat: number, lng: number, _headingDeg?: number): void {
@@ -145,6 +176,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       state.mode = mode;
       if (mode === 'idle') {
         state.sessionFirstFix = true;
+        state.routeHeadingMismatchStreak = 0;
       }
     },
 
@@ -253,9 +285,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       const isMoving = isMovingEvidence(fix, state.prevAccepted, hudSpeedKmh);
       state.lastHudSpeedKmh = hudSpeedKmh;
 
-      const shouldSnapToRoute = geometry.shouldSnapToRoute !== false;
       const routePolylines = collectPolylines(geometry, state.mode);
-      const snapPolylines = shouldSnapToRoute ? routePolylines : [];
       const isNavigating = state.mode === 'navigation';
       const tripActive = state.mode === 'navigation' || state.mode === 'freeDrive';
 
@@ -267,24 +297,57 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           ? 48
           : NAV_V3.OFF_ROUTE_SNAP_RELEASE_M;
 
-      const snap = snapEngine.resolve({
+      let snap = snapEngine.resolve({
         raw: fix,
         prev: state.displayPrev,
-        polylines: snapPolylines,
+        polylines: routePolylines,
         isNavigating,
         tripActive,
         // Trip: kurs z wektora ruchu + lock — NIE kompas (zakłócenia w karoserii).
         travelHeadingDeg: undefined,
-        maxCrossTrackToSnap: (shouldSnapToRoute && isNavigating && routePolylines.length > 0)
+        maxCrossTrackToSnap: (geometry.shouldSnapToRoute !== false && isNavigating && routePolylines.length > 0)
           ? dynamicSnapReleaseThreshold
           : undefined,
       }).result;
+
+      const expectedRouteHeading = routeHeadingNearFix(
+        geometry.routePolyline,
+        fix.lat,
+        fix.lng,
+        snap.headingDeg,
+      );
+      const headingMismatch = fix.headingDeg != null
+        ? Math.abs(((expectedRouteHeading - fix.headingDeg + 540) % 360) - 180)
+        : 0;
+      const routeMismatch = isNavigating
+        && geometry.shouldSnapToRoute !== false
+        && geometry.routePolyline != null
+        && speedKmhForRelease >= 8
+        && headingMismatch >= 55;
+      state.routeHeadingMismatchStreak = routeMismatch
+        ? state.routeHeadingMismatchStreak + 1
+        : 0;
+
+      // Two consecutive fixes proving a real turn detach the vehicle from the
+      // old route immediately. Rerouting remains an independent overlay task.
+      if (state.routeHeadingMismatchStreak >= 2) {
+        snapEngine.reset();
+        if (fix.headingDeg != null) snapEngine.seedTravelHeading(fix.headingDeg);
+        snap = snapEngine.resolve({
+          raw: fix,
+          prev: state.displayPrev,
+          polylines: geometry.roadPolylines,
+          isNavigating: false,
+          tripActive,
+          travelHeadingDeg: fix.headingDeg ?? undefined,
+        }).result;
+      }
 
       const allowInstant = state.sessionFirstFix || state.hardResetPending;
       const gpsIntervalMs = state.prevAccepted
         ? Math.min(5000, Math.max(200, fix.timestampMs - state.prevAccepted.timestampMs))
         : undefined;
-      const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant, gpsIntervalMs);
+      const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant, gpsIntervalMs, fix.timestampMs);
 
       state.prevAccepted = fix;
       state.displayPrev = { lat: snap.lat, lng: snap.lng };

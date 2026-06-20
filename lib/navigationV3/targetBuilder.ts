@@ -95,6 +95,7 @@ export function buildNavigationTarget(
   speedMs: number,
   allowInstant: boolean,
   gpsIntervalMs?: number,
+  sourceTimestampMs?: number,
 ): NavigationTarget {
   const intervalMs = Number.isFinite(gpsIntervalMs) && gpsIntervalMs! > 0
     ? gpsIntervalMs!
@@ -113,5 +114,6 @@ export function buildNavigationTarget(
     polylineKey: snap.polylineKey,
     allowInstant,
     gpsIntervalMs: intervalMs,
+    sourceTimestampMs: Number.isFinite(sourceTimestampMs) ? sourceTimestampMs : undefined,
   };
 }

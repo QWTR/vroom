@@ -73,6 +73,8 @@ export type NavigationTarget = {
   allowInstant: boolean;
   /** Czas od poprzedniego fixu GPS (ms) — synchronizacja animacji markera. */
   gpsIntervalMs?: number;
+  /** Timestamp źródłowego fixu — kompensacja opóźnienia dostarczenia przez OS. */
+  sourceTimestampMs?: number;
 };
 
 export type GpsFilterVerdict = 'accept' | 'reject';

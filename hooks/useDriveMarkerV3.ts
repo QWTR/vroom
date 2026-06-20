@@ -22,6 +22,8 @@ const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
 const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
 const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
+const ROAD_COAST_MAX_M = 16;
+const FREE_COAST_MAX_M = 5;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -445,6 +447,9 @@ export function useDriveMarkerV3(
   const onRoadSv = useSharedValue(0);
   const roadBlendSv = useSharedValue(0);
   const speedMs = useSharedValue(0);
+  const segmentDurationMs = useSharedValue(900);
+  const lastTargetAtMs = useSharedValue(0);
+  const coastDistanceM = useSharedValue(0);
 
   const targetLat = useSharedValue(NaN);
   const targetLng = useSharedValue(NaN);
@@ -508,14 +513,28 @@ export function useDriveMarkerV3(
     targetLng,
   ]);
 
-  const frameCallback = useFrameCallback(() => {
+  const frameCallback = useFrameCallback((frame) => {
     'worklet';
     if (enabledSv.value < 0.5 || bootstrapped.value < 0.5) return;
 
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
+    const dtSec = clampWorklet((frame.timeSincePreviousFrame ?? 16.67) / 1000, 0.008, 0.05);
+    const segmentFinished = lastTargetAtMs.value > 0
+      && Date.now() - lastTargetAtMs.value >= segmentDurationMs.value;
 
     if (onRoad && roadPtsFlat.value.length >= 4 && Number.isFinite(displayArcM.value)) {
+      if (segmentFinished && speedMs.value >= MIN_CRUISE_MS) {
+        const aheadM = Math.max(0, displayArcM.value - targetArcM.value);
+        const maxAheadM = Math.min(ROAD_COAST_MAX_M, Math.max(5, speedMs.value * 0.8));
+        const arcEndM = baseArcM.value + (roadCumM.value[roadCumM.value.length - 1] ?? 0);
+        if (aheadM < maxAheadM && displayArcM.value < arcEndM) {
+          displayArcM.value = Math.min(
+            arcEndM,
+            displayArcM.value + Math.min(speedMs.value * dtSec, maxAheadM - aheadM),
+          );
+        }
+      }
       const localM = displayArcM.value - baseArcM.value;
       const roadPose = pointAtWindowArcLocal(roadPtsFlat.value, roadCumM.value, localM);
 
@@ -523,6 +542,25 @@ export function useDriveMarkerV3(
         lat.value = roadPose.lat;
         lng.value = roadPose.lng;
       }
+    } else if (
+      segmentFinished
+      && speedMs.value >= MIN_CRUISE_MS
+      && coastDistanceM.value < FREE_COAST_MAX_M
+      && Number.isFinite(lat.value)
+      && Number.isFinite(lng.value)
+    ) {
+      const stepM = Math.min(
+        speedMs.value * dtSec,
+        FREE_COAST_MAX_M - coastDistanceM.value,
+      );
+      const headingRad = targetHdg.value * Math.PI / 180;
+      const earthRadiusM = 6_371_000;
+      const dLat = (stepM * Math.cos(headingRad)) / earthRadiusM;
+      const cosLat = Math.max(0.1, Math.cos(lat.value * Math.PI / 180));
+      const dLng = (stepM * Math.sin(headingRad)) / (earthRadiusM * cosLat);
+      lat.value += dLat * 180 / Math.PI;
+      lng.value += dLng * 180 / Math.PI;
+      coastDistanceM.value += stepM;
     }
   }, false);
 
@@ -534,7 +572,7 @@ export function useDriveMarkerV3(
         const isJump = prevTarget === null || Math.abs(newTarget - prevTarget) > 150;
         displayArcM.value = isJump
           ? newTarget
-          : withTiming(newTarget, { duration: 1000, easing: Easing.linear });
+          : withTiming(newTarget, { duration: segmentDurationMs.value, easing: Easing.linear });
       }
     },
   );
@@ -547,7 +585,7 @@ export function useDriveMarkerV3(
         if (prevLat == null || !Number.isFinite(prevLat)) {
           lat.value = newLat;
         } else {
-          lat.value = withTiming(newLat, { duration: 1000, easing: Easing.linear });
+          lat.value = withTiming(newLat, { duration: segmentDurationMs.value, easing: Easing.linear });
         }
       }
     },
@@ -559,7 +597,7 @@ export function useDriveMarkerV3(
         if (prevLng == null || !Number.isFinite(prevLng)) {
           lng.value = newLng;
         } else {
-          lng.value = withTiming(newLng, { duration: 1000, easing: Easing.linear });
+          lng.value = withTiming(newLng, { duration: segmentDurationMs.value, easing: Easing.linear });
         }
       }
     },
@@ -590,6 +628,12 @@ export function useDriveMarkerV3(
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
     const feedSpeed = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
+    segmentDurationMs.value = Math.max(
+      320,
+      Math.min(1_200, Number.isFinite(target.gpsIntervalMs) ? target.gpsIntervalMs! : 900),
+    );
+    lastTargetAtMs.value = Date.now();
+    coastDistanceM.value = 0;
     let resolvedSpeedMs = feedSpeed;
     if (target.gpsIntervalMs && target.gpsIntervalMs > 0) {
       const fromLat = Number.isFinite(lat.value) ? lat.value : target.lat;
@@ -751,6 +795,9 @@ export function useDriveMarkerV3(
     roadCumM,
     roadPtsFlat,
     speedMs,
+    segmentDurationMs,
+    lastTargetAtMs,
+    coastDistanceM,
     targetArcM,
     targetHdg,
     targetLat,
@@ -770,6 +817,8 @@ export function useDriveMarkerV3(
     targetArcM.value = 0;
     baseArcM.value = 0;
     speedMs.value = 0;
+    lastTargetAtMs.value = 0;
+    coastDistanceM.value = 0;
     lastFrameTimestamp.value = 0;
 
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
@@ -814,6 +863,8 @@ export function useDriveMarkerV3(
     roadPtsFlat,
     segmentHdgTargetSv,
     speedMs,
+    lastTargetAtMs,
+    coastDistanceM,
     targetArcM,
     targetHdg,
     targetLat,

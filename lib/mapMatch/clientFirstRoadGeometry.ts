@@ -13,11 +13,11 @@ export type ClientFirstMetrics = {
   networkAllowed: number;
 };
 
-const LOCAL_HEALTHY_TTL_MS = 12 * 60_000;
+const LOCAL_HEALTHY_TTL_MS = 2000;
 /** Bez lokalnej geometrii — czekaj przed pierwszym trace (local tile/sqlite mają czas). */
-const NO_ROAD_NETWORK_GRACE_MS = 50_000;
+const NO_ROAD_NETWORK_GRACE_MS = 0;
 /** Po tym czasie bez drogi — wolno sieć mimo krótkiego healthy. */
-const NO_ROAD_FORCE_NETWORK_MS = 120_000;
+const NO_ROAD_FORCE_NETWORK_MS = 0;
 
 const state = {
   healthyUntil: 0,

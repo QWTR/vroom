@@ -68,16 +68,16 @@ type ReasonConfig = {
   retryAsRefresh?: boolean;
 };
 
-export const MAP_MATCH_COORD_NO_ROAD_GAP_MS = 45_000;
-export const MAP_MATCH_COORD_NO_ROAD_MIN_MOVE_M = 25;
-export const MAP_MATCH_COORD_NO_ROAD_MIN_REC_M = 40;
-export const MAP_MATCH_COORD_AUTO_ENTRY_COOLDOWN_MS = 180_000;
-export const MAP_MATCH_COORD_AUTO_ENTRY_MIN_MOVE_M = 180;
+export const MAP_MATCH_COORD_NO_ROAD_GAP_MS = 2_000;
+export const MAP_MATCH_COORD_NO_ROAD_MIN_MOVE_M = 8;
+export const MAP_MATCH_COORD_NO_ROAD_MIN_REC_M = 10;
+export const MAP_MATCH_COORD_AUTO_ENTRY_COOLDOWN_MS = 5_000;
+export const MAP_MATCH_COORD_AUTO_ENTRY_MIN_MOVE_M = 15;
 
 const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
   DR_DRIFT: {
-    cooldownMs: 90_000,
-    minMoveM: 40,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 55,
     matchOpts: { manual: true, forceImmediate: true },
   },
@@ -88,66 +88,66 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     matchOpts: { refresh: true },
   },
   HARD_RESCUE: {
-    cooldownMs: 60_000,
-    minMoveM: 25,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 92,
     matchOpts: { manual: true, forceImmediate: true },
-    scheduleRetryMs: 60_000,
+    scheduleRetryMs: 2_000,
     retryAsRefresh: true,
   },
   MANUAL: {
-    cooldownMs: 20_000,
-    minMoveM: 35,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 100,
     matchOpts: { manual: true, forceImmediate: true },
     bypassSpeedGate: true,
     bypassMapboxGate: true,
   },
   PRE_DRIVE: {
-    cooldownMs: 45_000,
-    minMoveM: 40,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 40,
     matchOpts: { refresh: true },
   },
   SPARSE_GEOM: {
-    cooldownMs: 45_000,
-    minMoveM: 35,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 65,
     matchOpts: { refresh: true },
   },
   SOFT_REFRESH: {
-    cooldownMs: 180_000,
-    minMoveM: 180,
+    cooldownMs: 5_000,
+    minMoveM: 15,
     priority: 35,
     matchOpts: { refresh: true },
   },
   STALE_GEOM: {
-    cooldownMs: 60_000,
-    minMoveM: 35,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 68,
     matchOpts: { refresh: true },
   },
   SNAP_RECOVERY: {
-    cooldownMs: 45_000,
-    minMoveM: 30,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 60,
     matchOpts: { refresh: true },
   },
   SNAP_RECOVERY_MANUAL: {
-    cooldownMs: 60_000,
-    minMoveM: 35,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 75,
     matchOpts: { manual: true },
   },
   STALE_ANCHOR: {
-    cooldownMs: 60_000,
-    minMoveM: 30,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 62,
     matchOpts: { refresh: true },
   },
   MARKER_STUCK: {
-    cooldownMs: 45_000,
-    minMoveM: 20,
+    cooldownMs: 2_000,
+    minMoveM: 5,
     priority: 88,
     matchOpts: { manual: true, forceImmediate: true },
   },
@@ -158,14 +158,14 @@ const REASON_CONFIG: Record<MapMatchRecoveryReason, ReasonConfig> = {
     matchOpts: { manual: true, forceImmediate: true },
   },
   GPS_RESUME: {
-    cooldownMs: 60_000,
-    minMoveM: 50,
+    cooldownMs: 2_000,
+    minMoveM: 10,
     priority: 85,
     matchOpts: { refresh: true, forceImmediate: true },
   },
   INTERSECTION_TURN: {
-    cooldownMs: 6_000,
-    minMoveM: 10,
+    cooldownMs: 2_000,
+    minMoveM: 5,
     priority: 97,
     matchOpts: { refresh: true, forceImmediate: true, intersectionTurn: true },
   },

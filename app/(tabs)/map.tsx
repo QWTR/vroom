@@ -3038,7 +3038,7 @@ function MapScreenInner() {
     return { lat: pose.latitude, lng: pose.longitude, headingDeg };
   }, [userLocation]);
 
-  /** V3: marker 60 FPS — useDriveMarkerV3 SV + DriveMarkerLayer. */
+  /** Marker prowadzony po łuku drogi na UI thread. */
   const driveMarker = useDriveMarkerV3(isTripActiveMap, getDriveMarkerSeedPose);
   const navV3Mode: NavMode = isNavigating
     ? 'navigation'
@@ -3060,7 +3060,7 @@ function MapScreenInner() {
 
     return buildV3GeometryFromRefs({
       matchedGeometry,
-      routePoints: suppressSnap ? [] : routePointsRef.current, // Clear route points instantly if suppressing snap
+      routePoints: routePointsRef.current,
       isNavigating: isNavigatingRef.current,
       suppressRouteSnap: suppressSnap,
       mirrorPolylines: localRoadGeometryMirror.getPolylines(),
@@ -3201,6 +3201,28 @@ function MapScreenInner() {
     heading: number,
     opts?: { animateCamera?: boolean },
   ) => {
+    const liveMarkerLat = driveMarker.lat.value;
+    const liveMarkerLng = driveMarker.lng.value;
+    const preserveLiveMotion = isDrivingRef.current
+      && driveMarker.isBootstrapped
+      && Number.isFinite(liveMarkerLat)
+      && Number.isFinite(liveMarkerLng)
+      && !(Math.abs(liveMarkerLat) < 1e-6 && Math.abs(liveMarkerLng) < 1e-6);
+
+    if (preserveLiveMotion) {
+      const liveHeading = Number.isFinite(driveMarker.heading.value)
+        ? normalizeHeading(driveMarker.heading.value)
+        : normalizeHeading(heading);
+      navV3.pipeline.setMode(isNavigatingRef.current ? 'navigation' : 'freeDrive');
+      drLatRef.current = liveMarkerLat;
+      drLngRef.current = liveMarkerLng;
+      drHdgRef.current = liveHeading;
+      lastHeadingRef.current = liveHeading;
+      cameraV3.armTripFollow(liveHeading);
+      driveMarker.ensureFrameActive();
+      return;
+    }
+
     let hdg = resolveTripBootstrapHeadingHint(lat, lng, heading, {
       gpsDeviceHdg: lastGpsDeviceHeadingRef.current,
       lastHeading: lastHeadingRef.current,
@@ -12466,6 +12488,15 @@ if (pts.length >= 2) {
 
   const [fleetViewportBounds, setFleetViewportBounds] = useState(EMPTY_VIEWPORT);
   const lastFleetViewportAtRef = useRef(0);
+  const lastFleetViewportSigRef = useRef('');
+  const commitFleetViewportBounds = useCallback((next: typeof EMPTY_VIEWPORT) => {
+    const sig = next.valid === 1
+      ? `${next.north.toFixed(3)}:${next.south.toFixed(3)}:${next.east.toFixed(3)}:${next.west.toFixed(3)}`
+      : 'empty';
+    if (sig === lastFleetViewportSigRef.current) return;
+    lastFleetViewportSigRef.current = sig;
+    setFleetViewportBounds(next);
+  }, []);
 
   const {
     animatedShapeProps: liveFleetAnimatedShapeProps,
@@ -13232,19 +13263,20 @@ if (pts.length >= 2) {
   const stopNavigation = useCallback(async () => {
     driveTraceSession('nav_end', { reason: 'user_stop' });
     navRouteBootstrapRef.current = null;
-    if (true) {
-      navRouteBootstrapRef.current = null;
-    }
     isNavigatingRef.current = false;
+    isDrivingRef.current = true;
     setNavigatingFlag(false).catch(() => {});
-    resetDRRefs();
 
     stopSimulation();
     setIsSimulating(false);
 
-    void 0;
-    setFollowMode('idleBrowse');
+    setFollowMode('drivingFollow');
     setIsNavigating(false);
+    setIsDriving(true);
+    setTripCameraActive(true);
+    cameraV3.resumeFollow();
+    navV3.setRoutePolyline(null);
+    routePointsRef.current = [];
     setOffRoute(false);
     v3SnapToRouteSuppressedRef.current = false;
     offRouteSinceRef.current = 0;
@@ -13263,18 +13295,9 @@ if (pts.length >= 2) {
     Speech.stop().catch(() => {});
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
-    const finalStats = finishTrip();
-    tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
-    profileTotalDistanceKmRef.current += Math.max(
-      0,
-      Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
-    );
-    void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
-    passiveTripStartedRef.current = false;
-    flushNavigationStatsOnce(finalStats);
-    tripCheckpointSavedKmRef.current = 0;
-    clearStats();
-    tripPeakSpeedRef.current = 0;
+    // Navigation is only an overlay. Keep the trip, marker trajectory, speed
+    // estimator and camera alive while switching back to Free Drive.
+    passiveTripStartedRef.current = true;
 
     const wasApproaching = approachingRouteStartRef.current;
     approachingRouteStartRef.current = false;
@@ -13316,7 +13339,7 @@ if (pts.length >= 2) {
   }, [
     userLocation, setFollowMode, onNavigationCancel, flushNavigationStatsOnce,
     timerRunning, stopTimer, resetTimer, formatElapsed,
-    resetDRRefs, checkLiveAchievements, finishTrip, clearStats,
+    cameraV3, navV3, setTripCameraActive,
   ]);
 
   useEffect(() => {
@@ -13589,7 +13612,14 @@ if (pts.length >= 2) {
       return userLocation?.longitude ?? NaN;
     })()
     : (userLocation?.longitude ?? NaN);
-  const markerHdg = lastHeadingRef.current !== 0 ? lastHeadingRef.current : heading;
+  const markerHdg = isTripActive
+    ? (() => {
+      const mHdg = driveMarker.heading.value;
+      if (Number.isFinite(mHdg)) return normalizeHeading(mHdg);
+      if (Number.isFinite(drHdgRef.current)) return normalizeHeading(drHdgRef.current);
+      return lastHeadingRef.current !== 0 ? lastHeadingRef.current : heading;
+    })()
+    : (lastHeadingRef.current !== 0 ? lastHeadingRef.current : heading);
 
   // ── Prędkościomierz: mały kafelek (lewy dół) — jazda, nawigacja lub browsing ──
   const isRoutePreviewOpen = !isNavigating && !isBuilding && !!endLocation;
@@ -13781,16 +13811,16 @@ if (pts.length >= 2) {
           onCameraChanged={(e: any) => {
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
             const zoomLive = Number.isFinite(z) ? Number(z) : null;
-            if (zoomLive != null) {
-              setCurrentZoom(zoomLive);
-            }
             const center = e?.properties?.center;
             if (Array.isArray(center) && center.length >= 2) {
               const cLng = Number(center[0]);
               const cLat = Number(center[1]);
               if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
                 const nowVp = Date.now();
-                if (nowVp - lastFleetViewportAtRef.current >= 200) {
+                const viewportThrottleMs = isDrivingRef.current || isNavigatingRef.current
+                  ? 1_000
+                  : 250;
+                if (nowVp - lastFleetViewportAtRef.current >= viewportThrottleMs) {
                   lastFleetViewportAtRef.current = nowVp;
                   const anchor = liveUsersAnchor;
                   if (anchor) {
@@ -13802,16 +13832,16 @@ if (pts.length >= 2) {
                     );
                     // Dopóki kamera nie jest blisko użytkownika — nie culluj (puste GeoJSON).
                     if (camDistKm > 40) {
-                      setFleetViewportBounds(EMPTY_VIEWPORT);
+                      commitFleetViewportBounds(EMPTY_VIEWPORT);
                     } else {
                       const zoomForBounds = zoomLive ?? currentZoom;
                       const padding = isNavigating || isDriving ? 1.05 : 1.2;
-                      setFleetViewportBounds(
+                      commitFleetViewportBounds(
                         boundsFromCenterZoom(cLat, cLng, zoomForBounds, padding),
                       );
                     }
                   } else {
-                    setFleetViewportBounds(EMPTY_VIEWPORT);
+                    commitFleetViewportBounds(EMPTY_VIEWPORT);
                   }
                 }
               }

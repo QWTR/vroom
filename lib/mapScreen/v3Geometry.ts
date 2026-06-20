@@ -17,13 +17,6 @@ export function buildV3GeometryFromRefs(input: {
 }): V3GeometryResult {
   const shouldSnapToRoute = !input.suppressRouteSnap;
 
-  if (input.isNavigating) {
-    const route = input.routePoints.length >= 2
-      ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))
-      : null;
-    return { roadPolylines: [], routePolyline: route, shouldSnapToRoute };
-  }
-
   const roadPolylines: RoadPolyline[] = [];
   const seen = new Set<string>();
 
@@ -39,10 +32,20 @@ export function buildV3GeometryFromRefs(input: {
     if (packed) roadPolylines.push(packed);
   };
 
-  addPolyline('road_match', input.matchedGeometry);
+  // During navigation this ref can still contain the old route geometry.
+  // Never feed it back as a generic road candidate after an off-route turn.
+  if (!input.isNavigating) addPolyline('road_match', input.matchedGeometry);
   for (let i = 0; i < input.mirrorPolylines.length; i += 1) {
     addPolyline(`mirror_${i}`, input.mirrorPolylines[i]!);
   }
 
-  return { roadPolylines, routePolyline: null, shouldSnapToRoute: true };
+  const routePolyline = input.isNavigating && input.routePoints.length >= 2
+    ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))
+    : null;
+
+  return {
+    roadPolylines,
+    routePolyline,
+    shouldSnapToRoute: input.isNavigating ? shouldSnapToRoute : true,
+  };
 }

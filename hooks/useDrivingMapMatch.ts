@@ -27,10 +27,10 @@ import { isMapMatchAppBackground } from '../lib/mapMatch/mapMatchSyncState';
 const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
 /** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <45 s. */
-const MIN_INTERVAL_MS = 45_000;
+const MIN_INTERVAL_MS = 2_000;
 const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
 /** Suma dystansu w buforze przed wysłaniem trace (batching zamiast pojedynczych punktów). */
-const BATCH_MIN_PATH_DISTANCE_M = 40;
+const BATCH_MIN_PATH_DISTANCE_M = 10;
 const BATCH_MIN_POINTS = 3;
 /** Traffic-light freeze for Map Matching API (marker still moves locally). */
 const STATIONARY_SPEED_KMH = MAP_MATCH_TRAFFIC_LIGHT_KMH;
@@ -43,18 +43,18 @@ const EXPIRE_MS       = 120_000;
 const STALE_MAX_MS    = 15 * 60_000;
 const MIN_POINT_DIST_KM = 0.005; // legacy fallback; jitter filter is primary gate
 const MIN_BUFFER_POINTS = 2;     // API wymaga ≥2 punktów
-const MIN_FETCH_MOVE_M  = 45;
+const MIN_FETCH_MOVE_M  = 12;
 /** forceMatch (bez manual/refresh): nie spamuj identycznym anchorem. */
-const FORCE_MATCH_MIN_INTERVAL_MS = 180_000;
+const FORCE_MATCH_MIN_INTERVAL_MS = 2_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 /** Limit zapytań / h (trace + force) — nie podbijać bez sensu kosztów Mapbox. */
 /** Zgodne z MATCHING_MAX_PER_WINDOW w mapboxProxy.js */
-const MAX_REQUESTS_PER_WINDOW = 20;
-const MAX_MANUAL_BURST_PER_WINDOW = 2;
-const BUDGET_SOFT_CAP_PER_WINDOW = 14;
-const BUDGET_HARD_CAP_PER_WINDOW = 20;
-const STALE_SNAP_BURST_PER_WINDOW = 3;
-const FRESH_GEOMETRY_BLOCK_MS = 120_000;
+const MAX_REQUESTS_PER_WINDOW = 500;
+const MAX_MANUAL_BURST_PER_WINDOW = 10;
+const BUDGET_SOFT_CAP_PER_WINDOW = 400;
+const BUDGET_HARD_CAP_PER_WINDOW = 500;
+const STALE_SNAP_BURST_PER_WINDOW = 50;
+const FRESH_GEOMETRY_BLOCK_MS = 2_000;
 // Tiny coordinate offset used to form a valid 2-point API call from a single position.
 // 0.00005° ≈ 5 m — small enough to return the same road segment.
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
@@ -325,18 +325,9 @@ export function useDrivingMapMatch() {
       dynamicMinIntervalMs = 0;
       dynamicMinMoveM = 8;
       minPathM = 8;
-    } else if (noRoad) {
-      dynamicMinIntervalMs = 30_000;
-      dynamicMinMoveM = 24;
-    } else if (speedKmh >= 55) {
-      dynamicMinIntervalMs = 13_000;
-      dynamicMinMoveM = 100;
-    } else if (speedKmh >= 25) {
-      dynamicMinIntervalMs = 30_000;
-      dynamicMinMoveM = 40;
-    } else {
-      dynamicMinIntervalMs = 30_000;
-      dynamicMinMoveM = 34;
+    } else if (!background) {
+      dynamicMinIntervalMs = MIN_INTERVAL_MS;
+      dynamicMinMoveM = MIN_FETCH_MOVE_M;
     }
     if (poorAcc && !noRoad) {
       dynamicMinIntervalMs += 1_900;
@@ -354,7 +345,10 @@ export function useDrivingMapMatch() {
       dynamicMinIntervalMs += 22_000;
       dynamicMinMoveM += 55;
     }
-    if (staleSnap) {
+    if (staleSnap && !background) {
+      dynamicMinIntervalMs = MIN_INTERVAL_MS;
+      dynamicMinMoveM = MIN_FETCH_MOVE_M;
+    } else if (staleSnap) {
       dynamicMinIntervalMs = 45_000;
       dynamicMinMoveM = 40;
     }

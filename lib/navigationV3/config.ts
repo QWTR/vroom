@@ -26,9 +26,9 @@ export const NAV_V3 = {
   /** COG z surowego GPS — poniżej tego progu heading lock. */
   CAMERA_COG_MIN_SPEED_KMH: 3,
   /** Adaptacyjny throttle setCamera (ms) — szybko / średnio / wolno. */
-  CAMERA_THROTTLE_FAST_MS: 48,
-  CAMERA_THROTTLE_MID_MS: 65,
-  CAMERA_THROTTLE_SLOW_MS: 90,
+  CAMERA_THROTTLE_FAST_MS: 33,
+  CAMERA_THROTTLE_MID_MS: 42,
+  CAMERA_THROTTLE_SLOW_MS: 55,
   CAMERA_THROTTLE_SPEED_FAST_KMH: 40,
   CAMERA_THROTTLE_SPEED_SLOW_KMH: 20,
   CAMERA_THROTTLE_STAND_KMH: 2,
