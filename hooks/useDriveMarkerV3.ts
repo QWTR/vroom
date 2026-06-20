@@ -32,6 +32,9 @@ export type DriveMarkerV3Values = {
   targetLat: SharedValue<number>;
   targetLng: SharedValue<number>;
   targetHdg: SharedValue<number>;
+  segmentDurationMs: SharedValue<number>;
+  /** Zwiększany dokładnie raz po przygotowaniu kompletnego targetu GPS. */
+  cameraTick: SharedValue<number>;
 };
 
 export type DriveMarkerSeedPose = {
@@ -448,6 +451,7 @@ export function useDriveMarkerV3(
   const roadBlendSv = useSharedValue(0);
   const speedMs = useSharedValue(0);
   const segmentDurationMs = useSharedValue(900);
+  const cameraTick = useSharedValue(0);
   const lastTargetAtMs = useSharedValue(0);
   const coastDistanceM = useSharedValue(0);
 
@@ -651,6 +655,7 @@ export function useDriveMarkerV3(
     targetHdg.value = tgtHdg;
     rawTargetLat.value = target.rawLat;
     rawTargetLng.value = target.rawLng;
+    cameraTick.value += 1;
     onRoadSv.value = onRoad ? 1 : 0;
     const prevBlend = roadBlendSv.value;
     if (onRoad) {
@@ -796,6 +801,7 @@ export function useDriveMarkerV3(
     roadPtsFlat,
     speedMs,
     segmentDurationMs,
+    cameraTick,
     lastTargetAtMs,
     coastDistanceM,
     targetArcM,
@@ -991,6 +997,8 @@ export function useDriveMarkerV3(
       targetLat,
       targetLng,
       targetHdg,
+      segmentDurationMs,
+      cameraTick,
       isBootstrapped,
       pushTarget,
       reset,
@@ -998,7 +1006,7 @@ export function useDriveMarkerV3(
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, targetLat, targetLng, targetHdg],
+    [cameraTick, ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, targetLat, targetLng, targetHdg],
   );
 }
 

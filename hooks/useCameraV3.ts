@@ -47,24 +47,18 @@ const SPEED_DEADZONE_KMH = NAV_V3.CAMERA_SPEED_DEADZONE_KMH;
 const MIN_COURSE_MOVE_M = 0.35;
 const MIN_COURSE_SPEED_KMH = NAV_V3.CAMERA_COG_MIN_SPEED_KMH;
 
-const THROTTLE_FAST_MS = NAV_V3.CAMERA_THROTTLE_FAST_MS;
-const THROTTLE_MID_MS = NAV_V3.CAMERA_THROTTLE_MID_MS;
-const THROTTLE_SLOW_MS = NAV_V3.CAMERA_THROTTLE_SLOW_MS;
-const THROTTLE_SPEED_FAST_KMH = NAV_V3.CAMERA_THROTTLE_SPEED_FAST_KMH;
-const THROTTLE_SPEED_SLOW_KMH = NAV_V3.CAMERA_THROTTLE_SPEED_SLOW_KMH;
-const THROTTLE_STAND_KMH = NAV_V3.CAMERA_THROTTLE_STAND_KMH;
 const DELTA_MIN_DIST_M = NAV_V3.CAMERA_DELTA_MIN_DIST_M;
 const DELTA_MIN_HEADING_DEG = NAV_V3.CAMERA_DELTA_MIN_HEADING_DEG;
 const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
 
 const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
 /**
- * Segmenty celowo zachodzą na siebie. Poprzednio animacja kończyła się przed
- * następnym keyframe'em, przez co mapa zatrzymywała się i doskakiwała.
+ * Jedna natywna animacja na segment GPS. Ma niewielki zapas na jitter kadencji,
+ * dzięki czemu następny segment przejmuje kamerę zanim poprzedni się zatrzyma.
  */
-function resolveTripCameraAnimMs(throttleMs: number, isColdStart: boolean): number {
+function resolveTripCameraAnimMs(segmentDurationMs: number, isColdStart: boolean): number {
   if (isColdStart) return 0;
-  return Math.max(100, Math.min(180, Math.ceil(throttleMs * 2.4)));
+  return Math.max(420, Math.min(1_400, Math.ceil(segmentDurationMs + 140)));
 }
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
@@ -84,28 +78,6 @@ function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): num
     * Math.cos((bLat * Math.PI) / 180)
     * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
-}
-
-function haversineMWorklet(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  'worklet';
-  const R = 6371000;
-  const dLat = ((bLat - aLat) * Math.PI) / 180;
-  const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const s1 = Math.sin(dLat / 2) ** 2;
-  const s2 =
-    Math.cos((aLat * Math.PI) / 180)
-    * Math.cos((bLat * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
-}
-
-function resolveCameraThrottleMsWorklet(speedKmh: number): number {
-  'worklet';
-  const s = Math.max(0, speedKmh);
-  if (s <= THROTTLE_STAND_KMH) return THROTTLE_SLOW_MS;
-  if (s < THROTTLE_SPEED_SLOW_KMH) return THROTTLE_SLOW_MS;
-  if (s <= THROTTLE_SPEED_FAST_KMH) return THROTTLE_MID_MS;
-  return THROTTLE_FAST_MS;
 }
 
 function zoomFromSpeed(speedKmh: number): number {
@@ -386,7 +358,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lat: number,
     lng: number,
     heading: number,
-    throttleMs: number,
+    segmentDurationMs: number,
     opts?: { headingOnly?: boolean },
   ) => {
     if (!isTripMode) return;
@@ -441,7 +413,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       zoomLevel: effectiveZoom,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
       padding: cachedPaddingRef.current,
-      animationDuration: resolveTripCameraAnimMs(throttleMs, isColdStart),
+      animationDuration: resolveTripCameraAnimMs(segmentDurationMs, isColdStart),
       animationMode: 'linearTo',
     });
 
@@ -461,20 +433,22 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const emitCameraKeyframeRef = useRef(emitCameraKeyframe);
   emitCameraKeyframeRef.current = emitCameraKeyframe;
 
-  const onEmitCameraKeyframe = useCallback((lat: number, lng: number, heading: number, throttleMs: number) => {
-    emitCameraKeyframeRef.current(lat, lng, heading, throttleMs);
+  const onEmitCameraKeyframe = useCallback((lat: number, lng: number, heading: number, segmentDurationMs: number) => {
+    emitCameraKeyframeRef.current(lat, lng, heading, segmentDurationMs);
   }, []);
 
   useAnimatedReaction(
     () => ({
-      lat: marker.lat.value,
-      lng: marker.lng.value,
-      hdg: normalizeHeading(marker.heading.value),
+      tick: marker.cameraTick.value,
+      lat: marker.targetLat.value,
+      lng: marker.targetLng.value,
+      hdg: normalizeHeading(marker.targetHdg.value),
+      durationMs: marker.segmentDurationMs.value,
       follow: followEnabledSv.value,
-      speed: speedKmhSv.value,
     }),
-    (next) => {
+    (next, previous) => {
       if (next.follow < 0.5) return;
+      if (next.tick <= 0 || next.tick === previous?.tick) return;
       if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
       if (!Number.isFinite(next.hdg)) return;
@@ -483,33 +457,22 @@ export function useCameraV3(opts: UseCameraV3Options) {
       smoothedCameraHeadingSv.value = next.hdg;
       displayCameraHdgReadySv.value = 1;
 
-      const throttleMs = resolveCameraThrottleMsWorklet(next.speed);
       const now = Date.now();
-      if (lastSentReadySv.value >= 0.5) {
-        const distM = haversineMWorklet(lastSentLatSv.value, lastSentLngSv.value, next.lat, next.lng);
-        const hdgD = Math.abs(headingDelta(lastSentHdgSv.value, next.hdg));
-        if (distM < 0.1 && hdgD < 0.1) return;
-      }
-      if (lastCameraPushMsSv.value > 0 && now - lastCameraPushMsSv.value < throttleMs) return;
-
       lastCameraPushMsSv.value = now;
-      runOnJS(onEmitCameraKeyframe)(next.lat, next.lng, next.hdg, throttleMs);
+      runOnJS(onEmitCameraKeyframe)(next.lat, next.lng, next.hdg, next.durationMs);
     },
     [
       followEnabledSv,
       lastCameraPushMsSv,
-      lastSentHdgSv,
-      lastSentLatSv,
-      lastSentLngSv,
-      lastSentReadySv,
       displayCameraHdgSv,
       displayCameraHdgReadySv,
       smoothedCameraHeadingSv,
-      marker.lat,
-      marker.lng,
-      marker.heading,
+      marker.cameraTick,
+      marker.targetLat,
+      marker.targetLng,
+      marker.targetHdg,
+      marker.segmentDurationMs,
       onEmitCameraKeyframe,
-      speedKmhSv,
     ],
   );
 
