@@ -7,7 +7,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class AutoBridgePackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return listOf(UsersModule(reactContext))
+    return listOf(
+      UsersModule(reactContext),
+      VroomBridgeModule(reactContext),
+    )
   }
 
   override fun createViewManagers(

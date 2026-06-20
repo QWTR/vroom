@@ -100,37 +100,40 @@ const withAndroidAutoNative = (config) => {
       const packageName = config.android?.package || 'com.lexuuw.vroom.app';
       const srcDir = path.join(projectRoot, 'native', 'android-auto');
       const outDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', ...packageName.split('.'), 'auto');
+      const drawableDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res', 'drawable');
       const mainApplicationPath = path.join(projectRoot, 'android', 'app', 'src', 'main', 'java', ...packageName.split('.'), 'MainApplication.kt');
       const gradlePath = path.join(projectRoot, 'android', 'app', 'build.gradle');
 
       fs.mkdirSync(outDir, { recursive: true });
-
-      [
-        'VroomBridgeModule.kt',
-        'VroomCarManager.kt',
-        'VroomCarScreen.kt',
-        'VroomPayloadParser.kt',
-      ].forEach((file) => {
-        const stalePath = path.join(outDir, file);
-        if (fs.existsSync(stalePath)) fs.rmSync(stalePath);
-      });
+      fs.mkdirSync(drawableDir, { recursive: true });
 
       [
         'AutoBridgePackage.kt',
         'AutoLocationTracker.kt',
         'AutoNavStore.kt',
+        'NativeRoadMatcher.kt',
         'UsersModule.kt',
+        'VroomBridgeModule.kt',
         'VroomCarAppService.kt',
+        'VroomCarManager.kt',
+        'VroomCarScreen.kt',
         'VroomCarSession.kt',
         'VroomMapSurfaceRenderer.kt',
         'VroomMenuScreen.kt',
         'VroomNavigationScreen.kt',
+        'VroomPayload.kt',
+        'VroomPayloadParser.kt',
       ].forEach((file) => {
         const src = path.join(srcDir, file);
         const dest = path.join(outDir, file);
         const text = fs.readFileSync(src, 'utf8').replace(/__PACKAGE__/g, packageName);
         fs.writeFileSync(dest, text);
       });
+
+      fs.copyFileSync(
+        path.join(srcDir, 'vroom_location_arrow.xml'),
+        path.join(drawableDir, 'vroom_location_arrow.xml')
+      );
 
       if (fs.existsSync(mainApplicationPath)) {
         let mainApplication = fs.readFileSync(mainApplicationPath, 'utf8');
@@ -157,6 +160,7 @@ const withAndroidAutoNative = (config) => {
           'implementation "androidx.car.app:app-projected:1.4.0"',
           'implementation "com.mapbox.maps:android-ndk27:11.18.2"',
           'implementation "com.mapbox.common:common-ndk27:24.11.1"',
+          'implementation "com.google.android.gms:play-services-location:21.0.1"',
         ];
         deps.forEach((dep) => {
           if (!gradle.includes(dep)) {

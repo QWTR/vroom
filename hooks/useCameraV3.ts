@@ -33,7 +33,6 @@ export type UseCameraV3Options = {
   rawGpsRef?: RawGpsCourseRef;
   isUserExploring?: () => boolean;
   /** Wstrzymaj kamerę podczas reroute (off-route + pending API). */
-  shouldPauseFollow?: () => boolean;
 };
 
 const BROWSE_ZOOM = 15;
@@ -63,10 +62,11 @@ const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
 /** Mapbox linearTo — zsynchronizowany z throttle (50–100 ms), nie 0 ms. */
 function resolveTripCameraAnimMs(throttleMs: number, isColdStart: boolean): number {
   if (isColdStart) return 0;
-  return Math.max(50, Math.ceil(throttleMs));
+  // Native interpolation hides the JS/native keyframe cadence. A zero-duration
+  // update makes the camera visibly step even while the marker runs at 60 FPS.
+  return Math.max(55, Math.ceil(throttleMs + NATIVE_ANIM_BUFFER_MS));
 }
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
-const PAUSE_FOLLOW_MAX_DRIFT_M = 35;
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
 
@@ -189,11 +189,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     mode,
     speedKmhRef,
     isUserExploring,
-    shouldPauseFollow,
   } = opts;
-
-  const shouldPauseFollowRef = useRef(shouldPauseFollow);
-  shouldPauseFollowRef.current = shouldPauseFollow;
 
   const followEnabledSv = useSharedValue(enabled ? 1 : 0);
   const targetCameraHeadingSv = useSharedValue(0);
@@ -404,9 +400,8 @@ export function useCameraV3(opts: UseCameraV3Options) {
       centerDeltaM = haversineM(prevSent.lat, prevSent.lng, lat, lng);
     }
 
-    if (shouldPauseFollowRef.current?.()) {
-      if (centerDeltaM < PAUSE_FOLLOW_MAX_DRIFT_M) return;
-    }
+    // Network rerouting must not freeze visual follow. Explicit user gestures
+    // are still respected by isPaused() below.
     if (isPaused()) return;
 
     syncCourseHeadingTargetRef.current(heading);
@@ -504,9 +499,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   useAnimatedReaction(
     () => ({
-      lat: marker.targetLat.value,
-      lng: marker.targetLng.value,
-      hdg: normalizeHeading(marker.targetHdg.value),
+      lat: marker.lat.value,
+      lng: marker.lng.value,
+      hdg: normalizeHeading(marker.heading.value),
       follow: followEnabledSv.value,
       speed: speedKmhSv.value,
     }),
@@ -520,7 +515,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       smoothedCameraHeadingSv.value = next.hdg;
       displayCameraHdgReadySv.value = 1;
 
-      const throttleMs = 1000;
+      const throttleMs = resolveCameraThrottleMsWorklet(next.speed);
       const now = Date.now();
 
       let distM = 999;
@@ -540,7 +535,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
       if (
         lastCameraPushMsSv.value > 0
-        && now - lastCameraPushMsSv.value < 800
+        && now - lastCameraPushMsSv.value < throttleMs
       ) {
         return;
       }

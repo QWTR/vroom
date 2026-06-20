@@ -218,7 +218,10 @@ import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useSpeedCameras } from '../../hooks/useSpeedCamera';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
-import { useAutoNavigationBridge } from '../../hooks/useAutoNavigationBridge';
+import {
+  useAutoNavigationBridge,
+  type AutoNavigationStartedPayload,
+} from '../../hooks/useAutoNavigationBridge';
 import { calculateDistance } from '../../scripts/distance';
 import {
   bearingBetween,
@@ -239,6 +242,7 @@ import {
   stepTowardSnapOnPolyline,
   generateSubAnchorsAlongPolyline,
   projectOntoPolylineWithIndex,
+  projectPointToRouteWindow,
   densifyPolyline,
 } from '../../scripts/navigationUtils';
 // testd sdsd
@@ -356,7 +360,7 @@ const CAMERA_SPEED_LIMIT_GATE_NAV_M = 10; // meters in driving/navigation
 // Reroute cooldown — avoids hammering Directions API while continuously off-route
 const REROUTE_COOLDOWN_MS = 5_000;
 const REROUTE_MIN_MOVED_M = 20;
-/** 2 × NAV_PROGRESS_UI_MS — potwierdzenie zjazdu po ~2 s stałego odchylenia. */
+/** Dwa kolejne ticki postępu potwierdzają zjazd bez czekania pełnych sekund. */
 const OFF_ROUTE_CONFIRM_STREAK = 2;
 /** Snap-to-route: marker na polilinii gdy cross-track ≤ ten próg (m). */
 const NAV_ROUTE_SNAP_M = 40;
@@ -1209,7 +1213,7 @@ const UI_LOCATION_THROTTLE_MS    = 400;
 const ACTIVE_UI_LOCATION_THROTTLE_MS = 2000;
 /** Podczas jazdy/nawigacji userLocation state jest tylko dla secondary/live state. */
 const SECONDARY_LOC_PUBLISH_MS   = 2500;
-const NAV_PROGRESS_UI_MS         = 1000;
+const NAV_PROGRESS_UI_MS         = 250;
 const CAMERA_SPEED_POLL_MS       = 4500;
 const GPS_RESUME_DEDUPE_MS       = 9000;
 const GPS_ONESHOT_COOLDOWN_MS    = 6000;
@@ -2361,6 +2365,8 @@ function MapScreenInner() {
   const previewRouteRef       = useRef<DirectionsResult | null>(null);
   const lastDistToTurnUiRef   = useRef<number | null>(null);
   const lastRemainingKmUiRef  = useRef<number | null>(null);
+  const lastRemainingRouteHeadRef = useRef<{ lat: number; lng: number; idx: number } | null>(null);
+  const lastManeuverDistanceRef = useRef<{ stepIndex: number; distanceM: number } | null>(null);
   const reroutePendingRef     = useRef(false);
   const reroutePendingSinceRef = useRef<number>(0);
   const rerouteBlockedUntilRef = useRef<number>(0);
@@ -2814,22 +2820,6 @@ function MapScreenInner() {
   });
   const [heading,       setHeading]       = useState(0);
   const [speed,         setSpeed]         = useState<number | null>(null);
-  const [autoBridgePose, setAutoBridgePose] = useState<{
-    latitude: number;
-    longitude: number;
-    speed: number | null;
-    heading: number;
-    updatedAt: number;
-    arcWindow?: {
-      points: { lat: number; lng: number }[];
-      baseArcM?: number;
-      totalM?: number;
-    } | null;
-    targetArcM?: number | null;
-    roadBlend?: number | null;
-    pathMode?: string | null;
-  } | null>(null);
-  const autoBridgePoseLastEmitRef = useRef(0);
   const [locationReady, setLocationReady] = useState(() => peekMapLastLocation() != null);
   /** true tylko gdy nie mamy żadnej pozycji do pokazania — nie blokuje live GPS przy słabszym sygnale. */
   const [gpsAcquiring, setGpsAcquiring] = useState(() => peekMapLastLocation() == null);
@@ -3089,20 +3079,7 @@ function MapScreenInner() {
     getGeometry: buildV3Geometry,
     onTarget: (out) => {
       if (!out.rejected && isNavigatingRef.current && !isOffroadRef.current) {
-        if (out.snap.pathMode === 'offRoad') {
-          v3SnapToRouteSuppressedRef.current = true;
-          if (!offRouteRef.current) {
-            offRouteRef.current = true;
-            setOffRoute(true);
-            visionEvent('NAV_OFF_ROUTE', {
-              crossTrackM: Math.round(out.snap.crossTrackM),
-              speedKmh: Math.round(out.hudSpeedKmh),
-              lat: Number(out.target.lat.toFixed(6)),
-              lng: Number(out.target.lng.toFixed(6)),
-              pathMode: out.snap.pathMode,
-            });
-          }
-        } else if (
+        if (
           out.snap.pathMode === 'onRoad'
           && !offRouteRef.current
           && !reroutePendingRef.current
@@ -3121,27 +3098,6 @@ function MapScreenInner() {
       let markerTarget = out.target;
       // V3 SSOT — nie nadpisuj lat/lng snapToRoute (inna geometria niż arcWindow → lateral jitter).
       driveMarker.pushTarget(markerTarget);
-      const autoNow = Date.now();
-      if (autoNow - autoBridgePoseLastEmitRef.current >= 220) {
-        autoBridgePoseLastEmitRef.current = autoNow;
-        setAutoBridgePose({
-          latitude: markerTarget.lat,
-          longitude: markerTarget.lng,
-          speed: out.hudSpeedKmh > 0 ? out.hudSpeedKmh / 3.6 : 0,
-          heading: normalizeHeading(markerTarget.headingDeg),
-          updatedAt: autoNow,
-          arcWindow: markerTarget.arcWindow
-            ? {
-                points: markerTarget.arcWindow.points.slice(0, 80),
-                baseArcM: markerTarget.arcWindow.baseArcM,
-                totalM: markerTarget.arcWindow.totalM,
-              }
-            : null,
-          targetArcM: markerTarget.targetArcM,
-          roadBlend: markerTarget.roadBlend,
-          pathMode: markerTarget.pathMode,
-        });
-      }
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
         rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
       }
@@ -3237,15 +3193,7 @@ function MapScreenInner() {
     speedKmhRef,
     rawGpsRef: rawGpsCourseRef,
     isUserExploring: () => isUserExploringMapRef.current(),
-    shouldPauseFollow: () => reroutePendingRef.current,
   });
-
-  useEffect(() => {
-    if (!isTripActiveMap) {
-      autoBridgePoseLastEmitRef.current = 0;
-      setAutoBridgePose(null);
-    }
-  }, [isTripActiveMap]);
 
   const tripBootstrapPose = useCallback((
     lat: number,
@@ -4969,6 +4917,7 @@ function MapScreenInner() {
       isReroute: true,
       continueStraight: true,
       headingRangeDeg: REROUTE_BEARING_RANGE_DEG,
+      preferForward: true,
     },
   );
 
@@ -6007,6 +5956,15 @@ function MapScreenInner() {
       }
     }, []),
     onLocation: useCallback((loc) => {
+      // During trip startup keep the cached/seed pose stable until the active
+      // navigation watcher confirms GPS lock. This removes the first-fix
+      // left/right/backward oscillation without delaying the map itself.
+      if (
+        (isDrivingRef.current || isNavigatingRef.current)
+        && !gpsLockEstablishedRef.current
+      ) {
+        return;
+      }
       gpsResumeSoftHoldSkipRef.current = false;
       gpsTickCountRef.current += 1;
       const tickNow = Date.now();
@@ -12013,20 +11971,16 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       navV3.setRoutePolyline(
         rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
       );
-      navV3.hardReset(syncLat, syncLng, syncHdg);
-      driveMarker.resetTo(syncLat, syncLng, syncHdg);
+      // Preserve the live marker/camera timeline while the route geometry is
+      // swapped. A hard reset here caused the visible freeze + teleport.
       driveMarker.pushTarget({
         ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
+        speedMs: Math.max(0, speedKmhRef.current / 3.6),
         pathMode: 'onRoad',
         roadBlend: 1,
-        allowInstant: true,
+        allowInstant: false,
       });
       driveMarker.ensureFrameActive?.();
-      drLatRef.current = syncLat;
-      drLngRef.current = syncLng;
-      drHdgRef.current = syncHdg;
-      lastHeadingRef.current = syncHdg;
-      lastSetLocRef.current = { lat: syncLat, lng: syncLng };
       setFollowMode('navigationFollow');
       vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
         pts: rerouteResult.points.length,
@@ -12037,6 +11991,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
         at: now,
       });
       navRouteIdxRef.current = idx;
+      lastRemainingRouteHeadRef.current = null;
       const remainingPts = [
         { latitude: syncLat, longitude: syncLng },
         ...rerouteResult.points.slice(idx + 1),
@@ -12048,6 +12003,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
     }
     setCurrentStep(0);
     announcedPhasesRef.current = new Set();
+    lastManeuverDistanceRef.current = null;
     lastSpokenRef.current    = '';
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
@@ -12074,6 +12030,25 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
       pendingForMs,
     });
   }, [offRoute, rerouteLoading, rerouteError]);
+
+  useEffect(() => {
+    if (!offRoute || !reroutePendingRef.current) return;
+    const pendingForMs = Date.now() - reroutePendingSinceRef.current;
+    const waitMs = Math.max(0, REROUTE_PENDING_TIMEOUT_MS - pendingForMs);
+    const timeoutId = setTimeout(() => {
+      if (!reroutePendingRef.current) return;
+      reroutePendingRef.current = false;
+      reroutePendingSinceRef.current = 0;
+      rerouteBlockedUntilRef.current = Date.now() + REROUTE_RETRY_AFTER_FAIL_MS;
+      setRerouteOrigin(null);
+      setRerouteHeadingForApi(undefined);
+      visionEvent('NAV_REROUTE_FAIL', {
+        error: 'timeout',
+        pendingForMs: REROUTE_PENDING_TIMEOUT_MS,
+      });
+    }, waitMs);
+    return () => clearTimeout(timeoutId);
+  }, [offRoute, rerouteOrigin]);
 
   // ── Reroute origin management (cooldown gate) ─────────────────────────────
   // Uruchamiane po potwierdzonym zejściu z trasy (OFF_ROUTE_CONFIRM_STREAK × NAV_PROGRESS_UI_MS).
@@ -12878,8 +12853,22 @@ if (pts.length >= 2) {
       const currentLng = drFresh ? drLngRef.current : fallbackLoc?.longitude;
       if (!currentLat || !currentLng) return;
 
-      const snapped = points.length
-        ? snapToRoute(currentLat, currentLng, points, NAV_ROUTE_SNAP_M, navRouteIdxRef.current)
+      const inRerouteGrace = Date.now() < rerouteGraceUntilRef.current;
+      const thresholdM = inRerouteGrace
+        ? Math.max(REROUTE_THRESHOLD_M, REROUTE_THRESHOLD_RECOVERY_M)
+        : GPS_ON_ROUTE_THRESHOLD_M;
+      const routeProjection = points.length > 1
+        ? projectPointToRouteWindow(
+            currentLat,
+            currentLng,
+            points,
+            navRouteIdxRef.current,
+            Math.max(thresholdM, NAV_ROUTE_SNAP_M),
+          )
+        : null;
+      const onRoad = routeProjection != null && routeProjection.distM <= thresholdM;
+      const snapped = onRoad && !offRouteRef.current && routeProjection
+        ? { latitude: routeProjection.latitude, longitude: routeProjection.longitude }
         : { latitude: currentLat, longitude: currentLng };
       const { latitude: lat, longitude: lng } = snapped;
 
@@ -12890,54 +12879,56 @@ if (pts.length >= 2) {
       }
 
       const prevStep = currentStepRef.current;
-      const nextStep = detectCurrentStep(lat, lng, steps, prevStep);
-      if (nextStep !== prevStep) {
-        currentStepRef.current = nextStep;
-        setCurrentStep(nextStep);
-        announcedPhasesRef.current = new Set();
-      }
-
-      const announceTarget = resolveAnnouncementTarget(steps, nextStep, lat, lng);
-      const distToManeuver = announceTarget.distanceM;
-      if (nextStep !== prevStep) {
-        visionEvent('NAV_STEP_CHANGE', {
-          prevStep,
-          nextStep,
-          distToManeuverM: Math.round(distToManeuver),
-          lat: Number(lat.toFixed(6)),
-          lng: Number(lng.toFixed(6)),
-        });
-      }
-      const speechPhase = getNavigationSpeechPhase(distToManeuver);
-
-      if (speechPhase && isSpeechRef.current) {
-        const phaseKey = `${announceTarget.stepIndex}:${speechPhase}`;
-        if (!announcedPhasesRef.current.has(phaseKey)) {
-          announcedPhasesRef.current.add(phaseKey);
-          speak(buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase));
+      let nextStep = prevStep;
+      let distToManeuver = Number.POSITIVE_INFINITY;
+      if (onRoad && !offRouteRef.current) {
+        nextStep = detectCurrentStep(lat, lng, steps, prevStep);
+        if (nextStep !== prevStep) {
+          currentStepRef.current = nextStep;
+          setCurrentStep(nextStep);
+          announcedPhasesRef.current = new Set();
+          lastManeuverDistanceRef.current = null;
         }
-      }
 
-      if (steps[nextStep]) {
-        const roundedTurn = Math.round(distToManeuver / 20) * 20;
-        if (lastDistToTurnUiRef.current == null || Math.abs(roundedTurn - lastDistToTurnUiRef.current) >= 20) {
-          lastDistToTurnUiRef.current = roundedTurn;
-          setDistToTurnM(distToManeuver);
+        const announceTarget = resolveAnnouncementTarget(steps, nextStep, lat, lng);
+        distToManeuver = announceTarget.distanceM;
+        if (nextStep !== prevStep) {
+          visionEvent('NAV_STEP_CHANGE', {
+            prevStep,
+            nextStep,
+            distToManeuverM: Math.round(distToManeuver),
+            lat: Number(lat.toFixed(6)),
+            lng: Number(lng.toFixed(6)),
+          });
+        }
+        const previousManeuver = lastManeuverDistanceRef.current;
+        const previousDistance = previousManeuver?.stepIndex === announceTarget.stepIndex
+          ? previousManeuver.distanceM
+          : undefined;
+        const speechPhase = getNavigationSpeechPhase(distToManeuver, previousDistance);
+        lastManeuverDistanceRef.current = {
+          stepIndex: announceTarget.stepIndex,
+          distanceM: distToManeuver,
+        };
+
+        if (speechPhase && isSpeechRef.current) {
+          const phaseKey = `${announceTarget.stepIndex}:${speechPhase}`;
+          if (!announcedPhasesRef.current.has(phaseKey)) {
+            announcedPhasesRef.current.add(phaseKey);
+            speak(buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase));
+          }
+        }
+
+        if (steps[nextStep]) {
+          const roundedTurn = Math.round(distToManeuver / 10) * 10;
+          if (lastDistToTurnUiRef.current == null || Math.abs(roundedTurn - lastDistToTurnUiRef.current) >= 10) {
+            lastDistToTurnUiRef.current = roundedTurn;
+            setDistToTurnM(distToManeuver);
+          }
         }
       }
 
       if (points.length) {
-        const inRerouteGrace = Date.now() < rerouteGraceUntilRef.current;
-        const thresholdM = inRerouteGrace
-          ? Math.max(REROUTE_THRESHOLD_M, REROUTE_THRESHOLD_RECOVERY_M)
-          : GPS_ON_ROUTE_THRESHOLD_M;
-        const onRoad = isOnRoute(
-          currentLat,
-          currentLng,
-          points,
-          thresholdM,
-          navRouteIdxRef.current,
-        );
         const nowOff = Date.now();
         if (onRoad && !reroutePendingRef.current) {
           offRouteSinceRef.current = 0;
@@ -12965,6 +12956,9 @@ if (pts.length >= 2) {
               offRouteRef.current = true;
               v3SnapToRouteSuppressedRef.current = true;
               setOffRoute(true);
+              lastManeuverDistanceRef.current = null;
+              announcedPhasesRef.current = new Set();
+              Speech.stop().catch(() => {});
               visionEvent('NAV_OFF_ROUTE', {
                 streak: offRouteStreakRef.current,
                 sinceMs: nowOff ? Date.now() - offRouteSinceRef.current : 0,
@@ -12972,74 +12966,35 @@ if (pts.length >= 2) {
                 lat: Number(lat.toFixed(6)),
                 lng: Number(lng.toFixed(6)),
               });
-              if (
-                endLocationRef.current
-                && !reroutePendingRef.current
-                && Date.now() >= rerouteBlockedUntilRef.current
-                && speedKmhRef.current >= 5
-              ) {
-                const drFresh =
-                  drLatRef.current !== 0
-                  && drLngRef.current !== 0
-                  && Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
-                const fallbackLoc = currentLocRef.current;
-                const vehicleLat = drFresh ? drLatRef.current : (fallbackLoc?.latitude ?? currentLat);
-                const vehicleLng = drFresh ? drLngRef.current : (fallbackLoc?.longitude ?? currentLng);
-                if (Number.isFinite(vehicleLat) && Number.isFinite(vehicleLng)) {
-                  const nowReroute = Date.now();
-                  const sinceReroute = nowReroute - lastRerouteTimeRef.current;
-                  let allowReroute = true;
-                  if (sinceReroute < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
-                    const movedM = haversineKm(
-                      vehicleLat,
-                      vehicleLng,
-                      lastRerouteLocRef.current.lat,
-                      lastRerouteLocRef.current.lng,
-                    ) * 1000;
-                    if (movedM < REROUTE_MIN_MOVED_M) allowReroute = false;
-                  }
-                  if (allowReroute) {
-                    // Update bearing to current driveMarker heading to prevent u-turns
-                    const currentMarkerHeading = driveMarker.heading.value;
-                    const travelHdg = Number.isFinite(currentMarkerHeading) 
-                      ? normalizeHeading(currentMarkerHeading) 
-                      : resolveRerouteApiHeadingDeg(
-                          lastGpsDeviceHeadingRef.current,
-                          vehicleLat,
-                          vehicleLng,
-                          lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
-                          lastHeadingRef.current ?? 0,
-                        );
-
-                    reroutePendingRef.current = true;
-                    v3SnapToRouteSuppressedRef.current = true; // Supress snapping during reroute to prevent dragging back to old route
-                    reroutePendingSinceRef.current = nowReroute;
-                    lastRerouteTimeRef.current = nowReroute;
-                    lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
-                    setRerouteHeadingForApi(travelHdg);
-                    setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
-                    visionEvent('NAV_REROUTE_REQUEST', {
-                      vehicleLat: Number(vehicleLat.toFixed(6)),
-                      vehicleLng: Number(vehicleLng.toFixed(6)),
-                      travelHdg: Math.round(travelHdg),
-                      speedKmh: Math.round(speedKmhRef.current),
-                    });
-                  }
-                }
-              }
             }
           }
         }
       }
 
-      if (points.length > 1 && !offRouteRef.current) {
-        const idx = findClosestPointIndex(lat, lng, points, navRouteIdxRef.current);
+      if (points.length > 1 && !offRouteRef.current && routeProjection) {
+        const idx = routeProjection.segmentIndex;
         const prevIdx = navRouteIdxRef.current;
-        const idxDelta = prevIdx >= 0 ? Math.abs(idx - prevIdx) : 0;
-        if (idx !== prevIdx && (prevIdx < 0 || idxDelta <= 8)) {
-          navRouteIdxRef.current = idx;
+        if (prevIdx < 0 || idx >= prevIdx - 2) {
+          navRouteIdxRef.current = Math.max(0, idx);
+        }
+
+        const previousHead = lastRemainingRouteHeadRef.current;
+        const headMovedM = previousHead
+          ? haversineKm(
+              previousHead.lat,
+              previousHead.lng,
+              routeProjection.latitude,
+              routeProjection.longitude,
+            ) * 1000
+          : Number.POSITIVE_INFINITY;
+        if (!previousHead || previousHead.idx !== idx || headMovedM >= 1) {
+          lastRemainingRouteHeadRef.current = {
+            lat: routeProjection.latitude,
+            lng: routeProjection.longitude,
+            idx,
+          };
           setRemainingRoutePoints([
-            { latitude: lat, longitude: lng },
+            { latitude: routeProjection.latitude, longitude: routeProjection.longitude },
             ...points.slice(idx + 1),
           ]);
         }
@@ -13058,14 +13013,14 @@ if (pts.length >= 2) {
         let remKm = 0;
         if (idx < points.length - 1) {
           const distToNextPoint = haversineKm(
-            lat, lng,
+            routeProjection.latitude, routeProjection.longitude,
             points[idx + 1].latitude, points[idx + 1].longitude
           );
           remKm = distToNextPoint + routePrefixSumsRef.current.sums[idx + 1];
         }
 
         const roundedRem = parseFloat(remKm.toFixed(2));
-        if (lastRemainingKmUiRef.current == null || Math.abs(roundedRem - lastRemainingKmUiRef.current) >= 0.08) {
+        if (lastRemainingKmUiRef.current == null || Math.abs(roundedRem - lastRemainingKmUiRef.current) >= 0.01) {
           lastRemainingKmUiRef.current = roundedRem;
           setRemainingDistKm(remKm);
         }
@@ -13211,6 +13166,8 @@ if (pts.length >= 2) {
     setNavStartLoc(navStart);
     setStartLocation(navStart);
     setCurrentStep(0);
+    lastRemainingRouteHeadRef.current = null;
+    lastManeuverDistanceRef.current = null;
     setArrived(false);
     setOffRoute(false);
     v3SnapToRouteSuppressedRef.current = false;
@@ -13298,6 +13255,8 @@ if (pts.length >= 2) {
     setRerouteOrigin(null);
     setDistToTurnM(null);
     setRemainingDistKm(null);
+    lastRemainingRouteHeadRef.current = null;
+    lastManeuverDistanceRef.current = null;
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
     setRouteEndpointImages({});
@@ -13456,6 +13415,45 @@ if (pts.length >= 2) {
     return partnerPois.slice(0, zoomCap);
   }, [currentZoom, partnerPois, userLocation]);
 
+  const handleAutoNavigationStarted = useCallback((event: AutoNavigationStartedPayload) => {
+    if (event.routePoints.length < 2) return;
+    const distanceMeters = Math.max(0, event.distanceMeters || 0);
+    const durationSeconds = Math.max(0, event.durationSeconds || 0);
+    const first = event.routePoints[0];
+    const last = event.routePoints[event.routePoints.length - 1];
+    const route: DirectionsResult = {
+      points: event.routePoints,
+      steps: [{
+        html_instructions: event.instruction || 'Kontynuuj trasę',
+        distance: { text: `${(distanceMeters / 1000).toFixed(1)} km`, value: distanceMeters },
+        duration: { text: `${Math.max(1, Math.round(durationSeconds / 60))} min`, value: durationSeconds },
+        start_location: { lat: first.latitude, lng: first.longitude },
+        end_location: { lat: last.latitude, lng: last.longitude },
+        maneuver: 'continue',
+        polyline: { points: '' },
+      }],
+      distanceText: `${(distanceMeters / 1000).toFixed(1)} km`,
+      distanceValue: distanceMeters,
+      durationText: `${Math.max(1, Math.round(durationSeconds / 60))} min`,
+      duration: durationSeconds / 60,
+      index: 0,
+    };
+    previewRouteRef.current = route;
+    navRouteRef.current = route;
+    routePointsRef.current = event.routePoints;
+    setNavRouteOverride(route);
+    if (event.destination) setEndLocation(event.destination);
+    const nextRouteInfo = {
+      distance: route.distanceText,
+      duration: route.duration,
+      durationText: route.durationText,
+    };
+    routeInfoRef.current = nextRouteInfo;
+    setRouteInfo(nextRouteInfo);
+    setCurrentStep(0);
+    if (!isNavigatingRef.current) setTimeout(beginNavigation, 0);
+  }, [beginNavigation]);
+
   useAutoNavigationBridge({
     isNavigating,
     isDriving,
@@ -13474,9 +13472,6 @@ if (pts.length >= 2) {
     startLocation,
     endLocation,
     userLocation,
-    autoPose: isTripActiveMap ? autoBridgePose : null,
-    speed,
-    heading,
     speedLimitKmh: effectiveSpeedLimit,
     remainingRoutePoints,
     navRoutePoints: effectiveNavRoute?.points,
@@ -13487,10 +13482,14 @@ if (pts.length >= 2) {
     warnings: effectiveWarnings,
     speedCameras: effectiveCameras,
     fuelStations: effectiveFuelStations,
+    partnerPois: effectivePartnerPois,
     onStopRequested: () => { stopNavigation(); },
     onReportRequested: () => { setReportVisible(true); },
     onReportTypeRequested: (type) => { void handleReport(type); },
     onSearchRequested: () => { setSearchModalVisible(true); },
+    onAutoNavigationStarted: handleAutoNavigationStarted,
+    onAutoSearchQuery: () => { setSearchModalVisible(true); },
+    onAutoSearchResult: () => { setSearchModalVisible(true); },
   });
 
   const handleReset = useCallback(() => {

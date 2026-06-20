@@ -1,4 +1,4 @@
-package com.lexuuw.vroom.app.auto
+package __PACKAGE__.auto
 
 import android.location.Location
 import android.os.Handler

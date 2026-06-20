@@ -1,18 +1,26 @@
 package __PACKAGE__.auto
 
-import androidx.car.app.AppManager
+import android.content.Intent
 import androidx.car.app.Screen
 import androidx.car.app.Session
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 
 class VroomCarSession : Session() {
-  override fun onCreateScreen(intent: android.content.Intent): Screen {
-    runCatching { AutoLocationTracker.start(carContext) }
-    runCatching {
-      carContext
-        .getCarService(AppManager::class.java)
-        .setSurfaceCallback(VroomMapSurfaceRenderer(carContext))
+    init {
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onDestroy(owner: LifecycleOwner) {
+                AutoLocationTracker.stop()
+                VroomCarManager.clearScreen()
+            }
+        })
     }
 
-    return VroomNavigationScreen(carContext)
-  }
+    override fun onCreateScreen(intent: Intent): Screen {
+        VroomCarManager.setAppContext(carContext)
+        val screen = VroomCarScreen(carContext)
+        VroomCarManager.setScreen(screen)
+        AutoLocationTracker.start(carContext)
+        return screen
+    }
 }

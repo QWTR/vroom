@@ -1,4 +1,4 @@
-package __PACKAGE__.auto
+package com.lexuuw.vroom.app.auto
 
 import android.content.Context
 import org.json.JSONArray
@@ -91,8 +91,8 @@ object AutoNavStore {
     synchronized(this) {
       if (isMemLoaded) return
       val p = prefs(context)
-      liveLat = p.getFloat(KEY_LAT, 0f).toDouble()
-      liveLng = p.getFloat(KEY_LNG, 0f).toDouble()
+      liveLat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+      liveLng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
       liveSpeed = p.getFloat(KEY_SPEED, 0f).toDouble()
       liveHeading = p.getFloat(KEY_HEADING, 0f).toDouble()
       memDtoRaw = p.getString(KEY_CAR_SAFE_DTO, null)
@@ -241,8 +241,8 @@ object AutoNavStore {
   fun snapshot(context: Context): AutoNavSnapshot {
     ensureMem(context)
 
-    val currentLat = if (liveLat.isFinite()) liveLat else 0.0
-    val currentLng = if (liveLng.isFinite()) liveLng else 0.0
+    val currentLat = if (validCoordinate(liveLat, liveLng)) liveLat else Double.NaN
+    val currentLng = if (validCoordinate(liveLat, liveLng)) liveLng else Double.NaN
     val heading = if (liveHeading.isFinite()) liveHeading else 0.0
     val speedMs = if (liveSpeed.isFinite()) liveSpeed else 0.0
 
@@ -255,6 +255,7 @@ object AutoNavStore {
     val dto = dtoRaw?.let { runCatching { JSONObject(it) }.getOrNull() }
     val mapState = mapRaw?.let { runCatching { JSONObject(it) }.getOrNull() }
     cachedMapState = mapState
+
     val speedKmh = (mapState?.optDouble("speedKmh", Double.NaN) ?: Double.NaN)
       .takeIf { it.isFinite() }
       ?: (speedMs * 3.6)
@@ -272,12 +273,6 @@ object AutoNavStore {
         speedKmh = speedKmh
       )
     }
-
-    cacheKeyDto = dtoRaw
-    cacheKeyMap = mapRaw
-    cacheKeyUsers = usersRaw
-    cacheKeyWarnings = warningsRaw
-    cacheKeyRoute = routeRaw
 
     val route = parsePoints(mapState?.optJSONArray("route")).ifEmpty {
       parsePoints(routeRaw)
@@ -407,7 +402,6 @@ object AutoNavStore {
     }
 
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val now = System.currentTimeMillis()
     val lastLivePush = p.getLong(KEY_LAST_LIVE_PUSH, 0L)
     if (token.isNotBlank() && now - lastLivePush >= LIVE_PUSH_INTERVAL_MS) {
       val locationPayload = JSONObject()
@@ -463,8 +457,8 @@ object AutoNavStore {
     val p = prefs(context)
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
     if (token.isBlank()) return false
-    val lat = p.getFloat(KEY_LAT, 0f).toDouble()
-    val lng = p.getFloat(KEY_LNG, 0f).toDouble()
+    val lat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+    val lng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
     if (!lat.isFinite() || !lng.isFinite() || (lat == 0.0 && lng == 0.0)) return false
     val payload = JSONObject().apply {
       put("type", type)
@@ -495,8 +489,8 @@ object AutoNavStore {
   fun searchCategory(context: Context, category: String, limit: Int = 12): List<AutoSearchPlace> {
     val p = prefs(context)
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val lat = p.getFloat(KEY_LAT, 0f).toDouble()
-    val lng = p.getFloat(KEY_LNG, 0f).toDouble()
+    val lat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+    val lng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
     if (token.isBlank() || !lat.isFinite() || !lng.isFinite() || (lat == 0.0 && lng == 0.0)) return emptyList()
     val payload = JSONObject().apply {
       put("category", category)
@@ -536,8 +530,8 @@ object AutoNavStore {
     if (cleaned.length < 2) return emptyList()
     val p = prefs(context)
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val lat = p.getFloat(KEY_LAT, 0f).toDouble()
-    val lng = p.getFloat(KEY_LNG, 0f).toDouble()
+    val lat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+    val lng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
     if (token.isBlank()) {
       return searchPlacesPublic(cleaned, lat, lng, limit)
     }
@@ -598,8 +592,8 @@ object AutoNavStore {
   fun startNavigationToPlace(context: Context, place: AutoSearchPlace): Boolean {
     val p = prefs(context)
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val lat = p.getFloat(KEY_LAT, 0f).toDouble()
-    val lng = p.getFloat(KEY_LNG, 0f).toDouble()
+    val lat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+    val lng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
     if (!lat.isFinite() || !lng.isFinite() || (lat == 0.0 && lng == 0.0)) return false
 
     if (token.isBlank()) {
@@ -724,8 +718,8 @@ object AutoNavStore {
 
   private fun syncLiveLayers(context: Context, token: String) {
     val p = prefs(context)
-    val lat = p.getFloat(KEY_LAT, 0f).toDouble()
-    val lng = p.getFloat(KEY_LNG, 0f).toDouble()
+    val lat = p.getFloat(KEY_LAT, Float.NaN).toDouble()
+    val lng = p.getFloat(KEY_LNG, Float.NaN).toDouble()
 
     val (_, usersBody) = requestJson("GET", "/api/live/users", token)
     if (usersBody.isNotBlank()) {
@@ -1266,6 +1260,12 @@ object AutoNavStore {
 
   private fun JSONObject.nullableInt(key: String): Int? =
     if (has(key) && !isNull(key)) optInt(key) else null
+
+  private fun validCoordinate(lat: Double, lng: Double): Boolean =
+    lat.isFinite() && lng.isFinite() &&
+      lat in -90.0..90.0 && lng in -180.0..180.0 &&
+      !(kotlin.math.abs(lat) < 1e-6 && kotlin.math.abs(lng) < 1e-6)
+
 }
 
 data class AutoNavPoint(val lat: Double, val lng: Double)

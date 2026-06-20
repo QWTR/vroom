@@ -1,4 +1,4 @@
-package com.lexuuw.vroom.app.auto
+package __PACKAGE__.auto
 
 import org.json.JSONArray
 import org.json.JSONObject

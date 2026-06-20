@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LocationState } from '../constants/types';
 import { MAPBOX_TOKEN } from '../constants/mapConfig';
 import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
+import { routeStartsWithUTurn } from '../lib/navigation/reroute';
 
 // ── Debug flag — set to true to log cache hits, misses, and in-flight dedup ──
 // Flip to false (or guard with __DEV__) in production.
@@ -96,6 +97,8 @@ export type DirectionsFetchOpts = {
   headingRangeDeg?: number;
   headingQuantizeDeg?: number;
   continueStraight?: boolean;
+  /** Prefer a forward-going alternative; accept a U-turn only as fallback. */
+  preferForward?: boolean;
 };
 
 function makeCacheKey(
@@ -184,6 +187,7 @@ export function useGoogleDirections(
   const headingRangeDeg = fetchOpts?.headingRangeDeg ?? (isReroute ? 60 : 45);
   const headingQuantizeDeg = fetchOpts?.headingQuantizeDeg ?? (isReroute ? 12 : 45);
   const continueStraight = fetchOpts?.continueStraight !== false;
+  const preferForward = !!fetchOpts?.preferForward;
 
   const roundedHeading = heading != null && Number.isFinite(heading)
     ? (Math.round((((heading % 360) + 360) % 360) / headingQuantizeDeg) * headingQuantizeDeg) % 360
@@ -206,7 +210,7 @@ export function useGoogleDirections(
       false,
       headingRangeDeg,
       continueStraight,
-    );
+    ) + `:pf${preferForward ? 1 : 0}`;
 
     // ── Cache hit: serve immediately without a network call ──────────────────
     const cached = directionsCache.get(cacheKey);
@@ -234,22 +238,23 @@ export function useGoogleDirections(
           ? `&bearings=${roundedHeading},${headingRangeDeg};`
           : '';
 
+        const requestAlternatives = isReroute && preferForward;
         const url =
           `https://api.mapbox.com/directions/v5/mapbox/driving/` +
           `${originLng},${originLat};${destLng},${destLat}` +
-          `?alternatives=false&geometries=polyline&steps=true&language=pl` +
+          `?alternatives=${requestAlternatives ? 'true' : 'false'}&geometries=polyline&steps=true&language=pl` +
           bearingParam +
           continueParam +
           `&access_token=${MAPBOX_TOKEN}`;
 
-        const data = await fetchDirectionsViaProxy<any>(
+        let data = await fetchDirectionsViaProxy<any>(
           {
             coordinates: [
               [originLng, originLat],
               [destLng, destLat],
             ],
             profile: 'driving',
-            alternatives: false,
+            alternatives: requestAlternatives,
             geometries: 'polyline',
             steps: true,
             language: 'pl',
@@ -259,7 +264,32 @@ export function useGoogleDirections(
               : undefined,
           },
           url,
+          { signal: controller.signal },
         );
+
+        // A strict bearing may yield no route on unusual junction geometry.
+        // Retry once without it, still evaluating all alternatives before a U-turn.
+        if (!data?.routes?.length && preferForward && roundedHeading != null) {
+          const relaxedUrl =
+            `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+            `${originLng},${originLat};${destLng},${destLat}` +
+            `?alternatives=true&geometries=polyline&steps=true&language=pl` +
+            continueParam +
+            `&access_token=${MAPBOX_TOKEN}`;
+          data = await fetchDirectionsViaProxy<any>(
+            {
+              coordinates: [[originLng, originLat], [destLng, destLat]],
+              profile: 'driving',
+              alternatives: true,
+              geometries: 'polyline',
+              steps: true,
+              language: 'pl',
+              continue_straight: continueStraight,
+            },
+            relaxedUrl,
+            { signal: controller.signal },
+          );
+        }
 
         if (!data?.routes?.length) {
           setError('NO_ROUTE');
@@ -267,7 +297,10 @@ export function useGoogleDirections(
           return;
         }
 
-        const result = parseMapboxRoute(data.routes[0], 0);
+        const selectedRawRoute = preferForward
+          ? (data.routes.find((candidate: any) => !routeStartsWithUTurn(candidate)) ?? data.routes[0])
+          : data.routes[0];
+        const result = parseMapboxRoute(selectedRawRoute, 0);
         directionsCache.set(cacheKey, { result, fetchedAt: Date.now() });
         setRoute(result);
       } catch (e: any) {
@@ -280,7 +313,7 @@ export function useGoogleDirections(
     return () => {
       controller.abort();
     };
-  }, [originLat, originLng, destLat, destLng, roundedHeading, headingRangeDeg, continueStraight]);
+  }, [originLat, originLng, destLat, destLng, roundedHeading, headingRangeDeg, continueStraight, isReroute, preferForward]);
 
   return { route, loading, error };
 }

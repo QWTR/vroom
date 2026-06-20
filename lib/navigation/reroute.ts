@@ -4,6 +4,30 @@ import { bearingBetween, haversineKm } from '../../scripts/navigationUtils';
 export const REROUTE_BEARING_RANGE_DEG = 60;
 export const REROUTE_HEADING_QUANTIZE_DEG = 12;
 
+export function routeStartsWithUTurn(route: any): boolean {
+  const steps = route?.legs?.[0]?.steps;
+  if (!Array.isArray(steps)) return false;
+  let distanceFromOriginM = 0;
+  for (const step of steps) {
+    if (step?.maneuver?.type === 'arrive') continue;
+    if (distanceFromOriginM > 180) break;
+    const maneuver = step?.maneuver ?? {};
+    const modifier = String(maneuver.modifier ?? '').toLowerCase();
+    const instruction = String(maneuver.instruction ?? '').toLowerCase();
+    if (modifier === 'uturn' || modifier === 'u-turn' || /u-turn|zawr[oó]ć/.test(instruction)) {
+      return true;
+    }
+    const before = Number(maneuver.bearing_before);
+    const after = Number(maneuver.bearing_after);
+    if (Number.isFinite(before) && Number.isFinite(after) && maneuver.type !== 'depart') {
+      const delta = Math.abs(((after - before + 540) % 360) - 180);
+      if (delta >= 150) return true;
+    }
+    distanceFromOriginM += Math.max(0, Number(step?.distance) || 0);
+  }
+  return false;
+}
+
 export function quantizeHeading(headingDeg: number, stepDeg = REROUTE_HEADING_QUANTIZE_DEG): number {
   const h = ((headingDeg % 360) + 360) % 360;
   return Math.round(h / stepDeg) * stepDeg % 360;
@@ -64,6 +88,20 @@ export function resolveRerouteApiHeadingDeg(
   motionAnchor: { lat: number; lng: number } | null | undefined,
   fallbackHeadingDeg: number,
 ): number {
+  // Course over ground is the direction of the vehicle. Device heading often
+  // reflects how the phone is mounted and can point sideways or backwards.
+  if (
+    motionAnchor
+    && Number.isFinite(motionAnchor.lat)
+    && Number.isFinite(motionAnchor.lng)
+  ) {
+    const movedM = haversineKm(motionAnchor.lat, motionAnchor.lng, vehicleLat, vehicleLng) * 1000;
+    if (movedM >= 6) {
+      return quantizeHeading(
+        bearingBetween(motionAnchor.lat, motionAnchor.lng, vehicleLat, vehicleLng),
+      );
+    }
+  }
   if (
     deviceHeadingDeg != null
     && Number.isFinite(deviceHeadingDeg)

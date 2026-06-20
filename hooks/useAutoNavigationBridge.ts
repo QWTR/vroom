@@ -12,8 +12,6 @@ import {
 const { UsersModule, VroomBridgeModule } = NativeModules as {
   UsersModule?: {
     setNavigatingForAuto?: (isNavigating: boolean) => void;
-    saveMyLocationForAuto?: (lat: number, lng: number) => void;
-    saveSpeedHeadingForAuto?: (speed: number, heading: number) => void;
     saveNavStepForAuto?: (stepText: string, stepDistance: string, etaText: string) => void;
     saveRouteForAuto?: (routeJson: string) => void;
     saveDestinationForAuto?: (lat: number, lng: number, name: string) => void;
@@ -31,6 +29,25 @@ const { UsersModule, VroomBridgeModule } = NativeModules as {
 };
 
 const AUTO_REQUEST_POLL_MS = 1000;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const earthRadiusKm = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos((lat1 * Math.PI) / 180)
+    * Math.cos((lat2 * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export interface AutoNavigationStartedPayload {
+  routePoints: { latitude: number; longitude: number }[];
+  destination: LocationState | null;
+  distanceMeters: number;
+  durationSeconds: number;
+  instruction: string;
+}
 
 interface UseAutoNavigationBridgeParams {
   isNavigating: boolean;
@@ -50,23 +67,6 @@ interface UseAutoNavigationBridgeParams {
   startLocation?: LocationState | null;
   endLocation: LocationState | null;
   userLocation: LocationState | null;
-  autoPose?: {
-    latitude: number;
-    longitude: number;
-    speed: number | null;
-    heading: number;
-    updatedAt: number;
-    arcWindow?: {
-      points: { lat: number; lng: number }[];
-      baseArcM?: number;
-      totalM?: number;
-    } | null;
-    targetArcM?: number | null;
-    roadBlend?: number | null;
-    pathMode?: string | null;
-  } | null;
-  speed: number | null;
-  heading: number;
   speedLimitKmh?: number | null;
   remainingRoutePoints?: { latitude: number; longitude: number }[] | null | undefined;
   navRoutePoints: { latitude: number; longitude: number }[] | null | undefined;
@@ -82,6 +82,9 @@ interface UseAutoNavigationBridgeParams {
     name?: string;
     latitude: number;
     longitude: number;
+    avatar?: string | null;
+    avatarFrameUrl?: string | null;
+    distance?: number;
     isFriend?: boolean;
     isPremium?: boolean;
   }[];
@@ -108,14 +111,28 @@ interface UseAutoNavigationBridgeParams {
     id: string | number;
     name?: string;
     brand?: string | null;
+    brandLogoUrl?: string | null;
     lat: number;
     lng: number;
+    distance?: number;
     prices?: { pb95?: number | null }[];
+  }[];
+  partnerPois?: {
+    id: string | number;
+    name?: string;
+    category?: string;
+    markerAccentColor?: string | null;
+    logoUrl?: string | null;
+    lat: number;
+    lng: number;
   }[];
   onStopRequested: () => void;
   onReportRequested?: () => void;
   onReportTypeRequested?: (type: string) => void | Promise<void>;
   onSearchRequested?: () => void;
+  onAutoNavigationStarted?: (payload: AutoNavigationStartedPayload) => void | Promise<void>;
+  onAutoSearchQuery?: (query: string) => void;
+  onAutoSearchResult?: (id: string) => void;
 }
 
 export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
@@ -137,9 +154,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     startLocation,
     endLocation,
     userLocation,
-    autoPose,
-    speed,
-    heading,
     speedLimitKmh,
     remainingRoutePoints,
     navRoutePoints,
@@ -150,17 +164,26 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     warnings,
     speedCameras,
     fuelStations,
+    partnerPois,
     onStopRequested,
     onReportRequested,
     onReportTypeRequested,
     onSearchRequested,
+    onAutoNavigationStarted,
+    onAutoSearchQuery,
+    onAutoSearchResult,
   } = params;
   const lastSnapshotAtRef = useRef(0);
+  const lastFullPayloadAtRef = useRef(0);
+  const lastFullPayloadModeRef = useRef('');
   const callbacksRef = useRef({
     onStopRequested,
     onReportRequested,
     onReportTypeRequested,
     onSearchRequested,
+    onAutoNavigationStarted,
+    onAutoSearchQuery,
+    onAutoSearchResult,
   });
 
   useEffect(() => {
@@ -169,8 +192,12 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       onReportRequested,
       onReportTypeRequested,
       onSearchRequested,
+      onAutoNavigationStarted,
+      onAutoSearchQuery,
+      onAutoSearchResult,
     };
-  }, [onStopRequested, onReportRequested, onReportTypeRequested, onSearchRequested]);
+  }, [onStopRequested, onReportRequested, onReportTypeRequested, onSearchRequested,
+    onAutoNavigationStarted, onAutoSearchQuery, onAutoSearchResult]);
 
   const activeRoutePoints = (remainingRoutePoints?.length ?? 0) > 1
     ? remainingRoutePoints
@@ -211,15 +238,29 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         Number.isFinite(user.longitude)
       ))
       .slice(0, 40)
-      .map((user) => ({
-        id: String(user.id),
-        label: user.name ?? 'Uzytkownik',
-        lat: user.latitude,
-        lng: user.longitude,
-        type: user.isFriend ? 'friend' : 'user',
-        isPremium: !!user.isPremium,
-      }))
-  ), [visibleUsers]);
+      .map((user) => {
+        const distanceKm = user.distance ?? (userLocation
+          ? haversineKm(
+              userLocation.latitude,
+              userLocation.longitude,
+              user.latitude,
+              user.longitude,
+            )
+          : null);
+        return {
+          id: String(user.id),
+          label: user.name ?? 'Uzytkownik',
+          lat: user.latitude,
+          lng: user.longitude,
+          type: user.isFriend ? 'friend' : 'user',
+          avatarUrl: user.avatar ?? '',
+          avatarFrameUrl: user.avatarFrameUrl ?? '',
+          distanceLabel: distanceKm != null ? `${distanceKm.toFixed(1)} km` : '',
+          isFriend: !!user.isFriend,
+          isPremium: !!user.isPremium,
+        };
+      })
+  ), [visibleUsers, userLocation]);
 
   const autoWarnings = useMemo(() => (
     (warnings ?? [])
@@ -275,11 +316,31 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         type: 'fuel',
         lat: station.lat,
         lng: station.lng,
+        logoUrl: station.brandLogoUrl ?? '',
+        distanceLabel: station.distance != null
+          ? `${(station.distance / 1000).toFixed(1)} km`
+          : '',
         value: station.prices?.[0]?.pb95 != null
           ? station.prices[0].pb95.toFixed(2)
           : '',
       }))
   ), [fuelStations]);
+
+  const autoPartnerPois = useMemo(() => (
+    (partnerPois ?? [])
+      .filter((poi) => Number.isFinite(poi.lat) && Number.isFinite(poi.lng))
+      .slice(0, 120)
+      .map((poi) => ({
+        id: String(poi.id),
+        label: poi.name ?? 'Partner VROOM',
+        type: poi.category ?? 'partner',
+        lat: poi.lat,
+        lng: poi.lng,
+        logoUrl: poi.logoUrl ?? '',
+        accentColor: poi.markerAccentColor ?? '#FFD700',
+        value: '',
+      }))
+  ), [partnerPois]);
 
   const autoBuilderPins = useMemo(() => (
     (builderPins ?? [])
@@ -298,20 +359,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       }))
   ), [builderPins]);
 
-  const hasAutoPose = !!autoPose
-    && Number.isFinite(autoPose.latitude)
-    && Number.isFinite(autoPose.longitude);
-  const effectiveUserLocation = hasAutoPose
-    ? {
-        ...(userLocation ?? {}),
-        latitude: autoPose!.latitude,
-        longitude: autoPose!.longitude,
-        name: userLocation?.name ?? 'Moja pozycja',
-      }
-    : userLocation;
-  const effectiveSpeed = hasAutoPose ? autoPose!.speed : speed;
-  const effectiveHeading = hasAutoPose ? autoPose!.heading : heading;
-
   const autoMapState = useMemo(() => ({
     mapStyle: mapStyle ?? null,
     locationMarkerStyle: locationMarkerStyle ?? 'profile',
@@ -321,13 +368,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     isBuilding: !!isBuilding,
     arrived: !!arrived,
     offRoute: !!offRoute,
-    autoPoseActive: hasAutoPose,
-    autoPoseUpdatedAt: hasAutoPose ? autoPose!.updatedAt : null,
-    autoArcWindow: hasAutoPose ? autoPose!.arcWindow ?? null : null,
-    autoTargetArcM: hasAutoPose ? autoPose!.targetArcM ?? null : null,
-    autoRoadBlend: hasAutoPose ? autoPose!.roadBlend ?? null : null,
-    autoPathMode: hasAutoPose ? autoPose!.pathMode ?? null : null,
-    speedKmh: (effectiveSpeed ?? 0) * 3.6,
     speedLimitKmh: speedLimitKmh ?? null,
     start: startLocation
       ? {
@@ -341,6 +381,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     builderPins: autoBuilderPins,
     speedCameras: autoSpeedCameras,
     fuelStations: autoFuelStations,
+    partnerPois: autoPartnerPois,
   }), [
     mapStyle,
     locationMarkerStyle,
@@ -350,9 +391,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     isBuilding,
     arrived,
     offRoute,
-    hasAutoPose,
-    autoPose,
-    effectiveSpeed,
     speedLimitKmh,
     startLocation,
     compactPolyline,
@@ -360,14 +398,65 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     autoBuilderPins,
     autoSpeedCameras,
     autoFuelStations,
+    autoPartnerPois,
+  ]);
+
+  const fullPayloadKey = useMemo(() => JSON.stringify({
+    isNavigating,
+    isDriving: !!isDriving,
+    isBuilding: !!isBuilding,
+    arrived: !!arrived,
+    offRoute: !!offRoute,
+    dto,
+    route: compactPolyline,
+    destination: endLocation,
+    users: autoUsers,
+    warnings: autoWarnings,
+    mapStyle: mapStyle ?? null,
+    locationMarkerStyle: locationMarkerStyle ?? 'profile',
+    currentUserAvatarUrl: currentUserAvatarUrl ?? '',
+    hideLocation: !!hideLocation,
+    startLocation,
+    speedLimitKmh: speedLimitKmh ?? null,
+    builderRoute: compactBuilderRoute,
+    builderPins: autoBuilderPins,
+    speedCameras: autoSpeedCameras,
+    fuelStations: autoFuelStations,
+    partnerPois: autoPartnerPois,
+  }), [
+    isNavigating,
+    isDriving,
+    isBuilding,
+    arrived,
+    offRoute,
+    dto,
+    compactPolyline,
+    endLocation,
+    autoUsers,
+    autoWarnings,
+    mapStyle,
+    locationMarkerStyle,
+    currentUserAvatarUrl,
+    hideLocation,
+    startLocation,
+    speedLimitKmh,
+    compactBuilderRoute,
+    autoBuilderPins,
+    autoSpeedCameras,
+    autoFuelStations,
+    autoPartnerPois,
   ]);
 
   useEffect(() => {
+    const now = Date.now();
+    const modeKey = `${isNavigating ? 1 : 0}:${isDriving ? 1 : 0}:${isBuilding ? 1 : 0}:${arrived ? 1 : 0}`;
+    const modeChanged = lastFullPayloadModeRef.current !== modeKey;
+    if (!modeChanged && now - lastFullPayloadAtRef.current < 750) return;
+    lastFullPayloadModeRef.current = modeKey;
+    lastFullPayloadAtRef.current = now;
+
     const payload = {
       isNavigating,
-      userLocation: effectiveUserLocation,
-      speed: effectiveSpeed,
-      heading: effectiveHeading,
       dto,
       route: compactPolyline,
       destination: endLocation,
@@ -387,12 +476,6 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     UsersModule.saveMapStateForAuto?.(JSON.stringify(autoMapState));
     UsersModule.saveRouteForAuto?.(JSON.stringify(compactPolyline));
 
-    if (Number.isFinite(effectiveUserLocation?.latitude) && Number.isFinite(effectiveUserLocation?.longitude)) {
-      UsersModule.saveMyLocationForAuto?.(effectiveUserLocation!.latitude, effectiveUserLocation!.longitude);
-    }
-
-    UsersModule.saveSpeedHeadingForAuto?.(effectiveSpeed ?? 0, effectiveHeading ?? 0);
-
     if (endLocation && Number.isFinite(endLocation.latitude) && Number.isFinite(endLocation.longitude)) {
       UsersModule.saveDestinationForAuto?.(
         endLocation.latitude,
@@ -408,9 +491,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     );
   }, [
     isNavigating,
-    effectiveUserLocation,
-    effectiveSpeed,
-    effectiveHeading,
+    isDriving,
+    isBuilding,
+    arrived,
     dto,
     routeInfo,
     compactPolyline,
@@ -418,6 +501,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     autoUsers,
     autoWarnings,
     autoMapState,
+    fullPayloadKey,
   ]);
 
   useEffect(() => {
@@ -460,12 +544,51 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     const stopSub = DeviceEventEmitter.addListener('onStop', () => {
       callbacksRef.current.onStopRequested();
     });
+    const navigationStartedSub = DeviceEventEmitter.addListener('onAutoNavigationStarted', (event) => {
+      try {
+        const parsed = typeof event === 'string' ? JSON.parse(event) : event;
+        const rawRoute = parsed?.mapState?.route ?? parsed?.route ?? [];
+        const routePoints = Array.isArray(rawRoute)
+          ? rawRoute.map((point) => ({
+              latitude: Number(point?.latitude ?? point?.lat),
+              longitude: Number(point?.longitude ?? point?.lng),
+            })).filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+          : [];
+        if (routePoints.length < 2) return;
+        const rawDestination = parsed?.destination;
+        const destination = rawDestination && Number.isFinite(Number(rawDestination.latitude ?? rawDestination.lat))
+          && Number.isFinite(Number(rawDestination.longitude ?? rawDestination.lng))
+          ? {
+              latitude: Number(rawDestination.latitude ?? rawDestination.lat),
+              longitude: Number(rawDestination.longitude ?? rawDestination.lng),
+              name: String(rawDestination.name ?? 'Cel'),
+            }
+          : null;
+        void callbacksRef.current.onAutoNavigationStarted?.({
+          routePoints,
+          destination,
+          distanceMeters: Number(parsed?.dto?.remainingDistanceMeters ?? parsed?.distanceMeters ?? 0),
+          durationSeconds: Number(parsed?.dto?.remainingDurationSeconds ?? parsed?.durationSeconds ?? 0),
+          instruction: String(parsed?.dto?.nextInstruction ?? ''),
+        });
+      } catch {
+      }
+    });
+    const searchQuerySub = DeviceEventEmitter.addListener('onSearchQuery', (query) => {
+      callbacksRef.current.onAutoSearchQuery?.(String(query ?? ''));
+    });
+    const searchResultSub = DeviceEventEmitter.addListener('onSearchResult', (id) => {
+      callbacksRef.current.onAutoSearchResult?.(String(id ?? ''));
+    });
 
     return () => {
       reportSub.remove();
       reportTypeSub.remove();
       searchSub.remove();
       stopSub.remove();
+      navigationStartedSub.remove();
+      searchQuerySub.remove();
+      searchResultSub.remove();
     };
   }, []);
 

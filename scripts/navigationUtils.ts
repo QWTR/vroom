@@ -260,12 +260,7 @@ export function resolveAnnouncementTarget(
 ): { step: Step; stepIndex: number; distanceM: number } {
   const idx = Math.min(Math.max(currentStep, 0), steps.length - 1);
   const step = steps[idx];
-  const distToEndM = haversineKm(
-    userLat,
-    userLon,
-    step.end_location.lat,
-    step.end_location.lng,
-  ) * 1000;
+  const distToEndM = distanceToStepEndMeters(userLat, userLon, step);
 
   const baseInstruction = cleanInstruction(step.html_instructions);
   if (
@@ -276,7 +271,7 @@ export function resolveAnnouncementTarget(
     const upcoming = steps[idx + 1];
     const upcomingText = cleanInstruction(upcoming.html_instructions);
     if (!isMinorManeuver(upcoming.maneuver, upcomingText)) {
-      const distToUpcomingM = distanceToStepMeters(userLat, userLon, upcoming);
+      const distToUpcomingM = distanceToStepEndMeters(userLat, userLon, upcoming);
       return { step: upcoming, stepIndex: idx + 1, distanceM: distToUpcomingM };
     }
   }
@@ -285,7 +280,25 @@ export function resolveAnnouncementTarget(
 }
 
 /** Faza zapowiedzi wg odległości do manewru (wąskie pasma — jedna zapowiedź na fazę). */
-export function getNavigationSpeechPhase(distanceM: number): NavigationSpeechPhase | null {
+export function getNavigationSpeechPhase(
+  distanceM: number,
+  previousDistanceM?: number,
+): NavigationSpeechPhase | null {
+  // With a previous sample, use threshold crossings instead of narrow windows.
+  // This prevents a sparse GPS update from skipping an announcement entirely.
+  if (previousDistanceM != null && Number.isFinite(previousDistanceM)) {
+    const thresholds: [number, NavigationSpeechPhase][] = [
+      [55, 'now'],
+      [95, 'far50'],
+      [180, 'far150'],
+      [450, 'far400'],
+      [1100, 'far1000'],
+    ];
+    for (const [threshold, phase] of thresholds) {
+      if (previousDistanceM > threshold && distanceM <= threshold) return phase;
+    }
+    return null;
+  }
   if (distanceM <= 55) return 'now';
   if (distanceM > 55 && distanceM <= 95) return 'far50';
   if (distanceM > 130 && distanceM <= 180) return 'far150';
@@ -606,6 +619,114 @@ export type PolylineProjection = {
   segmentIndex: number;
   distM: number;
 };
+
+export type RouteWindowProjection = PolylineProjection & {
+  segmentProgress: number;
+};
+
+/**
+ * Projection constrained around the last route segment. It is cheap enough for
+ * live navigation and cannot jump to a distant, parallel part of the route.
+ */
+export function projectPointToRouteWindow(
+  userLat: number,
+  userLng: number,
+  pts: { latitude: number; longitude: number }[],
+  hintIndex = -1,
+  maxRadiusM = 120,
+): RouteWindowProjection | null {
+  if (pts.length < 2 || !Number.isFinite(userLat) || !Number.isFinite(userLng)) return null;
+
+  const hasHint = hintIndex >= 0 && hintIndex < pts.length - 1;
+  const start = hasHint ? Math.max(0, hintIndex - 20) : 0;
+  const end = hasHint
+    ? Math.min(pts.length - 2, hintIndex + 180)
+    : Math.min(pts.length - 2, 400);
+  let best: RouteWindowProjection | null = null;
+
+  for (let i = start; i <= end; i += 1) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const nearest = nearestPointOnSegmentMeters(
+      userLat,
+      userLng,
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+    if (best && nearest.distM >= best.distM) continue;
+    const segmentM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+    const toProjectionM = haversineKm(
+      a.latitude,
+      a.longitude,
+      nearest.latitude,
+      nearest.longitude,
+    ) * 1000;
+    best = {
+      latitude: nearest.latitude,
+      longitude: nearest.longitude,
+      segmentIndex: i,
+      segmentProgress: segmentM > 0.01 ? Math.max(0, Math.min(1, toProjectionM / segmentM)) : 0,
+      distM: nearest.distM,
+    };
+  }
+
+  return best && best.distM <= maxRadiusM ? best : null;
+}
+
+/** Remaining distance along the step geometry, not a straight-line shortcut. */
+function distanceToStepEndMeters(userLat: number, userLon: number, step: Step): number {
+  const encoded = step.polyline?.points;
+  if (!encoded) {
+    return haversineKm(userLat, userLon, step.end_location.lat, step.end_location.lng) * 1000;
+  }
+  const decoded = decodePolyline(encoded);
+  if (decoded.length < 2) {
+    return haversineKm(userLat, userLon, step.end_location.lat, step.end_location.lng) * 1000;
+  }
+
+  let bestIndex = 0;
+  let bestProjection = nearestPointOnSegmentMeters(
+    userLat,
+    userLon,
+    decoded[0].latitude,
+    decoded[0].longitude,
+    decoded[1].latitude,
+    decoded[1].longitude,
+  );
+  for (let i = 1; i < decoded.length - 1; i += 1) {
+    const candidate = nearestPointOnSegmentMeters(
+      userLat,
+      userLon,
+      decoded[i].latitude,
+      decoded[i].longitude,
+      decoded[i + 1].latitude,
+      decoded[i + 1].longitude,
+    );
+    if (candidate.distM < bestProjection.distM) {
+      bestProjection = candidate;
+      bestIndex = i;
+    }
+  }
+
+  let remainingM = bestProjection.distM;
+  remainingM += haversineKm(
+    bestProjection.latitude,
+    bestProjection.longitude,
+    decoded[bestIndex + 1].latitude,
+    decoded[bestIndex + 1].longitude,
+  ) * 1000;
+  for (let i = bestIndex + 1; i < decoded.length - 1; i += 1) {
+    remainingM += haversineKm(
+      decoded[i].latitude,
+      decoded[i].longitude,
+      decoded[i + 1].latitude,
+      decoded[i + 1].longitude,
+    ) * 1000;
+  }
+  return remainingM;
+}
 
 /** Rzut punktu na polilinię z indeksem segmentu (do arc-length / sub-kotwic). */
 export function projectOntoPolylineWithIndex(
@@ -957,7 +1078,7 @@ export function findClosestPointIndex(
     }
   }
 
-  return Math.max(0, bestIdx - 2);
+  return Math.max(0, bestIdx);
 }
 
 /**

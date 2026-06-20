@@ -1,4 +1,4 @@
-package __PACKAGE__.auto
+package com.lexuuw.vroom.app.auto
 
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
