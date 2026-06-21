@@ -37,6 +37,7 @@ import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
+import { TripCameraLocationProvider } from '../../components/map/TripCameraLocationProvider';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import {
   HudPanelShell,
@@ -57,7 +58,7 @@ import { useMapTilePrefetch } from '../../hooks/useMapTilePrefetch';
 import { buildV3GeometryFromRefs } from '../../lib/mapScreen/v3Geometry';
 import { coldStartNavigationTarget, useDriveMarkerV3 } from '../../hooks/useDriveMarkerV3';
 import { useDriveNavigationV3 } from '../../hooks/useDriveNavigationV3';
-import { useCameraV3 } from '../../hooks/useCameraV3';
+import { getTripCameraPadding, useCameraV3 } from '../../hooks/useCameraV3';
 import type { NavMode } from '../../lib/navigationV3/types';
 import { roadGeometryStore } from '../../lib/roadGeometry/RoadGeometryStore';
 import { getLocalRoadGeometry, pickNearestPolyline } from '../../lib/roadGeometry/localTileSnap';
@@ -3194,6 +3195,10 @@ function MapScreenInner() {
     rawGpsRef: rawGpsCourseRef,
     isUserExploring: () => isUserExploringMapRef.current(),
   });
+  const nativeTripFollowPadding = useMemo(
+    () => getTripCameraPadding(isNavigating),
+    [isNavigating],
+  );
 
   const tripBootstrapPose = useCallback((
     lat: number,
@@ -13887,11 +13892,17 @@ if (pts.length >= 2) {
             }
           }}
         >
+          <TripCameraLocationProvider enabled={isTripActiveMap} marker={driveMarker} />
           <Mapbox.Camera
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}
+            followUserLocation={isTripActiveMap && cameraV3.nativeFollowEnabled}
+            followUserMode={Mapbox.UserTrackingMode.FollowWithCourse}
+            followZoomLevel={18.2}
+            followPitch={isNavigating ? 62 : 58}
+            followPadding={nativeTripFollowPadding}
           />
-          <Mapbox.UserLocation visible={false} />
+          <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers
             enabled={showTerrainLayers}
             showBuildings={showThreeDBuildings}

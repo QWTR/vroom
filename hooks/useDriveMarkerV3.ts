@@ -33,6 +33,9 @@ export type DriveMarkerV3Values = {
   targetLng: SharedValue<number>;
   targetHdg: SharedValue<number>;
   segmentDurationMs: SharedValue<number>;
+  cameraTargetLat: SharedValue<number>;
+  cameraTargetLng: SharedValue<number>;
+  cameraSegmentDurationMs: SharedValue<number>;
   /** Zwiększany dokładnie raz po przygotowaniu kompletnego targetu GPS. */
   cameraTick: SharedValue<number>;
 };
@@ -452,6 +455,9 @@ export function useDriveMarkerV3(
   const speedMs = useSharedValue(0);
   const segmentDurationMs = useSharedValue(900);
   const cameraTick = useSharedValue(0);
+  const cameraTargetLat = useSharedValue(NaN);
+  const cameraTargetLng = useSharedValue(NaN);
+  const cameraSegmentDurationMs = useSharedValue(900);
   const lastTargetAtMs = useSharedValue(0);
   const coastDistanceM = useSharedValue(0);
 
@@ -655,7 +661,6 @@ export function useDriveMarkerV3(
     targetHdg.value = tgtHdg;
     rawTargetLat.value = target.rawLat;
     rawTargetLng.value = target.rawLng;
-    cameraTick.value += 1;
     onRoadSv.value = onRoad ? 1 : 0;
     const prevBlend = roadBlendSv.value;
     if (onRoad) {
@@ -679,6 +684,33 @@ export function useDriveMarkerV3(
       && arcFeed != null
       && target.targetArcM != null
       && Number.isFinite(target.targetArcM);
+
+    const cameraBridgeMs = resolvedSpeedMs >= MIN_CRUISE_MS ? 350 : 0;
+    const cameraLeadM = Math.min(6, resolvedSpeedMs * cameraBridgeMs / 1000);
+    let nextCameraLat = target.lat;
+    let nextCameraLng = target.lng;
+    if (useArc && arcFeed && target.targetArcM != null) {
+      const cameraLocalM = target.targetArcM - arcFeed.baseArcM + cameraLeadM;
+      const cameraPose = pointAtWindowArcLocalJs(
+        arcFeed.ptsFlat,
+        arcFeed.cumM,
+        cameraLocalM,
+      );
+      if (Number.isFinite(cameraPose.lat) && Number.isFinite(cameraPose.lng)) {
+        nextCameraLat = cameraPose.lat;
+        nextCameraLng = cameraPose.lng;
+      }
+    } else if (cameraLeadM > 0) {
+      const headingRad = tgtHdg * Math.PI / 180;
+      const earthRadiusM = 6_371_000;
+      nextCameraLat += (cameraLeadM * Math.cos(headingRad) / earthRadiusM) * 180 / Math.PI;
+      const cosLat = Math.max(0.1, Math.cos(target.lat * Math.PI / 180));
+      nextCameraLng += (cameraLeadM * Math.sin(headingRad) / (earthRadiusM * cosLat)) * 180 / Math.PI;
+    }
+    cameraTargetLat.value = nextCameraLat;
+    cameraTargetLng.value = nextCameraLng;
+    cameraSegmentDurationMs.value = segmentDurationMs.value + cameraBridgeMs;
+    cameraTick.value += 1;
 
     const allowInstant = target.allowInstant === true;
 
@@ -802,6 +834,9 @@ export function useDriveMarkerV3(
     speedMs,
     segmentDurationMs,
     cameraTick,
+    cameraTargetLat,
+    cameraTargetLng,
+    cameraSegmentDurationMs,
     lastTargetAtMs,
     coastDistanceM,
     targetArcM,
@@ -999,6 +1034,9 @@ export function useDriveMarkerV3(
       targetHdg,
       segmentDurationMs,
       cameraTick,
+      cameraTargetLat,
+      cameraTargetLng,
+      cameraSegmentDurationMs,
       isBootstrapped,
       pushTarget,
       reset,
@@ -1006,7 +1044,7 @@ export function useDriveMarkerV3(
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [cameraTick, ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, targetLat, targetLng, targetHdg],
+    [cameraSegmentDurationMs, cameraTargetLat, cameraTargetLng, cameraTick, ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, targetLat, targetLng, targetHdg],
   );
 }
 

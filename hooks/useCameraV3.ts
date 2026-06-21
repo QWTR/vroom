@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import Mapbox from '@rnmapbox/maps';
 import {
   runOnJS,
@@ -12,10 +12,7 @@ import {
   getTripCameraPadding,
 } from './useCameraAnimation';
 import type { DriveMarkerV3Values } from './useDriveMarkerV3';
-import {
-  headingDelta,
-  normalizeHeading,
-} from '../lib/driveCore/travelHeading';
+import { normalizeHeading } from '../lib/driveCore/travelHeading';
 import { bearingBetween } from '../scripts/navigationUtils';
 
 export type RawGpsCourseRef = React.MutableRefObject<{
@@ -47,19 +44,6 @@ const SPEED_DEADZONE_KMH = NAV_V3.CAMERA_SPEED_DEADZONE_KMH;
 const MIN_COURSE_MOVE_M = 0.35;
 const MIN_COURSE_SPEED_KMH = NAV_V3.CAMERA_COG_MIN_SPEED_KMH;
 
-const DELTA_MIN_DIST_M = NAV_V3.CAMERA_DELTA_MIN_DIST_M;
-const DELTA_MIN_HEADING_DEG = NAV_V3.CAMERA_DELTA_MIN_HEADING_DEG;
-const STAND_HEADING_DEG = NAV_V3.CAMERA_STAND_HEADING_DEG;
-
-const HEADING_URGENT_DEG = Math.max(DELTA_MIN_HEADING_DEG, 2);
-/**
- * Jedna natywna animacja na segment GPS. Ma niewielki zapas na jitter kadencji,
- * dzięki czemu następny segment przejmuje kamerę zanim poprzedni się zatrzyma.
- */
-function resolveTripCameraAnimMs(segmentDurationMs: number, isColdStart: boolean): number {
-  if (isColdStart) return 0;
-  return Math.max(420, Math.min(1_400, Math.ceil(segmentDurationMs + 140)));
-}
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
@@ -193,9 +177,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const coldStartFollowPendingRef = useRef(false);
   /** Bootstrap przed React enabled — nie czyść lastSent w useEffect. */
   const tripFollowPrearmedRef = useRef(false);
+  const nativeFollowResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
+  const [nativeFollowEnabled, setNativeFollowEnabled] = useState(enabled && isTripMode);
 
   const resetHeadingSpringState = useCallback(() => {
     targetCameraHeadingSv.value = 0;
@@ -222,6 +208,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
   ]);
 
   const release = useCallback(() => {
+    if (nativeFollowResumeTimerRef.current) {
+      clearTimeout(nativeFollowResumeTimerRef.current);
+      nativeFollowResumeTimerRef.current = null;
+    }
+    setNativeFollowEnabled(false);
     followEnabledSv.value = 0;
     lockedCourseHeadingRef.current = 0;
     lockedCourseReadyRef.current = false;
@@ -246,6 +237,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
     coldStartFollowPendingRef.current = true;
+    if (nativeFollowResumeTimerRef.current) {
+      clearTimeout(nativeFollowResumeTimerRef.current);
+      nativeFollowResumeTimerRef.current = null;
+    }
+    setNativeFollowEnabled(true);
     if (heading != null && Number.isFinite(heading)) {
       const h = normalizeHeading(heading);
       lockedCourseHeadingRef.current = h;
@@ -273,6 +269,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
       return;
     }
     followEnabledSv.value = 1;
+    setNativeFollowEnabled(true);
     userPanningRef.current = false;
     userExploreUntilRef.current = 0;
     if (tripFollowPrearmedRef.current) {
@@ -300,6 +297,27 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const setUserExploring = useCallback((exploring: boolean, resumeMs = RETURN_FROM_EXPLORE_MS) => {
     userPanningRef.current = exploring;
     userExploreUntilRef.current = exploring ? Date.now() + resumeMs : 0;
+    if (nativeFollowResumeTimerRef.current) {
+      clearTimeout(nativeFollowResumeTimerRef.current);
+      nativeFollowResumeTimerRef.current = null;
+    }
+    if (exploring) {
+      setNativeFollowEnabled(false);
+      nativeFollowResumeTimerRef.current = setTimeout(() => {
+        userPanningRef.current = false;
+        userExploreUntilRef.current = 0;
+        setNativeFollowEnabled(true);
+        nativeFollowResumeTimerRef.current = null;
+      }, resumeMs);
+    } else {
+      setNativeFollowEnabled(true);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (nativeFollowResumeTimerRef.current) {
+      clearTimeout(nativeFollowResumeTimerRef.current);
+    }
   }, []);
 
   const isPaused = useCallback((): boolean => {
@@ -358,8 +376,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lat: number,
     lng: number,
     heading: number,
-    segmentDurationMs: number,
-    opts?: { headingOnly?: boolean },
+    _segmentDurationMs: number,
   ) => {
     if (!isTripMode) return;
     if (!enabled && !tripFollowPrearmedRef.current && followEnabledSv.value < 0.5) return;
@@ -377,14 +394,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
     const now = Date.now();
     const hudKmh = Math.max(0, speedKmhRef?.current ?? 0);
     const speedKmh = smoothedSpeedRef.current > 0 ? smoothedSpeedRef.current : hudKmh;
-    const headingDeltaDeg = prevSent
-      ? Math.abs(headingDelta(prevSent.heading, heading))
-      : 999;
-
-    if (prevSent) {
-      if (!opts?.headingOnly && centerDeltaM < DELTA_MIN_DIST_M && headingDeltaDeg < DELTA_MIN_HEADING_DEG) return;
-      if (opts?.headingOnly && headingDeltaDeg < DELTA_MIN_HEADING_DEG) return;
-    }
 
     const zoomSpeed = cameraZoomSpeedKmh({
       speedKmh,
@@ -399,28 +408,14 @@ export function useCameraV3(opts: UseCameraV3Options) {
       lastZoomTickRef.current = now;
     }
 
-    const effectiveZoom = userZoomOverrideRef.current ?? zoom;
-    const zoomChanged = !prevSent || Math.abs(prevSent.zoom - effectiveZoom) >= 0.025;
-    if (prevSent && centerDeltaM < DELTA_MIN_DIST_M && headingDeltaDeg < DELTA_MIN_HEADING_DEG && !zoomChanged) return;
-
     if (!cachedPaddingRef.current) cachedPaddingRef.current = getTripCameraPadding(isNavigating);
-    const isColdStart = coldStartFollowPendingRef.current;
     const displayHeading = normalizeHeading(heading);
 
-    cameraRef.current?.setCamera({
-      centerCoordinate: [lng, lat],
-      heading: displayHeading,
-      zoomLevel: effectiveZoom,
-      pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
-      padding: cachedPaddingRef.current,
-      animationDuration: resolveTripCameraAnimMs(segmentDurationMs, isColdStart),
-      animationMode: 'linearTo',
-    });
-
+    // Pozycję prowadzi natywny FollowPuck. Nie wysyłamy kolejnych setCamera,
+    // bo każda taka komenda przerywa follow i tworzyła cykl ruch-stop-ruch.
     coldStartFollowPendingRef.current = false;
-    markSentPose(lat, lng, displayHeading, effectiveZoom, now);
+    markSentPose(lat, lng, displayHeading, zoom ?? BROWSE_ZOOM, now);
   }, [
-    cameraRef,
     enabled,
     followEnabledSv,
     isNavigating,
@@ -440,10 +435,10 @@ export function useCameraV3(opts: UseCameraV3Options) {
   useAnimatedReaction(
     () => ({
       tick: marker.cameraTick.value,
-      lat: marker.targetLat.value,
-      lng: marker.targetLng.value,
+      lat: marker.cameraTargetLat.value,
+      lng: marker.cameraTargetLng.value,
       hdg: normalizeHeading(marker.targetHdg.value),
-      durationMs: marker.segmentDurationMs.value,
+      durationMs: marker.cameraSegmentDurationMs.value,
       follow: followEnabledSv.value,
     }),
     (next, previous) => {
@@ -468,10 +463,10 @@ export function useCameraV3(opts: UseCameraV3Options) {
       displayCameraHdgReadySv,
       smoothedCameraHeadingSv,
       marker.cameraTick,
-      marker.targetLat,
-      marker.targetLng,
+      marker.cameraTargetLat,
+      marker.cameraTargetLng,
       marker.targetHdg,
-      marker.segmentDurationMs,
+      marker.cameraSegmentDurationMs,
       onEmitCameraKeyframe,
     ],
   );
@@ -540,6 +535,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     headingSpringReadySv,
     isNavigating,
     lastCameraPushMsSv,
+    lastSentReadySv,
     markSentPose,
     marker.heading,
     smoothedCameraHeadingSv,
@@ -622,6 +618,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     isUserExploring: isPaused,
     smoothedCameraHeading: smoothedCameraHeadingSv,
     targetCameraHeading: targetCameraHeadingSv,
+    nativeFollowEnabled,
   };
 }
 

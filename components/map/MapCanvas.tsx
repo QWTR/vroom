@@ -37,7 +37,8 @@ export const MapCanvas = memo(
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
-        surfaceView={Platform.OS === 'android' ? false : undefined}
+        surfaceView={Platform.OS === 'android' ? true : undefined}
+        preferredFramesPerSecond={60}
         scrollEnabled
         zoomEnabled
         pitchEnabled

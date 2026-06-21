@@ -868,6 +868,18 @@ export function useBackgroundTracking(
         }
         return;
       }
+      // Foreground map owns the high-frequency watcher. Running the background
+      // location task at the same time duplicated GPS/service work and heated
+      // Android devices. AppState transition starts this task when truly needed.
+      if (appIsActive) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        lastBgCadenceRef.current = null;
+        return;
+      }
       void isSharing;
       const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
       if (!disclosureAccepted) return;
