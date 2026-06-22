@@ -4,11 +4,15 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "verify": {
+    "development": {
+      "developmentClient": true,
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
+        "image": "latest",
+        "buildType": "apk"
+      },
+      "ios": {
+        "image": "latest"
       },
       "env": {
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
@@ -17,19 +21,19 @@
         "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     },
-    "development": {
-      "developmentClient": true,
+    "simulator": {
+      "developmentClient": false,
       "distribution": "internal",
-      "android": {
-        "image": "latest"
-      },
+      "channel": "main",
       "ios": {
-        "image": "latest"
+        "image": "latest",
+        "simulator": true
       },
       "env": {
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
-        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU"
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
+        "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     },
     "preview": {
@@ -60,20 +64,6 @@
       },
       "ios": {
         "image": "latest"
-      },
-      "env": {
-        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
-        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
-        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
-        "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
-      }
-    },
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "image": "latest",
-        "buildType": "apk"
       },
       "env": {
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",

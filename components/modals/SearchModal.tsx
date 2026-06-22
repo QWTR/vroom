@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from '
 import {
   Modal, View, Text, TouchableOpacity, TextInput,
   FlatList, ActivityIndicator, StyleSheet, Platform,
-  StatusBar, SafeAreaView, ScrollView, BackHandler,
+  StatusBar, ScrollView, BackHandler,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import debounce from 'lodash.debounce';
