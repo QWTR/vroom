@@ -29,6 +29,8 @@ const TRIP_MAX_SEGMENT_KM = 2.5;
 const TRIP_FALLBACK_MAX_SEGMENT_KM = 1.4;
 const TRIP_FALLBACK_MIN_SPEED_KMH = 4;
 const TRIP_MAX_DISTANCE_KM = 1200;
+/** Lokalny snapshot trasy co N km — przetrwa kill procesu (profil flush przy starcie). */
+const EMERGENCY_CHECKPOINT_KM = 0.1;
 const TRIP_STATS_DIAGNOSTICS = __DEV__;
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
@@ -101,16 +103,17 @@ export function useTripStats() {
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
 
   const maybeEmergencyCheckpoint = useCallback(() => {
-    const floorKm = Math.floor(distanceRef.current);
-    if (floorKm < 1 || floorKm <= lastEmergencyKmRef.current) return;
-    lastEmergencyKmRef.current = floorKm;
+    const dist = distanceRef.current;
+    const nextMark = Math.floor(dist / EMERGENCY_CHECKPOINT_KM) * EMERGENCY_CHECKPOINT_KM;
+    if (nextMark < EMERGENCY_CHECKPOINT_KM || nextMark <= lastEmergencyKmRef.current) return;
+    lastEmergencyKmRef.current = nextMark;
     void writeEmergencyTripSave({
-      distanceKm: parseFloat(distanceRef.current.toFixed(3)),
+      distanceKm: parseFloat(dist.toFixed(3)),
       trackedPoints: [...trackedPts.current],
       speedSamples: [...speedSamples.current],
       startTimeMs: startTimeRef.current,
       estimatedSec: estSecRef.current,
-      floorKm,
+      floorKm: nextMark,
       savedAt: Date.now(),
     });
   }, []);
@@ -127,7 +130,7 @@ export function useTripStats() {
       : [];
     startTimeRef.current = snapshot.startTimeMs ?? Date.now();
     estSecRef.current = Number(snapshot.estimatedSec) || 0;
-    lastEmergencyKmRef.current = Math.floor(dist);
+    lastEmergencyKmRef.current = Math.floor(dist / EMERGENCY_CHECKPOINT_KM) * EMERGENCY_CHECKPOINT_KM;
     const lastPt = trackedPts.current[trackedPts.current.length - 1];
     lastPointRef.current = lastPt
       ? { latitude: lastPt.latitude, longitude: lastPt.longitude, time: Date.now() }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_VIEWPORT, isInViewport } from './liveFleetSpatialIndex';
+import {
+  correctionDurationForDistance,
+  shouldPublishFleetFrame,
+} from './liveFleetMotion';
 
 describe('useLiveFleetAnimator viewport culling', () => {
   it('keeps only in-viewport fleet slots in worklet filter', () => {
@@ -23,5 +27,17 @@ describe('useLiveFleetAnimator viewport culling', () => {
     const slots = [{ lat: 52, lng: 21 }, { lat: 60, lng: 10 }];
     const visible = slots.filter((s) => isInViewport(s.lat, s.lng, EMPTY_VIEWPORT));
     expect(visible).toHaveLength(2);
+  });
+
+  it('throttles Mapbox shape publishing to fleet cadence', () => {
+    expect(shouldPublishFleetFrame(1_000, 0)).toBe(true);
+    expect(shouldPublishFleetFrame(1_030, 1_000)).toBe(false);
+    expect(shouldPublishFleetFrame(1_066, 1_000)).toBe(true);
+  });
+
+  it('uses soft corrections for normal drift and snap for huge drift', () => {
+    expect(correctionDurationForDistance(1)).toBeGreaterThan(0);
+    expect(correctionDurationForDistance(40)).toBeGreaterThan(correctionDurationForDistance(1));
+    expect(correctionDurationForDistance(240)).toBe(0);
   });
 });

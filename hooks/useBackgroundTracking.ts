@@ -73,6 +73,8 @@ const BG_SPEED_MAX_KEY          = 'nav_speed_max';
 export const BG_PENDING_KM_KEY  = 'bg_pending_km';
 /** Lokalny snapshot statystyk trasy po każdym pełnym km (Android kill recovery). */
 export const EMERGENCY_TRIP_SAVE_KEY = 'vroom_emergency_trip_save';
+/** Ile km z bieżącej trasy już trafiło na serwer (checkpointy) — przetrwa kill procesu. */
+export const TRIP_CHECKPOINT_SAVED_KM_KEY = 'trip_checkpoint_saved_km';
 const BG_PENDING_ACTIVITY_SAVE_KEY = 'bg_pending_activity_save';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
@@ -199,6 +201,31 @@ export async function clearEmergencyTripSave(): Promise<void> {
   } catch { /* ignore */ }
 }
 
+export async function persistTripCheckpointSavedKm(km: number): Promise<void> {
+  try {
+    const n = Number(km);
+    if (!Number.isFinite(n) || n <= 0) {
+      await AsyncStorage.removeItem(TRIP_CHECKPOINT_SAVED_KM_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(TRIP_CHECKPOINT_SAVED_KM_KEY, String(n));
+  } catch { /* ignore */ }
+}
+
+export async function loadTripCheckpointSavedKm(): Promise<number> {
+  try {
+    return safePendingKm(await AsyncStorage.getItem(TRIP_CHECKPOINT_SAVED_KM_KEY));
+  } catch {
+    return 0;
+  }
+}
+
+export async function clearTripCheckpointSavedKm(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(TRIP_CHECKPOINT_SAVED_KM_KEY);
+  } catch { /* ignore */ }
+}
+
 export async function saveIncrementalTripKm(payload: {
   distanceKm: number;
   maxSpeedKmh?: number;
@@ -206,7 +233,7 @@ export async function saveIncrementalTripKm(payload: {
   source?: 'navigation' | 'driving' | 'trip-checkpoint';
 }): Promise<boolean> {
   const dist = Number(payload.distanceKm);
-  if (!Number.isFinite(dist) || dist < 0.1) return false;
+  if (!Number.isFinite(dist) || dist < 0.05) return false;
   const token = await getAuthToken();
   if (!token) return false;
   try {
@@ -589,8 +616,10 @@ export function useBackgroundTracking(
     if (!sharingHydrated) return;
     // BG task: tylko gdy user ma live ON i włączone śledzenie w tle.
     AsyncStorage.setItem(BG_IS_SHARING_KEY, isSharing && bgEnabled ? 'true' : 'false').catch(() => {});
-    // Preferencja przełącznika na mapie — NIE wiązać z bgEnabled (inaczej UI pokazuje OFF).
-    AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, isSharing ? 'true' : 'false').catch(() => {});
+    // LIVE na mapie jest domyślnie ON; nie utrwalaj przejściowego OFF z lokalnego stanu.
+    if (isSharing) {
+      AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true').catch(() => {});
+    }
   }, [isSharing, sharingHydrated, bgEnabled]);
 
   useEffect(() => {

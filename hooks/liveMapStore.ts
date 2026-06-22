@@ -34,6 +34,24 @@ export function createLiveMapStore() {
 
   const userIdsListeners = new Set<() => void>();
   const positionListeners = new Map<number, Set<() => void>>();
+  const fleetDeltaListeners = new Set<(ids: number[]) => void>();
+  const pendingFleetDeltaIds = new Set<number>();
+  let fleetDeltaTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushFleetDeltas = () => {
+    fleetDeltaTimer = null;
+    if (pendingFleetDeltaIds.size === 0) return;
+    const ids = [...pendingFleetDeltaIds];
+    pendingFleetDeltaIds.clear();
+    fleetDeltaListeners.forEach((l) => l(ids));
+  };
+
+  const scheduleFleetDelta = (id: number) => {
+    if (!Number.isFinite(id)) return;
+    pendingFleetDeltaIds.add(id);
+    if (fleetDeltaTimer != null) return;
+    fleetDeltaTimer = setTimeout(flushFleetDeltas, 50);
+  };
 
   const notifyUserIds = () => {
     userIdsListeners.forEach((l) => l());
@@ -120,7 +138,10 @@ export function createLiveMapStore() {
       heading: nextHeading,
       speedMps: nextSpeedMps,
     });
-    if (notify) notifyPosition(id);
+    if (notify) {
+      notifyPosition(id);
+      scheduleFleetDelta(id);
+    }
   };
 
   const removeUserInPlace = (id: number) => {
@@ -183,6 +204,7 @@ export function createLiveMapStore() {
 
     for (const id of notifyIds) {
       notifyPosition(id);
+      scheduleFleetDelta(id);
     }
 
     return notifyIds;
@@ -207,6 +229,10 @@ export function createLiveMapStore() {
     subscribeUserIds(listener: () => void) {
       userIdsListeners.add(listener);
       return () => userIdsListeners.delete(listener);
+    },
+    subscribeFleetDeltas(listener: (ids: number[]) => void) {
+      fleetDeltaListeners.add(listener);
+      return () => fleetDeltaListeners.delete(listener);
     },
     getUserIdsSnapshot: () => userIdsSnapshot,
 
@@ -237,6 +263,11 @@ export function createLiveMapStore() {
       userIds = [];
       userIdsSnapshot = [];
       positionListeners.clear();
+      pendingFleetDeltaIds.clear();
+      if (fleetDeltaTimer) {
+        clearTimeout(fleetDeltaTimer);
+        fleetDeltaTimer = null;
+      }
       notifyUserIds();
     },
   };

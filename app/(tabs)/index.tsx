@@ -41,7 +41,8 @@ import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
-import { useAppPresence } from "../../hooks/useAppPresence";
+import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
+import { getNextStreakResetIso } from "../../lib/streakDeadline";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width, height } = Dimensions.get("window");
@@ -69,6 +70,7 @@ type User = {
 	totalRides: number;
 	monthlyRides: number;
 	streak: number;
+	streakResetAt?: string | null;
 	meetCount: number;
 	cityCount: number;
 	carCount: number;
@@ -110,6 +112,7 @@ async function fetchFreshUser(): Promise<User | null> {
 			...old,
 			...fresh,
 			avatar: fresh.avatarUrl ?? fresh.avatar ?? old.avatar ?? null,
+			streakResetAt: fresh.streakResetAt ?? old.streakResetAt ?? getNextStreakResetIso(),
 		};
 		delete merged.avatarUrl;
 		await AsyncStorage.setItem("user", JSON.stringify(merged));
@@ -173,8 +176,29 @@ export default function HomeScreen() {
 	useFocusEffect(
 		useCallback(() => {
 			fetchNotifUnread();
+			void fetchFreshUser().then((fresh) => {
+				if (fresh) setUser(fresh);
+			});
 		}, [fetchNotifUnread]),
 	);
+
+	useEffect(() => {
+		const sub = DeviceEventEmitter.addListener(
+			STREAK_UPDATED,
+			(payload: { streak?: number; streakResetAt?: string | null }) => {
+				if (typeof payload?.streak !== 'number') return;
+				setUser((prev) => {
+					if (!prev) return prev;
+					return {
+						...prev,
+						streak: payload.streak!,
+						streakResetAt: payload.streakResetAt ?? prev.streakResetAt ?? getNextStreakResetIso(),
+					};
+				});
+			},
+		);
+		return () => sub.remove();
+	}, []);
 
 	useEffect(() => {
 		const sub = DeviceEventEmitter.addListener(FRIEND_INVITE_HANDLED, () => {
@@ -985,14 +1009,17 @@ export default function HomeScreen() {
 									}}>
 									Streak
 								</Text>
-								<LiveCountdownText 
-									targetDate={new Date(new Date().setHours(24, 0, 0, 0)).toISOString()}
+								<LiveCountdownText
+									targetIso={user.streakResetAt ?? getNextStreakResetIso()}
+									prefix="reset za "
+									fallback="reset za chwilę"
 									style={{
 										fontSize: 7,
 										color: t.primary,
 										fontFamily: "Orbitron",
-										letterSpacing: 1,
-										marginTop: 2
+										letterSpacing: 0.5,
+										marginTop: 2,
+										textAlign: "center",
 									}}
 								/>
 							</View>

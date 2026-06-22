@@ -157,6 +157,10 @@ import {
   setNavigatingFlag,
   readEmergencyTripSave,
   clearEmergencyTripSave,
+  writeEmergencyTripSave,
+  persistTripCheckpointSavedKm,
+  loadTripCheckpointSavedKm,
+  clearTripCheckpointSavedKm,
   BG_IS_DRIVING_KEY,
   BG_IS_NAVIGATING_KEY,
   useBackgroundTracking,
@@ -271,12 +275,7 @@ import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
-import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
-import {
-  boundsFromCenterZoom,
-  EMPTY_VIEWPORT,
-} from '../../hooks/liveFleetSpatialIndex';
-import { LiveUsersFleetLayer } from '../../components/map/LiveUsersFleetLayer';
+import { LiveFleetMapController } from '../../components/map/LiveFleetMapController';
 
 
 // Geoprzestrzenna detekcja on-route (Turf Haversine) — margines GPS 30–40 m.
@@ -304,9 +303,6 @@ const DEBUG_NETWORK = false;
 const SEND_INTERVAL_MS    = 15_000; // poll period (ms)
 const SEND_MIN_DIST_M     = 40;     // min movement before sending (saves bandwidth while stationary)
 const SEND_MAX_ELAPSED_MS = 60_000; // heartbeat: force-send after this long even without movement
-const FLEET_VISIBLE_CAP = 150;
-const FLEET_VISIBLE_CAP_STICKY = 170;
-const FLEET_EXIT_DISTANCE_BUFFER_KM = 3;
 const FORCE_MAP_MATCH_RECOVER_MIN_INTERVAL_MS = 45_000;
 const FORCE_MAP_MATCH_RECOVER_STREAK = 4;
 /** Min. odstęp forceMatch przy braku geometrii drogi (noRoad). */
@@ -1255,7 +1251,9 @@ const LIVE_ACHIEVEMENT_DISTANCE_DELTA_TRIGGER_KM = 0.4;
 const LIVE_ACHIEVEMENT_MIN_MOVING_DISTANCE_KM = 1.0;
 const DRIVE_HEALTH_LOG_MS = 15_000;
 /** Co tyle km zapisujemy postęp trasy na serwer (profil nie „zamraża się” na długiej jeździe). */
-const TRIP_CHECKPOINT_KM = 10.0;
+const TRIP_CHECKPOINT_KM = 0.3;
+/** Minimalny nies zapisany blok przy wymuszonym flushu (tło / kill). */
+const TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
 /** Checkpoint dystansu w trakcie jazdy — zapis co N km niezależnie od końca sesji. */
 const ENABLE_TRIP_DISTANCE_CHECKPOINT = true;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
@@ -2154,6 +2152,7 @@ function MapScreenInner() {
   const bgMarkerTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tripCheckpointSavedKmRef = useRef(0);
   const tripCheckpointInFlightRef = useRef(false);
+  const liveDistanceKmRef = useRef(0);
 
   // ── Cost-optimisation refs ────────────────────────────────
   // sendLocation: track last sent position + time to apply distance/heartbeat gate
@@ -3734,6 +3733,66 @@ function MapScreenInner() {
   feedPositionRef.current = feedPosition;
   feedSpeedRef.current = feedSpeed;
 
+  useEffect(() => {
+    liveDistanceKmRef.current = Number(liveDistanceKm || 0);
+  }, [liveDistanceKm]);
+
+  const flushTripDistanceCheckpointRef = useRef<
+    (opts?: { minKm?: number; forceAll?: boolean; reason?: string }) => Promise<boolean>
+  >(async () => false);
+
+  const flushTripDistanceCheckpoint = useCallback(async (opts?: {
+    minKm?: number;
+    forceAll?: boolean;
+    reason?: string;
+  }) => {
+    if (!ENABLE_TRIP_DISTANCE_CHECKPOINT) return false;
+    if (tripCheckpointInFlightRef.current) return false;
+
+    const minKm = opts?.minKm ?? TRIP_CHECKPOINT_KM;
+    const currentKm = parseFloat(
+      (liveDistanceKmRef.current > 0
+        ? liveDistanceKmRef.current
+        : finishTrip().distanceKm
+      ).toFixed(3),
+    );
+    const unsavedKm = currentKm - tripCheckpointSavedKmRef.current;
+    if (unsavedKm < minKm) return false;
+
+    const chunkKm = opts?.forceAll
+      ? unsavedKm
+      : Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
+    if (chunkKm < minKm) return false;
+
+    tripCheckpointInFlightRef.current = true;
+    try {
+      const ok = await saveIncrementalTripKm({
+        distanceKm: chunkKm,
+        maxSpeedKmh: tripPeakSpeedRef.current,
+        source: isNavigatingRef.current ? 'navigation' : 'driving',
+      });
+      if (ok) {
+        tripCheckpointSavedKmRef.current += chunkKm;
+        profileTotalDistanceKmRef.current += chunkKm;
+        await persistTripCheckpointSavedKm(tripCheckpointSavedKmRef.current);
+        if (__DEV__) {
+          console.log('[TripCheckpoint] saved', {
+            reason: opts?.reason ?? 'periodic',
+            chunkKm: Number(chunkKm.toFixed(3)),
+            totalSavedKm: Number(tripCheckpointSavedKmRef.current.toFixed(3)),
+          });
+        }
+      }
+      return ok;
+    } finally {
+      tripCheckpointInFlightRef.current = false;
+    }
+  }, [finishTrip]);
+
+  useEffect(() => {
+    flushTripDistanceCheckpointRef.current = flushTripDistanceCheckpoint;
+  }, [flushTripDistanceCheckpoint]);
+
   const publishSpeed = useCallback((
     gpsSpeedMs: number | null,
     opts?: {
@@ -4203,37 +4262,20 @@ function MapScreenInner() {
       return;
     }
     if (!(isDriving || isNavigating)) {
-      tripCheckpointSavedKmRef.current = 0;
       return;
     }
-    const unsavedKm = Number(liveDistanceKm || 0) - tripCheckpointSavedKmRef.current;
-    if (unsavedKm < TRIP_CHECKPOINT_KM || tripCheckpointInFlightRef.current) return;
-
-    const chunkKm = Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
-    if (chunkKm < TRIP_CHECKPOINT_KM) return;
-
-    tripCheckpointInFlightRef.current = true;
-    void (async () => {
-      try {
-        const ok = await saveIncrementalTripKm({
-          distanceKm: chunkKm,
-          maxSpeedKmh: tripPeakSpeedRef.current,
-          source: isNavigating ? 'navigation' : 'driving',
-        });
-        if (ok) {
-          tripCheckpointSavedKmRef.current += chunkKm;
-          profileTotalDistanceKmRef.current += chunkKm;
-        }
-      } finally {
-        tripCheckpointInFlightRef.current = false;
-      }
-    })();
-  }, [liveDistanceKm, isDriving, isNavigating]);
+    void flushTripDistanceCheckpoint({ reason: 'live_distance' });
+  }, [liveDistanceKm, isDriving, isNavigating, flushTripDistanceCheckpoint]);
 
   useEffect(() => {
     if (!(isDriving || isNavigating)) return;
     const id = setInterval(() => {
       void flushTracePendingKmToStorage();
+      void flushTripDistanceCheckpointRef.current({
+        minKm: TRIP_CHECKPOINT_FORCE_MIN_KM,
+        forceAll: true,
+        reason: 'periodic_safety',
+      });
     }, 60_000);
     return () => clearInterval(id);
   }, [isDriving, isNavigating]);
@@ -4316,11 +4358,7 @@ function MapScreenInner() {
 
   const mapSessionActive = liveMapEnabled && sharingHydrated;
   const liveUsersEnabled = isSharing && sharingHydrated;
-  const stickyFleetIdsRef = useRef<number[]>([]);
-
-  useEffect(() => {
-    if (!liveUsersEnabled) stickyFleetIdsRef.current = [];
-  }, [liveUsersEnabled]);
+  const liveManuallyDisabledThisSessionRef = useRef(false);
 
   const liveResumeOnLocRef = useRef(false);
   useEffect(() => {
@@ -4346,19 +4384,10 @@ function MapScreenInner() {
     let cancelled = false;
     (async () => {
       try {
-        // Preferencja live (przełącznik) — domyślnie ON; OFF tylko po jawnym wyłączeniu przez usera.
-        let userPref = await AsyncStorage.getItem(LIVE_SHARING_USER_PREF_KEY);
-        if (userPref == null) {
-          const legacyBg = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
-          if (legacyBg === 'true') {
-            userPref = 'true';
-          } else {
-            userPref = 'true';
-            await AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true');
-          }
-        }
-        if (!cancelled) {
-          setIsSharing(userPref !== 'false');
+        // LIVE ma być domyślnie i trwale ON. Stare zapisane OFF ignorujemy.
+        await AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true');
+        if (!cancelled && !liveManuallyDisabledThisSessionRef.current) {
+          setIsSharing(true);
         }
 
         const token = await AsyncStorage.getItem('token');
@@ -4377,15 +4406,10 @@ function MapScreenInner() {
               : `${API_URL}${profileAvatar.startsWith('/') ? profileAvatar : `/${profileAvatar}`}`,
           );
         }
-        const userOptedOutLive = userPref === 'false';
-        if (!cancelled) {
-          if (userOptedOutLive) {
-            setIsSharing(false);
-          } else {
-            setIsSharing(true);
-            await AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true');
-            void resumeLiveSession();
-          }
+        if (!cancelled && !liveManuallyDisabledThisSessionRef.current) {
+          setIsSharing(true);
+          await AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true');
+          void resumeLiveSession();
         }
         if (Number.isFinite(Number(data.totalDistance))) {
           profileTotalDistanceKmRef.current = Math.max(0, Number(data.totalDistance));
@@ -4397,17 +4421,7 @@ function MapScreenInner() {
       }
     })();
     return () => { cancelled = true; };
-  }, [resumeLiveSession]);
-
-  useEffect(() => {
-    if (!sharingHydrated) return;
-    void (async () => {
-      const optedOut = await AsyncStorage.getItem(LIVE_SHARING_USER_PREF_KEY);
-      if (optedOut === 'false') return;
-      setIsSharing(true);
-      await resumeLiveSession();
-    })();
-  }, [sharingHydrated, resumeLiveSession]);
+  }, []);
 
   const {
     isBuilding, pins, saving, snapping, snappedRoute, displaySnappedRoute,
@@ -5677,6 +5691,7 @@ function MapScreenInner() {
       }
     }
     tripCheckpointSavedKmRef.current = 0;
+    void clearTripCheckpointSavedKm();
     tripMoveSamplesRef.current = [];
     speedKmhRef.current = 0;
     setSpeed(null);
@@ -5741,7 +5756,8 @@ function MapScreenInner() {
     }
     lastDrivingToggleAtRef.current = nowToggle;
     if (isNavigating) return;
-    if (isDriving) {
+    const drivingActive = isDrivingRef.current || isDriving;
+    if (drivingActive) {
       drivingManuallyDisabledRef.current = true;
       drivingManualDisabledAtRef.current = Date.now();
       kmSinceManualOffRef.current = 0;
@@ -5749,6 +5765,8 @@ function MapScreenInner() {
       pendingDrivingEntryOneShotRef.current = false;
       // Zawsze zwalnij busy przy wyjściu — inaczej szybkie OFF→ON może zostawić blokadę i „nic się nie dzieje”.
       drivingManualEntryBusyRef.current = false;
+      isDrivingRef.current = false;
+      setIsDriving(false);
       exitDrivingMode({ reason: 'manual_toggle_off' });
       setFollowMode('idleBrowse');
     } else {
@@ -10423,6 +10441,8 @@ if (
       durationSec: finalStats.elapsedSec,
       routePoints: finalStats.trackedPoints,
     });
+    tripCheckpointSavedKmRef.current = 0;
+    void clearTripCheckpointSavedKm();
   }, [flushPendingKm]);
 
   useEffect(() => {
@@ -10449,18 +10469,52 @@ if (
     emergencyTripRestoredRef.current = true;
     void (async () => {
       try {
-        const [drivingFlag, navFlag, emergency] = await Promise.all([
+        const [drivingFlag, navFlag, emergency, savedKm] = await Promise.all([
           AsyncStorage.getItem(BG_IS_DRIVING_KEY),
           AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
           readEmergencyTripSave(),
+          loadTripCheckpointSavedKm(),
         ]);
-        if (!emergency || emergency.distanceKm < 0.05) return;
-        if (drivingFlag !== 'true' && navFlag !== 'true') return;
-        restoreTripSnapshot(emergency);
-        vroomGpsLog('EMERGENCY_TRIP_RESTORE', {
-          distanceKm: Number(emergency.distanceKm.toFixed(3)),
-          floorKm: emergency.floorKm,
-        }, 0);
+        tripCheckpointSavedKmRef.current = savedKm;
+        const hadActiveFlag = drivingFlag === 'true' || navFlag === 'true';
+
+        if (emergency && emergency.distanceKm >= TRIP_CHECKPOINT_FORCE_MIN_KM) {
+          const unsavedKm = Math.max(0, emergency.distanceKm - savedKm);
+          if (unsavedKm >= TRIP_CHECKPOINT_FORCE_MIN_KM) {
+            const peakFromEmergency = (emergency.speedSamples ?? [])
+              .filter((s) => s > 2 && s <= 200);
+            const ok = await saveIncrementalTripKm({
+              distanceKm: unsavedKm,
+              maxSpeedKmh: peakFromEmergency.length ? Math.max(...peakFromEmergency) : 0,
+              source: navFlag === 'true' ? 'navigation' : 'driving',
+            });
+            if (ok) {
+              tripCheckpointSavedKmRef.current = emergency.distanceKm;
+              profileTotalDistanceKmRef.current += unsavedKm;
+              await persistTripCheckpointSavedKm(emergency.distanceKm);
+              vroomGpsLog('EMERGENCY_TRIP_FLUSH', {
+                flushedKm: Number(unsavedKm.toFixed(3)),
+                totalKm: Number(emergency.distanceKm.toFixed(3)),
+              }, 0);
+            }
+          }
+          if (hadActiveFlag) {
+            restoreTripSnapshot(emergency);
+            vroomGpsLog('EMERGENCY_TRIP_RESTORE', {
+              distanceKm: Number(emergency.distanceKm.toFixed(3)),
+              floorKm: emergency.floorKm,
+            }, 0);
+          } else {
+            await clearEmergencyTripSave();
+            await clearTripCheckpointSavedKm();
+            tripCheckpointSavedKmRef.current = 0;
+          }
+        } else if (!hadActiveFlag) {
+          await setDrivingFlag(false);
+          await setNavigatingFlag(false);
+          await clearTripCheckpointSavedKm();
+          tripCheckpointSavedKmRef.current = 0;
+        }
       } catch { /* ignore */ }
     })();
   }, [locationReady, restoreTripSnapshot]);
@@ -11694,6 +11748,21 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
             rememberMapLastLocation(holdLat, holdLng);
             void saveMapLastLocation(holdLat, holdLng);
           }
+          const bgStats = finishTrip();
+          void writeEmergencyTripSave({
+            distanceKm: bgStats.distanceKm,
+            trackedPoints: bgStats.trackedPoints,
+            speedSamples: [],
+            startTimeMs: null,
+            estimatedSec: bgStats.estimatedSec,
+            floorKm: bgStats.distanceKm,
+            savedAt: Date.now(),
+          });
+          void flushTripDistanceCheckpointRef.current({
+            minKm: TRIP_CHECKPOINT_FORCE_MIN_KM,
+            forceAll: true,
+            reason: 'app_background',
+          });
         }
         if (!isPremiumRef.current && tripActive) {
           void notifyBackgroundPremiumRequired();
@@ -12433,86 +12502,10 @@ if (pts.length >= 2) {
 
   const visibleLiveUserIds = useMemo(() => {
     if (!liveUsersEnabled || liveUserIds.length === 0) return [];
-    const candidates = liveUserIds.filter((id) => String(id) !== String(currentUserId));
-    const scored = candidates
-      .map((id) => {
-        const meta = liveMapStore.getMeta(id);
-        const pos = liveMapStore.getPosition(id);
-        if (!meta || !pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return null;
-        const distKm = liveUsersAnchor
-          ? calculateDistance(
-            liveUsersAnchor.latitude,
-            liveUsersAnchor.longitude,
-            pos.lat,
-            pos.lng,
-          )
-          : 0;
-        return { id, meta, distKm };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
-      .filter(({ meta, distKm }) => {
-        if (meta.isFriend) return true;
-        if (!liveUsersAnchor) return true;
-        return distKm <= MAX_NEARBY_USERS_DISTANCE;
-      });
+    return liveUserIds.filter((id) => String(id) !== String(currentUserId));
+  }, [liveUserIds, currentUserId, liveUsersEnabled]);
 
-    scored.sort((a, b) => {
-      if (!!a.meta.isFriend !== !!b.meta.isFriend) return a.meta.isFriend ? -1 : 1;
-      return a.distKm - b.distKm;
-    });
-
-    const core = scored.slice(0, FLEET_VISIBLE_CAP);
-    const coreIds = new Set(core.map((entry) => entry.id));
-    const cutoffDist = core.length >= FLEET_VISIBLE_CAP
-      ? core[FLEET_VISIBLE_CAP - 1].distKm
-      : Infinity;
-    const exitThreshold = cutoffDist + FLEET_EXIT_DISTANCE_BUFFER_KM;
-    const scoredById = new Map(scored.map((entry) => [entry.id, entry]));
-
-    for (const id of stickyFleetIdsRef.current) {
-      if (coreIds.has(id)) continue;
-      const entry = scoredById.get(id);
-      if (entry && entry.distKm <= exitThreshold) {
-        coreIds.add(id);
-      }
-    }
-
-    const result = Array.from(coreIds)
-      .map((id) => scoredById.get(id))
-      .filter((entry): entry is NonNullable<typeof entry> => entry != null)
-      .sort((a, b) => {
-        if (!!a.meta.isFriend !== !!b.meta.isFriend) return a.meta.isFriend ? -1 : 1;
-        return a.distKm - b.distKm;
-      })
-      .slice(0, FLEET_VISIBLE_CAP_STICKY)
-      .map((entry) => entry.id);
-
-    stickyFleetIdsRef.current = result;
-    return result;
-  }, [liveUserIds, liveMapStore, currentUserId, liveUsersEnabled, liveUsersAnchor]);
-
-  const [fleetViewportBounds, setFleetViewportBounds] = useState(EMPTY_VIEWPORT);
-  const lastFleetViewportAtRef = useRef(0);
-  const lastFleetViewportSigRef = useRef('');
-  const commitFleetViewportBounds = useCallback((next: typeof EMPTY_VIEWPORT) => {
-    const sig = next.valid === 1
-      ? `${next.north.toFixed(3)}:${next.south.toFixed(3)}:${next.east.toFixed(3)}:${next.west.toFixed(3)}`
-      : 'empty';
-    if (sig === lastFleetViewportSigRef.current) return;
-    lastFleetViewportSigRef.current = sig;
-    setFleetViewportBounds(next);
-  }, []);
-
-  const {
-    animatedShapeProps: liveFleetAnimatedShapeProps,
-    metaPinRequests: liveFleetMetaPinRequests,
-  } = useLiveFleetAnimator(
-    liveMapStore,
-    visibleLiveUserIds,
-    liveUsersEnabled,
-    liveUsersAnchor,
-    fleetViewportBounds,
-  );
+  const [fleetMapIdleNonce, setFleetMapIdleNonce] = useState(0);
 
   const visibleUsers = useMemo(() => {
     return visibleLiveUserIds
@@ -12647,24 +12640,32 @@ if (pts.length >= 2) {
   }, [selectedUser, startConversation, router]);
 
   const handleToggleSharing = useCallback(async () => {
-    if (!isSharing && !settings.backgroundTracking) {
+    if (isSharing) {
+      liveManuallyDisabledThisSessionRef.current = true;
+      setIsSharing(false);
+      AsyncStorage.setItem(BG_IS_SHARING_KEY, 'false').catch(() => {});
+      void toggleSharing(false);
+      return;
+    }
+
+    AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true').catch(() => {});
+    liveManuallyDisabledThisSessionRef.current = false;
+    setIsSharing(true);
+    if (!settings.backgroundTracking) {
       Toast.show({
         type: 'info',
         text1: 'Live Map',
         text2: 'Działa przy otwartej aplikacji. Włącz „Pracę w tle” w ustawieniach, aby udostępniać lokalizację po zminimalizowaniu.',
       });
     }
-    const next = await toggleSharing();
-    setIsSharing(next);
-    if (!next) stickyFleetIdsRef.current = [];
-    AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, next ? 'true' : 'false').catch(() => {});
+    const next = await toggleSharing(true);
+    setIsSharing(true);
+    AsyncStorage.setItem(LIVE_SHARING_USER_PREF_KEY, 'true').catch(() => {});
     AsyncStorage.setItem(
       BG_IS_SHARING_KEY,
-      next && settings.backgroundTracking ? 'true' : 'false',
+      settings.backgroundTracking ? 'true' : 'false',
     ).catch(() => {});
-    if (next) {
-      void resumeLiveSession();
-    }
+    if (next) void resumeLiveSession();
   }, [toggleSharing, isSharing, settings.backgroundTracking, resumeLiveSession]);
 
   const handleReport = useCallback(async (type: any) => {
@@ -13812,45 +13813,11 @@ if (pts.length >= 2) {
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
             const zoom = Number.isFinite(z) ? Number(z) : 15;
             setCurrentZoom(zoom);
+            setFleetMapIdleNonce((n) => n + 1);
           }}
           onCameraChanged={(e: any) => {
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
             const zoomLive = Number.isFinite(z) ? Number(z) : null;
-            const center = e?.properties?.center;
-            if (Array.isArray(center) && center.length >= 2) {
-              const cLng = Number(center[0]);
-              const cLat = Number(center[1]);
-              if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
-                const nowVp = Date.now();
-                const viewportThrottleMs = isDrivingRef.current || isNavigatingRef.current
-                  ? 1_000
-                  : 250;
-                if (nowVp - lastFleetViewportAtRef.current >= viewportThrottleMs) {
-                  lastFleetViewportAtRef.current = nowVp;
-                  const anchor = liveUsersAnchor;
-                  if (anchor) {
-                    const camDistKm = calculateDistance(
-                      cLat,
-                      cLng,
-                      anchor.latitude,
-                      anchor.longitude,
-                    );
-                    // Dopóki kamera nie jest blisko użytkownika — nie culluj (puste GeoJSON).
-                    if (camDistKm > 40) {
-                      commitFleetViewportBounds(EMPTY_VIEWPORT);
-                    } else {
-                      const zoomForBounds = zoomLive ?? currentZoom;
-                      const padding = isNavigating || isDriving ? 1.05 : 1.2;
-                      commitFleetViewportBounds(
-                        boundsFromCenterZoom(cLat, cLng, zoomForBounds, padding),
-                      );
-                    }
-                  } else {
-                    commitFleetViewportBounds(EMPTY_VIEWPORT);
-                  }
-                }
-              }
-            }
             if (MAP_RENDER_DEBUG) {
               const now = Date.now();
               if (now - lastCameraChangeLogAtRef.current >= 250) {
@@ -13998,10 +13965,13 @@ if (pts.length >= 2) {
             />
           ) : null}
 
-          <LiveUsersFleetLayer
-            animatedShapeProps={liveFleetAnimatedShapeProps}
-            metaPinRequests={liveFleetMetaPinRequests}
-            visible={liveUsersEnabled && visibleLiveUserIds.length > 0}
+          <LiveFleetMapController
+            store={liveMapStore}
+            enabled={liveUsersEnabled}
+            anchor={liveUsersAnchor}
+            selfUserId={currentUserId}
+            mapRef={mapRef}
+            mapIdleNonce={fleetMapIdleNonce}
             onUserPress={handleLiveUserPress}
           />
 

@@ -910,9 +910,69 @@ export function useLiveMap(
   }, [isSharing]);
 
   // ── Toggle sharing ────────────────────────────────────
-  const toggleSharing = useCallback(async (): Promise<boolean> => {
-    if (!tokenRef.current) return false;
-    if (toggleInFlightRef.current) return isSharingRef.current;
+  const forceLocalSharingOff = useCallback(() => {
+    isSharingRef.current = false;
+    setSharingStatus('off');
+    const socket = socketRef.current;
+    if (socket?.connected) {
+      socket.emit('user:stop_sharing');
+      leaveLiveMapRoom();
+    }
+    clearLiveUsersFleetState();
+  }, [leaveLiveMapRoom, clearLiveUsersFleetState]);
+
+  const toggleSharing = useCallback(async (desired?: boolean): Promise<boolean> => {
+    const forceOff = desired === false;
+    const forceOn = desired === true;
+    if (forceOn) {
+      isSharingRef.current = true;
+      setSharingStatus(connected && liveUsersEnabled ? 'on' : 'connecting');
+      if (!tokenRef.current) return true;
+      if (!socketRef.current?.connected) {
+        socketRef.current?.connect();
+      } else {
+        joinLiveMapRoom();
+      }
+      const loc = userLocationRef.current;
+      if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+        await fetchWithTimeout(`${API_URL}/api/live/location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tokenRef.current}`,
+          },
+          body: JSON.stringify({
+            lat: loc.latitude,
+            lng: loc.longitude,
+            shareLocation: true,
+          }),
+        }).catch(() => {});
+        socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+      }
+      await fetchInitialData(tokenRef.current);
+      setSharingStatus('on');
+      return true;
+    }
+    if (forceOff) {
+      forceLocalSharingOff();
+      if (tokenRef.current) {
+        await fetchWithTimeout(`${API_URL}/api/live/location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tokenRef.current}`,
+          },
+          body: JSON.stringify({ shareLocation: false }),
+        }).catch(() => {});
+      }
+      return false;
+    }
+    if (!tokenRef.current) {
+      return false;
+    }
+    if (toggleInFlightRef.current) {
+      return isSharingRef.current;
+    }
     toggleInFlightRef.current = true;
     setSharingStatus(isSharingRef.current ? 'connecting' : 'off');
     try {
@@ -931,7 +991,7 @@ export function useLiveMap(
         setSharingStatus(isSharingRef.current ? 'on' : 'off');
         return isSharingRef.current;
       }
-      const nextShare = !!data.shareLocation;
+      const nextShare = forceOff ? false : !!data.shareLocation;
       isSharingRef.current = nextShare;
       setSharingStatus(nextShare ? 'connecting' : 'off');
 
@@ -964,24 +1024,22 @@ export function useLiveMap(
         setSharingStatus('on');
         Toast.show({ type: 'success', text1: '📍 Lokalizacja widoczna', text2: 'Inni widzą Cię na mapie' });
       } else {
-        setSharingStatus('off');
+        forceLocalSharingOff();
         Toast.show({ type: 'info', text1: '👁️ Lokalizacja ukryta', text2: 'Jesteś niewidoczny na mapie' });
-        const socket = socketRef.current;
-        if (socket?.connected) {
-          socket.emit('user:stop_sharing');
-          leaveLiveMapRoom();
-        }
-        clearLiveUsersFleetState();
       }
       return nextShare;
     } catch {
       toggleRetryRef.current += 1;
+      if (forceOff) {
+        forceLocalSharingOff();
+        return false;
+      }
       setSharingStatus(isSharingRef.current ? 'on' : 'off');
       return isSharingRef.current;
     } finally {
       toggleInFlightRef.current = false;
     }
-  }, [fetchInitialData, joinLiveMapRoom, leaveLiveMapRoom, clearLiveUsersFleetState]);
+  }, [connected, liveUsersEnabled, fetchInitialData, joinLiveMapRoom, forceLocalSharingOff]);
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (

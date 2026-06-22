@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import { API_URL } from '../constants/config';
+
+export const STREAK_UPDATED = 'STREAK_UPDATED';
 
 const REFRESH_MS_FOREGROUND = 30_000;
 
@@ -40,6 +42,23 @@ async function fetchOnline() {
   }
 }
 
+async function applyStreakToCache(streak: number, streakResetAt?: string | null) {
+  try {
+    const raw = await AsyncStorage.getItem('user');
+    if (!raw) return;
+    const user = JSON.parse(raw) as Record<string, unknown>;
+    user.streak = streak;
+    if (streakResetAt) user.streakResetAt = streakResetAt;
+    await AsyncStorage.setItem('user', JSON.stringify(user));
+    DeviceEventEmitter.emit(STREAK_UPDATED, {
+      streak,
+      streakResetAt: streakResetAt ?? user.streakResetAt ?? null,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 async function ping() {
   if (appStateRef.current !== 'active') return;
   try {
@@ -53,6 +72,10 @@ async function ping() {
       },
     });
     if (!res.ok) return;
+    const j = (await res.json()) as { streak?: number; streakResetAt?: string };
+    if (typeof j.streak === 'number') {
+      await applyStreakToCache(j.streak, j.streakResetAt ?? null);
+    }
   } catch {
     /* ignore */
   }
@@ -97,7 +120,7 @@ function stopPresenceLoop() {
   appStateSub = null;
 }
 
-/** Polling licznika online + ping `lastSeen` — jedna instancja na całą apkę. */
+/** Polling licznika online + ping lastSeen + dzienny streak check-in. */
 export function useAppPresence() {
   const [onlineCount, setOnlineCount] = useState<number | null>(sharedCount);
 

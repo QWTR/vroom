@@ -27,10 +27,6 @@ export const UserInfoModal = memo(
     const { theme, isDark } = useTheme();
     const styles = makeMapStyles(theme, isDark);
 
-    if (!user) return null;
-
-    const isOnline  = user.status === 'Online';
-    const hasAvatar = user.avatar && user.avatar.startsWith('http');
     const [shopCosmetics, setShopCosmetics] = useState<UserShopCosmetics | null>(null);
     const [profileVisuals, setProfileVisuals] = useState<{
       nickColor: string | null;
@@ -86,11 +82,18 @@ export const UserInfoModal = memo(
     }, [visible, profileVisuals?.isPremiumProfile, premiumPulse]);
 
     useModalBackHandler(visible, onClose);
+    if (!user) return null;
+
+    const isOnline  = user.status === 'Online';
+    const hasAvatar = user.avatar && user.avatar.startsWith('http');
     const showPremiumTheme = !!profileVisuals?.isPremiumProfile;
     const accentColor = showPremiumTheme ? (profileVisuals?.nickColor || theme.primary) : theme.primary;
-    const premiumGradient = showPremiumTheme && Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
-      ? profileVisuals.profilePremiumExtras.customHeroGradient.colors.filter((c: unknown) => typeof c === 'string')
+    const premiumGradientRaw = showPremiumTheme && Array.isArray(profileVisuals?.profilePremiumExtras?.customHeroGradient?.colors)
+      ? profileVisuals.profilePremiumExtras.customHeroGradient.colors.filter((c: unknown): c is string => typeof c === 'string')
       : null;
+    const premiumGradientColors = (premiumGradientRaw && premiumGradientRaw.length >= 2
+      ? [premiumGradientRaw[0], premiumGradientRaw[1]]
+      : [`${accentColor}66`, '#00000000']) as [string, string];
     const glowOpacity = premiumPulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.34] });
     return (
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -120,9 +123,7 @@ export const UserInfoModal = memo(
                   }}
                 >
                   <LinearGradient
-                    colors={(premiumGradient && premiumGradient.length >= 2)
-                      ? premiumGradient as string[]
-                      : [`${accentColor}66`, '#00000000']}
+                    colors={premiumGradientColors}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={{ flex: 1 }}

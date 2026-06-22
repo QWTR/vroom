@@ -5,19 +5,66 @@ import { useKeyboardInset } from './useKeyboardInset';
 
 const DEFAULT_COMPOSER = 72;
 
+function scrollListToNewest(
+  listRef: React.RefObject<FlatList | null>,
+  animated: boolean,
+  inverted: boolean,
+) {
+  if (inverted) {
+    listRef.current?.scrollToOffset({ offset: 0, animated });
+    return;
+  }
+  listRef.current?.scrollToEnd({ animated });
+}
+
+/** Wielokrotne scrollToEnd — obrazy/wideo ładują się później i zmieniają wysokość listy. */
+export function pinChatToBottom(
+  listRef: React.RefObject<FlatList | null>,
+  animated = false,
+  lastIndex = -1,
+) {
+  const scrollEnd = () => scrollListToNewest(listRef, animated, false);
+  const scrollIndex = () => {
+    if (lastIndex < 0) return;
+    try {
+      listRef.current?.scrollToIndex({ index: lastIndex, animated, viewPosition: 1 });
+    } catch {
+      scrollEnd();
+    }
+  };
+  scrollEnd();
+  scrollIndex();
+  requestAnimationFrame(() => {
+    scrollEnd();
+    scrollIndex();
+  });
+  for (const delay of [50, 150, 350, 700, 1200]) {
+    setTimeout(() => {
+      scrollEnd();
+      scrollIndex();
+    }, delay);
+  }
+}
+
 /** Keyboard inset + auto scroll-to-end for bottom-anchored chat lists. */
 export function useChatKeyboard(
   listRef: React.RefObject<FlatList | null>,
-  opts?: { composerHeight?: number; scrollOnShow?: boolean; parentUsesKeyboardAvoiding?: boolean },
+  opts?: {
+    composerHeight?: number;
+    scrollOnShow?: boolean;
+    parentUsesKeyboardAvoiding?: boolean;
+    inverted?: boolean;
+  },
 ) {
   const composerHeight = opts?.composerHeight ?? DEFAULT_COMPOSER;
   const keyboardHeight = useKeyboardInset(true);
   const prevHeightRef = useRef(0);
   const iosKav = opts?.parentUsesKeyboardAvoiding ?? false;
+  const inverted = opts?.inverted ?? false;
 
   const scrollToEnd = useCallback((animated = true) => {
-    listRef.current?.scrollToEnd({ animated });
-  }, [listRef]);
+    scrollListToNewest(listRef, animated, inverted);
+  }, [listRef, inverted]);
 
   useEffect(() => {
     if (opts?.scrollOnShow === false) return;
@@ -41,10 +88,11 @@ export function useChatKeyboard(
 export function scrollChatToEndAfterLayout(
   listRef: React.RefObject<FlatList | null>,
   animated = false,
+  inverted = false,
 ) {
   InteractionManager.runAfterInteractions(() => {
     requestAnimationFrame(() => {
-      setTimeout(() => listRef.current?.scrollToEnd({ animated }), 80);
+      setTimeout(() => scrollListToNewest(listRef, animated, inverted), 80);
     });
   });
 }

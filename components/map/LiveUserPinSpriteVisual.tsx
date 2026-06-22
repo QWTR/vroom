@@ -53,7 +53,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   const accent = pinAccent(data);
   const borderColor = pinBorderColor(data);
   const avatarBg = pinAvatarBg(data);
-  const showInitials = !avatarUri || avatarError;
+  const showAvatar = !!avatarUri && !avatarError;
 
   const notifyReady = useCallback(() => {
     onReady?.();
@@ -66,7 +66,12 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   useEffect(() => {
     if (!avatarUri) {
       notifyReady();
+      return;
     }
+    const timer = setTimeout(() => {
+      notifyReady();
+    }, 1_200);
+    return () => clearTimeout(timer);
   }, [avatarUri, notifyReady]);
 
   const handleAvatarLoad = useCallback(() => {
@@ -187,37 +192,38 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
               height: AVATAR_SIZE,
               borderRadius: 9999,
               overflow: 'hidden',
-              backgroundColor: showInitials ? '#3d3d3d' : avatarBg,
+              backgroundColor: '#3d3d3d',
               alignItems: 'center',
               justifyContent: 'center',
               ...avatarBorderStyle,
             }}
           >
-            {showInitials ? (
-              <Text
-                style={{
-                  color: '#ffffff',
-                  fontSize: 14,
-                  fontWeight: '800',
-                  letterSpacing: 0.5,
-                  textAlign: 'center',
-                }}
-              >
-                {data.initials}
-              </Text>
-            ) : (
+            <Text
+              style={{
+                color: '#ffffff',
+                fontSize: 14,
+                fontWeight: '800',
+                letterSpacing: 0.5,
+                textAlign: 'center',
+              }}
+            >
+              {data.initials}
+            </Text>
+            {showAvatar ? (
               <Image
                 source={{ uri: avatarUri! }}
                 style={{
+                  position: 'absolute',
                   width: AVATAR_SIZE,
                   height: AVATAR_SIZE,
                   borderRadius: 9999,
+                  backgroundColor: avatarBg,
                 }}
                 resizeMode="cover"
                 onLoad={handleAvatarLoad}
                 onError={handleAvatarError}
               />
-            )}
+            ) : null}
           </View>
 
           {data.isPremium ? (

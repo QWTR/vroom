@@ -6,7 +6,7 @@ import {
 import { BlurView } from 'expo-blur';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,7 +17,7 @@ import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
-import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
+import { useChatKeyboard, pinChatToBottom } from '../../../hooks/useChatKeyboard';
 import { UserBadges } from '../../../components/user/UserBadges';
 import { ProvinceBadge } from '../../../components/user/ProvinceBadge';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
@@ -131,16 +131,25 @@ export default function PublicChatScreen() {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myUsernameRef = useRef('');
+  const stickToNewestRef = useRef(true);
+  const [anchorOlderLoad, setAnchorOlderLoad] = useState(false);
+  const listLayoutHeightRef = useRef(0);
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
+
+  const scrollToNewest = useCallback((animated = false) => {
+    const lastIndex = Math.max(0, messages.length - 1);
+    pinChatToBottom(listRef, animated, lastIndex);
+  }, [messages.length]);
 
   const appendMessage = useCallback((msg: PublicMessage) => {
     setMessages(prev => {
       if (prev.some(m => m.id === msg.id)) return prev;
       return [...prev, msg];
     });
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-  }, []);
+    stickToNewestRef.current = true;
+    setTimeout(() => scrollToNewest(true), 50);
+  }, [scrollToNewest]);
 
   const fetchMessages = useCallback(async (token: string, cursor?: number) => {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -185,7 +194,7 @@ export default function PublicChatScreen() {
         setMessages(data.messages ?? []);
         setNextCursor(data.nextCursor ?? null);
         setHasMore(!!data.nextCursor);
-        scrollChatToEndAfterLayout(listRef, false);
+        stickToNewestRef.current = true;
       } catch {
         Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się załadować czatu.' });
       } finally {
@@ -237,6 +246,20 @@ export default function PublicChatScreen() {
       socketRef.current = null;
     };
   }, [fetchMessages, router, loadPushSettings, appendMessage]);
+
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+    scrollToNewest(false);
+  }, [loading, messages.length, scrollToNewest]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (loading || messages.length === 0) return;
+      stickToNewestRef.current = true;
+      setAnchorOlderLoad(false);
+      scrollToNewest(false);
+    }, [loading, messages.length, scrollToNewest]),
+  );
 
   useEffect(() => {
     if (!mentionQuery) {
@@ -293,6 +316,8 @@ export default function PublicChatScreen() {
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore || !hasMore) return;
+    stickToNewestRef.current = false;
+    setAnchorOlderLoad(true);
     setLoadingMore(true);
     try {
       const data = await fetchMessages(tokenRef.current, nextCursor);
@@ -712,13 +737,31 @@ export default function PublicChatScreen() {
     );
   }, [myId, messages, theme, router, isDark, handleMentionPress, handleReact]);
 
-  if (loading) {
+  if (loading && messages.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#e33835" />
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+        <CommunityScreenHeader
+          title="CZAT OGÓLNY"
+          subtitle="LIVE · CAŁA SPOŁECZNOŚĆ"
+          right={<MaterialCommunityIcons name="earth" size={22} color={theme.success} />}
+        />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#e33835" />
+        </View>
       </View>
     );
   }
+
+  const loadOlderHeader = hasMore ? (
+    loadingMore
+      ? <ActivityIndicator color="#e33835" style={{ marginVertical: 14 }} />
+      : (
+        <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
+          <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8 }}>ZAŁADUJ STARSZE</Text>
+        </TouchableOpacity>
+      )
+  ) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -750,31 +793,55 @@ export default function PublicChatScreen() {
           data={messages}
           keyExtractor={m => String(m.id)}
           renderItem={renderMessage}
-          ListHeaderComponent={
-            hasMore ? (
-              loadingMore
-                ? <ActivityIndicator color="#e33835" style={{ marginVertical: 14 }} />
-                : (
-                  <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
-                    <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8 }}>ZAŁADUJ STARSZE</Text>
-                  </TouchableOpacity>
-                )
-            ) : null
-          }
+          ListHeaderComponent={loadOlderHeader}
           ListEmptyComponent={
             <CommunityEmptyState
               icon="earth"
               title="Napisz pierwszą wiadomość!"
             />
           }
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: chatListPad + 80, flexGrow: 1 }}
+          contentContainerStyle={{
+            paddingTop: 8,
+            paddingBottom: chatListPad + 80,
+            flexGrow: messages.length > 0 ? 1 : undefined,
+            justifyContent: messages.length > 0 ? 'flex-end' : undefined,
+          }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
-          onContentSizeChange={() => {
-            if (chatInputPad > 0) {
-              listRef.current?.scrollToEnd({ animated: true });
+          maintainVisibleContentPosition={
+            anchorOlderLoad
+              ? { minIndexForVisible: 1, autoscrollToTopThreshold: 100 }
+              : undefined
+          }
+          onLayout={(e) => {
+            listLayoutHeightRef.current = e.nativeEvent.layout.height;
+          }}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            const viewH = layoutMeasurement.height > 0 ? layoutMeasurement.height : listLayoutHeightRef.current;
+            const distFromBottom = contentSize.height - viewH - contentOffset.y;
+            stickToNewestRef.current = distFromBottom < 160;
+            if (stickToNewestRef.current && anchorOlderLoad) {
+              setAnchorOlderLoad(false);
             }
+          }}
+          scrollEventThrottle={16}
+          onContentSizeChange={() => {
+            if (stickToNewestRef.current) {
+              pinChatToBottom(listRef, false, Math.max(0, messages.length - 1));
+            }
+          }}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              listRef.current?.scrollToEnd({ animated: false });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                  viewPosition: 1,
+                });
+              }, 80);
+            }, 80);
           }}
         />
 
