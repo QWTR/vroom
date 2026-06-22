@@ -11,7 +11,17 @@ import { buildPinSpriteSignature } from './useLiveUserPinSprites';
 import {
   correctionDurationForDistance,
   shouldPublishFleetFrame,
+  FLEET_FULL_ANIMATION_RADIUS_KM,
 } from './liveFleetMotion';
+import {
+  interpolateAlongTrail,
+  interpolateAlongPolyline,
+  interpolateEntity,
+  isImplausibleJump,
+  resolveFleetAnimationTier,
+  type FleetTrailPoint,
+} from './fleetTrailInterpolation';
+import { maybeEnqueueFleetOsrmSnap } from './fleetReceiveSnap';
 import {
   EMPTY_VIEWPORT,
   expandBoundsByMeters,
@@ -21,13 +31,11 @@ import {
 import type { LiveMapStore } from './liveMapStore';
 
 const MAX_DT_SEC = 0.05;
-/** Czas coasting między pakietami (~15 s cadence wysyłki). */
-const COAST_MAX_MS = 17_000;
-const MIN_COAST_SPEED_MPS = 0.5;
-const MAX_SPEED_MPS = 55;
 const HEADING_LERP_RATE = 8;
 const VIEWPORT_ENTER_MARGIN_M = 1_000;
 const VIEWPORT_EXIT_MARGIN_M = 1_500;
+
+type AnimationTier = 0 | 1; // 0 = static, 1 = full
 
 type FleetSlot = {
   id: number;
@@ -40,8 +48,33 @@ type FleetSlot = {
   heading: number;
   targetHeading: number;
   speedMps: number;
-  elapsedSinceFixMs: number;
-  lastFixAtMs: number;
+  animationTier: AnimationTier;
+  trailLen: number;
+  trail0Lat: number;
+  trail0Lng: number;
+  trail0T: number;
+  trail1Lat: number;
+  trail1Lng: number;
+  trail1T: number;
+  trail2Lat: number;
+  trail2Lng: number;
+  trail2T: number;
+  trail3Lat: number;
+  trail3Lng: number;
+  trail3T: number;
+  polylineLen: number;
+  polyline0Lat: number;
+  polyline0Lng: number;
+  polyline1Lat: number;
+  polyline1Lng: number;
+  polyline2Lat: number;
+  polyline2Lng: number;
+  polyline3Lat: number;
+  polyline3Lng: number;
+  prevServerLat: number;
+  prevServerLng: number;
+  prevServerAt: number;
+  lastServerAt: number;
   correctionElapsedMs: number;
   correctionDurationMs: number;
   correctionFromLat: number;
@@ -251,6 +284,140 @@ function buildMetaPinRequests(
   return out;
 }
 
+function packTrail(trail: FleetTrailPoint[] | undefined) {
+  const pts = trail ?? [];
+  return {
+    trailLen: pts.length,
+    trail0Lat: pts[0]?.lat ?? 0,
+    trail0Lng: pts[0]?.lng ?? 0,
+    trail0T: pts[0]?.t ?? 0,
+    trail1Lat: pts[1]?.lat ?? 0,
+    trail1Lng: pts[1]?.lng ?? 0,
+    trail1T: pts[1]?.t ?? 0,
+    trail2Lat: pts[2]?.lat ?? 0,
+    trail2Lng: pts[2]?.lng ?? 0,
+    trail2T: pts[2]?.t ?? 0,
+    trail3Lat: pts[3]?.lat ?? 0,
+    trail3Lng: pts[3]?.lng ?? 0,
+    trail3T: pts[3]?.t ?? 0,
+  };
+}
+
+function unpackTrail(s: FleetSlot): FleetTrailPoint[] {
+  const out: FleetTrailPoint[] = [];
+  if (s.trailLen > 0) out.push({ lat: s.trail0Lat, lng: s.trail0Lng, t: s.trail0T });
+  if (s.trailLen > 1) out.push({ lat: s.trail1Lat, lng: s.trail1Lng, t: s.trail1T });
+  if (s.trailLen > 2) out.push({ lat: s.trail2Lat, lng: s.trail2Lng, t: s.trail2T });
+  if (s.trailLen > 3) out.push({ lat: s.trail3Lat, lng: s.trail3Lng, t: s.trail3T });
+  return out;
+}
+
+function packPolyline(polyline: { lat: number; lng: number }[] | undefined) {
+  const pts = polyline ?? [];
+  return {
+    polylineLen: pts.length,
+    polyline0Lat: pts[0]?.lat ?? 0,
+    polyline0Lng: pts[0]?.lng ?? 0,
+    polyline1Lat: pts[1]?.lat ?? 0,
+    polyline1Lng: pts[1]?.lng ?? 0,
+    polyline2Lat: pts[2]?.lat ?? 0,
+    polyline2Lng: pts[2]?.lng ?? 0,
+    polyline3Lat: pts[3]?.lat ?? 0,
+    polyline3Lng: pts[3]?.lng ?? 0,
+  };
+}
+
+function unpackPolyline(s: FleetSlot): { lat: number; lng: number }[] {
+  const out: { lat: number; lng: number }[] = [];
+  if (s.polylineLen > 0) out.push({ lat: s.polyline0Lat, lng: s.polyline0Lng });
+  if (s.polylineLen > 1) out.push({ lat: s.polyline1Lat, lng: s.polyline1Lng });
+  if (s.polylineLen > 2) out.push({ lat: s.polyline2Lat, lng: s.polyline2Lng });
+  if (s.polylineLen > 3) out.push({ lat: s.polyline3Lat, lng: s.polyline3Lng });
+  return out;
+}
+
+function resolveFleetPositionJs(
+  s: FleetSlot,
+  now: number,
+): { lat: number; lng: number; heading: number } {
+  if (s.animationTier === 0) {
+    return { lat: s.serverLat, lng: s.serverLng, heading: s.heading };
+  }
+
+  const trail = unpackTrail(s);
+  if (trail.length >= 2) {
+    const pos = interpolateAlongTrail(trail, now);
+    if (pos) return pos;
+  }
+
+  const polyline = unpackPolyline(s);
+  if (polyline.length >= 2 && s.lastServerAt > s.prevServerAt) {
+    const progress = (now - s.prevServerAt) / (s.lastServerAt - s.prevServerAt);
+    const pos = interpolateAlongPolyline(polyline, progress);
+    if (pos) return pos;
+  }
+
+  if (
+    Number.isFinite(s.prevServerLat)
+    && Number.isFinite(s.prevServerLng)
+    && Number.isFinite(s.prevServerAt)
+    && Number.isFinite(s.lastServerAt)
+    && s.lastServerAt > s.prevServerAt
+  ) {
+    return interpolateEntity(
+      s.prevServerLat,
+      s.prevServerLng,
+      s.prevServerAt,
+      s.serverLat,
+      s.serverLng,
+      s.lastServerAt,
+      now,
+    );
+  }
+
+  return { lat: s.serverLat, lng: s.serverLng, heading: s.heading };
+}
+
+function resolveFleetPositionWorklet(
+  s: FleetSlot,
+  nowMs: number,
+): { lat: number; lng: number; heading: number } {
+  'worklet';
+  if (s.animationTier === 0) {
+    return { lat: s.serverLat, lng: s.serverLng, heading: s.heading };
+  }
+
+  if (s.trailLen >= 2) {
+    const firstT = s.trail0T;
+    const lastT = s.trailLen === 2
+      ? s.trail1T
+      : s.trailLen === 3
+        ? s.trail2T
+        : s.trail3T;
+    if (Number.isFinite(firstT) && Number.isFinite(lastT) && lastT > firstT) {
+      const tNorm = Math.max(0, Math.min(1, (nowMs - firstT) / (lastT - firstT)));
+      const lat = s.trail0Lat + (s.serverLat - s.trail0Lat) * tNorm;
+      const lng = s.trail0Lng + (s.serverLng - s.trail0Lng) * tNorm;
+      return { lat, lng, heading: s.targetHeading };
+    }
+  }
+
+  if (
+    Number.isFinite(s.prevServerAt)
+    && Number.isFinite(s.lastServerAt)
+    && s.lastServerAt > s.prevServerAt
+  ) {
+    const tNorm = Math.max(0, Math.min(1, (nowMs - s.prevServerAt) / (s.lastServerAt - s.prevServerAt)));
+    return {
+      lat: s.prevServerLat + (s.serverLat - s.prevServerLat) * tNorm,
+      lng: s.prevServerLng + (s.serverLng - s.prevServerLng) * tNorm,
+      heading: s.targetHeading,
+    };
+  }
+
+  return { lat: s.serverLat, lng: s.serverLng, heading: s.heading };
+}
+
 function mergeSlotFromStore(
   id: number,
   store: LiveMapStore,
@@ -263,107 +430,122 @@ function mergeSlotFromStore(
   if (!pos || !meta) return null;
 
   const isNew = !prev;
-  const targetChanged = !isNew
-    && (prev.serverLat !== pos.lat || prev.serverLng !== pos.lng);
+  const serverAt = Number.isFinite(Number(meta.serverAt))
+    ? Number(meta.serverAt)
+    : (pos.lastServerAt ?? now);
+  const prevServerLat = pos.prevServerLat ?? prev?.prevServerLat ?? pos.lat;
+  const prevServerLng = pos.prevServerLng ?? prev?.prevServerLng ?? pos.lng;
+  const prevServerAt = pos.prevServerAt ?? prev?.prevServerAt ?? serverAt;
 
-  const serverHeading = pos.heading != null && Number.isFinite(pos.heading)
-    ? pos.heading
-    : null;
+  if (
+    !isNew
+    && prev
+    && isImplausibleJump(prev.serverLat, prev.serverLng, prev.lastServerAt, pos.lat, pos.lng, serverAt)
+  ) {
+    return prev;
+  }
+
+  const serverHeading = pos.heading != null && Number.isFinite(pos.heading) ? pos.heading : null;
   const serverSpeedMps = pos.speedMps != null && Number.isFinite(pos.speedMps) && pos.speedMps >= 0
-    ? Math.min(MAX_SPEED_MPS, pos.speedMps)
-    : null;
+    ? pos.speedMps
+    : 0;
 
-  let speedMps = prev?.speedMps ?? 0;
-  let targetHeading = prev?.targetHeading ?? prev?.heading ?? 0;
-
-  const serverAt = Number.isFinite(Number(meta.serverAt)) ? Number(meta.serverAt) : now;
-  const prevFixAt = prev?.lastFixAtMs ?? serverAt;
-
-  if (serverHeading != null) {
-    targetHeading = serverHeading;
-  } else if (targetChanged && prev) {
-    const dtSec = (serverAt - prevFixAt) / 1000;
-    if (dtSec > 0.05 && dtSec < 30) {
-      const distM = calculateDistance(prev.serverLat, prev.serverLng, pos.lat, pos.lng) * 1000;
-      if (distM / dtSec >= MIN_COAST_SPEED_MPS) {
-        targetHeading = bearingDegJs(prev.serverLat, prev.serverLng, pos.lat, pos.lng);
-      }
-    }
-  } else if (isNew) {
-    targetHeading = 0;
+  let targetHeading = serverHeading ?? prev?.targetHeading ?? 0;
+  if (serverHeading == null && prev && (prev.serverLat !== pos.lat || prev.serverLng !== pos.lng)) {
+    targetHeading = bearingDegJs(prev.serverLat, prev.serverLng, pos.lat, pos.lng);
   }
 
-  if (serverSpeedMps != null) {
-    speedMps = serverSpeedMps;
-  } else if (targetChanged && prev) {
-    const dtSec = (serverAt - prevFixAt) / 1000;
-    if (dtSec > 0.05 && dtSec < 30) {
-      const distM = calculateDistance(prev.serverLat, prev.serverLng, pos.lat, pos.lng) * 1000;
-      speedMps = Math.min(MAX_SPEED_MPS, distM / dtSec);
-    } else {
-      speedMps = 0;
-    }
-  } else if (isNew) {
-    speedMps = 0;
-  }
+  const distKm = anchor
+    ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
+    : 0;
+  const tier = resolveFleetAnimationTier(!!meta.isFriend, distKm, FLEET_FULL_ANIMATION_RADIUS_KM);
+  const animationTier: AnimationTier = tier === 'full' ? 1 : 0;
 
-  const motionChanged = !isNew && (
-    (serverHeading != null && Math.abs(((serverHeading - (prev?.targetHeading ?? 0) + 540) % 360) - 180) > 2)
-    || (serverSpeedMps != null && Math.abs((prev?.speedMps ?? 0) - serverSpeedMps) > 0.4)
-  );
-  const packetFresh = targetChanged || motionChanged || isNew;
+  const trail = pos.trail;
+  const polyline = pos.osrmPolyline;
+  const packedTrail = packTrail(trail);
+  const packedPoly = packPolyline(polyline);
+
+  const draftSlot: FleetSlot = {
+    id,
+    renderLat: pos.lat,
+    renderLng: pos.lng,
+    serverLat: pos.lat,
+    serverLng: pos.lng,
+    lastGoodLat: pos.lat,
+    lastGoodLng: pos.lng,
+    heading: targetHeading,
+    targetHeading,
+    speedMps: serverSpeedMps,
+    animationTier,
+    ...packedTrail,
+    ...packedPoly,
+    prevServerLat: Number.isFinite(prevServerLat) ? prevServerLat : pos.lat,
+    prevServerLng: Number.isFinite(prevServerLng) ? prevServerLng : pos.lng,
+    prevServerAt: Number.isFinite(prevServerAt) ? prevServerAt : serverAt,
+    lastServerAt: serverAt,
+    correctionElapsedMs: 0,
+    correctionDurationMs: 0,
+    correctionFromLat: pos.lat,
+    correctionFromLng: pos.lng,
+    correctionToLat: pos.lat,
+    correctionToLng: pos.lng,
+    isPremium: meta.isPremium ? 1 : 0,
+    isFriend: meta.isFriend ? 1 : 0,
+    avatarUrl: '',
+    avatarFrameUrl: '',
+    hasAvatar: 0,
+    username: '',
+    initials: '',
+    distanceLabel: '',
+    pinColor: '',
+  };
+
+  const resolved = resolveFleetPositionJs(draftSlot, now);
+  const renderLat = isNew ? resolved.lat : (prev?.renderLat ?? resolved.lat);
+  const renderLng = isNew ? resolved.lng : (prev?.renderLng ?? resolved.lng);
+  const correctionDistanceM = isNew
+    ? 0
+    : haversineM(renderLat, renderLng, resolved.lat, resolved.lng);
+  const correctionDurationMs = correctionDurationForDistance(correctionDistanceM);
+  const shouldSnap = correctionDurationMs <= 0;
+  const nextRenderLat = shouldSnap ? resolved.lat : renderLat;
+  const nextRenderLng = shouldSnap ? resolved.lng : renderLng;
 
   const avatarUri = normalizeMediaUri(meta.avatarUrl);
   const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
   const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri) ? 1 : 0;
   const username = meta.username?.trim() || 'Użytkownik';
   const initials = username.slice(0, 2).toUpperCase();
-  const distKm = anchor
-    ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
-    : 0;
 
-  const renderLat = isNew ? pos.lat : prev!.renderLat;
-  const renderLng = isNew ? pos.lng : prev!.renderLng;
-  const prevGoodLat = prev?.lastGoodLat ?? renderLat;
-  const prevGoodLng = prev?.lastGoodLng ?? renderLng;
-  const lastGoodLat = isValidFleetCoordJs(renderLat, renderLng) ? renderLat : prevGoodLat;
-  const lastGoodLng = isValidFleetCoordJs(renderLat, renderLng) ? renderLng : prevGoodLng;
-
-  const elapsedSinceServerFixMs = Math.max(0, Math.min(COAST_MAX_MS, now - serverAt));
-  const correctionTo = speedMps >= MIN_COAST_SPEED_MPS
-    ? moveAlongBearing(pos.lat, pos.lng, targetHeading, speedMps * (elapsedSinceServerFixMs / 1000))
-    : { lat: pos.lat, lng: pos.lng };
-  const correctionDistanceM = isNew
-    ? 0
-    : haversineM(renderLat, renderLng, correctionTo.lat, correctionTo.lng);
-  const correctionDurationMs = packetFresh
-    ? correctionDurationForDistance(correctionDistanceM)
-    : (prev?.correctionDurationMs ?? 0);
-  const shouldSnap = packetFresh && correctionDurationMs <= 0;
-  const nextRenderLat = shouldSnap ? correctionTo.lat : renderLat;
-  const nextRenderLng = shouldSnap ? correctionTo.lng : renderLng;
+  if (animationTier === 1 && (!trail || trail.length < 2)) {
+    maybeEnqueueFleetOsrmSnap({
+      store,
+      userId: id,
+      isFriend: !!meta.isFriend,
+      distKm,
+      animationTier: tier,
+      trail,
+      speedMps: serverSpeedMps,
+      lat: pos.lat,
+      lng: pos.lng,
+      prevLat: prevServerLat,
+      prevLng: prevServerLng,
+    });
+  }
 
   return {
-    id,
+    ...draftSlot,
     renderLat: nextRenderLat,
     renderLng: nextRenderLng,
-    serverLat: pos.lat,
-    serverLng: pos.lng,
-    lastGoodLat: isValidFleetCoordJs(lastGoodLat, lastGoodLng) ? lastGoodLat : pos.lat,
-    lastGoodLng: isValidFleetCoordJs(lastGoodLat, lastGoodLng) ? lastGoodLng : pos.lng,
-    heading: isNew || shouldSnap ? targetHeading : (prev?.heading ?? targetHeading),
-    targetHeading,
-    speedMps,
-    elapsedSinceFixMs: packetFresh ? elapsedSinceServerFixMs : (prev?.elapsedSinceFixMs ?? elapsedSinceServerFixMs),
-    lastFixAtMs: packetFresh ? serverAt : (prev?.lastFixAtMs ?? serverAt),
-    correctionElapsedMs: packetFresh ? 0 : (prev?.correctionElapsedMs ?? 0),
+    lastGoodLat: isValidFleetCoordJs(nextRenderLat, nextRenderLng) ? nextRenderLat : pos.lat,
+    lastGoodLng: isValidFleetCoordJs(nextRenderLat, nextRenderLng) ? nextRenderLng : pos.lng,
+    heading: resolved.heading,
     correctionDurationMs,
-    correctionFromLat: packetFresh ? renderLat : (prev?.correctionFromLat ?? renderLat),
-    correctionFromLng: packetFresh ? renderLng : (prev?.correctionFromLng ?? renderLng),
-    correctionToLat: packetFresh ? correctionTo.lat : (prev?.correctionToLat ?? correctionTo.lat),
-    correctionToLng: packetFresh ? correctionTo.lng : (prev?.correctionToLng ?? correctionTo.lng),
-    isPremium: meta.isPremium ? 1 : 0,
-    isFriend: meta.isFriend ? 1 : 0,
+    correctionFromLat: renderLat,
+    correctionFromLng: renderLng,
+    correctionToLat: resolved.lat,
+    correctionToLng: resolved.lng,
     avatarUrl: avatarUri ?? '',
     avatarFrameUrl: frameUri ?? '',
     hasAvatar,
@@ -594,28 +776,19 @@ export function useLiveFleetAnimator(
     const nextSlots: FleetSlot[] = [];
     for (let i = 0; i < slots.length; i++) {
       const s = slots[i];
-      const elapsedSinceFixMs = Math.min(COAST_MAX_MS, s.elapsedSinceFixMs + dtMs);
-      const predicted = s.speedMps >= MIN_COAST_SPEED_MPS
-        ? moveAlongBearing(
-          s.serverLat,
-          s.serverLng,
-          s.targetHeading,
-          s.speedMps * (elapsedSinceFixMs / 1000),
-        )
-        : { lat: s.serverLat, lng: s.serverLng };
-
-      let lat = predicted.lat;
-      let lng = predicted.lng;
+      const resolved = resolveFleetPositionWorklet(s, nowMs);
+      let lat = resolved.lat;
+      let lng = resolved.lng;
       let correctionElapsedMs = s.correctionElapsedMs;
 
       if (s.correctionDurationMs > 0 && correctionElapsedMs < s.correctionDurationMs) {
         correctionElapsedMs = Math.min(s.correctionDurationMs, correctionElapsedMs + dtMs);
         const t = smoothstep(correctionElapsedMs / s.correctionDurationMs);
-        lat = s.correctionFromLat + (predicted.lat - s.correctionFromLat) * t;
-        lng = s.correctionFromLng + (predicted.lng - s.correctionFromLng) * t;
+        lat = s.correctionFromLat + (resolved.lat - s.correctionFromLat) * t;
+        lng = s.correctionFromLng + (resolved.lng - s.correctionFromLng) * t;
       }
 
-      const heading = lerpAngle(s.heading, s.targetHeading, headingAlpha);
+      const heading = lerpAngle(s.heading, resolved.heading || s.targetHeading, headingAlpha);
 
       let lastGoodLat = s.lastGoodLat;
       let lastGoodLng = s.lastGoodLng;
@@ -645,8 +818,33 @@ export function useLiveFleetAnimator(
         heading,
         targetHeading: s.targetHeading,
         speedMps: s.speedMps,
-        elapsedSinceFixMs,
-        lastFixAtMs: s.lastFixAtMs,
+        animationTier: s.animationTier,
+        trailLen: s.trailLen,
+        trail0Lat: s.trail0Lat,
+        trail0Lng: s.trail0Lng,
+        trail0T: s.trail0T,
+        trail1Lat: s.trail1Lat,
+        trail1Lng: s.trail1Lng,
+        trail1T: s.trail1T,
+        trail2Lat: s.trail2Lat,
+        trail2Lng: s.trail2Lng,
+        trail2T: s.trail2T,
+        trail3Lat: s.trail3Lat,
+        trail3Lng: s.trail3Lng,
+        trail3T: s.trail3T,
+        polylineLen: s.polylineLen,
+        polyline0Lat: s.polyline0Lat,
+        polyline0Lng: s.polyline0Lng,
+        polyline1Lat: s.polyline1Lat,
+        polyline1Lng: s.polyline1Lng,
+        polyline2Lat: s.polyline2Lat,
+        polyline2Lng: s.polyline2Lng,
+        polyline3Lat: s.polyline3Lat,
+        polyline3Lng: s.polyline3Lng,
+        prevServerLat: s.prevServerLat,
+        prevServerLng: s.prevServerLng,
+        prevServerAt: s.prevServerAt,
+        lastServerAt: s.lastServerAt,
         correctionElapsedMs,
         correctionDurationMs: s.correctionDurationMs,
         correctionFromLat: s.correctionFromLat,

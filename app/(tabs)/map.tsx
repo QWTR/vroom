@@ -300,9 +300,12 @@ const DRIVE_TEST_DIAGNOSTICS = __DEV__;
 const DEBUG_NETWORK = false;
 
 // Live location sharing — interval + distance/time gate
-const SEND_INTERVAL_MS    = 15_000; // poll period (ms)
+const SEND_INTERVAL_MS    = 15_000; // poll period (ms) — tryb przeglądania
+const SEND_INTERVAL_TRIP_MS = 5_000; // aktywna jazda/nawigacja — częstszy broadcast trail
 const SEND_MIN_DIST_M     = 40;     // min movement before sending (saves bandwidth while stationary)
+const SEND_MIN_DIST_TRIP_M = 25;
 const SEND_MAX_ELAPSED_MS = 60_000; // heartbeat: force-send after this long even without movement
+const LIVE_BROADCAST_TRAIL_MAX = 4;
 const FORCE_MAP_MATCH_RECOVER_MIN_INTERVAL_MS = 45_000;
 const FORCE_MAP_MATCH_RECOVER_STREAK = 4;
 /** Min. odstęp forceMatch przy braku geometrii drogi (noRoad). */
@@ -2295,6 +2298,7 @@ function MapScreenInner() {
   const drivingEntryGraceUntilRef = useRef(0);
   /** Ostatnia poza markera/dystansu — wykrywanie „zamrożonego” snapu. */
   const lastTripMarkerPoseRef = useRef<{ lat: number; lng: number } | null>(null);
+  const liveBroadcastTrailRef = useRef<{ lat: number; lng: number; t: number }[]>([]);
   /** Free drive: timestamp pierwszego ticka z crossTrack > FREE_DRIVE_SNAP_UNTRUSTWORTHY_M. */
   const freeDriveSnapDriftSinceRef = useRef<number | null>(null);
   /** Throttle branch re-snap — unika resetu arc co tick GPS. */
@@ -4967,6 +4971,30 @@ function MapScreenInner() {
     [warnings],
   );
 
+  const getCurrentAccurateLocation = useCallback(() => {
+    let lat = userLocation?.latitude;
+    let lng = userLocation?.longitude;
+    let heading = lastHeadingRef.current;
+
+    if (isDrivingRef.current || isNavigatingRef.current) {
+      const mLat = driveMarker.lat.value;
+      const mLng = driveMarker.lng.value;
+      const mHdg = driveMarker.heading.value;
+      const drLat = drLatRef.current;
+      const drLng = drLngRef.current;
+
+      if (Number.isFinite(mLat) && Number.isFinite(mLng)) {
+        lat = mLat;
+        lng = mLng;
+        if (Number.isFinite(mHdg)) heading = mHdg;
+      } else if (Number.isFinite(drLat) && drLat !== 0) {
+        lat = drLat;
+        lng = drLng;
+      }
+    }
+    return { lat, lng, heading };
+  }, [userLocation, driveMarker]);
+
   const handleAddCamera = useCallback(async (
     params: {
       maxspeed: number | null;
@@ -5063,30 +5091,6 @@ function MapScreenInner() {
   useEffect(() => {
     isOffroadRef.current = isOffroadRoute;
   }, [isOffroadRoute]);
-
-  const getCurrentAccurateLocation = useCallback(() => {
-    let lat = userLocation?.latitude;
-    let lng = userLocation?.longitude;
-    let heading = lastHeadingRef.current;
-
-    if (isDrivingRef.current || isNavigatingRef.current) {
-      const mLat = driveMarker.lat.value;
-      const mLng = driveMarker.lng.value;
-      const mHdg = driveMarker.heading.value;
-      const drLat = drLatRef.current;
-      const drLng = drLngRef.current;
-
-      if (Number.isFinite(mLat) && Number.isFinite(mLng)) {
-        lat = mLat;
-        lng = mLng;
-        if (Number.isFinite(mHdg)) heading = mHdg;
-      } else if (Number.isFinite(drLat) && drLat !== 0) {
-        lat = drLat;
-        lng = drLng;
-      }
-    }
-    return { lat, lng, heading };
-  }, [userLocation, driveMarker]);
 
   useEffect(() => {
     isSpeechRef.current = isSpeechEnabled;
@@ -12397,13 +12401,14 @@ if (pts.length >= 2) {
       // Clear throttle state so the first send after re-enabling goes through immediately.
       lastSendTimeRef.current = 0;
       lastSendLocRef.current  = null;
+      liveBroadcastTrailRef.current = [];
       return;
     }
     const interval = setInterval(() => {
       const tripActive = isDrivingRef.current || isNavigatingRef.current;
       let lat: number;
       let lng: number;
-      let motion: { heading?: number; speedKmh?: number } | undefined;
+      let motion: { heading?: number; speedKmh?: number; trail?: { lat: number; lng: number; t: number }[] } | undefined;
 
       if (tripActive) {
         const pose = lastTripMarkerPoseRef.current;
@@ -12411,10 +12416,23 @@ if (pts.length >= 2) {
         lat = pose.lat;
         lng = pose.lng;
         const hdg = drHdgRef.current ?? lastHeadingRef.current;
+        const nowTrail = Date.now();
+        const trail = liveBroadcastTrailRef.current;
+        const tail = trail[trail.length - 1];
+        if (!tail || tail.lat !== lat || tail.lng !== lng) {
+          liveBroadcastTrailRef.current = [...trail, { lat, lng, t: nowTrail }].slice(-LIVE_BROADCAST_TRAIL_MAX);
+        }
         if (Number.isFinite(hdg)) {
-          motion = { heading: hdg, speedKmh: speedKmhRef.current };
+          motion = {
+            heading: hdg,
+            speedKmh: speedKmhRef.current,
+            trail: liveBroadcastTrailRef.current,
+          };
         } else {
-          motion = { speedKmh: speedKmhRef.current };
+          motion = {
+            speedKmh: speedKmhRef.current,
+            trail: liveBroadcastTrailRef.current,
+          };
         }
       } else {
         const loc = currentLocRef.current;
@@ -12428,8 +12446,10 @@ if (pts.length >= 2) {
       const movedM  = lastSendLocRef.current
         ? haversineKm(lat, lng, lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
         : Infinity;
+      const minDist = tripActive ? SEND_MIN_DIST_TRIP_M : SEND_MIN_DIST_M;
+      const minInterval = tripActive ? SEND_INTERVAL_TRIP_MS : SEND_INTERVAL_MS;
 
-      if (movedM < SEND_MIN_DIST_M && elapsed < SEND_MAX_ELAPSED_MS) {
+      if (movedM < minDist && elapsed < minInterval && elapsed < SEND_MAX_ELAPSED_MS) {
         if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
         return;
       }
@@ -12438,12 +12458,13 @@ if (pts.length >= 2) {
       lastSendTimeRef.current = now;
       lastSendLocRef.current  = { lat, lng };
       sendLocation(lat, lng, routePointsRef.current, motion);
-    }, SEND_INTERVAL_MS);
+    }, SEND_INTERVAL_TRIP_MS);
 
     return () => {
       clearInterval(interval);
       lastSendTimeRef.current = 0;
       lastSendLocRef.current  = null;
+      liveBroadcastTrailRef.current = [];
     };
   }, [isSharing, sendLocation]);
 

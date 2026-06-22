@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import type { FleetLatLng, FleetTrailPoint } from './fleetTrailInterpolation';
 
 export type LiveUserMeta = {
   id: number;
@@ -20,6 +21,12 @@ export type LiveUserPosition = {
   lng: number;
   heading: number | null;
   speedMps: number | null;
+  trail?: FleetTrailPoint[];
+  osrmPolyline?: FleetLatLng[];
+  prevServerLat?: number | null;
+  prevServerLng?: number | null;
+  prevServerAt?: number | null;
+  lastServerAt?: number | null;
 };
 
 export type LiveUserSnapshot = LiveUserMeta & LiveUserPosition;
@@ -114,20 +121,39 @@ export function createLiveMapStore() {
     lat: number,
     lng: number,
     notify = true,
-    motion?: { heading?: number | null; speedMps?: number | null },
+    motion?: {
+      heading?: number | null;
+      speedMps?: number | null;
+      trail?: FleetTrailPoint[];
+      serverAt?: number | null;
+    },
   ) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const prev = positions.get(id);
+    const prevMeta = metaById.get(id);
     const nextHeading = motion?.heading !== undefined
       ? (Number.isFinite(Number(motion.heading)) ? Number(motion.heading) : null)
       : (prev?.heading ?? null);
     const nextSpeedMps = motion?.speedMps !== undefined
       ? (Number.isFinite(Number(motion.speedMps)) ? Number(motion.speedMps) : null)
       : (prev?.speedMps ?? null);
+    const nextTrail = motion?.trail !== undefined
+      ? (motion.trail?.length ? motion.trail.slice(-4) : undefined)
+      : prev?.trail;
+    const incomingServerAt = motion?.serverAt ?? prevMeta?.serverAt ?? prev?.lastServerAt ?? null;
+    const positionChanged = !prev || prev.lat !== lat || prev.lng !== lng;
+    const nextPrevServerLat = positionChanged && prev ? prev.lat : (prev?.prevServerLat ?? null);
+    const nextPrevServerLng = positionChanged && prev ? prev.lng : (prev?.prevServerLng ?? null);
+    const nextPrevServerAt = positionChanged && prev
+      ? (prev.lastServerAt ?? prevMeta?.serverAt ?? null)
+      : (prev?.prevServerAt ?? null);
+
     const samePos = prev && prev.lat === lat && prev.lng === lng;
+    const sameTrail = JSON.stringify(prev?.trail ?? []) === JSON.stringify(nextTrail ?? []);
     const sameMotion = prev
       && prev.heading === nextHeading
-      && prev.speedMps === nextSpeedMps;
+      && prev.speedMps === nextSpeedMps
+      && sameTrail;
     if (samePos && sameMotion) {
       if (notify) notifyPosition(id);
       return;
@@ -137,11 +163,28 @@ export function createLiveMapStore() {
       lng,
       heading: nextHeading,
       speedMps: nextSpeedMps,
+      trail: nextTrail,
+      osrmPolyline: prev?.osrmPolyline,
+      prevServerLat: nextPrevServerLat,
+      prevServerLng: nextPrevServerLng,
+      prevServerAt: nextPrevServerAt,
+      lastServerAt: incomingServerAt,
     });
     if (notify) {
       notifyPosition(id);
       scheduleFleetDelta(id);
     }
+  };
+
+  const setOsrmPolyline = (id: number, polyline: FleetLatLng[] | null | undefined) => {
+    const prev = positions.get(id);
+    if (!prev) return;
+    positions.set(id, {
+      ...prev,
+      osrmPolyline: polyline?.length ? polyline.slice() : undefined,
+    });
+    notifyPosition(id);
+    scheduleFleetDelta(id);
   };
 
   const removeUserInPlace = (id: number) => {
@@ -172,6 +215,7 @@ export function createLiveMapStore() {
     lng: number;
     heading?: number | null;
     speedMps?: number | null;
+    trail?: FleetTrailPoint[];
   };
 
   const mergeUsersBatch = (
@@ -181,14 +225,19 @@ export function createLiveMapStore() {
     const notifyIds: number[] = [];
     let idsChanged = false;
 
-    for (const { meta, lat, lng, heading, speedMps } of entries) {
+    for (const { meta, lat, lng, heading, speedMps, trail } of entries) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const isNewUser = !metaById.has(meta.id);
       setMeta(meta);
       if (isNewUser && insertUserIdSorted(meta.id)) {
         idsChanged = true;
       }
-      setPosition(meta.id, lat, lng, false, { heading, speedMps });
+      setPosition(meta.id, lat, lng, false, {
+        heading,
+        speedMps,
+        trail,
+        serverAt: meta.serverAt ?? null,
+      });
       notifyIds.push(meta.id);
     }
 
@@ -250,6 +299,7 @@ export function createLiveMapStore() {
 
     setMeta,
     setPosition,
+    setOsrmPolyline,
     removeUser,
     pruneUsersInPlace,
     mergeUsersBatch,

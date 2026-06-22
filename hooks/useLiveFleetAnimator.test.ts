@@ -38,6 +38,6 @@ describe('useLiveFleetAnimator viewport culling', () => {
   it('uses soft corrections for normal drift and snap for huge drift', () => {
     expect(correctionDurationForDistance(1)).toBeGreaterThan(0);
     expect(correctionDurationForDistance(40)).toBeGreaterThan(correctionDurationForDistance(1));
-    expect(correctionDurationForDistance(240)).toBe(0);
+    expect(correctionDurationForDistance(100)).toBe(0);
   });
 });

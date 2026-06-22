@@ -13,6 +13,7 @@ import {
   type LiveMapStore,
   type LiveUserMeta,
 } from './liveMapStore';
+import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
 
 export interface LiveUser {
   id:        number;
@@ -29,11 +30,13 @@ export interface LiveUser {
   heading?: number | null;
   speedKmh?: number | null;
   speedMps?: number | null;
+  trail?: FleetTrailPoint[];
 }
 
 export type LiveLocationMotion = {
   heading?: number;
   speedKmh?: number;
+  trail?: FleetTrailPoint[];
 };
 
 export interface LiveWarning {
@@ -255,6 +258,7 @@ export function useLiveMap(
       lng: number;
       heading?: number | null;
       speedMps?: number | null;
+      trail?: FleetTrailPoint[];
     }[] = [];
 
     for (let i = 0; i < incoming.length; i++) {
@@ -266,6 +270,7 @@ export function useLiveMap(
       const prevPos = store.getPosition(u.id);
       const coords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
       const motion = parseIncomingMotion(u);
+      const trail = parseIncomingTrail(u?.trail);
 
       if (Number.isFinite(Number(u?.seq))) {
         const seq = Number(u.seq);
@@ -301,6 +306,7 @@ export function useLiveMap(
         lng: coords.lng,
         heading: motion.heading,
         speedMps: motion.speedMps,
+        trail: trail.length > 0 ? trail : undefined,
       });
     }
 
@@ -622,6 +628,7 @@ export function useLiveMap(
 
         const existingMeta = store.getMeta(id);
         const motion = parseIncomingMotion(data);
+        const trail = parseIncomingTrail(data?.trail);
         const meta: LiveUserMeta = {
           id,
           username: typeof data?.username === 'string'
@@ -646,6 +653,8 @@ export function useLiveMap(
         store.setPosition(id, rawLat, rawLng, true, {
           heading: motion.heading,
           speedMps: motion.speedMps,
+          trail: trail.length > 0 ? trail : undefined,
+          serverAt,
         });
         if (!existingMeta) store.registerUserId(id);
         lastSnapshotAtRef.current = Date.now();
@@ -679,6 +688,7 @@ export function useLiveMap(
             heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,
             speedKmh: Number.isFinite(Number(u?.speedKmh)) ? Number(u.speedKmh) : null,
             speedMps: Number.isFinite(Number(u?.speedMps)) ? Number(u.speedMps) : null,
+            trail: parseIncomingTrail(u?.trail),
           }))
           .filter((u) =>
             Number.isFinite(u.id)
@@ -899,12 +909,15 @@ export function useLiveMap(
     if (!socket?.connected) return;
 
     if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
-    const payload: Record<string, number> = { lat, lng };
+    const payload: Record<string, number | FleetTrailPoint[]> = { lat, lng };
     if (motion?.heading != null && Number.isFinite(motion.heading)) {
       payload.heading = motion.heading;
     }
     if (motion?.speedKmh != null && Number.isFinite(motion.speedKmh) && motion.speedKmh >= 0) {
       payload.speedKmh = motion.speedKmh;
+    }
+    if (motion?.trail && motion.trail.length > 0) {
+      payload.trail = motion.trail.slice(-4);
     }
     socket.emit('location:update', payload);
   }, [isSharing]);
