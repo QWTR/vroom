@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
-import type { SpeedCamera } from '../../hooks/useSpeedCameras';
+import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
   camera:        SpeedCamera | null;
   onClose:       () => void;
   onConfirm:     (id: number) => Promise<boolean>;
-  onDelete:      (id: number) => Promise<boolean>;  // ← nowe
+  onDelete:      (id: number) => Promise<boolean>;
   currentUserId: number | null;
 }
 
@@ -41,15 +41,16 @@ export function SpeedCameraDetailModal({
 
   if (!camera) return null;
 
-  const meta    = TYPE_LABELS[camera.type] ?? TYPE_LABELS.fixed;
-  const isBump  = camera.type === 'bump';
-  const isOwner = currentUserId !== null && camera.addedBy?.id === currentUserId;
-  const dist    = camera.distanceM < 1000
+  const meta         = TYPE_LABELS[camera.type] ?? TYPE_LABELS.fixed;
+  const isBump       = camera.type === 'bump';
+  const isSystem     = camera.isSystemData === true;
+  const isOwner      = !isSystem && currentUserId !== null && camera.addedBy?.id === currentUserId;
+  const dist         = camera.distanceM < 1000
     ? `${Math.round(camera.distanceM)} m`
     : `${(camera.distanceM / 1000).toFixed(1)} km`;
 
   const handleConfirm = async () => {
-    if (confirming) return;
+    if (confirming || isSystem) return;
     setConfirming(true);
     try {
       const result = await onConfirm(camera.id);
@@ -95,16 +96,32 @@ export function SpeedCameraDetailModal({
 
           {/* Nagłówek */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <View style={{ width: 48, height: 48, borderRadius: 13, backgroundColor: meta.color + '20', borderWidth: 1.5, borderColor: meta.color + '50', alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name={meta.icon as any} size={24} color={meta.color} />
+            <View style={{
+              width: 48, height: 48, borderRadius: 13,
+              backgroundColor: (isSystem ? '#268bff' : meta.color) + '20',
+              borderWidth: 1.5,
+              borderColor: (isSystem ? '#268bff' : meta.color) + '50',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <MaterialCommunityIcons
+                name={isSystem ? 'shield-check' : (meta.icon as any)}
+                size={24}
+                color={isSystem ? '#268bff' : meta.color}
+              />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '700' }}>
                 {isBump ? 'PRÓG ZWALNIAJĄCY' : `FOTORADAR ${meta.label}`}
               </Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>
-                dodany przez @{camera.addedBy?.username ?? 'użytkownik'}
-              </Text>
+              {isSystem ? (
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#268bff', marginTop: 2 }}>
+                  Zweryfikowany punkt (OSM)
+                </Text>
+              ) : (
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 2 }}>
+                  dodany przez @{camera.addedBy?.username ?? 'użytkownik'}
+                </Text>
+              )}
             </View>
             <TouchableOpacity onPress={onClose}>
               <MaterialIcons name="close" size={20} color={theme.textDim} />
@@ -136,28 +153,47 @@ export function SpeedCameraDetailModal({
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>ODLEGŁOŚĆ</Text>
             </View>
 
-            {/* Potwierdzenia */}
-            <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <MaterialIcons name="verified" size={28} color="#4de926" />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#4de926', fontWeight: '700' }}>{count}</Text>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>POTWIERDZEŃ</Text>
-            </View>
+            {/* Potwierdzenia — ukryte dla punktów systemowych */}
+            {!isSystem && (
+              <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <MaterialIcons name="verified" size={28} color="#4de926" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: '#4de926', fontWeight: '700' }}>{count}</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>POTWIERDZEŃ</Text>
+              </View>
+            )}
           </View>
 
-          {/* Przycisk potwierdź */}
-          <TouchableOpacity
-            onPress={handleConfirm}
-            disabled={confirming}
-            style={{ backgroundColor: confirmed ? '#4de92620' : '#4de92615', borderRadius: 14, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: confirmed ? '#4de926' : '#4de92630', opacity: confirming ? 0.6 : 1, marginBottom: 10 }}
-            activeOpacity={0.85}
-          >
-            <MaterialIcons name={confirmed ? 'check-circle' : 'check-circle-outline'} size={20} color="#4de926" />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#4de926', fontWeight: '700' }}>
-              {confirming ? 'WYSYŁAM...' : confirmed ? 'POTWIERDZONO' : 'POTWIERDŹ'}
-            </Text>
-          </TouchableOpacity>
+          {isSystem && (
+            <View style={{
+              backgroundColor: '#268bff12',
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 12,
+              borderWidth: 1,
+              borderColor: '#268bff35',
+            }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#268bff', lineHeight: 14 }}>
+                Oficjalny punkt z map OpenStreetMap. Nie można go edytować ani głosować na niego.
+              </Text>
+            </View>
+          )}
 
-          {/* Przycisk usuń — tylko twórca */}
+          {/* Przycisk potwierdź — tylko UGC */}
+          {!isSystem && (
+            <TouchableOpacity
+              onPress={handleConfirm}
+              disabled={confirming}
+              style={{ backgroundColor: confirmed ? '#4de92620' : '#4de92615', borderRadius: 14, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: confirmed ? '#4de926' : '#4de92630', opacity: confirming ? 0.6 : 1, marginBottom: 10 }}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name={confirmed ? 'check-circle' : 'check-circle-outline'} size={20} color="#4de926" />
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#4de926', fontWeight: '700' }}>
+                {confirming ? 'WYSYŁAM...' : confirmed ? 'POTWIERDZONO' : 'POTWIERDŹ'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Przycisk usuń — tylko twórca UGC */}
           {isOwner && (
             <TouchableOpacity
               onPress={handleDelete}

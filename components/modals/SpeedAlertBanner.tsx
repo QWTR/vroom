@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, Platform } from 'react-native';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import type { SpeedCamera } from '../../hooks/useSpeedCameras';
+import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 
 interface Props {
   camera:    SpeedCamera | null;

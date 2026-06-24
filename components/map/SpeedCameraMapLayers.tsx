@@ -76,6 +76,7 @@ export function SpeedCameraMapLayers({ cameras, onSelectCamera }: Props) {
         properties: {
           id: camera.id,
           type: camera.type ?? 'fixed',
+          isSystem: camera.isSystemData ? 1 : 0,
         },
       };
     });
@@ -145,6 +146,12 @@ export function SpeedCameraMapLayers({ cameras, onSelectCamera }: Props) {
             iconIgnorePlacement: true,
             iconAnchor: 'center',
             iconOptional: false,
+            iconColor: [
+              'case',
+              ['==', ['get', 'isSystem'], 1],
+              '#5eb3ff',
+              '#ffffff',
+            ],
           }}
         />
       </Mapbox.ShapeSource>

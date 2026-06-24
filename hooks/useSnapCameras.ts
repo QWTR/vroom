@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import type { SpeedCamera }    from './useSpeedCameras';
+import type { SpeedCamera }    from './useSpeedCamera';
 
 // Cache snap — żeby nie snappować za każdym razem
 const snapCache = new Map<number, { lat: number; lng: number }>();

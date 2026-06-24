@@ -13,8 +13,9 @@ export interface SpeedCamera {
   type:         'fixed' | 'section' | 'mobile' | 'bump';
   description:  string | null;
   confirmCount: number;
+  isSystemData?: boolean;
   distanceM:    number;
-  addedBy:      { id: number; username: string; avatarUrl: string | null };
+  addedBy?:     { id: number; username: string; avatarUrl: string | null } | null;
 }
 
 export const SPEED_CAMERA_SHOW_RADIUS_KM     = 3;
