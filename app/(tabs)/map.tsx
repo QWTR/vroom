@@ -12440,6 +12440,29 @@ if (pts.length >= 2) {
         if (!loc) return;
         lat = loc.latitude;
         lng = loc.longitude;
+        let hdg = drHdgRef.current ?? lastHeadingRef.current;
+        if (!Number.isFinite(hdg) && lastSendLocRef.current) {
+          const prev = lastSendLocRef.current;
+          const dLat = ((lat - prev.lat) * Math.PI) / 180;
+          const dLng = ((lng - prev.lng) * Math.PI) / 180;
+          const lat1 = (prev.lat * Math.PI) / 180;
+          const lat2 = (lat * Math.PI) / 180;
+          const y = Math.sin(dLng) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+          hdg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+        }
+        const speedKmh = Number.isFinite(speedKmhRef.current) ? speedKmhRef.current : 0;
+        const nowTrail = Date.now();
+        const trail = liveBroadcastTrailRef.current;
+        const tail = trail[trail.length - 1];
+        if (!tail || tail.lat !== lat || tail.lng !== lng) {
+          liveBroadcastTrailRef.current = [...trail, { lat, lng, t: nowTrail }].slice(-LIVE_BROADCAST_TRAIL_MAX);
+        }
+        motion = {
+          ...(Number.isFinite(hdg) ? { heading: hdg } : {}),
+          speedKmh,
+          trail: liveBroadcastTrailRef.current,
+        };
       }
 
       const now     = Date.now();

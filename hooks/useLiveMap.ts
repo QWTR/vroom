@@ -942,6 +942,7 @@ export function useLiveMap(
     }
     if (motion?.speedKmh != null && Number.isFinite(motion.speedKmh) && motion.speedKmh >= 0) {
       payload.speedKmh = motion.speedKmh;
+      payload.speedMps = motion.speedKmh / 3.6;
     }
     if (motion?.trail && motion.trail.length > 0) {
       payload.trail = motion.trail.slice(-FLEET_SLOT_MAX_POINTS);

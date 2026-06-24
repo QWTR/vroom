@@ -14,6 +14,7 @@ import {
   resolveFleetAnimationTier,
   resolveFleetAnimationTierWithHysteresis,
   samplePolylineForSlot,
+  computeFleetPushDurationMs,
 } from './fleetTrailInterpolation';
 
 describe('fleetTrailInterpolation', () => {
@@ -66,6 +67,14 @@ describe('fleetTrailInterpolation', () => {
       FLEET_FULL_ANIMATION_RADIUS_KM,
       FLEET_FULL_ANIMATION_EXIT_KM,
     )).toBe('static');
+  });
+
+  it('computeFleetPushDurationMs scales with distance and speed', () => {
+    const fast = computeFleetPushDurationMs(52, 21, 52.001, 21, 25, null);
+    expect(fast).toBeGreaterThanOrEqual(400);
+    expect(fast).toBeLessThanOrEqual(5000);
+    const slow = computeFleetPushDurationMs(52, 21, 52.001, 21, 0, 2000);
+    expect(slow).toBe(2000);
   });
 
   it('samplePolylineForSlot reduces dense geometry', () => {

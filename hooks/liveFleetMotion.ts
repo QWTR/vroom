@@ -9,12 +9,18 @@ export const FLEET_FULL_ANIMATION_RADIUS_KM = 10;
 export const FLEET_FULL_ANIMATION_EXIT_KM = 11;
 /** Maks. punktów drogi/trailu w slocie animacji. */
 export const FLEET_SLOT_MAX_POINTS = 8;
-/** Dead reckoning po ostatnim fixie — wypełnia luki między pakietami socket. */
-export const FLEET_EXTRAPOLATE_MAX_MS = 2_800;
-/** Docelowy czas segmentu animacji (czas klienta między pakietami). */
-export const FLEET_CLIENT_SEG_MIN_MS = 500;
-export const FLEET_CLIENT_SEG_MAX_MS = 1_500;
-export const FLEET_CLIENT_SEG_DEFAULT_MS = 900;
+/** Dead reckoning po ostatnim fixie — wypełnia luki między pakietami socket (np. snapshot 12 s). */
+export const FLEET_EXTRAPOLATE_MAX_MS = 15_000;
+/** V3-Lite pushTarget: min/max czas segmentu lerp origin→target. */
+export const FLEET_PUSH_MIN_MS = 400;
+export const FLEET_PUSH_MAX_MS = 5_000;
+export const FLEET_PUSH_DEFAULT_MS = 900;
+/** Minimalny czas segmentu w syntetycznym trailu. */
+export const FLEET_MIN_SEGMENT_MS = 200;
+/** @deprecated aliasy — używaj FLEET_PUSH_* */
+export const FLEET_CLIENT_SEG_MIN_MS = FLEET_PUSH_MIN_MS;
+export const FLEET_CLIENT_SEG_MAX_MS = FLEET_PUSH_MAX_MS;
+export const FLEET_CLIENT_SEG_DEFAULT_MS = FLEET_PUSH_DEFAULT_MS;
 /** Minimalny dystans do zapisu incremental / force flush (spójne z serwerem). */
 export const FLEET_MIN_SNAP_DIST_M = 35;
 

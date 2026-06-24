@@ -1,6 +1,9 @@
 import {
   FLEET_EXTRAPOLATE_MAX_MS,
   FLEET_MIN_SEGMENT_MS,
+  FLEET_PUSH_DEFAULT_MS,
+  FLEET_PUSH_MAX_MS,
+  FLEET_PUSH_MIN_MS,
   FLEET_SLOT_MAX_POINTS,
 } from './liveFleetMotion';
 
@@ -219,6 +222,7 @@ export function interpolateEntity(
   };
 }
 
+/** Płynna animacja: znajomi bez limitu, reszta tylko w promieniu fullRadiusKm. */
 export function resolveFleetAnimationTier(
   isFriend: boolean,
   distKm: number,
@@ -229,7 +233,7 @@ export function resolveFleetAnimationTier(
   return 'static';
 }
 
-/** Histereza: wejście ≤ enterKm, wyjście dopiero > exitKm. */
+/** Histereza: wejście ≤ enterKm, wyjście dopiero > exitKm (anty-miganie na granicy). */
 export function resolveFleetAnimationTierWithHysteresis(
   isFriend: boolean,
   distKm: number,
@@ -243,6 +247,26 @@ export function resolveFleetAnimationTierWithHysteresis(
     return distKm <= exitKm ? 'full' : 'static';
   }
   return distKm <= enterKm ? 'full' : 'static';
+}
+
+/** Czas segmentu pushTarget: haversine(origin,target)/speed z clampem min/max. */
+export function computeFleetPushDurationMs(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  speedMps: number,
+  serverIntervalMs?: number | null,
+): number {
+  const distM = haversineM(fromLat, fromLng, toLat, toLng);
+  if (distM < 0.5) return 0;
+  let durMs = FLEET_PUSH_DEFAULT_MS;
+  if (Number.isFinite(speedMps) && speedMps > 0.5) {
+    durMs = Math.round((distM / speedMps) * 1000);
+  } else if (Number.isFinite(serverIntervalMs) && (serverIntervalMs as number) > 50) {
+    durMs = Math.round(serverIntervalMs as number);
+  }
+  return Math.max(FLEET_PUSH_MIN_MS, Math.min(FLEET_PUSH_MAX_MS, durMs));
 }
 
 /** Równomierne próbkowanie polyline OSRM do maxPoints punktów. */
