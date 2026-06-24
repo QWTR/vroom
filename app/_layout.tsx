@@ -15,8 +15,8 @@ import * as SplashScreen    from 'expo-splash-screen';
 import { LinearGradient }   from 'expo-linear-gradient';
 import AsyncStorage         from '@react-native-async-storage/async-storage';
 import * as Notifications   from 'expo-notifications';
-import Toast, { BaseToast, ErrorToast } from 'react-native-toast-message';
-import { SafeAreaProvider }      from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
@@ -39,6 +39,7 @@ import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
 import { AdsConsentBootstrap } from '../components/ads/AdsConsentBootstrap';
+import { createVroomToastConfig } from '../components/ui/VroomToastConfig';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -77,52 +78,6 @@ Notifications.setNotificationChannelAsync('navigation', {
   lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: true,
 });
 
-// ─── TOAST ────────────────────────────────────────────────
-const createToastConfig = (isDark: boolean) => {
-  const bg = isDark ? '#141414' : '#ffffff';
-  const textMain = isDark ? '#ffffff' : '#151515';
-  const textSecondary = isDark ? '#ffffff70' : '#4a4a4a';
-  return {
-  success: (props: any) => (
-    <BaseToast {...props}
-      style={{ marginTop: 10, borderBottomColor: R, borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
-      renderLeadingIcon={() => (
-        <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-          <MaterialIcons name="check-circle" size={26} color={R} />
-        </View>
-      )}
-    />
-  ),
-  info: (props: any) => (
-    <BaseToast {...props}
-      style={{ marginTop: 10, borderBottomColor: '#268bff', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
-      renderLeadingIcon={() => (
-        <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-          <MaterialIcons name="info-outline" size={26} color="#268bff" />
-        </View>
-      )}
-    />
-  ),
-  error: (props: any) => (
-    <ErrorToast {...props}
-      style={{ marginTop: 10, borderBottomColor: '#fa0400', borderBottomWidth: 5, borderLeftWidth: 0, backgroundColor: bg, height: 70, zIndex: 999990, borderRadius: 12 }}
-      text1Style={{ color: textMain, fontSize: 13, fontFamily: 'OrbitronBold' }}
-      text2Style={{ color: textSecondary, fontSize: 11, fontFamily: 'Orbitron' }}
-      renderLeadingIcon={() => (
-        <View style={{ justifyContent: 'center', paddingLeft: 14 }}>
-          <MaterialIcons name="error-outline" size={28} color="#fa0400" />
-        </View>
-      )}
-    />
-  ),
-};
-};
 
 // ─── REFRESH USER ─────────────────────────────────────────
 async function refreshUserData() {
@@ -548,8 +503,9 @@ function RootLayoutInner() {
     }, 350);
   };
 
+  const insets = useSafeAreaInsets();
   const barWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const toastConfig = useMemo(() => createToastConfig(isDark), [isDark]);
+  const toastConfig = useMemo(() => createVroomToastConfig(isDark), [isDark]);
 
   if (!loaded && !error) return null;
 
@@ -565,7 +521,7 @@ function RootLayoutInner() {
       <AppPresenceHeartbeat />
       <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
-      <Toast config={toastConfig} />
+      <Toast config={toastConfig} topOffset={insets.top + 8} visibilityTime={4000} />
       <UpdateModal
         visible={updatePromptVisible && updateAvailable}
         loading={updateDownloading}

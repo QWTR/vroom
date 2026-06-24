@@ -64,28 +64,31 @@ function LiveUsersFleetLayerInner({
         ))}
       </View>
 
-      {Object.keys(images).length > 0 ? <Mapbox.Images images={images} /> : null}
-
-      <ReanimatedShapeSource
-        id="liveFleetSource"
-        animatedProps={animatedShapeProps}
-        onPress={handlePress}
-        hitbox={{ width: 72, height: 72 }}
-      >
-        <Mapbox.SymbolLayer
-          id="liveFleetPins"
-          style={{
-            iconImage: ['concat', 'avatar_', ['to-string', ['get', 'id']]],
-            iconSize,
-            iconAllowOverlap: true,
-            iconIgnorePlacement: true,
-            iconAnchor: 'bottom',
-            iconOptional: true,
-            iconPitchAlignment: 'viewport',
-            iconRotationAlignment: 'viewport',
-          }}
-        />
-      </ReanimatedShapeSource>
+      {Object.keys(images).length > 0 ? (
+        <>
+          <Mapbox.Images images={images} />
+          <ReanimatedShapeSource
+            id="liveFleetSource"
+            animatedProps={animatedShapeProps}
+            onPress={handlePress}
+            hitbox={{ width: 72, height: 72 }}
+          >
+            <Mapbox.SymbolLayer
+              id="liveFleetPins"
+              style={{
+                iconImage: ['concat', 'avatar_', ['to-string', ['get', 'id']]],
+                iconSize,
+                iconAllowOverlap: true,
+                iconIgnorePlacement: true,
+                iconAnchor: 'bottom',
+                iconOptional: true,
+                iconPitchAlignment: 'viewport',
+                iconRotationAlignment: 'viewport',
+              }}
+            />
+          </ReanimatedShapeSource>
+        </>
+      ) : null}
     </>
   );
 }

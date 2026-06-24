@@ -146,6 +146,7 @@ export function useLiveMap(
   const appStateRef             = useRef<AppStateStatus>(AppState.currentState);
   const lastSnapshotAtRef  = useRef(0);
   const hasUsersFromSocketRef = useRef(false);
+  const liveJoinWithGpsRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeGenerationRef = useRef(0);
 
@@ -459,6 +460,7 @@ export function useLiveMap(
     ) {
       return;
     }
+    // Pusty snapshot z socketa nie blokuje REST — hasUsersFromSocketRef ustawiamy tylko przy users.length > 0.
     try {
       const usersRes = await fetchWithTimeout(
         buildLiveUsersUrl(),
@@ -479,7 +481,6 @@ export function useLiveMap(
     usersFallbackTimerRef.current = setTimeout(() => {
       usersFallbackTimerRef.current = null;
       if (!liveUsersEnabledRef.current) return;
-      if (hasUsersFromSocketRef.current) return;
       void fetchLiveUsersRest(token);
     }, SOCKET_USERS_FALLBACK_MS);
   }, [clearUsersFallbackTimer, fetchLiveUsersRest]);
@@ -564,6 +565,29 @@ export function useLiveMap(
     ) return;
     void fetchLiveUsersRest(tok);
   }, [userLocation?.latitude, userLocation?.longitude, liveUsersEnabled, fetchLiveUsersRest]);
+
+  // Pierwszy fix GPS — ponowny join + REST (snapshot mógł przyjść bez współrzędnych widza).
+  useEffect(() => {
+    if (!liveUsersEnabled) {
+      liveJoinWithGpsRef.current = false;
+      return;
+    }
+    if (!connected) return;
+    const loc = userLocation;
+    if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
+    if (liveJoinWithGpsRef.current) return;
+    liveJoinWithGpsRef.current = true;
+    joinLiveMapRoom();
+    const tok = tokenRef.current;
+    if (tok) void fetchLiveUsersRest(tok);
+  }, [
+    liveUsersEnabled,
+    connected,
+    userLocation?.latitude,
+    userLocation?.longitude,
+    joinLiveMapRoom,
+    fetchLiveUsersRest,
+  ]);
 
   // ── Init Socket ───────────────────────────────────────
   useEffect(() => {
@@ -700,8 +724,10 @@ export function useLiveMap(
           users.length,
           '→ mergeLiveUsersFromApi',
         );
-        hasUsersFromSocketRef.current = true;
-        lastSnapshotAtRef.current = Date.now();
+        if (users.length > 0) {
+          hasUsersFromSocketRef.current = true;
+          lastSnapshotAtRef.current = Date.now();
+        }
         clearUsersFallbackTimer();
         mergeLiveUsersFromApi(users);
       });

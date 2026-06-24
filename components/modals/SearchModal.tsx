@@ -68,6 +68,36 @@ function normalizePolishSearchText(value: string): string {
     .trim();
 }
 
+function queryHasHousenumber(query: string): boolean {
+  return HOUSE_NUMBER_RE.test(query);
+}
+
+function isLocalityOnlyResult(r: GeocodingResult): boolean {
+  const main = normalizePolishSearchText(r.mainText);
+  const secondary = normalizePolishSearchText(r.secondaryText);
+  if (HOUSE_NUMBER_RE.test(main)) return false;
+  if (secondary.includes('gmina') || secondary.includes('wojewodztwo') || secondary.includes('powiat')) {
+    return true;
+  }
+  return main.length > 0 && !HOUSE_NUMBER_RE.test(`${main} ${secondary}`)
+    && (secondary.includes('gmina') || secondary.split(',').length >= 2);
+}
+
+function filterWeakAddressResults(results: GeocodingResult[], query: string): GeocodingResult[] {
+  if (!queryHasHousenumber(query)) return results;
+  const strong = results.filter((r) => {
+    if (HOUSE_NUMBER_RE.test(r.mainText)) return true;
+    return !isLocalityOnlyResult(r);
+  });
+  return strong.length > 0 ? strong : results;
+}
+
+function shouldSkipSearchCache(query: string, results: GeocodingResult[]): boolean {
+  if (!queryHasHousenumber(query)) return false;
+  if (results.length !== 1) return false;
+  return isLocalityOnlyResult(results[0]);
+}
+
 function isDetailedPlaceQuery(query: string): boolean {
   const q = query.trim();
   if (q.length < SEARCH_MIN_QUERY_LEN) return false;
@@ -134,6 +164,12 @@ function relevanceScore(r: GeocodingResult, query: string): number {
   const queryHouse = q.match(HOUSE_NUMBER_RE)?.[0];
   const mainHouse = main.match(HOUSE_NUMBER_RE)?.[0];
   if (queryHouse && mainHouse && queryHouse === mainHouse) score += 90;
+  if (queryHouse && mainHouse) {
+    const qBase = queryHouse.match(/^(\d+)/)?.[1];
+    const mBase = mainHouse.match(/^(\d+)/)?.[1];
+    if (qBase && mBase && qBase === mBase) score += 70;
+  }
+  if (queryHasHousenumber(query) && isLocalityOnlyResult(r)) score -= 220;
   if (/\d/.test(q)) {
     if (/\d/.test(main)) score += 35;
     if (/\d/.test(secondary)) score += 20;
@@ -437,7 +473,7 @@ export const SearchModal = memo(({
     try {
       const cached = searchCacheRef.current.get(normalized);
       const now = Date.now();
-      if (cached && now - cached.at < SEARCH_CACHE_MAX_AGE_MS) {
+      if (cached && now - cached.at < SEARCH_CACHE_MAX_AGE_MS && !shouldSkipSearchCache(trimmed, cached.results)) {
         if (reqSeq === searchReqSeqRef.current) {
           setFilteredPlaces(cached.results);
         }
@@ -513,6 +549,7 @@ export const SearchModal = memo(({
         detailedQuery || geocodeResults.length >= suggestResults.length,
       );
       results = filterByRelevance(results, trimmed);
+      results = filterWeakAddressResults(results, trimmed);
 
       if (partners.length > 0) {
         const partnerRows: GeocodingResult[] = partners
@@ -573,6 +610,7 @@ export const SearchModal = memo(({
               true,
             );
             results = filterByRelevance(results, trimmed);
+            results = filterWeakAddressResults(results, trimmed);
           }
         }
       }

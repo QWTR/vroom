@@ -23,7 +23,7 @@ export type PinSpriteRequest = {
 };
 
 const MAX_CACHE = 300;
-const MAX_PARALLEL_CAPTURES = 10;
+const MAX_PARALLEL_CAPTURES = 24;
 
 export function buildPinSpriteSignature(input: {
   id: number;

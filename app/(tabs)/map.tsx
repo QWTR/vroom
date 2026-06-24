@@ -12676,7 +12676,9 @@ if (pts.length >= 2) {
       Toast.show({
         type: 'info',
         text1: 'Live Map',
-        text2: 'Działa przy otwartej aplikacji. Włącz „Pracę w tle” w ustawieniach, aby udostępniać lokalizację po zminimalizowaniu.',
+        text2: isPremium
+          ? 'Działa przy otwartej aplikacji. Włącz „Pracę w tle” w ustawieniach, aby udostępniać lokalizację po zminimalizowaniu.'
+          : 'Działa przy otwartej aplikacji. Udostępnianie w tle wymaga Premium.',
       });
     }
     const next = await toggleSharing(true);
@@ -12687,7 +12689,7 @@ if (pts.length >= 2) {
       settings.backgroundTracking ? 'true' : 'false',
     ).catch(() => {});
     if (next) void resumeLiveSession();
-  }, [toggleSharing, isSharing, settings.backgroundTracking, resumeLiveSession]);
+  }, [toggleSharing, isSharing, settings.backgroundTracking, resumeLiveSession, isPremium]);
 
   const handleReport = useCallback(async (type: any) => {
     const acc = getCurrentAccurateLocation();
