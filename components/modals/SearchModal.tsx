@@ -49,13 +49,24 @@ interface GeocodingResult {
 
 const SEARCH_SESSION_IDLE_MS = 12 * 60 * 1000;
 /** Szukaj dopiero gdy użytkownik przestanie pisać. */
-const SEARCH_DEBOUNCE_MS = 420;
+const SEARCH_DEBOUNCE_MS = 380;
 const SEARCH_MIN_QUERY_LEN = 2;
 const SEARCH_CACHE_MAX_AGE_MS = 120_000;
-const SEARCH_RESULT_LIMIT = 10;
+const SEARCH_RESULT_LIMIT = 12;
 const SEARCH_TYPES = 'poi,address,street,place,locality,neighborhood';
+const SEARCH_TYPES_DETAILED = 'address,street,poi,place,locality';
 
 const STREET_PREFIX_RE = /\bul\.?\b|\bulica\b|\bal\.?\b|\baleja\b|\bos\.?\b|\bpl\.?\b|\bplac\b/i;
+const HOUSE_NUMBER_RE = /\b\d+[a-zA-Z]?\b/;
+
+function normalizePolishSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function isDetailedPlaceQuery(query: string): boolean {
   const q = query.trim();
@@ -69,22 +80,24 @@ function isDetailedPlaceQuery(query: string): boolean {
 
 function suggestResultsLookGeneric(results: GeocodingResult[], query: string): boolean {
   if (results.length === 0) return true;
-  const q = query.trim().toLowerCase();
+  const q = normalizePolishSearchText(query);
   if (!q) return false;
   const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
   if (tokens.length === 0) return false;
-  return results.every((r) => {
-    const hay = `${r.mainText} ${r.secondaryText}`.toLowerCase();
-    return !tokens.some((token) => hay.includes(token));
+  const strongMatches = results.filter((r) => {
+    const hay = normalizePolishSearchText(`${r.mainText} ${r.secondaryText}`);
+    return tokens.some((token) => hay.includes(token));
   });
+  return strongMatches.length < Math.min(2, results.length);
 }
 
 function filterByRelevance(results: GeocodingResult[], query: string): GeocodingResult[] {
   if (results.length <= 1) return results;
+  if (isDetailedPlaceQuery(query)) return results.slice(0, SEARCH_RESULT_LIMIT);
   const scored = results.map((r) => ({ r, s: relevanceScore(r, query) }));
   const best = Math.max(...scored.map((x) => x.s));
   if (best < 30) return results;
-  const cutoff = Math.max(20, best * 0.28);
+  const cutoff = Math.max(18, best * 0.22);
   const kept = scored.filter((x) => x.s >= cutoff).map((x) => x.r);
   return kept.length > 0 ? kept : results.slice(0, SEARCH_RESULT_LIMIT);
 }
@@ -98,12 +111,13 @@ function searchResultKey(r: GeocodingResult): string {
 }
 
 function relevanceScore(r: GeocodingResult, query: string): number {
-  const q = query.trim().toLowerCase();
-  const main = r.mainText.toLowerCase();
-  const secondary = r.secondaryText.toLowerCase();
+  const q = normalizePolishSearchText(query);
+  const main = normalizePolishSearchText(r.mainText);
+  const secondary = normalizePolishSearchText(r.secondaryText);
   const hay = `${main} ${secondary}`;
   let score = 0;
 
+  if (!q) return score;
   if (hay.includes(q)) score += 120;
   if (main === q) score += 200;
   if (main.replace(/\s+/g, '') === q.replace(/\s+/g, '')) score += 160;
@@ -117,12 +131,15 @@ function relevanceScore(r: GeocodingResult, query: string): number {
     if (secondary.includes(token)) score += 10;
   }
 
+  const queryHouse = q.match(HOUSE_NUMBER_RE)?.[0];
+  const mainHouse = main.match(HOUSE_NUMBER_RE)?.[0];
+  if (queryHouse && mainHouse && queryHouse === mainHouse) score += 90;
   if (/\d/.test(q)) {
     if (/\d/.test(main)) score += 35;
     if (/\d/.test(secondary)) score += 20;
   }
 
-  if (STREET_PREFIX_RE.test(q) && (STREET_PREFIX_RE.test(hay) || /\d/.test(main))) {
+  if (STREET_PREFIX_RE.test(query) && (STREET_PREFIX_RE.test(hay) || /\d/.test(main))) {
     score += 30;
   }
 
@@ -187,7 +204,7 @@ function mapGeocodeFeatures(features: any[]): GeocodingResult[] {
     }
 
     return {
-      mapboxId:      f.id ?? '',
+      mapboxId:      String(f.id ?? ''),
       mainText,
       secondaryText: secondaryText || fullName,
       latitude:      f.geometry.coordinates[1] as number,
@@ -437,8 +454,9 @@ export const SearchModal = memo(({
       }
 
       const sessionToken = ensureSearchSessionRef.current();
+      const suggestTypes = detailedQuery ? SEARCH_TYPES_DETAILED : SEARCH_TYPES;
       const geocodeTypes = detailedQuery
-        ? 'address,street,poi,place'
+        ? 'address,street,poi,place,locality'
         : SEARCH_TYPES;
 
       const suggestPromise = fetchSearchSuggestViaProxy<any>({
@@ -447,7 +465,7 @@ export const SearchModal = memo(({
         language: 'pl',
         country: 'pl',
         limit: SEARCH_RESULT_LIMIT,
-        types: SEARCH_TYPES,
+        types: suggestTypes,
         proximityLng: loc?.longitude,
         proximityLat: loc?.latitude,
         signal,
@@ -514,6 +532,49 @@ export const SearchModal = memo(({
           return true;
         });
         results = filterByRelevance(results, trimmed).slice(0, SEARCH_RESULT_LIMIT);
+      }
+
+      if (
+        results.length < 3
+        && suggestResultsLookGeneric(results, trimmed)
+      ) {
+        const asciiQuery = trimmed
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+        if (asciiQuery !== trimmed && asciiQuery.length >= SEARCH_MIN_QUERY_LEN) {
+          const [asciiSuggest, asciiGeocode] = await Promise.all([
+            fetchSearchSuggestViaProxy<any>({
+              query: asciiQuery,
+              sessionToken,
+              language: 'pl',
+              country: 'pl',
+              limit: SEARCH_RESULT_LIMIT,
+              types: suggestTypes,
+              proximityLng: loc?.longitude,
+              proximityLat: loc?.latitude,
+              signal,
+            }).then((data) => mapSuggestResults(data?.suggestions ?? [])).catch(() => [] as GeocodingResult[]),
+            fetchGeocodingViaProxy<any>({
+              query: asciiQuery,
+              language: 'pl',
+              country: 'pl',
+              types: geocodeTypes,
+              limit: SEARCH_RESULT_LIMIT,
+              proximityLng: loc?.longitude,
+              proximityLat: loc?.latitude,
+              signal,
+            }).then((data) => mapGeocodeFeatures(data.features ?? [])).catch(() => [] as GeocodingResult[]),
+          ]);
+          if (!signal.aborted && reqSeq === searchReqSeqRef.current) {
+            results = mergeAndRankSearchResults(
+              [...suggestResults, ...asciiSuggest],
+              [...geocodeResults, ...asciiGeocode],
+              trimmed,
+              true,
+            );
+            results = filterByRelevance(results, trimmed);
+          }
+        }
       }
 
       if (

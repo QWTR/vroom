@@ -13827,7 +13827,7 @@ if (pts.length >= 2) {
               setAddFuelStationVisible(true);
               return;
             }
-            if (!manualTargetPickMode || isBuilding) return;
+            if (isBuilding || cameraPickMode || isDriving || isNavigating) return;
             handleManualTargetPick(latitude, longitude);
           }}
           onMapIdle={(e: any) => {

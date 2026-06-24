@@ -19,6 +19,7 @@ const POLYLINE_KEY_HARD_SNAP_M = 45;
 const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
 const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
 const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
+const MARKER_HEADING_TIMING_MS = NAV_V3.MARKER_HEADING_TIMING_MS;
 const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
 const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
@@ -551,6 +552,25 @@ export function useDriveMarkerV3(
       if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
         lat.value = roadPose.lat;
         lng.value = roadPose.lng;
+
+        const refHdg = Number.isFinite(heading.value) ? heading.value : targetHdg.value;
+        const aheadHdg = bearingAheadFromDisplayWorklet(
+          roadPtsFlat.value,
+          roadCumM.value,
+          localM,
+          roadPose.lat,
+          roadPose.lng,
+          refHdg,
+        );
+        const roadTangentHdg = Number.isFinite(roadPose.heading) ? roadPose.heading : refHdg;
+        const tgtHdg = Number.isFinite(aheadHdg) ? aheadHdg : roadTangentHdg;
+        heading.value = stepHeadingSmoothWorklet(
+          refHdg,
+          tgtHdg,
+          dtSec,
+          MARKER_HEADING_TAU_SEC,
+          MARKER_HEADING_MAX_DPS,
+        );
       }
     } else if (
       segmentFinished
@@ -623,7 +643,7 @@ export function useDriveMarkerV3(
         } else {
           const current = heading.value;
           const diff = ((newHdg - current + 540) % 360) - 180;
-          heading.value = withTiming(current + diff, { duration: 400, easing: Easing.out(Easing.quad) });
+          heading.value = withTiming(current + diff, { duration: MARKER_HEADING_TIMING_MS, easing: Easing.out(Easing.quad) });
         }
       }
     },

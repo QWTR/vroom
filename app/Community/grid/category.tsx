@@ -56,6 +56,9 @@ export default function GridCategoryScreen() {
   );
 
   const { category, event, myEntry, history } = data ?? {};
+  const entryCount = event?._count?.entries ?? 0;
+  const maxEntries = event?.maxEntries ?? 32;
+  const isFull = event?.status === 'open' && entryCount >= maxEntries;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -99,7 +102,7 @@ export default function GridCategoryScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.border, marginBottom: 14 }}>
               <View style={{ alignItems: 'center' }}>
                 <Text style={{ fontFamily: 'Orbitron', color: theme.gold, fontSize: 20, fontWeight: '900' }}>
-                  {event._count?.entries ?? 0}
+                  {entryCount}/{maxEntries}
                 </Text>
                 <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>ZAWODNIKÓW</Text>
               </View>
@@ -118,7 +121,7 @@ export default function GridCategoryScreen() {
             </View>
 
             {/* CTA */}
-            {event.status === 'open' && !myEntry && (
+            {event.status === 'open' && !myEntry && !isFull && (
               <TouchableOpacity
                 style={{ backgroundColor: theme.gold, borderRadius: 12, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onPress={() => router.push(`/Community/grid/enter?eventId=${event.id}` as any)}
@@ -129,6 +132,15 @@ export default function GridCategoryScreen() {
                   ZAPISZ SIĘ DO GRIDU
                 </Text>
               </TouchableOpacity>
+            )}
+
+            {event.status === 'open' && !myEntry && isFull && (
+              <View style={{ backgroundColor: theme.surface3, borderRadius: 12, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.border2 }}>
+                <MaterialIcons name="block" size={16} color={theme.textDim} />
+                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, fontWeight: '700' }}>
+                  BRAK WOLNYCH MIEJSC
+                </Text>
+              </View>
             )}
 
             {event.status === 'open' && myEntry && (
