@@ -299,13 +299,14 @@ const DRIVE_TEST_DIAGNOSTICS = __DEV__;
 // Set DEBUG_NETWORK = true to see throttle/suppression logs in the console.
 const DEBUG_NETWORK = false;
 
-// Live location sharing — interval + distance/time gate
-const SEND_INTERVAL_MS    = 15_000; // poll period (ms) — tryb przeglądania
-const SEND_INTERVAL_TRIP_MS = 5_000; // aktywna jazda/nawigacja — częstszy broadcast trail
-const SEND_MIN_DIST_M     = 40;     // min movement before sending (saves bandwidth while stationary)
-const SEND_MIN_DIST_TRIP_M = 25;
-const SEND_MAX_ELAPSED_MS = 60_000; // heartbeat: force-send after this long even without movement
-const LIVE_BROADCAST_TRAIL_MAX = 4;
+// Live location sharing — częsty broadcast (opóźnienie floty zależy głównie od tego)
+const LIVE_SEND_TICK_MS         = 1_000;
+const LIVE_SEND_INTERVAL_TRIP_MS = 800;
+const LIVE_SEND_INTERVAL_MS      = 2_000;
+const LIVE_SEND_MIN_DIST_TRIP_M  = 4;
+const LIVE_SEND_MIN_DIST_M       = 10;
+const LIVE_SEND_MAX_ELAPSED_MS   = 1_200;
+const LIVE_BROADCAST_TRAIL_MAX = 8;
 const FORCE_MAP_MATCH_RECOVER_MIN_INTERVAL_MS = 45_000;
 const FORCE_MAP_MATCH_RECOVER_STREAK = 4;
 /** Min. odstęp forceMatch przy braku geometrii drogi (noRoad). */
@@ -12446,10 +12447,10 @@ if (pts.length >= 2) {
       const movedM  = lastSendLocRef.current
         ? haversineKm(lat, lng, lastSendLocRef.current.lat, lastSendLocRef.current.lng) * 1000
         : Infinity;
-      const minDist = tripActive ? SEND_MIN_DIST_TRIP_M : SEND_MIN_DIST_M;
-      const minInterval = tripActive ? SEND_INTERVAL_TRIP_MS : SEND_INTERVAL_MS;
+      const minDist = tripActive ? LIVE_SEND_MIN_DIST_TRIP_M : LIVE_SEND_MIN_DIST_M;
+      const minInterval = tripActive ? LIVE_SEND_INTERVAL_TRIP_MS : LIVE_SEND_INTERVAL_MS;
 
-      if (movedM < minDist && elapsed < minInterval && elapsed < SEND_MAX_ELAPSED_MS) {
+      if (movedM < minDist && elapsed < minInterval && elapsed < LIVE_SEND_MAX_ELAPSED_MS) {
         if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
         return;
       }
@@ -12458,7 +12459,7 @@ if (pts.length >= 2) {
       lastSendTimeRef.current = now;
       lastSendLocRef.current  = { lat, lng };
       sendLocation(lat, lng, routePointsRef.current, motion);
-    }, SEND_INTERVAL_TRIP_MS);
+    }, LIVE_SEND_TICK_MS);
 
     return () => {
       clearInterval(interval);
@@ -12508,18 +12509,39 @@ if (pts.length >= 2) {
   );
 
   // ─────────────────────────────────────────────────────────
-  const liveUsersAnchor = useMemo(() => {
-    if (userLocation) {
-      return { latitude: userLocation.latitude, longitude: userLocation.longitude };
-    }
-    if (
-      Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
-      && (drLatRef.current !== 0 || drLngRef.current !== 0)
-    ) {
-      return { latitude: drLatRef.current, longitude: drLngRef.current };
-    }
-    return null;
-  }, [userLocation?.latitude, userLocation?.longitude]);
+  const [fleetAnchor, setFleetAnchor] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  useEffect(() => {
+    const tripActive = isDriving || isNavigating;
+    const syncAnchor = () => {
+      if (tripActive) {
+        const pose = lastTripMarkerPoseRef.current;
+        if (pose && Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
+          setFleetAnchor({ latitude: pose.lat, longitude: pose.lng });
+          return;
+        }
+      }
+      if (userLocation?.latitude != null && userLocation?.longitude != null) {
+        setFleetAnchor({ latitude: userLocation.latitude, longitude: userLocation.longitude });
+        return;
+      }
+      if (
+        Number.isFinite(drLatRef.current) && Number.isFinite(drLngRef.current)
+        && (drLatRef.current !== 0 || drLngRef.current !== 0)
+      ) {
+        setFleetAnchor({ latitude: drLatRef.current, longitude: drLngRef.current });
+        return;
+      }
+      setFleetAnchor(null);
+    };
+
+    syncAnchor();
+    if (!tripActive) return;
+    const id = setInterval(syncAnchor, 400);
+    return () => clearInterval(id);
+  }, [isDriving, isNavigating, userLocation?.latitude, userLocation?.longitude]);
+
+  const liveUsersAnchor = fleetAnchor;
 
   const visibleLiveUserIds = useMemo(() => {
     if (!liveUsersEnabled || liveUserIds.length === 0) return [];

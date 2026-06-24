@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { FleetLatLng, FleetTrailPoint } from './fleetTrailInterpolation';
+import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
 
 export type LiveUserMeta = {
   id: number;
@@ -138,7 +139,7 @@ export function createLiveMapStore() {
       ? (Number.isFinite(Number(motion.speedMps)) ? Number(motion.speedMps) : null)
       : (prev?.speedMps ?? null);
     const nextTrail = motion?.trail !== undefined
-      ? (motion.trail?.length ? motion.trail.slice(-4) : undefined)
+      ? (motion.trail?.length ? motion.trail.slice(-FLEET_SLOT_MAX_POINTS) : undefined)
       : prev?.trail;
     const incomingServerAt = motion?.serverAt ?? prevMeta?.serverAt ?? prev?.lastServerAt ?? null;
     const positionChanged = !prev || prev.lat !== lat || prev.lng !== lng;

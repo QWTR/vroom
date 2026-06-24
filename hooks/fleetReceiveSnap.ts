@@ -1,11 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/mapConfig';
-import type { FleetLatLng, FleetTrailPoint } from './fleetTrailInterpolation';
+import {
+  samplePolylineForSlot,
+  trailFromPolylineWithTimestamps,
+  isTrailChordFlat,
+  type FleetLatLng,
+  type FleetTrailPoint,
+} from './fleetTrailInterpolation';
+import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
 import type { LiveMapStore } from './liveMapStore';
 
-const MAX_IN_FLIGHT = 4;
-const MIN_SAME_USER_MS = 3_000;
-const GLOBAL_MAX_PER_WINDOW = 6;
+const MAX_IN_FLIGHT = 6;
+const MIN_SAME_USER_MS = 2_500;
+const GLOBAL_MAX_PER_WINDOW = 10;
 const GLOBAL_WINDOW_MS = 10_000;
 const DEDUP_BUCKET_M = 0.0001;
 const DEDUP_TTL_MS = 20_000;
@@ -79,16 +86,31 @@ async function runSnap(req: SnapRequest, store: LiveMapStore): Promise<void> {
         .filter((p: FleetLatLng) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
       : [];
     if (polyline.length < 1) return;
-    store.setOsrmPolyline(req.userId, polyline);
-    const snapped = data?.snapped;
-    if (snapped && Number.isFinite(Number(snapped.lat)) && Number.isFinite(Number(snapped.lng))) {
-      const pos = store.getPosition(req.userId);
-      if (pos) {
-        store.setPosition(req.userId, Number(snapped.lat), Number(snapped.lng), true, {
+    const sampled = samplePolylineForSlot(polyline, FLEET_SLOT_MAX_POINTS);
+    store.setOsrmPolyline(req.userId, sampled);
+    const pos = store.getPosition(req.userId);
+    if (pos) {
+      const prevAt = pos.prevServerAt ?? (pos.lastServerAt ?? Date.now()) - 5_000;
+      const lastAt = pos.lastServerAt ?? Date.now();
+      const syntheticTrail = trailFromPolylineWithTimestamps(sampled, prevAt, lastAt, FLEET_SLOT_MAX_POINTS);
+      if (syntheticTrail.length >= 2) {
+        store.setPosition(req.userId, pos.lat, pos.lng, true, {
           heading: pos.heading,
           speedMps: pos.speedMps,
-          trail: pos.trail,
+          trail: syntheticTrail,
           serverAt: pos.lastServerAt ?? null,
+        });
+      }
+    }
+    const snapped = data?.snapped;
+    if (snapped && Number.isFinite(Number(snapped.lat)) && Number.isFinite(Number(snapped.lng))) {
+      const posAfter = store.getPosition(req.userId);
+      if (posAfter) {
+        store.setPosition(req.userId, Number(snapped.lat), Number(snapped.lng), true, {
+          heading: posAfter.heading,
+          speedMps: posAfter.speedMps,
+          trail: posAfter.trail,
+          serverAt: posAfter.lastServerAt ?? null,
         });
       }
     }
@@ -148,7 +170,7 @@ export function maybeEnqueueFleetOsrmSnap(opts: {
   } = opts;
 
   if (animationTier !== 'full') return;
-  if (trail && trail.length >= 2) return;
+  if (trail && trail.length >= 2 && !isTrailChordFlat(trail)) return;
 
   const speedKmh = speedMps != null ? speedMps * 3.6 : 0;
   const movedM = prevLat != null && prevLng != null

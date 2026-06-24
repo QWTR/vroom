@@ -13,6 +13,7 @@ import {
   type LiveMapStore,
   type LiveUserMeta,
 } from './liveMapStore';
+import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
 
 export interface LiveUser {
@@ -943,7 +944,7 @@ export function useLiveMap(
       payload.speedKmh = motion.speedKmh;
     }
     if (motion?.trail && motion.trail.length > 0) {
-      payload.trail = motion.trail.slice(-4);
+      payload.trail = motion.trail.slice(-FLEET_SLOT_MAX_POINTS);
     }
     socket.emit('location:update', payload);
   }, [isSharing]);
