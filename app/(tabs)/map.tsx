@@ -4842,11 +4842,11 @@ function MapScreenInner() {
 
 
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
-  useEffect(() => { backgroundTrackingRef.current = settings.backgroundTracking; }, [settings.backgroundTracking]);
+  useEffect(() => { backgroundTrackingRef.current = settings.backgroundTracking && isPremium; }, [settings.backgroundTracking, isPremium]);
 
   const { flushPendingKm } = useBackgroundTracking(
     isSharing,
-    settings.backgroundTracking,
+    settings.backgroundTracking && isPremium,
     isNavigating || isDriving,
     sharingHydrated,
     isPremium,

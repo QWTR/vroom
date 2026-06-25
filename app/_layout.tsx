@@ -40,6 +40,11 @@ import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
 import { AdsConsentBootstrap } from '../components/ads/AdsConsentBootstrap';
 import { createVroomToastConfig } from '../components/ui/VroomToastConfig';
+import {
+  setBgTrackingEndHandler,
+  wireBgTrackingNotificationControl,
+} from '../lib/bgTrackingNotificationControl';
+import { stopVroomBgForegroundNotification } from '../lib/vroomBgForegroundService';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -151,7 +156,7 @@ function StatusLine() {
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
   const { isDark, theme } = useTheme();
-  const { updateSetting } = useSettings();
+  const { updateSetting, settings } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
   const {
     updateAvailable,
@@ -202,6 +207,18 @@ function RootLayoutInner() {
     void initNavDriveTraceStore();
     vroomGpsLogPing('app_layout_mount');
   }, []);
+
+  useEffect(() => {
+    setBgTrackingEndHandler(async () => {
+      await stopVroomBgForegroundNotification();
+      await updateSetting('backgroundTracking', false);
+    });
+    const unwire = wireBgTrackingNotificationControl();
+    return () => {
+      setBgTrackingEndHandler(null);
+      unwire();
+    };
+  }, [updateSetting]);
 
   // Notifications
   useEffect(() => {
@@ -471,6 +488,7 @@ function RootLayoutInner() {
         const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
         if (!token) return;
         if (bgDisclosureDismissedRef.current) return;
+        if (!settings.isPremium) return;
         const accepted = await hasAcceptedBackgroundLocationDisclosure();
         if (!accepted) setBgDisclosureVisible(true);
       })().catch(() => {});
@@ -479,7 +497,7 @@ function RootLayoutInner() {
     return () => {
       if (bgDisclosureTimerRef.current) clearTimeout(bgDisclosureTimerRef.current);
     };
-  }, [loaded, error, pathname, phase, maintenanceVisible, ugcTermsVisible, gatesSettled, homeOverlayOpen]);
+  }, [loaded, error, pathname, phase, maintenanceVisible, ugcTermsVisible, gatesSettled, homeOverlayOpen, settings.isPremium]);
 
   const closeBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
@@ -492,7 +510,6 @@ function RootLayoutInner() {
     setBgDisclosureVisible(false);
     setTimeout(async () => {
       const granted = await requestBackgroundLocationPermissionAfterDisclosure();
-      await updateSetting('backgroundTracking', granted);
       if (!granted) {
         (Toast as any).show({
           type: 'error',

@@ -49,17 +49,18 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
             <Text style={styles.title}>Zgoda na lokalizację w tle</Text>
             <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
               <Text style={styles.text}>
-                VROOM zbiera i używa danych o lokalizacji także wtedy, gdy aplikacja działa w tle
-                lub jest zamknięta.
+                VROOM Premium może zbierać dane o lokalizacji także wtedy, gdy aplikacja
+                działa w tle — np. po zminimalizowaniu z listy ostatnich aplikacji.
               </Text>
               <Text style={styles.text}>
-                Jest to potrzebne do liczenia kilometrów i statystyk przejazdu oraz aktywnej
-                nawigacji. Jeśli włączysz widoczność na mapie, Twoja aktualna pozycja może
-                być pokazywana innym kierowcom VROOM.
+                Służy to wyłącznie do zliczania przejechanych kilometrów i statystyk jazdy
+                podczas aktywnej trasy. Wymaga uprawnienia lokalizacji „Zawsze” / „W tle”
+                w ustawieniach telefonu.
               </Text>
               <Text style={styles.text}>
-                Możesz wyłączyć tę funkcję w każdej chwili w ustawieniu Profil &gt; Ustawienia &gt;
-                Praca w tle albo w ustawieniach systemowych telefonu.
+                Włączenie funkcji „Praca w tle” w ustawieniach aplikacji jest osobnym krokiem
+                po udzieleniu tej zgody. Możesz wyłączyć ją w każdej chwili w Profil &gt;
+                Ustawienia &gt; Praca w tle albo w ustawieniach systemowych telefonu.
               </Text>
             </ScrollView>
 
@@ -82,7 +83,7 @@ export function BackgroundLocationDisclosureModal({ visible, onCancel, onAccept 
                 activeOpacity={0.85}
                 disabled={!checked}
               >
-                <Text style={styles.primaryText}>Zgadzam się i włączam</Text>
+                <Text style={styles.primaryText}>Zgadzam się</Text>
               </TouchableOpacity>
             </View>
           </View>

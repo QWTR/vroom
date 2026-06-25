@@ -54,6 +54,11 @@
       </intent-filter>
     </activity>
     <service
+        android:name=".bg.VroomBgTrackingService"
+        android:exported="false"
+        android:foregroundServiceType="location"
+        android:stopWithTask="false" />
+    <service
         android:name=".auto.VroomCarAppService"
         android:exported="true">
         <intent-filter>
@@ -61,5 +66,12 @@
             <category android:name="androidx.car.app.category.NAVIGATION" />
         </intent-filter>
     </service>
+    <receiver
+        android:name=".bg.BgTrackingStopReceiver"
+        android:exported="false">
+      <intent-filter>
+        <action android:name="com.lexuuw.vroom.app.action.BG_TRACKING_END"/>
+      </intent-filter>
+    </receiver>
   </application>
 </manifest>

@@ -6,6 +6,7 @@ import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../co
 import type { SpotifyProfileTrack } from '../constants/profile';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 import { resolveBackendPremium } from '../lib/resolveBackendPremium';
+import { USER_IS_PREMIUM_KEY } from '../hooks/useBackgroundTracking';
 
 const SETTINGS_FETCH_TIMEOUT_MS = 25_000;
 const CLIENT_ONLY_SETTING_KEYS: (keyof AppSettings)[] = [
@@ -54,6 +55,25 @@ async function hydrateSettingsFromCache(): Promise<Partial<AppSettings> | null> 
   } catch {
     return null;
   }
+}
+
+function resolveBackgroundTracking(
+  premiumActive: boolean,
+  disclosureAccepted: boolean,
+  stored: boolean | undefined,
+): boolean {
+  return premiumActive && disclosureAccepted && !!stored;
+}
+
+/** Prefer local cache — server may lag after PATCH or return false before sync. */
+function pickBackgroundTrackingStored(
+  cached: boolean | undefined,
+  prev: boolean | undefined,
+  server: boolean | undefined,
+): boolean | undefined {
+  if (cached !== undefined) return cached;
+  if (prev !== undefined) return prev;
+  return server;
 }
 
 function readClientOnlySettings(source: Partial<AppSettings> | null | undefined): Partial<AppSettings> {
@@ -215,7 +235,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             setSettings({
               ...DEFAULTS,
               ...cachedParsed,
-              backgroundTracking: backgroundLocationAccepted ? !!(cachedParsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+              backgroundTracking: resolveBackgroundTracking(
+                !!(cachedParsed.isPremium),
+                backgroundLocationAccepted,
+                cachedParsed.backgroundTracking,
+              ),
             });
           } catch { /* ignore bad cache */ }
         }
@@ -223,6 +247,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const serverPremiumActive = await fetchServerPremiumActive(token, signal);
+      const rcPremiumCached = (await AsyncStorage.getItem(USER_IS_PREMIUM_KEY)) === 'true';
 
       const res = await fetchWithTimeout(`${API_URL}/api/settings`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -232,7 +257,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setSettings(prev => {
           const clientOnlyFromCache = readClientOnlySettings(cachedParsed);
-          const premiumActive = !!(serverPremiumActive || data.isPremium);
+          const premiumActive = !!(serverPremiumActive || data.isPremium || rcPremiumCached);
+          const storedBg = pickBackgroundTrackingStored(
+            cachedParsed?.backgroundTracking,
+            prev.backgroundTracking,
+            data.backgroundTracking,
+          );
           const merged = {
             ...DEFAULTS,
             ...cachedParsed,
@@ -242,11 +272,30 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...mergeProfileAppearanceFromApi(data, prev, premiumActive),
             isPremium: premiumActive,
             locationFriendsOnly: premiumActive ? !!(data.locationFriendsOnly ?? prev.locationFriendsOnly) : false,
-            backgroundTracking: backgroundLocationAccepted ? !!(data.backgroundTracking ?? prev.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+            backgroundTracking: resolveBackgroundTracking(
+              premiumActive,
+              backgroundLocationAccepted,
+              storedBg,
+            ),
           };
           try {
             AsyncStorage.setItem('app_settings', JSON.stringify(merged));
           } catch { /* ignore */ }
+          if (
+            merged.backgroundTracking
+            && data.backgroundTracking !== true
+            && premiumActive
+            && token
+          ) {
+            void fetch(`${API_URL}/api/settings`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ backgroundTracking: true }),
+            }).catch(() => {});
+          }
           return merged;
         });
       }
@@ -257,14 +306,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       });
       if (premiumRes.ok) {
         const premiumData = await premiumRes.json();
-        const premiumActive = !!(serverPremiumActive || premiumData.isPremium);
+        const premiumActive = !!(serverPremiumActive || premiumData.isPremium || rcPremiumCached);
         setSettings(prev => ({
           ...prev,
           ...premiumData,
           ...readClientOnlySettings(prev),
           ...mergeProfileAppearanceFromApi(premiumData, prev, premiumActive),
           isPremium: premiumActive,
-          backgroundTracking: backgroundLocationAccepted ? prev.backgroundTracking : false,
+          backgroundTracking: resolveBackgroundTracking(
+            premiumActive,
+            backgroundLocationAccepted,
+            pickBackgroundTrackingStored(
+              cachedParsed?.backgroundTracking,
+              prev.backgroundTracking,
+              undefined,
+            ),
+          ),
         }));
         try {
           const cached = await AsyncStorage.getItem('app_settings');
@@ -275,6 +332,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...readClientOnlySettings(current),
             ...mergeProfileAppearanceFromApi(premiumData, current, premiumActive),
             isPremium: premiumActive,
+            backgroundTracking: resolveBackgroundTracking(
+              premiumActive,
+              backgroundLocationAccepted,
+              pickBackgroundTrackingStored(
+                current.backgroundTracking,
+                undefined,
+                undefined,
+              ),
+            ),
           };
           await AsyncStorage.setItem('app_settings', JSON.stringify(next));
         } catch { /* ignore */ }
@@ -290,7 +356,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           setSettings({
             ...DEFAULTS,
             ...parsed,
-            backgroundTracking: backgroundLocationAccepted ? !!(parsed.backgroundTracking ?? DEFAULTS.backgroundTracking) : false,
+            backgroundTracking: resolveBackgroundTracking(
+              !!(parsed.isPremium),
+              backgroundLocationAccepted,
+              parsed.backgroundTracking,
+            ),
           });
         } catch { /* ignore */ }
       }
@@ -310,11 +380,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             ...DEFAULTS,
             ...cachedParsed,
             ...prev,
-            backgroundTracking: backgroundLocationAccepted
-              ? !!(cachedParsed.backgroundTracking ?? DEFAULTS.backgroundTracking)
-              : false,
+            backgroundTracking: resolveBackgroundTracking(
+              !!(cachedParsed.isPremium ?? prev.isPremium),
+              backgroundLocationAccepted,
+              cachedParsed.backgroundTracking ?? prev.backgroundTracking,
+            ),
           }));
-          setLoading(false);
         }
       } catch { /* ignore */ }
 
@@ -342,6 +413,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const nextVal = key === 'profilePremiumExtras' && value != null
       ? mergeProfilePremiumExtras(value as ProfilePremiumExtras)
       : value;
+
     setSettings(prev => ({ ...prev, [key]: nextVal }));
 
     try {

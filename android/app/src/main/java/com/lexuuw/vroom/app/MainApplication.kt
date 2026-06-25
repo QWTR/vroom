@@ -17,6 +17,7 @@ import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
 
 import com.lexuuw.vroom.app.auto.AutoBridgePackage
+import com.lexuuw.vroom.app.bg.BgTrackingPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -28,6 +29,7 @@ class MainApplication : Application(), ReactApplication {
               // Packages that cannot be autolinked yet can be added manually here, for example:
               // add(MyReactNativePackage())
               add(AutoBridgePackage())
+              add(BgTrackingPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

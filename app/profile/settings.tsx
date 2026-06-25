@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
@@ -30,7 +30,8 @@ import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
-import { BACKGROUND_LOCATION_TASK } from '../../hooks/useBackgroundTracking';
+import { BACKGROUND_LOCATION_TASK, stopBackgroundLocationTaskIfRunning, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
+import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
 import {
   hasAcceptedBackgroundLocationDisclosure,
   requestBackgroundLocationPermissionAfterDisclosure,
@@ -388,10 +389,31 @@ export default function SettingsScreen() {
     }, [refreshPremiumAccess, fetchProfile]),
   );
 
+  const prevEffectivePremiumRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (settingsLoading) return;
+    if (effectivePremium) {
+      prevEffectivePremiumRef.current = true;
+      return;
+    }
+    if (prevEffectivePremiumRef.current === true && settings.backgroundTracking) {
+      void (async () => {
+        await updateSetting('backgroundTracking', false);
+        await stopBackgroundLocationTaskIfRunning();
+        await mirrorBackgroundTrackingSetting(false);
+      })();
+    }
+    if (prevEffectivePremiumRef.current === null) {
+      prevEffectivePremiumRef.current = false;
+    }
+  }, [effectivePremium, settings.backgroundTracking, settingsLoading, updateSetting]);
+
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
     if (!val) {
       await updateSetting('backgroundTracking', false);
+      await mirrorBackgroundTrackingSetting(false);
+      await stopVroomBgForegroundNotification();
       const isRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRunning) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       Toast.show({ type: 'info', text1: '📍 Śledzenie w tle wyłączone' });
@@ -402,7 +424,7 @@ export default function SettingsScreen() {
       Toast.show({
         type: 'info',
         text1: 'VROOM Premium',
-        text2: 'GPS w tle podczas jazdy i nawigacji po zminimalizowaniu aplikacji',
+        text2: 'Statystyki km w tle po zminimalizowaniu aplikacji',
       });
       router.push('/premium');
       return;
@@ -416,12 +438,29 @@ export default function SettingsScreen() {
 
     const granted = await requestBackgroundLocationPermissionAfterDisclosure();
     if (!granted) {
-      await updateSetting('backgroundTracking', false);
-      Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację w tle w ustawieniach telefonu' });
-      return;
+      const bg = await Location.getBackgroundPermissionsAsync();
+      if (bg.status !== 'granted') {
+        await updateSetting('backgroundTracking', false);
+        await mirrorBackgroundTrackingSetting(false);
+        Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację „Zawsze” w ustawieniach telefonu' });
+        return;
+      }
     }
 
-    await updateSetting('backgroundTracking', true);
+    const ok = await updateSetting('backgroundTracking', true);
+    if (!ok) {
+      await mirrorBackgroundTrackingSetting(false);
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się włączyć',
+        text2: 'Sprawdź subskrypcję Premium i spróbuj ponownie',
+      });
+      return;
+    }
+    await mirrorBackgroundTrackingSetting(true);
+    if (Platform.OS === 'android') {
+      await startVroomBgForegroundNotification();
+    }
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
@@ -429,11 +468,28 @@ export default function SettingsScreen() {
     setBgDisclosureVisible(false);
     const granted = await requestBackgroundLocationPermissionAfterDisclosure();
     if (!granted) {
-      await updateSetting('backgroundTracking', false);
-      Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację w tle w ustawieniach telefonu' });
+      const bg = await Location.getBackgroundPermissionsAsync();
+      if (bg.status !== 'granted') {
+        await updateSetting('backgroundTracking', false);
+        await mirrorBackgroundTrackingSetting(false);
+        Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację „Zawsze” w ustawieniach telefonu' });
+        return;
+      }
+    }
+    const ok = await updateSetting('backgroundTracking', true);
+    if (!ok) {
+      await mirrorBackgroundTrackingSetting(false);
+      Toast.show({
+        type: 'error',
+        text1: 'Nie udało się włączyć',
+        text2: 'Sprawdź subskrypcję Premium i spróbuj ponownie',
+      });
       return;
     }
-    await updateSetting('backgroundTracking', true);
+    await mirrorBackgroundTrackingSetting(true);
+    if (Platform.OS === 'android') {
+      await startVroomBgForegroundNotification();
+    }
     Toast.show({ type: 'success', text1: '📍 Śledzenie w tle włączone' });
   };
 
@@ -2280,8 +2336,8 @@ export default function SettingsScreen() {
 							iconBg='#4CAF50'
 							label='Praca w tle'
 							sublabel={effectivePremium
-								? 'GPS w tle — km, nawigacja i jazda po zminimalizowaniu'
-								: 'Premium — GPS w tle podczas jazdy i nawigacji'}
+								? 'Zlicza km i statystyki jazdy po zminimalizowaniu aplikacji'
+								: 'Premium — statystyki km w tle podczas jazdy'}
 							right={
 								<Switch
 									value={settings.backgroundTracking && effectivePremium}
