@@ -101,7 +101,7 @@ export interface AppSettings {
   notifAchievements:   boolean;
   notifFollowedPosts:  boolean;
   notifDiscussionPosts: boolean;
-  locationMarkerStyle: 'arrow' | 'profile';
+  locationMarkerStyle: 'arrow' | 'profile' | 'vehicle_3d';
   homeLatitude: number | null;
   homeLongitude: number | null;
   homeLabel: string | null;

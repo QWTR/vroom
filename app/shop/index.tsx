@@ -57,6 +57,8 @@ export default function NitroShopScreen() {
       avatar_frame: [],
       profile_banner: [],
       entrance_effect: [],
+      map_vehicle_3d: [],
+      limited_vehicle_slot: [],
     };
     for (const item of catalog) {
       if (map[item.category]) map[item.category].push(item);
@@ -81,7 +83,17 @@ export default function NitroShopScreen() {
   }, [reload, filter]);
 
   const onBuy = useCallback(async (item: CatalogItem) => {
+    if (item.category === 'limited_vehicle_slot' && item.owned) {
+      router.push('/shop/vehicle-orders');
+      setDetail(null);
+      return;
+    }
     if (item.owned) {
+      if (item.category === 'limited_vehicle_slot') {
+        router.push('/shop/vehicle-orders');
+        setDetail(null);
+        return;
+      }
       const isEquipped = equippedIds[item.category] === item.id;
       const eq = await equip(item.category, isEquipped ? null : item.id);
       if (eq.ok) {
@@ -94,16 +106,26 @@ export default function NitroShopScreen() {
       setDetail(null);
       return;
     }
+    if (item.soldOut) {
+      Toast.show({ type: 'error', text1: 'Wyprzedane' });
+      return;
+    }
     const res = await purchase(item.id);
     if (!res.ok) {
       Toast.show({ type: 'error', text1: res.error ?? 'Nie udało się kupić' });
       return;
     }
     Toast.show({ type: 'success', text1: 'Kupiono!', text2: item.name });
-    await equip(item.category, item.id);
+    if (item.category === 'limited_vehicle_slot' && res.customOrderId) {
+      router.push(`/shop/vehicle-order/${res.customOrderId}`);
+    } else if (item.category === 'map_vehicle_3d') {
+      await equip(item.category, item.id);
+    } else {
+      await equip(item.category, item.id);
+    }
     setDetail(null);
     reload();
-  }, [purchase, equip, reload, equippedIds]);
+  }, [purchase, equip, reload, equippedIds, router]);
 
   const onExchange = useCallback(async () => {
     const pts = Number(exchangePts);

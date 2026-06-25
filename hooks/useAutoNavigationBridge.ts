@@ -61,7 +61,7 @@ interface UseAutoNavigationBridgeParams {
   remainingDistKm: number | null;
   distToTurnM: number | null;
   mapStyle?: string;
-  locationMarkerStyle?: 'arrow' | 'profile';
+  locationMarkerStyle?: 'arrow' | 'profile' | 'vehicle_3d';
   currentUserAvatarUrl?: string | null;
   hideLocation?: boolean;
   startLocation?: LocationState | null;

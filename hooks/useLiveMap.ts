@@ -13,6 +13,7 @@ import {
   type LiveMapStore,
   type LiveUserMeta,
 } from './liveMapStore';
+import type { VehicleModelMeta } from '../constants/shopCosmetics';
 import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
 
@@ -26,6 +27,8 @@ export interface LiveUser {
   online:    boolean;
   isFriend?: boolean;
   isPremium?: boolean;
+  vehicleModelUrl?: string | null;
+  vehicleModelMeta?: VehicleModelMeta | null;
   serverAt?: number | null;
   seq?: number | null;
   heading?: number | null;
@@ -298,6 +301,8 @@ export function useLiveMap(
           online: u.online,
           isFriend: u.isFriend ?? prevMeta?.isFriend,
           isPremium: u.isPremium ?? prevMeta?.isPremium,
+          vehicleModelUrl: u.vehicleModelUrl ?? prevMeta?.vehicleModelUrl ?? null,
+          vehicleModelMeta: u.vehicleModelMeta ?? prevMeta?.vehicleModelMeta ?? null,
           serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
           seq: u.seq ?? prevMeta?.seq ?? null,
           heading: motion.heading ?? prevMeta?.heading ?? null,
@@ -668,6 +673,12 @@ export function useLiveMap(
           online: data?.online ?? existingMeta?.online ?? true,
           isFriend: data?.isFriend ?? existingMeta?.isFriend,
           isPremium: data?.isPremium ?? existingMeta?.isPremium,
+          vehicleModelUrl: data?.vehicleModelUrl !== undefined
+            ? data.vehicleModelUrl
+            : (existingMeta?.vehicleModelUrl ?? null),
+          vehicleModelMeta: data?.vehicleModelMeta !== undefined
+            ? data.vehicleModelMeta
+            : (existingMeta?.vehicleModelMeta ?? null),
           serverAt,
           seq: Number.isFinite(seq) ? seq : null,
           heading: motion.heading ?? existingMeta?.heading ?? null,
@@ -708,6 +719,8 @@ export function useLiveMap(
             online: u?.online !== false,
             isFriend: u?.isFriend === true,
             isPremium: !!u?.isPremium,
+            vehicleModelUrl: typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null,
+            vehicleModelMeta: u?.vehicleModelMeta ?? null,
             serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
             seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
             heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,

@@ -8,6 +8,12 @@ import { normalizeMediaUri } from '../lib/mediaUri';
 import { calculateDistance } from '../scripts/distance';
 import type { LiveUserPinSpriteData } from '../components/map/LiveUserPinSpriteVisual';
 import { buildPinSpriteSignature } from './useLiveUserPinSprites';
+import { registerModelUrl } from '../lib/vehicleModelRegistry';
+import { resolveMapVehicleScale } from '../lib/mapVehicleScale';
+import {
+  buildModelLayerTranslation,
+  normalizeVehicleModelMeta,
+} from '../lib/vehicleModelMeta';
 import {
   FLEET_EXTRAPOLATE_MAX_MS,
   FLEET_FULL_ANIMATION_RADIUS_KM,
@@ -75,6 +81,16 @@ type FleetSlot = {
   initials: string;
   distanceLabel: string;
   pinColor: string;
+  vehicleModelKey: string;
+  vehicleRotOffset: number;
+  vehiclePitch: number;
+  vehicleRoll: number;
+  vehicleTrans0: number;
+  vehicleTrans1: number;
+  vehicleTrans2: number;
+  vehicleScale0: number;
+  vehicleScale1: number;
+  vehicleScale2: number;
 };
 
 export type LiveFleetStats = {
@@ -110,12 +126,27 @@ export type LiveFleetFeature = {
   properties: {
     id: number;
     heading: number;
+    modelKey?: string;
+    modelRot0?: number;
+    modelRot1?: number;
+    modelRot2?: number;
+    transX?: number;
+    transY?: number;
+    transZ?: number;
+    scaleX?: number;
+    scaleY?: number;
+    scaleZ?: number;
   };
 };
 
 export type LiveFleetGeoJson = {
   type: 'FeatureCollection';
   features: LiveFleetFeature[];
+};
+
+const EMPTY_VEHICLE_FC: LiveFleetGeoJson = {
+  type: 'FeatureCollection',
+  features: [],
 };
 
 export type FleetMetaPinRequest = {
@@ -303,6 +334,52 @@ function buildGeoJsonLive(
   return { type: 'FeatureCollection', features };
 }
 
+function buildVehicleGeoJson(
+  slots: FleetSlot[],
+  nowMs: number,
+  exitBounds: ViewportBounds,
+): LiveFleetGeoJson {
+  'worklet';
+  const features: LiveFleetFeature[] = [];
+  for (let i = 0; i < slots.length; i++) {
+    const s = slots[i];
+    if (!s.vehicleModelKey) continue;
+    const resolved = resolveMotionWorklet(s, nowMs);
+    let lat = resolved.lat;
+    let lng = resolved.lng;
+    if (!isValidFleetCoord(lat, lng)) {
+      if (isValidFleetCoord(s.lastGoodLat, s.lastGoodLng)) {
+        lat = s.lastGoodLat;
+        lng = s.lastGoodLng;
+      } else {
+        continue;
+      }
+    }
+    if (!isInViewport(lat, lng, exitBounds)) continue;
+    const yaw = (resolved.heading + s.vehicleRotOffset + 360) % 360;
+    features.push({
+      type: 'Feature',
+      id: s.id,
+      geometry: { type: 'Point', coordinates: [lng, lat] },
+      properties: {
+        id: s.id,
+        heading: yaw,
+        modelKey: s.vehicleModelKey,
+        modelRot0: Number(s.vehiclePitch) || 0,
+        modelRot1: Number(s.vehicleRoll) || 0,
+        modelRot2: yaw,
+        transX: Number(s.vehicleTrans0) || 0,
+        transY: Number(s.vehicleTrans1) || 0,
+        transZ: Number.isFinite(Number(s.vehicleTrans2)) ? Number(s.vehicleTrans2) : 0.8,
+        scaleX: Number(s.vehicleScale0) || 1,
+        scaleY: Number(s.vehicleScale1) || 1,
+        scaleZ: Number(s.vehicleScale2) || 1,
+      },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
 function buildMetaPinRequests(
   store: LiveMapStore,
   visibleUserIds: number[],
@@ -313,6 +390,7 @@ function buildMetaPinRequests(
     const meta = store.getMeta(id);
     const pos = store.getPosition(id);
     if (!meta) continue;
+    if (meta.vehicleModelUrl) continue;
     const avatarUri = normalizeMediaUri(meta.avatarUrl);
     const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
     const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri);
@@ -442,6 +520,17 @@ function mergeSlotFromStore(
   const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri) ? 1 : 0;
   const username = meta.username?.trim() || 'Użytkownik';
   const initials = username.slice(0, 2).toUpperCase();
+  const vMeta = meta.vehicleModelMeta;
+  const vNorm = normalizeVehicleModelMeta(vMeta);
+  const vehicleModelKey = meta.vehicleModelUrl ? registerModelUrl(meta.vehicleModelUrl) : '';
+  const vehicleRotOffset = Number(vNorm.rotationOffset) || 0;
+  const vehiclePitch = Number(vNorm.rotationPitch) || 0;
+  const vehicleRoll = Number(vNorm.rotationRoll) || 0;
+  const [vehicleTrans0, vehicleTrans1, vehicleTrans2] = buildModelLayerTranslation(vNorm);
+  const vehicleScale = resolveMapVehicleScale(vNorm.scale);
+  const vehicleScale0 = vehicleScale[0];
+  const vehicleScale1 = vehicleScale[1];
+  const vehicleScale2 = vehicleScale[2];
 
   const draft: FleetSlot = {
     id,
@@ -473,6 +562,16 @@ function mergeSlotFromStore(
     initials,
     distanceLabel: `${distKm.toFixed(1)} km`,
     pinColor: pinColorFor(meta),
+    vehicleModelKey,
+    vehicleRotOffset,
+    vehiclePitch,
+    vehicleRoll,
+    vehicleTrans0,
+    vehicleTrans1,
+    vehicleTrans2,
+    vehicleScale0,
+    vehicleScale1,
+    vehicleScale2,
   };
 
   const resolved = resolveMotionJs(draft, now);
@@ -513,6 +612,7 @@ export function useLiveFleetAnimator(
 
   const fleetSv = useSharedValue<FleetSlot[]>([]);
   const shapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_FC);
+  const vehicleShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_VEHICLE_FC);
   const enterViewportSv = useSharedValue<ViewportBounds>(EMPTY_VIEWPORT);
   const exitViewportSv = useSharedValue<ViewportBounds>(EMPTY_VIEWPORT);
   const lastPublishAtSv = useSharedValue(0);
@@ -703,6 +803,7 @@ export function useLiveFleetAnimator(
     if (!slots.length) {
       if (lastPublishAtSv.value !== -1) {
         shapeSv.value = EMPTY_FC;
+        vehicleShapeSv.value = EMPTY_VEHICLE_FC;
         lastPublishAtSv.value = -1;
       }
       return;
@@ -712,6 +813,7 @@ export function useLiveFleetAnimator(
     const nowMs = Date.now();
     const geo = buildGeoJsonLive(slots, nowMs, exitBounds);
     shapeSv.value = geo;
+    vehicleShapeSv.value = buildVehicleGeoJson(slots, nowMs, exitBounds);
     lastPublishAtSv.value = nowMs;
     if (lastStatsAtSv.value <= 0 || nowMs - lastStatsAtSv.value >= FLEET_STATS_THROTTLE_MS) {
       lastStatsAtSv.value = nowMs;
@@ -737,10 +839,18 @@ export function useLiveFleetAnimator(
     };
   });
 
+  const vehicleAnimatedShapeProps = useAnimatedProps(() => {
+    'worklet';
+    return {
+      shape: JSON.stringify(vehicleShapeSv.value),
+    };
+  });
+
   const hasFleet = metaPinRequests.length > 0;
 
   return {
     animatedShapeProps,
+    vehicleAnimatedShapeProps,
     metaPinRequests,
     hasFleet,
     fleetStats: fleetStatsSv,

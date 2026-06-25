@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
-import type { ShopItemCategory, UserShopCosmetics } from '../constants/shopCosmetics';
+import type { ShopItemCategory, UserShopCosmetics, VehicleModelMeta } from '../constants/shopCosmetics';
 
 export interface CatalogItem {
   id: string;
@@ -13,6 +13,11 @@ export interface CatalogItem {
   assetKind?: string;
   nitroCost: number;
   tagLine?: string | null;
+  metadata?: VehicleModelMeta | null;
+  maxSupply?: number | null;
+  soldCount?: number;
+  soldOut?: boolean;
+  available?: boolean;
   isFeatured?: boolean;
   unlocked: boolean;
   owned: boolean;
@@ -66,7 +71,12 @@ export function useProfileShop() {
     if (!res.ok) return { ok: false, error: data?.error, code: data?.code };
     setNitroBalance(Number(data?.nitroBalance ?? 0));
     await loadCatalog();
-    return { ok: true, item: data?.item };
+    return {
+      ok: true,
+      item: data?.item,
+      customOrderId: data?.customOrderId as string | undefined,
+      requiresOrderForm: !!data?.requiresOrderForm,
+    };
   }, [loadCatalog]);
 
   const equip = useCallback(async (category: ShopItemCategory, itemId: string | null) => {

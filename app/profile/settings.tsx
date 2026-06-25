@@ -20,6 +20,7 @@ import { useSettings }  from '../../hooks/useSettings';
 import { useTheme }     from '../../contexts/ThemeContext';
 import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { useProfile } from '../../hooks/useProfile';
+import { useEquippedMapVehicle } from '../../hooks/useEquippedMapVehicle';
 import { useCursorSkin } from '../../hooks/useCursorSkin';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
@@ -76,6 +77,7 @@ const THEME_OPTIONS: { key: ThemeMode; label: string; icon: string; color: strin
 const MARKER_STYLES = [
   { key: 'arrow'   as const, label: 'STRZAŁKA',  icon: 'navigation' },
   { key: 'profile' as const, label: 'PROFILOWE', icon: 'account-circle' },
+  { key: 'vehicle_3d' as const, label: 'AUTO 3D', icon: 'directions-car', requiresVehicle: true },
 ];
 const NICK_COLORS = ['#FFFFFF', '#FFD700', '#4DE926', '#38A5E3', '#A855F7', '#FF6B35'];
 const PROFILE_PRESETS = ['default', 'midnight', 'sunset', 'neon', 'royal', 'cyber', 'gold', 'forest', 'custom'] as const;
@@ -96,6 +98,7 @@ export default function SettingsScreen() {
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
   const { skins: cursorSkins, activeSkin, setActiveSkinId } = useCursorSkin();
+  const { vehicle: equippedMapVehicle } = useEquippedMapVehicle();
   const { wallet: nitroWallet } = useNitroWallet();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
   const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
@@ -1972,12 +1975,15 @@ export default function SettingsScreen() {
 										</Text>
 									</View>
 								</View>
-								<View style={{ flexDirection: "row", gap: 8 }}>
-									{MARKER_STYLES.map(opt => (
+								<View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+									{MARKER_STYLES.filter(
+										(opt) => !opt.requiresVehicle || !!equippedMapVehicle,
+									).map(opt => (
 										<TouchableOpacity
 											key={opt.key}
 											style={{
 												flex: 1,
+												minWidth: "30%",
 												flexDirection: "row",
 												alignItems: "center",
 												justifyContent: "center",

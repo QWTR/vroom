@@ -39,6 +39,8 @@ import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import { TripCameraLocationProvider } from '../../components/map/TripCameraLocationProvider';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
+import { SelfVehicleModelMarker } from '../../components/map/SelfVehicleModelMarker';
+import { MapVehicleModelsHost } from '../../components/map/MapVehicleModelsHost';
 import {
   HudPanelShell,
   DriveSpeedTile,
@@ -107,6 +109,7 @@ ensureMapboxToken();
 
 import {
   resolveMapStyle,
+  resolveMapStyleForVehicle3d,
   shouldApplyVividMapLayers,
   MAX_NEARBY_USERS_DISTANCE
 } from '../../constants/mapConfig';
@@ -273,6 +276,7 @@ import { PartnerPoiMarker }     from '../../components/markers/PartnerPoiMarker'
 import { PartnerPoiModal }      from '../../components/modals/PartnerPoiModal';
 import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
+import { useEquippedMapVehicle } from '../../hooks/useEquippedMapVehicle';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
 import { AddFuelStationModal }  from '../../components/modals/AddFuelStationModal';
 import { LiveFleetMapController } from '../../components/map/LiveFleetMapController';
@@ -2989,11 +2993,17 @@ function MapScreenInner() {
     isPremiumRef.current = isPremium;
   }, [isPremium]);
   const { activeSkin: cursorSkinActive } = useCursorSkin();
+  const { vehicle: equippedMapVehicle, reload: reloadEquippedVehicle, loading: equippedVehicleLoading, modelHealth } = useEquippedMapVehicle();
   const cursorSkinOverlay = cursorSkinActive?.imageUrl
     ? { imageUrl: cursorSkinActive.imageUrl, borderColor: cursorSkinActive.borderColor }
     : null;
   const { startConversation } = useChat();
   const { settings } = useSettings();
+  const wantVehicle3DMarker = settings.locationMarkerStyle === 'vehicle_3d';
+  const useVehicle3DMarker = wantVehicle3DMarker && (!!equippedMapVehicle?.previewUrl || !!equippedMapVehicle?.assetUrl) && !equippedVehicleLoading;
+  const useNativeVehicleModel = useVehicle3DMarker && modelHealth === 'ok';
+  const showSelf2DMarker = !useVehicle3DMarker;
+  const selfMarkerUsesArrow = settings.locationMarkerStyle === 'arrow';
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top, { mapControlsTop: 12 });
   const hudStyles = useHudStyles();
@@ -3009,7 +3019,7 @@ function MapScreenInner() {
         name: settings.homeLabel || 'Dom',
       }
     : null;
-  const mapStyle = resolveMapStyle(mapType, isDark);
+  const mapStyle = resolveMapStyleForVehicle3d(mapType, isDark, useVehicle3DMarker);
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
   const getTripActive = useCallback(
@@ -5114,6 +5124,14 @@ function MapScreenInner() {
       setMyUsername(user.username ?? '');
     });
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    void reloadEquippedVehicle();
+  }, [reloadEquippedVehicle]));
+
+  useEffect(() => {
+    if (wantVehicle3DMarker) void reloadEquippedVehicle();
+  }, [wantVehicle3DMarker, reloadEquippedVehicle]);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -12379,16 +12397,33 @@ if (pts.length >= 2) {
   useEffect(() => {
     const points = activeRoute?.points;
     if (!points?.length) { setRemainingRoutePoints([]); return; }
-    if (!isNavigating || !userLocation) {
-      setRemainingRoutePoints(points); return;
+    if (!isNavigating) {
+      setRemainingRoutePoints(points);
+      return;
     }
-    const snapped = snapToRoute(userLocation.latitude, userLocation.longitude, points, NAV_ROUTE_SNAP_M);
-    const idx     = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
+    const mLat = driveMarker.lat.value;
+    const mLng = driveMarker.lng.value;
+    const hasSmoothedMarker = Number.isFinite(mLat) && Number.isFinite(mLng)
+      && !(Math.abs(mLat) < 1e-6 && Math.abs(mLng) < 1e-6);
+    const anchorLat = hasSmoothedMarker
+      ? mLat
+      : (lastTripMarkerPoseRef.current?.lat ?? userLocation?.latitude);
+    const anchorLng = hasSmoothedMarker
+      ? mLng
+      : (lastTripMarkerPoseRef.current?.lng ?? userLocation?.longitude);
+    if (!Number.isFinite(anchorLat) || !Number.isFinite(anchorLng)) {
+      setRemainingRoutePoints(points);
+      return;
+    }
+    const snapped = snapToRoute(anchorLat, anchorLng, points, NAV_ROUTE_SNAP_M);
+    const idx = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
+    const headLat = hasSmoothedMarker ? mLat : snapped.latitude;
+    const headLng = hasSmoothedMarker ? mLng : snapped.longitude;
     setRemainingRoutePoints([
-      { latitude: snapped.latitude, longitude: snapped.longitude },
+      { latitude: headLat, longitude: headLng },
       ...points.slice(idx + 1),
     ]);
-  }, [isNavigating, activeRoute]);
+  }, [isNavigating, activeRoute, driveMarker, userLocation]);
 
   // ── Live location sharing ────────────────────────────────────────────────────
   // Single interval-based mechanism (replaces the previous dual send: event + interval).
@@ -12949,13 +12984,21 @@ if (pts.length >= 2) {
       : routePointsRef.current;
 
     const runNavProgress = () => {
+      const mLat = driveMarker.lat.value;
+      const mLng = driveMarker.lng.value;
+      const hasSmoothedMarker = Number.isFinite(mLat) && Number.isFinite(mLng)
+        && !(Math.abs(mLat) < 1e-6 && Math.abs(mLng) < 1e-6);
       const drFresh =
         drLatRef.current !== 0
         && drLngRef.current !== 0
         && Date.now() - drLastFrameAtRef.current <= DR_STALE_MS;
       const fallbackLoc = currentLocRef.current;
-      const currentLat = drFresh ? drLatRef.current : fallbackLoc?.latitude;
-      const currentLng = drFresh ? drLngRef.current : fallbackLoc?.longitude;
+      const currentLat = hasSmoothedMarker
+        ? mLat
+        : (drFresh ? drLatRef.current : fallbackLoc?.latitude);
+      const currentLng = hasSmoothedMarker
+        ? mLng
+        : (drFresh ? drLngRef.current : fallbackLoc?.longitude);
       if (!currentLat || !currentLng) return;
 
       const inRerouteGrace = Date.now() < rerouteGraceUntilRef.current;
@@ -13084,22 +13127,24 @@ if (pts.length >= 2) {
         }
 
         const previousHead = lastRemainingRouteHeadRef.current;
+        const headLat = hasSmoothedMarker ? mLat : routeProjection.latitude;
+        const headLng = hasSmoothedMarker ? mLng : routeProjection.longitude;
         const headMovedM = previousHead
           ? haversineKm(
               previousHead.lat,
               previousHead.lng,
-              routeProjection.latitude,
-              routeProjection.longitude,
+              headLat,
+              headLng,
             ) * 1000
           : Number.POSITIVE_INFINITY;
         if (!previousHead || previousHead.idx !== idx || headMovedM >= 1) {
           lastRemainingRouteHeadRef.current = {
-            lat: routeProjection.latitude,
-            lng: routeProjection.longitude,
+            lat: headLat,
+            lng: headLng,
             idx,
           };
           setRemainingRoutePoints([
-            { latitude: routeProjection.latitude, longitude: routeProjection.longitude },
+            { latitude: headLat, longitude: headLng },
             ...points.slice(idx + 1),
           ]);
         }
@@ -13152,7 +13197,7 @@ if (pts.length >= 2) {
     runNavProgress();
     const id = setInterval(runNavProgress, NAV_PROGRESS_UI_MS);
     return () => clearInterval(id);
-  }, [isNavigating, effectiveNavRoute, endLocation, handleArrived, showNavigationNotification, speak]);
+  }, [isNavigating, effectiveNavRoute, endLocation, handleArrived, showNavigationNotification, speak, driveMarker]);
 
   // ── beginNavigation ───────────────────────────────────────
   const beginNavigation = useCallback(() => {
@@ -13944,6 +13989,9 @@ if (pts.length >= 2) {
             isDark={isDark}
             minZoom={BUILDINGS_3D_MIN_ZOOM}
           />
+          <MapVehicleModelsHost
+            selfModelUrl={useNativeVehicleModel ? equippedMapVehicle?.assetUrl : null}
+          />
           <MapVividLayers enabled={showVividMapLayers} isDark={isDark} />
 
           {endLocation && !arrived && (
@@ -14109,22 +14157,36 @@ if (pts.length >= 2) {
             })
           }
 
+          <SelfVehicleModelMarker
+            enabled={useVehicle3DMarker}
+            isTripActive={isTripActive}
+            driveMarker={driveMarker}
+            browseLat={markerLat}
+            browseLng={markerLng}
+            browseHeading={markerHdg}
+            modelUrl={equippedMapVehicle?.assetUrl ?? ''}
+            previewUrl={equippedMapVehicle?.previewUrl}
+            metadata={equippedMapVehicle?.metadata}
+            modelHealth={modelHealth}
+            useNativeModelLayer={useNativeVehicleModel}
+          />
           <DriveMarkerLayer
-            enabled={isTripActive}
+            enabled={isTripActive && showSelf2DMarker}
             marker={driveMarker}
-            imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
-            avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
+            imageUri={selfMarkerUsesArrow ? arrowMarkerImage : carMarkerImage}
+            avatarUrl={selfMarkerUsesArrow ? null : myAvatarUrl}
             cursorSkin={cursorSkinOverlay}
           />
           {!isTripActive
             && Number.isFinite(markerLat)
-            && Number.isFinite(markerLng) && (
+            && Number.isFinite(markerLng)
+            && showSelf2DMarker && (
             <DrPositionMarker
               latitude={markerLat}
               longitude={markerLng}
               heading={markerHdg}
-              avatarUrl={settings.locationMarkerStyle === 'arrow' ? null : myAvatarUrl}
-              imageUri={settings.locationMarkerStyle === 'arrow' ? arrowMarkerImage : carMarkerImage}
+              avatarUrl={selfMarkerUsesArrow ? null : myAvatarUrl}
+              imageUri={selfMarkerUsesArrow ? arrowMarkerImage : carMarkerImage}
               cursorSkin={cursorSkinOverlay}
             />
           )}

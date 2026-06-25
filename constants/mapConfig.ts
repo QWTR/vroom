@@ -8,6 +8,8 @@ export const MAPBOX_TOKEN           = 'pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MD
 export const MAPBOX_STYLE_LIGHT     = 'mapbox://styles/mapbox/streets-v12';
 /** Nocna nawigacja — czytelne drogi, tory, mniej „szara płaszczyzna” niż dark-v11. */
 export const MAPBOX_STYLE_DARK      = 'mapbox://styles/mapbox/navigation-night-v1';
+/** Mapbox Standard — opcjonalny (ModelLayer); nie wymuszamy na całej mapie. */
+export const MAPBOX_STYLE_STANDARD   = 'mapbox://styles/mapbox/standard';
 export const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-v9';
 /** Hybryda satelita + etykiety ulic/POI — jak w referencyjnym zdjęciu. */
 export const MAPBOX_STYLE_HYBRID    = 'mapbox://styles/mapbox/satellite-streets-v12';
@@ -30,6 +32,11 @@ export function resolveMapStyle(mapType: string, isDark: boolean): string {
   if (mapType === 'satellite') return MAPBOX_STYLE_SATELLITE;
   if (mapType === 'hybrid')    return MAPBOX_STYLE_HYBRID;
   return resolveStandardMapStyle(isDark);
+}
+
+/** Styl mapy — bez podmiany na Standard przy markerze 3D (zachowaj navigation-night / streets). */
+export function resolveMapStyleForVehicle3d(mapType: string, isDark: boolean, _vehicle3d?: boolean): string {
+  return resolveMapStyle(mapType, isDark);
 }
 
 /** Czy nakładać warstwy „żywej” mapy (trawa, tory) — niepotrzebne na sat/hybrid. */

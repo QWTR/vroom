@@ -8,6 +8,7 @@ import {
 import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
+import { FleetVehicleModelsLayer } from './FleetVehicleModelsLayer';
 
 const VIEWPORT_REFRESH_MS = 250;
 
@@ -134,11 +135,17 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   );
 
   return (
-    <LiveUsersFleetLayer
-      animatedShapeProps={animator.animatedShapeProps}
-      metaPinRequests={animator.metaPinRequests}
-      visible={enabled && viewportReady && animator.hasFleet}
-      onUserPress={onUserPress}
-    />
+    <>
+      <FleetVehicleModelsLayer
+        animatedShapeProps={animator.vehicleAnimatedShapeProps}
+        visible={enabled && viewportReady}
+      />
+      <LiveUsersFleetLayer
+        animatedShapeProps={animator.animatedShapeProps}
+        metaPinRequests={animator.metaPinRequests}
+        visible={enabled && viewportReady && animator.hasFleet}
+        onUserPress={onUserPress}
+      />
+    </>
   );
 });

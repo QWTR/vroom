@@ -56,6 +56,16 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
           <Text style={styles.tagText}>{item.tagLine}</Text>
         </View>
       ) : null}
+      {item.maxSupply && !item.owned ? (
+        <View style={[styles.tagBadge, { backgroundColor: '#e33835', right: 8, top: (item.isFeatured || item.tagLine) ? 28 : 8 }]}>
+          <Text style={styles.tagText}>LIMIT {item.maxSupply}</Text>
+        </View>
+      ) : null}
+      {item.category === 'limited_vehicle_slot' && !item.tagLine ? (
+        <View style={[styles.tagBadge, { backgroundColor: '#FFD700' }]}>
+          <Text style={[styles.tagText, { color: '#111' }]}>CUSTOM</Text>
+        </View>
+      ) : null}
 
       <View style={[styles.preview, { backgroundColor: isDark ? theme.bg : theme.surface2 }]}>
         {item.category === 'avatar_frame' ? (
@@ -63,6 +73,12 @@ export const NitroShopItemCard = memo(function NitroShopItemCard({
             <View style={[styles.fakeAvatar, { backgroundColor: isDark ? theme.surface4 : theme.surface3 }]} />
             <ShopAvatarDecoration item={item} size={72} />
           </View>
+        ) : item.category === 'map_vehicle_3d' || item.category === 'limited_vehicle_slot' ? (
+          preview ? (
+            <Image source={{ uri: preview }} style={styles.previewImg} contentFit="cover" />
+          ) : (
+            <MaterialIcons name="directions-car" size={36} color={`${accent}88`} />
+          )
         ) : preview ? (
           <Image source={{ uri: preview }} style={styles.previewImg} contentFit="cover" />
         ) : (
