@@ -6,15 +6,20 @@ export type ShopItemCategory =
   | 'limited_vehicle_slot';
 
 export interface VehicleModelMeta {
+  rendererVersion?: 3;
   scale: [number, number, number];
-  rotationOffset: number;
-  /** Obrót wokół osi X (pitch) — korekta eksportu GLB [°] */
+  yawOffset: number;
+  pitch?: number;
+  roll?: number;
+  pivotX?: number;
+  pivotY?: number;
+  elevationZ?: number;
+  /** Legacy aliases accepted from older API/admin data. */
+  rotationOffset?: number;
   rotationPitch?: number;
-  /** Obrót wokół osi Y (roll) [°] */
   rotationRoll?: number;
-  /** Przesunięcie modelu na mapie [metry: X, Y, Z] */
   translation?: [number, number, number];
-  /** Kierunek drogi w kalibratorze panelu admina — tylko edytor, app ignoruje */
+  /** Kierunek drogi w kalibratorze panelu admina — tylko edytor */
   calibrationHeading?: number;
   minZoom: number;
 }

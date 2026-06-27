@@ -5,8 +5,12 @@ vi.mock('react-native', () => ({
 }));
 
 vi.mock('expo-file-system/legacy', () => ({
+  cacheDirectory: 'file:///tmp/cache/',
   documentDirectory: 'file:///tmp/',
   EncodingType: { UTF8: 'utf8' },
+  getInfoAsync: vi.fn(() => Promise.resolve({ exists: false })),
+  makeDirectoryAsync: vi.fn(() => Promise.resolve()),
+  downloadAsync: vi.fn((url: string, to: string) => Promise.resolve({ uri: to, status: 200 })),
   writeAsStringAsync: vi.fn(() => Promise.resolve()),
   readAsStringAsync: vi.fn(() => Promise.resolve('')),
 }));

@@ -11,7 +11,8 @@ import { buildPinSpriteSignature } from './useLiveUserPinSprites';
 import { registerModelUrl } from '../lib/vehicleModelRegistry';
 import { resolveMapVehicleScale } from '../lib/mapVehicleScale';
 import {
-  buildModelLayerTranslation,
+  buildModelLayerTranslationWorklet,
+  computeVehicleModelYawWorklet,
   normalizeVehicleModelMeta,
 } from '../lib/vehicleModelMeta';
 import {
@@ -85,12 +86,11 @@ type FleetSlot = {
   vehicleRotOffset: number;
   vehiclePitch: number;
   vehicleRoll: number;
-  vehicleTrans0: number;
-  vehicleTrans1: number;
-  vehicleTrans2: number;
+  vehicleElevationZ: number;
   vehicleScale0: number;
   vehicleScale1: number;
   vehicleScale2: number;
+  vehicleMinZoom: number;
 };
 
 export type LiveFleetStats = {
@@ -136,6 +136,7 @@ export type LiveFleetFeature = {
     scaleX?: number;
     scaleY?: number;
     scaleZ?: number;
+    minZoom?: number;
   };
 };
 
@@ -338,6 +339,7 @@ function buildVehicleGeoJson(
   slots: FleetSlot[],
   nowMs: number,
   exitBounds: ViewportBounds,
+  currentZoom: number,
 ): LiveFleetGeoJson {
   'worklet';
   const features: LiveFleetFeature[] = [];
@@ -356,7 +358,9 @@ function buildVehicleGeoJson(
       }
     }
     if (!isInViewport(lat, lng, exitBounds)) continue;
-    const yaw = (resolved.heading + s.vehicleRotOffset + 360) % 360;
+    if (Number.isFinite(currentZoom) && currentZoom < s.vehicleMinZoom) continue;
+    const yaw = computeVehicleModelYawWorklet(resolved.heading, s.vehicleRotOffset);
+    const translation = buildModelLayerTranslationWorklet(s.vehicleElevationZ);
     features.push({
       type: 'Feature',
       id: s.id,
@@ -368,12 +372,13 @@ function buildVehicleGeoJson(
         modelRot0: Number(s.vehiclePitch) || 0,
         modelRot1: Number(s.vehicleRoll) || 0,
         modelRot2: yaw,
-        transX: Number(s.vehicleTrans0) || 0,
-        transY: Number(s.vehicleTrans1) || 0,
-        transZ: Number.isFinite(Number(s.vehicleTrans2)) ? Number(s.vehicleTrans2) : 0.8,
+        transX: translation[0],
+        transY: translation[1],
+        transZ: translation[2],
         scaleX: Number(s.vehicleScale0) || 1,
         scaleY: Number(s.vehicleScale1) || 1,
         scaleZ: Number(s.vehicleScale2) || 1,
+        minZoom: Number.isFinite(Number(s.vehicleMinZoom)) ? Number(s.vehicleMinZoom) : 10,
       },
     });
   }
@@ -523,14 +528,14 @@ function mergeSlotFromStore(
   const vMeta = meta.vehicleModelMeta;
   const vNorm = normalizeVehicleModelMeta(vMeta);
   const vehicleModelKey = meta.vehicleModelUrl ? registerModelUrl(meta.vehicleModelUrl) : '';
-  const vehicleRotOffset = Number(vNorm.rotationOffset) || 0;
-  const vehiclePitch = Number(vNorm.rotationPitch) || 0;
-  const vehicleRoll = Number(vNorm.rotationRoll) || 0;
-  const [vehicleTrans0, vehicleTrans1, vehicleTrans2] = buildModelLayerTranslation(vNorm);
+  const vehicleRotOffset = Number(vNorm.yawOffset) || 0;
+  const vehiclePitch = Number(vNorm.pitch) || 0;
+  const vehicleRoll = Number(vNorm.roll) || 0;
   const vehicleScale = resolveMapVehicleScale(vNorm.scale);
   const vehicleScale0 = vehicleScale[0];
   const vehicleScale1 = vehicleScale[1];
   const vehicleScale2 = vehicleScale[2];
+  const vehicleMinZoom = Number.isFinite(Number(vNorm.minZoom)) ? Number(vNorm.minZoom) : 10;
 
   const draft: FleetSlot = {
     id,
@@ -566,12 +571,11 @@ function mergeSlotFromStore(
     vehicleRotOffset,
     vehiclePitch,
     vehicleRoll,
-    vehicleTrans0,
-    vehicleTrans1,
-    vehicleTrans2,
+    vehicleElevationZ: Number.isFinite(Number(vNorm.elevationZ)) ? Number(vNorm.elevationZ) : 0.8,
     vehicleScale0,
     vehicleScale1,
     vehicleScale2,
+    vehicleMinZoom,
   };
 
   const resolved = resolveMotionJs(draft, now);
@@ -592,6 +596,7 @@ export function useLiveFleetAnimator(
   enabled: boolean,
   anchor: { latitude: number; longitude: number } | null,
   viewportBounds: ViewportBounds = EMPTY_VIEWPORT,
+  currentZoom = 0,
 ) {
   const [metaRevision, setMetaRevision] = useState(0);
   const [metaPinRequests, setMetaPinRequests] = useState<FleetMetaPinRequest[]>([]);
@@ -623,6 +628,11 @@ export function useLiveFleetAnimator(
     culled: 0,
     published: 0,
   });
+  const currentZoomSv = useSharedValue(currentZoom);
+
+  useEffect(() => {
+    currentZoomSv.value = currentZoom;
+  }, [currentZoom, currentZoomSv]);
 
   useEffect(() => {
     enterViewportSv.value = expandBoundsByMeters(viewportBounds, VIEWPORT_ENTER_MARGIN_M);
@@ -639,7 +649,10 @@ export function useLiveFleetAnimator(
 
   useEffect(() => {
     if (!enabled) return;
-    return store.subscribeUserIds(() => setMetaRevision((r) => r + 1));
+    const unsubscribe = store.subscribeUserIds(() => setMetaRevision((r) => r + 1));
+    return () => {
+      unsubscribe();
+    };
   }, [store, enabled]);
 
   const publishMetaPins = useCallback((ids: number[]) => {
@@ -774,11 +787,14 @@ export function useLiveFleetAnimator(
       }
     };
 
-    return store.subscribeFleetDeltas((ids) => {
+    const unsubscribe = store.subscribeFleetDeltas((ids) => {
       for (const id of ids) {
         if (visibleSet.has(id)) onPosition(id);
       }
     });
+    return () => {
+      unsubscribe();
+    };
   }, [
     store,
     visibleKey,
@@ -813,7 +829,7 @@ export function useLiveFleetAnimator(
     const nowMs = Date.now();
     const geo = buildGeoJsonLive(slots, nowMs, exitBounds);
     shapeSv.value = geo;
-    vehicleShapeSv.value = buildVehicleGeoJson(slots, nowMs, exitBounds);
+    vehicleShapeSv.value = buildVehicleGeoJson(slots, nowMs, exitBounds, currentZoomSv.value);
     lastPublishAtSv.value = nowMs;
     if (lastStatsAtSv.value <= 0 || nowMs - lastStatsAtSv.value >= FLEET_STATS_THROTTLE_MS) {
       lastStatsAtSv.value = nowMs;

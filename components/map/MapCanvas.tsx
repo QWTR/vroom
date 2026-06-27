@@ -9,6 +9,7 @@ export type MapCanvasProps = {
   onLongPress?: (e: any) => void;
   onMapIdle?: (e: any) => void;
   onCameraChanged?: (e: any) => void;
+  onDidFinishLoadingStyle?: () => void;
   children?: ReactNode;
 };
 
@@ -25,6 +26,7 @@ export const MapCanvas = memo(
       onLongPress,
       onMapIdle,
       onCameraChanged,
+      onDidFinishLoadingStyle,
       children,
     },
     ref,
@@ -47,6 +49,7 @@ export const MapCanvas = memo(
         onLongPress={onLongPress}
         onMapIdle={onMapIdle}
         onCameraChanged={onCameraChanged}
+        onDidFinishLoadingStyle={onDidFinishLoadingStyle}
       >
         {children}
       </Mapbox.MapView>

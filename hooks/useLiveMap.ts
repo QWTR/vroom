@@ -14,6 +14,7 @@ import {
   type LiveUserMeta,
 } from './liveMapStore';
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
+import { normalizeVehicleLiveFields } from '../lib/vehicleModelContract';
 import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
 
@@ -276,6 +277,7 @@ export function useLiveMap(
       const coords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
       const motion = parseIncomingMotion(u);
       const trail = parseIncomingTrail(u?.trail);
+      const liveVehicle = normalizeVehicleLiveFields(u, prevMeta);
 
       if (Number.isFinite(Number(u?.seq))) {
         const seq = Number(u.seq);
@@ -301,8 +303,8 @@ export function useLiveMap(
           online: u.online,
           isFriend: u.isFriend ?? prevMeta?.isFriend,
           isPremium: u.isPremium ?? prevMeta?.isPremium,
-          vehicleModelUrl: u.vehicleModelUrl ?? prevMeta?.vehicleModelUrl ?? null,
-          vehicleModelMeta: u.vehicleModelMeta ?? prevMeta?.vehicleModelMeta ?? null,
+          vehicleModelUrl: liveVehicle.vehicleModelUrl,
+          vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
           seq: u.seq ?? prevMeta?.seq ?? null,
           heading: motion.heading ?? prevMeta?.heading ?? null,
@@ -659,6 +661,7 @@ export function useLiveMap(
         const existingMeta = store.getMeta(id);
         const motion = parseIncomingMotion(data);
         const trail = parseIncomingTrail(data?.trail);
+        const liveVehicle = normalizeVehicleLiveFields(data, existingMeta);
         const meta: LiveUserMeta = {
           id,
           username: typeof data?.username === 'string'
@@ -673,12 +676,8 @@ export function useLiveMap(
           online: data?.online ?? existingMeta?.online ?? true,
           isFriend: data?.isFriend ?? existingMeta?.isFriend,
           isPremium: data?.isPremium ?? existingMeta?.isPremium,
-          vehicleModelUrl: data?.vehicleModelUrl !== undefined
-            ? data.vehicleModelUrl
-            : (existingMeta?.vehicleModelUrl ?? null),
-          vehicleModelMeta: data?.vehicleModelMeta !== undefined
-            ? data.vehicleModelMeta
-            : (existingMeta?.vehicleModelMeta ?? null),
+          vehicleModelUrl: liveVehicle.vehicleModelUrl,
+          vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt,
           seq: Number.isFinite(seq) ? seq : null,
           heading: motion.heading ?? existingMeta?.heading ?? null,
@@ -719,8 +718,10 @@ export function useLiveMap(
             online: u?.online !== false,
             isFriend: u?.isFriend === true,
             isPremium: !!u?.isPremium,
-            vehicleModelUrl: typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null,
-            vehicleModelMeta: u?.vehicleModelMeta ?? null,
+            vehicleModelUrl: u?.vehicleModelUrl === undefined
+              ? undefined
+              : (typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null),
+            vehicleModelMeta: u?.vehicleModelMeta,
             serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
             seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
             heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,

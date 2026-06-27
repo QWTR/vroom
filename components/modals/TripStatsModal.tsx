@@ -29,6 +29,7 @@ interface Props {
 
 export function TripStatsModal({ visible, stats, onClose }: Props) {
   const { theme, isDark } = useTheme();
+  useModalBackHandler(visible, onClose);
 
   if (!stats) return null;
 
@@ -47,7 +48,6 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
     return { minLat, maxLat, minLng, maxLng };
   })() : null;
-  useModalBackHandler(visible, onClose);
   return (
     <Modal
       visible={visible}

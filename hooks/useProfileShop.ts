@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import type { ShopItemCategory, UserShopCosmetics, VehicleModelMeta } from '../constants/shopCosmetics';
+import { emitMapVehicleChanged } from '../lib/mapVehicleEvents';
 
 export interface CatalogItem {
   id: string;
@@ -93,6 +94,7 @@ export function useProfileShop() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data?.error };
     await loadCatalog();
+    if (category === 'map_vehicle_3d') emitMapVehicleChanged();
     return { ok: true, equipped: data?.equipped as UserShopCosmetics };
   }, [loadCatalog]);
 

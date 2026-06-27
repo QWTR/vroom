@@ -39,7 +39,7 @@ import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import { TripCameraLocationProvider } from '../../components/map/TripCameraLocationProvider';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
-import { SelfVehicleModelMarker } from '../../components/map/SelfVehicleModelMarker';
+import { VehicleModelMarker } from '../../components/map/VehicleModelMarker';
 import { MapVehicleModelsHost } from '../../components/map/MapVehicleModelsHost';
 import {
   HudPanelShell,
@@ -2975,6 +2975,7 @@ function MapScreenInner() {
   // ── Symulator ─────────────────────────────────────────────
   const [isSimulating, setIsSimulating] = useState(false);
   const [currentZoom,  setCurrentZoom]  = useState(15);
+  const [mapStyleEpoch, setMapStyleEpoch] = useState(0);
 
   useEffect(() => {
     void clearTelemetry();
@@ -2993,17 +2994,26 @@ function MapScreenInner() {
     isPremiumRef.current = isPremium;
   }, [isPremium]);
   const { activeSkin: cursorSkinActive } = useCursorSkin();
-  const { vehicle: equippedMapVehicle, reload: reloadEquippedVehicle, loading: equippedVehicleLoading, modelHealth } = useEquippedMapVehicle();
+  const {
+    vehicle: equippedMapVehicle,
+    reload: reloadEquippedVehicle,
+    loading: equippedVehicleLoading,
+    modelHealth,
+  } = useEquippedMapVehicle();
   const cursorSkinOverlay = cursorSkinActive?.imageUrl
     ? { imageUrl: cursorSkinActive.imageUrl, borderColor: cursorSkinActive.borderColor }
     : null;
   const { startConversation } = useChat();
   const { settings } = useSettings();
   const wantVehicle3DMarker = settings.locationMarkerStyle === 'vehicle_3d';
-  const useVehicle3DMarker = wantVehicle3DMarker && (!!equippedMapVehicle?.previewUrl || !!equippedMapVehicle?.assetUrl) && !equippedVehicleLoading;
-  const useNativeVehicleModel = useVehicle3DMarker && modelHealth === 'ok';
-  const showSelf2DMarker = !useVehicle3DMarker;
-  const selfMarkerUsesArrow = settings.locationMarkerStyle === 'arrow';
+  const useVehicle3DMarker = wantVehicle3DMarker && !!equippedMapVehicle?.assetUrl && !equippedVehicleLoading;
+  const useNativeVehicleModel = useVehicle3DMarker
+    && modelHealth === 'ok'
+    && !!equippedMapVehicle?.assetUrl;
+  /** Strzałka gdy model się ładuje LUB gdy 3D jeszcze nie gotowy — nigdy pusta mapa. */
+  const showSelf2DMarker = !wantVehicle3DMarker || !useNativeVehicleModel;
+  const showArrowWhileLoading = wantVehicle3DMarker && !useNativeVehicleModel;
+  const selfMarkerUsesArrow = settings.locationMarkerStyle === 'arrow' || showArrowWhileLoading;
   const insets = useSafeAreaInsets();
   const styles = makeMapStyles(theme, isDark, insets.top, { mapControlsTop: 12 });
   const hudStyles = useHudStyles();
@@ -3020,8 +3030,13 @@ function MapScreenInner() {
       }
     : null;
   const mapStyle = resolveMapStyleForVehicle3d(mapType, isDark, useVehicle3DMarker);
+  useEffect(() => {
+    setMapStyleEpoch(0);
+  }, [mapStyle]);
   const enableThreeDScene = mapType !== 'satellite';
   const isTripActiveMap = isNavigating || isDriving;
+  /** Aktywne 3D nie ma 2D underlay; 2D renderuje się tylko jako fallback przez showSelf2DMarker. */
+  const showTripArrowUnderlay = false;
   const getTripActive = useCallback(
     () => isDrivingRef.current || isNavigatingRef.current,
     [],
@@ -13928,6 +13943,9 @@ if (pts.length >= 2) {
             setCurrentZoom(zoom);
             setFleetMapIdleNonce((n) => n + 1);
           }}
+          onDidFinishLoadingStyle={() => {
+            setMapStyleEpoch((n) => n + 1);
+          }}
           onCameraChanged={(e: any) => {
             const z = e?.properties?.zoomLevel ?? e?.properties?.zoom;
             const zoomLive = Number.isFinite(z) ? Number(z) : null;
@@ -13991,6 +14009,7 @@ if (pts.length >= 2) {
           />
           <MapVehicleModelsHost
             selfModelUrl={useNativeVehicleModel ? equippedMapVehicle?.assetUrl : null}
+            styleEpoch={mapStyleEpoch}
           />
           <MapVividLayers enabled={showVividMapLayers} isDark={isDark} />
 
@@ -14157,24 +14176,21 @@ if (pts.length >= 2) {
             })
           }
 
-          <SelfVehicleModelMarker
+          <VehicleModelMarker
             enabled={useVehicle3DMarker}
             isTripActive={isTripActive}
             driveMarker={driveMarker}
             browseLat={markerLat}
             browseLng={markerLng}
             browseHeading={markerHdg}
-            modelUrl={equippedMapVehicle?.assetUrl ?? ''}
-            previewUrl={equippedMapVehicle?.previewUrl}
             metadata={equippedMapVehicle?.metadata}
-            modelHealth={modelHealth}
-            useNativeModelLayer={useNativeVehicleModel}
+            modelReady={useNativeVehicleModel}
           />
           <DriveMarkerLayer
-            enabled={isTripActive && showSelf2DMarker}
+            enabled={isTripActive && (showSelf2DMarker || showTripArrowUnderlay)}
             marker={driveMarker}
-            imageUri={selfMarkerUsesArrow ? arrowMarkerImage : carMarkerImage}
-            avatarUrl={selfMarkerUsesArrow ? null : myAvatarUrl}
+            imageUri={selfMarkerUsesArrow || showTripArrowUnderlay ? arrowMarkerImage : carMarkerImage}
+            avatarUrl={selfMarkerUsesArrow || showTripArrowUnderlay ? null : myAvatarUrl}
             cursorSkin={cursorSkinOverlay}
           />
           {!isTripActive

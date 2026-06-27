@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import { API_URL } from '../constants/config';
+import { resolveOnlineCountPayload } from '../lib/appPresencePayload';
 
 export const STREAK_UPDATED = 'STREAK_UPDATED';
 
@@ -33,9 +34,10 @@ async function fetchOnline() {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return;
-    const j = (await res.json()) as { activeInApp?: number };
-    if (!cancelled && typeof j.activeInApp === 'number') {
-      notifyListeners(j.activeInApp);
+    const j = (await res.json()) as { online?: number; activeInApp?: number };
+    const count = resolveOnlineCountPayload(j);
+    if (!cancelled && count != null) {
+      notifyListeners(count);
     }
   } catch {
     /* ignore */

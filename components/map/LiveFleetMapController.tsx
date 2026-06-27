@@ -47,6 +47,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const lastViewportRefreshAtRef = useRef(0);
   const viewportQueryInFlightRef = useRef(false);
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds>(EMPTY_VIEWPORT);
+  const [viewportZoom, setViewportZoom] = useState(0);
 
   const fleetUserIds = useMemo(
     () => liveUserIds.filter((id) => String(id) !== String(selfUserId)),
@@ -86,6 +87,11 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
         || !Number.isFinite(west)
       ) {
         return;
+      }
+      const getZoom = (map as unknown as { getZoom?: () => Promise<number> }).getZoom;
+      if (typeof getZoom === 'function') {
+        const zoom = await getZoom.call(map).catch(() => NaN);
+        if (Number.isFinite(zoom)) setViewportZoom(zoom);
       }
       commitViewport(normalizeViewportBounds({
         north,
@@ -132,6 +138,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     enabled && viewportReady,
     anchor,
     viewportBounds,
+    viewportZoom,
   );
 
   return (
@@ -139,6 +146,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
       <FleetVehicleModelsLayer
         animatedShapeProps={animator.vehicleAnimatedShapeProps}
         visible={enabled && viewportReady}
+        minZoomLevel={0}
       />
       <LiveUsersFleetLayer
         animatedShapeProps={animator.animatedShapeProps}

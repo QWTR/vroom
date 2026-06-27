@@ -71,6 +71,7 @@ export type NavigationTarget = {
   arcWindow: ArcWindowSlice | null;
   polylineKey: string | null;
   allowInstant: boolean;
+  headingSource?: 'road' | 'cog';
   /** Czas od poprzedniego fixu GPS (ms) — synchronizacja animacji markera. */
   gpsIntervalMs?: number;
   /** Timestamp źródłowego fixu — kompensacja opóźnienia dostarczenia przez OS. */

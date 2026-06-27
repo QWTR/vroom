@@ -605,6 +605,7 @@ function findBestProjection(
 export type SnapResolveInput = {
   raw: RawGpsFix;
   prev: { lat: number; lng: number } | null;
+  travelPrev?: { lat: number; lng: number } | null;
   polylines: RoadPolyline[];
   isNavigating: boolean;
   /** freeDrive lub navigation — bez fallbacku do kompasu. */
@@ -627,6 +628,7 @@ function buildOffRoadStickyResult(
   state: SnapEngineState,
   cfg: SnapEngineConfig,
   crossTrackM: number,
+  isNavigating: boolean,
 ): { result: SnapResult; state: SnapEngineState } {
   const instantBreakM = cfg.detachFullM + 10;
   if (!prev || crossTrackM >= instantBreakM) {
@@ -672,7 +674,7 @@ function buildOffRoadStickyResult(
     state.lastSegmentHeadingDeg,
     safeHeadingDeg(state.lockedTravelHeadingDeg, travelHeadingDeg),
   );
-  const headingDeg = onRoad
+  const headingDeg = onRoad && isNavigating
     ? stickyHeading
     : safeHeadingDeg(
       travelHeadingDeg,
@@ -716,7 +718,7 @@ export function resolveSnap(
   const tripActive = input.tripActive ?? isNavigating;
   const travel = computeTravelHeadingDeg(
     raw,
-    prev,
+    input.travelPrev ?? prev,
     input.travelHeadingDeg ?? state.lastSegmentHeadingDeg,
     state.lockedTravelHeadingDeg,
     tripActive,
@@ -729,7 +731,7 @@ export function resolveSnap(
   };
 
   if (!polylines.length) {
-    const off = buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999);
+    const off = buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999, isNavigating);
     return off;
   }
 
@@ -746,11 +748,11 @@ export function resolveSnap(
   state = nextState;
 
   if (!projection) {
-    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999);
+    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, 999, isNavigating);
   }
 
   if (input.maxCrossTrackToSnap && projection.crossTrackM > input.maxCrossTrackToSnap) {
-    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, projection.crossTrackM);
+    return buildOffRoadStickyResult(raw, prev, travelHeadingDeg, state, cfg, projection.crossTrackM, isNavigating);
   }
 
   const rawBlend = computeRoadBlend(projection.crossTrackM, cfg);
@@ -769,14 +771,9 @@ export function resolveSnap(
     travelHeadingDeg,
   );
   const onRoadSnap = roadBlend > cfg.onRoadBlendEps;
-  const segMismatch = headingDeltaAbs(segAligned, travelHeadingDeg);
+  const useRoadHeading = isNavigating && onRoadSnap;
   /** freeDrive: segment prostopadły do ruchu (np. błędny snap na polu) → wektor jazdy. */
-  const preferTravelHeading =
-    !isNavigating
-    && onRoadSnap
-    && segMismatch > 45
-    && speedMs * 3.6 >= NAV_V3.PIPELINE_MOVING_KMH;
-  const headingDeg = onRoadSnap && !preferTravelHeading
+  const headingDeg = useRoadHeading
     ? segAligned
     : safeHeadingDeg(
       travelHeadingDeg,
@@ -784,7 +781,7 @@ export function resolveSnap(
     );
 
   const intersectionTurnDetected = detectIntersectionTurn(
-    onRoadSnap && !preferTravelHeading ? segAligned : travelHeadingDeg,
+    useRoadHeading ? segAligned : travelHeadingDeg,
     state.lastSegmentHeadingDeg,
     projection.crossTrackM,
   );
@@ -793,7 +790,7 @@ export function resolveSnap(
     ...state,
     lastSegmentIndex: projection.segmentIndex,
     lastPolylineKey: projection.polylineKey,
-    lastSegmentHeadingDeg: onRoadSnap && !preferTravelHeading ? segAligned : headingDeg,
+    lastSegmentHeadingDeg: onRoadSnap ? segAligned : headingDeg,
     lockedTravelHeadingDeg: safeHeadingDeg(state.lockedTravelHeadingDeg, headingDeg),
     lastRoadBlend: roadBlend,
     offRoadStickTicks: sticky.stickTicks,

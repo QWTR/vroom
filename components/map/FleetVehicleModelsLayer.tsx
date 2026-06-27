@@ -10,22 +10,24 @@ const FLEET_MODEL_LAYER_STYLE = buildVehicleModelLayerStyle(['get', 'modelKey'])
 type Props = {
   animatedShapeProps: { shape?: string };
   visible?: boolean;
+  minZoomLevel?: number;
 };
 
 function FleetVehicleModelsLayerInner({
   animatedShapeProps,
   visible = true,
+  minZoomLevel = 0,
 }: Props) {
   if (!visible) return null;
 
   return (
     <ReanimatedShapeSource
       id="fleet-vehicle-models-src"
-      animatedProps={animatedShapeProps}
+      animatedProps={animatedShapeProps as never}
     >
       <Mapbox.ModelLayer
         id="fleet-vehicle-models-layer"
-        minZoomLevel={10}
+        minZoomLevel={minZoomLevel}
         style={FLEET_MODEL_LAYER_STYLE}
       />
     </ReanimatedShapeSource>

@@ -56,7 +56,9 @@ function bearingLookAheadFromSnap(snap: SnapResult): number | null {
 }
 
 /** ON-ROAD (blend=1): wyłącznie geometria trasy; off-road: wektor ruchu z snapEngine. */
-export function resolveSnapHeadingForTarget(snap: SnapResult): number {
+export function resolveSnapHeadingForTarget(snap: SnapResult, useRoadHeading = true): number {
+  if (!useRoadHeading) return snap.headingDeg;
+
   const onRoadFull = snap.roadBlend >= NAV_V3.MARKER_ON_ROAD_FULL_BLEND - 1e-6;
   if (onRoadFull) {
     const lookAhead = bearingLookAheadFromSnap(snap);
@@ -96,6 +98,7 @@ export function buildNavigationTarget(
   allowInstant: boolean,
   gpsIntervalMs?: number,
   sourceTimestampMs?: number,
+  useRoadHeading = true,
 ): NavigationTarget {
   const intervalMs = Number.isFinite(gpsIntervalMs) && gpsIntervalMs! > 0
     ? gpsIntervalMs!
@@ -103,7 +106,7 @@ export function buildNavigationTarget(
   return {
     lat: snap.lat,
     lng: snap.lng,
-    headingDeg: resolveSnapHeadingForTarget(snap),
+    headingDeg: resolveSnapHeadingForTarget(snap, useRoadHeading),
     speedMs: Math.max(0, speedMs),
     pathMode: snap.pathMode,
     roadBlend: snap.roadBlend,
@@ -113,6 +116,7 @@ export function buildNavigationTarget(
     arcWindow: snap.arcWindow,
     polylineKey: snap.polylineKey,
     allowInstant,
+    headingSource: useRoadHeading ? 'road' : 'cog',
     gpsIntervalMs: intervalMs,
     sourceTimestampMs: Number.isFinite(sourceTimestampMs) ? sourceTimestampMs : undefined,
   };
