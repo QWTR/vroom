@@ -65,6 +65,19 @@ export type RerouteOriginInput = {
 };
 
 /** Origin reroute = faktyczna pozycja pojazdu (nie rzut na starą polilinię). */
+type ReroutePoint = { latitude: number; longitude: number };
+
+/** Sygnatura trasy do deduplikacji reroute — nie tylko końce, kilka punktów pośrednich. */
+export function buildRerouteRouteSignature(points: ReroutePoint[]): string {
+  if (!Array.isArray(points) || points.length < 2) return '';
+  const n = points.length;
+  const mid1 = points[Math.floor(n * 0.33)];
+  const mid2 = points[Math.floor(n * 0.66)];
+  const fmt = (p: ReroutePoint) =>
+    `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`;
+  return `${n}:${fmt(points[0])}:${fmt(mid1)}:${fmt(mid2)}:${fmt(points[n - 1])}`;
+}
+
 export function buildRerouteOrigin(input: RerouteOriginInput): {
   latitude: number;
   longitude: number;

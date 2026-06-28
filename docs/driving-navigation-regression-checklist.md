@@ -4,6 +4,11 @@
 
 Use this checklist after GPS/DR/snap/reroute changes in `Driving Mode` and `Navigation`.
 
+## Automated checks (branch)
+
+- `npm test -- lib/navigation/reroute.test.ts scripts/speedSanitizer.test.ts` — reroute signature dedup + speed sanitize helpers.
+- Reroute duplicate signature: clears `reroutePending` and emits `NAV_REROUTE_DEDUP` (manual Test Run 2 still required on device).
+
 ## Pre-Flight
 
 - Device has fresh OTA/build with the current branch.

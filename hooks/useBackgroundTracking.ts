@@ -497,10 +497,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     // ── Accumulate distance ───────────────────────────────────────────────
     const nowMs = Date.now();
     const appActiveRaw = await AsyncStorage.getItem(BG_APP_ACTIVE_KEY);
-    // REMOVED checking appActiveRaw to accumulate distance even when app is active!
-    // The previous logic dropped foreground background task events for distance because they are
-    // supposed to be handled by TripStats, but if that isn't working we want this as a fallback.
-    const shouldAccumulateDistance = true;
+    // Foreground TripStats already counts distance — skip BG accumulation when app is active.
+    const shouldAccumulateDistance = !isAppLikelyActive(appActiveRaw, nowMs);
     const lastRaw = await AsyncStorage.getItem(BG_LAST_LOC_KEY);
     if (lastRaw && shouldAccumulateDistance) {
       const last = JSON.parse(lastRaw);
@@ -741,7 +739,10 @@ export function useBackgroundTracking(
         // Merge foreground route-matched distance with any pending passive/background distance.
         // This prevents km loss when switching driving -> navigation.
         const navDistance = Number.isFinite(navPayload?.distanceKm) ? Number(navPayload?.distanceKm) : 0;
-        const distanceToSaveRaw = navDistance + bgPending;
+        // FG (TripStats) and BG can overlap — take the larger stream, never sum both.
+        const distanceToSaveRaw = bgPending > 0 && navDistance > 0
+          ? Math.max(navDistance, bgPending)
+          : navDistance + bgPending;
         telemetryRef.current.navMergedFlushes += 1;
         telemetryRef.current.navMergedBgKm += bgPending;
         const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP

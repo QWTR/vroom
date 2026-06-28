@@ -1,6 +1,12 @@
 import { TRIP_PIPELINE_SIMPLE } from '../lib/tripPipelineConfig';
 import { haversineKm } from './navigationUtils';
 
+/** Dynamiczny próg postoju (m) w oknie ~3 s — zamiast stałego 12 m. */
+export function computeStandstillNetM(motionKmh: number, speedKmh = 0): number {
+  const ref = Math.max(motionKmh, speedKmh);
+  return Math.max(4, Math.min(12, ref * 0.35));
+}
+
 /** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 200. */
 export const MAX_SPEED_HUD_KMH = 200;
 export const MAX_SPEED_BROWSE_KMH = 150;
@@ -131,7 +137,9 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const pathM = input.pathMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
     const hasPhysicalMotion = netM >= 6 || pathM >= 8 || sustained >= 3;
-    if (hasPhysicalMotion) {
+    const trustHighSpeedDoppler = sustained >= 8 && gpsKmh >= 6;
+    const trustHighwayDoppler = gpsKmh >= 50 && netM >= 4;
+    if (hasPhysicalMotion || trustHighSpeedDoppler || trustHighwayDoppler) {
       if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
       return Math.min(gpsKmh, maxKmh);
     }
@@ -167,13 +175,13 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
     const geoKmh = Math.max(sustained, derivedKmh > 0 ? derivedKmh * 0.92 : 0);
+    const motionKmh = Math.max(geoKmh, derivedKmh);
     const slowCrawl = (derivedKmh >= 3 || sustained >= 3) && netM >= 4;
-    const standstillNetM = slowCrawl || derivedKmh < 15 || sustained < 15 ? 4 : 12;
+    const standstillNetM = computeStandstillNetM(motionKmh, gpsKmh);
     const stationaryEvidence = netM < standstillNetM && sustained < 4.5;
 
     if (stationaryEvidence) {
       const pathM = input.pathMoveM ?? 0;
-      const motionKmh = Math.max(geoKmh, derivedKmh);
       // Wolna jazda / rondo: path rośnie, net w oknie mały — nie zeruj (wymaga net ≥ 6 m).
       if (netM >= 6 && pathM >= 8 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
         return Math.min(
@@ -385,10 +393,11 @@ export function clampSpeedKmhToGeometry(
     && opts.sustainedKmh < 4
     && opts.motionKmh < 5;
   if (kmh <= 0) return 0;
-  if (netM < 12 && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
+  const standstillNetM = computeStandstillNetM(opts.motionKmh, opts.rawGpsKmh);
+  if (netM < standstillNetM && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
     return 0;
   }
-  if (netM < 14) {
+  if (netM < standstillNetM + 2) {
     if (opts.motionKmh >= 5 || opts.sustainedKmh >= 4) {
       const motionCap = Math.max(opts.motionKmh, opts.sustainedKmh) * 1.08 + 2;
       if (kmh > motionCap) return motionCap < 2.5 ? 0 : motionCap;

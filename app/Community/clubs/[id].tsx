@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  Image, ActivityIndicator, KeyboardAvoidingView,
+  Image, ActivityIndicator, KeyboardAvoidingView, Keyboard,
   Platform, Modal, Pressable, ScrollView, Dimensions, Alert, Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather }                from '@expo/vector-icons';
 import MaterialIcons              from '@expo/vector-icons/MaterialIcons';
@@ -234,8 +234,37 @@ export default function ClubChatScreen() {
   });
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
+  const mountedRef = useRef(true);
+  const scrollTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const activeChannelIdRef = useRef<number | null>(null);
   activeChannelIdRef.current = activeChannelId;
+
+  const scheduleScrollToEnd = useCallback((animated = true) => {
+    const id = setTimeout(() => {
+      if (mountedRef.current) {
+        listRef.current?.scrollToEnd({ animated });
+      }
+    }, 80);
+    scrollTimeoutsRef.current.push(id);
+  }, []);
+
+  const handleBack = useCallback(() => {
+    Keyboard.dismiss();
+    router.back();
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      mountedRef.current = true;
+      return () => {
+        Keyboard.dismiss();
+      };
+    }, []),
+  );
+
+  useEffect(() => {
+    paneRef.current?.scrollTo({ x: Dimensions.get('window').width, animated: false });
+  }, []);
 
   useEffect(() => {
     const seg = Dimensions.get('window').width / 3;
@@ -256,17 +285,51 @@ export default function ClubChatScreen() {
 
   // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
+    mountedRef.current = true;
+
+    const onMessage = (msg: ClubMessage) => {
+      if (msg.clubId === clubId && activeChannelIdRef.current != null && msg.channelId === activeChannelIdRef.current) {
+        if (!mountedRef.current) return;
+        setMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+        scheduleScrollToEnd();
+      }
+    };
+    const onMessageDeleted = ({ id: msgId }: { id: number }) => {
+      if (!mountedRef.current) return;
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+      setPinned(prev => prev.filter(m => m.id !== msgId));
+    };
+    const onPinned = (msg: ClubMessage) => {
+      if (!mountedRef.current) return;
+      setPinned(prev => [msg, ...prev.filter(m => m.id !== msg.id)].slice(0, 5));
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isPinned: true } : m));
+    };
+    const onUnpinned = ({ id: msgId }: { id: number }) => {
+      if (!mountedRef.current) return;
+      setPinned(prev => prev.filter(m => m.id !== msgId));
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPinned: false } : m));
+    };
+    const onReaction = ({ messageId, reactions }: { messageId: number; reactions: any[] }) => {
+      if (!mountedRef.current) return;
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+      setPinned(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+    };
+
     (async () => {
       const token = await getToken() ?? '';
+      if (!mountedRef.current) return;
       tokenRef.current = token;
 
       const raw = await AsyncStorage.getItem('user');
-      if (raw) setMyId(JSON.parse(raw).userId);
+      if (raw && mountedRef.current) setMyId(JSON.parse(raw).userId);
 
       const clubRes = await fetch(`${API_URL}/api/clubs/${clubId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (clubRes.ok) {
+      if (clubRes.ok && mountedRef.current) {
         const club = await clubRes.json();
         setClubName(club.name);
         setMyRole(club.myRole);
@@ -275,12 +338,12 @@ export default function ClubChatScreen() {
       }
 
       const savedTheme = await AsyncStorage.getItem(`chat_theme_club_${clubId}`);
-      if (savedTheme) setChatThemeId(savedTheme);
+      if (savedTheme && mountedRef.current) setChatThemeId(savedTheme);
 
       const structRes = await fetch(`${API_URL}/api/clubs/${clubId}/structure`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (structRes.ok) {
+      if (structRes.ok && mountedRef.current) {
         const s = await structRes.json();
         setCategories(s.categories ?? []);
         setChannels(s.channels ?? []);
@@ -289,43 +352,37 @@ export default function ClubChatScreen() {
         setActiveChannelId(hasInitial ? initialChannelId : (general?.id ?? null));
       }
 
+      if (!mountedRef.current) return;
+
       const socket = io(WS_URL, { auth: { token }, transports: ['websocket'] });
       socket.emit('club:join', clubId);
-      socket.on('club:message', (msg: ClubMessage) => {
-        if (msg.clubId === clubId && activeChannelIdRef.current != null && msg.channelId === activeChannelIdRef.current) {
-          setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev;
-            return [...prev, msg];
-          });
-          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-        }
-      });
-      socket.on('club:message_deleted', ({ id: msgId }: { id: number }) => {
-        setMessages(prev => prev.filter(m => m.id !== msgId));
-        setPinned(prev => prev.filter(m => m.id !== msgId));
-      });
-      socket.on('club:pinned', (msg: ClubMessage) => {
-        setPinned(prev => [msg, ...prev.filter(m => m.id !== msg.id)].slice(0, 5));
-        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isPinned: true } : m));
-      });
-      socket.on('club:unpinned', ({ id: msgId }: { id: number }) => {
-        setPinned(prev => prev.filter(m => m.id !== msgId));
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPinned: false } : m));
-      });
-      socket.on('club:reaction', ({ messageId, reactions }: { messageId: number; reactions: any[] }) => {
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-        setPinned(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-      });
+      socket.on('club:message', onMessage);
+      socket.on('club:message_deleted', onMessageDeleted);
+      socket.on('club:pinned', onPinned);
+      socket.on('club:unpinned', onUnpinned);
+      socket.on('club:reaction', onReaction);
       socketRef.current = socket;
 
       await loadMessages(token, undefined, activeChannelIdRef.current ?? undefined);
     })();
 
     return () => {
-      socketRef.current?.emit('club:leave', clubId);
-      socketRef.current?.disconnect();
+      mountedRef.current = false;
+      scrollTimeoutsRef.current.forEach(clearTimeout);
+      scrollTimeoutsRef.current = [];
+      const socket = socketRef.current;
+      if (socket) {
+        socket.off('club:message', onMessage);
+        socket.off('club:message_deleted', onMessageDeleted);
+        socket.off('club:pinned', onPinned);
+        socket.off('club:unpinned', onUnpinned);
+        socket.off('club:reaction', onReaction);
+        socket.emit('club:leave', clubId);
+        socket.disconnect();
+        socketRef.current = null;
+      }
     };
-  }, [clubId, initialChannelId]);
+  }, [clubId, initialChannelId, scheduleScrollToEnd]);
 
   const loadMessages = async (token: string, cur?: number, channelIdArg?: number) => {
     try {
@@ -347,6 +404,7 @@ export default function ClubChatScreen() {
         return;
       }
       const data = await res.json();
+      if (!mountedRef.current) return;
       if (cur) setMessages(prev => [...(data.messages ?? []), ...prev]);
       else     setMessages(data.messages ?? []);
       setCursor(data.nextCursor ?? null);
@@ -354,7 +412,10 @@ export default function ClubChatScreen() {
       setPinned(data.pinned ?? []);
       if (!cur) scrollChatToEndAfterLayout(listRef, false);
     } finally {
-      setLoading(false); setLoadingMore(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -420,14 +481,14 @@ export default function ClubChatScreen() {
         if (prev.some(m => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+      scheduleScrollToEnd();
     } catch {
       Toast.show({ type: 'error', text1: 'Brak połączenia' });
       setText(prevText);
       setPhotos(prevPhotos);
       setReplyTo(prevReply);
     } finally { setSending(false); }
-  }, [text, photos, replyTo, clubId, activeChannelId]);
+  }, [text, photos, replyTo, clubId, activeChannelId, scheduleScrollToEnd]);
 
   const handlePickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
@@ -798,16 +859,11 @@ export default function ClubChatScreen() {
   };
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={[]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
-        enabled={Platform.OS === 'ios'}
-      >
         <CommunityScreenHeader
           breadcrumb="KLUBY"
           accentDot={false}
           title=""
+          onBack={handleBack}
           center={
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -927,6 +983,12 @@ export default function ClubChatScreen() {
           </View>
         </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+        enabled={Platform.OS === 'ios'}
+      >
         <ScrollView
           ref={paneRef}
           horizontal
@@ -939,7 +1001,6 @@ export default function ClubChatScreen() {
             else if (idx === 1) setActivePane('chat');
             else setActivePane('members');
           }}
-          contentOffset={{ x: SCREEN_W, y: 0 }}
           style={{ flex: 1 }}
         >
           <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>

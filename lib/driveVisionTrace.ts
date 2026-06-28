@@ -190,6 +190,7 @@ export function visionEvent(
     | 'NAV_OFF_ROUTE'
     | 'NAV_REROUTE_REQUEST'
     | 'NAV_REROUTE_OK'
+    | 'NAV_REROUTE_DEDUP'
     | 'NAV_REROUTE_FAIL'
     | 'NAV_STEP_CHANGE'
     | 'STALL_DETECT',
