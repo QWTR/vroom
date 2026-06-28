@@ -258,9 +258,6 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
             },
             0,
             false,
-            undefined,
-            undefined,
-            false,
           ),
           snap: {
             lat: state.displayPrev?.lat ?? raw.lat,
@@ -300,14 +297,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           ? 48
           : NAV_V3.OFF_ROUTE_SNAP_RELEASE_M;
 
-      let useRoadHeadingForTarget = state.mode === 'navigation';
-      const prevRawForHeading = state.prevAccepted
-        ? { lat: state.prevAccepted.lat, lng: state.prevAccepted.lng }
-        : null;
       let snap = snapEngine.resolve({
         raw: fix,
         prev: state.displayPrev,
-        travelPrev: prevRawForHeading,
         polylines: routePolylines,
         isNavigating,
         tripActive,
@@ -341,11 +333,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       if (state.routeHeadingMismatchStreak >= 2) {
         snapEngine.reset();
         if (fix.headingDeg != null) snapEngine.seedTravelHeading(fix.headingDeg);
-        useRoadHeadingForTarget = false;
         snap = snapEngine.resolve({
           raw: fix,
           prev: state.displayPrev,
-          travelPrev: prevRawForHeading,
           polylines: geometry.roadPolylines,
           isNavigating: false,
           tripActive,
@@ -357,14 +347,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       const gpsIntervalMs = state.prevAccepted
         ? Math.min(5000, Math.max(200, fix.timestampMs - state.prevAccepted.timestampMs))
         : undefined;
-      const target = buildNavigationTarget(
-        snap,
-        feedSpeedMs,
-        allowInstant,
-        gpsIntervalMs,
-        fix.timestampMs,
-        useRoadHeadingForTarget,
-      );
+      const target = buildNavigationTarget(snap, feedSpeedMs, allowInstant, gpsIntervalMs, fix.timestampMs);
 
       state.prevAccepted = fix;
       state.displayPrev = { lat: snap.lat, lng: snap.lng };

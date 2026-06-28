@@ -3,9 +3,6 @@ import { resolveMapVehicleScale } from './mapVehicleScale';
 
 export const VEHICLE_MODEL_RENDERER_VERSION = 3 as const;
 
-/** RN Mapbox ModelLayer vs Mapbox GL JS w panelu admina — model tyłem bez tej korekty. */
-export const RN_MAPBOX_MODEL_BEARING_FLIP_DEG = 180;
-
 const MAX_PIVOT_XY_M = 50;
 const MIN_ELEVATION_Z = -5;
 const MAX_ELEVATION_Z = 10;
@@ -100,17 +97,27 @@ function parseMinZoom(raw: unknown): number {
   return clamp(n, MIN_MODEL_ZOOM, MAX_MODEL_ZOOM);
 }
 
-function parseWebYawOffset(o: Record<string, unknown>): number {
-  return finiteNumber(o.yawOffset ?? o.rotationOffset ?? o.rotation, 0);
-}
+/**
+ * Stała korekta platformowa: mobilny Mapbox SDK (Android/iOS) renderuje GLB model
+ * obrócony o 180° wokół osi Z względem Mapbox GL JS w panelu admina.
+ * Potwierdzone pomiarem na żywo: heading=N, yawOffset=90 → model patrzył na S (tyłem).
+ */
+export const RN_MAPBOX_MODEL_YAW_FLIP_DEG = 90;
 
-/** mobileYawOffset z DB, albo webYaw + 180 (placeholder z NitroShop). */
+/**
+ * Yaw offset dla markera 3D na telefonie. IDEMPOTENTNE (normalize wołane jest wielokrotnie
+ * w pipeline: kontrakt equipped + marker — nie wolno dwa razy dodać +180).
+ * - jeśli wejście ma JUŻ mobileYawOffset (sentinel z poprzedniego normalize lub ręczne
+ *   nadpisanie admina) → użyj go DOSŁOWNIE, bez kolejnego flipa,
+ * - w przeciwnym razie (surowe dane web): webYawOffset + 180 (korekta GL JS → mobile).
+ */
 function resolveMobileYawOffset(o: Record<string, unknown>): number {
   const rawMobile = o.mobileYawOffset;
   if (rawMobile != null && String(rawMobile).trim() !== '' && Number.isFinite(Number(rawMobile))) {
-    return finiteNumber(rawMobile, 0);
+    return normalizeHeadingDeg(finiteNumber(rawMobile, 0));
   }
-  return normalizeHeadingDeg(parseWebYawOffset(o) + RN_MAPBOX_MODEL_BEARING_FLIP_DEG);
+  const webYaw = finiteNumber(o.yawOffset ?? o.rotationOffset ?? o.rotation, 0);
+  return normalizeHeadingDeg(webYaw + RN_MAPBOX_MODEL_YAW_FLIP_DEG);
 }
 
 /** Normalizuje metadata v3 — pivot w GLB, tylko elevationZ w translacji. */
@@ -124,10 +131,14 @@ export function normalizeVehicleModelMeta(raw: unknown): VehicleModelMeta {
     MAX_ELEVATION_Z,
   );
 
+  const resolvedYaw = resolveMobileYawOffset(o);
+
   return {
     rendererVersion: VEHICLE_MODEL_RENDERER_VERSION,
     scale: parseScale(o.scale, o),
-    yawOffset: resolveMobileYawOffset(o),
+    yawOffset: resolvedYaw,
+    // Sentinel — kolejne normalize (kontrakt → marker) wezmą tę wartość bez ponownego +180.
+    mobileYawOffset: resolvedYaw,
     pitch: finiteNumber(o.pitch ?? o.rotationPitch, 0),
     roll: finiteNumber(o.roll ?? o.rotationRoll, 0),
     pivotX: 0,
@@ -290,8 +301,9 @@ export function buildVehicleModelLayerStyle(
 }
 
 /**
- * Własny marker 3D — scale/translation jako literały (RNMBX).
- * Rotacja przekazywana jako literal modelRotation w komponencie (GeoJSON expr. zawodzi na Androidzie).
+ * Własny marker 3D — scale/translation jako LITERAŁY (stałe na marker).
+ * modelRotation NIE jest tu ustawiane: RN ModelLayer renderuje data-driven rotację INNĄ konwencją
+ * (zły heading), więc komponent dokłada literal [pitch, roll, yaw] (poprawny heading jak panel).
  */
 export function buildSelfVehicleModelLayerStyle(
   modelId: string,

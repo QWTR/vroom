@@ -3,8 +3,10 @@ import Mapbox from '@rnmapbox/maps';
 import Animated, {
   runOnJS,
   useAnimatedProps,
+  useAnimatedReaction,
   useFrameCallback,
   useSharedValue,
+  type SharedValue,
 } from 'react-native-reanimated';
 import type { UseDriveMarkerV3Return } from '../../hooks/useDriveMarkerV3';
 import type { VehicleModelMeta } from '../../constants/shopCosmetics';
@@ -19,6 +21,8 @@ import { SELF_VEHICLE_MODEL_KEY } from '../../lib/vehicleModelRegistry';
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
+const SOURCE_ID = 'vehicle-model-src';
+
 const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',
   features: [],
@@ -26,9 +30,10 @@ const EMPTY_SHAPE = JSON.stringify({
 
 const COORD_QUANT = 2e-7;
 const COORD_EPS = 3e-7;
-const HDG_EPS = 0.25;
 const MODEL_MIN_ZOOM = 5;
-const MOTION_MIN_M = 0.25;
+/** Rotacja: literal modelRotation (data-driven renderuje inną konwencją → zły heading). */
+const ROT_PUSH_MIN_DEG = 1.5;   // kwantyzacja kąta — mniej relayoutów
+const ROT_PUSH_MIN_MS = 60;     // throttle
 
 type Props = {
   enabled: boolean;
@@ -41,61 +46,7 @@ type Props = {
   modelReady?: boolean;
 };
 
-function bearingBetweenWorklet(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number,
-): number {
-  'worklet';
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLng = toRad(lng2 - lng1);
-  const lat1R = toRad(lat1);
-  const lat2R = toRad(lat2);
-  const y = Math.sin(dLng) * Math.cos(lat2R);
-  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
-  return normalizeHeadingDegWorklet((Math.atan2(y, x) * 180) / Math.PI);
-}
-
-function haversineMWorklet(
-  aLat: number,
-  aLng: number,
-  bLat: number,
-  bLng: number,
-): number {
-  'worklet';
-  const R = 6371000;
-  const dLat = ((bLat - aLat) * Math.PI) / 180;
-  const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const s1 = Math.sin(dLat / 2) ** 2;
-  const s2 =
-    Math.cos((aLat * Math.PI) / 180)
-    * Math.cos((bLat * Math.PI) / 180)
-    * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
-}
-
-/** Kierunek jazdy: COG z ruchu markera (najpewniejsze), potem pipeline heading. */
-function resolveTravelHeadingWorklet(
-  pipelineHdg: number,
-  prevLat: number,
-  prevLng: number,
-  lat: number,
-  lng: number,
-): number {
-  'worklet';
-  if (
-    Number.isFinite(prevLat)
-    && Number.isFinite(prevLng)
-    && Number.isFinite(lat)
-    && Number.isFinite(lng)
-    && haversineMWorklet(prevLat, prevLng, lat, lng) >= MOTION_MIN_M
-  ) {
-    return bearingBetweenWorklet(prevLat, prevLng, lat, lng);
-  }
-  return normalizeHeadingDegWorklet(pipelineHdg);
-}
-
+/** GeoJSON tylko z pozycją — płynnie co klatkę przez animatedProps, źródło NIGDY się nie re-renderuje. */
 function buildShapeJson(lat: number, lng: number): string {
   'worklet';
   return JSON.stringify({
@@ -107,6 +58,67 @@ function buildShapeJson(lat: number, lng: number): string {
     }],
   });
 }
+
+/**
+ * Osobna warstwa modelu (sourceID → źródło pozycji). Re-renderuje się TYLKO ona przy zmianie kąta,
+ * więc źródło pozycji (ShapeSource) nie miga. Rotacja literalna = poprawny heading (jak panel).
+ */
+const SelfModelLayer = memo(function SelfModelLayer({
+  modelYawSv,
+  pitch,
+  roll,
+  layerBase,
+  minZoom,
+  layerKey,
+  initialYaw,
+}: {
+  modelYawSv: SharedValue<number>;
+  pitch: number;
+  roll: number;
+  layerBase: object;
+  minZoom: number;
+  layerKey: string;
+  initialYaw: number;
+}) {
+  const [yaw, setYaw] = useState(initialYaw);
+  const lastPushedSv = useSharedValue(NaN);
+  const lastAtSv = useSharedValue(0);
+
+  const pushYaw = useCallback((v: number) => {
+    setYaw((prev) => (Math.abs(prev - v) < 0.01 ? prev : v));
+  }, []);
+
+  useAnimatedReaction(
+    () => modelYawSv.value,
+    (v) => {
+      'worklet';
+      if (!Number.isFinite(v)) return;
+      const now = Date.now();
+      const prev = lastPushedSv.value;
+      const delta = Number.isFinite(prev) ? Math.abs(((v - prev + 540) % 360) - 180) : 999;
+      if (delta >= ROT_PUSH_MIN_DEG && now - lastAtSv.value >= ROT_PUSH_MIN_MS) {
+        lastPushedSv.value = v;
+        lastAtSv.value = now;
+        runOnJS(pushYaw)(v);
+      }
+    },
+  );
+
+  const style = useMemo(
+    () => ({ ...layerBase, modelRotation: [pitch, roll, yaw] as [number, number, number] }),
+    [layerBase, pitch, roll, yaw],
+  );
+
+  return (
+    <Mapbox.ModelLayer
+      key={`vehicle-model-layer-${layerKey}`}
+      id="vehicle-model-layer"
+      sourceID={SOURCE_ID}
+      minZoomLevel={minZoom}
+      style={style}
+    />
+  );
+});
 
 function VehicleModelMarkerInner({
   enabled,
@@ -132,25 +144,19 @@ function VehicleModelMarkerInner({
     meta.scale?.join(','),
   ].join('|'), [meta]);
 
-  const layerStyleBase = useMemo(
+  const layerBase = useMemo(
     () => buildSelfVehicleModelLayerStyle(SELF_VEHICLE_MODEL_KEY, meta),
     [meta, metaKey],
   );
 
-  const [modelRotation, setModelRotation] = useState<[number, number, number]>(() => {
-    const yaw = computeVehicleModelYaw(browseHeading, yawOffset);
-    return [pitch, roll, yaw];
-  });
+  const initialYaw = useMemo(
+    () => computeVehicleModelYaw(browseHeading, yawOffset),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [metaKey],
+  );
 
-  const syncModelRotation = useCallback((nextYaw: number) => {
-    setModelRotation((prev) => {
-      if (Math.abs(prev[2] - nextYaw) <= 0.05) return prev;
-      return [pitch, roll, nextYaw];
-    });
-  }, [pitch, roll]);
-
-  const logLiveDbg = useCallback((payload: Record<string, number>) => {
-    if (__DEV__) console.log('[vehicle3d] live', payload);
+  const logLiveDbg = useCallback((s: string) => {
+    if (__DEV__) console.log(`[vehicle3d] ${s}`);
   }, []);
 
   const tripActiveSv = useSharedValue(isTripActive ? 1 : 0);
@@ -159,9 +165,9 @@ function VehicleModelMarkerInner({
   const browseHeadingSv = useSharedValue(browseHeading);
   const yawOffsetSv = useSharedValue(yawOffset);
   const shapeSv = useSharedValue(EMPTY_SHAPE);
+  const modelYawSv = useSharedValue(initialYaw);
   const lastLatSv = useSharedValue(NaN);
   const lastLngSv = useSharedValue(NaN);
-  const lastYawSv = useSharedValue(NaN);
   const dbgAtSv = useSharedValue(0);
 
   const driveLatSv = driveMarker.lat;
@@ -181,10 +187,7 @@ function VehicleModelMarkerInner({
     shapeSv.value = EMPTY_SHAPE;
     lastLatSv.value = NaN;
     lastLngSv.value = NaN;
-    lastYawSv.value = NaN;
-    const yaw = computeVehicleModelYaw(browseHeading, yawOffset);
-    setModelRotation([pitch, roll, yaw]);
-  }, [metaKey, yawOffset, pitch, roll, browseHeading, yawOffsetSv, shapeSv, lastLatSv, lastLngSv, lastYawSv]);
+  }, [metaKey, yawOffset, yawOffsetSv, shapeSv, lastLatSv, lastLngSv]);
 
   const publishFrame = () => {
     'worklet';
@@ -202,9 +205,6 @@ function VehicleModelMarkerInner({
         la = lastLatSv.value;
         ln = lastLngSv.value;
       } else {
-        if (shapeSv.value !== EMPTY_SHAPE) {
-          shapeSv.value = EMPTY_SHAPE;
-        }
         return;
       }
     }
@@ -218,43 +218,25 @@ function VehicleModelMarkerInner({
     }
     pipelineHdg = Number.isFinite(pipelineHdg) ? pipelineHdg : 0;
 
+    // pipelineHdg już wygładzony w useDriveMarkerV3 — tylko + yawOffset.
+    modelYawSv.value = computeVehicleModelYawWorklet(pipelineHdg, yawOffsetSv.value);
+
     const prevLa = lastLatSv.value;
     const prevLn = lastLngSv.value;
-    const travelHdg = resolveTravelHeadingWorklet(pipelineHdg, prevLa, prevLn, la, ln);
-    const modelYaw = computeVehicleModelYawWorklet(travelHdg, yawOffsetSv.value);
-
-    const prevYaw = lastYawSv.value;
-    const posSame = Number.isFinite(prevLa)
-      && Number.isFinite(prevLn)
-      && Math.abs(la - prevLa) <= COORD_EPS
-      && Math.abs(ln - prevLn) <= COORD_EPS;
-    const yawSame = Number.isFinite(prevYaw) && Math.abs(modelYaw - prevYaw) <= HDG_EPS;
-
-    if (posSame && yawSame) {
-      return;
+    const posChanged = !(Number.isFinite(prevLa) && Number.isFinite(prevLn)
+      && Math.abs(la - prevLa) <= COORD_EPS && Math.abs(ln - prevLn) <= COORD_EPS);
+    if (posChanged) {
+      lastLatSv.value = la;
+      lastLngSv.value = ln;
+      shapeSv.value = buildShapeJson(la, ln);
     }
 
-    lastLatSv.value = la;
-    lastLngSv.value = ln;
-    lastYawSv.value = modelYaw;
-    shapeSv.value = buildShapeJson(la, ln);
-
-    if (!yawSame) {
-      runOnJS(syncModelRotation)(modelYaw);
-    }
-
-    if (__DEV__) {
-      const now = Date.now();
-      if (now - dbgAtSv.value >= 1500) {
-        dbgAtSv.value = now;
-        runOnJS(logLiveDbg)({
-          onTrip: onTrip ? 1 : 0,
-          pipe: Math.round(normalizeHeadingDegWorklet(pipelineHdg) * 10) / 10,
-          travel: Math.round(travelHdg * 10) / 10,
-          yaw: Math.round(modelYaw * 10) / 10,
-          off: Math.round(yawOffsetSv.value * 10) / 10,
-        });
-      }
+    if (__DEV__ && Date.now() - dbgAtSv.value >= 1500) {
+      dbgAtSv.value = Date.now();
+      const r = (n: number) => Math.round(normalizeHeadingDegWorklet(n) * 10) / 10;
+      runOnJS(logLiveDbg)(
+        `trip=${onTrip ? 1 : 0} pipe=${r(pipelineHdg)} yaw=${Math.round(modelYawSv.value * 10) / 10} off=${yawOffsetSv.value}`,
+      );
     }
   };
 
@@ -273,30 +255,26 @@ function VehicleModelMarkerInner({
     return { shape: shapeSv.value };
   });
 
-  const layerStyle = useMemo(
-    () => ({
-      ...layerStyleBase,
-      modelRotation,
-    }),
-    [layerStyleBase, modelRotation],
-  );
-
   if (!enabled || !modelReady) return null;
 
   const minZoom = Math.min(MODEL_MIN_ZOOM, meta.minZoom ?? MODEL_MIN_ZOOM);
 
   return (
-    <ReanimatedShapeSource
-      id="vehicle-model-src"
-      animatedProps={animatedShapeProps as never}
-    >
-      <Mapbox.ModelLayer
-        key={`vehicle-model-layer-${metaKey}`}
-        id="vehicle-model-layer"
-        minZoomLevel={minZoom}
-        style={layerStyle}
+    <>
+      <ReanimatedShapeSource
+        id={SOURCE_ID}
+        animatedProps={animatedShapeProps as never}
       />
-    </ReanimatedShapeSource>
+      <SelfModelLayer
+        modelYawSv={modelYawSv}
+        pitch={pitch}
+        roll={roll}
+        layerBase={layerBase}
+        minZoom={minZoom}
+        layerKey={metaKey}
+        initialYaw={initialYaw}
+      />
+    </>
   );
 }
 

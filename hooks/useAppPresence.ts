@@ -61,8 +61,8 @@ async function applyStreakToCache(streak: number, streakResetAt?: string | null)
   }
 }
 
-async function ping() {
-  if (appStateRef.current !== 'active') return;
+async function ping(force = false) {
+  if (!force && appStateRef.current !== 'active') return;
   try {
     const token = await getAuthToken();
     if (!token) return;
@@ -104,8 +104,15 @@ function startPresenceLoop() {
   scheduleRefresh();
 
   appStateSub = AppState.addEventListener('change', (s) => {
-    if (appStateRef.current.match(/inactive|background/) && s === 'active') {
+    const prev = appStateRef.current;
+    const cameToForeground = prev.match(/inactive|background/) && s === 'active';
+    const wentToBackground = prev === 'active' && !!s.match(/inactive|background/);
+    if (cameToForeground) {
       void pingThenFetch();
+    } else if (wentToBackground) {
+      // Ostatni ping przy minimalizacji — lastSeen świeży, by liczyć jako online (apka w tle)
+      // przez pełne okno serwera. force=true, bo appState właśnie przestaje być 'active'.
+      void ping(true);
     }
     appStateRef.current = s;
     scheduleRefresh();

@@ -4,10 +4,13 @@ import {
   pickEquippedMapVehicle,
 } from './vehicleModelContract';
 
+// Już-znormalizowana meta (punkt stały normalize): mobileYawOffset === yawOffset,
+// więc kolejne normalize nie dodaje ponownie +180.
 const modelMetadata = {
   rendererVersion: 3,
   scale: [2, 2, 2],
   yawOffset: 180,
+  mobileYawOffset: 180,
   pitch: 1,
   roll: -1,
   pivotX: 0,
@@ -17,10 +20,19 @@ const modelMetadata = {
   minZoom: 12,
 };
 
+// Surowe legacy {rotationOffset:180} → yaw 180 + flip 90 = 270; pivot wymuszony na 0 (V3).
 const legacyNormalizedMetadata = {
-  ...modelMetadata,
-  pivotX: 14.6,
-  pivotY: 0.01,
+  rendererVersion: 3,
+  scale: [2, 2, 2],
+  yawOffset: 270,
+  mobileYawOffset: 270,
+  pitch: 1,
+  roll: -1,
+  pivotX: 0,
+  pivotY: 0,
+  elevationZ: 1.2,
+  calibrationHeading: undefined,
+  minZoom: 12,
 };
 
 const legacyMetadata = {

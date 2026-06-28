@@ -9,6 +9,8 @@ export interface VehicleModelMeta {
   rendererVersion?: 3;
   scale: [number, number, number];
   yawOffset: number;
+  /** Sentinel: rozwiązany yaw dla mobilnego renderera (z korektą +180). Czyni normalize idempotentnym. */
+  mobileYawOffset?: number;
   pitch?: number;
   roll?: number;
   pivotX?: number;

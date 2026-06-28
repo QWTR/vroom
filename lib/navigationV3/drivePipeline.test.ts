@@ -71,27 +71,6 @@ describe('createDrivePipeline', () => {
     expect(out!.target.roadBlend).toBeGreaterThan(0);
   });
 
-  it('keeps freeDrive heading from raw GPS course even when position snaps to road', () => {
-    const pipeline = createDrivePipeline();
-    pipeline.setMode('freeDrive');
-    const diagonalRoad = makeRoadPolyline('diagonal-road', [
-      { lat: 52.2297, lng: 21.0122 },
-      { lat: 52.2302, lng: 21.0140 },
-    ]);
-    pipeline.setRoadPolylines(diagonalRoad ? [diagonalRoad] : []);
-
-    pipeline.processGpsFix(gpsFix(52.2298, 21.0122, 0, { speedMs: 12, headingDeg: 0 }));
-    const out = pipeline.processGpsFix(
-      gpsFix(52.2298, 21.01238, 1000, { speedMs: 12, headingDeg: 0 }),
-    );
-
-    expect(out!.rejected).toBe(false);
-    expect(out!.snap.pathMode).toBe('onRoad');
-    expect(out!.target.headingSource).toBe('cog');
-    expect(out!.target.headingDeg).toBeGreaterThan(80);
-    expect(out!.target.headingDeg).toBeLessThan(100);
-  });
-
   it('uses route polyline in navigation mode', () => {
     const pipeline = createDrivePipeline();
     pipeline.setMode('navigation');

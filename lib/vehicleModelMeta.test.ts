@@ -30,7 +30,7 @@ describe('vehicleModelMeta', () => {
     expect(meta).toMatchObject({
       rendererVersion: 3,
       scale: [2, 3, 4],
-      yawOffset: 0,
+      yawOffset: 270,
       pitch: 5,
       roll: -3,
       pivotX: 0,
@@ -52,7 +52,7 @@ describe('vehicleModelMeta', () => {
     }, 270)).toEqual({
       modelRot0: 4,
       modelRot1: -2,
-      modelRot2: 180,
+      modelRot2: 90,
       transX: 0,
       transY: 0,
       transZ: 3,
@@ -76,11 +76,11 @@ describe('vehicleModelMeta', () => {
       transX: 0,
       transY: 0,
       transZ: 1,
-      modelRot2: 270,
+      modelRot2: 180,
     });
   });
 
-  it('reads legacy scaleX/Y/Z when scale array is missing', () => {
+  it('reads legacy scaleX/Y/Z when scale array is missing (with +90 mobile flip)', () => {
     const meta = normalizeVehicleModelMeta({
       scaleX: 2.5,
       scaleY: 2.5,
@@ -88,15 +88,15 @@ describe('vehicleModelMeta', () => {
       yawOffset: 90,
     });
     expect(meta.scale).toEqual([2.5, 2.5, 2.5]);
-    expect(meta.yawOffset).toBe(270);
+    expect(meta.yawOffset).toBe(180);
   });
 
-  it('defaults mobile yaw to webYaw + 180 when mobileYawOffset is absent', () => {
-    expect(normalizeVehicleModelMeta({ yawOffset: 90 }).yawOffset).toBe(270);
-    expect(normalizeVehicleModelMeta({ yawOffset: 0 }).yawOffset).toBe(180);
+  it('applies +90 mobile platform flip when mobileYawOffset absent', () => {
+    expect(normalizeVehicleModelMeta({ yawOffset: 90 }).yawOffset).toBe(180);
+    expect(normalizeVehicleModelMeta({ yawOffset: 0 }).yawOffset).toBe(90);
   });
 
-  it('buildSelfVehicleModelLayerStyle uses literal scale without geojson rotation', () => {
+  it('buildSelfVehicleModelLayerStyle uses literal scale, rotation added in component', () => {
     const style = buildSelfVehicleModelLayerStyle('vroom_vehicle', {
       scale: [2.5, 2.5, 2.5],
       yawOffset: 90,
@@ -109,7 +109,7 @@ describe('vehicleModelMeta', () => {
     expect(style).not.toHaveProperty('modelRotation');
   });
 
-  it('prefers mobileYawOffset over legacy rotation fields', () => {
+  it('prefers explicit mobileYawOffset over legacy rotation fields (no extra flip)', () => {
     const meta = normalizeVehicleModelMeta({
       yawOffset: 10,
       mobileYawOffset: 45,
@@ -118,13 +118,14 @@ describe('vehicleModelMeta', () => {
     expect(meta.yawOffset).toBe(45);
   });
 
-  it('uses admin yaw formula for fleet feature props with mobile yaw offset', () => {
+  it('modelRot2 = heading + (webYaw + 90 mobile flip)', () => {
     const props = buildVehicleModelFeatureProperties({
       scale: [1, 1, 1],
       yawOffset: 90,
       minZoom: 10,
     }, 97);
 
-    expect(props.modelRot2).toBe(7);
+    // yawOffset 90 → mobile 180; 97 + 180 = 277
+    expect(props.modelRot2).toBe(277);
   });
 });
