@@ -37,6 +37,7 @@ import {
   CLUB_CAPABILITIES,
   type UnifiedChatMessage,
 } from '../../../components/chat/v2';
+import { EntranceIntroGate } from '../../../components/motion';
 
 const WS_URL   = SOCKET_URL;
 const getToken = async () => (
@@ -97,6 +98,7 @@ export default function ClubChatScreen() {
   const shareSheetPadding = useModalSheetPadding(shareVisible);
   const [shareText, setShareText] = useState('');
   const [sharing, setSharing] = useState(false);
+  const [introDone, setIntroDone] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
   const paneRef = useRef<ScrollView>(null);
@@ -1197,6 +1199,14 @@ export default function ClubChatScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      {!introDone && clubId > 0 && (
+        <EntranceIntroGate
+          presetId="club"
+          screenKey={`club_${clubId}`}
+          titleOverride={clubName ? clubName.toUpperCase() : undefined}
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
     </SafeAreaView>
   );
 }

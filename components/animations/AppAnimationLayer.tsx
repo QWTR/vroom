@@ -40,6 +40,10 @@ function shouldPreferWebLottie(animation: AppAnimation | null | undefined) {
     'home_premium_badge',
     'tab_active_icon',
     'app_loading_logo',
+    'screen_entrance_duel',
+    'screen_entrance_grid',
+    'screen_entrance_public',
+    'achievement_unlock',
   ].includes(String(animation?.slot || ''));
 }
 

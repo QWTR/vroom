@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { UserBadges } from '../../user/UserBadges';
+import { ProvinceBadge } from '../../user/ProvinceBadge';
 import { RouteMessageCard } from '../RouteMessageCard';
 // @ts-ignore
 import { LinkPreviewCard } from '../LinkPreviewCard';
@@ -146,11 +147,15 @@ export function ChatMessageBubble({
 }
 
 function SenderName({ user }: { user: UnifiedChatMessage['sender'] }) {
+  const { theme } = useTheme();
   return (
     <View style={styles.nameRow}>
       <Text style={[styles.name, { color: user.nickColor || VROOM_RED }]}>
         {user.username}
       </Text>
+      {!!user.province && (
+        <ProvinceBadge province={user.province} compact theme={theme} />
+      )}
       <UserBadges isAdmin={user.isAdmin} isPremium={user.isPremium} compact />
     </View>
   );

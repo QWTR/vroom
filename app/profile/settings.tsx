@@ -27,6 +27,8 @@ import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow, normalizePickerHex } from '../../components/settings/ColorWheelPickerSheet';
 import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
+import { setEntranceMotionMode } from '../../hooks/useEntranceIntroPolicy';
+import type { EntranceMotionMode } from '../../components/motion/entranceFxTypes';
 import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
@@ -116,6 +118,7 @@ export default function SettingsScreen() {
   const { vehicle: equippedMapVehicle } = useEquippedMapVehicle();
   const { wallet: nitroWallet } = useNitroWallet();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
+  const [entranceMotion, setEntranceMotionState] = useState<EntranceMotionMode>('full');
   const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
   const [bannerPreviewSize, setBannerPreviewSize] = useState<{ w: number; h: number } | null>(null);
   const [bannerPreviewVisible, setBannerPreviewVisible] = useState(false);
@@ -170,6 +173,25 @@ export default function SettingsScreen() {
       setBugModal(true);
     }
   }, [openBug]);
+
+  useEffect(() => {
+    AsyncStorage.getItem('entrance_motion_mode').then(v => {
+      if (v === 'off' || v === 'reduced' || v === 'full') setEntranceMotionState(v);
+    });
+  }, []);
+
+  const cycleEntranceMotion = async () => {
+    const next: EntranceMotionMode = entranceMotion === 'full' ? 'reduced' : entranceMotion === 'reduced' ? 'off' : 'full';
+    setEntranceMotionState(next);
+    await setEntranceMotionMode(next);
+  };
+
+  const entranceMotionLabel = entranceMotion === 'full'
+    ? 'Pełne intro arena'
+    : entranceMotion === 'reduced'
+      ? 'Tylko reduce motion skip'
+      : 'Wyłączone';
+
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabKey>('appearance');
@@ -2585,6 +2607,13 @@ export default function SettingsScreen() {
 							label='Skórka kursora'
 							sublabel={activeSkin?.name ?? 'Domyślna'}
 							onPress={() => setCursorSkinModalVisible(true)}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='movie-filter'
+							iconBg='#9C27B0'
+							label='Animacje wejścia'
+							sublabel={entranceMotionLabel}
+							onPress={() => { void cycleEntranceMotion(); }}
 						/>
 						<SettingsRow {...settingsRowProps}
 							icon='workspace-premium'

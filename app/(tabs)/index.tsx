@@ -47,6 +47,7 @@ import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
 import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
+import { StreakUnlockFx } from "../../components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width, height } = Dimensions.get("window");
@@ -142,6 +143,8 @@ export default function HomeScreen() {
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [user, setUser] = useState<User | null>(null);
+	const [streakFxVisible, setStreakFxVisible] = useState(false);
+	const prevStreakRef = useRef(0);
 	const { unseenCount, load: loadAnnouncements } = useAnnouncements();
 	const [showAnnouncements, setShowAnnouncements] = useState(false);
 
@@ -210,6 +213,15 @@ export default function HomeScreen() {
 		);
 		return () => sub.remove();
 	}, []);
+
+	useEffect(() => {
+		const s = user?.streak ?? 0;
+		const prev = prevStreakRef.current;
+		if (s > prev && (s === 7 || s === 30 || s === 100 || (s > 0 && s % 50 === 0))) {
+			setStreakFxVisible(true);
+		}
+		prevStreakRef.current = s;
+	}, [user?.streak]);
 
 	useEffect(() => {
 		const sub = DeviceEventEmitter.addListener(FRIEND_INVITE_HANDLED, () => {
@@ -2059,6 +2071,12 @@ export default function HomeScreen() {
 					onClose={handleGiftClose}
 				/>
 			)}
+
+			<StreakUnlockFx
+				visible={streakFxVisible}
+				streak={user?.streak ?? 0}
+				onDone={() => setStreakFxVisible(false)}
+			/>
 
 		</>
 	);

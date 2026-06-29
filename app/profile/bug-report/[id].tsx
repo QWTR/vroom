@@ -1,6 +1,6 @@
-import React, { useCallback, useState, useRef, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, FlatList, StatusBar, Platform, Modal, Pressable, Dimensions, Image,
+  View, Text, TouchableOpacity, StatusBar, Platform, Modal, Pressable, Dimensions, Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -15,19 +15,20 @@ import { useChatKeyboard } from '../../../hooks/useChatKeyboard';
 import {
   ChatScreenShell,
   ChatComposer,
+  ChatMessageList,
   ChatLoadingState,
   ChatTypingIndicator,
   mapSupportMessageToUnified,
   SUPPORT_USER_SENDER_ID,
   SUPPORT_CAPABILITIES,
-  getGroupedMessageMeta,
 } from '../../../components/chat/v2';
-import { ChatMessageBubble } from '../../../components/chat/v2/ChatMessageBubble';
+import { EntranceIntroGate } from '../../../components/motion';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const HEADER_HEIGHT = 56;
 
 export default function BugReportThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,7 +36,7 @@ export default function BugReportThreadScreen() {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<import('react-native').FlatList>(null);
 
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<BugReportMsg[]>([]);
@@ -46,6 +47,7 @@ export default function BugReportThreadScreen() {
   const [pending, setPending] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [introDone, setIntroDone] = useState(false);
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
     parentUsesKeyboardAvoiding: Platform.OS === 'ios',
@@ -53,6 +55,13 @@ export default function BugReportThreadScreen() {
 
   const unifiedMessages = useMemo(() => messages.map(mapSupportMessageToUnified), [messages]);
   const myId = SUPPORT_USER_SENDER_ID;
+
+  const lastUserMsg = useMemo(
+    () => [...messages].reverse().find(m => m.authorKind === 'user'),
+    [messages],
+  );
+  const userMsgReadByStaff = !!lastUserMsg && !!staffLastReadAt
+    && new Date(staffLastReadAt).getTime() >= new Date(lastUserMsg.createdAt).getTime();
 
   const appendMessage = useCallback((msg: BugReportMsg) => {
     if (!msg?.id) return;
@@ -120,63 +129,54 @@ export default function BugReportThreadScreen() {
       return;
     }
     setSending(true);
-    emitTyping(false);
     try {
       const token = await getToken();
       const form = new FormData();
-      form.append('body', body.trim());
-      for (const uri of pending) {
-        const isVid = uri.toLowerCase().endsWith('.mp4') || uri.includes('video');
-        const name = isVid ? `clip_${Date.now()}.mp4` : `img_${Date.now()}.jpg`;
-        const type = isVid ? 'video/mp4' : 'image/jpeg';
-        form.append(isVid ? 'videos' : 'photos', { uri, name, type } as any);
-      }
+      form.append('content', body.trim());
+      pending.forEach((uri, i) => {
+        form.append('files', { uri, name: `file-${i}.jpg`, type: 'image/jpeg' } as any);
+      });
       const res = await fetch(`${API_URL}/api/bug-reports/my/${id}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Błąd wysyłania');
-      appendMessage(data);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Błąd');
       setBody('');
       setPending([]);
-      Toast.show({ type: 'success', text1: 'Wysłano' });
+      emitTyping(false);
+      if (data.message) appendMessage(data.message);
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: e.message ?? 'Błąd' });
+      Toast.show({ type: 'error', text1: e.message || 'Nie udało się wysłać' });
     } finally {
       setSending(false);
     }
   };
 
-  const lastUserMsg = [...messages].reverse().find(m => m.authorKind === 'user');
-  const userMsgReadByStaff = Boolean(
-    lastUserMsg && staffLastReadAt && new Date(staffLastReadAt) >= new Date(lastUserMsg.createdAt),
-  );
-
-  const HEADER_HEIGHT = insets.top + 72;
+  const renderMessageFooter = useCallback((item: ReturnType<typeof mapSupportMessageToUnified>, index: number) => {
+    const raw = item.raw as BugReportMsg;
+    const isLastUser = lastUserMsg?.id === raw.id && raw.authorKind === 'user';
+    if (!isLastUser || !userMsgReadByStaff) return null;
+    return (
+      <View style={{ alignSelf: 'flex-end', paddingRight: 52, marginTop: -4, marginBottom: 4 }}>
+        <MaterialIcons name="done-all" size={14} color={theme.online} />
+      </View>
+    );
+  }, [lastUserMsg, userMsgReadByStaff, theme.online]);
 
   const supportHeader = (
     <View style={{
-      paddingTop: insets.top + 8,
-      paddingHorizontal: 12,
-      paddingBottom: 12,
-      backgroundColor: theme.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: '#e3383540',
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingHorizontal: 16, paddingTop: insets.top + 8, paddingBottom: 12,
+      borderBottomWidth: 1, borderBottomColor: theme.border,
     }}>
-      <TouchableOpacity
-        onPress={() => router.back()}
-        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-      >
-        <MaterialIcons name="arrow-back" size={20} color={theme.text} />
+      <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
+        <MaterialIcons name="arrow-back" size={22} color={theme.text} />
       </TouchableOpacity>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }}>
-          ZGŁOSZENIE #{id}
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 14, fontWeight: '900', color: theme.text }}>
+          SUPPORT
         </Text>
         {meta && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
@@ -191,27 +191,6 @@ export default function BugReportThreadScreen() {
       </View>
     </View>
   );
-
-  const renderItem = useCallback(({ item, index }: { item: ReturnType<typeof mapSupportMessageToUnified>; index: number }) => {
-    const meta = getGroupedMessageMeta(unifiedMessages, index, myId, true);
-    const raw = item.raw as BugReportMsg;
-    const isLastUser = lastUserMsg?.id === raw.id && raw.authorKind === 'user';
-    return (
-      <View>
-        <ChatMessageBubble
-          message={item}
-          meta={meta}
-          capabilities={SUPPORT_CAPABILITIES}
-          onPressPhoto={setPreviewPhoto}
-        />
-        {isLastUser && userMsgReadByStaff && (
-          <View style={{ alignSelf: 'flex-end', paddingRight: 52, marginTop: -4, marginBottom: 4 }}>
-            <MaterialIcons name="done-all" size={14} color={theme.online} />
-          </View>
-        )}
-      </View>
-    );
-  }, [unifiedMessages, lastUserMsg, userMsgReadByStaff, theme.online]);
 
   return (
     <ChatScreenShell
@@ -242,15 +221,17 @@ export default function BugReportThreadScreen() {
       {loading ? (
         <ChatLoadingState title="Ładowanie wątku…" />
       ) : (
-        <FlatList
-          ref={listRef}
-          data={unifiedMessages}
-          keyExtractor={item => String(item.id)}
-          renderItem={renderItem}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: chatListPad, flexGrow: 1 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        <ChatMessageList
+          messages={unifiedMessages}
+          myId={myId}
+          listRef={listRef}
+          capabilities={SUPPORT_CAPABILITIES}
+          showGroupNames
+          listPaddingBottom={chatListPad}
+          onPressPhoto={setPreviewPhoto}
+          renderMessageFooter={renderMessageFooter}
+          emptyTitle="Brak wiadomości"
+          emptySubtitle="Opisz problem — support odpowie tutaj."
         />
       )}
 
@@ -261,6 +242,16 @@ export default function BugReportThreadScreen() {
           )}
         </Pressable>
       </Modal>
+
+      {!introDone && (
+        <EntranceIntroGate
+          presetId="support-calm"
+          screenKey={`support_${id}`}
+          subtitleOverride={id ? `ZGŁOSZENIE #${id}` : undefined}
+          hapticsOnClash={false}
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
     </ChatScreenShell>
   );
 }

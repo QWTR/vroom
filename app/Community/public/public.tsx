@@ -34,6 +34,7 @@ import {
   PUBLIC_CAPABILITIES,
   type UnifiedChatMessage,
 } from '../../../components/chat/v2';
+import { EntranceIntroGate } from '../../../components/motion';
 
 const API = `${API_URL}/api/public-chat`;
 
@@ -128,6 +129,7 @@ export default function PublicChatScreen() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
   const [notifMode, setNotifMode] = useState<PublicNotifMode>('all');
+  const [introDone, setIntroDone] = useState(false);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
 
@@ -760,6 +762,13 @@ export default function PublicChatScreen() {
         showReactions={PUBLIC_CAPABILITIES.reactions}
         onReact={emoji => menuMsg && void handleReact(menuMsg.id, emoji)}
       />
+      {!introDone && (
+        <EntranceIntroGate
+          presetId="live-chat"
+          screenKey="public_chat"
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
     </ChatScreenShell>
   );
 }

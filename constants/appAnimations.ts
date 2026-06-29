@@ -8,7 +8,14 @@ export type AppAnimationSlot =
   | 'community_quick_access'
   | 'community_module_icon'
   | 'tab_active_icon'
-  | 'app_loading_logo';
+  | 'app_loading_logo'
+  | 'screen_entrance_duel'
+  | 'screen_entrance_grid'
+  | 'screen_entrance_public'
+  | 'screen_entrance_club'
+  | 'screen_entrance_market'
+  | 'screen_entrance_support'
+  | 'achievement_unlock';
 
 export type AppAnimationLayoutMode = 'inline' | 'behind';
 
@@ -26,6 +33,10 @@ export interface AppAnimationMeta {
   layoutMode?: AppAnimationLayoutMode;
   /** community_module_icon — który moduł społeczności. */
   moduleKey?: CommunityModuleKey | string;
+  /** screen_entrance_* — preset HUD gdy brak zdalnego asseta. */
+  presetId?: string;
+  accentPrimary?: string;
+  showOncePer?: 'always' | 'session' | 'day' | 'never';
 }
 
 export interface AppAnimation {
@@ -85,4 +96,31 @@ export function resolveAnimationLayoutMode(
 ): AppAnimationLayoutMode {
   const mode = animation?.metadata?.layoutMode;
   return mode === 'behind' ? 'behind' : mode === 'inline' ? 'inline' : fallback;
+}
+
+const SCREEN_ENTRANCE_SLOTS: AppAnimationSlot[] = [
+  'screen_entrance_duel',
+  'screen_entrance_grid',
+  'screen_entrance_public',
+  'screen_entrance_club',
+  'screen_entrance_market',
+  'screen_entrance_support',
+];
+
+export function isScreenEntranceSlot(slot: AppAnimationSlot): boolean {
+  return SCREEN_ENTRANCE_SLOTS.includes(slot);
+}
+
+export function pickScreenEntranceAnimation(
+  animations: AppAnimation[],
+  slot: AppAnimationSlot,
+) {
+  return animations
+    .filter(a => a.slot === slot && a.isActive !== false)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0] ?? null;
+}
+
+export function readEntrancePresetId(animation: AppAnimation | null | undefined): string | null {
+  const id = animation?.metadata?.presetId;
+  return id != null && String(id).trim() ? String(id).trim() : null;
 }

@@ -13,6 +13,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { useCars } from '../../../hooks/useCars';
 import { CommunityScreenHeader } from '../../../components/community';
+import { EntranceIntroGate } from '../../../components/motion';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -29,6 +30,7 @@ export default function EnterGridScreen() {
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [submitting,  setSubmitting]  = useState(false);
+  const [introDone,   setIntroDone]   = useState(false);
 
   useEffect(() => {
     fetchCars(); // bez userId → pobierze własne auta
@@ -295,6 +297,13 @@ export default function EnterGridScreen() {
           }
         </TouchableOpacity>
       </ScrollView>
+      {!introDone && (
+        <EntranceIntroGate
+          presetId="garage"
+          screenKey={`grid_enter_${eventId}`}
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
     </View>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { HudLaneLine, HudSpark } from '../../motion/vroomHudPrimitives';
 
 type SizeProps = { width: number; height: number };
 type EntranceProps = SizeProps & { onDone: () => void };
@@ -103,59 +104,17 @@ function AmbientGrid({ color = RED, opacity = 0.42 }: { color?: string; opacity?
   );
 }
 
-function SpeedLine({ line, progress, width }: { line: (typeof SPEED_LINES)[number]; progress: Animated.Value; width: number }) {
-  const translateX = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: line.side === 'left' ? [-line.width - 40, width + 40] : [width + 40, -line.width - 40],
-  });
-  const opacity = progress.interpolate({ inputRange: [0, 0.12, 0.78, 1], outputRange: [0, 1, 0.75, 0] });
-
+function SpeedLine({ line, progress }: { line: (typeof SPEED_LINES)[number]; progress: Animated.Value }) {
   return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        top: line.top as any,
-        width: line.width,
-        height: 3,
-        opacity,
-        transform: [{ translateX }],
-      }}
-    >
-      <LinearGradient
-        colors={line.side === 'left' ? ['transparent', line.color, WHITE] : [WHITE, line.color, 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={StyleSheet.absoluteFill}
-      />
-    </Animated.View>
+    <HudLaneLine
+      line={{ ...line, side: line.side as 'left' | 'right' }}
+      progress={progress}
+    />
   );
 }
 
 function Spark({ spark, progress }: { spark: (typeof SPARKS)[number]; progress: Animated.Value }) {
-  const scale = progress.interpolate({ inputRange: [0, 0.2, 0.75, 1], outputRange: [0, 1.7, 1, 0] });
-  const opacity = progress.interpolate({ inputRange: [0, 0.18, 0.8, 1], outputRange: [0, 1, 0.85, 0] });
-  const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [18, -42] });
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left: spark.left as any,
-        top: spark.top as any,
-        width: spark.size,
-        height: spark.size,
-        borderRadius: spark.size,
-        backgroundColor: spark.color,
-        opacity,
-        shadowColor: spark.color,
-        shadowOpacity: 1,
-        shadowRadius: 10,
-        transform: [{ translateY }, { scale }],
-      }}
-    />
-  );
+  return <HudSpark spark={spark} progress={progress} />;
 }
 
 export function ApexRevealEntrance({ width, height, onDone }: EntranceProps) {
@@ -200,7 +159,7 @@ export function ApexRevealEntrance({ width, height, onDone }: EntranceProps) {
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
-      {SPEED_LINES.map((line, i) => <SpeedLine key={i} line={line} progress={lineP[i]} width={width} />)}
+      {SPEED_LINES.map((line, i) => <SpeedLine key={i} line={line} progress={lineP[i]} />)}
       {SPARKS.map((spark, i) => <Spark key={i} spark={spark} progress={sparkP[i]} />)}
       <Animated.Text
         style={{
@@ -335,7 +294,7 @@ export function HyperTunnelEntrance({ width, height, onDone }: EntranceProps) {
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#020202', opacity: fade }]} />
       <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: zoom }] }]}>
-        {SPEED_LINES.map((line, i) => <SpeedLine key={i} line={line} progress={lineP[i]} width={width} />)}
+        {SPEED_LINES.map((line, i) => <SpeedLine key={i} line={line} progress={lineP[i]} />)}
       </Animated.View>
       <Animated.View
         style={{

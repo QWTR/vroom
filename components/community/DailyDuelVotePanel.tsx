@@ -27,7 +27,7 @@ import {
   getCarPhotos,
 } from './dailyDuelTypes';
 import { DailyDuelHistorySection } from './DailyDuelHistorySection';
-import { DailyDuelEntranceFx } from './DailyDuelEntranceFx';
+import { EntranceIntroGate, VoteCastPulse } from '../motion';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
@@ -330,8 +330,14 @@ export function DailyDuelVotePanel({
   const slideB = useRef(new Animated.Value(34)).current;
   const vsPulse = useRef(new Animated.Value(0)).current;
   const [introDone, setIntroDone] = useState(false);
+  const [votePulse, setVotePulse] = useState(false);
   const gold = COMMUNITY_ACCENTS.duel;
   const red = COMMUNITY_ACCENTS.duelAlt;
+
+  const handleVote = useCallback((carId: number) => {
+    setVotePulse(true);
+    onVote(carId);
+  }, [onVote]);
 
   const runContentEntrance = useCallback(() => {
     Animated.parallel([
@@ -475,7 +481,7 @@ export function DailyDuelVotePanel({
               selected={duel.myVoteCarId === duel.carA.id}
               voted={voted}
               voting={voting}
-              onVote={onVote}
+              onVote={handleVote}
               entranceStyle={{ transform: [{ translateX: slideA }] }}
             />
 
@@ -529,7 +535,7 @@ export function DailyDuelVotePanel({
               selected={duel.myVoteCarId === duel.carB.id}
               voted={voted}
               voting={voting}
-              onVote={onVote}
+              onVote={handleVote}
               entranceStyle={{ transform: [{ translateX: slideB }] }}
             />
           </View>
@@ -568,7 +574,10 @@ export function DailyDuelVotePanel({
           <DailyDuelHistorySection history={history} loading={historyLoading} />
         </View>
       </ScrollView>
-      {!introDone && <DailyDuelEntranceFx onDone={() => setIntroDone(true)} />}
+      {!introDone && (
+        <EntranceIntroGate presetId="arena-duel" onIntroDone={() => setIntroDone(true)} />
+      )}
+      <VoteCastPulse visible={votePulse} onDone={() => setVotePulse(false)} />
     </View>
   );
 }

@@ -47,6 +47,7 @@ import { stopVroomBgForegroundNotification } from '../lib/vroomBgForegroundServi
 import { useAppAnimations } from '../hooks/useAppAnimations';
 import { preloadAppAnimations } from '../lib/appAnimationPreload';
 import type { AppAnimationSlot } from '../constants/appAnimations';
+import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -76,6 +77,13 @@ const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
   'community_module_icon',
   'tab_active_icon',
   'app_loading_logo',
+  'screen_entrance_duel',
+  'screen_entrance_grid',
+  'screen_entrance_public',
+  'screen_entrance_club',
+  'screen_entrance_market',
+  'screen_entrance_support',
+  'achievement_unlock',
 ];
 
 // ─── NOTIFICATIONS ────────────────────────────────────────
@@ -697,14 +705,9 @@ function RootLayoutInner() {
             end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-          <View pointerEvents="none" style={s.bootGrid}>
-            {Array.from({ length: 9 }).map((_, i) => (
-              <View key={`h-${i}`} style={[s.gridH, { top: `${10 + i * 10}%` as `${number}%`, opacity: i % 2 ? 0.04 : 0.09 }]} />
-            ))}
-            {Array.from({ length: 7 }).map((_, i) => (
-              <View key={`v-${i}`} style={[s.gridV, { left: `${6 + i * 15}%` as `${number}%`, opacity: i % 2 ? 0.03 : 0.07 }]} />
-            ))}
-          </View>
+          <Animated.View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, opacity: masterFade }}>
+            <StaticHudGrid isDark primary={R} opacity={0.85} />
+          </Animated.View>
 
           {[0, 1].map(i => (
             <Animated.View

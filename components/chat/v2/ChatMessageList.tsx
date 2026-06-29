@@ -27,6 +27,7 @@ type Props = {
   onPressPhoto?: (uri: string) => void;
   onNavigateRoute?: (data: Record<string, unknown>) => void;
   renderBody?: (content: string, isMe: boolean, message: UnifiedChatMessage) => React.ReactNode;
+  renderMessageFooter?: (message: UnifiedChatMessage, index: number) => React.ReactNode;
   emptyTitle?: string;
   emptySubtitle?: string;
   inverted?: boolean;
@@ -49,6 +50,7 @@ export function ChatMessageList({
   onPressPhoto,
   onNavigateRoute,
   renderBody,
+  renderMessageFooter,
   emptyTitle = 'Brak wiadomości',
   emptySubtitle = 'Napisz pierwszą wiadomość!',
   inverted = false,
@@ -60,23 +62,26 @@ export function ChatMessageList({
     ({ item, index }: { item: UnifiedChatMessage; index: number }) => {
       const meta = getGroupedMessageMeta(messages, index, myId, showGroupNames);
       return (
-        <ChatMessageBubble
-          message={item}
-          meta={meta}
-          capabilities={capabilities}
-          onLongPress={() => onLongPressMessage?.(item)}
-          onReact={emoji => onReact?.(item.id, emoji)}
-          onPressPhoto={onPressPhoto}
-          onNavigateRoute={onNavigateRoute}
-          renderBody={
-            renderBody
-              ? (content, isMe) => renderBody(content, isMe, item)
-              : undefined
-          }
-        />
+        <View>
+          <ChatMessageBubble
+            message={item}
+            meta={meta}
+            capabilities={capabilities}
+            onLongPress={() => onLongPressMessage?.(item)}
+            onReact={emoji => onReact?.(item.id, emoji)}
+            onPressPhoto={onPressPhoto}
+            onNavigateRoute={onNavigateRoute}
+            renderBody={
+              renderBody
+                ? (content, isMe) => renderBody(content, isMe, item)
+                : undefined
+            }
+          />
+          {renderMessageFooter?.(item, index)}
+        </View>
       );
     },
-    [messages, myId, showGroupNames, capabilities, onLongPressMessage, onReact, onPressPhoto, onNavigateRoute, renderBody],
+    [messages, myId, showGroupNames, capabilities, onLongPressMessage, onReact, onPressPhoto, onNavigateRoute, renderBody, renderMessageFooter],
   );
 
   const ListHeader = hasMore ? (

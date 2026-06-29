@@ -50,6 +50,7 @@ import {
   resetSpeedometerEmitterThrottle,
   useHudStyles,
 } from '../../components/map/SpeedometerHUD';
+import { NavStartHudBar } from '../../components/motion';
 import { MapTerrainLayers } from '../../components/map/MapTerrainLayers';
 import { MapVividLayers } from '../../components/map/MapVividLayers';
 import { MapCanvas } from '../../components/map/MapCanvas';
@@ -2862,6 +2863,8 @@ function MapScreenInner() {
 
   // ── State – nawigacja ─────────────────────────────────────
   const [isNavigating, setIsNavigating] = useState(false);
+  const [navHudVisible, setNavHudVisible] = useState(false);
+  const wasNavigatingRef = useRef(false);
   const [navStartLoc,  setNavStartLoc]  = useState<LocationState | null>(null);
   const [currentStep,  setCurrentStep]  = useState(0);
   const currentStepRef = useRef(0);
@@ -2882,6 +2885,12 @@ function MapScreenInner() {
   const arrivedRef = useRef(false);
   arrivedRef.current = arrived;
   const [routeInfo,    setRouteInfo]    = useState<RouteInfo | null>(null);
+
+  useEffect(() => {
+    if (isNavigating && !wasNavigatingRef.current) setNavHudVisible(true);
+    wasNavigatingRef.current = isNavigating;
+  }, [isNavigating]);
+
   /** Ref synced every render — GPS callback must not depend on `routeInfo` (object churn resubscribes watch). */
   const routeInfoRef = useRef(routeInfo);
   routeInfoRef.current = routeInfo;
@@ -13820,6 +13829,7 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <NavStartHudBar visible={navHudVisible} onDone={() => setNavHudVisible(false)} />
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
         <View style={{ paddingTop: insets.top, backgroundColor: theme.bg }}>

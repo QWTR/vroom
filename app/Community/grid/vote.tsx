@@ -15,6 +15,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { normalizeMediaUri, normalizePhotoList } from '../../../lib/mediaUri';
 import { CommunityScreenHeader } from '../../../components/community';
+import { EntranceIntroGate, VoteCastPulse } from '../../../components/motion';
 
 const { width, height } = Dimensions.get('window');
 const DIVIDER_H = 60;
@@ -432,8 +433,13 @@ export default function GridVoteScreen() {
   const [voting,   setVoting]   = useState(false);
   const [votedMap, setVotedMap] = useState<Record<number, number>>({});
   const [gallery,  setGallery]  = useState<{ photos: string[]; username: string; startIdx: number } | null>(null);
+  const [introDone, setIntroDone] = useState(false);
+  const [votePulse, setVotePulse] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const contentFade = useRef(new Animated.Value(0)).current;
+  const cardSlideA = useRef(new Animated.Value(-28)).current;
+  const cardSlideB = useRef(new Animated.Value(28)).current;
   const scaleA    = useRef(new Animated.Value(1)).current;
   const scaleB    = useRef(new Animated.Value(1)).current;
   const barA      = useRef(new Animated.Value(0.5)).current;
@@ -489,6 +495,15 @@ export default function GridVoteScreen() {
     ]).start();
   }, [battles, idx]);
 
+  useEffect(() => {
+    if (!introDone) return;
+    Animated.parallel([
+      Animated.timing(contentFade, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.spring(cardSlideA, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
+      Animated.spring(cardSlideB, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
+    ]).start();
+  }, [introDone, contentFade, cardSlideA, cardSlideB]);
+
   const slideToBattle = (nextIdx: number, dir: 'left' | 'right') => {
     setGallery(null);
     setIdx(nextIdx);
@@ -543,6 +558,7 @@ export default function GridVoteScreen() {
       const data = await res.json();
 
       if (res.ok) {
+        setVotePulse(true);
         setVotedMap(m => ({ ...m, [battle.id]: entryId }));
         setBattles(prev => prev.map(b =>
           b.id === battle.id ? { ...b, votesA: data.votesA, votesB: data.votesB } : b
@@ -631,9 +647,10 @@ export default function GridVoteScreen() {
         />
       )}
 
-      <Animated.View key={`battle-${battle.id}`} style={{ flex: 1, transform: [{ translateX: slideAnim }] }}>
+      <Animated.View key={`battle-${battle.id}`} style={{ flex: 1, opacity: contentFade, transform: [{ translateX: slideAnim }] }}>
 
         {/* ── ENTRY A ── */}
+        <Animated.View style={{ transform: [{ translateY: cardSlideA }] }}>
         <EntryCard
           battleId={battle.id}
           entry={battle.entryA} photos={photosA}
@@ -644,6 +661,7 @@ export default function GridVoteScreen() {
           cardHeight={cardHeight}
           topInset={topInset}
         />
+        </Animated.View>
 
         {/* ── DIVIDER ── */}
         <View style={{ height: DIVIDER_H, backgroundColor: '#050505' }}>
@@ -703,6 +721,7 @@ export default function GridVoteScreen() {
         </View>
 
         {/* ── ENTRY B ── */}
+        <Animated.View style={{ transform: [{ translateY: cardSlideB }] }}>
         <EntryCard
           battleId={battle.id}
           entry={battle.entryB} photos={photosB}
@@ -713,6 +732,7 @@ export default function GridVoteScreen() {
           cardHeight={cardHeight}
           topInset={topInset}
         />
+        </Animated.View>
 
         {/* ── PRZYCISKI ── */}
         <View style={{ height: buttonsHeight, backgroundColor: '#050505', paddingHorizontal: 14, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 14), gap: 0 }}>
@@ -828,6 +848,14 @@ export default function GridVoteScreen() {
 
       </Animated.View>
 
+      {!introDone && (
+        <EntranceIntroGate
+          presetId="arena-grid"
+          screenKey="grid_vote"
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
+      <VoteCastPulse visible={votePulse} color={theme.gold} onDone={() => setVotePulse(false)} />
     </View>
   );
 }

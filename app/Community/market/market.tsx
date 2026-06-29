@@ -16,6 +16,7 @@ import { useEffectivePremium } from '../../../hooks/useEffectivePremium';
 import type { AppTheme } from '../../../constants/theme';
 import { API_URL } from '../../../constants/config';
 import { CommunityScreenHeader, CommunitySearchBar } from '../../../components/community';
+import { EntranceIntroGate } from '../../../components/motion';
 
 const PAGE               = 20;
 const SEARCH_DEBOUNCE_MS = 400;
@@ -125,6 +126,7 @@ export default function MarketScreen() {
     fuel: 'wszystkie',
   });
   const [pendingFilters, setPendingFilters] = useState<Filters>(filters);
+  const [introDone, setIntroDone] = useState(false);
   const filterSheetPadding = useModalSheetPadding(filterVisible);
 
   const fetchingRef = useRef(false);
@@ -597,6 +599,13 @@ export default function MarketScreen() {
         </View>
         </KeyboardAvoidingView>
       </Modal>
+      {!introDone && (
+        <EntranceIntroGate
+          presetId="market"
+          screenKey="market_hub"
+          onIntroDone={() => setIntroDone(true)}
+        />
+      )}
     </View>
   );
 }
