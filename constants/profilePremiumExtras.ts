@@ -29,6 +29,8 @@ export type ProfilePremiumExtras = {
   heroMotion: ProfileHeroMotion;
   /** Kadrowanie banera Premium (POST /profile/banner) — top / center / bottom. */
   bannerFocusPoint: ProfileBannerFocusPoint;
+  globalEntranceAnimationId: string | null;
+  globalBackgroundAnimationId: string | null;
 };
 
 export const DEFAULT_PROFILE_PREMIUM_EXTRAS: ProfilePremiumExtras = {
@@ -41,6 +43,8 @@ export const DEFAULT_PROFILE_PREMIUM_EXTRAS: ProfilePremiumExtras = {
   visitEntranceAnim:      'none',
   heroMotion:             'none',
   bannerFocusPoint:       'center',
+  globalEntranceAnimationId: null,
+  globalBackgroundAnimationId: null,
 };
 
 export function mergeProfilePremiumExtras(raw: unknown): ProfilePremiumExtras {
@@ -67,5 +71,7 @@ export function mergeProfilePremiumExtras(raw: unknown): ProfilePremiumExtras {
     ...(o.bannerFocusPoint === 'top' || o.bannerFocusPoint === 'center' || o.bannerFocusPoint === 'bottom'
       ? { bannerFocusPoint: o.bannerFocusPoint as ProfileBannerFocusPoint }
       : {}),
+    ...(typeof o.globalEntranceAnimationId === 'string' ? { globalEntranceAnimationId: o.globalEntranceAnimationId } : {}),
+    ...(typeof o.globalBackgroundAnimationId === 'string' ? { globalBackgroundAnimationId: o.globalBackgroundAnimationId } : {}),
   };
 }

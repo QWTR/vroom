@@ -28,7 +28,7 @@ interface Props {
 }
 
 export function TripStatsModal({ visible, stats, onClose }: Props) {
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, presetId } = useTheme();
   useModalBackHandler(visible, onClose);
 
   if (!stats) return null;
@@ -121,7 +121,7 @@ export function TripStatsModal({ visible, stats, onClose }: Props) {
               }}>
                 <Mapbox.MapView
                   style={{ flex: 1 }}
-                  styleURL={resolveStandardMapStyle(isDark)}
+                  styleURL={resolveStandardMapStyle(isDark, presetId)}
                   logoEnabled={false}
                   attributionEnabled={false}
                   scrollEnabled={false}

@@ -1,24 +1,9 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import Mapbox from '@rnmapbox/maps';
+import { collectTripHiddenLayerIds } from '../../lib/mapScreen/tripMapLabelLayers';
 
-/**
- * Ukrywa tarcze numerów dróg (np. „483”) w trybie jazdy/nawigacji.
- * Przy wysokim pitch Mapbox navigation-night duplikuje etykiety wzdłuż drogi.
- */
-const TRIP_HIDDEN_LAYERS = [
-  'road-number-shield',
-  'road-shield',
-  'road-number',
-  'motorway-junction',
-  'motorway-shield',
-  'road-label',
-  'road-label-small',
-  'road-label-medium',
-  'road-label-large',
-  'road-exit-shield',
-  'road-exit',
-];
+const APPLY_DELAYS_MS = [80, 240, 700, 1400];
 
 type Props = {
   mapRef: RefObject<Mapbox.MapView | null>;
@@ -26,19 +11,40 @@ type Props = {
   styleEpoch: number;
 };
 
+async function getStyleLayerIds(map: Mapbox.MapView): Promise<string[]> {
+  const anyMap = map as unknown as {
+    getStyle?: () => Promise<string | { layers?: Array<{ id?: string }> }>;
+  };
+  if (typeof anyMap.getStyle !== 'function') return [];
+  try {
+    const style = await anyMap.getStyle();
+    const parsed = typeof style === 'string' ? JSON.parse(style) : style;
+    if (!parsed || !Array.isArray(parsed.layers)) return [];
+    return parsed.layers
+      .map((layer: { id?: unknown }) => (typeof layer?.id === 'string' ? layer.id : ''))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export function TripMapLabelGuard({ mapRef, enabled, styleEpoch }: Props) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
 
     const apply = async () => {
-      await new Promise((r) => setTimeout(r, 120));
       if (cancelled) return;
-      for (const layerId of TRIP_HIDDEN_LAYERS) {
+      const styleLayerIds = await getStyleLayerIds(map);
+      if (cancelled) return;
+      for (const layerId of collectTripHiddenLayerIds(styleLayerIds)) {
         try {
-          await map.setStyleLayerProperty(
+          await (map as unknown as {
+            setStyleLayerProperty: (id: string, property: string, value: string) => Promise<void>;
+          }).setStyleLayerProperty(
             layerId,
             'visibility',
             enabled ? 'none' : 'visible',
@@ -49,9 +55,12 @@ export function TripMapLabelGuard({ mapRef, enabled, styleEpoch }: Props) {
       }
     };
 
-    void apply();
+    for (const delay of APPLY_DELAYS_MS) {
+      timers.push(setTimeout(() => void apply(), delay));
+    }
     return () => {
       cancelled = true;
+      timers.forEach(clearTimeout);
     };
   }, [mapRef, enabled, styleEpoch]);
 

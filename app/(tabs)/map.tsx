@@ -354,6 +354,24 @@ function roadPolylineShiftM(
   ) * 1000;
   return Math.max(startM, endM, midM);
 }
+
+/** Akceptuj nową geometrię mimo dużego shiftM, gdy lepiej pasuje do raw GPS niż stara. */
+function shouldPreferNewRoadGeometry(
+  prev: { latitude: number; longitude: number }[],
+  next: { latitude: number; longitude: number }[],
+  rawLat: number,
+  rawLng: number,
+): boolean {
+  if (prev.length < 2) return true;
+  if (!validateGeometryAgainstRaw(next, rawLat, rawLng, 45)) return false;
+  if (!validateGeometryAgainstRaw(prev, rawLat, rawLng, 45)) return true;
+  const prevSnap = snapToRoute(rawLat, rawLng, prev, 80);
+  const nextSnap = snapToRoute(rawLat, rawLng, next, 80);
+  const prevDistM = haversineKm(rawLat, rawLng, prevSnap.latitude, prevSnap.longitude) * 1000;
+  const nextDistM = haversineKm(rawLat, rawLng, nextSnap.latitude, nextSnap.longitude) * 1000;
+  return nextDistM + 8 < prevDistM;
+}
+
 /** Min. odstęp między lokalnym resolve (SQLite / tile / trasa) bez Mapbox. */
 const CLIENT_FIRST_RESOLVE_MIN_MS = 4_000;
 const NAV_SESSION_KEY     = 'nav_session_v1';
@@ -2606,7 +2624,9 @@ function MapScreenInner() {
     if (hit && hit.polylinePoints.length >= 2) {
       return { points: hit.polylinePoints, source: hit.source };
     }
-    const mem = drivingSnapGeometryRef.current;
+    const mem = drivingSnapUsesMatchedRef.current
+      ? drivingSnapGeometryRef.current
+      : [];
     if (mem.length >= 6 && validateGeometryAgainstRaw(mem, lat, lng, 45)) {
       return { points: mem, source: 'memory' };
     }
@@ -2993,7 +3013,7 @@ function MapScreenInner() {
   // ─────────────────────────────────────────────────────────
 
   const router = useRouter();
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, presetId } = useTheme();
   const { isPremium } = useSubscriptionStatus();
   const isPremiumRef = useRef(isPremium);
   useEffect(() => {
@@ -3035,7 +3055,7 @@ function MapScreenInner() {
         name: settings.homeLabel || 'Dom',
       }
     : null;
-  const mapStyle = resolveMapStyleForVehicle3d(mapType, isDark, useVehicle3DMarker);
+  const mapStyle = resolveMapStyleForVehicle3d(mapType, isDark, useVehicle3DMarker, presetId);
   useEffect(() => {
     setMapStyleEpoch(0);
   }, [mapStyle]);
@@ -3549,9 +3569,14 @@ function MapScreenInner() {
     if (list.length < 2) {
       if (pts && pts.length === 0) {
         drivingSnapUsesMatchedRef.current = false;
-        drivingSnapGeometryRef.current = routePointsRef.current.length >= 2
-          ? routePointsRef.current
-          : [];
+        if (isNavigatingRef.current && routePointsRef.current.length >= 2) {
+          drivingSnapGeometryRef.current = routePointsRef.current;
+        } else if (lastGoodDrivingSnapGeometryRef.current.length >= 2) {
+          drivingSnapGeometryRef.current = lastGoodDrivingSnapGeometryRef.current;
+        } else {
+          drivingSnapGeometryRef.current = [];
+          localRoadGeometryMirror.clear();
+        }
         roadMatchSigRef.current = '';
       }
       return;
@@ -3562,9 +3587,22 @@ function MapScreenInner() {
 
     const prevGeom = drivingSnapGeometryRef.current;
     const shiftM = prevGeom.length >= 2 ? roadPolylineShiftM(prevGeom, densified) : 0;
+    const rawForGeom = lastRawForHeadingRef.current ?? lastGoodLocRef.current;
+    const preferNewGeom = rawForGeom != null
+      && shouldPreferNewRoadGeometry(
+        prevGeom,
+        densified,
+        rawForGeom.lat,
+        rawForGeom.lng,
+      );
 
     // Nie stosuj krótkiego cache — psuje snap (marker stoi / obrót w bok).
-    if (densified.length <= 8 && prevGeom.length >= 4 && shiftM > 35) {
+    if (
+      densified.length <= 8
+      && prevGeom.length >= 4
+      && shiftM > 35
+      && !preferNewGeom
+    ) {
       vroomGpsLog('ROAD_MATCH_SKIP_TRUNCATED', {
         pts: densified.length,
         prevPts: prevGeom.length,
@@ -3572,7 +3610,7 @@ function MapScreenInner() {
       }, 3000);
       return;
     }
-    if (densified.length <= 4 && prevGeom.length >= 2) {
+    if (densified.length <= 4 && prevGeom.length >= 2 && !preferNewGeom) {
       vroomGpsLog('ROAD_MATCH_SKIP_TRUNCATED', {
         pts: densified.length,
         prevPts: prevGeom.length,
@@ -3581,7 +3619,7 @@ function MapScreenInner() {
       return;
     }
     // Geometria przesunięta w bok (równoległa ulica) — nie psuj snapu.
-    if (prevGeom.length >= 2 && shiftM > 55) {
+    if (prevGeom.length >= 2 && shiftM > 55 && !preferNewGeom) {
       vroomGpsLog('ROAD_MATCH_SKIP_SHIFT', {
         pts: densified.length,
         prevPts: prevGeom.length,
@@ -3606,6 +3644,7 @@ function MapScreenInner() {
     drivingSnapGeometryRef.current = densified;
     lastGoodDrivingSnapGeometryRef.current = densified;
     drivingSnapUsesMatchedRef.current = true;
+    localRoadGeometryMirror.setPolylines([densified]);
 
     vroomGpsLog('ROAD_MATCH_SOFT_APPLY_V2', {
       pts: densified.length,
@@ -3651,9 +3690,20 @@ function MapScreenInner() {
 
     markClientFirstNoRoad();
     const nowCf = Date.now();
+    const rawForValidate = lastRawForHeadingRef.current ?? lastGoodLocRef.current;
+    const geomInvalidForRaw = drivingSnapGeometryRef.current.length >= 2
+      && rawForValidate != null
+      && !validateGeometryAgainstRaw(
+        drivingSnapGeometryRef.current,
+        rawForValidate.lat,
+        rawForValidate.lng,
+        45,
+      );
     const needsLocalResolve =
-      drivingSnapGeometryRef.current.length < 2;
-    if (needsLocalResolve && nowCf - lastClientFirstResolveRef.current >= CLIENT_FIRST_RESOLVE_MIN_MS) {
+      drivingSnapGeometryRef.current.length < 2
+      || geomInvalidForRaw;
+    const resolveGapMs = geomInvalidForRaw ? 1200 : CLIENT_FIRST_RESOLVE_MIN_MS;
+    if (needsLocalResolve && nowCf - lastClientFirstResolveRef.current >= resolveGapMs) {
       lastClientFirstResolveRef.current = nowCf;
       void resolveLocalRoadPolylineForMatch(lat, lng).then((local) => {
         if (!isDrivingRef.current || isNavigatingRef.current || !local || local.points.length < 2) return;
@@ -5663,6 +5713,7 @@ function MapScreenInner() {
     applyRoadMatchPoints([]);
     drivingSnapGeometryRef.current = [];
     drivingSnapUsesMatchedRef.current = false;
+    localRoadGeometryMirror.clear();
     drivingManualModeRef.current = false;
     if (Number.isFinite(handoffLat) && Number.isFinite(handoffLng) && handoffLat !== 0) {
       setUserLocation(prev => (
@@ -5823,11 +5874,8 @@ function MapScreenInner() {
       if (instantRoad && instantRoad.length >= 2) {
         applyRoadMatchPoints(instantRoad, { skipResync: true });
         bumpMatchedFreshness();
-      } else if (previewPts.length >= 2) {
-        drivingSnapGeometryRef.current = previewPts;
-        lastGoodDrivingSnapGeometryRef.current = previewPts;
-        drivingSnapUsesMatchedRef.current = false;
       }
+      // Nie seeduj snapu trasą podglądu — w free drive to równoległy offset od realnej drogi.
 
       let entryLat = startLat;
       let entryLng = startLng;
@@ -5933,6 +5981,14 @@ function MapScreenInner() {
       drivingManualEntryBusyRef.current = false;
 
       if (!instantRoad || instantRoad.length < 2) {
+        void getLocalSnapTarget(startLat, startLng).then((hit) => {
+          if (!isDrivingRef.current || isNavigatingRef.current) return;
+          if (!hit || hit.polylinePoints.length < 2) return;
+          applyRoadMatchPoints(hit.polylinePoints, { skipResync: true });
+          bumpMatchedFreshness();
+          resyncSnapAfterRoadGeometry(startLat, startLng, speedKmhRef.current, null);
+        });
+
         void (async () => {
           try {
             const sqliteHit = await Promise.race([
@@ -5992,7 +6048,7 @@ function MapScreenInner() {
 
       console.log('[DrivingMode] Manually entered — snap-first entry');
     }
-  }, [isNavigating, isDriving, userLocation, exitDrivingMode, setFollowMode, recenterTo, getMatchedPoints, bumpMatchedFreshness, mapMatchCoord, startTrip, recordDrivingTracePoint, applyRoadMatchPoints, resyncSnapAfterRoadGeometry, tripBootstrapPose, touchProgrammaticCameraApply, setTripCameraActive, cameraV3]);
+  }, [isNavigating, isDriving, userLocation, exitDrivingMode, setFollowMode, recenterTo, getMatchedPoints, bumpMatchedFreshness, mapMatchCoord, startTrip, recordDrivingTracePoint, applyRoadMatchPoints, resyncSnapAfterRoadGeometry, tripBootstrapPose, touchProgrammaticCameraApply, setTripCameraActive, cameraV3, getLocalSnapTarget]);
 
   // ─────────────────────────────────────────────────────────
   // Adaptive GPS
@@ -10544,6 +10600,7 @@ if (
     applyRoadMatchPoints([], { skipResync: true });
     drivingSnapGeometryRef.current = [];
     drivingSnapUsesMatchedRef.current = false;
+    localRoadGeometryMirror.clear();
     snapAnchorStaleRef.current = null;
     driftCriticalStreakRef.current = 0;
   }, [isMapFocused, isDriving, isNavigating, applyRoadMatchPoints]);
@@ -12280,16 +12337,13 @@ syncTripCameraAfterResume(syncLat, syncLng, hdg);
   }, [handleReport]);
 
   useEffect(() => {
+    if (!isNavigating) return;
     const pts = activeRoute?.points?.length
       ? activeRoute.points
-      : (isNavigating && routePointsRef.current.length ? routePointsRef.current : []);
-if (pts.length >= 2) {
-      if (isNavigating) {
-        drivingSnapGeometryRef.current = pts;
-        drivingSnapUsesMatchedRef.current = false;
-      } else if (!drivingSnapUsesMatchedRef.current) {
-        drivingSnapGeometryRef.current = pts;
-      }
+      : (routePointsRef.current.length ? routePointsRef.current : []);
+    if (pts.length >= 2) {
+      drivingSnapGeometryRef.current = pts;
+      drivingSnapUsesMatchedRef.current = false;
     }
   }, [activeRoute, isNavigating]);
 

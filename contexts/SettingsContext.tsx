@@ -4,6 +4,8 @@ import { API_URL } from '../constants/mapConfig';
 import type { ProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import { DEFAULT_PROFILE_PREMIUM_EXTRAS, mergeProfilePremiumExtras } from '../constants/profilePremiumExtras';
 import type { SpotifyProfileTrack } from '../constants/profile';
+import type { AppThemePreset } from '../constants/appThemePresets';
+import type { ShopCosmeticItem } from '../constants/shopCosmetics';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 import { resolveBackendPremium } from '../lib/resolveBackendPremium';
 import { USER_IS_PREMIUM_KEY } from '../hooks/useBackgroundTracking';
@@ -114,6 +116,8 @@ export interface AppSettings {
   isAdmin?: boolean;
   premiumExpiresAt?: string | null;
   profilePremiumExtras?: ProfilePremiumExtras | null;
+  availableAppThemePresets?: Pick<AppThemePreset, 'id' | 'label' | 'category'>[];
+  globalPremiumAnimations?: ShopCosmeticItem[];
   /** Zapis w DB — do przywrócenia po odnowieniu premium (gdy isPremium === false). */
   savedNickColor?: string | null;
   savedProfileThemePreset?: string;
@@ -194,6 +198,8 @@ const DEFAULTS: AppSettings = {
   isAdmin: false,
   premiumExpiresAt: null,
   profilePremiumExtras: null,
+  availableAppThemePresets: [],
+  globalPremiumAnimations: [],
   spotifyProfileTrack: null,
   spotifySearchAvailable: false,
 };

@@ -8,6 +8,10 @@ import { Feather } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
+import { withAlpha } from '../../constants/theme';
+import { pickAppAnimationForValue } from '../../constants/appAnimations';
+import { useAppAnimations } from '../../hooks/useAppAnimations';
+import AppAnimationLayer from '../animations/AppAnimationLayer';
 
 export interface CommunityModuleItem {
   label: string;
@@ -18,20 +22,16 @@ export interface CommunityModuleItem {
   tag?: string | null;
 }
 
-function glassBorder(isDark: boolean) {
-  return isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)';
+function glassBorder(theme: ReturnType<typeof useTheme>['theme']) {
+  return theme.border2;
 }
 
-function glassGradient(isDark: boolean): [string, string] {
-  return isDark
-    ? ['rgba(227, 56, 53, 0.08)', 'rgba(20, 20, 20, 0.8)']
-    : ['rgba(227, 56, 53, 0.05)', 'rgba(255, 255, 255, 0.85)'];
+function glassGradient(theme: ReturnType<typeof useTheme>['theme'], isDark: boolean): [string, string] {
+  return [withAlpha(theme.primary, isDark ? '18' : '10'), withAlpha(theme.surface, isDark ? 'dd' : 'ee')];
 }
 
-function listGradient(isDark: boolean): [string, string, string] {
-  return isDark
-    ? ['rgba(227, 56, 53, 0.06)', 'rgba(22, 22, 22, 0.95)', 'rgba(10, 10, 10, 0.98)']
-    : ['rgba(227, 56, 53, 0.04)', 'rgba(255, 255, 255, 0.92)', 'rgba(248, 248, 248, 0.98)'];
+function listGradient(theme: ReturnType<typeof useTheme>['theme'], isDark: boolean): [string, string, string] {
+  return [withAlpha(theme.primary, isDark ? '14' : '0f'), withAlpha(theme.surface, isDark ? 'f2' : 'ee'), theme.bgAlt];
 }
 
 function ModuleIcon({ item, size, color }: { item: CommunityModuleItem; size: number; color: string }) {
@@ -42,18 +42,28 @@ function ModuleIcon({ item, size, color }: { item: CommunityModuleItem; size: nu
 
 function IconCircle({ item, size = 22 }: { item: CommunityModuleItem; size?: number }) {
   const { theme, isDark } = useTheme();
+  const { animations } = useAppAnimations(['community_quick_access']);
+  const quickAnimation = pickAppAnimationForValue(animations, 'community_quick_access');
   return (
     <View style={{
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: 'rgba(227, 56, 53, 0.12)',
+      backgroundColor: theme.primaryBg,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(227, 56, 53, 0.25)' : 'rgba(227, 56, 53, 0.18)',
+      borderColor: theme.primaryBorder,
       alignItems: 'center',
       justifyContent: 'center',
-    }}>
-      <ModuleIcon item={item} size={size} color={theme.primary} />
+      }}>
+      {quickAnimation ? (
+        <AppAnimationLayer
+          animation={quickAnimation}
+          style={{ width: size + 12, height: size + 12 }}
+          fallbackIcon={<ModuleIcon item={item} size={size} color={theme.primary} />}
+        />
+      ) : (
+        <ModuleIcon item={item} size={size} color={theme.primary} />
+      )}
     </View>
   );
 }
@@ -108,7 +118,7 @@ export function CommunityModuleCardGrid({ item, style }: { item: CommunityModule
         overflow: 'hidden',
         minHeight: 156,
         borderWidth: 1,
-        borderColor: glassBorder(isDark),
+        borderColor: glassBorder(theme),
       }}>
         <BlurView
           tint={isDark ? 'dark' : 'light'}
@@ -116,7 +126,7 @@ export function CommunityModuleCardGrid({ item, style }: { item: CommunityModule
           style={StyleSheet.absoluteFillObject}
         />
         <LinearGradient
-          colors={glassGradient(isDark)}
+          colors={glassGradient(theme, isDark)}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFillObject}
@@ -156,13 +166,13 @@ export function CommunityModuleCardList({ item }: { item: CommunityModuleItem })
   return (
     <PressWrap onPress={() => router.push(item.route as any)}>
       <LinearGradient
-        colors={listGradient(isDark)}
+        colors={listGradient(theme, isDark)}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: glassBorder(isDark),
+          borderColor: glassBorder(theme),
         }}
       >
         <View style={{

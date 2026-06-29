@@ -29,8 +29,8 @@ export default function SpotMap() {
   const mapRef = useRef<Mapbox.MapView>(null);
   // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
   const cameraRef = useRef<Mapbox.Camera>(null);
-  const { theme, isDark } = useTheme();
-  const mapStyle       = resolveStandardMapStyle(isDark);
+  const { theme, isDark, presetId } = useTheme();
+  const mapStyle       = resolveStandardMapStyle(isDark, presetId);
 
   const {
     region, visibleSpots, maxDistance, setMaxDistance,

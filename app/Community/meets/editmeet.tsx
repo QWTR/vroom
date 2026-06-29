@@ -37,7 +37,7 @@ export default function EditMeet() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { scrollPaddingBottom } = useFormKeyboardPadding(72);
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, presetId } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [loading,       setLoading]       = useState(true);
@@ -433,7 +433,7 @@ export default function EditMeet() {
           <Mapbox.MapView
             ref={mapRef}
             style={{ flex: 1 }}
-            styleURL={resolveStandardMapStyle(isDark)}
+            styleURL={resolveStandardMapStyle(isDark, presetId)}
             logoEnabled={false}
             attributionEnabled={false}
             onPress={handleMapPress}

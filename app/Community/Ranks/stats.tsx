@@ -1,24 +1,25 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
-  ListRenderItem,
   RefreshControl,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  type ListRenderItem,
 } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { API_URL } from '../../../constants/config';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { CommunityScreenHeader, CommunitySegmentTabs } from '../../../components/community';
 
-const { width } = Dimensions.get('window');
+type RankCategory = 'points' | 'distance';
+type RankPeriod = 'day' | 'week' | 'month' | 'all';
 
 interface RankUser {
   id: number;
@@ -31,161 +32,202 @@ interface RankUser {
   isPremium?: boolean;
 }
 
-const PERIODS = ['Dziś', 'Tydzień', 'Miesiąc', 'Wszystko'] as const;
-const PERIOD_MAP: Record<string, string> = {
-  Dziś: 'day',
-  Tydzień: 'week',
-  Miesiąc: 'month',
-  Wszystko: 'all',
+const PERIODS: Array<{ key: RankPeriod; label: string }> = [
+  { key: 'day', label: 'DZIŚ' },
+  { key: 'week', label: 'TYDZIEŃ' },
+  { key: 'month', label: 'MIESIĄC' },
+  { key: 'all', label: 'WSZYSTKO' },
+];
+
+const PERIOD_ALIASES: Record<string, RankPeriod> = {
+  day: 'day',
+  dzis: 'day',
+  dziś: 'day',
+  week: 'week',
+  tydzien: 'week',
+  tydzień: 'week',
+  month: 'month',
+  miesiac: 'month',
+  miesiąc: 'month',
+  all: 'all',
+  wszystko: 'all',
 };
 
-const RankListRow = React.memo(function RankListRow({
-  u,
+function normalizePeriod(raw?: string): RankPeriod | null {
+  if (!raw) return null;
+  return PERIOD_ALIASES[String(raw).trim().toLowerCase()] ?? null;
+}
+
+function formatScore(value: number): string {
+  return Number(value || 0).toLocaleString('pl-PL');
+}
+
+function RankAvatar({ user, size }: { user: RankUser; size: number }) {
+  const { theme } = useTheme();
+  return (
+    <View
+      style={[
+        styles.avatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: theme.surface2,
+          borderColor: theme.border2,
+        },
+      ]}
+    >
+      {user.avatar ? (
+        <Image source={{ uri: user.avatar }} style={{ width: size, height: size }} contentFit="cover" recyclingKey={String(user.id)} />
+      ) : (
+        <Text style={[styles.initials, { color: theme.text }]}>
+          {user.username.slice(0, 2).toUpperCase()}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function RankListRow({
+  user,
   isMe,
   scoreLabel,
-  theme,
   onPress,
 }: {
-  u: RankUser;
+  user: RankUser;
   isMe: boolean;
   scoreLabel: string;
-  theme: Record<string, string>;
   onPress: () => void;
 }) {
-  const streak = u.streak ?? 0;
+  const { theme } = useTheme();
   return (
     <TouchableOpacity
-      style={[
-        {
-          backgroundColor: theme.surface,
-          borderRadius: 16,
-          paddingVertical: 14,
-          paddingHorizontal: 14,
-          marginBottom: 10,
-          borderWidth: 1,
-          borderColor: theme.border2,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        },
-        isMe && { borderColor: '#e3383540', backgroundColor: '#e3383510' },
-      ]}
+      activeOpacity={0.86}
       onPress={onPress}
-      activeOpacity={0.85}
+      style={[
+        styles.row,
+        { backgroundColor: theme.surface, borderColor: isMe ? '#e33835' : theme.border2 },
+        isMe && { backgroundColor: '#e3383512' },
+      ]}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-        <Text
-          style={{
-            fontFamily: 'Orbitron',
-            color: u.position <= 10 ? '#e33835' : theme.textDim,
-            fontSize: 15,
-            fontWeight: '800',
-            width: 28,
-            textAlign: 'center',
-          }}
-        >
-          #{u.position}
-        </Text>
-        <View
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: 23,
-            backgroundColor: theme.surface2,
-            justifyContent: 'center',
-            alignItems: 'center',
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: theme.border2,
-          }}
-        >
-          {u.avatar ? (
-            <Image source={{ uri: u.avatar }} style={{ width: 46, height: 46 }} contentFit="cover" recyclingKey={String(u.id)} />
-          ) : (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text }}>{u.username.slice(0, 2).toUpperCase()}</Text>
-          )}
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>
-              {u.username}
-              {isMe ? ' (Ty)' : ''}
-            </Text>
-            {u.isPremium && (
-              <View
-                style={{
-                  backgroundColor: '#FFD70018',
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: '#FFD70035',
-                  paddingHorizontal: 6,
-                  paddingVertical: 2,
-                }}
-              >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PREMIUM</Text>
-              </View>
-            )}
-          </View>
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, marginTop: 3 }} numberOfLines={1}>
-            {u.sub}
+      <Text style={[styles.rowPosition, { color: user.position <= 10 ? theme.primary : theme.textDim }]}>
+        #{user.position}
+      </Text>
+      <RankAvatar user={user} size={44} />
+      <View style={styles.rowMain}>
+        <View style={styles.nameLine}>
+          <Text style={[styles.username, { color: theme.text }]} numberOfLines={1}>
+            {user.username}{isMe ? ' (Ty)' : ''}
           </Text>
+          {user.isPremium ? (
+            <View style={styles.premiumPill}>
+              <Text style={styles.premiumText}>PREMIUM</Text>
+            </View>
+          ) : null}
         </View>
-      </View>
-
-      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-        <Text style={{ fontFamily: 'Orbitron', color: isMe ? '#e33835' : theme.text, fontSize: 14, fontWeight: '800' }}>
-          {u.score.toLocaleString('pl-PL')} {scoreLabel}
+        <Text style={[styles.sub, { color: theme.textDim }]} numberOfLines={1}>
+          {user.sub}
         </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-          <Text style={{ fontSize: 12 }}>🔥</Text>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>{streak}</Text>
-        </View>
+      </View>
+      <View style={styles.scoreBox}>
+        <Text style={[styles.score, { color: isMe ? theme.primary : theme.text }]}>
+          {formatScore(user.score)}
+        </Text>
+        <Text style={[styles.scoreUnit, { color: theme.textDim }]}>{scoreLabel}</Text>
       </View>
     </TouchableOpacity>
   );
-});
+}
+
+function TopRankCard({
+  user,
+  scoreLabel,
+  onPress,
+}: {
+  user: RankUser;
+  scoreLabel: string;
+  onPress: () => void;
+}) {
+  const { theme } = useTheme();
+  const accent = user.position === 1 ? '#FFD700' : user.position === 2 ? '#cbd5e1' : '#d97706';
+  return (
+    <TouchableOpacity
+      activeOpacity={0.86}
+      onPress={onPress}
+      style={[styles.topCard, { backgroundColor: theme.surface, borderColor: `${accent}66` }]}
+    >
+      <View style={[styles.medal, { backgroundColor: `${accent}22`, borderColor: `${accent}66` }]}>
+        <MaterialCommunityIcons name={user.position === 1 ? 'crown' : 'podium'} size={16} color={accent} />
+        <Text style={[styles.medalText, { color: accent }]}>#{user.position}</Text>
+      </View>
+      <RankAvatar user={user} size={54} />
+      <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>
+        {user.username}
+      </Text>
+      <Text style={[styles.topScore, { color: theme.primary }]} numberOfLines={1}>
+        {formatScore(user.score)} {scoreLabel}
+      </Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function StatsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ rankPeriod?: string; rankCategory?: string }>();
   const { theme } = useTheme();
 
-  const [category, setCategory] = useState<'points' | 'distance'>('points');
-  const [period, setPeriod] = useState<string>('Wszystko');
+  const [category, setCategory] = useState<RankCategory>('points');
+  const [period, setPeriod] = useState<RankPeriod>('all');
   const [users, setUsers] = useState<RankUser[]>([]);
   const [myPosition, setMyPosition] = useState<number | null>(null);
   const [myId, setMyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('user').then(raw => {
-      if (raw) {
+    AsyncStorage.getItem('user').then((raw) => {
+      if (!raw) return;
+      try {
         const u = JSON.parse(raw);
-        setMyId(u.userId ?? u.id);
+        setMyId(u.userId ?? u.id ?? null);
+      } catch {
+        setMyId(null);
       }
     });
   }, []);
 
   useEffect(() => {
-    const rp = params.rankPeriod;
-    const rc = params.rankCategory;
-    const p = (Array.isArray(rp) ? rp[0] : rp) as string | undefined;
-    const c = (Array.isArray(rc) ? rc[0] : rc) as string | undefined;
-    if (p && (PERIODS as readonly string[]).includes(p)) setPeriod(p);
-    if (c === 'points' || c === 'distance') setCategory(c);
-  }, [params.rankPeriod, params.rankCategory]);
+    const rawPeriod = Array.isArray(params.rankPeriod) ? params.rankPeriod[0] : params.rankPeriod;
+    const rawCategory = Array.isArray(params.rankCategory) ? params.rankCategory[0] : params.rankCategory;
+    const nextPeriod = normalizePeriod(rawPeriod);
+    if (nextPeriod) setPeriod(nextPeriod);
+    if (rawCategory === 'points' || rawCategory === 'distance') setCategory(rawCategory);
+  }, [params.rankCategory, params.rankPeriod]);
 
-  const fetchRanking = useCallback(async (cat: string, per: string) => {
+  const scoreLabel = category === 'points' ? 'pkt' : 'km';
+
+  const fetchRanking = useCallback(async (nextCategory: RankCategory, nextPeriod: RankPeriod, silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
     try {
-      const token = await AsyncStorage.getItem('token');
-      const url = `${API_URL}/api/profile/ranking?category=${cat}&period=${PERIOD_MAP[per]}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      setUsers(data.users ?? []);
-      setMyPosition(data.myPosition ?? null);
+      const token = (await AsyncStorage.getItem('token')) ?? (await AsyncStorage.getItem('userToken'));
+      const qs = new URLSearchParams({
+        category: nextCategory,
+        period: nextPeriod,
+        take: '100',
+      });
+      const res = await fetch(`${API_URL}/api/profile/ranking?${qs.toString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      setUsers(Array.isArray(data?.users) ? data.users : []);
+      setMyPosition(data?.myPosition ?? null);
     } catch (e) {
-      console.log('fetchRanking error:', e);
+      setUsers([]);
+      setMyPosition(null);
+      setError(e instanceof Error ? e.message : 'Nie udało się pobrać rankingu');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -193,235 +235,316 @@ export default function StatsScreen() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    fetchRanking(category, period);
+    void fetchRanking(category, period);
   }, [category, period, fetchRanking]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchRanking(category, period);
-  }, [category, period, fetchRanking]);
+    void fetchRanking(category, period, true);
+  }, [category, fetchRanking, period]);
+
+  const openProfile = useCallback((id: number) => {
+    router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } });
+  }, [router]);
 
   const topThree = users.slice(0, 3);
   const restUsers = users.slice(3);
-  const scoreLabel = category === 'points' ? 'pkt' : 'km';
 
-  const renderItem: ListRenderItem<RankUser> = useCallback(
-    ({ item: u }) => (
-      <RankListRow
-        u={u}
-        isMe={u.id === myId}
-        scoreLabel={scoreLabel}
-        theme={theme}
-        onPress={() => router.push({ pathname: '/profile/[userId]', params: { userId: String(u.id) } })}
+  const ListHeader = useMemo(() => (
+    <View style={styles.headerContent}>
+      <CommunitySegmentTabs
+        tabs={[
+          { key: 'points', label: 'PUNKTY', icon: 'star' },
+          { key: 'distance', label: 'DYSTANS', icon: 'speed' },
+        ]}
+        activeKey={category}
+        onChange={(key) => setCategory(key as RankCategory)}
+        compact
       />
-    ),
-    [myId, scoreLabel, theme, router],
-  );
 
-  const keyExtractor = useCallback((u: RankUser) => String(u.id), []);
-
-  const listHeader = useMemo(() => {
-    const podiumOrder = [topThree[1], topThree[0], topThree[2]].filter(Boolean) as RankUser[];
-    return (
-      <View style={{ paddingTop: 8 }}>
-        <CommunitySegmentTabs
-          tabs={[
-            { key: 'points', label: 'PUNKTY', icon: 'star' },
-            { key: 'distance', label: 'DYSTANS', icon: 'speed' },
-          ]}
-          activeKey={category}
-          onChange={key => setCategory(key as 'points' | 'distance')}
-        />
-
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
-          {PERIODS.map(p => (
+      <View style={styles.periodRow}>
+        {PERIODS.map((p) => {
+          const active = period === p.key;
+          return (
             <TouchableOpacity
-              key={p}
-              onPress={() => setPeriod(p)}
+              key={p.key}
+              activeOpacity={0.82}
+              onPress={() => setPeriod(p.key)}
               style={[
-                {
-                  paddingHorizontal: 14,
-                  paddingVertical: 7,
-                  borderRadius: 20,
-                  backgroundColor: theme.surface,
-                  borderWidth: 1,
-                  borderColor: theme.border2,
-                },
-                period === p && { backgroundColor: '#e3383520', borderColor: '#e33835' },
+                styles.periodChip,
+                { backgroundColor: theme.surface, borderColor: theme.border2 },
+                active && { backgroundColor: '#e3383518', borderColor: theme.primary },
               ]}
             >
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: period === p ? '#e33835' : theme.textDim }}>{p}</Text>
+              <Text style={[styles.periodText, { color: active ? theme.primary : theme.textDim }]}>
+                {p.label}
+              </Text>
             </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {myPosition ? (
+        <View style={[styles.myPosition, { backgroundColor: '#e3383512', borderColor: '#e3383535' }]}>
+          <MaterialIcons name="leaderboard" size={16} color={theme.primary} />
+          <Text style={[styles.myPositionText, { color: theme.primary }]}>Twoja pozycja: #{myPosition}</Text>
+        </View>
+      ) : null}
+
+      {topThree.length > 0 ? (
+        <View style={styles.topGrid}>
+          {topThree.map((u) => (
+            <TopRankCard
+              key={u.id}
+              user={u}
+              scoreLabel={scoreLabel}
+              onPress={() => openProfile(u.id)}
+            />
           ))}
         </View>
+      ) : null}
 
-        {category === 'points' && period === 'Miesiąc' && (
-          <Text
-            style={{
-              fontFamily: 'Orbitron',
-              fontSize: 9,
-              color: theme.textDim,
-              textAlign: 'center',
-              marginBottom: 20,
-              paddingHorizontal: 12,
-              lineHeight: 14,
-            }}
-          >
-            Miesięczny wynik liczy się od pierwszego dnia miesiąca (m.in. punkty z tygodniowego toru VROOM). Nagrody dla czołówki ustalane są przez zespół — nie są automatycznie przyznawane w aplikacji.
-          </Text>
-        )}
+      {restUsers.length > 0 ? (
+        <Text style={[styles.sectionLabel, { color: theme.textDim }]}>DALEJ W RANKINGU</Text>
+      ) : null}
+    </View>
+  ), [category, myPosition, openProfile, period, restUsers.length, scoreLabel, theme]);
 
-        {topThree.length >= 3 && (
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', marginBottom: 24, height: 260 }}>
-            {podiumOrder.map((u, idx) => {
-              const isFirst = u.position === 1;
-              const barH = [100, 130, 80][idx];
-              const barColor = ['#ffffff50', '#e33835', '#ffffff30'][idx];
-              const isMe = u.id === myId;
-
-              return (
-                <TouchableOpacity
-                  key={u.id}
-                  style={{ alignItems: 'center', width: width * 0.26 }}
-                  onPress={() => router.push({ pathname: '/profile/[userId]', params: { userId: String(u.id) } })}
-                  activeOpacity={0.8}
-                >
-                  {isFirst && <MaterialCommunityIcons name="crown" size={20} color="#e33835" style={{ marginBottom: 4 }} />}
-                  <View
-                    style={[
-                      {
-                        width: 56,
-                        height: 56,
-                        borderRadius: 28,
-                        backgroundColor: theme.surface2,
-                        borderWidth: 2,
-                        borderColor: theme.border2,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        overflow: 'hidden',
-                        marginBottom: 8,
-                      },
-                      isFirst && { width: 68, height: 68, borderRadius: 34, borderColor: '#e33835' },
-                      isMe && { borderColor: '#4de926' },
-                    ]}
-                  >
-                    {u.avatar ? (
-                      <Image source={{ uri: u.avatar }} style={{ width: '100%', height: '100%' }} contentFit="cover" recyclingKey={`p-${u.id}`} />
-                    ) : (
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 16, color: theme.text }}>{u.username.slice(0, 2).toUpperCase()}</Text>
-                    )}
-                  </View>
-                  <Text
-                    style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, marginBottom: 3, textAlign: 'center' }}
-                    numberOfLines={1}
-                  >
-                    {u.username}
-                  </Text>
-                  {u.isPremium && (
-                    <View
-                      style={{
-                        marginBottom: 6,
-                        backgroundColor: '#FFD70020',
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: '#FFD70040',
-                        paddingHorizontal: 7,
-                        paddingVertical: 2,
-                      }}
-                    >
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#FFD700' }}>PREMIUM</Text>
-                    </View>
-                  )}
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isFirst ? '#e33835' : theme.textDim, marginBottom: 8 }}>
-                    {u.score.toLocaleString('pl-PL')} {scoreLabel}
-                  </Text>
-                  <View
-                    style={{
-                      width: '100%',
-                      height: barH,
-                      backgroundColor: theme.surface,
-                      borderTopWidth: 3,
-                      borderLeftWidth: 1,
-                      borderRightWidth: 1,
-                      borderTopLeftRadius: 8,
-                      borderTopRightRadius: 8,
-                      borderColor: barColor,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: theme.text }}>{u.position}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </View>
-    );
-  }, [category, period, router, scoreLabel, theme, topThree, myId]);
-
-  const listFooter = useMemo(() => {
-    if (!myPosition || myPosition <= 3) return null;
-    return (
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          marginTop: 12,
-          marginBottom: 24,
-          marginHorizontal: '5%',
-          backgroundColor: '#e3383515',
-          borderRadius: 12,
-          padding: 14,
-          borderWidth: 1,
-          borderColor: '#e3383530',
-        }}
-      >
-        <MaterialIcons name="emoji-events" size={16} color="#e33835" />
-        <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 13 }}>Twoja pozycja: #{myPosition}</Text>
-      </View>
-    );
-  }, [myPosition]);
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
-        <CommunityScreenHeader title="RANKING" subtitle="NAJLEPSI KIEROWCY" />
-        <View style={{ flex: 1, paddingHorizontal: '5%' }}>
-          {listHeader}
-          <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
-        </View>
-      </View>
-    );
-  }
+  const renderItem: ListRenderItem<RankUser> = useCallback(({ item }) => (
+    <RankListRow
+      user={item}
+      isMe={item.id === myId}
+      scoreLabel={scoreLabel}
+      onPress={() => openProfile(item.id)}
+    />
+  ), [myId, openProfile, scoreLabel]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <CommunityScreenHeader title="RANKING" subtitle="NAJLEPSI KIEROWCY" />
-      <FlatList
-        data={restUsers}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        ListHeaderComponent={listHeader}
-        ListFooterComponent={listFooter}
-        contentContainerStyle={{ paddingBottom: 80, paddingHorizontal: '5%' }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e33835" />}
-        initialNumToRender={10}
-        maxToRenderPerBatch={12}
-        windowSize={7}
-        removeClippedSubviews
-        ListEmptyComponent={
-          users.length === 0 ? (
-            <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, textAlign: 'center', marginTop: 32, fontSize: 12 }}>
-              Brak danych dla wybranego okresu
-            </Text>
-          ) : null
-        }
-      />
+      {loading && !refreshing ? (
+        <View style={styles.loadingPage}>
+          {ListHeader}
+          <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 32 }} />
+        </View>
+      ) : (
+        <FlatList
+          data={restUsers}
+          keyExtractor={(u) => String(u.id)}
+          renderItem={renderItem}
+          ListHeaderComponent={ListHeader}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
+          ListEmptyComponent={users.length === 0 ? (
+            <View style={styles.empty}>
+              <MaterialIcons name={error ? 'sync-problem' : 'leaderboard'} size={34} color={theme.textDim} />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                {error ? 'Nie udało się wczytać' : 'Brak danych'}
+              </Text>
+              <Text style={[styles.emptySub, { color: theme.textDim }]}>
+                {error ?? 'Zmień zakres czasu albo wróć później.'}
+              </Text>
+            </View>
+          ) : null}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+        />
+      )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  listContent: {
+    paddingBottom: 90,
+    paddingHorizontal: 16,
+  },
+  loadingPage: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  headerContent: {
+    marginHorizontal: -16,
+    paddingBottom: 10,
+  },
+  periodRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  periodChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  periodText: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    fontWeight: '800',
+  },
+  myPosition: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  myPositionText: {
+    fontFamily: 'Orbitron',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  topGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    marginBottom: 18,
+  },
+  topCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    minHeight: 158,
+  },
+  medal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    marginBottom: 10,
+  },
+  medalText: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  topName: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    fontWeight: '900',
+    marginTop: 9,
+    maxWidth: '100%',
+  },
+  topScore: {
+    fontFamily: 'Orbitron',
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  sectionLabel: {
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    fontWeight: '800',
+    marginHorizontal: 16,
+    marginBottom: 10,
+  },
+  row: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  rowPosition: {
+    width: 34,
+    textAlign: 'center',
+    fontFamily: 'Orbitron',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  avatar: {
+    overflow: 'hidden',
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initials: {
+    fontFamily: 'Orbitron',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  rowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nameLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  username: {
+    flexShrink: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  premiumPill: {
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#FFD70040',
+    backgroundColor: '#FFD70018',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  premiumText: {
+    fontFamily: 'Orbitron',
+    fontSize: 7,
+    color: '#FFD700',
+    fontWeight: '800',
+  },
+  sub: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  scoreBox: {
+    alignItems: 'flex-end',
+    minWidth: 58,
+  },
+  score: {
+    fontFamily: 'Orbitron',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  scoreUnit: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingVertical: 46,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    fontFamily: 'Orbitron',
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 12,
+  },
+  emptySub: {
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+});

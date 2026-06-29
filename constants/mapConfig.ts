@@ -11,6 +11,7 @@ export const MAPBOX_STYLE_DARK      = 'mapbox://styles/mapbox/navigation-night-v
 /** Mapbox Standard — opcjonalny (ModelLayer); nie wymuszamy na całej mapie. */
 export const MAPBOX_STYLE_STANDARD   = 'mapbox://styles/mapbox/standard';
 export const MAPBOX_STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-v9';
+export const MAPBOX_STYLE_OUTDOORS  = 'mapbox://styles/mapbox/outdoors-v12';
 /** Hybryda satelita + etykiety ulic/POI — jak w referencyjnym zdjęciu. */
 export const MAPBOX_STYLE_HYBRID    = 'mapbox://styles/mapbox/satellite-streets-v12';
 
@@ -23,20 +24,34 @@ export const API_URL                = 'https://v-room.app';
 
 export type MapTypeId = 'standard' | 'satellite' | 'hybrid';
 
+const PRESET_STANDARD_MAP_STYLES: Record<string, string> = {
+  'dark.neon-night': MAPBOX_STYLE_DARK_LEGACY,
+  'dark.carbon-red': MAPBOX_STYLE_DARK,
+  'dark.midnight-blue': MAPBOX_STYLE_DARK,
+  'dark.graphite-gold': MAPBOX_STYLE_DARK_LEGACY,
+  'light.clean-drive': MAPBOX_STYLE_LIGHT,
+  'light.ice-blue': MAPBOX_STYLE_OUTDOORS,
+  'light.soft-red': MAPBOX_STYLE_LIGHT_LEGACY,
+  'light.platinum': MAPBOX_STYLE_LIGHT_LEGACY,
+};
+
 /** Bazowy styl Mapbox dla trybu standard (nie sat/hybrid). */
-export function resolveStandardMapStyle(isDark: boolean): string {
+export function resolveStandardMapStyle(isDark: boolean, presetId?: string | null): string {
+  if (presetId && PRESET_STANDARD_MAP_STYLES[presetId]) {
+    return PRESET_STANDARD_MAP_STYLES[presetId];
+  }
   return isDark ? MAPBOX_STYLE_DARK : MAPBOX_STYLE_LIGHT;
 }
 
-export function resolveMapStyle(mapType: string, isDark: boolean): string {
+export function resolveMapStyle(mapType: string, isDark: boolean, presetId?: string | null): string {
   if (mapType === 'satellite') return MAPBOX_STYLE_SATELLITE;
   if (mapType === 'hybrid')    return MAPBOX_STYLE_HYBRID;
-  return resolveStandardMapStyle(isDark);
+  return resolveStandardMapStyle(isDark, presetId);
 }
 
 /** Styl mapy — bez podmiany na Standard przy markerze 3D (zachowaj navigation-night / streets). */
-export function resolveMapStyleForVehicle3d(mapType: string, isDark: boolean, _vehicle3d?: boolean): string {
-  return resolveMapStyle(mapType, isDark);
+export function resolveMapStyleForVehicle3d(mapType: string, isDark: boolean, _vehicle3d?: boolean, presetId?: string | null): string {
+  return resolveMapStyle(mapType, isDark, presetId);
 }
 
 /** Czy nakładać warstwy „żywej” mapy (trawa, tory) — niepotrzebne na sat/hybrid. */

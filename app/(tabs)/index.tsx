@@ -26,6 +26,10 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { API_URL } from "../../constants/config";
 import { useTheme } from "../../contexts/ThemeContext";
+import { getThemeChrome, withAlpha } from "../../constants/theme";
+import { pickAppAnimationForValue } from "../../constants/appAnimations";
+import AppAnimationLayer from "../../components/animations/AppAnimationLayer";
+import { useAppAnimations } from "../../hooks/useAppAnimations";
 import { AnnouncementsModal } from "../../components/modals/AnnouncementsModal";
 import { useAnnouncements } from "../../hooks/useAnnouncements";
 import { usePolls } from "../../hooks/usePolls";
@@ -54,6 +58,7 @@ type User = {
 	email: string;
 	userId: string;
 	isPremium?: boolean;
+	premiumExpiresAt?: string | null;
 	avatar?: string;
 	bio?: string;
 	location?: string;
@@ -154,6 +159,7 @@ export default function HomeScreen() {
 	const [campaignVisible, setCampaignVisible] = useState(false);
 	const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
 	const [notifUnread, setNotifUnread] = useState(0);
+	const { animations: appAnimations } = useAppAnimations(["home_streak", "app_loading_logo"]);
 	const giftAutoShownRef = useRef(false);
 	const pollAutoShownRef = useRef(false);
 	const campaignAutoShownRef = useRef(false);
@@ -505,43 +511,40 @@ export default function HomeScreen() {
 		user ? { isPremium: !!user.isPremium, premiumExpiresAt: user.premiumExpiresAt ?? null } : null,
 	);
 	const t = theme;
+	const chrome = getThemeChrome(t, isDark);
+	const streakAnimation = pickAppAnimationForValue(appAnimations, "home_streak", user?.streak ?? 0);
+	const loadingAnimation = pickAppAnimationForValue(appAnimations, "app_loading_logo");
   const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndDateRaw
     ? new Date(premiumEndDateRaw).toLocaleDateString("pl-PL")
     : null;
 	const gridVoteBannerW = width - 40;
 
-	const pageBg = isDark
-		? (["#140404", "#050505", "#0f0202"] as const)
-		: (["#ffffff", "#fcfcfc", "#fcfcfc"] as const);
-	const glassCardFill = isDark
-		? "rgba(20, 5, 5, 0.4)"
-		: "rgba(255, 255, 255, 0.8)";
-	const glassBorder = "rgba(227, 56, 53, 0.2)";
+	const pageBg = chrome.pageGradient;
+	const glassCardFill = chrome.glassCard;
+	const glassBorder = chrome.glassBorder;
 	const pillBg = glassCardFill;
 	const iconGlowStyle = {
 		width: 44,
 		height: 44,
 		borderRadius: 22,
-		backgroundColor: "rgba(227, 56, 53, 0.15)",
+		backgroundColor: chrome.subtleIconGlow,
 		alignItems: "center" as const,
 		justifyContent: "center" as const,
 	};
 	const goldGlowStyle = {
 		...iconGlowStyle,
-		backgroundColor: "rgba(255, 215, 0, 0.15)",
+		backgroundColor: withAlpha(t.gold, isDark ? "26" : "18"),
 	};
 	const sectionAccent = {
 		width: 3,
 		height: 12,
-		backgroundColor: "#e33835",
+		backgroundColor: t.primary,
 		borderRadius: 2,
 		marginRight: 8,
 	};
-	const statNumColor = isDark ? "#ffffff" : "#000000";
-	const statDivider = isDark
-		? "rgba(227, 56, 53, 0.2)"
-		: "rgba(227, 56, 53, 0.12)";
+	const statNumColor = t.text;
+	const statDivider = chrome.statDivider;
 	const glassShadow = {
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 4 } as const,
@@ -549,8 +552,8 @@ export default function HomeScreen() {
 		shadowRadius: 10,
 		elevation: 4,
 	};
-	const mapTextColor = isDark ? "#ffffff" : "#000000";
-	const mapSubtextColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
+	const mapTextColor = t.text;
+	const mapSubtextColor = t.textDim;
 
 	if (loading || !user) {
 		return (
@@ -562,14 +565,22 @@ export default function HomeScreen() {
 					alignItems: "center",
 					gap: 12,
 				}}>
-				<Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-					<MaterialCommunityIcons name='car-sports' size={52} color='#e33835' />
+					<Animated.View style={{ width: 72, height: 72, transform: [{ scale: pulseAnim }], alignItems: "center", justifyContent: "center" }}>
+					{loadingAnimation ? (
+						<AppAnimationLayer
+							animation={loadingAnimation}
+							style={{ width: 72, height: 72 }}
+							fallbackIcon={<MaterialCommunityIcons name='car-sports' size={52} color={t.primary} />}
+						/>
+					) : (
+						<MaterialCommunityIcons name='car-sports' size={52} color={t.primary} />
+					)}
 				</Animated.View>
 				<Text
 					style={{
 						fontFamily: "Orbitron",
 						fontSize: 28,
-						color: "#e33835",
+						color: t.primary,
 						letterSpacing: 10,
 						fontWeight: "900",
 					}}>
@@ -577,7 +588,7 @@ export default function HomeScreen() {
 				</Text>
 				<ActivityIndicator
 					size='small'
-					color='#e3383560'
+					color={withAlpha(t.primary, "80")}
 					style={{ marginTop: 16 }}
 				/>
 			</LinearGradient>
@@ -600,8 +611,8 @@ export default function HomeScreen() {
 					<RefreshControl
 						refreshing={refreshing}
 						onRefresh={onRefresh}
-						tintColor='#e33835'
-						colors={["#e33835"]}
+						tintColor={t.primary}
+						colors={[t.primary]}
 					/>
 				}>
 				{/* ══════════════════════════════════════════════ */}
@@ -619,9 +630,7 @@ export default function HomeScreen() {
 					{/* BG gradient */}
 					<LinearGradient
 						colors={
-							isDark
-								? ["#0a0505", "#070707", "transparent"]
-								: ["#ffffff", "#fafafa", "transparent"]
+							chrome.heroGradient
 						}
 						start={{ x: 0.2, y: 0 }}
 						end={{ x: 1, y: 1 }}
@@ -638,9 +647,9 @@ export default function HomeScreen() {
 							width: 320,
 							height: 320,
 							borderRadius: 160,
-							backgroundColor: "rgba(227, 56, 53, 0.04)",
+							backgroundColor: withAlpha(t.primary, isDark ? "12" : "10"),
 							borderWidth: 1,
-							borderColor: "rgba(255, 255, 255, 0.06)",
+							borderColor: t.border2,
 						}}
 					/>
 					<View
@@ -652,9 +661,9 @@ export default function HomeScreen() {
 							width: 200,
 							height: 200,
 							borderRadius: 100,
-							backgroundColor: "rgba(255, 255, 255, 0.02)",
+							backgroundColor: withAlpha(t.surface4, isDark ? "25" : "55"),
 							borderWidth: 1,
-							borderColor: "rgba(255, 255, 255, 0.05)",
+							borderColor: t.border,
 						}}
 					/>
 					<View
@@ -666,7 +675,7 @@ export default function HomeScreen() {
 							width: 240,
 							height: 240,
 							borderRadius: 120,
-							backgroundColor: "rgba(227, 56, 53, 0.03)",
+							backgroundColor: withAlpha(t.primary, isDark ? "0d" : "0a"),
 						}}
 					/>
 
@@ -689,7 +698,7 @@ export default function HomeScreen() {
 									right: 0,
 									top: i * ((height * 0.52) / 12),
 									height: 1,
-									backgroundColor: isDark ? "#ffffff04" : "#00000004",
+									backgroundColor: chrome.scanLine,
 								}}
 							/>
 						))}
@@ -713,7 +722,7 @@ export default function HomeScreen() {
 							style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
 							<View
 								style={{
-									backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+									backgroundColor: t.surface3,
 									borderRadius: 8,
 									borderWidth: 1,
 									borderColor: glassBorder,
@@ -755,9 +764,9 @@ export default function HomeScreen() {
 									width: 36,
 									height: 36,
 									borderRadius: 18,
-									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									backgroundColor: t.surface3,
 									borderWidth: 1,
-									borderColor: effectivePremium ? "rgba(255,215,0,0.35)" : glassBorder,
+									borderColor: effectivePremium ? withAlpha(t.gold, "66") : glassBorder,
 									alignItems: "center",
 									justifyContent: "center",
 								}}>
@@ -774,7 +783,7 @@ export default function HomeScreen() {
 									width: 36,
 									height: 36,
 									borderRadius: 18,
-									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									backgroundColor: t.surface3,
 									borderWidth: 1,
 									borderColor: glassBorder,
 									alignItems: "center",
@@ -846,7 +855,7 @@ export default function HomeScreen() {
 									height: 36,
 									borderRadius: 18,
 									flexShrink: 0,
-									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									backgroundColor: t.surface3,
 									borderWidth: 1,
 									borderColor: glassBorder,
 									overflow: "hidden",
@@ -863,7 +872,7 @@ export default function HomeScreen() {
 										style={{
 											fontFamily: "Orbitron",
 											fontSize: 14,
-											color: "#e33835",
+											color: t.primary,
 											fontWeight: "900",
 										}}>
 										{user.username.charAt(0).toUpperCase()}
@@ -915,7 +924,7 @@ export default function HomeScreen() {
 									gap: 6,
 									marginTop: 10,
 									alignSelf: "flex-start",
-									backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+									backgroundColor: t.surface3,
 									borderWidth: 1,
 									borderColor: glassBorder,
 									paddingHorizontal: 12,
@@ -990,7 +999,15 @@ export default function HomeScreen() {
 							</View>
 							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
 							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
-								<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
+								{streakAnimation ? (
+									<AppAnimationLayer
+										animation={streakAnimation}
+										style={{ width: 28, height: 22 }}
+										fallbackIcon={<MaterialIcons name="local-fire-department" size={14} color={t.primary} />}
+									/>
+								) : (
+									<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
+								)}
 								<Text
 									style={{
 										fontFamily: "Orbitron",
@@ -1028,7 +1045,7 @@ export default function HomeScreen() {
 
 					{/* Bottom fade */}
 					<LinearGradient
-						colors={["transparent", isDark ? "#0f0202" : "#fcfcfc"]}
+						colors={chrome.bottomFade}
 						pointerEvents="none"
 						style={{
 							position: "absolute",

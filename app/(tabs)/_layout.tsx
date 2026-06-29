@@ -8,6 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAppPresence } from '../../hooks/useAppPresence';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
+import { useAppAnimations } from '../../hooks/useAppAnimations';
+import { pickAppAnimationForValue } from '../../constants/appAnimations';
+import AppAnimationLayer from '../../components/animations/AppAnimationLayer';
 
 const { width } = Dimensions.get('window');
 const TAB_WIDTH      = width / 5;
@@ -19,6 +22,8 @@ const TabIcon = ({
   focused: boolean; icon: any; iconLib?: 'feather' | 'material'; label: string;
 }) => {
   const { theme } = useTheme();
+  const { animations } = useAppAnimations(['tab_active_icon']);
+  const activeIconAnimation = focused ? pickAppAnimationForValue(animations, 'tab_active_icon') : null;
   const scaleAnim = useRef(new Animated.Value(focused ? 1.1 : 1)).current;
   const glowAnim  = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
@@ -29,7 +34,7 @@ const TabIcon = ({
     ]).start();
   }, [focused]);
 
-  const color = focused ? '#e33835' : theme.textDim;
+  const color = focused ? theme.primary : theme.textDim;
 
   const Icon = iconLib === 'material'
     ? <MaterialCommunityIcons name={icon} size={24} color={color} />
@@ -37,13 +42,15 @@ const TabIcon = ({
 
   return (
     <View style={styles.wrapper}>
-      <Animated.View style={[styles.topBar, { opacity: glowAnim }]} />
+      <Animated.View style={[styles.topBar, { opacity: glowAnim, backgroundColor: theme.primary }]} />
       <Animated.View style={[
         styles.iconBg,
         { transform: [{ scale: scaleAnim }] },
-        focused && { backgroundColor: '#e3383515', borderColor: '#e3383530' },
-      ]}>
-        {Icon}
+        focused && { backgroundColor: theme.primaryBg, borderColor: theme.primaryBorder },
+        ]}>
+         {activeIconAnimation ? (
+          <AppAnimationLayer animation={activeIconAnimation} style={{ width: 26, height: 26 }} fallbackIcon={Icon} />
+        ) : Icon}
       </Animated.View>
       <Animated.Text
         numberOfLines={1}

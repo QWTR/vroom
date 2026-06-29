@@ -20,6 +20,7 @@ import {
 } from '../../constants/shopCosmetics';
 import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
 import { NitroShopItemCard } from '../../components/shop/NitroShopItemCard';
+import { VehicleModelPreview3D } from '../../components/shop/VehicleModelPreview3D';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { MONETIZATION } from '../../constants/monetization';
 
@@ -57,6 +58,7 @@ export default function NitroShopScreen() {
       avatar_frame: [],
       profile_banner: [],
       entrance_effect: [],
+      profile_background_animation: [],
       map_vehicle_3d: [],
       limited_vehicle_slot: [],
     };
@@ -382,6 +384,8 @@ export default function NitroShopScreen() {
                       <View style={[styles.sheetFakeAvatar, { backgroundColor: isDark ? '#333' : '#ccc' }]} />
                       <ShopAvatarDecoration item={detail} size={100} />
                     </View>
+                  ) : detail.category === 'map_vehicle_3d' ? (
+                    <VehicleModelPreview3D item={detail} height={180} isDark={isDark} />
                   ) : detailPreview ? (
                     <Image source={{ uri: detailPreview }} style={styles.sheetPreviewImg} contentFit="cover" />
                   ) : null}

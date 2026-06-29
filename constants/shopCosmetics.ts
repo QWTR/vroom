@@ -2,6 +2,7 @@ export type ShopItemCategory =
   | 'avatar_frame'
   | 'profile_banner'
   | 'entrance_effect'
+  | 'profile_background_animation'
   | 'map_vehicle_3d'
   | 'limited_vehicle_slot';
 
@@ -36,7 +37,7 @@ export interface ShopCosmeticItem {
   assetKind?: string;
   nitroCost?: number;
   tagLine?: string | null;
-  metadata?: VehicleModelMeta | null;
+  metadata?: (VehicleModelMeta & Record<string, unknown>) | Record<string, unknown> | null;
   maxSupply?: number | null;
   soldCount?: number;
   soldOut?: boolean;
@@ -47,6 +48,9 @@ export interface UserShopCosmetics {
   avatarFrame: ShopCosmeticItem | null;
   profileBanner: ShopCosmeticItem | null;
   entranceEffect: ShopCosmeticItem | null;
+  backgroundAnimation: ShopCosmeticItem | null;
+  globalEntranceEffect?: ShopCosmeticItem | null;
+  globalBackgroundAnimation?: ShopCosmeticItem | null;
   mapVehicle: ShopCosmeticItem | null;
 }
 
@@ -54,6 +58,7 @@ export const SHOP_CATEGORY_LABELS: Record<ShopItemCategory, string> = {
   avatar_frame: 'Obramówki avatara',
   profile_banner: 'Banery profilu',
   entrance_effect: 'Efekty wejścia',
+  profile_background_animation: 'Animacje tła',
   map_vehicle_3d: 'Pojazdy 3D',
   limited_vehicle_slot: 'Pojazd limitowany',
 };
@@ -80,6 +85,12 @@ export const SHOP_CATEGORY_META: Record<
     icon: 'auto-awesome',
     accent: '#f59e0b',
   },
+  profile_background_animation: {
+    label: 'Animacje tła',
+    subtitle: 'Ruchome tło profilu widoczne przy wejściu',
+    icon: 'auto-awesome',
+    accent: '#22d3ee',
+  },
   map_vehicle_3d: {
     label: 'Pojazdy 3D',
     subtitle: 'Modele 3D jako marker na mapie — widoczne dla innych z Premium',
@@ -98,6 +109,7 @@ export const SHOP_CATEGORIES: ShopItemCategory[] = [
   'avatar_frame',
   'profile_banner',
   'entrance_effect',
+  'profile_background_animation',
   'map_vehicle_3d',
   'limited_vehicle_slot',
 ];

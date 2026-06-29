@@ -5,7 +5,10 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { getThemeChrome, withAlpha } from '../../constants/theme';
+import { pickAppAnimationForValue } from '../../constants/appAnimations';
+import { useAppAnimations } from '../../hooks/useAppAnimations';
 import { useDailyDuel } from '../../hooks/useDailyDuel';
 import {
   DailyDuelHero,
@@ -91,17 +94,18 @@ const TRADE: CommunityModuleItem[] = [
 
 export default function Community() {
   const router = useRouter();
-  const { theme, isDark } = useTheme();
+  const { theme, isDark } = useTheme();
+  const chrome = getThemeChrome(theme, isDark);
+  const { animations } = useAppAnimations(['community_daily_duel_vs']);
+  const duelVsAnimation = pickAppAnimationForValue(animations, 'community_daily_duel_vs');
   const insets = useSafeAreaInsets();
   const { duel, loading: duelLoading } = useDailyDuel(30000);
 
-  const bgGradient = isDark
-    ? ['#050505', '#0a0000', '#1a0505']
-    : ['#ffffff', '#f8f8f8', '#fff0f0'];
+  const bgGradient = chrome.pageGradient;
 
   const headerLineGradient = isDark
-    ? ['transparent', 'rgba(227, 56, 53, 0.6)', 'rgba(255,255,255,0.08)']
-    : ['transparent', 'rgba(227, 56, 53, 0.35)', 'rgba(0,0,0,0.06)'];
+    ? ['transparent', withAlpha(theme.primary, '99'), theme.border2]
+    : ['transparent', withAlpha(theme.primary, '66'), theme.border2];
 
   return (
     <View style={{ flex: 1 }}>
@@ -152,7 +156,7 @@ export default function Community() {
             Rywalizuj, rozmawiaj, odkrywaj
           </Text>
           <LinearGradient
-            colors={headerLineGradient}
+            colors={headerLineGradient as [string, string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{ height: 1, marginTop: 20, borderRadius: 1 }}
@@ -162,6 +166,7 @@ export default function Community() {
         <DailyDuelHero
           duel={duel}
           loading={duelLoading}
+          vsAnimation={duelVsAnimation}
           onPressVote={() => router.push('/Community/duel/vote' as any)}
         />
 

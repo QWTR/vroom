@@ -6,6 +6,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { getThemeChrome, withAlpha } from '../../constants/theme';
+import type { AppAnimation } from '../../constants/appAnimations';
+import AppAnimationLayer from '../animations/AppAnimationLayer';
 import {
   type DailyDuelData,
   formatDuelCount,
@@ -20,10 +23,12 @@ interface Props {
   loading?: boolean;
   onPressVote?: () => void;
   compact?: boolean;
+  vsAnimation?: AppAnimation | null;
 }
 
-export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
+export function DailyDuelHero({ duel, loading, onPressVote, compact, vsAnimation }: Props) {
   const { theme, isDark } = useTheme();
+  const chrome = getThemeChrome(theme, isDark);
   const [nowMs, setNowMs] = useState(Date.now());
 
   useEffect(() => {
@@ -31,18 +36,16 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const shellBg = isDark ? '#0a0a0a' : theme.surface;
-  const shellGradient = isDark
-    ? ['#0a0a0a', '#120505', '#1a0505']
-    : ['#ffffff', '#f8f8f8', '#fff0f0'];
-  const headerBg = isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.88)';
-  const headerBorder = isDark ? 'rgba(255,255,255,0.08)' : theme.border2;
-  const footerBg = isDark ? '#141414' : theme.surface2;
-  const footerBorder = isDark ? 'rgba(255,255,255,0.06)' : theme.border2;
-  const progressTrack = isDark ? '#333333' : '#e0e0e0';
-  const progressRemainder = isDark ? '#555555' : '#cccccc';
-  const placeholderGradientA = isDark ? ['#1a1a1a', '#0d0d0d'] : ['#e8e8e8', '#f5f5f5'];
-  const placeholderGradientB = isDark ? ['#0d0d0d', '#1a1a1a'] : ['#f5f5f5', '#e8e8e8'];
+  const shellBg = theme.surface;
+  const shellGradient = chrome.pageGradient;
+  const headerBg = withAlpha(theme.surface, isDark ? 'dd' : 'ee');
+  const headerBorder = theme.border2;
+  const footerBg = theme.surface2;
+  const footerBorder = theme.border2;
+  const progressTrack = theme.surface4;
+  const progressRemainder = theme.border3;
+  const placeholderGradientA = [theme.surface3, theme.surface] as const;
+  const placeholderGradientB = [theme.surface, theme.surface3] as const;
   const placeholderIcon = isDark ? theme.textFaint : theme.textDim;
   const imageOverlay = isDark
     ? ['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.95)']
@@ -50,7 +53,7 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
   const slashBlend = isDark
     ? ['transparent', 'rgba(0,0,0,0.4)', 'transparent']
     : ['transparent', 'rgba(255,255,255,0.35)', 'transparent'];
-  const vsBadgeBg = isDark ? '#0a0a0a' : '#ffffff';
+  const vsBadgeBg = theme.surface;
 
   const shellStyle = {
     marginHorizontal: 0,
@@ -161,7 +164,7 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
           </View>
 
           <LinearGradient
-            colors={slashBlend}
+            colors={slashBlend as [string, string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{
@@ -203,12 +206,20 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact }: Props) {
             justifyContent: 'center',
             zIndex: 4,
           }}>
-            <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>
+            {vsAnimation ? (
+              <AppAnimationLayer
+                animation={vsAnimation}
+                style={{ width: 40, height: 40 }}
+                fallbackIcon={<Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>}
+              />
+            ) : (
+              <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>
+            )}
           </View>
         </View>
 
         <LinearGradient
-          colors={imageOverlay}
+          colors={imageOverlay as [string, string, string]}
           style={{
             position: 'absolute',
             left: 0,

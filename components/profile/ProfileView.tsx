@@ -35,7 +35,7 @@ import { useFollowCounts }          from '../../hooks/useFollowCounts';
 import { useSettings } from '../../hooks/useSettings';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
 import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
-import type { ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
+import type { ProfileGradientSpec, ProfilePremiumExtras } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from './VisitEntranceFx';
 import { ShopAvatarDecoration } from '../shop/ShopAvatarDecoration';
 import ShopEntranceOverlay from '../shop/ShopEntranceOverlay';
@@ -236,7 +236,7 @@ export default function ProfileView({
 
   const sectionAccentStrip = React.useMemo(() => {
     if (!premiumUi) return undefined;
-    if (premiumUi.sectionAccentMode === 'gradient' && premiumUi.sectionAccentGradient?.colors?.length >= 2) {
+    if (premiumUi.sectionAccentMode === 'gradient' && (premiumUi.sectionAccentGradient?.colors?.length ?? 0) >= 2) {
       return { kind: 'gradient' as const, spec: premiumUi.sectionAccentGradient };
     }
     if (premiumUi.sectionAccentMode === 'solid' && premiumUi.sectionAccentSolid) {
@@ -1323,44 +1323,12 @@ export default function ProfileView({
                     </Text>
                   </TouchableOpacity>
                 ) : (
-                  <>
-                    <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10 }}>
-                      {(monthlyStats || []).length === 0 ? (
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>Brak danych miesięcznych.</Text>
-                      ) : (
-                        <>
-                          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 140 }}>
-                            {(monthlyStats || []).slice(-8).map((m: any) => {
-                              const max = Math.max(1, ...(monthlyStats || []).map((x: any) => Number(x.totalDistance || 0)));
-                              const h = Math.max(8, Math.round((Number(m.totalDistance || 0) / max) * 120));
-                              return (
-                                <View key={`${m.year}-${m.month}`} style={{ flex: 1, alignItems: 'center' }}>
-                                  <View style={{ width: '80%', height: h, backgroundColor: '#e33835', borderRadius: 6 }} />
-                                  <Text style={{ fontFamily: 'Orbitron', fontSize: 6, color: theme.textDim, marginTop: 4 }}>
-                                    {m.month}/{String(m.year).slice(-2)}
-                                  </Text>
-                                </View>
-                              );
-                            })}
-                          </View>
-                          <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 8 }}>
-                            Dystans miesięczny (km)
-                          </Text>
-                        </>
-                      )}
-                    </View>
-                    {monthlyCompare && (
-                      <View style={{ marginTop: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 }}>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.text, marginBottom: 6 }}>PORÓWNANIE MIESIĄC DO MIESIĄCA</Text>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>
-                          Dystans: {Math.round(monthlyCompare.delta?.totalDistance || 0)} km ({Math.round(monthlyCompare.pct?.totalDistance || 0)}%)
-                        </Text>
-                        <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 4 }}>
-                          Przejazdy: {Math.round(monthlyCompare.delta?.ridesCount || 0)} ({Math.round(monthlyCompare.pct?.ridesCount || 0)}%)
-                        </Text>
-                      </View>
-                    )}
-                  </>
+                  <PremiumMonthlyCharts
+                    monthlyStats={monthlyStats || []}
+                    monthlyCompare={monthlyCompare}
+                    theme={theme}
+                    isDark={isDark}
+                  />
                 )}
               </StatsModalSection>
             </ScrollView>
@@ -1386,18 +1354,21 @@ function Section({
   right?: React.ReactNode;
   children: React.ReactNode;
   surfaceTheme?: ProfileSurface;
-  accentStrip?: { kind: 'gradient'; spec: ProfileGradientSpec } | { kind: 'solid'; color: string };
+  accentStrip?: { kind: 'gradient'; spec: ProfileGradientSpec | null | undefined } | { kind: 'solid'; color: string };
 }) {
   const { theme } = useTheme();
   const t = surfaceTheme ?? theme;
+  const gradientSpec = accentStrip?.kind === 'gradient' && (accentStrip.spec?.colors?.length ?? 0) >= 2
+    ? accentStrip.spec
+    : null;
   return (
     <View style={{ marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 }}>
-        {accentStrip?.kind === 'gradient' ? (
+        {gradientSpec ? (
           <LinearGradient
-            colors={accentStrip.spec.colors as [string, string, ...string[]]}
-            start={accentStrip.spec.start ?? { x: 0, y: 0 }}
-            end={accentStrip.spec.end ?? { x: 0, y: 1 }}
+            colors={gradientSpec.colors as [string, string, ...string[]]}
+            start={gradientSpec.start ?? { x: 0, y: 0 }}
+            end={gradientSpec.end ?? { x: 0, y: 1 }}
             style={{ width: 4, height: 22, borderRadius: 2 }}
           />
         ) : accentStrip?.kind === 'solid' ? (
@@ -1453,6 +1424,186 @@ function StatsModalSection({ title, color, icon, children }: { title: string; co
       </View>
       {children}
     </View>
+  );
+}
+
+type MonthlyStatPoint = {
+  year?: number;
+  month?: number;
+  totalDistance?: number | string | null;
+  ridesCount?: number | string | null;
+};
+
+function formatCompactKm(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  return `${Math.round(value)}`;
+}
+
+function formatSignedValue(value: number, unit = ''): string {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${Math.round(value).toLocaleString('pl-PL')}${unit}`;
+}
+
+function niceChartMax(value: number): number {
+  const safe = Math.max(1, value);
+  const magnitude = 10 ** Math.floor(Math.log10(safe));
+  const normalized = safe / magnitude;
+  const rounded = normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return rounded * magnitude;
+}
+
+function PremiumMonthlyCharts({
+  monthlyStats,
+  monthlyCompare,
+  theme,
+  isDark,
+}: {
+  monthlyStats: MonthlyStatPoint[];
+  monthlyCompare: any | null;
+  theme: ProfileSurface;
+  isDark: boolean;
+}) {
+  const data = (monthlyStats || [])
+    .slice(-8)
+    .map((m) => ({
+      key: `${m.year ?? 'r'}-${m.month ?? 'm'}`,
+      month: Number(m.month ?? 0),
+      year: Number(m.year ?? 0),
+      distance: Math.max(0, Number(m.totalDistance || 0)),
+      rides: Math.max(0, Number(m.ridesCount || 0)),
+    }));
+  const maxDistance = niceChartMax(Math.max(1, ...data.map((m) => m.distance)));
+  const yTicks = [maxDistance, maxDistance / 2, 0];
+  const latest = data[data.length - 1];
+  const previous = data[data.length - 2];
+  const deltaDistance = Number(monthlyCompare?.delta?.totalDistance ?? ((latest?.distance ?? 0) - (previous?.distance ?? 0)));
+  const deltaRides = Number(monthlyCompare?.delta?.ridesCount ?? ((latest?.rides ?? 0) - (previous?.rides ?? 0)));
+  const pctDistance = Number(monthlyCompare?.pct?.totalDistance ?? 0);
+  const pctRides = Number(monthlyCompare?.pct?.ridesCount ?? 0);
+  const distancePositive = deltaDistance >= 0;
+  const ridesPositive = deltaRides >= 0;
+
+  if (!data.length) {
+    return (
+      <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '800' }}>Brak danych miesięcznych</Text>
+        <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 6, lineHeight: 17 }}>
+          Wykres pojawi się po zapisaniu przejazdów w kolejnych miesiącach.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <View style={{ backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.text, fontWeight: '900' }}>
+              Dystans miesięczny
+            </Text>
+            <Text style={{ fontSize: 11, color: theme.textDim, marginTop: 4, lineHeight: 16 }}>
+              Słupki pokazują sumę kilometrów przejechanych w danym miesiącu.
+            </Text>
+          </View>
+          <View style={{ borderRadius: 10, borderWidth: 1, borderColor: '#e3383540', backgroundColor: '#e3383512', paddingHorizontal: 9, paddingVertical: 6 }}>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', fontWeight: '900' }}>KM</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+          <View style={{ width: 34, height: 172, justifyContent: 'space-between', paddingBottom: 22 }}>
+            {yTicks.map((tick) => (
+              <Text key={tick} style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, textAlign: 'right' }}>
+                {formatCompactKm(tick)}
+              </Text>
+            ))}
+          </View>
+
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <View style={{ height: 150, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: isDark ? '#ffffff1a' : '#00000018', justifyContent: 'flex-end' }}>
+              {[0, 0.5, 1].map((line) => (
+                <View
+                  key={line}
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 150 * line,
+                    height: 1,
+                    backgroundColor: isDark ? '#ffffff10' : '#00000010',
+                  }}
+                />
+              ))}
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 7, height: '100%', paddingHorizontal: 7 }}>
+                {data.map((m) => {
+                  const height = Math.max(7, Math.round((m.distance / maxDistance) * 126));
+                  const label = m.month > 0 ? `${m.month}/${String(m.year || '').slice(-2)}` : '--';
+                  return (
+                    <View key={m.key} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', minWidth: 24 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.text, marginBottom: 5 }} numberOfLines={1}>
+                        {formatCompactKm(m.distance)}
+                      </Text>
+                      <View style={{ width: '82%', height, borderRadius: 5, backgroundColor: '#e33835' }} />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim, marginTop: 6 }} numberOfLines={1}>
+                        {label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+              <Text style={{ fontSize: 10, color: theme.textDim }}>miesiąc</Text>
+              <Text style={{ fontSize: 10, color: theme.textDim }}>skala: 0-{formatCompactKm(maxDistance)} km</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+          <View style={{ flex: 1, borderRadius: 10, backgroundColor: isDark ? '#ffffff08' : '#00000006', padding: 10 }}>
+            <Text style={{ fontSize: 10, color: theme.textDim }}>Ostatni miesiąc</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
+              {formatCompactKm(latest?.distance ?? 0)} km
+            </Text>
+          </View>
+          <View style={{ flex: 1, borderRadius: 10, backgroundColor: isDark ? '#ffffff08' : '#00000006', padding: 10 }}>
+            <Text style={{ fontSize: 10, color: theme.textDim }}>Przejazdy</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, fontWeight: '900', marginTop: 4 }}>
+              {(latest?.rides ?? 0).toLocaleString('pl-PL')} szt.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={{ marginTop: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 }}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '900', marginBottom: 10 }}>
+          Porównanie miesiąc do miesiąca
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: (distancePositive ? '#4de926' : '#e33835') + '35', padding: 11 }}>
+            <Text style={{ fontSize: 10, color: theme.textDim }}>Dystans</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: distancePositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
+              {formatSignedValue(deltaDistance, ' km')}
+            </Text>
+            <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 4 }}>
+              {Math.round(pctDistance)}% względem poprzedniego
+            </Text>
+          </View>
+          <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: (ridesPositive ? '#4de926' : '#e33835') + '35', padding: 11 }}>
+            <Text style={{ fontSize: 10, color: theme.textDim }}>Przejazdy</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: ridesPositive ? '#4de926' : '#e33835', fontWeight: '900', marginTop: 5 }}>
+              {formatSignedValue(deltaRides)}
+            </Text>
+            <Text style={{ fontSize: 10, color: theme.textDim, marginTop: 4 }}>
+              {Math.round(pctRides)}% względem poprzedniego
+            </Text>
+          </View>
+        </View>
+      </View>
+    </>
   );
 }
 

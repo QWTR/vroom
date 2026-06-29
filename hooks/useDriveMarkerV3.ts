@@ -689,12 +689,13 @@ export function useDriveMarkerV3(
     } else {
       cancelAnimation(displayArcM);
     }
-    if (onRoad && prevBlend >= ON_ROAD_FULL_BLEND) {
-      roadBlendSv.value = Math.max(blend, ON_ROAD_FULL_BLEND);
-    } else if (prevBlend > ON_ROAD_BLEND_EPS && blend > ON_ROAD_BLEND_EPS) {
-      roadBlendSv.value = Math.max(blend, prevBlend * 0.88);
+    const visualBlend = onRoad ? ON_ROAD_FULL_BLEND : blend;
+    if (onRoad) {
+      roadBlendSv.value = ON_ROAD_FULL_BLEND;
+    } else if (prevBlend > ON_ROAD_BLEND_EPS && visualBlend > ON_ROAD_BLEND_EPS) {
+      roadBlendSv.value = Math.max(visualBlend, prevBlend * 0.88);
     } else {
-      roadBlendSv.value = blend;
+      roadBlendSv.value = visualBlend;
     }
 
     const arcFeed = onRoad && target.arcWindow && target.polylineKey
@@ -750,7 +751,7 @@ export function useDriveMarkerV3(
           Number.isFinite(pose.lng) ? pose.lng : target.lng,
           rawLat,
           rawLng,
-          blend,
+          visualBlend,
         );
         const poseHdg = lookAheadHeadingJs(
           arcFeed.ptsFlat,
@@ -760,20 +761,20 @@ export function useDriveMarkerV3(
           blended.lng,
           tgtHdg,
         );
-        const instantHdg = onRoad && blend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
+        const instantHdg = onRoad && visualBlend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
         applyInstantPose(
           blended.lat,
           blended.lng,
           instantHdg,
           arcM,
           true,
-          blend,
+          visualBlend,
           rawLat,
           rawLng,
         );
       } else {
         onRoadSv.value = 0;
-        applyInstantPose(target.lat, target.lng, tgtHdg, 0, false, blend, target.rawLat, target.rawLng);
+        applyInstantPose(target.lat, target.lng, tgtHdg, 0, false, visualBlend, target.rawLat, target.rawLng);
       }
       return;
     }
@@ -805,7 +806,7 @@ export function useDriveMarkerV3(
               pose.lng,
               target.rawLat,
               target.rawLng,
-              blend,
+              visualBlend,
             );
             lat.value = blended.lat;
             lng.value = blended.lng;
@@ -817,7 +818,7 @@ export function useDriveMarkerV3(
               blended.lng,
               tgtHdg,
             );
-            const snappedHdg = blend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
+            const snappedHdg = visualBlend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
             heading.value = snappedHdg;
             segmentHdgTargetSv.value = snappedHdg;
           }

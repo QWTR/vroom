@@ -69,7 +69,7 @@ export const lightTheme = {
 };
 
 export type AppTheme = typeof darkTheme;
-export type ThemeMode = 'dark' | 'light' | 'custom';
+export type ThemeMode = 'dark' | 'light' | 'custom' | 'preset';
 
 export const THEME_MODE_KEY        = 'app_theme';
 export const CUSTOM_THEME_KEY      = 'app_custom_theme';
@@ -91,4 +91,27 @@ export function isThemeDark(theme: AppTheme): boolean {
 
 export function buildCustomTheme(overrides: Partial<AppTheme>): AppTheme {
   return { ...darkTheme, ...overrides };
+}
+
+export function withAlpha(hex: string, alphaHex: string): string {
+  if (!hex || !hex.startsWith('#')) return hex;
+  const clean = hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex.slice(0, 7);
+  return `${clean}${alphaHex}`;
+}
+
+export function getThemeChrome(theme: AppTheme, dark: boolean) {
+  return {
+    pageGradient: [theme.bg, theme.bgAlt, dark ? theme.bg : theme.surface2] as const,
+    heroGradient: [theme.bgAlt, theme.bg, 'transparent'] as const,
+    bottomFade: ['transparent', theme.bg] as const,
+    glassCard: withAlpha(theme.surface, dark ? 'aa' : 'dd'),
+    glassCardStrong: withAlpha(theme.surface2, dark ? 'dd' : 'ee'),
+    glassBorder: theme.primaryBorder,
+    iconGlow: theme.primaryBg,
+    subtleIconGlow: withAlpha(theme.primary, dark ? '22' : '18'),
+    statDivider: theme.primaryBorder,
+    scanLine: dark ? '#ffffff05' : '#00000005',
+  };
 }

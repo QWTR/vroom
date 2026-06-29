@@ -74,6 +74,17 @@ const THEME_OPTIONS: { key: ThemeMode; label: string; icon: string; color: strin
   { key: 'custom', label: 'WŁASNY', icon: 'palette',    color: '#2196F3' },
 ];
 
+const SETTINGS_TABS = [
+  { key: 'appearance', label: 'WyglÄ…d', icon: 'palette' },
+  { key: 'profile', label: 'Profil', icon: 'person' },
+  { key: 'account', label: 'Konto', icon: 'manage-accounts' },
+  { key: 'privacy', label: 'PrywatnoĹ›Ä‡', icon: 'shield' },
+  { key: 'notifications', label: 'Powiadomienia', icon: 'notifications' },
+  { key: 'app', label: 'Aplikacja', icon: 'apps' },
+  { key: 'session', label: 'Sesja', icon: 'logout' },
+] as const;
+type SettingsTabKey = typeof SETTINGS_TABS[number]['key'];
+
 const MARKER_STYLES = [
   { key: 'arrow'   as const, label: 'STRZAŁKA',  icon: 'navigation' },
   { key: 'profile' as const, label: 'PROFILOWE', icon: 'account-circle' },
@@ -93,7 +104,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { openBug } = useLocalSearchParams<{ openBug?: string }>();
   const openBugHandledRef = React.useRef(false);
-  const { theme, isDark, mode, setMode } = useTheme();
+  const { theme, isDark, mode, presetId, setMode, setPreset, availablePresets } = useTheme();
   const { profile, fetchProfile } = useProfile();
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
   const { settings, loading: settingsLoading, updateSetting, fetchSettings } = useSettings();
@@ -157,6 +168,7 @@ export default function SettingsScreen() {
   }, [openBug]);
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabKey>('appearance');
   const [deleteConfirm,      setDeleteConfirm]      = useState('');
   const [deleteLoading,      setDeleteLoading]      = useState(false);
   const [bugLoading,         setBugLoading]         = useState(false);
@@ -988,12 +1000,48 @@ export default function SettingsScreen() {
 
 				{/* ══ CONTENT ══ */}
 				<View style={{ paddingHorizontal: 20 }}>
+					<ScrollView
+						horizontal
+						showsHorizontalScrollIndicator={false}
+						contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
+						style={{ marginHorizontal: -4, marginBottom: 8 }}
+					>
+						{SETTINGS_TABS.map(tab => {
+							const active = activeSettingsTab === tab.key;
+							return (
+								<TouchableOpacity
+									key={tab.key}
+									onPress={() => setActiveSettingsTab(tab.key)}
+									style={{
+										flexDirection: 'row',
+										alignItems: 'center',
+										gap: 6,
+										paddingHorizontal: 12,
+										paddingVertical: 9,
+										borderRadius: 12,
+										borderWidth: 1,
+										borderColor: active ? RED + '70' : cardBorder,
+										backgroundColor: active ? RED + '18' : rowAlt,
+									}}
+								>
+									<MaterialIcons name={tab.icon as any} size={15} color={active ? RED : textDim} />
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? RED : textDim }}>
+										{tab.label}
+									</Text>
+								</TouchableOpacity>
+							);
+						})}
+					</ScrollView>
+					{activeSettingsTab === 'profile' && (<>
 					<SettingsSectionLabel isDark={isDark} title='SKLEP NITRO' />
 					<NitroShopPromoCard
 						nitroBalance={nitroWallet?.nitroBalance ?? 0}
 						onPress={() => router.push('/shop' as any)}
 					/>
 
+					</>)}
+
+					{activeSettingsTab === 'appearance' && (<>
 					{/* WYGLĄD */}
 					<SettingsSectionLabel isDark={isDark} title='WYGLĄD' />
 					<SettingsCard {...settingsCardProps}>
@@ -1058,7 +1106,17 @@ export default function SettingsScreen() {
 											borderColor:
 												mode === opt.key ? opt.color + "60" : inputBorder,
 										}}
-										onPress={() => setMode(opt.key)}>
+										onPress={async () => {
+											if (opt.key === 'custom' && !effectivePremium) {
+												Toast.show({ type: 'info', text1: 'VROOM Premium', text2: 'Własny motyw wymaga Premium.' });
+												router.push('/premium');
+												return;
+											}
+											const ok = await setMode(opt.key);
+											if (!ok) {
+												(Toast as any).show({ type: 'error', text1: 'Nie zapisano motywu', text2: 'Sprawdź Premium albo połączenie z serwerem.' });
+											}
+										}}>
 										<MaterialIcons
 											name={opt.icon as any}
 											size={13}
@@ -1074,6 +1132,59 @@ export default function SettingsScreen() {
 											{opt.label}
 										</Text>
 									</TouchableOpacity>
+								))}
+							</View>
+							<View style={{ marginTop: 16, gap: 12 }}>
+								{(['dark', 'light'] as const).map(category => (
+									<View key={category} style={{ gap: 8 }}>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 2 }}>
+											{category === 'dark' ? 'GOTOWE CIEMNE' : 'GOTOWE JASNE'}
+										</Text>
+										<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+											{availablePresets.filter(p => p.category === category).map(preset => {
+												const active = mode === 'preset' && presetId === preset.id;
+												const swatches = (preset as any).swatches ?? [theme.primary, theme.surface, theme.textDim];
+												return (
+													<TouchableOpacity
+														key={preset.id}
+														onPress={async () => {
+															if (!effectivePremium) {
+																Toast.show({ type: 'info', text1: 'VROOM Premium', text2: 'Gotowe motywy są dla Premium.' });
+																router.push('/premium');
+																return;
+															}
+															const ok = await setPreset(preset.id);
+															if (!ok) {
+																(Toast as any).show({ type: 'error', text1: 'Nie zapisano motywu', text2: 'Sprawdź Premium albo połączenie z serwerem.' });
+															}
+														}}
+														style={{
+															width: '48%',
+															minHeight: 84,
+															borderRadius: 14,
+															borderWidth: 1,
+															borderColor: active ? RED : inputBorder,
+															backgroundColor: active ? RED + '12' : rowAlt,
+															padding: 10,
+															gap: 8,
+														}}
+													>
+														<View style={{ flexDirection: 'row', gap: 5 }}>
+															{swatches.slice(0, 3).map((c: string, i: number) => (
+																<View key={`${preset.id}-${i}`} style={{ flex: 1, height: 20, borderRadius: 7, backgroundColor: c, borderWidth: 1, borderColor: inputBorder }} />
+															))}
+														</View>
+														<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: active ? RED : textMain }}>
+															{preset.label}
+														</Text>
+														<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: effectivePremium ? textDim : theme.gold }}>
+															{effectivePremium ? (active ? 'AKTYWNY' : 'PRESET') : 'PREMIUM'}
+														</Text>
+													</TouchableOpacity>
+												);
+											})}
+										</View>
+									</View>
 								))}
 							</View>
 						</View>
@@ -1094,7 +1205,14 @@ export default function SettingsScreen() {
 										paddingVertical: 14,
 										gap: 12,
 									}}
-									onPress={() => setThemeEditorVisible(true)}
+									onPress={() => {
+										if (!effectivePremium) {
+											Toast.show({ type: 'info', text1: 'VROOM Premium', text2: 'Edycja własnych kolorów wymaga Premium.' });
+											router.push('/premium');
+											return;
+										}
+										setThemeEditorVisible(true);
+									}}
 									activeOpacity={0.7}>
 									<View
 										style={{
@@ -1143,6 +1261,9 @@ export default function SettingsScreen() {
 						)}
 					</SettingsCard>
 
+					</>)}
+
+					{activeSettingsTab === 'profile' && (<>
 					<SettingsSectionLabel isDark={isDark} title='PREMIUM PERSONALIZACJA' />
 					<SettingsCard {...settingsCardProps}>
 						{!effectivePremium ? (
@@ -1756,6 +1877,40 @@ export default function SettingsScreen() {
 											</TouchableOpacity>
 										))}
 									</View>
+									{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'entrance_effect').length > 0 && (
+										<View style={{ gap: 8 }}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 1 }}>
+												ANIMACJE Z PANELU ADMINA
+											</Text>
+											<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+												{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'entrance_effect').map(a => {
+													const active = premiumExtras.globalEntranceAnimationId === a.id;
+													return (
+														<TouchableOpacity
+															key={a.id}
+															onPress={() =>
+																updateSetting('profilePremiumExtras', {
+																	...premiumExtras,
+																	globalEntranceAnimationId: active ? null : a.id,
+																} as ProfilePremiumExtras)
+															}
+															style={{
+																paddingHorizontal: 10,
+																paddingVertical: 7,
+																borderRadius: 10,
+																borderWidth: 1,
+																borderColor: active ? RED : inputBorder,
+																backgroundColor: active ? RED + '22' : rowAlt,
+															}}>
+															<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: active ? RED : textDim }}>
+																{a.name.toUpperCase()}
+															</Text>
+														</TouchableOpacity>
+													);
+												})}
+											</View>
+										</View>
+									)}
 								</View>
 								<View
 									style={{
@@ -1799,6 +1954,40 @@ export default function SettingsScreen() {
 											</TouchableOpacity>
 										))}
 									</View>
+									{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'profile_background_animation').length > 0 && (
+										<View style={{ gap: 8 }}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, letterSpacing: 1 }}>
+												TŁA Z PANELU ADMINA
+											</Text>
+											<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+												{(settings.globalPremiumAnimations ?? []).filter(a => a.category === 'profile_background_animation').map(a => {
+													const active = premiumExtras.globalBackgroundAnimationId === a.id;
+													return (
+														<TouchableOpacity
+															key={a.id}
+															onPress={() =>
+																updateSetting('profilePremiumExtras', {
+																	...premiumExtras,
+																	globalBackgroundAnimationId: active ? null : a.id,
+																} as ProfilePremiumExtras)
+															}
+															style={{
+																paddingHorizontal: 10,
+																paddingVertical: 7,
+																borderRadius: 10,
+																borderWidth: 1,
+																borderColor: active ? RED : inputBorder,
+																backgroundColor: active ? RED + '22' : rowAlt,
+															}}>
+															<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: active ? RED : textDim }}>
+																{a.name.toUpperCase()}
+															</Text>
+														</TouchableOpacity>
+													);
+												})}
+											</View>
+										</View>
+									)}
 								</View>
 							</>
 						)}
@@ -2095,6 +2284,9 @@ export default function SettingsScreen() {
 						</SettingsCard>
 					</View>
 
+					</>)}
+
+					{activeSettingsTab === 'account' && (<>
 					{/* KONTO */}
 					<SettingsSectionLabel isDark={isDark} title='KONTO' />
 					<SettingsCard {...settingsCardProps}>
@@ -2201,6 +2393,9 @@ export default function SettingsScreen() {
 						</View>
 					</View>
 
+					</>)}
+
+					{activeSettingsTab === 'privacy' && (<>
 					{/* PRYWATNOŚĆ */}
 					<SettingsSectionLabel isDark={isDark} title='PRYWATNOŚĆ' />
 					<SettingsCard {...settingsCardProps}>
@@ -2246,6 +2441,9 @@ export default function SettingsScreen() {
 						/>
 					</SettingsCard>
 
+					</>)}
+
+					{activeSettingsTab === 'notifications' && (<>
 					{/* POWIADOMIENIA */}
 					<SettingsSectionLabel isDark={isDark} title='POWIADOMIENIA' />
 					<SettingsCard {...settingsCardProps}>
@@ -2334,6 +2532,9 @@ export default function SettingsScreen() {
 						))}
 					</SettingsCard>
 
+					</>)}
+
+					{activeSettingsTab === 'app' && (<>
 					{/* APLIKACJA */}
 					<SettingsSectionLabel isDark={isDark} title='APLIKACJA' />
 					<SettingsCard {...settingsCardProps}>
@@ -2414,6 +2615,9 @@ export default function SettingsScreen() {
 						/>
 					</SettingsCard>
 
+					</>)}
+
+					{activeSettingsTab === 'session' && (<>
 					{/* SESJA */}
 					<SettingsSectionLabel isDark={isDark} title='SESJA' />
 					<SettingsCard {...settingsCardProps}>
@@ -2483,6 +2687,7 @@ export default function SettingsScreen() {
 							MADE FOR THOSE WHO NEVER STOP
 						</Text>
 					</View>
+					</>)}
 				</View>
 			</ScrollView>
       </KeyboardAvoidingView>

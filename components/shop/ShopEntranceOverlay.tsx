@@ -1,11 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, Dimensions } from 'react-native';
-import { Image } from 'expo-image';
+import { Animated, StyleSheet, View } from 'react-native';
 import type { ShopCosmeticItem } from '../../constants/shopCosmetics';
-import { normalizeMediaUri } from '../../lib/mediaUri';
 import VisitEntranceFx from '../profile/VisitEntranceFx';
-
-const { width: SW, height: SH } = Dimensions.get('window');
+import ProfileAnimationLayer, { getAnimationMeta } from '../profile/ProfileAnimationLayer';
 
 type Props = {
   item: ShopCosmeticItem | null | undefined;
@@ -17,15 +14,15 @@ type Props = {
  */
 export default function ShopEntranceOverlay({ item, onDone }: Props) {
   const fade = useRef(new Animated.Value(1)).current;
-  const uri = normalizeMediaUri(item?.assetUrl);
 
   useEffect(() => {
-    if (!uri) return;
+    if (!item?.assetUrl) return;
+    const meta = getAnimationMeta(item);
     const t = setTimeout(() => {
       Animated.timing(fade, { toValue: 0, duration: 900, useNativeDriver: true }).start(() => onDone());
-    }, item?.assetKind === 'gif' ? 2200 : 1600);
+    }, meta.durationMs);
     return () => clearTimeout(t);
-  }, [uri, item?.assetKind, fade, onDone]);
+  }, [item, fade, onDone]);
 
   if (!item) return null;
 
@@ -34,17 +31,11 @@ export default function ShopEntranceOverlay({ item, onDone }: Props) {
     return <VisitEntranceFx kind={kind} onDone={onDone} />;
   }
 
-  if (!uri) return null;
-
+  const meta = getAnimationMeta(item);
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, { zIndex: 600, opacity: fade }]}>
-      <View style={styles.backdrop} />
-      <Image
-        source={{ uri }}
-        style={{ width: SW, height: SH * 0.55, alignSelf: 'center', marginTop: SH * 0.18 }}
-        contentFit="contain"
-        cachePolicy="memory-disk"
-      />
+      <View style={[styles.backdrop, { backgroundColor: `rgba(0,0,0,${meta.dimOpacity})` }]} />
+      <ProfileAnimationLayer item={item} style={{ zIndex: 2 }} />
     </Animated.View>
   );
 }

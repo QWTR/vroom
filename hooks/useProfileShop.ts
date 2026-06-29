@@ -14,7 +14,7 @@ export interface CatalogItem {
   assetKind?: string;
   nitroCost: number;
   tagLine?: string | null;
-  metadata?: VehicleModelMeta | null;
+  metadata?: (VehicleModelMeta & Record<string, unknown>) | Record<string, unknown> | null;
   maxSupply?: number | null;
   soldCount?: number;
   soldOut?: boolean;

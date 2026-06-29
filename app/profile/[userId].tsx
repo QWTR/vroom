@@ -30,6 +30,7 @@ import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
 import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
 import ShopEntranceOverlay from '../../components/shop/ShopEntranceOverlay';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
+import ProfileBackgroundAnimation from '../../components/profile/ProfileBackgroundAnimation';
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 
@@ -266,7 +267,8 @@ export default function PublicProfileScreen() {
   }, [myUserId, profile]);
 
   useEffect(() => {
-    if (profile?.shopCosmetics?.entranceEffect?.assetUrl) {
+    const entrance = profile?.shopCosmetics?.entranceEffect ?? profile?.shopCosmetics?.globalEntranceEffect ?? null;
+    if (entrance?.assetUrl) {
       setShopVisitFx(true);
       setVisitFx(false);
       return;
@@ -279,7 +281,13 @@ export default function PublicProfileScreen() {
     const ex = mergeProfilePremiumExtras(profile.profilePremiumExtras);
     if (ex.visitEntranceAnim && ex.visitEntranceAnim !== 'none') setVisitFx(true);
     else setVisitFx(false);
-  }, [profile?.id, profile?.isPremium, profile?.profilePremiumExtras, profile?.shopCosmetics?.entranceEffect?.assetUrl]);
+  }, [
+    profile?.id,
+    profile?.isPremium,
+    profile?.profilePremiumExtras,
+    profile?.shopCosmetics?.entranceEffect?.assetUrl,
+    profile?.shopCosmetics?.globalEntranceEffect?.assetUrl,
+  ]);
 
   // ── Like toggle (aktualizuje lokalnie bez przeładowania) ─
   const handleLikeToggle = useCallback((spotId: string, liked: boolean, count: number) => {
@@ -445,6 +453,8 @@ export default function PublicProfileScreen() {
   const resolvedBannerUrl = premiumActive ? (profile?.bannerUrl ?? null) : null;
   const shopBannerUri = profile?.shopCosmetics?.profileBanner?.assetUrl ?? null;
   const heroBannerUri = shopBannerUri || resolvedBannerUrl;
+  const activeEntranceEffect = profile?.shopCosmetics?.entranceEffect ?? profile?.shopCosmetics?.globalEntranceEffect ?? null;
+  const activeBackgroundAnimation = profile?.shopCosmetics?.backgroundAnimation ?? profile?.shopCosmetics?.globalBackgroundAnimation ?? null;
   const resolvedPremiumUi = premiumActive
     ? mergeProfilePremiumExtras(profile?.profilePremiumExtras)
     : null;
@@ -630,6 +640,9 @@ export default function PublicProfileScreen() {
             focusPoint={heroBannerFocus}
             overlayColors={heroBannerUri ? (heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) : null}
           />
+          {premiumActive && activeBackgroundAnimation ? (
+            <ProfileBackgroundAnimation item={activeBackgroundAnimation} />
+          ) : null}
           <LinearGradient
             colors={['transparent', palette.bg]}
             style={StyleSheet.absoluteFill}
@@ -1027,8 +1040,8 @@ export default function PublicProfileScreen() {
           </Animated.View>
         </ScrollView>
 
-        {shopVisitFx && profile.shopCosmetics?.entranceEffect && (
-          <ShopEntranceOverlay item={profile.shopCosmetics.entranceEffect} onDone={() => setShopVisitFx(false)} />
+        {shopVisitFx && activeEntranceEffect && (
+          <ShopEntranceOverlay item={activeEntranceEffect} onDone={() => setShopVisitFx(false)} />
         )}
         {visitFx && !shopVisitFx && resolvedPremiumUi?.visitEntranceAnim && resolvedPremiumUi.visitEntranceAnim !== 'none' && (
           <VisitEntranceFx kind={resolvedPremiumUi.visitEntranceAnim} onDone={() => setVisitFx(false)} />

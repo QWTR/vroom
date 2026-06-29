@@ -106,7 +106,7 @@ function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
 
 export default function HistoryRidesScreen() {
   const router = useRouter();
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, presetId } = useTheme();
   const { activityHistory, fetchActivityHistory } = useProfile();
   const cameraRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
@@ -245,7 +245,7 @@ export default function HistoryRidesScreen() {
           {historyMapEnabled && historyShapeGeoJson && historyInitialCenter ? (
             <Mapbox.MapView
               style={{ flex: 1 }}
-              styleURL={resolveStandardMapStyle(isDark)}
+              styleURL={resolveStandardMapStyle(isDark, presetId)}
               logoEnabled={false}
               attributionEnabled={false}
               pitchEnabled={false}
