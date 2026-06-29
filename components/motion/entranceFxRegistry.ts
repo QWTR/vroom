@@ -18,7 +18,7 @@ export const ENTRANCE_FX_PRESETS: Record<EntranceFxPresetId, EntranceFxPreset> =
     showVsRow: true,
     showGates: true,
     showClash: true,
-    showOncePolicy: 'day',
+    showOncePolicy: 'always',
   },
   'arena-grid': {
     id: 'arena-grid',

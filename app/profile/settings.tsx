@@ -29,6 +29,7 @@ import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackS
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
 import { setEntranceMotionMode } from '../../hooks/useEntranceIntroPolicy';
 import type { EntranceMotionMode } from '../../components/motion/entranceFxTypes';
+import { useAppTutorial } from '../../contexts/AppTutorialContext';
 import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
@@ -117,6 +118,7 @@ export default function SettingsScreen() {
   const { skins: cursorSkins, activeSkin, setActiveSkinId } = useCursorSkin();
   const { vehicle: equippedMapVehicle } = useEquippedMapVehicle();
   const { wallet: nitroWallet } = useNitroWallet();
+  const { startTutorialReplay } = useAppTutorial();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
   const [entranceMotion, setEntranceMotionState] = useState<EntranceMotionMode>('full');
   const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
@@ -2614,6 +2616,13 @@ export default function SettingsScreen() {
 							label='Animacje wejścia'
 							sublabel={entranceMotionLabel}
 							onPress={() => { void cycleEntranceMotion(); }}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='school'
+							iconBg='#2196F3'
+							label='Przewodnik po aplikacji'
+							sublabel='Pokaż tutorial od początku'
+							onPress={startTutorialReplay}
 						/>
 						<SettingsRow {...settingsRowProps}
 							icon='workspace-premium'

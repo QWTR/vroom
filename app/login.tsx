@@ -12,6 +12,7 @@ import { useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
+import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
@@ -184,6 +185,7 @@ export default function LoginScreen() {
       const loginData = await loginRes.json();
       if (loginRes.ok) {
         Toast.show({ type: 'success', text1: '🚗 WITAJ W VROOM!', text2: 'Konto utworzone.' });
+        await setTutorialPending();
         await saveAndNavigate(loginData.token, loginData.user, { needsUgcTerms: false });
         return;
       }

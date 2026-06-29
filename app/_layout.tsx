@@ -22,6 +22,7 @@ import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { PremiumProvider } from '../contexts/PremiumContext';
 import { StartupGatesProvider, useStartupGates } from '../contexts/StartupGatesContext';
+import { AppTutorialProvider, useAppTutorial } from '../contexts/AppTutorialContext';
 import { API_URL } from '../constants/config';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
@@ -48,6 +49,8 @@ import { useAppAnimations } from '../hooks/useAppAnimations';
 import { preloadAppAnimations } from '../lib/appAnimationPreload';
 import type { AppAnimationSlot } from '../constants/appAnimations';
 import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
+import { AppTutorialOverlay } from '../components/onboarding';
+import { shouldAutoShowTutorial } from '../hooks/useAppTutorial';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -131,7 +134,9 @@ export default function RootLayout() {
         <SettingsProvider>
           <PremiumProvider>
             <StartupGatesProvider>
-              <RootLayoutInner />
+              <AppTutorialProvider>
+                <RootLayoutInner />
+              </AppTutorialProvider>
             </StartupGatesProvider>
           </PremiumProvider>
         </SettingsProvider>
@@ -187,6 +192,7 @@ function RootLayoutInner() {
   const { isDark, theme } = useTheme();
   const { updateSetting, settings, loading: settingsLoading } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
+  const { tutorialOpen, startAutoTutorial } = useAppTutorial();
   const { animations: startupAnimations, loading: startupAnimationsLoading } = useAppAnimations(STARTUP_ANIMATION_SLOTS);
   const {
     updateAvailable,
@@ -476,9 +482,9 @@ function RootLayoutInner() {
 
   useEffect(() => {
     setLayoutGateOpen(
-      updatePromptVisible || maintenanceVisible || ugcTermsVisible || bgDisclosureVisible,
+      updatePromptVisible || maintenanceVisible || ugcTermsVisible || bgDisclosureVisible || tutorialOpen,
     );
-  }, [updatePromptVisible, maintenanceVisible, ugcTermsVisible, bgDisclosureVisible, setLayoutGateOpen]);
+  }, [updatePromptVisible, maintenanceVisible, ugcTermsVisible, bgDisclosureVisible, tutorialOpen, setLayoutGateOpen]);
 
   const continueAfterMaintenance = useCallback(async () => {
     const token = (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -491,8 +497,12 @@ function RootLayoutInner() {
       setUgcTermsVisible(true);
       return;
     }
+    if (await shouldAutoShowTutorial()) {
+      startAutoTutorial();
+      return;
+    }
     setGatesSettled(true);
-  }, [setGatesSettled]);
+  }, [setGatesSettled, startAutoTutorial]);
 
   const continueAppBootstrap = useCallback(async () => {
     try {
@@ -592,6 +602,10 @@ function RootLayoutInner() {
   const finishUgcTerms = async () => {
     await AsyncStorage.setItem('needsUgcTerms', '0');
     setUgcTermsVisible(false);
+    if (await shouldAutoShowTutorial()) {
+      startAutoTutorial();
+      return;
+    }
     setGatesSettled(true);
   };
 
@@ -685,6 +699,8 @@ function RootLayoutInner() {
       />
 
       <UgcTermsGate visible={ugcTermsVisible} onAccepted={finishUgcTerms} />
+
+      <AppTutorialOverlay />
 
       {bgDisclosureVisible && (
         <BackgroundLocationDisclosureModal
