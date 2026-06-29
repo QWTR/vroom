@@ -9,7 +9,10 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
 import { withAlpha } from '../../constants/theme';
-import { pickAppAnimationForValue } from '../../constants/appAnimations';
+import {
+  pickAppAnimationForModuleKey,
+} from '../../constants/appAnimations';
+import type { CommunityModuleKey } from '../../constants/communityModuleKeys';
 import { useAppAnimations } from '../../hooks/useAppAnimations';
 import AppAnimationLayer from '../animations/AppAnimationLayer';
 
@@ -20,6 +23,8 @@ export interface CommunityModuleItem {
   icon: string;
   iconLib?: 'feather' | 'material';
   tag?: string | null;
+  /** Klucz do animacji z panelu admina (slot community_module_icon). */
+  moduleKey: CommunityModuleKey;
 }
 
 function glassBorder(theme: ReturnType<typeof useTheme>['theme']) {
@@ -41,24 +46,26 @@ function ModuleIcon({ item, size, color }: { item: CommunityModuleItem; size: nu
 }
 
 function IconCircle({ item, size = 22 }: { item: CommunityModuleItem; size?: number }) {
-  const { theme, isDark } = useTheme();
-  const { animations } = useAppAnimations(['community_quick_access']);
-  const quickAnimation = pickAppAnimationForValue(animations, 'community_quick_access');
+  const { theme } = useTheme();
+  const { animations } = useAppAnimations(['community_module_icon']);
+  const iconAnimation = pickAppAnimationForModuleKey(animations, item.moduleKey);
+  const animatedIconBg = iconAnimation ? '#050505' : theme.primaryBg;
   return (
     <View style={{
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: theme.primaryBg,
+      backgroundColor: animatedIconBg,
       borderWidth: 1,
       borderColor: theme.primaryBorder,
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden',
       }}>
-      {quickAnimation ? (
+      {iconAnimation ? (
         <AppAnimationLayer
-          animation={quickAnimation}
-          style={{ width: size + 12, height: size + 12 }}
+          animation={iconAnimation}
+          style={{ width: size + 16, height: size + 16 }}
           fallbackIcon={<ModuleIcon item={item} size={size} color={theme.primary} />}
         />
       ) : (

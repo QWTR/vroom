@@ -1,10 +1,12 @@
-import React from 'react';
-import { StyleSheet, View, type ImageStyle, type ViewStyle } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Platform, StyleSheet, View, type ImageStyle, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import LottieView from 'lottie-react-native';
 import type { ShopCosmeticItem } from '../../constants/shopCosmetics';
+import { useRemoteLottieJson } from '../../hooks/useRemoteLottieJson';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { isNativeLottieAvailable } from '../../lib/nativeLottie';
+import WebLottieView from '../animations/WebLottieView';
 
 type Props = {
   item: ShopCosmeticItem | null | undefined;
@@ -27,6 +29,11 @@ function readLoop(meta: unknown, fallback = true) {
   return value === false || value === 'false' ? false : fallback;
 }
 
+function readRenderMode(meta: unknown) {
+  if (!meta || typeof meta !== 'object') return null;
+  return (meta as Record<string, unknown>).renderMode === 'web' ? 'web' : null;
+}
+
 export function getAnimationMeta(item: ShopCosmeticItem | null | undefined) {
   const meta = item?.metadata;
   return {
@@ -47,8 +54,17 @@ export default function ProfileAnimationLayer({
   fallbackIcon,
 }: Props) {
   const uri = normalizeMediaUri(item?.assetUrl);
+  const kind = String(item?.assetKind || '').toLowerCase();
+  const canRenderNativeLottie = kind === 'lottie' && isNativeLottieAvailable();
+  const preferWebLottie = kind === 'lottie' && readRenderMode(item?.metadata) === 'web';
+  const [lottieFailed, setLottieFailed] = useState(false);
+  const lottie = useRemoteLottieJson(uri, !!uri && (canRenderNativeLottie || preferWebLottie));
+
+  useEffect(() => {
+    setLottieFailed(false);
+  }, [uri]);
+
   if (!item || !uri) return null;
-  const kind = String(item.assetKind || '').toLowerCase();
   const meta = getAnimationMeta(item);
   const frameStyle: ImageStyle = {
     width: `${meta.widthPct}%` as `${number}%`,
@@ -59,14 +75,24 @@ export default function ProfileAnimationLayer({
 
   return (
     <View pointerEvents={pointerEvents} style={[StyleSheet.absoluteFill, style]}>
-      {kind === 'lottie' && isNativeLottieAvailable() ? (
-        <LottieView
-          source={{ uri } as any}
-          autoPlay
-          loop={meta.loop}
-          resizeMode="contain"
-          style={[frameStyle, contentStyle]}
-        />
+      {kind === 'lottie' && (canRenderNativeLottie || preferWebLottie) && lottie.data && !lottie.failed && !lottieFailed ? (
+        <View style={[frameStyle, contentStyle]}>
+          {preferWebLottie ? (
+            <WebLottieView data={lottie.data} loop={meta.loop} style={StyleSheet.absoluteFill} />
+          ) : (
+            <LottieView
+              key={uri}
+              source={lottie.data as any}
+              autoPlay
+              loop={meta.loop}
+              resizeMode="contain"
+              enableMergePathsAndroidForKitKatAndAbove
+              enableSafeModeAndroid={Platform.OS === 'android'}
+              onAnimationFailure={() => setLottieFailed(true)}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+        </View>
       ) : kind === 'gif' || kind === 'image' ? (
         <Image
           source={{ uri }}

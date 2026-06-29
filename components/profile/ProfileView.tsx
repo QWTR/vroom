@@ -624,7 +624,7 @@ export default function ProfileView({
 
           {/* Avatar + tożsamość — nad fade, przy dolnej krawędzi banera */}
           <View style={{ alignItems: 'center', paddingHorizontal: 24, width: '100%' }}>
-            <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14 }}>
+            <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14, alignItems: 'center', justifyContent: 'center' }}>
               {premiumActive && avatarRingLin ? (
                 <Animated.View
                   pointerEvents="none"

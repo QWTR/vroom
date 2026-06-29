@@ -691,7 +691,7 @@ export default function PublicProfileScreen() {
 
             {/* Avatar + nick */}
             <View style={{ alignItems: 'center', paddingHorizontal: 24, width: '100%' }}>
-              <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14 }}>
+              <View style={{ position: 'relative', width: 96, height: 96, marginBottom: 14, alignItems: 'center', justifyContent: 'center' }}>
                 {premiumActive ? (
                   <LinearGradient
                     colors={(frameGradients[resolvedFramePreset] || frameGradients.vroom) as [string, string, ...string[]]}

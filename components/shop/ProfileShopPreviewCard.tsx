@@ -38,8 +38,8 @@ export const ProfileShopPreviewCard = memo(function ProfileShopPreviewCard({
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
       </View>
       <View style={styles.row}>
-        <View style={{ width: avatarSize, height: avatarSize }}>
-          <View style={[styles.avatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
+        <View style={{ width: avatarSize, height: avatarSize, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={[styles.avatar, { width: avatarSize - 6, height: avatarSize - 6, borderRadius: (avatarSize - 6) / 2 }]}>
             {avatarUrl ? (
               <Image source={{ uri: normalizeMediaUri(avatarUrl)! }} style={{ width: avatarSize - 6, height: avatarSize - 6, borderRadius: (avatarSize - 6) / 2 }} contentFit="cover" />
             ) : (
@@ -78,7 +78,6 @@ const makeStyles = (t: typeof import('../../constants/theme').darkTheme) => Styl
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: t.bg,
-    margin: 3,
   },
   initials: { color: t.primary, fontFamily: 'Orbitron', fontWeight: '900', fontSize: 18 },
   name: { flex: 1, color: t.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '800', marginTop: 24 },

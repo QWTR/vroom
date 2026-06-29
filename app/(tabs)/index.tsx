@@ -159,7 +159,12 @@ export default function HomeScreen() {
 	const [campaignVisible, setCampaignVisible] = useState(false);
 	const [currentGiftIdx, setCurrentGiftIdx] = useState(0);
 	const [notifUnread, setNotifUnread] = useState(0);
-	const { animations: appAnimations } = useAppAnimations(["home_streak", "app_loading_logo"]);
+	const { animations: appAnimations } = useAppAnimations([
+		"home_streak",
+		"home_premium_badge",
+		"home_announcement",
+		"app_loading_logo",
+	]);
 	const giftAutoShownRef = useRef(false);
 	const pollAutoShownRef = useRef(false);
 	const campaignAutoShownRef = useRef(false);
@@ -513,6 +518,8 @@ export default function HomeScreen() {
 	const t = theme;
 	const chrome = getThemeChrome(t, isDark);
 	const streakAnimation = pickAppAnimationForValue(appAnimations, "home_streak", user?.streak ?? 0);
+	const premiumBadgeAnimation = pickAppAnimationForValue(appAnimations, "home_premium_badge");
+	const announcementAnimation = pickAppAnimationForValue(appAnimations, "home_announcement");
 	const loadingAnimation = pickAppAnimationForValue(appAnimations, "app_loading_logo");
   const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndDateRaw
@@ -531,6 +538,13 @@ export default function HomeScreen() {
 		backgroundColor: chrome.subtleIconGlow,
 		alignItems: "center" as const,
 		justifyContent: "center" as const,
+	};
+	const animatedIconGlowStyle = {
+		...iconGlowStyle,
+		backgroundColor: "#050505",
+		borderWidth: 1,
+		borderColor: withAlpha(t.primary, "55"),
+		overflow: "hidden" as const,
 	};
 	const goldGlowStyle = {
 		...iconGlowStyle,
@@ -769,12 +783,27 @@ export default function HomeScreen() {
 									borderColor: effectivePremium ? withAlpha(t.gold, "66") : glassBorder,
 									alignItems: "center",
 									justifyContent: "center",
+									overflow: "hidden",
 								}}>
-								<MaterialIcons
-									name="workspace-premium"
-									size={22}
-									color={effectivePremium ? "#FFD700" : t.primary}
-								/>
+								{premiumBadgeAnimation ? (
+									<AppAnimationLayer
+										animation={premiumBadgeAnimation}
+										style={{ width: 30, height: 30 }}
+										fallbackIcon={
+											<MaterialIcons
+												name="workspace-premium"
+												size={22}
+												color={effectivePremium ? "#FFD700" : t.primary}
+											/>
+										}
+									/>
+								) : (
+									<MaterialIcons
+										name="workspace-premium"
+										size={22}
+										color={effectivePremium ? "#FFD700" : t.primary}
+									/>
+								)}
 							</TouchableOpacity>
 							<TouchableOpacity
 								onPress={() => router.push("/notifications")}
@@ -953,6 +982,7 @@ export default function HomeScreen() {
 								alignItems: "center",
 								marginTop: 28,
 								paddingVertical: 8,
+								overflow: "visible",
 							}}>
 							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
 								<MaterialIcons name="leaderboard" size={14} color={t.primary} />
@@ -998,47 +1028,51 @@ export default function HomeScreen() {
 								</Text>
 							</View>
 							<View style={{ width: 1, height: 44, backgroundColor: statDivider }} />
-							<View style={{ flex: 1, alignItems: "center", gap: 4 }}>
-								{streakAnimation ? (
-									<AppAnimationLayer
-										animation={streakAnimation}
-										style={{ width: 28, height: 22 }}
-										fallbackIcon={<MaterialIcons name="local-fire-department" size={14} color={t.primary} />}
-									/>
-								) : (
-									<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
-								)}
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 22,
-										color: statNumColor,
-										fontWeight: "900",
-									}}>
-									{user.streak ?? 0}
-								</Text>
-								<Text
-									style={{
-										fontSize: 8,
-										color: t.textDim,
-										letterSpacing: 2,
-										textTransform: "uppercase",
-									}}>
-									Streak
-								</Text>
-								<LiveCountdownText
-									targetIso={user.streakResetAt ?? getNextStreakResetIso()}
-									prefix="reset za "
-									fallback="reset za chwilę"
-									style={{
-										fontSize: 7,
-										color: t.primary,
-										fontFamily: "Orbitron",
-										letterSpacing: 0.5,
-										marginTop: 2,
-										textAlign: "center",
-									}}
-								/>
+							<View style={{ flex: 1, alignItems: "center", overflow: "visible", minHeight: 72 }}>
+								<AppAnimationLayer
+									animation={streakAnimation}
+									layout="behind"
+									style={{ width: "100%", minHeight: 72, overflow: "visible" }}
+									fallbackIcon={
+										<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
+									}>
+									<View style={{ alignItems: "center", gap: 4, paddingTop: 2 }}>
+										{!streakAnimation ? (
+											<MaterialIcons name="local-fire-department" size={14} color={t.primary} />
+										) : null}
+										<Text
+											style={{
+												fontFamily: "Orbitron",
+												fontSize: 22,
+												color: statNumColor,
+												fontWeight: "900",
+											}}>
+											{user.streak ?? 0}
+										</Text>
+										<Text
+											style={{
+												fontSize: 8,
+												color: t.textDim,
+												letterSpacing: 2,
+												textTransform: "uppercase",
+											}}>
+											Streak
+										</Text>
+										<LiveCountdownText
+											targetIso={user.streakResetAt ?? getNextStreakResetIso()}
+											prefix="reset za "
+											fallback="reset za chwilę"
+											style={{
+												fontSize: 7,
+												color: t.primary,
+												fontFamily: "Orbitron",
+												letterSpacing: 0.5,
+												marginTop: 2,
+												textAlign: "center",
+											}}
+										/>
+									</View>
+								</AppAnimationLayer>
 							</View>
 						</View>
 					</Animated.View>
@@ -1081,8 +1115,16 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View style={iconGlowStyle}>
-								<MaterialIcons name="campaign" size={22} color={t.primary} />
+							<View style={announcementAnimation ? animatedIconGlowStyle : iconGlowStyle}>
+								{announcementAnimation ? (
+									<AppAnimationLayer
+										animation={announcementAnimation}
+										style={{ width: 32, height: 32 }}
+										fallbackIcon={<MaterialIcons name="campaign" size={22} color={t.primary} />}
+									/>
+								) : (
+									<MaterialIcons name="campaign" size={22} color={t.primary} />
+								)}
 							</View>
 
 							<View style={{ flex: 1 }}>
@@ -1435,15 +1477,33 @@ export default function HomeScreen() {
 										? { ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }
 										: goldGlowStyle
 								}>
-								<MaterialIcons
-									name={effectivePremium ? "workspace-premium" : "lock-open"}
-									size={22}
-									color={
-										premiumLoading
-											? t.textDim
-											: "#FFD700"
-									}
-								/>
+								{premiumBadgeAnimation ? (
+									<AppAnimationLayer
+										animation={premiumBadgeAnimation}
+										style={{ width: 36, height: 36 }}
+										fallbackIcon={
+											<MaterialIcons
+												name={effectivePremium ? "workspace-premium" : "lock-open"}
+												size={22}
+												color={
+													premiumLoading
+														? t.textDim
+														: "#FFD700"
+												}
+											/>
+										}
+									/>
+								) : (
+									<MaterialIcons
+										name={effectivePremium ? "workspace-premium" : "lock-open"}
+										size={22}
+										color={
+											premiumLoading
+												? t.textDim
+												: "#FFD700"
+										}
+									/>
+								)}
 							</View>
 
 							<View style={{ flex: 1 }}>

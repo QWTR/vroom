@@ -54,6 +54,7 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, vsAnimation
     ? ['transparent', 'rgba(0,0,0,0.4)', 'transparent']
     : ['transparent', 'rgba(255,255,255,0.35)', 'transparent'];
   const vsBadgeBg = theme.surface;
+  const hasVsAnimation = !!vsAnimation;
 
   const shellStyle = {
     marginHorizontal: 0,
@@ -194,22 +195,23 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, vsAnimation
             position: 'absolute',
             left: '50%',
             top: '50%',
-            marginLeft: -22,
-            marginTop: -22,
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: vsBadgeBg,
-            borderWidth: 2,
+            marginLeft: hasVsAnimation ? -24 : -22,
+            marginTop: hasVsAnimation ? -24 : -22,
+            width: hasVsAnimation ? 48 : 44,
+            height: hasVsAnimation ? 48 : 44,
+            borderRadius: hasVsAnimation ? 8 : 22,
+            backgroundColor: hasVsAnimation ? '#050505' : vsBadgeBg,
+            borderWidth: hasVsAnimation ? 0 : 2,
             borderColor: theme.primary,
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 4,
+            overflow: 'hidden',
           }}>
             {vsAnimation ? (
               <AppAnimationLayer
                 animation={vsAnimation}
-                style={{ width: 40, height: 40 }}
+                style={{ width: 48, height: 48 }}
                 fallbackIcon={<Text style={{ fontSize: 11, color: theme.primary, fontWeight: '900' }}>VS</Text>}
               />
             ) : (

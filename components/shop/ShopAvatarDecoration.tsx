@@ -14,10 +14,10 @@ export const ShopAvatarDecoration = memo(function ShopAvatarDecoration({ item, s
   const uri = normalizeMediaUri(item?.assetUrl);
   if (!uri) return null;
 
-  // Keep the frame thinner so the avatar stays visually dominant.
   const outer = size * 1.28;
+  const offset = (size - outer) / 2;
   return (
-    <View pointerEvents="none" style={[styles.wrap, { width: outer, height: outer, marginLeft: -(outer - size) / 2, marginTop: -(outer - size) / 2 }]}>
+    <View pointerEvents="none" style={[styles.wrap, { width: outer, height: outer, left: offset, top: offset }]}>
       <Image
         source={{ uri }}
         style={{ width: outer, height: outer }}
@@ -32,8 +32,6 @@ export const ShopAvatarDecoration = memo(function ShopAvatarDecoration({ item, s
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
-    top: 0,
-    left: 0,
     zIndex: 12,
     alignItems: 'center',
     justifyContent: 'center',

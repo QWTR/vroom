@@ -1,11 +1,16 @@
+import type { CommunityModuleKey } from './communityModuleKeys';
+
 export type AppAnimationSlot =
   | 'home_streak'
   | 'home_premium_badge'
   | 'home_announcement'
   | 'community_daily_duel_vs'
   | 'community_quick_access'
+  | 'community_module_icon'
   | 'tab_active_icon'
   | 'app_loading_logo';
+
+export type AppAnimationLayoutMode = 'inline' | 'behind';
 
 export interface AppAnimationMeta {
   durationMs?: number;
@@ -17,6 +22,10 @@ export interface AppAnimationMeta {
   dimOpacity?: number;
   opacity?: number;
   appAnimationSlot?: string;
+  /** inline = ikona w miejscu; behind = tło pod tekstem (np. streak). */
+  layoutMode?: AppAnimationLayoutMode;
+  /** community_module_icon — który moduł społeczności. */
+  moduleKey?: CommunityModuleKey | string;
 }
 
 export interface AppAnimation {
@@ -49,4 +58,31 @@ export function pickAppAnimationForValue(
   return animations
     .filter((animation) => animation.slot === slot && valueMatchesAnimation(animation, value))
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0] ?? null;
+}
+
+export function readAnimationModuleKey(animation: AppAnimation | null | undefined): string | null {
+  const key = animation?.metadata?.moduleKey;
+  return key != null && String(key).trim() ? String(key).trim() : null;
+}
+
+export function pickAppAnimationForModuleKey(
+  animations: AppAnimation[],
+  moduleKey: string,
+) {
+  const key = String(moduleKey || '').trim();
+  if (!key) return null;
+  return animations
+    .filter((animation) => {
+      if (animation.slot !== 'community_module_icon') return false;
+      return readAnimationModuleKey(animation) === key;
+    })
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0] ?? null;
+}
+
+export function resolveAnimationLayoutMode(
+  animation: AppAnimation | null | undefined,
+  fallback: AppAnimationLayoutMode = 'inline',
+): AppAnimationLayoutMode {
+  const mode = animation?.metadata?.layoutMode;
+  return mode === 'behind' ? 'behind' : mode === 'inline' ? 'inline' : fallback;
 }
