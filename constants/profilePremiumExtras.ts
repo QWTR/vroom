@@ -2,12 +2,54 @@ export type ProfileSectionAccentMode = 'theme' | 'gradient' | 'solid';
 export type ProfileAvatarRingAnim = 'none' | 'rotate' | 'pulse' | 'breathe';
 export type ProfileVisitEntranceAnim =
   | 'none'
+  | 'apex-reveal'
+  | 'garage-ignition'
+  | 'neon-impact'
+  | 'hyper-tunnel'
   | 'sparkle'
   | 'hero-flash'
   | 'rings'
   | 'glow'
-  | 'sweep';
-export type ProfileHeroMotion = 'none' | 'shimmer' | 'float' | 'pulse';
+  | 'sweep'
+  | 'shockwave'
+  | 'confetti'
+  | 'lightning'
+  | 'curtain'
+  | 'portal'
+  | 'meteor'
+  | 'iris'
+  | 'turbo'
+  | 'signal'
+  | 'chromaburst';
+export type ProfileHeroMotion =
+  | 'none'
+  | 'apex-grid'
+  | 'ignition'
+  | 'neon-rain'
+  | 'turbo-pulse'
+  | 'shimmer'
+  | 'float'
+  | 'pulse'
+  | 'aurora'
+  | 'embers'
+  | 'kenburns'
+  | 'glitch'
+  | 'vortex'
+  | 'prism'
+  | 'matrix'
+  | 'storm'
+  | 'hologram'
+  | 'neon-grid';
+
+export const PROFILE_HERO_MOTIONS: ProfileHeroMotion[] = [
+  'none', 'apex-grid', 'ignition', 'neon-rain', 'turbo-pulse', 'aurora', 'vortex',
+  'embers', 'glitch', 'kenburns',
+];
+
+export const PROFILE_VISIT_ENTRANCE_ANIMS: ProfileVisitEntranceAnim[] = [
+  'none', 'apex-reveal', 'garage-ignition', 'neon-impact', 'hyper-tunnel',
+  'portal', 'turbo', 'lightning', 'chromaburst', 'iris',
+];
 /** Punkt kadrowania wgranego banera (zdjęcie użytkownika). */
 export type ProfileBannerFocusPoint = 'top' | 'center' | 'bottom';
 

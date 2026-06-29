@@ -36,12 +36,13 @@ function readRenderMode(meta: unknown) {
 
 export function getAnimationMeta(item: ShopCosmeticItem | null | undefined) {
   const meta = item?.metadata;
+  const isBackground = item?.category === 'profile_background_animation';
   return {
     durationMs: readNumber(meta, 'durationMs', item?.assetKind === 'gif' ? 2200 : 1800),
-    widthPct: readNumber(meta, 'widthPct', 100),
-    heightPct: readNumber(meta, 'heightPct', 55),
-    topPct: readNumber(meta, 'topPct', 18),
-    dimOpacity: readNumber(meta, 'dimOpacity', 0.55),
+    widthPct: readNumber(meta, 'widthPct', isBackground ? 140 : 100),
+    heightPct: readNumber(meta, 'heightPct', isBackground ? 100 : 55),
+    topPct: readNumber(meta, 'topPct', isBackground ? 0 : 18),
+    dimOpacity: readNumber(meta, 'dimOpacity', isBackground ? 0.22 : 0.55),
     loop: readLoop(meta, true),
   };
 }
@@ -78,7 +79,7 @@ export default function ProfileAnimationLayer({
       {kind === 'lottie' && (canRenderNativeLottie || preferWebLottie) && lottie.data && !lottie.failed && !lottieFailed ? (
         <View style={[frameStyle, contentStyle]}>
           {preferWebLottie ? (
-            <WebLottieView data={lottie.data} loop={meta.loop} style={StyleSheet.absoluteFill} />
+            <WebLottieView data={lottie.data} loop={meta.loop} style={StyleSheet.absoluteFillObject} />
           ) : (
             <LottieView
               key={uri}

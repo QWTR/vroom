@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -27,6 +27,7 @@ import {
   getCarPhotos,
 } from './dailyDuelTypes';
 import { DailyDuelHistorySection } from './DailyDuelHistorySection';
+import { DailyDuelEntranceFx } from './DailyDuelEntranceFx';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
@@ -324,19 +325,25 @@ export function DailyDuelVotePanel({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const fade = useRef(new Animated.Value(0)).current;
+  const fade = useRef(new Animated.Value(1)).current;
   const slideA = useRef(new Animated.Value(-34)).current;
   const slideB = useRef(new Animated.Value(34)).current;
   const vsPulse = useRef(new Animated.Value(0)).current;
+  const [introDone, setIntroDone] = useState(false);
   const gold = COMMUNITY_ACCENTS.duel;
   const red = COMMUNITY_ACCENTS.duelAlt;
 
-  useEffect(() => {
+  const runContentEntrance = useCallback(() => {
     Animated.parallel([
       Animated.timing(fade, { toValue: 1, duration: 420, useNativeDriver: true }),
       Animated.spring(slideA, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
       Animated.spring(slideB, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
     ]).start();
+  }, [fade, slideA, slideB]);
+
+  useEffect(() => {
+    if (!introDone) return;
+    runContentEntrance();
 
     const loop = Animated.loop(
       Animated.sequence([
@@ -346,7 +353,7 @@ export function DailyDuelVotePanel({
     );
     loop.start();
     return () => loop.stop();
-  }, [fade, slideA, slideB, vsPulse]);
+  }, [introDone, vsPulse, runContentEntrance]);
 
   if (loading || !duel) {
     return (
@@ -561,6 +568,7 @@ export function DailyDuelVotePanel({
           <DailyDuelHistorySection history={history} loading={historyLoading} />
         </View>
       </ScrollView>
+      {!introDone && <DailyDuelEntranceFx onDone={() => setIntroDone(true)} />}
     </View>
   );
 }

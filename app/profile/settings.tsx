@@ -39,14 +39,18 @@ import {
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
-import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras';
-import type {
-  ProfilePremiumExtras,
-  ProfileSectionAccentMode,
-  ProfileAvatarRingAnim,
-  ProfileVisitEntranceAnim,
-  ProfileHeroMotion,
-  ProfileBannerFocusPoint,
+import ProfileAnimationSettingsPreview from '../../components/profile/ProfileAnimationSettingsPreview';
+import { HERO_MOTION_LABELS, VISIT_ENTRANCE_LABELS } from '../../constants/profileAnimationLabels';
+import {
+  mergeProfilePremiumExtras,
+  PROFILE_HERO_MOTIONS,
+  PROFILE_VISIT_ENTRANCE_ANIMS,
+  type ProfilePremiumExtras,
+  type ProfileSectionAccentMode,
+  type ProfileAvatarRingAnim,
+  type ProfileVisitEntranceAnim,
+  type ProfileHeroMotion,
+  type ProfileBannerFocusPoint,
 } from '../../constants/profilePremiumExtras';
 import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
 import ProfileBannerCropModal from '../../components/profile/ProfileBannerCropModal';
@@ -1844,11 +1848,32 @@ export default function SettingsScreen() {
 									}}
 								/>
 								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
+									<ProfileAnimationSettingsPreview
+										heroMotion={premiumExtras.heroMotion}
+										visitEntranceAnim={premiumExtras.visitEntranceAnim}
+										customHeroGradient={premiumExtras.customHeroGradient}
+										bannerUri={profile?.bannerUrl ?? null}
+										isDark={isDark}
+										textMain={textMain}
+										textDim={textDim}
+										accent={RED}
+										inputBorder={inputBorder}
+									/>
+								</View>
+								<View
+									style={{
+										height: 1,
+										backgroundColor: divider,
+										marginLeft: 16,
+										marginRight: 16,
+									}}
+								/>
+								<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 									<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
 										Animacja gdy ktoś wchodzi na profil
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-										{(['none', 'sparkle', 'hero-flash', 'rings', 'glow', 'sweep'] as ProfileVisitEntranceAnim[]).map(a => (
+										{PROFILE_VISIT_ENTRANCE_ANIMS.map(a => (
 											<TouchableOpacity
 												key={a}
 												onPress={() =>
@@ -1872,7 +1897,7 @@ export default function SettingsScreen() {
 														fontSize: 7,
 														color: premiumExtras.visitEntranceAnim === a ? RED : textDim,
 													}}>
-													{a.toUpperCase()}
+													{VISIT_ENTRANCE_LABELS[a]}
 												</Text>
 											</TouchableOpacity>
 										))}
@@ -1925,7 +1950,7 @@ export default function SettingsScreen() {
 										Animacja tła profilu (ty)
 									</Text>
 									<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-										{(['none', 'shimmer', 'float', 'pulse'] as ProfileHeroMotion[]).map(a => (
+										{PROFILE_HERO_MOTIONS.map(a => (
 											<TouchableOpacity
 												key={a}
 												onPress={() =>
@@ -1949,7 +1974,7 @@ export default function SettingsScreen() {
 														fontSize: 8,
 														color: premiumExtras.heroMotion === a ? RED : textDim,
 													}}>
-													{a.toUpperCase()}
+													{HERO_MOTION_LABELS[a]}
 												</Text>
 											</TouchableOpacity>
 										))}

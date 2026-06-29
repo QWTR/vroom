@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getCachedRemoteLottieJson, loadRemoteLottieJson } from '../lib/appAnimationPreload';
 
 type RemoteLottieState = {
   data: unknown | null;
@@ -6,16 +7,10 @@ type RemoteLottieState = {
   failed: boolean;
 };
 
-function isLikelyLottie(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const obj = value as Record<string, unknown>;
-  return Array.isArray(obj.layers) && (typeof obj.v === 'string' || typeof obj.fr === 'number');
-}
-
 export function useRemoteLottieJson(uri: string | null | undefined, enabled = true) {
   const [state, setState] = useState<RemoteLottieState>({
-    data: null,
-    loading: false,
+    data: getCachedRemoteLottieJson(uri),
+    loading: !!enabled && !!uri && !getCachedRemoteLottieJson(uri),
     failed: false,
   });
 
@@ -26,25 +21,17 @@ export function useRemoteLottieJson(uri: string | null | undefined, enabled = tr
     }
 
     let cancelled = false;
-    const controller = new AbortController();
+    const cached = getCachedRemoteLottieJson(uri);
+    if (cached) {
+      setState({ data: cached, loading: false, failed: false });
+      return undefined;
+    }
+
     setState({ data: null, loading: true, failed: false });
 
-    fetch(uri, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json,text/plain,*/*',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
-        return JSON.parse(text);
-      })
+    loadRemoteLottieJson(uri)
       .then((json) => {
         if (cancelled) return;
-        if (!isLikelyLottie(json)) throw new Error('Invalid Lottie JSON');
         setState({ data: json, loading: false, failed: false });
       })
       .catch(() => {
@@ -54,7 +41,6 @@ export function useRemoteLottieJson(uri: string | null | undefined, enabled = tr
 
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [enabled, uri]);
 

@@ -4,6 +4,34 @@ import type { ShopCosmeticItem } from '../../constants/shopCosmetics';
 import VisitEntranceFx from '../profile/VisitEntranceFx';
 import ProfileAnimationLayer, { getAnimationMeta } from '../profile/ProfileAnimationLayer';
 
+/** Map admin / shop preset IDs → VisitEntranceFx kind slugs. */
+const FX_PRESET_ALIASES: Record<string, string> = {
+  fx_apex_reveal:     'apex-reveal',
+  fx_garage_ignition: 'garage-ignition',
+  fx_neon_impact:     'neon-impact',
+  fx_hyper_tunnel:    'hyper-tunnel',
+  fx_shockwave:   'shockwave',
+  fx_confetti:    'confetti',
+  fx_lightning:   'lightning',
+  fx_portal:      'portal',
+  fx_curtain:     'curtain',
+  fx_sparkle:     'sparkle',
+  fx_hero_flash:  'hero-flash',
+  fx_rings:       'rings',
+  fx_glow:        'glow',
+  fx_sweep:       'sweep',
+  fx_meteor:      'meteor',
+  fx_iris:        'iris',
+  fx_turbo:       'turbo',
+  fx_signal:      'signal',
+  fx_chromaburst: 'chromaburst',
+};
+
+function resolveFxKind(rawId: string): string {
+  if (FX_PRESET_ALIASES[rawId]) return FX_PRESET_ALIASES[rawId];
+  return rawId.replace(/^fx_/, '');
+}
+
 type Props = {
   item: ShopCosmeticItem | null | undefined;
   onDone: () => void;
@@ -27,7 +55,7 @@ export default function ShopEntranceOverlay({ item, onDone }: Props) {
   if (!item) return null;
 
   if (item.assetKind === 'preset' && item.id.startsWith('fx_')) {
-    const kind = item.id.replace(/^fx_/, '');
+    const kind = resolveFxKind(item.id);
     return <VisitEntranceFx kind={kind} onDone={onDone} />;
   }
 

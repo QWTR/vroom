@@ -7,7 +7,7 @@ import {
   View, StyleSheet, Animated, Easing,
   Text,
   Image,
-  NativeModules,
+  Dimensions,
   AppState,
   type AppStateStatus,
 } from 'react-native';
@@ -17,7 +17,6 @@ import AsyncStorage         from '@react-native-async-storage/async-storage';
 import * as Notifications   from 'expo-notifications';
 import Toast from 'react-native-toast-message';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import MaterialIcons             from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
@@ -45,6 +44,9 @@ import {
   wireBgTrackingNotificationControl,
 } from '../lib/bgTrackingNotificationControl';
 import { stopVroomBgForegroundNotification } from '../lib/vroomBgForegroundService';
+import { useAppAnimations } from '../hooks/useAppAnimations';
+import { preloadAppAnimations } from '../lib/appAnimationPreload';
+import type { AppAnimationSlot } from '../constants/appAnimations';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -55,14 +57,26 @@ function AppPresenceHeartbeat() {
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const R = '#e33835';
+const R_DARK = '#120202';
+const R_LINE = 'rgba(227,56,53,0.72)';
+const { width: WIN_W, height: WIN_H } = Dimensions.get('window');
 
 /** Custom VROOM boot splash — keep short; native expo splash hides as soon as fonts load. */
 const SPLASH_LOGO_MS = 320;
 const SPLASH_CARD_DELAY_MS = 140;
 const SPLASH_CARD_MS = 280;
-const SPLASH_PROGRESS_MS = 1500;
-const SPLASH_HOLD_MS = 1900;
 const SPLASH_FADE_MS = 380;
+
+const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
+  'home_streak',
+  'home_premium_badge',
+  'home_announcement',
+  'community_daily_duel_vs',
+  'community_quick_access',
+  'community_module_icon',
+  'tab_active_icon',
+  'app_loading_logo',
+];
 
 // ─── NOTIFICATIONS ────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -127,27 +141,34 @@ const STATUS_LINES = [
   'Gotowy',
 ];
 
-function StatusLine() {
-  const [idx, setIdx] = useState(0);
+const CLEAN_STATUS_LINES = [
+  'Ladowanie modulow',
+  'Synchronizacja ustawien',
+  'Laczenie z animacjami',
+  'Przygotowanie Lottie',
+  'Gotowy',
+];
+const BOOT_STATUS_LINES = CLEAN_STATUS_LINES.length === STATUS_LINES.length
+  ? CLEAN_STATUS_LINES
+  : STATUS_LINES;
+
+function StatusLine({ label, done }: { label: string; done: boolean }) {
+  const previousLabelRef = useRef(label);
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const iv = setInterval(() => {
-      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-        setIdx(i => Math.min(i + 1, STATUS_LINES.length - 1));
-        Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-      });
-    }, 700);
-    return () => clearInterval(iv);
-  }, []);
-
-  const isDone = idx === STATUS_LINES.length - 1;
+    if (previousLabelRef.current === label) return;
+    previousLabelRef.current = label;
+    Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    });
+  }, [label, opacity]);
 
   return (
     <Animated.View style={[s.statusRow, { opacity }]}>
-      <View style={[s.statusDot, isDone && s.statusDotDone]} />
-      <Text style={[s.statusTxt, isDone && s.statusTxtDone]}>
-        {STATUS_LINES[idx].toUpperCase()}
+      <View style={[s.statusDot, done && s.statusDotDone]} />
+      <Text style={[s.statusTxt, done && s.statusTxtDone]}>
+        {label.toUpperCase()}
       </Text>
     </Animated.View>
   );
@@ -156,8 +177,9 @@ function StatusLine() {
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
   const { isDark, theme } = useTheme();
-  const { updateSetting, settings } = useSettings();
+  const { updateSetting, settings, loading: settingsLoading } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
+  const { animations: startupAnimations, loading: startupAnimationsLoading } = useAppAnimations(STARTUP_ANIMATION_SLOTS);
   const {
     updateAvailable,
     downloading: updateDownloading,
@@ -179,8 +201,10 @@ function RootLayoutInner() {
   const bgDisclosureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bootstrapAfterUpdateRef = useRef<(() => Promise<void>) | null>(null);
   const bootstrapStartedRef = useRef(false);
+  const splashStartedRef = useRef(false);
   const updateDismissedRef = useRef(false);
   const lastForegroundUpdateCheckRef = useRef(0);
+  const [animationAssetsReady, setAnimationAssetsReady] = useState(false);
 
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
@@ -196,11 +220,57 @@ function RootLayoutInner() {
   const progressAnim  = useRef(new Animated.Value(0)).current;
   const pulseAnim     = useRef(new Animated.Value(1)).current;
   const spinAnim      = useRef(new Animated.Value(0)).current;
+  const scanAnim      = useRef(new Animated.Value(0)).current;
+  const laneAnim      = useRef(new Animated.Value(0)).current;
+  const bootGlowAnim  = useRef(new Animated.Value(0)).current;
+  const flickerAnim   = useRef(new Animated.Value(0)).current;
   const splashOpacity = useRef(new Animated.Value(1)).current;
 
-  const notifListener    = useRef<any>();
-  const responseListener = useRef<any>();
+  const notifListener    = useRef<any>(null);
+  const responseListener = useRef<any>(null);
   const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
+  const bootReady = (loaded || !!error)
+    && !settingsLoading
+    && !startupAnimationsLoading
+    && animationAssetsReady;
+  const bootProgressTarget = useMemo(() => {
+    if (!loaded && !error) return 0.06;
+    if (settingsLoading) return 0.28;
+    if (startupAnimationsLoading) return 0.58;
+    if (!animationAssetsReady) return 0.82;
+    return 1;
+  }, [animationAssetsReady, error, loaded, settingsLoading, startupAnimationsLoading]);
+  const bootStatusLabel = useMemo(() => {
+    if (!loaded && !error) return BOOT_STATUS_LINES[0];
+    if (settingsLoading) return BOOT_STATUS_LINES[1];
+    if (startupAnimationsLoading) return BOOT_STATUS_LINES[2];
+    if (!animationAssetsReady) return BOOT_STATUS_LINES[3];
+    return BOOT_STATUS_LINES[4];
+  }, [animationAssetsReady, error, loaded, settingsLoading, startupAnimationsLoading]);
+  const startupAnimationAssets = useMemo(
+    () => [
+      ...startupAnimations,
+      ...(settings.globalPremiumAnimations ?? []),
+    ],
+    [settings.globalPremiumAnimations, startupAnimations],
+  );
+
+  useEffect(() => {
+    if (startupAnimationsLoading) {
+      setAnimationAssetsReady(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAnimationAssetsReady(false);
+    preloadAppAnimations(startupAnimationAssets)
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setAnimationAssetsReady(true);
+      });
+
+    return () => { cancelled = true; };
+  }, [startupAnimationAssets, startupAnimationsLoading]);
 
   useEffect(() => {
     initMapbox().catch(() => {});
@@ -299,6 +369,8 @@ function RootLayoutInner() {
 
   useEffect(() => {
     if (!loaded && !error) return;
+    if (splashStartedRef.current) return;
+    splashStartedRef.current = true;
 
     SplashScreen.hideAsync();
     refreshUserData();
@@ -311,7 +383,7 @@ function RootLayoutInner() {
     ]).start();
 
     // 2. Karta wjeżdża po chwili
-    setTimeout(() => {
+    const cardTimer = setTimeout(() => {
       Animated.parallel([
         Animated.timing(cardFade,  { toValue: 1, duration: SPLASH_CARD_MS, useNativeDriver: true }),
         Animated.timing(cardSlide, { toValue: 0, duration: SPLASH_CARD_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
@@ -331,25 +403,68 @@ function RootLayoutInner() {
       Animated.timing(spinAnim, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: true })
     ).start();
 
+    Animated.loop(
+      Animated.timing(scanAnim, { toValue: 1, duration: 1700, easing: Easing.inOut(Easing.cubic), useNativeDriver: true })
+    ).start();
+
+    Animated.loop(
+      Animated.timing(laneAnim, { toValue: 1, duration: 2200, easing: Easing.linear, useNativeDriver: true })
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bootGlowAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(bootGlowAnim, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(flickerAnim, { toValue: 1, duration: 90, useNativeDriver: true }),
+        Animated.timing(flickerAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
+        Animated.delay(850),
+      ])
+    ).start();
+
     // Pasek postępu
+    return () => clearTimeout(cardTimer);
+  }, [
+    bootGlowAnim,
+    cardFade,
+    cardSlide,
+    error,
+    flickerAnim,
+    laneAnim,
+    loaded,
+    logoFade,
+    logoScale,
+    masterFade,
+    progressAnim,
+    pulseAnim,
+    scanAnim,
+    spinAnim,
+    splashOpacity,
+  ]);
+
+  useEffect(() => {
     Animated.timing(progressAnim, {
-      toValue: 1, duration: SPLASH_PROGRESS_MS,
+      toValue: bootProgressTarget,
+      duration: bootProgressTarget >= 1 ? 260 : 420,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: false,
     }).start();
+  }, [bootProgressTarget, progressAnim]);
 
-    // Znika
-    const t = setTimeout(() => {
-      setPhase('fadeout');
-      Animated.timing(splashOpacity, {
-        toValue: 0, duration: SPLASH_FADE_MS,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => setPhase('done'));
-    }, SPLASH_HOLD_MS);
-
-    return () => clearTimeout(t);
-  }, [loaded, error]);
+  useEffect(() => {
+    if (!bootReady || phase !== 'splash') return;
+    setPhase('fadeout');
+    Animated.timing(splashOpacity, {
+      toValue: 0,
+      duration: SPLASH_FADE_MS,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => setPhase('done'));
+  }, [bootReady, phase, splashOpacity]);
 
   useEffect(() => {
     setLayoutGateOpen(
@@ -522,6 +637,13 @@ function RootLayoutInner() {
 
   const insets = useSafeAreaInsets();
   const barWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const spinDeg = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [-120, WIN_H + 120] });
+  const laneX = laneAnim.interpolate({ inputRange: [0, 1], outputRange: [-WIN_W * 0.8, WIN_W * 1.2] });
+  const laneXReverse = laneAnim.interpolate({ inputRange: [0, 1], outputRange: [WIN_W * 1.2, -WIN_W * 0.8] });
+  const bootGlowScale = bootGlowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.18] });
+  const bootGlowOpacity = bootGlowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.82] });
+  const flickerOpacity = flickerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.02, 0.16] });
   const toastConfig = useMemo(() => createVroomToastConfig(isDark), [isDark]);
 
   if (!loaded && !error) return null;
@@ -570,16 +692,67 @@ function RootLayoutInner() {
           pointerEvents="none"
         >
           <LinearGradient
-            colors={['#000000', '#0a0000', '#2a0505']}
+            colors={['#000000', R_DARK, '#050101', '#000000']}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
+          <View pointerEvents="none" style={s.bootGrid}>
+            {Array.from({ length: 9 }).map((_, i) => (
+              <View key={`h-${i}`} style={[s.gridH, { top: `${10 + i * 10}%` as `${number}%`, opacity: i % 2 ? 0.04 : 0.09 }]} />
+            ))}
+            {Array.from({ length: 7 }).map((_, i) => (
+              <View key={`v-${i}`} style={[s.gridV, { left: `${6 + i * 15}%` as `${number}%`, opacity: i % 2 ? 0.03 : 0.07 }]} />
+            ))}
+          </View>
+
+          {[0, 1].map(i => (
+            <Animated.View
+              key={`lane-${i}`}
+              pointerEvents="none"
+              style={[
+                s.bootLane,
+                {
+                  top: `${24 + i * 22}%` as `${number}%`,
+                  width: 190 + (i % 2) * 70,
+                  opacity: masterFade.interpolate({ inputRange: [0, 1], outputRange: [0, i % 2 ? 0.14 : 0.24] }),
+                  transform: [
+                    { translateX: i % 2 ? laneXReverse : laneX },
+                    { rotate: i % 2 ? '13deg' : '-13deg' },
+                  ],
+                },
+              ]}
+            >
+              <LinearGradient
+                colors={i % 2 ? ['rgba(255,255,255,0.20)', R_LINE, 'transparent'] : ['transparent', R, 'rgba(255,255,255,0.18)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </Animated.View>
+          ))}
+
+          <Animated.View pointerEvents="none" style={[s.bootScan, { opacity: masterFade, transform: [{ translateY: scanY }] }]}>
+            <LinearGradient
+              colors={['transparent', 'rgba(255,255,255,0.08)', 'rgba(227,56,53,0.46)', 'transparent']}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: R, opacity: flickerOpacity }]} />
 
           <Animated.View style={[s.inner, { opacity: masterFade }]}>
 
             <Animated.View style={[s.logoWrap, { opacity: logoFade, transform: [{ scale: logoScale }] }]}>
+              <Animated.View style={[s.outerRing, { opacity: bootGlowOpacity, transform: [{ rotate: spinDeg }, { scale: bootGlowScale }] }]} />
+              <Animated.View style={[s.innerRing, { opacity: bootGlowOpacity, transform: [{ rotate: spinDeg }] }]} />
               <Animated.View style={[s.iconBox, { transform: [{ scale: pulseAnim }] }]}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.10)', 'rgba(227,56,53,0.14)', 'rgba(0,0,0,0.08)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
                 <View style={s.iconBoxInner} />
                 <Image
                   source={require('../assets/images/logotypRed.png')}
@@ -592,7 +765,7 @@ function RootLayoutInner() {
               VROOM
             </Animated.Text>
             <Animated.Text style={[s.subtitle, { opacity: logoFade }]}>
-              AUTOMOTIVE OS
+              VROOM SYSTEM
             </Animated.Text>
             <Animated.View style={[s.titleAccent, { opacity: logoFade }]} />
 
@@ -602,7 +775,7 @@ function RootLayoutInner() {
             }]}>
               <View style={s.hudTop}>
                 <Text style={s.hudLabel}>INICJALIZACJA</Text>
-                <StatusLine />
+                <StatusLine label={bootStatusLabel} done={bootReady} />
               </View>
 
               <View style={s.progressTrack}>
@@ -635,6 +808,37 @@ const s = StyleSheet.create({
     alignItems: 'center',
     zIndex: 9999,
   },
+  bootGrid: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gridH: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(227,56,53,0.8)',
+  },
+  gridV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(227,56,53,0.24)',
+  },
+  bootLane: {
+    position: 'absolute',
+    left: 0,
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  bootScan: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 96,
+  },
 
   inner: {
     width: '100%',
@@ -642,11 +846,33 @@ const s = StyleSheet.create({
   },
 
   logoWrap: {
-    width: 120,
-    height: 120,
+    width: 152,
+    height: 152,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 18,
+  },
+  outerRing: {
+    position: 'absolute',
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    borderWidth: 2,
+    borderColor: 'rgba(227,56,53,0.72)',
+    borderLeftColor: 'rgba(255,255,255,0.18)',
+    borderBottomColor: 'rgba(227,56,53,0.22)',
+    shadowColor: R,
+    shadowOpacity: 0.85,
+    shadowRadius: 22,
+  },
+  innerRing: {
+    position: 'absolute',
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    borderWidth: 1,
+    borderColor: 'rgba(227,56,53,0.32)',
+    borderRightColor: 'rgba(255,255,255,0.28)',
   },
   iconBox: {
     width: 96,
@@ -662,6 +888,7 @@ const s = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 35,
     elevation: 15,
+    overflow: 'hidden',
   },
   iconBoxInner: {
     ...StyleSheet.absoluteFillObject,
@@ -676,7 +903,7 @@ const s = StyleSheet.create({
 
   title: {
     fontFamily: 'OrbitronBold',
-    fontSize: 48,
+    fontSize: 50,
     color: '#ffffff',
     letterSpacing: 14,
     marginBottom: 4,
@@ -699,12 +926,15 @@ const s = StyleSheet.create({
   hudPanel: {
     alignSelf: 'stretch',
     marginHorizontal: 20,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,0,0,0.36)',
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: 'rgba(227, 56, 53, 0.3)',
     paddingVertical: 18,
-    paddingHorizontal: 4,
+    paddingHorizontal: 10,
+    shadowColor: R,
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
   },
   hudTop: {
     flexDirection: 'row',
@@ -731,7 +961,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(227, 56, 53, 0.6)',
   },
   statusDotDone: {
-    backgroundColor: '#4de926',
+    backgroundColor: '#ffffff',
   },
   statusTxt: {
     fontFamily: 'Orbitron',
@@ -740,12 +970,12 @@ const s = StyleSheet.create({
     letterSpacing: 2,
   },
   statusTxtDone: {
-    color: '#4de926',
+    color: '#ffffff',
   },
 
   progressTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 0,
     overflow: 'visible',
     marginBottom: 16,
@@ -754,8 +984,8 @@ const s = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
-    height: 6,
-    backgroundColor: '#e33835',
+    height: 8,
+    backgroundColor: R,
     borderRadius: 0,
     overflow: 'visible',
     shadowColor: '#ff0000',

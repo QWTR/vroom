@@ -1,0 +1,46 @@
+import type { ProfileHeroMotion, ProfileVisitEntranceAnim } from './profilePremiumExtras';
+
+export const HERO_MOTION_LABELS: Record<ProfileHeroMotion, string> = {
+  none: 'Brak',
+  'apex-grid': 'Apex Grid',
+  ignition: 'Ignition',
+  'neon-rain': 'Neon Rain',
+  'turbo-pulse': 'Turbo Pulse',
+  shimmer: 'Polysk',
+  float: 'Unos',
+  pulse: 'Puls',
+  aurora: 'Zorza',
+  embers: 'Iskry',
+  kenburns: 'Kino',
+  glitch: 'Glitch',
+  vortex: 'Wir',
+  prism: 'Pryzmat',
+  matrix: 'Matrix',
+  storm: 'Burza',
+  hologram: 'Hologram',
+  'neon-grid': 'Neon siatka',
+};
+
+export const VISIT_ENTRANCE_LABELS: Record<ProfileVisitEntranceAnim, string> = {
+  none: 'Brak',
+  'apex-reveal': 'Apex Reveal',
+  'garage-ignition': 'Garage Ignition',
+  'neon-impact': 'Neon Impact',
+  'hyper-tunnel': 'Hyper Tunnel',
+  sparkle: 'Iskry',
+  'hero-flash': 'Flash',
+  rings: 'Ringi',
+  glow: 'Glow',
+  sweep: 'Sweep',
+  shockwave: 'Shockwave',
+  confetti: 'Konfetti',
+  lightning: 'Lightning',
+  curtain: 'Kurtyna',
+  portal: 'Portal',
+  meteor: 'Meteor',
+  iris: 'Iris',
+  turbo: 'Turbo',
+  signal: 'Signal',
+  chromaburst: 'Chroma Burst',
+};
+

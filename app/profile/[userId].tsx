@@ -31,6 +31,7 @@ import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration
 import ShopEntranceOverlay from '../../components/shop/ShopEntranceOverlay';
 import type { UserShopCosmetics } from '../../constants/shopCosmetics';
 import ProfileBackgroundAnimation from '../../components/profile/ProfileBackgroundAnimation';
+import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper } from '../../components/profile/ProfileHeroMotionLayer';
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 
@@ -633,15 +634,20 @@ export default function PublicProfileScreen() {
           }}
           pointerEvents="none"
         >
-          <ProfileHeroBannerFrame
-            fixedHeight={HERO_BANNER_HEIGHT}
-            uri={heroBannerUri ?? undefined}
-            gradient={!heroBannerUri ? heroLinResolved : null}
-            focusPoint={heroBannerFocus}
-            overlayColors={heroBannerUri ? (heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) : null}
-          />
+          <ProfileHeroKenBurnsWrapper motion={resolvedPremiumUi?.heroMotion} style={{ flex: 1 }}>
+            <ProfileHeroBannerFrame
+              fixedHeight={HERO_BANNER_HEIGHT}
+              uri={heroBannerUri ?? undefined}
+              gradient={!heroBannerUri ? heroLinResolved : null}
+              focusPoint={heroBannerFocus}
+              overlayColors={heroBannerUri ? (heroBannerOverlays[resolvedPreset] || heroBannerOverlays.default) : null}
+            />
+          </ProfileHeroKenBurnsWrapper>
           {premiumActive && activeBackgroundAnimation ? (
             <ProfileBackgroundAnimation item={activeBackgroundAnimation} />
+          ) : null}
+          {premiumActive && resolvedPremiumUi?.heroMotion && resolvedPremiumUi.heroMotion !== 'none' ? (
+            <ProfileHeroMotionLayer motion={resolvedPremiumUi.heroMotion} isDark={isDark} bannerHeight={HERO_BANNER_HEIGHT} />
           ) : null}
           <LinearGradient
             colors={['transparent', palette.bg]}

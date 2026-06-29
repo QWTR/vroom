@@ -45,6 +45,8 @@ import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { linearGradientFromSpec } from './profileGradientUtils';
 import ProfileHeroBannerFrame from './ProfileHeroBannerFrame';
 import { getHeroBannerHeight } from '../../lib/profileBanner';
+import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper, useProfileHeroFloat } from './ProfileHeroMotionLayer';
+import Reanimated from 'react-native-reanimated';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
@@ -334,42 +336,8 @@ export default function ProfileView({
     };
   }, [premiumActive, premiumUi?.avatarRingAnim, avatarSpin, avatarPulse, avatarBreathe]);
 
-  const heroShim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!premiumUi || premiumUi.heroMotion !== 'shimmer') return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(heroShim, { toValue: 1, duration: 2800, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
-        Animated.timing(heroShim, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [premiumUi?.heroMotion, heroShim]);
-
-  const heroFloat = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!premiumUi || premiumUi.heroMotion !== 'float') return;
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(heroFloat, { toValue: 1, duration: 2400, useNativeDriver: true, easing: Easing.inOut(Easing.sin) }),
-      Animated.timing(heroFloat, { toValue: 0, duration: 2400, useNativeDriver: true, easing: Easing.inOut(Easing.sin) }),
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, [premiumUi?.heroMotion, heroFloat]);
-
-  const heroPulseAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!premiumUi || premiumUi.heroMotion !== 'pulse') return;
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(heroPulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      Animated.timing(heroPulseAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, [premiumUi?.heroMotion, heroPulseAnim]);
-
-  const heroFloatY = heroFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
+  const heroMotion = hasPremiumProfileUi ? premiumUi?.heroMotion : undefined;
+  const heroFloatStyle = useProfileHeroFloat(heroMotion);
 
   const shopCosmetics = (profile as { shopCosmetics?: UserShopCosmetics | null })?.shopCosmetics ?? null;
   const shopBannerUri = shopCosmetics?.profileBanner?.assetUrl ?? null;
@@ -488,13 +456,16 @@ export default function ProfileView({
         }}
         pointerEvents="none"
       >
-        <ProfileHeroBannerFrame
-          fixedHeight={HERO_BANNER_HEIGHT}
-          uri={heroBannerUri ?? undefined}
-          gradient={!heroBannerUri ? heroLinResolved : null}
-          focusPoint={heroBannerFocus}
-          overlayColors={heroBannerUri ? (heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) : null}
-        />
+        <ProfileHeroKenBurnsWrapper motion={heroMotion} style={{ flex: 1 }}>
+          <ProfileHeroBannerFrame
+            fixedHeight={HERO_BANNER_HEIGHT}
+            uri={heroBannerUri ?? undefined}
+            gradient={!heroBannerUri ? heroLinResolved : null}
+            focusPoint={heroBannerFocus}
+            overlayColors={heroBannerUri ? (heroBannerOverlays[profileThemePreset] || heroBannerOverlays.default) : null}
+          />
+        </ProfileHeroKenBurnsWrapper>
+        <ProfileHeroMotionLayer motion={heroMotion} isDark={isDark} bannerHeight={HERO_BANNER_HEIGHT} />
         <LinearGradient
           colors={['transparent', theme.bg]}
           style={StyleSheet.absoluteFill}
@@ -510,55 +481,19 @@ export default function ProfileView({
       >
 
         {/* ══ HERO — avatar nad banerem, dolna część kadru ══ */}
-        <Animated.View
-          style={{
-            minHeight:             HERO_BANNER_HEIGHT,
-            position:              'relative',
-            justifyContent:        'flex-end',
-            alignItems:            'center',
-            paddingTop:            52,
-            paddingBottom:         28,
-            transform:             premiumUi?.heroMotion === 'float' ? [{ translateY: heroFloatY }] : [],
-          }}
+        <Reanimated.View
+          style={[
+            {
+              minHeight:             HERO_BANNER_HEIGHT,
+              position:              'relative',
+              justifyContent:        'flex-end',
+              alignItems:            'center',
+              paddingTop:            52,
+              paddingBottom:         28,
+            },
+            heroFloatStyle,
+          ]}
         >
-          {premiumUi?.heroMotion === 'shimmer' && (
-            <Animated.View
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 0,
-                right: 0,
-                width: 100,
-                opacity: 0.28,
-                transform: [{
-                  translateX: heroShim.interpolate({
-                    inputRange:  [0, 1],
-                    outputRange: [-160, Dimensions.get('window').width + 120],
-                  }),
-                }],
-              }}
-            >
-              <LinearGradient
-                colors={['transparent', 'rgba(255,255,255,0.75)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ flex: 1 }}
-              />
-            </Animated.View>
-          )}
-          {premiumUi?.heroMotion === 'pulse' && (
-            <Animated.View
-              pointerEvents="none"
-              style={{
-                ...StyleSheet.absoluteFillObject,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
-                opacity: heroPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.85] }),
-              }}
-            />
-          )}
-
           {/* Top bar */}
           <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -707,7 +642,7 @@ export default function ProfileView({
               </View>
             )}
           </View>
-        </Animated.View>
+        </Reanimated.View>
 
         <View style={{ paddingHorizontal: 20, marginTop: -28 }}>
 
