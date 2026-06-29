@@ -59,7 +59,7 @@ export function useChatKeyboard(
   const composerHeight = opts?.composerHeight ?? DEFAULT_COMPOSER;
   const keyboardHeight = useKeyboardInset(true);
   const prevHeightRef = useRef(0);
-  const iosKav = opts?.parentUsesKeyboardAvoiding ?? false;
+  const parentAvoidsKeyboard = opts?.parentUsesKeyboardAvoiding ?? true;
   const inverted = opts?.inverted ?? false;
 
   const scrollToEnd = useCallback((animated = true) => {
@@ -78,8 +78,8 @@ export function useChatKeyboard(
 
   return {
     keyboardHeight,
-    listPaddingBottom: keyboardHeight > 0 ? (iosKav ? 12 : keyboardHeight + 12) : 8,
-    inputPaddingBottom: iosKav ? 0 : keyboardHeight,
+    listPaddingBottom: keyboardHeight > 0 ? (parentAvoidsKeyboard ? 18 : keyboardHeight + 18) : 10,
+    inputPaddingBottom: parentAvoidsKeyboard ? 0 : keyboardHeight,
     scrollToEnd,
   };
 }

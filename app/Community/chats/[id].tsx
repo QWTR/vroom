@@ -1,156 +1,114 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
-  View, FlatList, TextInput, TouchableOpacity,
-  Image, StatusBar, KeyboardAvoidingView, Keyboard,
-  Platform, ActivityIndicator, Animated, Modal, Pressable, Dimensions,
+  View, FlatList, TouchableOpacity, Image, StatusBar, Platform, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { ConversationInfoSheet } from '../../../components/chat/ConversationInfoSheet';
-import { RouteMessageCard } from '../../../components/chat/RouteMessageCard';
-// @ts-ignore
-import { LinkPreviewCard } from '../../../components/chat/LinkPreviewCard';
+import { CommunityScreenHeader } from '../../../components/community';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
-import { UserBadges } from '../../../components/user/UserBadges';
-import { CommunityScreenHeader } from '../../../components/community';
+import {
+  ChatScreenShell,
+  ChatMessageList,
+  ChatComposer,
+  ChatMessageMenu,
+  ChatLoadingState,
+  mapDmMessageToUnified,
+  buildChatActions,
+  DM_CAPABILITIES,
+  type UnifiedChatMessage,
+} from '../../../components/chat/v2';
 
 const API = 'https://v-room.app/api/chat';
-const WS  = 'https://v-room.app';
-
-const INPUT_MIN_HEIGHT = 40;
-const INPUT_MAX_HEIGHT = 120;
-const PAGE_SIZE        = 30;
+const WS = 'https://v-room.app';
+const PAGE_SIZE = 30;
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const CHAT_THEMES = [
-  { id: 'default', name: 'Domyślny', myBubble: '#e33835', theirBubble: null as string | null },
-  { id: 'ocean',   name: 'Ocean',    myBubble: '#1a6fa8', theirBubble: '#163a52' },
-  { id: 'forest',  name: 'Las',      myBubble: '#2a7a3b', theirBubble: '#1a3d23' },
-  { id: 'sunset',  name: 'Zachód',   myBubble: '#c45e1a', theirBubble: '#3d2010' },
-  { id: 'purple',  name: 'Fiolet',   myBubble: '#7c3aed', theirBubble: '#3b1a6e' },
-  { id: 'gold',    name: 'Złoto',    myBubble: '#b8860b', theirBubble: '#3d2c05' },
-];
-
-const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','🔥'];
-
 interface ChatUser {
-  id:        number;
-  username:  string;
+  id: number;
+  username: string;
   avatarUrl: string | null;
-  online?:   boolean;
+  online?: boolean;
   isPremium?: boolean;
   isAdmin?: boolean;
   nickColor?: string | null;
 }
 
 interface Message {
-  id:             number;
-  content:        string;
-  photos:         string[];
-  createdAt:      string;
-  senderId:       number;
-  sender:         ChatUser;
+  id: number;
+  content: string;
+  photos: string[];
+  createdAt: string;
+  senderId: number;
+  sender: ChatUser;
   conversationId: number;
   replyTo?: {
-    id:      number;
+    id: number;
     content: string;
-    sender:  { id: number; username: string };
+    sender: { id: number; username: string };
   } | null;
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }
 
 interface ConvInfo {
-  id:           number;
-  isGroup:      boolean;
-  name:         string;
-  avatarUrl:    string | null;
-  online:       boolean;
+  id: number;
+  isGroup: boolean;
+  name: string;
+  avatarUrl: string | null;
+  online: boolean;
   participants: ChatUser[];
 }
 
-function parseRouteMessage(content: string) {
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed?.type === 'route') return parsed;
-  } catch {}
-  return null;
-}
-
-function extractUrl(text: string): string | null {
-  if (!text) return null;
-  const match = text.match(/https?:\/\/[^\s]+/);
-  return match ? match[0] : null;
-}
-
-function normalizePhotoUri(uri: string): string {
-  if (!uri) return uri;
-  if (/^https?:\/\//i.test(uri) || /^file:\/\//i.test(uri) || /^content:\/\//i.test(uri)) return uri;
-  return `https://v-room.app${uri.startsWith('/') ? uri : `/${uri}`}`;
-}
-
 export default function ChatScreen() {
-  const { id }  = useLocalSearchParams<{ id: string }>();
-  const router  = useRouter();
-  const convId  = parseInt(id);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const convId = parseInt(id);
   const { theme, isDark } = useTheme();
-  const insets  = useSafeAreaInsets();
+  const insets = useSafeAreaInsets();
 
-  const [messages,    setMessages]    = useState<Message[]>([]);
-  const [conv,        setConv]        = useState<ConvInfo | null>(null);
-  const [loading,     setLoading]     = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conv, setConv] = useState<ConvInfo | null>(null);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore,     setHasMore]     = useState(true);
-  const [nextCursor,  setNextCursor]  = useState<number | null>(null);
-  const [text,        setText]        = useState('');
-  const [inputHeight, setInputHeight] = useState(INPUT_MIN_HEIGHT);
-  const [photos,      setPhotos]      = useState<string[]>([]);
-  const [replyTo,     setReplyTo]     = useState<Message | null>(null);
-  const [myId,        setMyId]        = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [text, setText] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [myId, setMyId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
   const [infoVisible, setInfoVisible] = useState(false);
-  const [menuMsg,     setMenuMsg]     = useState<Message | null>(null);
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [chatThemeId, setChatThemeId] = useState('default');
+  const [menuMsg, setMenuMsg] = useState<UnifiedChatMessage | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
-  // Animacje wejścia
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  const listRef          = useRef<FlatList>(null);
-  const socketRef        = useRef<Socket | null>(null);
-  const tokenRef         = useRef<string>('');
-  const typingTimer      = useRef<any>(null);
+  const listRef = useRef<FlatList>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const tokenRef = useRef<string>('');
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
     parentUsesKeyboardAvoiding: Platform.OS === 'ios',
   });
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-    ]).start();
-  }, []);
+  const unifiedMessages = useMemo(
+    () => messages.map(mapDmMessageToUnified),
+    [messages],
+  );
 
   useEffect(() => {
     (async () => {
-      const raw   = await AsyncStorage.getItem('user');
+      const raw = await AsyncStorage.getItem('user');
       const token = (await AsyncStorage.getItem('token')) ?? '';
       tokenRef.current = token;
       if (raw) setMyId(JSON.parse(raw).userId);
-
-      const savedTheme = await AsyncStorage.getItem(`chat_theme_conv_${convId}`);
-      if (savedTheme) setChatThemeId(savedTheme);
 
       const socket = io(WS, { auth: { token }, transports: ['websocket'] });
       socket.emit('chat:join', convId);
@@ -161,11 +119,9 @@ export default function ChatScreen() {
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
         }
       });
-      socket.on('chat:reaction', ({ messageId, reactions }: { messageId: number; reactions: any[] }) => {
+      socket.on('chat:reaction', ({ messageId, reactions }: { messageId: number; reactions: Message['reactions'] }) => {
         setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
       });
-
-      // ✅ FIX: sprawdzamy czy username istnieje przed ustawieniem
       socket.on('chat:typing', ({ isTyping, username }: { isTyping: boolean; username?: string }) => {
         if (!username) return;
         setTypingUsers(prev => {
@@ -184,7 +140,7 @@ export default function ChatScreen() {
             ...prev,
             online: prev.participants.some(p => p.id === uid) ? online : prev.online,
             participants: prev.participants.map(p =>
-              p.id === uid ? { ...p, online } : p
+              p.id === uid ? { ...p, online } : p,
             ),
           };
         });
@@ -192,7 +148,6 @@ export default function ChatScreen() {
 
       socket.on('presence:update', applyPresence);
       socket.on('user:online', applyPresence);
-
       socketRef.current = socket;
       await Promise.all([fetchConv(token), fetchMessages(token)]);
     })();
@@ -208,8 +163,7 @@ export default function ChatScreen() {
       const r = await fetch(`${API}/conversations/${convId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await r.json();
-      setConv(data);
+      setConv(await r.json());
     } catch (e) { console.error('fetchConv:', e); }
   };
 
@@ -220,9 +174,8 @@ export default function ChatScreen() {
         `${API}/conversations/${convId}/messages?limit=${PAGE_SIZE}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      const d    = await r.json();
-      const msgs = d.messages ?? [];
-      setMessages(msgs);
+      const d = await r.json();
+      setMessages(d.messages ?? []);
       setNextCursor(d.nextCursor ?? null);
       setHasMore(!!d.nextCursor);
       scrollChatToEndAfterLayout(listRef, false);
@@ -238,7 +191,7 @@ export default function ChatScreen() {
         `${API}/conversations/${convId}/messages?cursor=${nextCursor}&limit=${PAGE_SIZE}`,
         { headers: { Authorization: `Bearer ${tokenRef.current}` } },
       );
-      const d    = await r.json();
+      const d = await r.json();
       const msgs = d.messages ?? [];
       if (msgs.length === 0) { setHasMore(false); return; }
       setMessages(prev => [...msgs, ...prev]);
@@ -253,10 +206,12 @@ export default function ChatScreen() {
     const t = text.trim();
     const p = [...photos];
     const reply = replyTo;
-    setText(''); setPhotos([]); setReplyTo(null); setInputHeight(INPUT_MIN_HEIGHT);
+    setText('');
+    setPhotos([]);
+    setReplyTo(null);
 
     const form = new FormData();
-    if (t)        form.append('content', t);
+    if (t) form.append('content', t);
     if (reply?.id) form.append('replyToId', String(reply.id));
     p.forEach((uri, i) => {
       form.append('photos', { uri, type: 'image/jpeg', name: `photo_${i}.jpg` } as any);
@@ -264,16 +219,16 @@ export default function ChatScreen() {
 
     try {
       await fetch(`${API}/conversations/${convId}/messages`, {
-        method:  'POST',
+        method: 'POST',
         headers: { Authorization: `Bearer ${tokenRef.current}` },
-        body:    form,
+        body: form,
       });
     } catch (e) { console.error('sendMessage:', e); }
   }, [text, photos, replyTo, convId]);
 
   const emitTyping = useCallback(() => {
     socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: true });
-    clearTimeout(typingTimer.current);
+    if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
       socketRef.current?.emit('chat:typing', { conversationId: convId, isTyping: false });
     }, 2000);
@@ -282,14 +237,15 @@ export default function ChatScreen() {
   const handlePickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true, quality: 0.8,
+      allowsMultipleSelection: true,
+      quality: 0.8,
     });
     if (!r.canceled) {
       setPhotos(prev => [...prev, ...r.assets.map(a => a.uri)].slice(0, 4));
     }
   };
 
-  const handleReact = async (msgId: number, emoji: string) => {
+  const handleReact = useCallback(async (msgId: number, emoji: string) => {
     try {
       const msg = messages.find(m => m.id === msgId);
       const hasMine = !!msg?.reactions?.find(r => r.emoji === emoji)?.myReaction;
@@ -302,180 +258,34 @@ export default function ChatScreen() {
         ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
       });
       if (!res.ok) Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
-    } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
-  };
+    } catch {
+      Toast.show({ type: 'error', text1: 'Brak połączenia' });
+    }
+  }, [messages]);
 
-  const handleNavigateRoute = useCallback(async (data: any) => {
+  const handleNavigateRoute = useCallback(async (data: Record<string, unknown>) => {
     await AsyncStorage.setItem('nav_route', JSON.stringify({
-      routeId: data.routeId, routeName: data.name,
-      points: data.points, distance: data.distance,
+      routeId: data.routeId,
+      routeName: data.name,
+      points: data.points,
+      distance: data.distance,
     }));
     router.push('/(tabs)/map');
   }, [router]);
 
-  const activeChatTheme = CHAT_THEMES.find(t => t.id === chatThemeId) ?? CHAT_THEMES[0];
-
-  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const isMe    = item.senderId === myId;
-    const prevMsg = messages[index - 1];
-    const nextMsg = messages[index + 1];
-    const isFirst = !prevMsg || prevMsg.senderId !== item.senderId;
-    const isLast  = !nextMsg || nextMsg.senderId !== item.senderId;
-    const showAvatar = !isMe && isLast;
-    const showName   = !isMe && isFirst && (conv?.isGroup ?? false);
-
-    const R = 18, T = 5;
-    const bubbleRadius = isMe
-      ? { borderTopLeftRadius: R, borderBottomLeftRadius: R, borderTopRightRadius: isFirst ? R : T, borderBottomRightRadius: isLast ? R : T }
-      : { borderTopRightRadius: R, borderBottomRightRadius: R, borderTopLeftRadius: isFirst ? R : T, borderBottomLeftRadius: isLast ? R : T };
-
-    const routeData = parseRouteMessage(item.content);
-    const linkUrl   = !routeData ? extractUrl(item.content) : null;
-
-    const myBubbleColor    = activeChatTheme.myBubble;
-    const theirBubbleColor = activeChatTheme.theirBubble ?? theme.surface2;
-
-    return (
-      <View style={[
-        { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 1, marginBottom: isLast ? 8 : 2 },
-        isMe
-          ? { justifyContent: 'flex-end', paddingLeft: 48 }
-          : { justifyContent: 'flex-start', paddingRight: 48 },
-      ]}>
-        {!isMe && (
-          <View style={{ width: 30, alignItems: 'center', justifyContent: 'flex-end' }}>
-            {showAvatar && (
-              item.sender.avatarUrl
-                ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: 28, height: 28, borderRadius: 14 }} />
-                : (
-                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.surface2, borderWidth: 1.5, borderColor: '#e3383540', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
-                      {item.sender.username?.slice(0, 2).toUpperCase()}
-                    </Text>
-                  </View>
-                )
-            )}
-          </View>
-        )}
-
-        {routeData ? (
-          <View style={isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }}>
-            {showName && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
-                  {item.sender.username}
-                </Text>
-                <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
-              </View>
-            )}
-            <RouteMessageCard data={routeData} isMe={isMe} onNavigate={handleNavigateRoute} />
-            <Text style={{ fontSize: 9, alignSelf: 'flex-end', marginTop: 2, color: isDark ? '#ffffff40' : '#00000040' }}>
-              {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-        ) : (
-          <View style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-            <TouchableOpacity
-              style={[{
-                maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, gap: 4,
-                ...(isMe
-                  ? { backgroundColor: myBubbleColor }
-                  : { backgroundColor: theirBubbleColor, borderWidth: 1, borderColor: theme.border }),
-              }, bubbleRadius]}
-              onLongPress={() => setMenuMsg(item)}
-              activeOpacity={0.85}
-            >
-              {showName && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <Text style={{ color: item.sender.nickColor || '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
-                    {item.sender.username}
-                  </Text>
-                  <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
-                </View>
-              )}
-
-              {item.replyTo && (
-                <View style={{ backgroundColor: '#00000020', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: isMe ? '#ffffff90' : '#e3383560', paddingHorizontal: 8, paddingVertical: 4, marginBottom: 4, gap: 2 }}>
-                  <Text style={{ color: isMe ? '#ffffffaa' : '#e33835aa', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
-                    {item.replyTo.sender.username}
-                  </Text>
-                  <Text style={{ color: isMe ? '#ffffff70' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                    {item.replyTo.content || '📷 Zdjęcie'}
-                  </Text>
-                </View>
-              )}
-
-              {item.photos?.length > 0 && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-                  {item.photos.map((uri, i) => (
-                    <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setPreviewPhoto(normalizePhotoUri(uri))}>
-                      <Image
-                        source={{ uri: normalizePhotoUri(uri) }}
-                        style={item.photos.length === 1
-                          ? { width: 200, height: 150, borderRadius: 12 }
-                          : { width: 120, height: 90, borderRadius: 8 }}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {!!item.content && (
-                <Text style={{ fontSize: 14, lineHeight: 20, color: isMe ? '#fff' : theme.textMuted }}>
-                  {item.content}
-                </Text>
-              )}
-
-              {!!linkUrl && <LinkPreviewCard url={linkUrl} isMe={isMe} theme={theme} />}
-
-              <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: isMe ? '#ffffff60' : theme.textDim }}>
-                {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            </TouchableOpacity>
-
-            {item.reactions && item.reactions.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, paddingHorizontal: 2 }}>
-                {item.reactions.map(r => (
-                  <TouchableOpacity
-                    key={r.emoji}
-                    onPress={() => handleReact(item.id, r.emoji)}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 3,
-                      backgroundColor: r.myReaction ? '#e3383530' : theme.surface2,
-                      borderRadius: 12, paddingHorizontal: 7, paddingVertical: 3,
-                      borderWidth: 1, borderColor: r.myReaction ? '#e33835' : theme.border,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
-                    <Text style={{ fontSize: 10, color: r.myReaction ? '#e33835' : theme.textDim, fontFamily: 'Orbitron', fontWeight: '700' }}>{r.count}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-      </View>
-    );
-  }, [myId, messages, conv, handleNavigateRoute, theme, isDark, activeChatTheme]);
-
-  // ── Derived values ─────────────────────────────────────
-  // ✅ FIX: bezpieczne odczytanie danych rozmówcy
   const otherParticipant = conv?.participants?.find(p => p.id !== myId);
-  const convName   = conv?.isGroup ? conv.name   : (otherParticipant?.username  ?? '...');
+  const convName = conv?.isGroup ? conv.name : (otherParticipant?.username ?? '...');
   const convAvatar = conv?.isGroup ? conv.avatarUrl : (otherParticipant?.avatarUrl ?? null);
-  // ✅ FIX: online pobieramy z participants (aktualizowanych przez socket), nie z conv.online
   const convOnline = !conv?.isGroup ? (otherParticipant?.online ?? false) : false;
 
-  // ✅ FIX: typing text z Record – nigdy nie będzie "undefined pisze..."
   const typingNames = Object.keys(typingUsers).filter(u => u !== convName || conv?.isGroup);
-  const typingText  = typingNames.length === 1
+  const typingText = typingNames.length === 1
     ? `${typingNames[0]} pisze...`
     : typingNames.length > 1
-    ? `${typingNames.slice(0, 2).join(', ')} piszą...`
-    : null;
+      ? `${typingNames.slice(0, 2).join(', ')} piszą...`
+      : null;
 
   const HEADER_HEIGHT = insets.top + 88;
-
   const headerIconBtn = {
     width: 36,
     height: 36,
@@ -487,243 +297,149 @@ export default function ChatScreen() {
     justifyContent: 'center' as const,
   };
 
+  const menuActions = menuMsg
+    ? buildChatActions({
+        message: menuMsg,
+        myId,
+        capabilities: DM_CAPABILITIES,
+        onReply: () => {
+          const raw = menuMsg.raw as Message;
+          setReplyTo(raw);
+        },
+        onCopy: () => {
+          try {
+            require('@react-native-clipboard/clipboard').default.setString(menuMsg.content);
+          } catch {}
+        },
+        onReport: () => {
+          const raw = menuMsg.raw as Message;
+          showReportContentAlert(reason => {
+            void reportContent({
+              targetType: 'chat_message',
+              targetId: raw.id,
+              reason,
+              offenderUserId: raw.sender.id,
+              details: `authorId=${raw.sender.id}`,
+            });
+          });
+        },
+        onBlock: () => {
+          const raw = menuMsg.raw as Message;
+          showBlockUserAlert(raw.sender.id, raw.sender.username, () => {
+            setMessages(prev => prev.filter(m => m.senderId !== raw.sender.id));
+          });
+        },
+      })
+    : [];
+
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-
-      <CommunityScreenHeader
-        breadcrumb="WIADOMOŚCI"
-        accentDot={false}
-        title=""
-        center={
-          <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => setInfoVisible(true)} activeOpacity={0.75}>
-            <View style={{ position: 'relative' }}>
-              {convAvatar
-                ? <Image source={{ uri: convAvatar }} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: theme.primaryBorder }} />
-                : (
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }}>
-                      {convName?.slice(0, 2).toUpperCase() ?? '??'}
-                    </Text>
-                  </View>
-                )
-              }
-              {!conv?.isGroup && (
-                <View style={{
-                  position: 'absolute', bottom: 0, right: 0,
-                  width: 11, height: 11, borderRadius: 6,
-                  backgroundColor: convOnline ? '#4de926' : theme.textDim,
-                  borderWidth: 2, borderColor: theme.surface,
-                }} />
-              )}
-            </View>
-
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
-                {convName}
-              </Text>
-              {typingText
-                ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <MaterialCommunityIcons name="dots-horizontal" size={14} color={theme.primary} />
-                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' }}>{typingText}</Text>
-                  </View>
-                ) : (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: convOnline ? '#4de926' : theme.textDim }} />
-                    <Text style={{ color: convOnline ? '#4de926' : theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>
-                      {convOnline ? 'ONLINE' : 'OFFLINE'}
-                    </Text>
-                  </View>
-                )
-              }
-            </View>
-          </TouchableOpacity>
-        }
-        right={
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity
-              style={headerIconBtn}
-              onPress={() => setThemePickerOpen(true)}
-            >
-              <MaterialCommunityIcons name="palette" size={17} color={theme.textDim} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={headerIconBtn}
-              onPress={() => setInfoVisible(true)}
-            >
-              <Feather name="info" size={17} color={theme.textDim} />
-            </TouchableOpacity>
-          </View>
-        }
-      />
-
-      {/* ══════════════════ LISTA + INPUT ═══════════════════ */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
-        enabled={Platform.OS === 'ios'}
-      >
-        {/* WIADOMOŚCI */}
-        {loading
-          ? (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-              <MaterialCommunityIcons name="car-sports" size={36} color="#e3383560" />
-              <ActivityIndicator color="#e33835" />
-            </View>
-          ) : (
-            <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-              <FlatList
-                ref={listRef}
-                data={messages}
-                keyExtractor={i => String(i.id)}
-                renderItem={renderMessage}
-                ListHeaderComponent={
-                  hasMore ? (
-                    loadingMore
-                      ? <ActivityIndicator color="#e33835" style={{ marginVertical: 14 }} />
-                      : (
-                        <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#e3383515', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: '#e3383530' }}>
-                            <MaterialIcons name="keyboard-arrow-up" size={14} color="#e33835" />
-                            <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>ZAŁADUJ STARSZE</Text>
-                          </View>
-                        </TouchableOpacity>
-                      )
+    <ChatScreenShell
+      keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+      header={
+        <>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+          <CommunityScreenHeader
+            breadcrumb="WIADOMOŚCI"
+            accentDot={false}
+            title=""
+            center={
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                onPress={() => setInfoVisible(true)}
+                activeOpacity={0.75}
+              >
+                <View style={{ position: 'relative' }}>
+                  {convAvatar ? (
+                    <Image
+                      source={{ uri: convAvatar }}
+                      style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: theme.primaryBorder }}
+                    />
                   ) : (
-                    messages.length > 0
-                      ? (
-                        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
-                            <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 2 }}>POCZĄTEK ROZMOWY</Text>
-                            <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
-                          </View>
-                        </View>
-                      ) : null
-                  )
-                }
-                ListEmptyComponent={
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 80 }}>
-                    <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: '#e3383510', borderWidth: 1, borderColor: '#e3383525', alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialCommunityIcons name="chat-outline" size={32} color="#e3383560" />
+                    <View style={{
+                      width: 40, height: 40, borderRadius: 20,
+                      backgroundColor: theme.primaryBg, borderWidth: 2, borderColor: theme.primaryBorder,
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900' }}>
+                        {convName?.slice(0, 2).toUpperCase() ?? '??'}
+                      </Text>
                     </View>
-                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>Brak wiadomości</Text>
-                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>Napisz pierwszą wiadomość!</Text>
-                  </View>
-                }
-                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: chatListPad, flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
-              />
-            </Animated.View>
-          )
-        }
-
-        {/* ══════════════════════ INPUT ═══════════════════════ */}
-        <View style={{
-          backgroundColor: theme.surface,
-          borderTopWidth: 1,
-          borderTopColor: theme.border,
-          paddingBottom:
-            chatInputPad > 0
-              ? chatInputPad
-              : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16)),
-        }}>
-
-          {/* Reply preview */}
-          {replyTo && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
-              <View style={{ width: 3, borderRadius: 2, alignSelf: 'stretch', backgroundColor: '#e33835' }} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700', marginBottom: 2 }}>
-                  {replyTo.sender.username}
-                </Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {replyTo.content || '📷 Zdjęcie'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name="x" size={12} color={theme.textDim} />
+                  )}
+                  {!conv?.isGroup && (
+                    <View style={{
+                      position: 'absolute', bottom: 0, right: 0,
+                      width: 11, height: 11, borderRadius: 6,
+                      backgroundColor: convOnline ? theme.online : theme.textDim,
+                      borderWidth: 2, borderColor: theme.surface,
+                    }} />
+                  )}
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                    {convName}
+                  </Text>
+                  {typingText ? (
+                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontStyle: 'italic' }}>
+                      {typingText}
+                    </Text>
+                  ) : (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5,
+                      paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+                      backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border,
+                    }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: convOnline ? theme.online : theme.textDim }} />
+                      <Text style={{ color: convOnline ? theme.online : theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, fontWeight: '700' }}>
+                        {convOnline ? 'ONLINE' : 'OFFLINE'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Podgląd zdjęć */}
-          {photos.length > 0 && (
-            <View style={{ flexDirection: 'row', paddingHorizontal: 14, paddingTop: 10, gap: 8 }}>
-              {photos.map((uri, i) => (
-                <View key={i} style={{ position: 'relative' }}>
-                  <Image source={{ uri }} style={{ width: 58, height: 58, borderRadius: 10, borderWidth: 1, borderColor: theme.border }} />
-                  <TouchableOpacity
-                    style={{ position: 'absolute', top: -5, right: -5, width: 20, height: 20, borderRadius: 10, backgroundColor: '#e33835', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.surface }}
-                    onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
-                  >
-                    <Feather name="x" size={10} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Input row */}
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 10, gap: 8 }}>
-            <TouchableOpacity
-              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-              onPress={handlePickPhoto}
-            >
-              <Feather name="image" size={18} color={theme.textDim} />
-            </TouchableOpacity>
-
-            <TextInput
-              style={{
-                flex: 1, color: theme.text, fontSize: 14, lineHeight: 20,
-                backgroundColor: theme.surface2, borderRadius: 20,
-                paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
-                borderWidth: 1, borderColor: theme.border,
-                height: Math.max(INPUT_MIN_HEIGHT, inputHeight),
-              }}
-              value={text}
-              onChangeText={t => { setText(t); emitTyping(); }}
-              onContentSizeChange={e => {
-                const h = e.nativeEvent.contentSize.height;
-                setInputHeight(Math.min(h, INPUT_MAX_HEIGHT));
-              }}
-              placeholder="Napisz wiadomość..."
-              placeholderTextColor={theme.textDim}
-              clearButtonMode="while-editing"
-              multiline maxLength={2000}
-              scrollEnabled={inputHeight >= INPUT_MAX_HEIGHT}
-            />
-            <TouchableOpacity
-              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-              onPress={() => {
-                Keyboard.dismiss();
-                setText('');
-                setReplyTo(null);
-              }}
-            >
-              <Feather name="x" size={16} color={theme.textDim} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: (text.trim() || photos.length) ? '#e33835' : '#e3383530',
-                alignItems: 'center', justifyContent: 'center',
-              }}
-              onPress={handleSend}
-              disabled={!text.trim() && !photos.length}
-            >
-              <Feather name="send" size={17} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+            }
+            right={
+              <TouchableOpacity style={headerIconBtn} onPress={() => setInfoVisible(true)}>
+                <Feather name="info" size={17} color={theme.textDim} />
+              </TouchableOpacity>
+            }
+          />
+        </>
+      }
+      footer={
+        <ChatComposer
+          text={text}
+          onChangeText={t => { setText(t); emitTyping(); }}
+          onSend={handleSend}
+          onAttach={handlePickPhoto}
+          onClear={() => { setText(''); setReplyTo(null); }}
+          attachments={photos}
+          onRemoveAttachment={i => setPhotos(prev => prev.filter((_, j) => j !== i))}
+          replyTo={replyTo ? { username: replyTo.sender.username, preview: replyTo.content || '📷 Zdjęcie' } : null}
+          onDismissReply={() => setReplyTo(null)}
+          inputPaddingBottom={chatInputPad}
+        />
+      }
+    >
+      {loading ? (
+        <ChatLoadingState />
+      ) : (
+        <ChatMessageList
+          messages={unifiedMessages}
+          myId={myId}
+          listRef={listRef}
+          loading={loading}
+          loadingMore={loadingMore}
+          hasMore={hasMore}
+          onLoadOlder={loadMore}
+          listPaddingBottom={chatListPad}
+          capabilities={DM_CAPABILITIES}
+          showGroupNames={conv?.isGroup ?? false}
+          onLongPressMessage={setMenuMsg}
+          onReact={handleReact}
+          onPressPhoto={setPreviewPhoto}
+          onNavigateRoute={handleNavigateRoute}
+        />
+      )}
 
       <ConversationInfoSheet
         visible={infoVisible}
@@ -738,118 +454,14 @@ export default function ChatScreen() {
         onConvUpdated={(name, avatar) => setConv(prev => prev ? { ...prev, name, avatarUrl: avatar } : prev)}
       />
 
-      {/* Context menu for message long-press */}
-      <Modal visible={!!menuMsg} transparent animationType="fade" onRequestClose={() => setMenuMsg(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setMenuMsg(null)}>
-          <Pressable onPress={e => e.stopPropagation()}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingBottom: insets.bottom + 16, borderTopWidth: 1, borderColor: theme.border2 }}>
-              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
+      <ChatMessageMenu
+        visible={!!menuMsg}
+        onClose={() => setMenuMsg(null)}
+        actions={menuActions}
+        showReactions={DM_CAPABILITIES.reactions}
+        onReact={emoji => menuMsg && handleReact(menuMsg.id, emoji)}
+      />
 
-              {/* Emoji reaction row */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.border, marginBottom: 4 }}>
-                {REACTION_EMOJIS.map(emoji => (
-                  <TouchableOpacity key={emoji} onPress={() => { if (menuMsg) handleReact(menuMsg.id, emoji); setMenuMsg(null); }}
-                    style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 22 }}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Reply action */}
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                onPress={() => { if (menuMsg) setReplyTo(menuMsg); setMenuMsg(null); }}
-              >
-                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.primary + '18', alignItems: 'center', justifyContent: 'center' }}>
-                  <MaterialIcons name="reply" size={18} color={theme.primary} />
-                </View>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>Odpowiedz</Text>
-              </TouchableOpacity>
-
-              {/* Copy action */}
-              {!!menuMsg?.content && (
-                <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                  onPress={() => {
-                    try { require('@react-native-clipboard/clipboard').default.setString(menuMsg?.content ?? ''); } catch {}
-                    setMenuMsg(null);
-                  }}
-                >
-                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                    <MaterialIcons name="content-copy" size={18} color={theme.textDim} />
-                  </View>
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>Kopiuj</Text>
-                </TouchableOpacity>
-              )}
-
-              {menuMsg && menuMsg.senderId !== myId && (
-                <>
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                    onPress={() => {
-                      const msg = menuMsg;
-                      setMenuMsg(null);
-                      showReportContentAlert((reason) => {
-                        void reportContent({
-                          targetType: 'chat_message',
-                          targetId: msg.id,
-                          reason,
-                          offenderUserId: msg.sender.id,
-                          details: `authorId=${msg.sender.id}`,
-                        });
-                      });
-                    }}
-                  >
-                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FF980018', alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialIcons name="flag" size={18} color="#FF9800" />
-                    </View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: theme.text }}>Zgłoś treść</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                    onPress={() => {
-                      const msg = menuMsg;
-                      setMenuMsg(null);
-                      showBlockUserAlert(msg.sender.id, msg.sender.username, () => {
-                        setMessages((prev) => prev.filter((m) => m.senderId !== msg.sender.id));
-                      });
-                    }}
-                  >
-                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#e3383518', alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialIcons name="block" size={18} color="#e33835" />
-                    </View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', color: '#e33835' }}>Zablokuj użytkownika</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Chat theme picker */}
-      <Modal visible={themePickerOpen} transparent animationType="slide" onRequestClose={() => setThemePickerOpen(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setThemePickerOpen(false)}>
-          <Pressable onPress={e => e.stopPropagation()}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 20, borderTopWidth: 1, borderColor: theme.border2 }}>
-              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 13, color: theme.text, letterSpacing: 2, marginBottom: 20 }}>MOTYW CZATU</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-                {CHAT_THEMES.map(t => (
-                  <TouchableOpacity key={t.id} onPress={async () => { setChatThemeId(t.id); await AsyncStorage.setItem(`chat_theme_conv_${convId}`, t.id); setThemePickerOpen(false); }} style={{ alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.myBubble, borderWidth: 2, borderColor: chatThemeId === t.id ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                      {chatThemeId === t.id && <MaterialIcons name="check" size={18} color="#fff" />}
-                    </View>
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>{t.name.toUpperCase()}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Fullscreen photo preview */}
       <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
         <Pressable
           style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}
@@ -870,6 +482,6 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </Pressable>
       </Modal>
-    </View>
+    </ChatScreenShell>
   );
 }

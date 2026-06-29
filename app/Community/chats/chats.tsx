@@ -1,20 +1,21 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
-  Image, StatusBar,
-  RefreshControl, ActivityIndicator, Modal,
+  View, Text, FlatList, TouchableOpacity, TextInput,
+  StatusBar, RefreshControl, ActivityIndicator, Modal,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { CommunityScreenHeader, CommunitySearchBar, CommunityEmptyState } from '../../../components/community';
+import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
+import { ChatConversationListItem, type ConversationListData } from '../../../components/chat/v2';
 
 const API      = 'https://v-room.app/api/chat';
 const WS       = 'https://v-room.app';
-const AVATAR   = 54;
-const PAGE     = 8;
+const PAGE = 8;
+
+type Segment = 'all' | 'unread' | 'groups';
 
 interface Conversation {
   id:           number;
@@ -33,22 +34,6 @@ interface Conversation {
   unread: number;
 }
 
-function formatTime(iso: string): string {
-  try {
-    const date   = new Date(iso);
-    const now    = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffM  = Math.floor(diffMs / 60000);
-    const diffH  = Math.floor(diffMs / 3600000);
-    const diffD  = Math.floor(diffMs / 86400000);
-    if (diffM < 1)  return 'teraz';
-    if (diffM < 60) return `${diffM}min`;
-    if (diffH < 24) return `${diffH}h`;
-    if (diffD < 7)  return `${diffD}d`;
-    return date.toLocaleDateString('pl', { day: '2-digit', month: '2-digit' });
-  } catch { return ''; }
-}
-
 export default function ChatsIndex() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
@@ -56,6 +41,7 @@ export default function ChatsIndex() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filtered,      setFiltered]      = useState<Conversation[]>([]);
   const [search,        setSearch]        = useState('');
+  const [segment,       setSegment]       = useState<Segment>('all');
   const [loading,       setLoading]       = useState(false);
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [hasMore,       setHasMore]       = useState(true);
@@ -232,64 +218,45 @@ export default function ChatsIndex() {
 
   // ── Filtrowanie lokalne ────────────────────────────────
   useEffect(() => {
-    if (!search.trim()) { setFiltered(conversations); return; }
-    const q = search.toLowerCase();
-    setFiltered(conversations.filter(c => c.name?.toLowerCase().includes(q)));
-  }, [search, conversations]);
+    let list = conversations;
+    if (segment === 'unread') list = list.filter(c => c.unread > 0);
+    if (segment === 'groups') list = list.filter(c => c.isGroup);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(c => c.name?.toLowerCase().includes(q));
+    }
+    setFiltered(list);
+  }, [search, conversations, segment]);
 
-  // ── Render konwersacji ─────────────────────────────────
-  const renderItem = useCallback(({ item }: { item: Conversation }) => {
-    const lastText   = item.lastMessage
-      ? item.lastMessage.content?.trim() || (item.lastMessage.photos?.length ? '📷 Zdjęcie' : '')
-      : 'Brak wiadomości';
-    const lastPrefix = item.lastMessage?.isMe ? 'Ty: ' : '';
+  const toListItem = useCallback((item: Conversation): ConversationListData => ({
+    id: item.id,
+    name: item.name,
+    avatarUrl: item.avatarUrl,
+    isGroup: item.isGroup,
+    online: item.online,
+    unread: item.unread,
+    lastMessage: item.lastMessage
+      ? {
+          content: item.lastMessage.content,
+          photos: item.lastMessage.photos,
+          createdAt: item.lastMessage.createdAt,
+          isMe: item.lastMessage.isMe,
+        }
+      : null,
+  }), []);
 
-    return (
-      <TouchableOpacity
-        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 13, gap: 14, backgroundColor: theme.bg }}
-        onPress={() => router.push(`/Community/chats/${item.id}` as any)}
-        activeOpacity={0.72}
-      >
-        <View style={{ position: 'relative', width: AVATAR, height: AVATAR }}>
-          {item.avatarUrl
-            ? <Image source={{ uri: item.avatarUrl }} style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 }} />
-            : (
-              <View style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: theme.surface2, borderWidth: 1.5, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 16, fontWeight: '700' }}>
-                  {item.name?.slice(0, 2).toUpperCase() ?? '??'}
-                </Text>
-              </View>
-            )
-          }
-          {!item.isGroup && item.online && (
-            <View style={{ position: 'absolute', bottom: 2, right: 2, width: 13, height: 13, borderRadius: 7, backgroundColor: '#4de926', borderWidth: 2, borderColor: theme.bg }} />
-          )}
-          {item.isGroup && (
-            <View style={{ position: 'absolute', bottom: 1, right: 1, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, borderWidth: 2, borderColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name="account-group" size={9} color="#fff" />
-            </View>
-          )}
-        </View>
+  const renderItem = useCallback(({ item }: { item: Conversation }) => (
+    <ChatConversationListItem
+      item={toListItem(item)}
+      onPress={() => router.push(`/Community/chats/${item.id}` as any)}
+    />
+  ), [router, toListItem]);
 
-        <View style={{ flex: 1, gap: 5 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>{item.name}</Text>
-            {item.lastMessage?.createdAt && (
-              <Text style={{ color: theme.textDim, fontSize: 10, flexShrink: 0 }}>{formatTime(item.lastMessage.createdAt)}</Text>
-            )}
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text style={{ flex: 1, color: theme.textDim, fontSize: 12, lineHeight: 16 }} numberOfLines={1}>{lastPrefix}{lastText}</Text>
-            {item.unread > 0 && (
-              <View style={{ backgroundColor: theme.primary, borderRadius: 10, minWidth: 20, height: 20, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{item.unread > 99 ? '99+' : item.unread}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  }, [router, theme]);
+  const segments: { id: Segment; label: string }[] = [
+    { id: 'all', label: 'WSZYSTKIE' },
+    { id: 'unread', label: 'NIEPRZECZYTANE' },
+    { id: 'groups', label: 'GRUPY' },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -307,12 +274,50 @@ export default function ChatsIndex() {
           </TouchableOpacity>
         }
       />
-      <View style={{ paddingHorizontal: 16, paddingBottom: 12, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-        <CommunitySearchBar
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Szukaj konwersacji..."
-        />
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, gap: 10 }}>
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', gap: 10,
+          backgroundColor: theme.surface2, borderRadius: 14, borderWidth: 1, borderColor: theme.border2,
+          paddingHorizontal: 14, paddingVertical: 11,
+        }}>
+          <Feather name="search" size={16} color={theme.textDim} />
+          <TextInput
+            style={{ flex: 1, color: theme.text, fontSize: 13, fontFamily: 'Orbitron' }}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Szukaj konwersacji..."
+            placeholderTextColor={theme.textDim}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Feather name="x" size={15} color={theme.textDim} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {segments.map(s => {
+            const active = segment === s.id;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => setSegment(s.id)}
+                style={{
+                  flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10,
+                  backgroundColor: active ? theme.primaryBg : theme.surface2,
+                  borderWidth: 1,
+                  borderColor: active ? theme.primaryBorder : theme.border,
+                }}
+              >
+                <Text style={{
+                  color: active ? theme.primary : theme.textDim,
+                  fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 0.5, fontWeight: '700',
+                }}>
+                  {s.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <FlatList
@@ -349,7 +354,7 @@ export default function ChatsIndex() {
         }
         contentContainerStyle={filtered.length === 0 ? { flex: 1 } : { paddingBottom: 100 }}
         ItemSeparatorComponent={() => (
-          <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 20 + AVATAR + 14 }} />
+          <View style={{ height: 1, backgroundColor: theme.border, marginLeft: 88 }} />
         )}
       />
 

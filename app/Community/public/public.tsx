@@ -1,25 +1,21 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
-  View, FlatList, TextInput, TouchableOpacity,
-  Image, StatusBar, Platform, ActivityIndicator, Modal, Pressable, Dimensions, StyleSheet,
+  View, FlatList, TouchableOpacity,
+  Image, StatusBar, Platform, Modal, Pressable, Dimensions,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Video, ResizeMode } from 'expo-av';
 import { io, Socket } from 'socket.io-client';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
-import { CommunityScreenHeader, CommunityEmptyState } from '../../../components/community';
+import { CommunityScreenHeader } from '../../../components/community';
 import { useChatKeyboard, pinChatToBottom } from '../../../hooks/useChatKeyboard';
-import { UserBadges } from '../../../components/user/UserBadges';
-import { ProvinceBadge } from '../../../components/user/ProvinceBadge';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import {
   renderDiscussionBody,
@@ -27,6 +23,17 @@ import {
   resolveMentionUserId,
   type MentionSuggestion,
 } from '../community/communityShared';
+import {
+  ChatScreenShell,
+  ChatMessageList,
+  ChatComposer,
+  ChatMessageMenu,
+  ChatLoadingState,
+  mapPublicMessageToUnified,
+  buildChatActions,
+  PUBLIC_CAPABILITIES,
+  type UnifiedChatMessage,
+} from '../../../components/chat/v2';
 
 const API = `${API_URL}/api/public-chat`;
 
@@ -47,7 +54,6 @@ function settingsFromMode(mode: PublicNotifMode) {
 const INPUT_MIN_HEIGHT = 40;
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE = 40;
-const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 const { width: SCREEN_W } = Dimensions.get('window');
 
 interface ChatUser {
@@ -116,7 +122,7 @@ export default function PublicChatScreen() {
   const [myId, setMyId] = useState<number | null>(null);
   const myIdRef = useRef<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
-  const [menuMsg, setMenuMsg] = useState<PublicMessage | null>(null);
+  const [menuMsg, setMenuMsg] = useState<UnifiedChatMessage | null>(null);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -509,233 +515,51 @@ export default function PublicChatScreen() {
     ? chatInputPad
     : Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 16);
 
-  const pillBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
-  const pillSolidBg = isDark ? 'rgba(15, 15, 15, 0.95)' : 'rgba(250, 250, 250, 0.95)';
-  const pillShadow = Platform.select({
-    ios: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -2 },
-      shadowOpacity: 0.5,
-      shadowRadius: 10,
-    },
-    android: { elevation: 10 },
-    default: {},
-  });
-  const pillHeight = Math.min(Math.max(50, inputHeight + 10), 60);
-  const canSendInput = editingMsg
-    ? text.trim() || editingMsg.photos.length || editingMsg.videos.length
-    : text.trim() || photos.length || !!video;
+  const unifiedMessages = useMemo(() => messages.map(mapPublicMessageToUnified), [messages]);
 
-  const renderMessage = useCallback(({ item, index }: { item: PublicMessage; index: number }) => {
-    const isMe = item.senderId === myId;
-    const prev = messages[index - 1];
-    const showName = !prev || prev.senderId !== item.senderId;
-    const hasPhotos = item.photos?.length > 0;
-    const hasVideos = item.videos?.length > 0;
-    const hasMedia = hasPhotos || hasVideos;
-    const hasText = !!item.content?.trim();
+  const renderPublicBody = useCallback((content: string, isMe: boolean) => (
+    <Text style={{ fontSize: 14, lineHeight: 20 }}>
+      {renderDiscussionBody(content, theme, {
+        textColor: isMe ? '#fff' : theme.text,
+        mentionColor: isMe ? '#b8e8ff' : '#4a9eff',
+        linkColor: isMe ? '#9fd4ff' : '#4a9eff',
+        onMentionPress: handleMentionPress,
+      })}
+    </Text>
+  ), [theme, handleMentionPress]);
 
-    const myBubbleRadius = {
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: showName ? 4 : 20,
-      borderBottomLeftRadius: 20,
-      borderBottomRightRadius: 4,
-    };
-
-    const theirBubbleRadius = {
-      borderTopLeftRadius: showName ? 4 : 20,
-      borderTopRightRadius: 20,
-      borderBottomLeftRadius: 20,
-      borderBottomRightRadius: 20,
-    };
-
-    const bubblePadding = { paddingHorizontal: 16, paddingVertical: 12, gap: 6 };
-
-    const myBubbleStyle = {
-      backgroundColor: 'rgba(227, 56, 53, 0.15)',
-      borderWidth: 1,
-      borderColor: 'rgba(227, 56, 53, 0.4)',
-    };
-
-    const theirBubbleStyle = {
-      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-    };
-
-    const timeRow = (onBubble: boolean) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-end' }}>
-        {!!item.editedAt && (
-          <Text style={{
-            fontSize: 8,
-            color: onBubble && isMe ? 'rgba(255,255,255,0.55)' : theme.textDim,
-            fontStyle: 'italic',
-          }}>
-            edytowano
-          </Text>
-        )}
-        <Text style={{
-          fontSize: 9,
-          color: onBubble && isMe ? 'rgba(255,255,255,0.65)' : theme.textDim,
-        }}>
-          {new Date(item.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
-      </View>
-    );
-
-    const replyQuote = item.replyTo ? (
-      <View style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.2)',
-        borderRadius: 8,
-        borderLeftWidth: 3,
-        borderLeftColor: theme.primary,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        marginBottom: hasMedia && !hasText ? 0 : 6,
-      }}>
-        <Text style={{
-          color: isMe ? '#fff' : theme.primary,
-          fontFamily: 'Orbitron',
-          fontSize: 8,
-          fontWeight: '600',
-          letterSpacing: 0,
-        }}>
-          {item.replyTo.sender.username}
-        </Text>
-        <Text style={{ color: isMe ? 'rgba(255,255,255,0.75)' : theme.textDim, fontSize: 11 }} numberOfLines={1}>
-          {replyPreviewLabel(item.replyTo)}
-        </Text>
-      </View>
-    ) : null;
-
-    return (
-      <View style={{ flexDirection: 'row', marginBottom: 8, paddingHorizontal: 12, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-        {!isMe && (
-          <View style={{ width: 32, marginRight: 8, alignSelf: 'flex-end' }}>
-            {showName && (
-              item.sender.avatarUrl
-                ? <Image source={{ uri: item.sender.avatarUrl }} style={{ width: 28, height: 28, borderRadius: 14 }} />
-                : (
-                  <View style={{
-                    width: 28, height: 28, borderRadius: 14,
-                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                    alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1, borderColor: 'rgba(150, 150, 150, 0.2)',
-                  }}>
-                    <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>
-                      {item.sender.username.slice(0, 2).toUpperCase()}
-                    </Text>
-                  </View>
-                )
-            )}
-          </View>
-        )}
-
-        <View style={{ maxWidth: SCREEN_W * 0.78, alignItems: isMe ? 'flex-end' : 'flex-start', gap: 4 }}>
-          {showName && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-              <TouchableOpacity onPress={() => router.push(`/profile/${item.sender.id}` as any)}>
-                <Text style={{ color: item.sender.nickColor || theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '600', letterSpacing: 0 }}>
-                  {item.sender.username}
-                </Text>
-              </TouchableOpacity>
-              {!!item.sender.province && (
-                <ProvinceBadge province={item.sender.province} compact theme={theme} />
-              )}
-              <UserBadges isAdmin={item.sender.isAdmin} isPremium={item.sender.isPremium} compact />
-            </View>
-          )}
-
-          {hasMedia && (
-            <TouchableOpacity onLongPress={() => setMenuMsg(item)} activeOpacity={0.9} style={{ gap: 4 }}>
-              {replyQuote}
-              {hasPhotos && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-                  {item.photos.map((uri, i) => (
-                    <TouchableOpacity key={i} onPress={() => setPreviewPhoto(normalizeUri(uri))}>
-                      <Image
-                        source={{ uri: normalizeUri(uri) }}
-                        style={item.photos.length === 1
-                          ? { width: 220, height: 160, borderRadius: 12 }
-                          : { width: 120, height: 90, borderRadius: 8 }}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-              {hasVideos && item.videos.map((uri, i) => (
-                <Video
-                  key={i}
-                  source={{ uri: normalizeUri(uri) }}
-                  style={{ width: 220, height: 160, borderRadius: 12, backgroundColor: '#000' }}
-                  useNativeControls
-                  resizeMode={ResizeMode.CONTAIN}
-                />
-              ))}
-              {!hasText && timeRow(false)}
-            </TouchableOpacity>
-          )}
-
-          {(hasText || (item.replyTo && !hasMedia)) && (
-            <TouchableOpacity
-              style={[
-                isMe ? myBubbleRadius : theirBubbleRadius,
-                bubblePadding,
-                isMe ? myBubbleStyle : theirBubbleStyle,
-              ]}
-              onLongPress={() => setMenuMsg(item)}
-              activeOpacity={0.85}
-            >
-              {item.replyTo && !hasMedia && replyQuote}
-              {hasText && (
-                <Text style={{ fontSize: 14, lineHeight: 20 }}>
-                  {renderDiscussionBody(item.content!, theme, {
-                    textColor: isMe ? '#fff' : theme.text,
-                    mentionColor: isMe ? '#b8e8ff' : '#4a9eff',
-                    linkColor: isMe ? '#9fd4ff' : '#4a9eff',
-                    onMentionPress: handleMentionPress,
-                  })}
-                </Text>
-              )}
-              {timeRow(true)}
-            </TouchableOpacity>
-          )}
-
-          {item.reactions && item.reactions.length > 0 && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, paddingHorizontal: 2 }}>
-              {item.reactions.map(r => (
-                <TouchableOpacity
-                  key={r.emoji}
-                  onPress={() => handleReact(item.id, r.emoji)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 3,
-                    backgroundColor: r.myReaction
-                      ? (isDark ? '#e3383528' : '#e3383518')
-                      : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'),
-                    borderRadius: 14,
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                  }}
-                >
-                  <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
-                  <Text style={{
-                    fontSize: 10,
-                    color: r.myReaction ? theme.primary : theme.textDim,
-                    fontFamily: 'Orbitron',
-                    fontWeight: '700',
-                  }}>
-                    {r.count}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  }, [myId, messages, theme, router, isDark, handleMentionPress, handleReact]);
+  const publicMenuActions = menuMsg
+    ? buildChatActions({
+        message: menuMsg,
+        myId,
+        capabilities: PUBLIC_CAPABILITIES,
+        isModerator: false,
+        onReply: () => setReplyTo(menuMsg.raw as PublicMessage),
+        onEdit: () => startEdit(menuMsg.raw as PublicMessage),
+        onCopy: () => {
+          try {
+            require('@react-native-clipboard/clipboard').default.setString(menuMsg.content);
+          } catch {}
+        },
+        onReport: () => {
+          const raw = menuMsg.raw as PublicMessage;
+          showReportContentAlert(reason => {
+            void reportContent({
+              targetType: 'public_chat_message',
+              targetId: raw.id,
+              reason,
+              offenderUserId: raw.sender.id,
+            });
+          });
+        },
+        onBlock: () => {
+          const raw = menuMsg.raw as PublicMessage;
+          showBlockUserAlert(raw.sender.id, raw.sender.username, () => {
+            setMessages(prev => prev.filter(m => m.senderId !== raw.sender.id));
+          });
+        },
+      })
+    : [];
 
   if (loading && messages.length === 0) {
     return (
@@ -746,279 +570,144 @@ export default function PublicChatScreen() {
           subtitle="LIVE · CAŁA SPOŁECZNOŚĆ"
           right={<MaterialCommunityIcons name="earth" size={22} color={theme.success} />}
         />
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color="#e33835" />
-        </View>
+        <ChatLoadingState />
       </View>
     );
   }
 
-  const loadOlderHeader = hasMore ? (
-    loadingMore
-      ? <ActivityIndicator color="#e33835" style={{ marginVertical: 14 }} />
-      : (
-        <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={loadMore}>
-          <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 8 }}>ZAŁADUJ STARSZE</Text>
+  const mentionOverlay = !!mentionQuery && mentionUsers.length > 0 ? (
+    <View style={{
+      marginHorizontal: 12, marginBottom: 6,
+      backgroundColor: isDark ? 'rgba(22,22,22,0.96)' : 'rgba(255,255,255,0.96)',
+      borderRadius: 14, maxHeight: 140, overflow: 'hidden',
+      borderWidth: 1, borderColor: theme.border2,
+    }}>
+      {mentionUsers.map(u => (
+        <TouchableOpacity
+          key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
+          onPress={() => insertMention(u)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
+        >
+          {u.type === 'user' ? (
+            u.avatarUrl
+              ? <Image source={{ uri: u.avatarUrl }} style={{ width: 24, height: 24, borderRadius: 12 }} />
+              : (
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: theme.surface2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>{u.username.slice(0, 1).toUpperCase()}</Text>
+                </View>
+              )
+          ) : (
+            <MaterialIcons name="map" size={14} color="#7cb342" />
+          )}
+          <Text style={{ color: theme.text, fontSize: 13 }}>
+            {u.type === 'province' ? `@${u.mention}` : `@${u.username}`}
+          </Text>
         </TouchableOpacity>
-      )
+      ))}
+    </View>
   ) : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
-
-      <CommunityScreenHeader
-        title="CZAT OGÓLNY"
-        subtitle={typingText || 'LIVE · CAŁA SPOŁECZNOŚĆ'}
-        right={
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity
-              onPress={() => setNotifModalOpen(true)}
-              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <MaterialIcons
-                name={notifMode === 'muted' ? 'notifications-off' : notifMode === 'mentions_only' ? 'notifications' : 'notifications-active'}
-                size={18}
-                color={notifMode === 'all' ? theme.success : theme.textDim}
-              />
-            </TouchableOpacity>
-            <MaterialCommunityIcons name="earth" size={22} color={theme.success} />
-          </View>
-        }
-      />
-
-      <View style={{ flex: 1 }}>
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={m => String(m.id)}
-          renderItem={renderMessage}
-          ListHeaderComponent={loadOlderHeader}
-          ListEmptyComponent={
-            <CommunityEmptyState
-              icon="earth"
-              title="Napisz pierwszą wiadomość!"
-            />
-          }
-          contentContainerStyle={{
+    <ChatScreenShell
+      header={
+        <>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+          <CommunityScreenHeader
+            title="CZAT OGÓLNY"
+            subtitle={typingText || 'LIVE · CAŁA SPOŁECZNOŚĆ'}
+            right={
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setNotifModalOpen(true)}
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <MaterialIcons
+                    name={notifMode === 'muted' ? 'notifications-off' : notifMode === 'mentions_only' ? 'notifications' : 'notifications-active'}
+                    size={18}
+                    color={notifMode === 'all' ? theme.success : theme.textDim}
+                  />
+                </TouchableOpacity>
+                <MaterialCommunityIcons name="earth" size={22} color={theme.success} />
+              </View>
+            }
+          />
+        </>
+      }
+      footer={
+        <ChatComposer
+          text={text}
+          onChangeText={onInputChange}
+          onSend={() => void handleSend()}
+          onAttach={pickPhotos}
+          onAttachVideo={pickVideo}
+          showVideoAttach={!editingMsg}
+          hasVideo={!!video}
+          onRemoveVideo={() => setVideo(null)}
+          onClear={() => { setText(''); setReplyTo(null); cancelEdit(); }}
+          attachments={editingMsg ? [] : photos}
+          onRemoveAttachment={i => setPhotos(prev => prev.filter((_, j) => j !== i))}
+          replyTo={replyTo ? { username: replyTo.sender.username, preview: replyPreviewLabel(replyTo) } : null}
+          onDismissReply={() => setReplyTo(null)}
+          editing={editingMsg ? { preview: replyPreviewLabel(editingMsg) } : null}
+          onDismissEdit={cancelEdit}
+          inputPaddingBottom={inputBottomPad}
+          placeholder={editingMsg ? 'Edytuj treść...' : 'Napisz wiadomość...'}
+          disabled={!!editingMsg && false}
+          sending={sending}
+          sendIcon={editingMsg ? 'check' : 'send'}
+          showAttach={!editingMsg}
+          overlay={mentionOverlay}
+        />
+      }
+    >
+      <ChatMessageList
+        messages={unifiedMessages}
+        myId={myId}
+        listRef={listRef}
+        loadingMore={loadingMore}
+        hasMore={hasMore}
+        onLoadOlder={loadMore}
+        listPaddingBottom={chatListPad}
+        capabilities={PUBLIC_CAPABILITIES}
+        showGroupNames
+        onLongPressMessage={setMenuMsg}
+        onReact={handleReact}
+        onPressPhoto={uri => setPreviewPhoto(normalizeUri(uri))}
+        renderBody={(content, isMe) => renderPublicBody(content, isMe)}
+        emptyTitle="Napisz pierwszą wiadomość!"
+        listProps={{
+          contentContainerStyle: {
             paddingTop: 8,
-            paddingBottom: chatListPad + 80,
             flexGrow: messages.length > 0 ? 1 : undefined,
             justifyContent: messages.length > 0 ? 'flex-end' : undefined,
-          }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          maintainVisibleContentPosition={
-            anchorOlderLoad
-              ? { minIndexForVisible: 1, autoscrollToTopThreshold: 100 }
-              : undefined
-          }
-          onLayout={(e) => {
-            listLayoutHeightRef.current = e.nativeEvent.layout.height;
-          }}
-          onScroll={(e) => {
+          },
+          maintainVisibleContentPosition: anchorOlderLoad
+            ? { minIndexForVisible: 1, autoscrollToTopThreshold: 100 }
+            : undefined,
+          onLayout: (e) => { listLayoutHeightRef.current = e.nativeEvent.layout.height; },
+          onScroll: (e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
             const viewH = layoutMeasurement.height > 0 ? layoutMeasurement.height : listLayoutHeightRef.current;
             const distFromBottom = contentSize.height - viewH - contentOffset.y;
             stickToNewestRef.current = distFromBottom < 160;
-            if (stickToNewestRef.current && anchorOlderLoad) {
-              setAnchorOlderLoad(false);
-            }
-          }}
-          scrollEventThrottle={16}
-          onContentSizeChange={() => {
+            if (stickToNewestRef.current && anchorOlderLoad) setAnchorOlderLoad(false);
+          },
+          scrollEventThrottle: 16,
+          onContentSizeChange: () => {
             if (stickToNewestRef.current) {
               pinChatToBottom(listRef, false, Math.max(0, messages.length - 1));
             }
-          }}
-          onScrollToIndexFailed={(info) => {
+          },
+          onScrollToIndexFailed: (info) => {
             setTimeout(() => {
               listRef.current?.scrollToEnd({ animated: false });
               setTimeout(() => {
-                listRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: false,
-                  viewPosition: 1,
-                });
+                listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 1 });
               }, 80);
             }, 80);
-          }}
-        />
-
-        <View style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: inputBottomPad,
-        }}>
-          {(replyTo || editingMsg) && (
-            <View style={{
-              marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8,
-              flexDirection: 'row', alignItems: 'center', gap: 8,
-              borderLeftWidth: 3, borderLeftColor: theme.primary,
-              backgroundColor: 'rgba(0,0,0,0.15)',
-              borderRadius: 10,
-            }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '600' }}>
-                  {replyTo ? replyTo.sender.username : 'EDYTUJESZ WIADOMOŚĆ'}
-                </Text>
-                <Text style={{ color: theme.textDim, fontSize: 11 }} numberOfLines={1}>
-                  {replyTo ? replyPreviewLabel(replyTo) : replyPreviewLabel(editingMsg!)}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={replyTo ? () => setReplyTo(null) : cancelEdit}>
-                <Feather name="x" size={16} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!editingMsg && (photos.length > 0 || video) && (
-            <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 8 }}>
-              {photos.map((uri, i) => (
-                <View key={i} style={{ position: 'relative' }}>
-                  <Image source={{ uri }} style={{ width: 48, height: 48, borderRadius: 10 }} />
-                  <TouchableOpacity
-                    style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
-                  >
-                    <Feather name="x" size={9} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {video && (
-                <View style={{ position: 'relative' }}>
-                  <View style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
-                    <MaterialIcons name="videocam" size={18} color="#fff" />
-                  </View>
-                  <TouchableOpacity
-                    style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => setVideo(null)}
-                  >
-                    <Feather name="x" size={9} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          )}
-
-          <View style={{ marginHorizontal: 16, marginBottom: 16, ...pillShadow }}>
-            <View style={{
-              height: pillHeight,
-              borderRadius: 25,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: pillBorder,
-            }}>
-              <BlurView
-                intensity={100}
-                tint={isDark ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View
-                style={[
-                  StyleSheet.absoluteFillObject,
-                  { backgroundColor: pillSolidBg },
-                ]}
-              />
-              <View style={{
-                flex: 1,
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingLeft: 10,
-                paddingRight: 6,
-                gap: 4,
-              }}>
-              <TouchableOpacity
-                onPress={pickPhotos}
-                disabled={!!editingMsg || !!video || photos.length >= 4}
-                style={{ padding: 6, opacity: editingMsg ? 0.3 : 1 }}
-                hitSlop={4}
-              >
-                <Feather name="image" size={16} color={theme.textDim} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={pickVideo}
-                disabled={!!editingMsg || photos.length > 0 || !!video}
-                style={{ padding: 6, opacity: editingMsg ? 0.3 : 1 }}
-                hitSlop={4}
-              >
-                <MaterialIcons name="videocam" size={16} color={theme.textDim} />
-              </TouchableOpacity>
-
-              <TextInput
-                style={{
-                  flex: 1,
-                  color: theme.text,
-                  fontSize: 14,
-                  lineHeight: 18,
-                  backgroundColor: 'transparent',
-                  borderWidth: 0,
-                  paddingVertical: 0,
-                  maxHeight: 44,
-                }}
-                value={text}
-                onChangeText={onInputChange}
-                onContentSizeChange={e => setInputHeight(Math.min(e.nativeEvent.contentSize.height, INPUT_MAX_HEIGHT))}
-                placeholder={editingMsg ? 'Edytuj treść...' : 'Napisz wiadomość...'}
-                placeholderTextColor={theme.textDim}
-                multiline
-                maxLength={2000}
-              />
-
-              <TouchableOpacity
-                style={{
-                  width: 36, height: 36, borderRadius: 18,
-                  backgroundColor: theme.primary,
-                  alignItems: 'center', justifyContent: 'center',
-                  opacity: canSendInput ? 1 : 0.35,
-                }}
-                onPress={() => void handleSend()}
-                disabled={sending || !canSendInput}
-              >
-                {sending
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Feather name={editingMsg ? 'check' : 'send'} size={15} color="#fff" />
-                }
-              </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-
-          {!!mentionQuery && mentionUsers.length > 0 && (
-            <View style={{
-              position: 'absolute',
-              left: 16, right: 16, bottom: pillHeight + 24,
-              backgroundColor: isDark ? 'rgba(22,22,22,0.96)' : 'rgba(255,255,255,0.96)',
-              borderRadius: 14, maxHeight: 140, overflow: 'hidden',
-              borderWidth: 1, borderColor: pillBorder,
-            }}>
-              {mentionUsers.map(u => (
-                <TouchableOpacity
-                  key={u.type === 'province' ? `p-${u.slug}` : `u-${u.id}`}
-                  onPress={() => insertMention(u)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
-                >
-                  {u.type === 'user' ? (
-                    u.avatarUrl
-                      ? <Image source={{ uri: u.avatarUrl }} style={{ width: 24, height: 24, borderRadius: 12 }} />
-                      : (
-                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>{u.username.slice(0, 1).toUpperCase()}</Text>
-                        </View>
-                      )
-                  ) : (
-                    <MaterialIcons name="map" size={14} color="#7cb342" />
-                  )}
-                  <Text style={{ color: theme.text, fontSize: 13 }}>
-                    {u.type === 'province' ? `@${u.mention}` : `@${u.username}`}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
+          },
+        }}
+      />
 
       <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
         <Pressable style={{ flex: 1, backgroundColor: '#000000ee', justifyContent: 'center', alignItems: 'center' }} onPress={() => setPreviewPhoto(null)}>
@@ -1064,91 +753,13 @@ export default function PublicChatScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={!!menuMsg} transparent animationType="fade" onRequestClose={() => setMenuMsg(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setMenuMsg(null)}>
-          <Pressable onPress={e => e.stopPropagation()}>
-            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
-              <View style={{
-                flexDirection: 'row',
-                justifyContent: 'space-around',
-                paddingHorizontal: 20,
-                paddingBottom: 14,
-                borderBottomWidth: 1,
-                borderBottomColor: theme.border,
-                marginBottom: 4,
-              }}>
-                {REACTION_EMOJIS.map(emoji => (
-                  <TouchableOpacity
-                    key={emoji}
-                    onPress={() => { if (menuMsg) void handleReact(menuMsg.id, emoji); setMenuMsg(null); }}
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 22,
-                      backgroundColor: theme.surface2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 22 }}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                onPress={() => { if (menuMsg) setReplyTo(menuMsg); setMenuMsg(null); }}
-              >
-                <MaterialIcons name="reply" size={18} color={theme.primary} />
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text }}>Odpowiedz</Text>
-              </TouchableOpacity>
-              {menuMsg && menuMsg.senderId === myId && (
-                <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                  onPress={() => { if (menuMsg) startEdit(menuMsg); }}
-                >
-                  <Feather name="edit-2" size={18} color={theme.primary} />
-                  <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text }}>Edytuj</Text>
-                </TouchableOpacity>
-              )}
-              {menuMsg && menuMsg.senderId !== myId && (
-                <>
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                    onPress={() => {
-                      const msg = menuMsg;
-                      setMenuMsg(null);
-                      showReportContentAlert((reason) => {
-                        void reportContent({
-                          targetType: 'public_chat_message',
-                          targetId: msg.id,
-                          reason,
-                          offenderUserId: msg.sender.id,
-                        });
-                      });
-                    }}
-                  >
-                    <MaterialIcons name="flag" size={18} color="#FF9800" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: theme.text }}>Zgłoś treść</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14 }}
-                    onPress={() => {
-                      const msg = menuMsg;
-                      setMenuMsg(null);
-                      showBlockUserAlert(msg.sender.id, msg.sender.username, () => {
-                        setMessages(prev => prev.filter(m => m.senderId !== msg.sender.id));
-                      });
-                    }}
-                  >
-                    <MaterialIcons name="block" size={18} color="#e33835" />
-                    <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#e33835' }}>Zablokuj użytkownika</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
+      <ChatMessageMenu
+        visible={!!menuMsg}
+        onClose={() => setMenuMsg(null)}
+        actions={publicMenuActions}
+        showReactions={PUBLIC_CAPABILITIES.reactions}
+        onReact={emoji => menuMsg && void handleReact(menuMsg.id, emoji)}
+      />
+    </ChatScreenShell>
   );
 }

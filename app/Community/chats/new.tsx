@@ -67,9 +67,11 @@ export default function NewChatScreen() {
       <TouchableOpacity
         style={[{
           flexDirection: 'row', alignItems: 'center',
-          paddingHorizontal: 16, paddingVertical: 12, gap: 12,
-          borderBottomWidth: 1, borderBottomColor: theme.border,
-        }, isSelected && { backgroundColor: `${theme.primary}08` }]}
+          marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
+          borderRadius: 14, borderWidth: 1,
+          borderColor: isSelected ? theme.primaryBorder : theme.border,
+          backgroundColor: isSelected ? theme.primaryBg : theme.surface2,
+        }]}
         onPress={() => toggleSelect(item)}
         activeOpacity={0.75}
       >
@@ -85,9 +87,15 @@ export default function NewChatScreen() {
         }
         <View style={{ flex: 1 }}>
           <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>{item.username}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: item.online ? '#4de926' : theme.textDim }} />
-            <Text style={{ color: theme.textDim, fontSize: 10 }}>{item.online ? 'Online' : 'Offline'}</Text>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 4,
+            paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+            backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+          }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: item.online ? theme.online : theme.textDim }} />
+            <Text style={{ color: item.online ? theme.online : theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1, fontWeight: '700' }}>
+              {item.online ? 'ONLINE' : 'OFFLINE'}
+            </Text>
           </View>
         </View>
         {isSelected && <Feather name="check-circle" size={20} color={theme.primary} />}
@@ -155,7 +163,11 @@ export default function NewChatScreen() {
       )}
 
       {/* SZUKAJ */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 14, paddingVertical: 10, gap: 10 }}>
+      <View style={{
+        flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, gap: 10,
+        backgroundColor: theme.surface2, borderRadius: 14, borderWidth: 1, borderColor: theme.border2,
+        paddingHorizontal: 14, paddingVertical: 11,
+      }}>
         <Feather name="search" size={16} color={theme.textDim} />
         <TextInput
           style={{ flex: 1, color: theme.text, fontSize: 13 }}

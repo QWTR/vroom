@@ -1,31 +1,41 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
-  Image, KeyboardAvoidingView, Platform, Keyboard,
+  View, Text, TouchableOpacity, FlatList, StatusBar, Platform, Modal, Pressable, Dimensions, Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
-import { Video, ResizeMode } from 'expo-av';
 import { API_URL } from '../../../constants/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useKeyboardInset } from '../../../hooks/useKeyboardInset';
 import { useBugReportSocket, type BugReportMsg } from '../../../hooks/useBugReportSocket';
+import { useChatKeyboard } from '../../../hooks/useChatKeyboard';
+import {
+  ChatScreenShell,
+  ChatComposer,
+  ChatLoadingState,
+  ChatTypingIndicator,
+  mapSupportMessageToUnified,
+  SUPPORT_USER_SENDER_ID,
+  SUPPORT_CAPABILITIES,
+  getGroupedMessageMeta,
+} from '../../../components/chat/v2';
+import { ChatMessageBubble } from '../../../components/chat/v2/ChatMessageBubble';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
 export default function BugReportThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const keyboardInset = useKeyboardInset();
-  const scrollRef = useRef<ScrollView>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<FlatList>(null);
 
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<BugReportMsg[]>([]);
@@ -33,13 +43,21 @@ export default function BugReportThreadScreen() {
   const [staffLastReadAt, setStaffLastReadAt] = useState<string | null>(null);
   const [staffTyping, setStaffTyping] = useState(false);
   const [body, setBody] = useState('');
-  const [pending, setPending] = useState<{ uri: string; type: string; name: string }[]>([]);
+  const [pending, setPending] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
+    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
+  });
+
+  const unifiedMessages = useMemo(() => messages.map(mapSupportMessageToUnified), [messages]);
+  const myId = SUPPORT_USER_SENDER_ID;
 
   const appendMessage = useCallback((msg: BugReportMsg) => {
     if (!msg?.id) return;
     setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
   }, []);
 
   const { emitTyping } = useBugReportSocket(id, {
@@ -48,9 +66,7 @@ export default function BugReportThreadScreen() {
       if (readerType === 'staff') setStaffLastReadAt(readAt);
     },
     onTyping: ({ userType, isTyping }) => {
-      if (userType === 'owner' || userType === 'support') {
-        setStaffTyping(!!isTyping);
-      }
+      if (userType === 'owner' || userType === 'support') setStaffTyping(!!isTyping);
     },
   });
 
@@ -79,11 +95,7 @@ export default function BugReportThreadScreen() {
     }
   }, [id]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleBodyChange = (text: string) => {
     setBody(text);
@@ -95,15 +107,11 @@ export default function BugReportThreadScreen() {
   const pickMedia = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality:    0.75,
+      quality: 0.75,
       videoMaxDuration: 120,
     });
     if (r.canceled || !r.assets[0]) return;
-    const a = r.assets[0];
-    const isVid = (a.type === 'video' || a.uri.toLowerCase().endsWith('.mp4'));
-    const name = isVid ? `clip_${Date.now()}.mp4` : `img_${Date.now()}.jpg`;
-    const type = isVid ? 'video/mp4' : 'image/jpeg';
-    setPending(prev => [...prev, { uri: a.uri, type, name }]);
+    setPending(prev => [...prev, r.assets[0].uri].slice(0, 4));
   };
 
   const send = async () => {
@@ -117,13 +125,12 @@ export default function BugReportThreadScreen() {
       const token = await getToken();
       const form = new FormData();
       form.append('body', body.trim());
-      pending.forEach(p => {
-        form.append(p.type.startsWith('video') ? 'videos' : 'photos', {
-          uri: p.uri,
-          name: p.name,
-          type: p.type,
-        } as any);
-      });
+      for (const uri of pending) {
+        const isVid = uri.toLowerCase().endsWith('.mp4') || uri.includes('video');
+        const name = isVid ? `clip_${Date.now()}.mp4` : `img_${Date.now()}.jpg`;
+        const type = isVid ? 'video/mp4' : 'image/jpeg';
+        form.append(isVid ? 'videos' : 'photos', { uri, name, type } as any);
+      }
       const res = await fetch(`${API_URL}/api/bug-reports/my/${id}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -144,177 +151,116 @@ export default function BugReportThreadScreen() {
 
   const lastUserMsg = [...messages].reverse().find(m => m.authorKind === 'user');
   const userMsgReadByStaff = Boolean(
-    lastUserMsg &&
-    staffLastReadAt &&
-    new Date(staffLastReadAt) >= new Date(lastUserMsg.createdAt),
+    lastUserMsg && staffLastReadAt && new Date(staffLastReadAt) >= new Date(lastUserMsg.createdAt),
   );
 
-  if (loading) {
+  const HEADER_HEIGHT = insets.top + 72;
+
+  const supportHeader = (
+    <View style={{
+      paddingTop: insets.top + 8,
+      paddingHorizontal: 12,
+      paddingBottom: 12,
+      backgroundColor: theme.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: '#e3383540',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    }}>
+      <TouchableOpacity
+        onPress={() => router.back()}
+        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <MaterialIcons name="arrow-back" size={20} color={theme.text} />
+      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, fontWeight: '700' }}>
+          ZGŁOSZENIE #{id}
+        </Text>
+        {meta && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder }}>
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>SUPPORT</Text>
+            </View>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>
+              {meta.category?.toUpperCase()} · {meta.status?.toUpperCase()}
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
+  const renderItem = useCallback(({ item, index }: { item: ReturnType<typeof mapSupportMessageToUnified>; index: number }) => {
+    const meta = getGroupedMessageMeta(unifiedMessages, index, myId, true);
+    const raw = item.raw as BugReportMsg;
+    const isLastUser = lastUserMsg?.id === raw.id && raw.authorKind === 'user';
     return (
-      <View style={{ flex: 1, backgroundColor: theme.bgAlt, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#e33835" />
+      <View>
+        <ChatMessageBubble
+          message={item}
+          meta={meta}
+          capabilities={SUPPORT_CAPABILITIES}
+          onPressPhoto={setPreviewPhoto}
+        />
+        {isLastUser && userMsgReadByStaff && (
+          <View style={{ alignSelf: 'flex-end', paddingRight: 52, marginTop: -4, marginBottom: 4 }}>
+            <MaterialIcons name="done-all" size={14} color={theme.online} />
+          </View>
+        )}
       </View>
     );
-  }
+  }, [unifiedMessages, lastUserMsg, userMsgReadByStaff, theme.online]);
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.bgAlt }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
-      enabled={Platform.OS === 'ios'}
-    >
-      <View style={{ marginTop: 56, paddingHorizontal: '5%', flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text }}>ZGŁOSZENIE #{id}</Text>
-          {meta && (
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginTop: 4 }}>
-              {meta.category?.toUpperCase()} · {meta.status}
-            </Text>
-          )}
-        </View>
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        style={{ flex: 1, paddingHorizontal: '5%' }}
-        contentContainerStyle={{ paddingBottom: Math.max(140, keyboardInset + 120) }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-      >
-        {messages.map(m => {
-          const mine = m.authorKind === 'user';
-          const label = mine ? 'TY' : m.authorKind === 'support' ? 'SUPPORT' : 'ADMIN';
-          const isLastUser = lastUserMsg?.id === m.id;
-          return (
-            <View
-              key={m.id}
-              style={{
-                alignSelf: mine ? 'flex-start' : 'flex-end',
-                maxWidth: '92%',
-                backgroundColor: mine ? theme.surface : '#e3383520',
-                borderWidth: 1,
-                borderColor: mine ? theme.border : '#e3383540',
-                borderRadius: 14,
-                padding: 12,
-                marginBottom: 10,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, flex: 1 }}>
-                  {label} · {new Date(m.createdAt).toLocaleString('pl-PL')}
-                </Text>
-                {isLastUser && mine && (
-                  <MaterialIcons
-                    name="done-all"
-                    size={14}
-                    color={userMsgReadByStaff ? '#4de926' : theme.textDim}
-                  />
-                )}
-              </View>
-              {!!m.body && (
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: theme.text, lineHeight: 18 }}>{m.body}</Text>
-              )}
-              {(m.photos || []).map((url, i) => (
-                <Image key={i} source={{ uri: url }} style={{ width: 200, height: 200, borderRadius: 10, marginTop: 8 }} resizeMode="cover" />
-              ))}
-              {(m.videos || []).map((url, i) => (
-                <Video
-                  key={`v${i}`}
-                  source={{ uri: url }}
-                  style={{ width: 260, height: 160, marginTop: 8, borderRadius: 10 }}
-                  useNativeControls
-                  resizeMode={ResizeMode.CONTAIN}
-                />
-              ))}
-            </View>
-          );
-        })}
-      </ScrollView>
-
-      {staffTyping && (
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, paddingHorizontal: '5%', marginBottom: 6, fontStyle: 'italic' }}>
-          Support pisze…
-        </Text>
-      )}
-
-      {pending.length > 0 && (
-        <View style={{ paddingHorizontal: '5%', flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-          {pending.map((p, i) => (
-            <TouchableOpacity key={i} onPress={() => setPending(prev => prev.filter((_, j) => j !== i))}>
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#e33835' }}>✕ {p.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      <View
-        style={{
-          paddingHorizontal: '5%',
-          paddingBottom: keyboardInset > 0 ? keyboardInset + 12 : Math.max(insets.bottom, 12),
-          borderTopWidth: 1,
-          borderTopColor: theme.border,
-          paddingTop: 10,
-          backgroundColor: theme.bgAlt,
-        }}
-      >
-        <TextInput
-          value={body}
+    <ChatScreenShell
+      keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
+      header={
+        <>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+          {supportHeader}
+        </>
+      }
+      footer={
+        <ChatComposer
+          text={body}
           onChangeText={handleBodyChange}
+          onSend={send}
+          onAttach={pickMedia}
+          onClear={() => { setBody(''); emitTyping(false); }}
+          attachments={pending}
+          onRemoveAttachment={i => setPending(prev => prev.filter((_, j) => j !== i))}
+          inputPaddingBottom={chatInputPad}
           placeholder="Napisz do supportu…"
-          placeholderTextColor={theme.textDim}
-          multiline
-          clearButtonMode="while-editing"
-          style={{
-            minHeight: 44,
-            maxHeight: 120,
-            backgroundColor: theme.surface3,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: theme.border2,
-            padding: 12,
-            color: theme.text,
-            fontFamily: 'Orbitron',
-            fontSize: 12,
-            marginBottom: 8,
-          }}
+          disabled={sending}
+          sending={sending}
+          typingIndicator={staffTyping ? <ChatTypingIndicator text="Support pisze…" /> : undefined}
         />
-        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-          <TouchableOpacity
-            onPress={() => {
-              Keyboard.dismiss();
-              setBody('');
-              emitTyping(false);
-            }}
-            style={{ paddingHorizontal: 10, paddingVertical: 10, backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border }}
-          >
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim }}>ANULUJ</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={pickMedia} style={{ padding: 10, backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border }}>
-            <MaterialIcons name="attach-file" size={22} color={theme.text} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={send}
-            disabled={sending}
-            style={{
-              flex: 1,
-              backgroundColor: '#e33835',
-              borderRadius: 12,
-              paddingVertical: 14,
-              alignItems: 'center',
-              opacity: sending ? 0.6 : 1,
-            }}
-          >
-            {sending ? <ActivityIndicator color="#fff" /> : (
-              <Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: '#fff', fontWeight: '800' }}>WYŚLIJ</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+      }
+    >
+      {loading ? (
+        <ChatLoadingState title="Ładowanie wątku…" />
+      ) : (
+        <FlatList
+          ref={listRef}
+          data={unifiedMessages}
+          keyExtractor={item => String(item.id)}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: chatListPad, flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        />
+      )}
+
+      <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }} onPress={() => setPreviewPhoto(null)}>
+          {!!previewPhoto && (
+            <Image source={{ uri: previewPhoto }} style={{ width: SCREEN_W, height: SCREEN_H * 0.82 }} resizeMode="contain" />
+          )}
+        </Pressable>
+      </Modal>
+    </ChatScreenShell>
   );
 }
