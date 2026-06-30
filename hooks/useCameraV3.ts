@@ -26,7 +26,7 @@ export type UseCameraV3Options = {
   enabled: boolean;
   mode: NavMode;
   speedKmhRef?: React.MutableRefObject<number>;
-  /** Opcjonalny ref surowego GPS (nie używany do bearingu kamery w trybie trip). */
+  /** Opcjonalny ref surowego GPS — freeDrive: COG kamery z ruchu GPS, nie geometrii drogi. */
   rawGpsRef?: RawGpsCourseRef;
   isUserExploring?: () => boolean;
   /** Wstrzymaj kamerę podczas reroute (off-route + pending API). */
@@ -135,7 +135,7 @@ type SentPose = {
 };
 
 /**
- * V3 camera — heading-up: bearing z wygładzonego markera V3 (nie surowy GPS COG).
+ * V3 camera — heading-up: bearing z markera V3 (navigation) lub COG GPS (freeDrive).
  */
 export function useCameraV3(opts: UseCameraV3Options) {
   const {
@@ -144,6 +144,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     enabled,
     mode,
     speedKmhRef,
+    rawGpsRef,
     isUserExploring,
   } = opts;
 
@@ -181,6 +182,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
+  const isFreeDrive = mode === 'freeDrive';
   const [nativeFollowEnabled, setNativeFollowEnabled] = useState(enabled && isTripMode);
 
   const resetHeadingSpringState = useCallback(() => {
@@ -358,6 +360,34 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const syncCourseHeadingTargetRef = useRef(syncCourseHeadingTarget);
   syncCourseHeadingTargetRef.current = syncCourseHeadingTarget;
 
+  /** freeDrive: kamera używa COG z surowego GPS, nie kursu z geometrii drogi. */
+  const resolveTripKeyframeHeading = useCallback((markerHeading: number): number => {
+    if (!isFreeDrive) {
+      return Number.isFinite(markerHeading) && markerHeading >= 0
+        ? normalizeHeading(markerHeading)
+        : lockedCourseHeadingRef.current;
+    }
+    const raw = rawGpsRef?.current;
+    const speedKmh = Math.max(0, speedKmhRef?.current ?? 0);
+    if (!raw || !Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) {
+      return normalizeHeading(markerHeading);
+    }
+    const cog = resolveCameraCourseHeading(
+      lockedCourseHeadingRef.current,
+      prevRawGpsLatRef.current,
+      prevRawGpsLngRef.current,
+      raw.lat,
+      raw.lng,
+      speedKmh,
+    );
+    prevRawGpsLatRef.current = raw.lat;
+    prevRawGpsLngRef.current = raw.lng;
+    return cog;
+  }, [isFreeDrive, rawGpsRef, speedKmhRef]);
+
+  const resolveTripKeyframeHeadingRef = useRef(resolveTripKeyframeHeading);
+  resolveTripKeyframeHeadingRef.current = resolveTripKeyframeHeading;
+
   const markSentPose = useCallback((
     lat: number,
     lng: number,
@@ -409,7 +439,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     }
 
     if (!cachedPaddingRef.current) cachedPaddingRef.current = getTripCameraPadding(isNavigating);
-    const displayHeading = normalizeHeading(heading);
+    const displayHeading = resolveTripKeyframeHeadingRef.current(heading);
 
     // Pozycję prowadzi natywny FollowPuck. Nie wysyłamy kolejnych setCamera,
     // bo każda taka komenda przerywa follow i tworzyła cykl ruch-stop-ruch.
@@ -428,9 +458,33 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const emitCameraKeyframeRef = useRef(emitCameraKeyframe);
   emitCameraKeyframeRef.current = emitCameraKeyframe;
 
-  const onEmitCameraKeyframe = useCallback((lat: number, lng: number, heading: number, segmentDurationMs: number) => {
-    emitCameraKeyframeRef.current(lat, lng, heading, segmentDurationMs);
-  }, []);
+  const applyCameraKeyframeFromMarker = useCallback((
+    lat: number,
+    lng: number,
+    markerHdg: number,
+    segmentDurationMs: number,
+  ) => {
+    const displayHdg = resolveTripKeyframeHeadingRef.current(markerHdg);
+    displayCameraHdgSv.value = displayHdg;
+    smoothedCameraHeadingSv.value = displayHdg;
+    displayCameraHdgReadySv.value = 1;
+    lastCameraPushMsSv.value = Date.now();
+    emitCameraKeyframeRef.current(lat, lng, displayHdg, segmentDurationMs);
+  }, [
+    displayCameraHdgReadySv,
+    displayCameraHdgSv,
+    lastCameraPushMsSv,
+    smoothedCameraHeadingSv,
+  ]);
+
+  const onApplyCameraKeyframeFromMarker = useCallback((
+    lat: number,
+    lng: number,
+    markerHdg: number,
+    segmentDurationMs: number,
+  ) => {
+    applyCameraKeyframeFromMarker(lat, lng, markerHdg, segmentDurationMs);
+  }, [applyCameraKeyframeFromMarker]);
 
   useAnimatedReaction(
     () => ({
@@ -448,26 +502,16 @@ export function useCameraV3(opts: UseCameraV3Options) {
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
       if (!Number.isFinite(next.hdg)) return;
 
-      displayCameraHdgSv.value = next.hdg;
-      smoothedCameraHeadingSv.value = next.hdg;
-      displayCameraHdgReadySv.value = 1;
-
-      const now = Date.now();
-      lastCameraPushMsSv.value = now;
-      runOnJS(onEmitCameraKeyframe)(next.lat, next.lng, next.hdg, next.durationMs);
+      runOnJS(onApplyCameraKeyframeFromMarker)(next.lat, next.lng, next.hdg, next.durationMs);
     },
     [
       followEnabledSv,
-      lastCameraPushMsSv,
-      displayCameraHdgSv,
-      displayCameraHdgReadySv,
-      smoothedCameraHeadingSv,
       marker.cameraTick,
       marker.cameraTargetLat,
       marker.cameraTargetLng,
       marker.targetHdg,
       marker.cameraSegmentDurationMs,
-      onEmitCameraKeyframe,
+      onApplyCameraKeyframeFromMarker,
     ],
   );
 

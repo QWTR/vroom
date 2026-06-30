@@ -1,5 +1,5 @@
 import { NAV_V3 } from './config';
-import type { ArcWindowSlice, NavigationTarget, SnapResult } from './types';
+import type { ArcWindowSlice, NavigationTarget, NavMode, SnapResult } from './types';
 import { bearingBetween } from '../../scripts/navigationUtils';
 
 function pointAtArcWindow(
@@ -55,8 +55,12 @@ function bearingLookAheadFromSnap(snap: SnapResult): number | null {
   return bearingBetween(fromLat, fromLng, aheadPt.lat, aheadPt.lng);
 }
 
-/** ON-ROAD (blend=1): wyłącznie geometria trasy; off-road: wektor ruchu z snapEngine. */
-export function resolveSnapHeadingForTarget(snap: SnapResult): number {
+/** ON-ROAD (blend=1): geometria trasy w navigation; freeDrive: wyłącznie COG z snapEngine. */
+export function resolveSnapHeadingForTarget(snap: SnapResult, mode: NavMode): number {
+  if (mode === 'freeDrive') {
+    return snap.headingDeg;
+  }
+
   const onRoadFull = snap.roadBlend >= NAV_V3.MARKER_ON_ROAD_FULL_BLEND - 1e-6;
   if (onRoadFull) {
     const lookAhead = bearingLookAheadFromSnap(snap);
@@ -94,6 +98,7 @@ export function buildNavigationTarget(
   snap: SnapResult,
   speedMs: number,
   allowInstant: boolean,
+  mode: NavMode,
   gpsIntervalMs?: number,
   sourceTimestampMs?: number,
 ): NavigationTarget {
@@ -103,7 +108,7 @@ export function buildNavigationTarget(
   return {
     lat: snap.lat,
     lng: snap.lng,
-    headingDeg: resolveSnapHeadingForTarget(snap),
+    headingDeg: resolveSnapHeadingForTarget(snap, mode),
     speedMs: Math.max(0, speedMs),
     pathMode: snap.pathMode,
     roadBlend: snap.roadBlend,

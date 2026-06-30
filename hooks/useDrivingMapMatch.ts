@@ -1,11 +1,9 @@
 import { useRef, useCallback } from 'react';
-import { MAPBOX_TOKEN }        from '../constants/mapConfig';
 import { haversineKm }         from '../scripts/navigationUtils';
-import { fetchDirectionsViaProxy, fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
+import { fetchMatchingViaProxy } from '../scripts/mapboxProxyClient';
 import { roadGeometryStore } from '../lib/roadGeometry/RoadGeometryStore';
 import {
   canRequestMapMatch,
-  recordDirectionsNetwork,
   recordMapMatchNetwork,
 } from '../lib/mapboxNetworkGate';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
@@ -19,23 +17,21 @@ import {
 import { isMapMatchAppBackground } from '../lib/mapMatch/mapMatchSyncState';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mapbox Map Matching — DAP to Road
-// Snaps driving position to the nearest road using Mapbox's matching API.
+// OSRM Map Matching (via server proxy) — DAP to Road
+// Snaps driving position to the nearest road using OSRM trace matching.
 // Trace requests are throttled by MIN_INTERVAL_MS and MAX_REQUESTS_PER_WINDOW / h.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAP_MATCH_URL   = 'https://api.mapbox.com/matching/v5/mapbox/driving';
 /** Min. odstęp między requestami trace — driving: częstszy pierwszy segment drogi. */
-/** Min. odstęp między trace do Map Matching — koszt API > lag snapu przy <45 s. */
 const MIN_INTERVAL_MS = 2_000;
-const BUFFER_SIZE     = 22;     // number of GPS points sent to API (Mapbox allows up to 100)
+const BUFFER_SIZE     = 22;     // number of GPS points sent to API (OSRM allows up to 100)
 /** Suma dystansu w buforze przed wysłaniem trace (batching zamiast pojedynczych punktów). */
 const BATCH_MIN_PATH_DISTANCE_M = 10;
 const BATCH_MIN_POINTS = 3;
-/** Traffic-light freeze for Map Matching API (marker still moves locally). */
+/** Traffic-light freeze for map matching API (marker still moves locally). */
 const STATIONARY_SPEED_KMH = MAP_MATCH_TRAFFIC_LIGHT_KMH;
-const MATCH_RADIUS_M  = 50;     // max 50 m — limit Mapbox Map Matching
-/** Musi być ≤ 50 (Mapbox); większe psuje API i forceMatch zwracał pusto = brak snap w driving. */
+const MATCH_RADIUS_M  = 50;     // max search radius for trace matching
+/** Musi być ≤ 50; większe psuje matching i forceMatch zwracał pusto = brak snap w driving. */
 const FORCE_MATCH_RADIUS_M = 50;
 /** Gdy brak świeżego ticku z map.tsx, segment wygasa — driving i tak bumpuje czas przy aktywnym GPS. */
 /** Gdy przekroczone — tylko log stale; geometria zostaje do STALE_MAX_MS. */
@@ -60,9 +56,6 @@ const FRESH_GEOMETRY_BLOCK_MS = 2_000;
 const FORCE_MATCH_OFFSET_DEG = 0.00005;
 const REFRESH_FORCE_MIN_INTERVAL_MS = 45_000;
 const REFRESH_FORCE_MIN_MOVE_M = 120;
-const DIRECTIONS_STUB_MIN_INTERVAL_MS = 120_000;
-const DIRECTIONS_STUB_MIN_MOVE_M = 260;
-const DIRECTIONS_STUB_MAX_PER_WINDOW = 5;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -79,60 +72,6 @@ function bufferPathDistanceM(points: GpsPoint[]): number {
     sum += haversineKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng) * 1000;
   }
   return sum;
-}
-
-/** Gdy matching zwróci NoSegment (GPS dalej od drogi niż 50 m), fallback przez krótkie legi Directions. */
-const DIRECTIONS_STUB_OFFSET_DEG = 0.00032; // ~25–35 m zależnie od szerokości geogr.
-
-async function roadGeometryFromDirectionsStub(
-  lat: number,
-  lng: number,
-  headingDeg?: number,
-): Promise<{ latitude: number; longitude: number }[] | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-  let dy = 1;
-  let dx = 0;
-  if (Number.isFinite(headingDeg)) {
-    const rad = ((90 - headingDeg) * Math.PI) / 180;
-    dy = Math.cos(rad);
-    dx = Math.sin(rad);
-  }
-  const lat2 = lat + DIRECTIONS_STUB_OFFSET_DEG * dy;
-  const lng2 = lng + DIRECTIONS_STUB_OFFSET_DEG * dx;
-  const directionsUrl =
-    `https://api.mapbox.com/directions/v5/mapbox/driving/` +
-    `${lng},${lat};${lng2},${lat2}` +
-    `?alternatives=false&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`;
-
-  try {
-    recordDirectionsNetwork('force_stub_manual');
-    const data = await fetchDirectionsViaProxy<{
-      routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
-    }>(
-      {
-        coordinates: [
-          [lng, lat],
-          [lng2, lat2],
-        ],
-        profile: 'driving',
-        alternatives: false,
-        geometries: 'geojson',
-        steps: false,
-        overview: 'full',
-        language: 'pl',
-      },
-      directionsUrl,
-    );
-    const coords = data?.routes?.[0]?.geometry?.coordinates;
-    if (Array.isArray(coords) && coords.length >= 2) {
-      return coords.map(([lng3, lat3]) => ({ latitude: lat3, longitude: lng3 }));
-    }
-  } catch {
-    /* stub miss */
-  }
-
-  return null;
 }
 
 export type ForceMatchOptions = {
@@ -165,7 +104,7 @@ interface MapMatchResponse {
 
 /**
  * Maintains a small rolling buffer of GPS positions and periodically calls
- * the Mapbox Map Matching API to obtain a road-snapped polyline.
+ * the OSRM trace matching proxy to obtain a road-snapped polyline.
  *
  * The returned `addPosition` should be called on every GPS update while in
  * (or approaching) Driving Mode.  `getMatchedPoints` returns the latest
@@ -176,11 +115,9 @@ export function useDrivingMapMatch() {
   const lastCallRef    = useRef<number>(0);
   const lastFetchRef   = useRef<{ lat: number; lng: number } | null>(null);
   const requestTimesRef = useRef<number[]>([]);
-  const directionsStubTimesRef = useRef<number[]>([]);
   const lastRefreshForceRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const lastNetworkAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
   const jitterFilterRef = useRef(new GpsBufferJitterFilter());
-  const lastDirectionsStubRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const isFetchingRef  = useRef<boolean>(false);
   const matchedPtsRef  = useRef<{ latitude: number; longitude: number }[] | null>(null);
   const matchedTimeRef = useRef<number>(0);
@@ -235,30 +172,6 @@ export function useDrivingMapMatch() {
     requestTimesRef.current = requestTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
     return requestTimesRef.current.length;
   }, []);
-
-  const shouldAttemptDirectionsStub = useCallback((
-    lat: number,
-    lng: number,
-    speedKmh: number,
-    manual: boolean,
-  ): boolean => {
-    if (!manual || speedKmh < 10) return false;
-    const now = Date.now();
-    directionsStubTimesRef.current = directionsStubTimesRef.current.filter((ts) => now - ts < REQUEST_WINDOW_MS);
-    if (directionsStubTimesRef.current.length >= DIRECTIONS_STUB_MAX_PER_WINDOW) return false;
-    if (getRequestUsageCount(now) >= BUDGET_HARD_CAP_PER_WINDOW) return false;
-    const last = lastDirectionsStubRef.current;
-    if (!last) {
-      lastDirectionsStubRef.current = { at: now, lat, lng };
-      directionsStubTimesRef.current.push(now);
-      return true;
-    }
-    const movedM = haversineKm(last.lat, last.lng, lat, lng) * 1000;
-    if (now - last.at < DIRECTIONS_STUB_MIN_INTERVAL_MS && movedM < DIRECTIONS_STUB_MIN_MOVE_M) return false;
-    lastDirectionsStubRef.current = { at: now, lat, lng };
-    directionsStubTimesRef.current.push(now);
-    return true;
-  }, [getRequestUsageCount]);
 
   const addPosition = useCallback(async (
     lat: number,
@@ -439,10 +352,7 @@ export function useDrivingMapMatch() {
     recordMapMatchNetwork(lat, lng, staleSnap ? 'trace_stale_snap' : 'trace', { staleSnap });
 
     try {
-      const pts     = bufferRef.current;
-      const coords  = pts.map(p => `${p.lng},${p.lat}`).join(';');
-      const radii   = pts.map(() => String(MATCH_RADIUS_M)).join(';');
-      const url     = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
+      const pts = bufferRef.current;
 
       const json = await fetchMatchingViaProxy<MapMatchResponse>(
         {
@@ -450,17 +360,14 @@ export function useDrivingMapMatch() {
           profile: 'driving',
           radiuses: pts.map(() => MATCH_RADIUS_M),
         },
-        url,
-        // Proxy może zwrócić null (429, auth); allow direct fallback so
-        // geometry is still refreshed during driving, not only on forceMatch.
+        '',
         {
-          allowFallback: false,
           proxyTimeoutMs: noRoad ? 2800 : 4000,
         },
       );
       if (genWhenStarted !== matchGenRef.current) return;
       if (!json) {
-        logSnapReject('add_proxy_and_fallback_null');
+        logSnapReject('add_proxy_null');
         return;
       }
 
@@ -483,7 +390,7 @@ export function useDrivingMapMatch() {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [applyLocalRoadCache, consumeRequestSlot, logSnapReject, persistMatchedGeometry, shouldAttemptDirectionsStub]);
+  }, [applyLocalRoadCache, consumeRequestSlot, logSnapReject, persistMatchedGeometry]);
 
   /**
    * Immediately snaps a single position to the nearest road, bypassing the
@@ -492,7 +399,7 @@ export function useDrivingMapMatch() {
    * waiting for the user to move enough and the regular interval to elapse.
    *
    * Internally sends two nearly-identical coordinates (5 m apart) because the
-   * Mapbox Map Matching API requires at least 2 points.
+   * trace matching API requires at least 2 points.
    *
    * @returns The matched road-geometry points, or null if the API call failed /
    *          returned no match.  The result is also stored in the internal cache
@@ -602,14 +509,7 @@ export function useDrivingMapMatch() {
       recordMapMatchNetwork(lat, lng, matchReason);
 
       try {
-        const coords = [
-          `${lng - FORCE_MATCH_OFFSET_DEG},${lat}`,
-          `${lng},${lat}`,
-        ].join(';');
-        const radii = `${FORCE_MATCH_RADIUS_M};${FORCE_MATCH_RADIUS_M}`;
-        const url   = `${MAP_MATCH_URL}/${coords}?geometries=geojson&tidy=true&radiuses=${radii}&access_token=${MAPBOX_TOKEN}`;
-
-        const tryDirectionsStub = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
+        const trySqliteFallback = async (): Promise<{ latitude: number; longitude: number }[] | null> => {
           const cached = await roadGeometryStore.findNearest(lat, lng, 150);
           if (cached && cached.points.length >= 2) {
             matchedPtsRef.current = cached.points;
@@ -617,19 +517,7 @@ export function useDrivingMapMatch() {
             vroomGpsLog('FORCE_SQLITE_FALLBACK', { pts: cached.points.length, ageMs: cached.ageMs });
             return cached.points;
           }
-          if (!manual) return matchedPtsRef.current;
-          const stub = shouldAttemptDirectionsStub(lat, lng, speedKmh, manual)
-            ? await roadGeometryFromDirectionsStub(lat, lng, opts?.headingDeg)
-            : null;
-          if (genWhenStarted !== matchGenRef.current) return null;
-          if (stub && stub.length >= 2) {
-            matchedPtsRef.current  = stub;
-            matchedTimeRef.current = Date.now();
-            console.log('[DrivingMapMatch] forceMatch directions stub', stub.length, 'pts');
-            await persistMatchedGeometry(stub);
-            return stub;
-          }
-          return null;
+          return manual ? null : matchedPtsRef.current;
         };
 
         const json = await fetchMatchingViaProxy<MapMatchResponse>(
@@ -641,9 +529,8 @@ export function useDrivingMapMatch() {
             profile: 'driving',
             radiuses: [FORCE_MATCH_RADIUS_M, FORCE_MATCH_RADIUS_M],
           },
-          url,
+          '',
           {
-            allowFallback: false,
             skipClientCache: manual || refresh,
             proxyTimeoutMs: manual ? 4500 : (refresh ? 4000 : 4500),
           },
@@ -651,8 +538,8 @@ export function useDrivingMapMatch() {
         if (genWhenStarted !== matchGenRef.current) return null;
 
         if (!json) {
-          logSnapReject('force_proxy_and_fallback_null');
-          return (await tryDirectionsStub()) ?? matchedPtsRef.current;
+          logSnapReject('force_proxy_null');
+          return (await trySqliteFallback()) ?? matchedPtsRef.current;
         }
 
         if (Array.isArray(json.matchings) && json.matchings[0]?.geometry?.coordinates?.length) {
@@ -668,27 +555,23 @@ export function useDrivingMapMatch() {
         }
         console.warn('[DrivingMapMatch] forceMatch: no match (code:', json.code, ')');
         logSnapReject('force_no_match', { code: json.code ?? 'unknown' });
-        return (await tryDirectionsStub()) ?? null;
+        return (await trySqliteFallback()) ?? null;
       } catch (e) {
         console.warn('[DrivingMapMatch] forceMatch error:', e);
         logSnapReject('force_api_error');
         if (genWhenStarted !== matchGenRef.current) return null;
-        const stub = manual && shouldAttemptDirectionsStub(lat, lng, speedKmh, manual)
-          ? await roadGeometryFromDirectionsStub(lat, lng, opts?.headingDeg)
-          : null;
-        if (stub && stub.length >= 2 && genWhenStarted === matchGenRef.current) {
-          matchedPtsRef.current  = stub;
+        const cached = await roadGeometryStore.findNearest(lat, lng, 150);
+        if (cached && cached.points.length >= 2 && genWhenStarted === matchGenRef.current) {
+          matchedPtsRef.current = cached.points;
           matchedTimeRef.current = Date.now();
-          console.log('[DrivingMapMatch] forceMatch error recovery stub', stub.length, 'pts');
-          await persistMatchedGeometry(stub);
-          return stub;
+          return cached.points;
         }
         return null;
       } finally {
         isFetchingRef.current = false;
       }
     },
-    [applyLocalRoadCache, consumeRequestSlot, getRequestUsageCount, logSnapReject, persistMatchedGeometry, shouldAttemptDirectionsStub],
+    [applyLocalRoadCache, consumeRequestSlot, getRequestUsageCount, logSnapReject, persistMatchedGeometry],
   );
 
   /**

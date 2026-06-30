@@ -770,21 +770,27 @@ export function resolveSnap(
   );
   const onRoadSnap = roadBlend > cfg.onRoadBlendEps;
   const segMismatch = headingDeltaAbs(segAligned, travelHeadingDeg);
-  /** freeDrive: segment prostopadły do ruchu (np. błędny snap na polu) → wektor jazdy. */
+  /** navigation: segment prostopadły do ruchu (np. błędny snap) → wektor jazdy. */
   const preferTravelHeading =
-    !isNavigating
+    isNavigating
     && onRoadSnap
     && segMismatch > 45
     && speedMs * 3.6 >= NAV_V3.PIPELINE_MOVING_KMH;
-  const headingDeg = onRoadSnap && !preferTravelHeading
-    ? segAligned
-    : safeHeadingDeg(
+  /** freeDrive: heading wyłącznie z COG (wektor ruchu GPS), nigdy z geometrii drogi. */
+  const headingDeg = !isNavigating
+    ? safeHeadingDeg(
       travelHeadingDeg,
-      safeHeadingDeg(state.lockedTravelHeadingDeg, segAligned),
-    );
+      safeHeadingDeg(state.lockedTravelHeadingDeg, travelHeadingDeg),
+    )
+    : onRoadSnap && !preferTravelHeading
+      ? segAligned
+      : safeHeadingDeg(
+        travelHeadingDeg,
+        safeHeadingDeg(state.lockedTravelHeadingDeg, segAligned),
+      );
 
   const intersectionTurnDetected = detectIntersectionTurn(
-    onRoadSnap && !preferTravelHeading ? segAligned : travelHeadingDeg,
+    isNavigating && onRoadSnap && !preferTravelHeading ? segAligned : travelHeadingDeg,
     state.lastSegmentHeadingDeg,
     projection.crossTrackM,
   );
@@ -793,7 +799,7 @@ export function resolveSnap(
     ...state,
     lastSegmentIndex: projection.segmentIndex,
     lastPolylineKey: projection.polylineKey,
-    lastSegmentHeadingDeg: onRoadSnap && !preferTravelHeading ? segAligned : headingDeg,
+    lastSegmentHeadingDeg: isNavigating && onRoadSnap && !preferTravelHeading ? segAligned : headingDeg,
     lockedTravelHeadingDeg: safeHeadingDeg(state.lockedTravelHeadingDeg, headingDeg),
     lastRoadBlend: roadBlend,
     offRoadStickTicks: sticky.stickTicks,
