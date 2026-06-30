@@ -609,11 +609,9 @@ export function useDrivingMapMatch() {
     lastCallRef.current   = 0;
     lastFetchRef.current  = null;
     lastRefreshForceRef.current = null;
-    lastDirectionsStubRef.current = null;
     lastNetworkAnchorRef.current = null;
     jitterFilterRef.current.reset();
     requestTimesRef.current = [];
-    directionsStubTimesRef.current = [];
     isFetchingRef.current = false;
     matchedTimeRef.current = 0;
     console.log('[DrivingMapMatch] reset');

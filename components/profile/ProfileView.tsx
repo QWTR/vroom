@@ -48,6 +48,7 @@ import { getHeroBannerHeight } from '../../lib/profileBanner';
 import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper, useProfileHeroFloat } from './ProfileHeroMotionLayer';
 import Reanimated from 'react-native-reanimated';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
+import { ExplorationCoverageMap } from './ExplorationCoverageMap';
 
 const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
 const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
@@ -419,6 +420,16 @@ export default function ProfileView({
   const locked         = sortByRarity(achievements.filter(a => !a.active));
   const unlockedGroups = groupByRarity(unlocked);
   const lockedGroups   = groupByRarity(locked);
+  const exploration = profile?.gamificationSummary ?? null;
+  const fogOfWar = exploration?.explorationMap ?? exploration?.fogOfWar;
+  const explorationStats = fogOfWar as any;
+  const turf = exploration?.turf;
+  const passport = exploration?.passport;
+  const explorationCells = Number(explorationStats?.totalCells ?? explorationStats?.totalRevealedCells ?? explorationStats?.country?.cellsRevealed ?? 0);
+  const explorationPercent = Number(explorationStats?.averagePercent ?? explorationStats?.country?.percentComplete ?? 0);
+  const explorationPercentText = explorationCells > 0 && explorationPercent < 1
+    ? '<1%'
+    : `${Math.round(explorationPercent)}%`;
 
   // 30-day activity filter for non-premium owners
   const FREE_ACTIVITY_HISTORY_DAYS = 30;
@@ -912,6 +923,95 @@ export default function ProfileView({
           </Section>
           {isOwner && carLimitBanner}
 
+          <Section
+            surfaceTheme={theme}
+            accentStrip={sectionAccentStrip}
+            title="EKSPLORACJA MAPY"
+            count={explorationPercentText}
+            right={isOwner ? (
+              <TouchableOpacity
+                onPress={() => router.push('/gamification' as any)}
+                style={{ backgroundColor: theme.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: theme.primaryBorder }}
+              >
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>OTWORZ</Text>
+              </TouchableOpacity>
+            ) : null}
+          >
+            <View style={{ ...widgetGlass(theme), padding: 16, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                {[
+                  { label: 'Mapa odkryta', value: explorationPercentText, icon: 'map-search-outline' as const, color: pillAccentColors[0] },
+                  { label: 'Rewiry', value: `${turf?.crownCount ?? 0}`, icon: 'crown-outline' as const, color: '#f5c518' },
+                  { label: 'Pieczątki', value: `${passport?.totalStamps ?? 0}`, icon: 'passport' as const, color: pillAccentColors[1] },
+                ].map(item => (
+                  <View key={item.label} style={{ flex: 1, minHeight: 86, borderRadius: 16, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '72'), padding: 10, justifyContent: 'space-between' }}>
+                    <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
+                    <View>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={{ ...profileLabel(theme), marginTop: 3 }}>{item.label}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ marginBottom: 14 }}>
+                <ExplorationCoverageMap
+                  userId={isOwner ? undefined : profile?.id}
+                  height={220}
+                  limit={1200}
+                  interactive
+                  autoRefreshMs={isOwner ? 12000 : 0}
+                />
+              </View>
+
+              {(fogOfWar?.topRegions?.length ?? 0) > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {fogOfWar!.topRegions.slice(0, 3).map(region => (
+                    <View key={region.slug} style={{ gap: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 11, fontWeight: '900' }}>{region.percentComplete}%</Text>
+                      </View>
+                      <View style={{ height: 7, borderRadius: 99, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.10)' }}>
+                        <View style={{ width: `${Math.min(100, region.percentComplete)}%`, height: '100%', borderRadius: 99, backgroundColor: theme.primary }} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ ...profileLabel(theme), lineHeight: 18 }}>
+                  Po jeździe profil pokaże procent odblokowanej mapy i najlepsze rewiry.
+                </Text>
+              )}
+            </View>
+
+            {(turf?.crowns?.length ?? 0) > 0 && (
+              <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 12 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>REWIRY NALEŻĄCE DO {profile?.username?.toUpperCase?.() ?? 'GRACZA'}</Text>
+                {turf!.crowns.slice(0, 3).map(crown => (
+                  <View key={crown.regionSlug} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 }}>
+                    <MaterialCommunityIcons name="crown" size={17} color="#f5c518" />
+                    <Text style={{ color: theme.text, fontWeight: '800', flex: 1 }}>{crown.regionName}</Text>
+                    <Text style={{ ...profileLabel(theme) }}>{Number(crown.distanceKm || 0).toFixed(1)} km</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {(passport?.latestStamps?.length ?? 0) > 0 && (
+              <View style={{ ...widgetGlass(theme), padding: 14, marginBottom: 0 }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: pillAccentColors[1], letterSpacing: 2, fontWeight: '800', marginBottom: 10 }}>PASZPORT MOTORYZACYJNY</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {(passport?.latestStamps ?? []).slice(0, 4).map(stamp => (
+                    <View key={`${stamp.slug}-${stamp.firstSeenAt}`} style={{ borderRadius: 99, borderWidth: 1, borderColor: GLASS_BORDER, backgroundColor: glassSurface(theme.surface, '80'), paddingHorizontal: 10, paddingVertical: 6 }}>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.text, fontWeight: '800' }}>{stamp.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </Section>
+
           {/* ══ OSIĄGNIĘCIA ══ */}
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title="OSIĄGNIĘCIA" count={`${unlocked.length}/${achievements.length}`}>
             {achievements.length === 0
@@ -1232,6 +1332,12 @@ export default function ProfileView({
                   <StatsModalItem label="SPOTY" value={`${localSpots.length}`} unit="szt." color="#4de926" isDark={isDark} />
                   <StatsModalItem label="SAMOCHODY" value={`${cars.length}`} unit="szt." color="#268bff" isDark={isDark} />
                 </View>
+                <TouchableOpacity
+                  onPress={() => router.push('/gamification' as any)}
+                  style={{ marginTop: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#7c3aed22', borderWidth: 1, borderColor: '#7c3aed55' }}
+                >
+                  <Text style={{ color: '#c4b5fd', fontWeight: '700', fontSize: 13 }}>Eksploracja i Paszport</Text>
+                </TouchableOpacity>
               </StatsModalSection>
 
               {/* OSIĄGNIĘCIA */}

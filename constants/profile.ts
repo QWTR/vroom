@@ -15,6 +15,86 @@ export interface SpotifyProfileTrack {
   providerName?: string | null;
 }
 
+export interface GamificationProfileSummary {
+  explorationMap?: {
+    averagePercent: number;
+    country?: {
+      slug: string;
+      name: string;
+      percentComplete: number;
+      cellsRevealed: number;
+      totalCells: number;
+    } | null;
+    startedRegions: number;
+    completedRegions: number;
+    totalRevealedCells: number;
+    topRegions: {
+      slug: string;
+      name: string;
+      type: string;
+      cellsRevealed: number;
+      totalCells: number;
+      percentComplete: number;
+      lastDrivenAt?: string | null;
+    }[];
+  };
+  fogOfWar: {
+    averagePercent: number;
+    country?: {
+      slug: string;
+      name: string;
+      percentComplete: number;
+      cellsRevealed: number;
+      totalCells: number;
+    } | null;
+    startedRegions?: number;
+    completedRegions?: number;
+    totalRevealedCells?: number;
+    totalCells?: number;
+    topRegions: {
+      slug: string;
+      name: string;
+      type: string;
+      cellsRevealed: number;
+      totalCells: number;
+      percentComplete: number;
+      lastDrivenAt?: string | null;
+    }[];
+  };
+  turf: {
+    crownCount?: number;
+    crowns: {
+      slug?: string;
+      name?: string;
+      type?: string;
+      regionSlug?: string;
+      regionName?: string;
+      regionType?: string;
+      distanceKm: number;
+      year?: number;
+      month?: number;
+      crownedAt?: string | null;
+    }[];
+  };
+  passport: {
+    totalStamps: number;
+    cityCount: number;
+    voivodeshipCount: number;
+    latest?: {
+      slug: string;
+      name: string;
+      type: string;
+      firstSeenAt: string;
+    }[];
+    latestStamps?: {
+      slug: string;
+      name: string;
+      type: string;
+      firstSeenAt: string;
+    }[];
+  };
+}
+
 export interface UserProfile {
   id: number;
   username: string;
@@ -52,6 +132,7 @@ export interface UserProfile {
   followingCount?: number;
   nitroBalance?: number;
   shopCosmetics?: UserShopCosmetics | null;
+  gamificationSummary?: GamificationProfileSummary | null;
   club?: {
     id:          number;
     name:        string;

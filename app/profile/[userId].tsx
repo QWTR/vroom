@@ -15,7 +15,7 @@ import AchievementBox     from '../../components/profile/AchievementBox';
 import type { Achievement } from '../../hooks/useAchievements';
 import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
-import type { SpotPreview, SpotifyProfileTrack } from '../../constants/profile';
+import type { GamificationProfileSummary, SpotPreview, SpotifyProfileTrack } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
 import { useChat }         from '../../hooks/useChats';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
@@ -34,6 +34,7 @@ import ProfileBackgroundAnimation from '../../components/profile/ProfileBackgrou
 import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper } from '../../components/profile/ProfileHeroMotionLayer';
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
+import { ExplorationCoverageMap } from '../../components/profile/ExplorationCoverageMap';
 
 const RED = '#e33835';
 
@@ -73,6 +74,7 @@ interface PublicProfile {
   profilePremiumExtras?: unknown;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
   shopCosmetics?: UserShopCosmetics | null;
+  gamificationSummary?: GamificationProfileSummary | null;
 }
 interface PublicCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[] }
 interface PublicSpot {
@@ -595,6 +597,10 @@ export default function PublicProfileScreen() {
       </TouchableOpacity>
     );
   };
+  const exploration = profile.gamificationSummary ?? null;
+  const fogOfWar = exploration?.explorationMap ?? exploration?.fogOfWar;
+  const turf = exploration?.turf;
+  const passport = exploration?.passport;
 
   const renderFriendPillAction = () => {
     if (friendLoading) {
@@ -994,6 +1000,62 @@ export default function PublicProfileScreen() {
             </View>
 
             {/* ══ OSIĄGNIĘCIA ══ */}
+            <View style={glassSection()}>
+              <SectionHeader title="EKSPLORACJA MAPY" count={fogOfWar?.averagePercent ?? 0} icon="map" palette={palette} />
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                {[
+                  { label: 'Mapa', value: `${fogOfWar?.averagePercent ?? 0}%`, icon: 'map-search-outline' as const, color: RED },
+                  { label: 'Rewiry', value: `${turf?.crownCount ?? 0}`, icon: 'crown-outline' as const, color: '#f5c518' },
+                  { label: 'Pieczątki', value: `${passport?.totalStamps ?? 0}`, icon: 'passport' as const, color: palette.textDim },
+                ].map(item => (
+                  <View key={item.label} style={{ flex: 1, minHeight: 78, backgroundColor: glassSurface(palette.surface, '80'), borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: 10, justifyContent: 'space-between' }}>
+                    <MaterialCommunityIcons name={item.icon} size={18} color={item.color} />
+                    <View>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 17, color: item.color, fontWeight: '900' }}>{item.value}</Text>
+                      <Text style={profileLabel}>{item.label}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ marginBottom: 14 }}>
+                <ExplorationCoverageMap userId={profile.id} height={220} limit={1200} interactive />
+              </View>
+
+              {(fogOfWar?.topRegions?.length ?? 0) > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {fogOfWar!.topRegions.slice(0, 3).map(region => (
+                    <View key={region.slug} style={{ gap: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: palette.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>{region.name}</Text>
+                        <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: RED, fontWeight: '900' }}>{region.percentComplete}%</Text>
+                      </View>
+                      <View style={{ height: 7, borderRadius: 99, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.10)' }}>
+                        <View style={{ width: `${Math.min(100, region.percentComplete)}%`, height: '100%', backgroundColor: RED, borderRadius: 99 }} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <EmptyState text="Brak odkrytych dzielnic" palette={palette} />
+              )}
+
+              {(turf?.crowns?.length ?? 0) > 0 && (
+                <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#f5c518', fontWeight: '800', letterSpacing: 2, marginBottom: 8 }}>
+                    REWIRY NALEŻĄCE DO {profile.username.toUpperCase()}
+                  </Text>
+                  {turf!.crowns.slice(0, 3).map(crown => (
+                    <View key={crown.regionSlug} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}>
+                      <MaterialCommunityIcons name="crown" size={16} color="#f5c518" />
+                      <Text style={{ color: palette.text, fontWeight: '800', flex: 1 }}>{crown.regionName}</Text>
+                      <Text style={profileLabel}>{Number(crown.distanceKm || 0).toFixed(1)} km</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
             <View style={glassSection()}>
               <SectionHeader title="OSIĄGNIĘCIA" count={achievements.length} icon="emoji-events" palette={palette} />
               {achievements.length === 0

@@ -216,8 +216,12 @@ import { useRouteLeaderboard } from '../../hooks/useRouteLeaderboard';
 import { useRouteTimer } from '../../hooks/useRouteTimer';
 import { SPEED_CAMERA_MIN_ZOOM } from '../../constants/speedCameraMap';
 import { SpeedCameraMapLayers } from '../../components/map/SpeedCameraMapLayers';
+import { GeoDropMapLayer } from '../../components/map/GeoDropMapLayer';
+import { GeoDropAvailableSheet } from '../../components/map/GeoDropAvailableSheet';
+import { GeoDropClaimedModal } from '../../components/map/GeoDropClaimedModal';
 import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useSpeedCameras } from '../../hooks/useSpeedCamera';
+import { useGamification } from '../../hooks/useGamification';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
 import {
@@ -1995,6 +1999,7 @@ function MapScreenInner() {
   /** Dojazd do punktu startowego trasy — bez liczenia czasu / zapisu w rankingu. */
   const approachingRouteStartRef = useRef(false);
   const autoStartRouteAfterApproachRef = useRef(false);
+  const pendingDropAutoStartRef = useRef(false);
   const transitioningToRouteRunRef = useRef(false);
 
 
@@ -4428,11 +4433,137 @@ function MapScreenInner() {
     isSharing && sharingHydrated,
   );
 
+  const {
+    drops: gamificationDrops,
+    availableDropPrompt,
+    dropNavigationTargetId,
+    syncDriveMode: syncGamificationDriveMode,
+    ingestPing: ingestGamificationPing,
+    refreshDrops: refreshGamificationDrops,
+    deliverPendingRewards: deliverGamificationRewards,
+    pollPendingRewards: pollGamificationRewards,
+    tryClaimNearbyDrops: tryClaimGamificationDrop,
+    purgeDrop: purgeGamificationDrop,
+    setDropClaimHandler,
+    syncTrackedDropStatus: syncGamificationDropStatus,
+    showDropPrompt,
+    snoozeDropPrompt,
+    hideDropPrompt,
+    startDropNavigation,
+    clearDropNavigationTarget,
+    claimedDropReward,
+    dismissClaimedDropReward,
+  } = useGamification();
+
   const mapSessionActive = liveMapEnabled && sharingHydrated;
   const liveUsersEnabled = isSharing && sharingHydrated;
   const liveManuallyDisabledThisSessionRef = useRef(false);
 
   const liveResumeOnLocRef = useRef(false);
+  useEffect(() => {
+    void syncGamificationDriveMode(navV3Mode);
+    if (navV3Mode === 'freeDrive' || navV3Mode === 'navigation') {
+      void pollGamificationRewards(true);
+    }
+  }, [navV3Mode, syncGamificationDriveMode, pollGamificationRewards]);
+
+  useEffect(() => {
+    if (navV3Mode !== 'freeDrive' && navV3Mode !== 'navigation') return;
+
+    const tick = (force = false) => {
+      const pose = lastTripMarkerPoseRef.current;
+      const lat = pose?.lat ?? userLocation?.latitude;
+      const lng = pose?.lng ?? userLocation?.longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      void ingestGamificationPing({
+        lat: lat!,
+        lng: lng!,
+        mode: navV3Mode,
+        headingDeg: drHdgRef.current ?? lastHeadingRef.current ?? null,
+        speedKmh: Number.isFinite(speedKmhRef.current) ? speedKmhRef.current : 0,
+        force,
+      });
+    };
+
+    tick(true);
+    const intervalMs = dropNavigationTargetId ? 2_000 : 8_000;
+    const id = setInterval(() => tick(false), intervalMs);
+    return () => clearInterval(id);
+  }, [
+    navV3Mode,
+    dropNavigationTargetId,
+    userLocation?.latitude,
+    userLocation?.longitude,
+    ingestGamificationPing,
+  ]);
+
+  useEffect(() => {
+    if (navV3Mode !== 'freeDrive' && navV3Mode !== 'navigation') return;
+    if (!dropNavigationTargetId && !gamificationDrops.length && !availableDropPrompt) return;
+
+    const tick = () => {
+      const pose = lastTripMarkerPoseRef.current;
+      const lat = pose?.lat ?? userLocation?.latitude;
+      const lng = pose?.lng ?? userLocation?.longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      void tryClaimGamificationDrop({
+        lat: lat!,
+        lng: lng!,
+        mode: navV3Mode,
+        headingDeg: drHdgRef.current ?? lastHeadingRef.current ?? null,
+        speedKmh: Number.isFinite(speedKmhRef.current) ? speedKmhRef.current : 0,
+      });
+    };
+
+    tick();
+    const id = setInterval(tick, 2_000);
+    return () => clearInterval(id);
+  }, [
+    navV3Mode,
+    dropNavigationTargetId,
+    gamificationDrops.length,
+    availableDropPrompt,
+    userLocation?.latitude,
+    userLocation?.longitude,
+    tryClaimGamificationDrop,
+  ]);
+
+  useEffect(() => {
+    if (navV3Mode !== 'freeDrive' && navV3Mode !== 'navigation') return;
+    const tick = (force = false) => {
+      const pose = lastTripMarkerPoseRef.current;
+      const lat = pose?.lat ?? userLocation?.latitude;
+      const lng = pose?.lng ?? userLocation?.longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      void refreshGamificationDrops(lat!, lng!, force);
+    };
+    tick(true);
+    const intervalMs = dropNavigationTargetId ? 2_000 : 5_000;
+    const id = setInterval(() => tick(false), intervalMs);
+    return () => clearInterval(id);
+  }, [
+    navV3Mode,
+    dropNavigationTargetId,
+    userLocation?.latitude,
+    userLocation?.longitude,
+    refreshGamificationDrops,
+  ]);
+
+  useEffect(() => {
+    if (!dropNavigationTargetId) return;
+
+    const checkDropClaimed = async () => {
+      const gone = await syncGamificationDropStatus(true);
+      if (!gone) return;
+      void pollGamificationRewards(true);
+    };
+
+    void checkDropClaimed();
+    const id = setInterval(() => { void checkDropClaimed(); }, 5_000);
+    return () => clearInterval(id);
+  }, [dropNavigationTargetId, syncGamificationDropStatus, pollGamificationRewards]);
+
   useEffect(() => {
     if (!isSharing || !sharingHydrated || !liveMapEnabled) return;
     if (!userLocation?.latitude || !userLocation?.longitude) return;
@@ -5633,6 +5764,7 @@ function MapScreenInner() {
       Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
     );
     void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
+    void deliverGamificationRewards();
 
     const finalPose = resolveFinalTripPose();
     const hasFinalPose = finalPose != null
@@ -5766,7 +5898,7 @@ function MapScreenInner() {
       reason: opts?.reason ?? 'unspecified',
       skipFlush: !!opts?.skipFlush,
     }));
-  }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
+  }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, flushPendingKm, clearStats, finishTrip, checkLiveAchievements, deliverGamificationRewards, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
 
   const maybeAutoStopFromSessionGuard = useCallback((
     effectiveSpeedKmh: number,
@@ -11190,6 +11322,16 @@ if (appStateRef.current === 'active') {
       if (DEBUG_NETWORK) console.log('[sendLocation] → sending: moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
       lastSendTimeRef.current = now;
       lastSendLocRef.current  = { lat, lng };
+      const driveMode = isNavigatingRef.current
+        ? 'navigation'
+        : isDrivingRef.current
+          ? 'freeDrive'
+          : 'idle';
+      if (motion) {
+        motion.mode = driveMode;
+      } else {
+        motion = { mode: driveMode };
+      }
       sendLocation(lat, lng, routePointsRef.current, motion);
     }, LIVE_SEND_TICK_MS);
 
@@ -11399,6 +11541,42 @@ if (appStateRef.current === 'active') {
     setUserInfoVisible(false);
     Toast.show({ type: 'success', text1: 'CEL USTAWIONY', text2: selectedUser.name });
   }, [selectedUser, userLocation]);
+
+  const handleNavigateToDrop = useCallback(async (drop: any) => {
+    if (!drop || navV3Mode !== 'freeDrive') return;
+    const livePose = readLiveTripPose();
+    const origin = livePose
+      ? { latitude: livePose.latitude, longitude: livePose.longitude, name: 'Moja pozycja' }
+      : userLocation
+        ? { ...userLocation, name: 'Moja pozycja' }
+        : null;
+    if (!origin) {
+      Toast.show({ type: 'error', text1: 'Brak GPS', text2: 'Czekam na lokalizację.' });
+      return;
+    }
+
+    const ok = await startDropNavigation(drop, { lat: origin.latitude, lng: origin.longitude });
+    if (!ok) {
+      Toast.show({
+        type: 'error',
+        text1: 'Zrzut został już odebrany',
+        text2: 'Ten drop nie jest już dostępny.',
+      });
+      return;
+    }
+
+    setStartLocation(origin);
+    setEndLocation({
+      latitude: drop.lat,
+      longitude: drop.lng,
+      name: `Zrzut ${String(drop.rarity || '').toUpperCase()}`,
+    });
+    setSelectedRouteIndex(0);
+    setRouteInfo(null);
+    startIsMyLocationRef.current = false;
+    pendingDropAutoStartRef.current = true;
+    Toast.show({ type: 'success', text1: 'Zrzut ustawiony jako cel', text2: 'Wyznaczam trasę.' });
+  }, [navV3Mode, readLiveTripPose, userLocation, startDropNavigation]);
 
   const handleViewProfile = useCallback(() => {
     if (!selectedUser) return;
@@ -11611,6 +11789,7 @@ if (appStateRef.current === 'active') {
 
     InteractionManager.runAfterInteractions(() => {
       void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
+      void deliverGamificationRewards();
       flushNavigationStatsOnce(finalStats);
       if (routeInfo?.distance) onNavigationComplete(parseFloat(routeInfo.distance));
       setTimeout(() => setTripStatsVisible(true), 2000);
@@ -11636,6 +11815,7 @@ if (appStateRef.current === 'active') {
       setRouteInfo(null);
       setArrived(false);
       setNavStartLoc(null);
+      clearDropNavigationTarget();
     }, 3000);
   }, [
     endLocation, userLocation, routeInfo, speak, resetBrowseCamera,
@@ -11643,7 +11823,9 @@ if (appStateRef.current === 'active') {
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns,
     flushNavigationStatsOnce,
     checkLiveAchievements,
+    deliverGamificationRewards,
     transitionFromApproachToRouteRun,
+    clearDropNavigationTarget,
   ]);
 
   useEffect(() => {
@@ -12052,7 +12234,7 @@ if (appStateRef.current === 'active') {
   }, [startLocation, endLocation, userLocation, beginNavigation, readLiveTripPose]);
 
   // ── stopNavigation ────────────────────────────────────────
-  const stopNavigation = useCallback(async () => {
+  const stopNavigation = useCallback(async (opts?: { silent?: boolean; clearRoute?: boolean }) => {
     driveTraceSession('nav_end', { reason: 'user_stop' });
     isNavigatingRef.current = false;
     isDrivingRef.current = true;
@@ -12086,6 +12268,7 @@ if (appStateRef.current === 'active') {
     Speech.stop().catch(() => {});
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
+    clearDropNavigationTarget();
     // Navigation is only an overlay. Keep the trip, marker trajectory, speed
     // estimator and camera alive while switching back to Free Drive.
     passiveTripStartedRef.current = true;
@@ -12117,13 +12300,20 @@ if (appStateRef.current === 'active') {
       resetTimer();
     }
 
-    Toast.show({
-      type: 'info',
-      text1: wasApproaching ? 'DOJAZD ANULOWANY' : 'NAWIGACJA ZATRZYMANA',
-      text2: hadRouteTimer && !wasApproaching ? `Czas: ${formatElapsed(elapsedForToast)}` : undefined,
-    });
+    if (!opts?.silent) {
+      Toast.show({
+        type: 'info',
+        text1: wasApproaching ? 'DOJAZD ANULOWANY' : 'NAWIGACJA ZATRZYMANA',
+        text2: hadRouteTimer && !wasApproaching ? `Czas: ${formatElapsed(elapsedForToast)}` : undefined,
+      });
+    }
 
-    if (userLocation && !wasApproaching) {
+    if (opts?.clearRoute) {
+      setEndLocation(null);
+      setRouteInfo(null);
+      setStartLocation(userLocation ? { ...userLocation, name: 'Moja pozycja' } : null);
+      startIsMyLocationRef.current = !!userLocation;
+    } else if (userLocation && !wasApproaching) {
       startIsMyLocationRef.current = true;
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
     }
@@ -12131,7 +12321,36 @@ if (appStateRef.current === 'active') {
     userLocation, setFollowMode, onNavigationCancel, flushNavigationStatsOnce,
     timerRunning, stopTimer, resetTimer, formatElapsed,
     cameraV3, navV3, setTripCameraActive,
+    clearDropNavigationTarget,
   ]);
+
+  const stopNavigationRef = useRef(stopNavigation);
+  stopNavigationRef.current = stopNavigation;
+
+  useEffect(() => {
+    setDropClaimHandler((dropId, _reward, context) => {
+      pendingDropAutoStartRef.current = false;
+      approachingRouteStartRef.current = false;
+      autoStartRouteAfterApproachRef.current = false;
+      setRouteEndpointImages({});
+      setRemainingDistKm(null);
+      setDistToTurnM(null);
+      setArrived(false);
+      endLocationRef.current = null;
+      setEndLocation(null);
+      setRouteInfo(null);
+
+      const shouldStopNav = isNavigatingRef.current || context.hadNavigationTarget;
+      if (shouldStopNav) {
+        void stopNavigationRef.current({ silent: true, clearRoute: true });
+      } else {
+        setStartLocation(userLocation ? { ...userLocation, name: 'Moja pozycja' } : null);
+      }
+
+      purgeGamificationDrop(dropId);
+    });
+    return () => setDropClaimHandler(null);
+  }, [setDropClaimHandler, purgeGamificationDrop, userLocation]);
 
   useEffect(() => {
     if (!autoStartRouteAfterApproachRef.current) return;
@@ -12149,6 +12368,25 @@ if (appStateRef.current === 'active') {
     userLocation,
     isNavigating,
     isOffroadRoute,
+    beginNavigation,
+  ]);
+
+  useEffect(() => {
+    if (!pendingDropAutoStartRef.current) return;
+    if (isNavigating || navV3Mode !== 'freeDrive') return;
+    if (!userLocation || !startLocation || !endLocation) return;
+    if (previewLoading || !routeInfo) return;
+
+    pendingDropAutoStartRef.current = false;
+    beginNavigation();
+  }, [
+    routeInfo,
+    previewLoading,
+    startLocation,
+    endLocation,
+    userLocation,
+    isNavigating,
+    navV3Mode,
     beginNavigation,
   ]);
 
@@ -12417,11 +12655,9 @@ if (appStateRef.current === 'active') {
   const showSpeedPanel =
     !isRoutePreviewOpen
     && (isNavigating || isDriving || speedKmh > 5 || speedLimit !== null);
-  const showSideControls =
-    isNavigating
-    || isDriving
-    || (!isRoutePreviewOpen && !isBuilding);
+  const showSideControls = !isRoutePreviewOpen && !isBuilding;
   const sideControlsBottom = insets.bottom + 16;
+  const isDropRouteActive = !!dropNavigationTargetId;
 
   // ─────────────────────────────────────────────────────────
   // JSX
@@ -12430,6 +12666,11 @@ if (appStateRef.current === 'active') {
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <GeoDropClaimedModal
+        visible={!!claimedDropReward}
+        reward={claimedDropReward}
+        onClose={dismissClaimedDropReward}
+      />
       <NavStartHudBar visible={navHudVisible} onDone={() => setNavHudVisible(false)} />
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         {/* Baner nad mapą (layout kolumnowy — nie zasłania wyszukiwania) */}
@@ -12671,7 +12912,7 @@ if (appStateRef.current === 'active') {
           />
           <MapVividLayers enabled={showVividMapLayers} isDark={isDark} />
 
-          {endLocation && !arrived && (
+          {endLocation && !arrived && !claimedDropReward && !isDropRouteActive && (
             <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
                 backgroundColor: theme.surface, padding: 8, borderRadius: 12,
@@ -12684,7 +12925,7 @@ if (appStateRef.current === 'active') {
             </Mapbox.MarkerView>
           )}
 
-          {startLocation && !isNavigating && !isBuilding && (
+          {startLocation && !isNavigating && !isBuilding && !claimedDropReward && !isDropRouteActive && (
             <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{
                 backgroundColor: theme.surface, padding: 8, borderRadius: 12,
@@ -12727,6 +12968,14 @@ if (appStateRef.current === 'active') {
             cameras={effectiveCameras}
             onSelectCamera={handleSelectCamera}
           />
+
+          {(navV3Mode === 'freeDrive' || navV3Mode === 'navigation') ? (
+            <GeoDropMapLayer
+              key={gamificationDrops.map((d) => d.id).join('-') || 'no-drops'}
+              drops={gamificationDrops}
+              onSelectDrop={showDropPrompt}
+            />
+          ) : null}
 
           {effectiveFuelStations.map(station => (
             <FuelStationMarker
@@ -12776,7 +13025,7 @@ if (appStateRef.current === 'active') {
             />
           ) : null}
 
-          {startLocation && !isNavigating && routeEndpointImages.start && (
+          {startLocation && !isNavigating && !claimedDropReward && !isDropRouteActive && routeEndpointImages.start && (
             <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{ width: 48, height: 48 }}>
                 <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: '#4de92620', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#4de926' }}>
@@ -12785,7 +13034,7 @@ if (appStateRef.current === 'active') {
               </View>
             </Mapbox.MarkerView>
           )}
-          {endLocation && !arrived && routeEndpointImages.end && (
+          {endLocation && !arrived && !claimedDropReward && !isDropRouteActive && routeEndpointImages.end && (
             <Mapbox.MarkerView coordinate={[endLocation.longitude, endLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
               <View style={{ width: 48, height: 48 }}>
                 <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: '#e3383520', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#e33835' }}>
@@ -13385,6 +13634,16 @@ if (appStateRef.current === 'active') {
         </View>
 
         {/* ── Modale ───────────────────────────────────────── */}
+        {navV3Mode === 'freeDrive' && availableDropPrompt && !claimedDropReward && !isRoutePreviewOpen ? (
+          <GeoDropAvailableSheet
+            drop={availableDropPrompt}
+            bottomInset={insets.bottom + 56}
+            onNavigate={() => handleNavigateToDrop(availableDropPrompt)}
+            onLater={() => snoozeDropPrompt(availableDropPrompt.id)}
+            onHide={() => hideDropPrompt(availableDropPrompt.id)}
+          />
+        ) : null}
+
         <SearchModal
           visible={searchModalVisible}
           onClose={() => setSearchModalVisible(false)}

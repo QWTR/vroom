@@ -42,6 +42,8 @@ export type LiveLocationMotion = {
   heading?: number;
   speedKmh?: number;
   trail?: FleetTrailPoint[];
+  /** idle | freeDrive | navigation — gamification server gate */
+  mode?: string;
 };
 
 export interface LiveWarning {
@@ -950,7 +952,7 @@ export function useLiveMap(
     if (!socket?.connected) return;
 
     if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
-    const payload: Record<string, number | FleetTrailPoint[]> = { lat, lng };
+    const payload: Record<string, number | string | FleetTrailPoint[]> = { lat, lng };
     if (motion?.heading != null && Number.isFinite(motion.heading)) {
       payload.heading = motion.heading;
     }
@@ -960,6 +962,9 @@ export function useLiveMap(
     }
     if (motion?.trail && motion.trail.length > 0) {
       payload.trail = motion.trail.slice(-FLEET_SLOT_MAX_POINTS);
+    }
+    if (motion?.mode) {
+      payload.mode = motion.mode;
     }
     socket.emit('location:update', payload);
   }, [isSharing]);
