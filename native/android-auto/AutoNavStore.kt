@@ -407,7 +407,6 @@ object AutoNavStore {
     }
 
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val now = System.currentTimeMillis()
     val lastLivePush = p.getLong(KEY_LAST_LIVE_PUSH, 0L)
     if (token.isNotBlank() && now - lastLivePush >= LIVE_PUSH_INTERVAL_MS) {
       val locationPayload = JSONObject()
