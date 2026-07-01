@@ -229,18 +229,13 @@ async function callProxy<T>(
 
 export async function fetchDirectionsViaProxy<T>(
   payload: Record<string, unknown>,
-  fallbackUrl: string,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
-): Promise<T> {
+): Promise<T | null> {
   const timeoutMs = opts?.timeoutMs ?? 12_000;
-  const viaProxy = await callProxy<T>('/api/mapbox/directions', {
+  return callProxy<T>('/api/mapbox/directions', {
     method: 'POST',
     body: JSON.stringify(payload),
   }, { timeoutMs, signal: opts?.signal });
-  if (viaProxy != null) return viaProxy;
-  const res = await fetchWithTimeout(fallbackUrl, {}, timeoutMs, opts?.signal);
-  if (!res.ok) throw new Error(`DIRECTIONS_FALLBACK_${res.status}`);
-  return await res.json() as T;
 }
 
 export async function fetchMatchingViaProxy<T>(

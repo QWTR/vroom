@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import { API_URL, MAPBOX_TOKEN } from '../constants/mapConfig';
+import { API_URL } from '../constants/mapConfig';
 import { haversineKm } from '../scripts/navigationUtils';
 import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
 import { compactRoutePolyline } from '../core/navigationCore';
@@ -51,6 +51,7 @@ export function useRouteBuilder() {
       if (prev.length >= MAX_ROUTE_PINS) {
         Toast.show({
           type: 'info',
+          // @ts-expect-error Legacy toast title field used across the app.
           text1: 'Limit punktów',
           text2: `Maksymalnie ${MAX_ROUTE_PINS} punktów na trasę.`,
         });
@@ -90,11 +91,10 @@ export function useRouteBuilder() {
           steps: false,
           overview: 'full',
           language: 'pl',
-        },
-        '' // No Mapbox fallback url needed
+        }
       );
 
-      if (json.routes?.[0]) {
+      if (json?.routes?.[0]) {
         const segPoints = decodePolyline(json.routes[0].geometry);
         const compacted = compactRoutePolyline(segPoints, MAX_DISPLAY_POINTS).map((p) => ({
           latitude: p.lat,
