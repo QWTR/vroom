@@ -55,7 +55,15 @@ object VroomPayloadParser {
                 autoArcWindow = parseArcWindow(msObj?.optJSONObject("autoArcWindow")),
                 autoTargetArcM = finiteOrNull(msObj?.optDouble("autoTargetArcM", Double.NaN)),
                 autoRoadBlend = finiteOrNull(msObj?.optDouble("autoRoadBlend", Double.NaN)) ?: 0.0,
-                autoPathMode = cleanString(msObj?.optString("autoPathMode", ""))
+                autoPathMode = cleanString(msObj?.optString("autoPathMode", "")),
+                selfMarker = parseSelfMarker(msObj?.optJSONObject("selfMarker")),
+                geoDrops = parseGeoDrops(msObj?.optJSONArray("geoDrops")),
+                activeDropPrompt = parseGeoDrop(msObj?.optJSONObject("activeDropPrompt"), -1),
+                showUsers = msObj?.optBoolean("showUsers", true) ?: true,
+                showWarnings = msObj?.optBoolean("showWarnings", true) ?: true,
+                showSpeedCameras = msObj?.optBoolean("showSpeedCameras", true) ?: true,
+                showFuelStations = msObj?.optBoolean("showFuelStations", true) ?: true,
+                showPartnerPois = msObj?.optBoolean("showPartnerPois", true) ?: true
             )
 
             VroomPayload(
@@ -104,7 +112,11 @@ object VroomPayloadParser {
                     avatarFrameUrl = u.optString("avatarFrameUrl", ""),
                     distanceLabel = u.optString("distanceLabel", ""),
                     isPremium = u.optBoolean("isPremium", false),
-                    isFriend = u.optBoolean("isFriend", u.optString("type", "") == "friend")
+                    isFriend = u.optBoolean("isFriend", u.optString("type", "") == "friend"),
+                    markerSpriteUri = u.optString("markerSpriteUri", u.optString("spriteUri", "")),
+                    vehicleModelUrl = u.optString("vehicleModelUrl", ""),
+                    vehicleModelMeta = u.optJSONObject("vehicleModelMeta")?.toString()
+                        ?: u.optString("vehicleModelMeta", "")
                 )
             )
         }
@@ -149,11 +161,49 @@ object VroomPayloadParser {
                     value = item.optString("value", ""),
                     logoUrl = item.optString("logoUrl", item.optString("brandLogoUrl", "")),
                     accentColor = item.optString("accentColor", item.optString("markerAccentColor", "")),
-                    distanceLabel = item.optString("distanceLabel", "")
+                    distanceLabel = item.optString("distanceLabel", ""),
+                    spriteUri = item.optString("spriteUri", item.optString("markerSpriteUri", ""))
                 )
             )
         }
         return markers
+    }
+
+    private fun parseSelfMarker(obj: JSONObject?): AutoSelfMarker? {
+        if (obj == null) return null
+        return AutoSelfMarker(
+            style = obj.optString("style", obj.optString("locationMarkerStyle", "")),
+            markerSpriteUri = obj.optString("markerSpriteUri", obj.optString("spriteUri", "")),
+            vehicleModelUrl = obj.optString("vehicleModelUrl", obj.optString("modelUrl", "")),
+            vehicleModelMeta = obj.optJSONObject("vehicleModelMeta")?.toString()
+                ?: obj.optString("vehicleModelMeta", obj.optString("metadata", "")),
+            modelHealth = obj.optString("modelHealth", "")
+        )
+    }
+
+    private fun parseGeoDrops(array: JSONArray?): List<AutoGeoDrop> {
+        if (array == null) return emptyList()
+        val drops = mutableListOf<AutoGeoDrop>()
+        for (i in 0 until array.length()) {
+            parseGeoDrop(array.optJSONObject(i), i)?.let { drops.add(it) }
+        }
+        return drops
+    }
+
+    private fun parseGeoDrop(obj: JSONObject?, index: Int): AutoGeoDrop? {
+        if (obj == null) return null
+        val lat = finiteOrNull(obj.optDouble("lat", obj.optDouble("latitude", Double.NaN))) ?: return null
+        val lng = finiteOrNull(obj.optDouble("lng", obj.optDouble("longitude", Double.NaN))) ?: return null
+        return AutoGeoDrop(
+            id = obj.opt("id")?.toString() ?: "drop-$index",
+            lat = lat,
+            lng = lng,
+            label = obj.optString("label", obj.optString("title", obj.optString("name", "Zrzut"))),
+            type = obj.optString("type", "drop"),
+            status = obj.optString("status", ""),
+            radiusM = finiteOrNull(obj.optDouble("radiusM", obj.optDouble("radius", Double.NaN))),
+            spriteUri = obj.optString("spriteUri", obj.optString("markerSpriteUri", ""))
+        )
     }
 
     private fun parsePoints(array: JSONArray?): List<AutoRoutePoint> {

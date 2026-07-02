@@ -63,6 +63,13 @@ interface UseAutoNavigationBridgeParams {
   mapStyle?: string;
   locationMarkerStyle?: 'arrow' | 'profile' | 'vehicle_3d';
   currentUserAvatarUrl?: string | null;
+  selfMarker?: {
+    style?: 'arrow' | 'profile' | 'vehicle_3d';
+    markerSpriteUri?: string | null;
+    vehicleModelUrl?: string | null;
+    vehicleModelMeta?: unknown;
+    modelHealth?: string | null;
+  } | null;
   hideLocation?: boolean;
   startLocation?: LocationState | null;
   endLocation: LocationState | null;
@@ -87,6 +94,9 @@ interface UseAutoNavigationBridgeParams {
     distance?: number;
     isFriend?: boolean;
     isPremium?: boolean;
+    markerSpriteUri?: string | null;
+    vehicleModelUrl?: string | null;
+    vehicleModelMeta?: unknown;
   }[];
   warnings?: {
     id: string | number;
@@ -112,6 +122,7 @@ interface UseAutoNavigationBridgeParams {
     name?: string;
     brand?: string | null;
     brandLogoUrl?: string | null;
+    spriteUri?: string | null;
     lat: number;
     lng: number;
     distance?: number;
@@ -123,9 +134,42 @@ interface UseAutoNavigationBridgeParams {
     category?: string;
     markerAccentColor?: string | null;
     logoUrl?: string | null;
+    spriteUri?: string | null;
     lat: number;
     lng: number;
   }[];
+  geoDrops?: {
+    id: string | number;
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
+    label?: string;
+    title?: string;
+    name?: string;
+    type?: string;
+    status?: string;
+    radiusM?: number | null;
+    radius?: number | null;
+    spriteUri?: string | null;
+    markerSpriteUri?: string | null;
+  }[];
+  activeDropPrompt?: {
+    id: string | number;
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
+    label?: string;
+    title?: string;
+    name?: string;
+    type?: string;
+    status?: string;
+    radiusM?: number | null;
+    radius?: number | null;
+    spriteUri?: string | null;
+    markerSpriteUri?: string | null;
+  } | null;
   onStopRequested: () => void;
   onReportRequested?: () => void;
   onReportTypeRequested?: (type: string) => void | Promise<void>;
@@ -150,6 +194,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     mapStyle,
     locationMarkerStyle,
     currentUserAvatarUrl,
+    selfMarker,
     hideLocation,
     startLocation,
     endLocation,
@@ -165,6 +210,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     speedCameras,
     fuelStations,
     partnerPois,
+    geoDrops,
+    activeDropPrompt,
     onStopRequested,
     onReportRequested,
     onReportTypeRequested,
@@ -258,6 +305,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
           distanceLabel: distanceKm != null ? `${distanceKm.toFixed(1)} km` : '',
           isFriend: !!user.isFriend,
           isPremium: !!user.isPremium,
+          markerSpriteUri: user.markerSpriteUri ?? '',
+          vehicleModelUrl: user.vehicleModelUrl ?? '',
+          vehicleModelMeta: user.vehicleModelMeta ?? null,
         };
       })
   ), [visibleUsers, userLocation]);
@@ -317,6 +367,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         lat: station.lat,
         lng: station.lng,
         logoUrl: station.brandLogoUrl ?? '',
+        spriteUri: station.spriteUri ?? '',
         distanceLabel: station.distance != null
           ? `${(station.distance / 1000).toFixed(1)} km`
           : '',
@@ -337,10 +388,46 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         lat: poi.lat,
         lng: poi.lng,
         logoUrl: poi.logoUrl ?? '',
+        spriteUri: poi.spriteUri ?? '',
         accentColor: poi.markerAccentColor ?? '#FFD700',
         value: '',
       }))
   ), [partnerPois]);
+
+  const autoSelfMarker = useMemo(() => ({
+    style: selfMarker?.style ?? locationMarkerStyle ?? 'profile',
+    markerSpriteUri: selfMarker?.markerSpriteUri ?? '',
+    vehicleModelUrl: selfMarker?.vehicleModelUrl ?? '',
+    vehicleModelMeta: selfMarker?.vehicleModelMeta ?? null,
+    modelHealth: selfMarker?.modelHealth ?? '',
+  }), [selfMarker, locationMarkerStyle]);
+
+  const mapDrop = (drop: NonNullable<UseAutoNavigationBridgeParams['geoDrops']>[number]) => {
+    const lat = Number(drop.latitude ?? drop.lat);
+    const lng = Number(drop.longitude ?? drop.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return {
+      id: String(drop.id),
+      lat,
+      lng,
+      label: drop.label ?? drop.title ?? drop.name ?? 'Zrzut',
+      type: drop.type ?? 'drop',
+      status: drop.status ?? '',
+      radiusM: drop.radiusM ?? drop.radius ?? null,
+      spriteUri: drop.spriteUri ?? drop.markerSpriteUri ?? '',
+    };
+  };
+
+  const autoGeoDrops = useMemo(() => (
+    (geoDrops ?? [])
+      .map(mapDrop)
+      .filter((drop): drop is NonNullable<ReturnType<typeof mapDrop>> => !!drop)
+      .slice(0, 80)
+  ), [geoDrops]);
+
+  const autoActiveDropPrompt = useMemo(() => (
+    activeDropPrompt ? mapDrop(activeDropPrompt) : null
+  ), [activeDropPrompt]);
 
   const autoBuilderPins = useMemo(() => (
     (builderPins ?? [])
@@ -379,9 +466,12 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     route: compactPolyline,
     builderRoute: compactBuilderRoute,
     builderPins: autoBuilderPins,
+    selfMarker: autoSelfMarker,
     speedCameras: autoSpeedCameras,
     fuelStations: autoFuelStations,
     partnerPois: autoPartnerPois,
+    geoDrops: autoGeoDrops,
+    activeDropPrompt: autoActiveDropPrompt,
   }), [
     mapStyle,
     locationMarkerStyle,
@@ -396,9 +486,12 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     compactPolyline,
     compactBuilderRoute,
     autoBuilderPins,
+    autoSelfMarker,
     autoSpeedCameras,
     autoFuelStations,
     autoPartnerPois,
+    autoGeoDrops,
+    autoActiveDropPrompt,
   ]);
 
   const fullPayloadKey = useMemo(() => JSON.stringify({
@@ -415,6 +508,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     mapStyle: mapStyle ?? null,
     locationMarkerStyle: locationMarkerStyle ?? 'profile',
     currentUserAvatarUrl: currentUserAvatarUrl ?? '',
+    selfMarker: autoSelfMarker,
     hideLocation: !!hideLocation,
     startLocation,
     speedLimitKmh: speedLimitKmh ?? null,
@@ -423,6 +517,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     speedCameras: autoSpeedCameras,
     fuelStations: autoFuelStations,
     partnerPois: autoPartnerPois,
+    geoDrops: autoGeoDrops,
+    activeDropPrompt: autoActiveDropPrompt,
   }), [
     isNavigating,
     isDriving,
@@ -437,6 +533,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     mapStyle,
     locationMarkerStyle,
     currentUserAvatarUrl,
+    autoSelfMarker,
     hideLocation,
     startLocation,
     speedLimitKmh,
@@ -445,6 +542,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     autoSpeedCameras,
     autoFuelStations,
     autoPartnerPois,
+    autoGeoDrops,
+    autoActiveDropPrompt,
   ]);
 
   useEffect(() => {

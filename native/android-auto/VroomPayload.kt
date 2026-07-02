@@ -10,7 +10,10 @@ data class UserMarker(
     val avatarFrameUrl: String = "",
     val distanceLabel: String = "",
     val isPremium: Boolean = false,
-    val isFriend: Boolean = false
+    val isFriend: Boolean = false,
+    val markerSpriteUri: String = "",
+    val vehicleModelUrl: String = "",
+    val vehicleModelMeta: String = ""
 )
 
 data class WarningMarker(
@@ -36,7 +39,27 @@ data class AutoPoiMarker(
     val value: String,
     val logoUrl: String = "",
     val accentColor: String = "",
-    val distanceLabel: String = ""
+    val distanceLabel: String = "",
+    val spriteUri: String = ""
+)
+
+data class AutoSelfMarker(
+    val style: String,
+    val markerSpriteUri: String = "",
+    val vehicleModelUrl: String = "",
+    val vehicleModelMeta: String = "",
+    val modelHealth: String = ""
+)
+
+data class AutoGeoDrop(
+    val id: String,
+    val lat: Double,
+    val lng: Double,
+    val label: String,
+    val type: String = "drop",
+    val status: String = "",
+    val radiusM: Double? = null,
+    val spriteUri: String = ""
 )
 
 data class AutoArcWindow(
@@ -70,7 +93,15 @@ data class MapState(
     val autoArcWindow: AutoArcWindow?,
     val autoTargetArcM: Double?,
     val autoRoadBlend: Double,
-    val autoPathMode: String?
+    val autoPathMode: String?,
+    val selfMarker: AutoSelfMarker? = null,
+    val geoDrops: List<AutoGeoDrop> = emptyList(),
+    val activeDropPrompt: AutoGeoDrop? = null,
+    val showUsers: Boolean = true,
+    val showWarnings: Boolean = true,
+    val showSpeedCameras: Boolean = true,
+    val showFuelStations: Boolean = true,
+    val showPartnerPois: Boolean = true
 )
 
 data class VroomPayload(
