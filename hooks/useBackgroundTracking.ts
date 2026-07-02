@@ -12,6 +12,7 @@ import {
   startVroomBgForegroundNotification,
   stopVroomBgForegroundNotification,
 } from '../lib/vroomBgForegroundService';
+import { BackgroundDriveController } from '../lib/backgroundDriveController';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -100,6 +101,8 @@ const BG_APP_ACTIVE_HEARTBEAT_MS = 30_000;
 export const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 export const BG_IS_DRIVING_KEY         = 'bg_is_driving';
+export const TRIP_SESSION_ID_KEY       = 'active_trip_session_id';
+export const TRIP_SESSION_STARTED_AT_KEY = 'active_trip_session_started_at';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
 const BG_MAX_PLAUSIBLE_KMH      = 200;
 const BG_MIN_SEGMENT_KM         = 0.003;
@@ -247,26 +250,68 @@ export async function clearTripCheckpointSavedKm(): Promise<void> {
   } catch { /* ignore */ }
 }
 
+function createTripSessionId(): string {
+  return `trip_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function ensureTripSessionId(): Promise<string> {
+  try {
+    const existing = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+    if (existing) return existing;
+    const id = createTripSessionId();
+    const startedAt = new Date().toISOString();
+    await AsyncStorage.multiSet([
+      [TRIP_SESSION_ID_KEY, id],
+      [TRIP_SESSION_STARTED_AT_KEY, startedAt],
+    ]);
+    return id;
+  } catch {
+    return createTripSessionId();
+  }
+}
+
+export async function getTripSessionContext(): Promise<{
+  tripSessionId: string;
+  startedAt: string;
+  endedAt: string;
+}> {
+  const tripSessionId = await ensureTripSessionId();
+  let startedAt = await AsyncStorage.getItem(TRIP_SESSION_STARTED_AT_KEY);
+  if (!startedAt) {
+    startedAt = new Date().toISOString();
+    await AsyncStorage.setItem(TRIP_SESSION_STARTED_AT_KEY, startedAt);
+  }
+  return { tripSessionId, startedAt, endedAt: new Date().toISOString() };
+}
+
+export async function clearTripSession(): Promise<void> {
+  try {
+    await AsyncStorage.multiRemove([TRIP_SESSION_ID_KEY, TRIP_SESSION_STARTED_AT_KEY]);
+  } catch { /* ignore */ }
+}
+
 export async function saveIncrementalTripKm(payload: {
   distanceKm: number;
   maxSpeedKmh?: number;
   avgSpeedKmh?: number;
-  source?: 'navigation' | 'driving' | 'trip-checkpoint';
+  source?: 'navigation' | 'driving' | 'trip-checkpoint' | 'background-passive';
 }): Promise<boolean> {
   const dist = Number(payload.distanceKm);
   if (!Number.isFinite(dist) || dist < 0.05) return false;
   const token = await getAuthToken();
   if (!token) return false;
   try {
-    const res = await fetch(`${API_URL}/api/activity/save`, {
+    const tripSessionId = await ensureTripSessionId();
+    const res = await fetch(`${API_URL}/api/activity/session/checkpoint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
+        tripSessionId,
         distance: Math.round(dist * 1000) / 1000,
         maxSpeed: Math.round((payload.maxSpeedKmh ?? 0) * 10) / 10,
         avgSpeed: Math.round((payload.avgSpeedKmh ?? 0) * 10) / 10,
-        duration: null,
         source: payload.source ?? 'trip-checkpoint',
+        visibleInHistory: false,
       }),
     });
     if (!res.ok) return false;
@@ -336,13 +381,81 @@ function compactBgRoutePoints(
   return compacted;
 }
 
+export async function consumeNativeDriveStatsToStorage(): Promise<void> {
+  try {
+    const stats = await BackgroundDriveController.consumeNativeStats();
+    const nativeSessionId = typeof stats.tripSessionId === 'string' ? stats.tripSessionId : null;
+    const currentSessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+    if (nativeSessionId && currentSessionId && nativeSessionId !== currentSessionId) {
+      return;
+    }
+    const nativeKm = Number(stats.distanceKm);
+    const writes: Promise<any>[] = [];
+
+    if (Number.isFinite(nativeKm) && nativeKm > 0) {
+      const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
+      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + nativeKm)));
+    }
+
+    const nativeRoute = Array.isArray(stats.routePoints)
+      ? stats.routePoints.filter((p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude))
+      : [];
+    if (nativeRoute.length > 0) {
+      const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
+      const currentRoute = routeRaw ? JSON.parse(routeRaw) : [];
+      writes.push(AsyncStorage.setItem(
+        BG_ROUTE_POINTS_KEY,
+        JSON.stringify(compactBgRoutePoints([...currentRoute, ...nativeRoute])),
+      ));
+    }
+
+    const nativeSamples = Array.isArray(stats.speedSamples)
+      ? stats.speedSamples.map(Number).filter((v) => Number.isFinite(v) && v >= 1 && v <= MAX_FEED_SPEED_KMH)
+      : [];
+    if (nativeSamples.length > 0) {
+      const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
+      const currentSamples = samplesRaw ? JSON.parse(samplesRaw) : [];
+      const mergedSamples = [...currentSamples, ...nativeSamples].slice(-400);
+      const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
+      const currentMax = parseFloat(maxRaw ?? '0');
+      const nativeMax = Number(stats.maxSpeedKmh);
+      const mergedMax = Math.max(
+        Number.isFinite(currentMax) ? currentMax : 0,
+        Number.isFinite(nativeMax) ? nativeMax : 0,
+        ...nativeSamples,
+      );
+      writes.push(
+        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(mergedSamples)),
+        AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(mergedMax)),
+      );
+    }
+
+    if (writes.length > 0) await Promise.all(writes);
+  } catch { /* ignore */ }
+}
+
 // ── Navigation flag helpers (called from map.tsx) ─────────────────────────────
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
+  if (active) {
+    const tripSessionId = await ensureTripSessionId();
+    await BackgroundDriveController.start('navigation', tripSessionId);
+    return;
+  }
+  const driving = await AsyncStorage.getItem(BG_IS_DRIVING_KEY);
+  if (driving !== 'true') await BackgroundDriveController.stop('app');
 }
 
 export async function setDrivingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_DRIVING_KEY, active ? 'true' : 'false');
+  if (active) {
+    const tripSessionId = await ensureTripSessionId();
+    const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
+    await BackgroundDriveController.start(navigating === 'true' ? 'navigation' : 'freeDrive', tripSessionId);
+    return;
+  }
+  const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
+  if (navigating !== 'true') await BackgroundDriveController.stop('app');
 }
 
 export async function recordDrivingTracePoint(
@@ -511,7 +624,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       // Skip if GPS says we're below 2 km/h (stationary jitter).
       // Allow up to 2 km per BG update to support highway driving at lower GPS frequencies.
       const speedKmh = (speed != null && speed > 0) ? speed * 3.6 : null;
-      const hasReliableSpeed = Number.isFinite(speedKmh) && speedKmh >= BG_MIN_REPORTED_SPEED_KMH;
+      const hasReliableSpeed = speedKmh != null && Number.isFinite(speedKmh) && speedKmh >= BG_MIN_REPORTED_SPEED_KMH;
       const isAccurateFix =
         (accuracy == null || accuracy <= BG_MAX_ACCURACY_M)
         && (!Number.isFinite(lastAcc) || lastAcc <= BG_MAX_ACCURACY_M);
@@ -725,6 +838,7 @@ export function useBackgroundTracking(
     if (flushInFlightRef.current) return;
     flushInFlightRef.current = true;
     try {
+      await consumeNativeDriveStatsToStorage();
       const token = await getAuthToken();
       if (!token) return;
       await flushPendingActivitySave(token);
@@ -759,13 +873,17 @@ export function useBackgroundTracking(
 
     if (distanceToSave < 0.05) return;
 
+        const session = await getTripSessionContext();
         const payload = {
+          tripSessionId: session.tripSessionId,
           distance: distanceToSave,
           maxSpeed: maxSpeedToSave,
           avgSpeed: avgSpeedToSave,
           duration: navPayload?.durationSec ?? null,
           routePoints: routePointsToSave,
-          source: sourceTag,
+          source: sourceTag === 'driving' ? 'drive_final' : 'navigation_final',
+          startedAt: session.startedAt,
+          endedAt: session.endedAt,
           routePointsCount: routePointsToSave?.length ?? 0,
         };
         if (__DEV__) {
@@ -795,6 +913,7 @@ export function useBackgroundTracking(
           telemetryRef.current.flushFail += 1;
 
           const retryWithoutRoute =
+            false &&
             saveRes.status === 400
             && typeof errJson?.error === 'string'
             && errJson.error.includes('przebiegu trasy');
@@ -815,6 +934,7 @@ export function useBackgroundTracking(
                 AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
                 AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
               ]);
+              await clearTripSession();
               void syncProfileStatsFromServer();
               return;
             }
@@ -824,6 +944,7 @@ export function useBackgroundTracking(
             AsyncStorage.setItem(BG_PENDING_ACTIVITY_SAVE_KEY, JSON.stringify(payload)),
             AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
           ]);
+          await clearTripSession();
           telemetryRef.current.pendingRetrySaved += 1;
           return;
         }
@@ -837,6 +958,7 @@ export function useBackgroundTracking(
           AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
           AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
         ]);
+        await clearTripSession();
         void syncProfileStatsFromServer();
 
       } else {
@@ -863,9 +985,18 @@ export function useBackgroundTracking(
           ? samples.reduce((a, b) => a + b, 0) / samples.length
           : 0;
 
-        const passiveRoutePoints = trimRoutePointsForActivitySave(
-          bgRoutePoints.length > 1 ? bgRoutePoints : undefined,
-        );
+        const saveResOk = await saveIncrementalTripKm({
+          distanceKm: bgPending,
+          maxSpeedKmh: maxSpeed,
+          avgSpeedKmh: avgSpeed,
+          source: 'background-passive',
+        });
+        if (!saveResOk) {
+          console.log('flushPendingKm(passive checkpoint) failed - BG_PENDING_KM preserved for retry');
+          telemetryRef.current.flushFail += 1;
+          return;
+        }
+        /*
         const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -886,6 +1017,7 @@ export function useBackgroundTracking(
           telemetryRef.current.flushFail += 1;
           return;
         }
+        */
         telemetryRef.current.flushSuccess += 1;
         void syncProfileStatsFromServer();
 
@@ -919,11 +1051,12 @@ export function useBackgroundTracking(
     try {
       // Hard runtime guard: never run BG task when user disabled the toggle.
       const persistedBgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
-      const bgAllowed = bgEnabledRef.current && persistedBgSetting === 'true';
+      const bgAllowed = forceEnabledRef.current || (bgEnabledRef.current && persistedBgSetting === 'true');
       if (!bgAllowed || !isPremium) {
         if (Platform.OS === 'android') {
           await stopVroomBgForegroundNotification();
         }
+        await BackgroundDriveController.stop('app');
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -932,12 +1065,9 @@ export function useBackgroundTracking(
         return;
       }
 
-      if (Platform.OS === 'android') {
-        await startVroomBgForegroundNotification();
-      }
-
-      const shouldTrack = bgEnabled && forceEnabled;
+      const shouldTrack = forceEnabled;
       if (!shouldTrack) {
+        await BackgroundDriveController.stop('app');
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -945,9 +1075,28 @@ export function useBackgroundTracking(
         }
         return;
       }
+
+      const [navFlagBeforeStart, stationaryFlagBeforeStart] = await Promise.all([
+        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+        AsyncStorage.getItem(BG_GPS_STATIONARY_KEY),
+      ]);
+
+      const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
+      if (!disclosureAccepted) return;
+
+      const { status: fg } = await Location.requestForegroundPermissionsAsync();
+      if (fg !== 'granted') return;
+      const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+      if (bg !== 'granted') return;
+      const [navFlag, stationaryFlag] = [navFlagBeforeStart, stationaryFlagBeforeStart];
+      const isNavigatingBg = navFlag === 'true';
+      const isStationaryBg = stationaryFlag === 'true';
+      const tripSessionId = await ensureTripSessionId();
+      await BackgroundDriveController.start(isNavigatingBg ? 'navigation' : 'freeDrive', tripSessionId);
 
       const appIsActive = AppState.currentState === 'active';
-      // Foreground: mapa ma watcher — zero równoległego BG GPS (lag).
+      // Foreground: native service stays alive for Android kill/recents survival;
+      // Expo task is disabled to avoid a second JS distance ledger.
       if (appIsActive) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
@@ -957,19 +1106,7 @@ export function useBackgroundTracking(
         lastBgCadenceRef.current = null;
         return;
       }
-      const disclosureAccepted = await hasAcceptedBackgroundLocationDisclosure();
-      if (!disclosureAccepted) return;
 
-      const { status: fg } = await Location.requestForegroundPermissionsAsync();
-      if (fg !== 'granted') return;
-      const { status: bg } = await Location.requestBackgroundPermissionsAsync();
-      if (bg !== 'granted') return;
-      const [navFlag, stationaryFlag] = await Promise.all([
-        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
-        AsyncStorage.getItem(BG_GPS_STATIONARY_KEY),
-      ]);
-      const isNavigatingBg = navFlag === 'true';
-      const isStationaryBg = stationaryFlag === 'true';
       const highCadence = isSharing || (forceEnabled && (isNavigatingBg || !isStationaryBg));
       const cadenceKey: 'high' | 'low' = highCadence ? 'high' : 'low';
 
@@ -1030,6 +1167,7 @@ export function useBackgroundTracking(
       if (Platform.OS === 'android') {
         await stopVroomBgForegroundNotification();
       }
+      await BackgroundDriveController.stop('app');
       await stopBgLocationUpdates();
     } finally {
       stopInFlightRef.current = false;
@@ -1040,20 +1178,19 @@ export function useBackgroundTracking(
   useEffect(() => {
     if (!bgEnabled || !isPremium) {
       if (Platform.OS === 'android') void stopVroomBgForegroundNotification();
+      if (!forceEnabledRef.current) void BackgroundDriveController.stop('app');
       return;
-    }
-    if (Platform.OS === 'android') {
-      void startVroomBgForegroundNotification();
     }
   }, [bgEnabled, isPremium]);
 
   // Auto-start GPS w tle tylko podczas aktywnej jazdy/nawigacji.
   useEffect(() => {
-    if (forceEnabled && bgEnabled) {
+    if (forceEnabled) {
       const timer = setTimeout(() => startBackgroundTracking(), 500);
       return () => clearTimeout(timer);
     }
     stopBgLocationUpdates().then(() => {
+      void BackgroundDriveController.stop('app');
       if (!forceEnabled) flushPendingKm(false);
     });
   }, [bgEnabled, forceEnabled, startBackgroundTracking, stopBgLocationUpdates, flushPendingKm]);
@@ -1094,7 +1231,7 @@ export function useBackgroundTracking(
       if (s === 'inactive' || s === 'background') {
         if (s === 'background') void flushTracePendingKmToStorage();
         persistAppActive(false);
-        if (bgEnabled && forceEnabledRef.current) {
+        if (forceEnabledRef.current) {
           void startBackgroundTracking();
         } else if (!bgEnabled) {
           stopBackgroundTracking();

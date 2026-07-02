@@ -44,6 +44,10 @@ import {
   setBgTrackingEndHandler,
   wireBgTrackingNotificationControl,
 } from '../lib/bgTrackingNotificationControl';
+import {
+  BackgroundDriveController,
+  IOS_DRIVE_STOP_ACTION,
+} from '../lib/backgroundDriveController';
 import { stopVroomBgForegroundNotification } from '../lib/vroomBgForegroundService';
 import { useAppAnimations } from '../hooks/useAppAnimations';
 import { preloadAppAnimations } from '../lib/appAnimationPreload';
@@ -319,6 +323,10 @@ function RootLayoutInner() {
       // Powiadomienia dalej zapisują się w bazie i są w centrum powiadomień in-app.
     });
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      if (response.actionIdentifier === IOS_DRIVE_STOP_ACTION) {
+        void BackgroundDriveController.stop('notification');
+        return;
+      }
       handleNotificationNavigation(response.notification.request.content.data as any);
     });
     return () => { notifListener.current?.remove(); responseListener.current?.remove(); };

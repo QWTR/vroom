@@ -1,0 +1,282 @@
+import { DeviceEventEmitter, NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+
+export type BackgroundDriveMode = 'freeDrive' | 'navigation';
+export type BackgroundDriveStopReason = 'app' | 'notification' | 'permission' | 'system';
+
+export type BackgroundDriveFix = {
+  latitude: number;
+  longitude: number;
+  speed: number | null;
+  heading: number | null;
+  accuracy: number | null;
+  timestamp: number;
+  mode?: BackgroundDriveMode | string;
+};
+
+export type BackgroundDriveState = {
+  active: boolean;
+  mode?: BackgroundDriveMode | string | null;
+  tripSessionId?: string | null;
+  startedAt?: number | null;
+  lastFix?: BackgroundDriveFix | null;
+  endedBy?: BackgroundDriveStopReason | string | null;
+  updatedAt?: number | null;
+};
+
+export type BackgroundDriveNativeStats = {
+  distanceKm: number;
+  tripSessionId?: string | null;
+  routePoints: Array<{ latitude: number; longitude: number }>;
+  speedSamples: number[];
+  maxSpeedKmh: number;
+};
+
+const STATE_KEY = 'wiroom_background_drive_state';
+const BUFFER_KEY = 'wiroom_background_drive_buffer';
+const EVENT_STOP = 'VROOM_BG_TRACKING_END';
+const EVENT_LOCATION = 'VROOM_BG_LOCATION';
+export const IOS_DRIVE_NOTIFICATION_CATEGORY = 'wiroom_drive_tracking';
+export const IOS_DRIVE_STOP_ACTION = 'WIROOM_DRIVE_STOP';
+const IOS_DRIVE_NOTIFICATION_ID_KEY = 'wiroom_drive_notification_id';
+
+const { VroomBgTracking, WiroomLocationService } = NativeModules as {
+  VroomBgTracking?: {
+    startDriveTracking?: (mode: BackgroundDriveMode, tripSessionId?: string) => Promise<boolean>;
+    stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
+    getState?: () => Promise<BackgroundDriveState>;
+    consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
+    consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+  };
+  WiroomLocationService?: {
+    startDriveTracking?: (mode: BackgroundDriveMode, tripSessionId?: string) => Promise<boolean>;
+    stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
+    getState?: () => Promise<BackgroundDriveState>;
+    consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
+    consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+  };
+};
+
+function nativeModule() {
+  return Platform.OS === 'ios' ? WiroomLocationService : VroomBgTracking;
+}
+
+function normalizeState(value: Partial<BackgroundDriveState> | null | undefined): BackgroundDriveState {
+  return {
+    active: value?.active === true,
+    mode: value?.mode ?? null,
+    tripSessionId: typeof value?.tripSessionId === 'string' ? value.tripSessionId : null,
+    startedAt: typeof value?.startedAt === 'number' ? value.startedAt : null,
+    lastFix: value?.lastFix ?? null,
+    endedBy: value?.endedBy ?? null,
+    updatedAt: typeof value?.updatedAt === 'number' ? value.updatedAt : Date.now(),
+  };
+}
+
+async function persistState(state: BackgroundDriveState): Promise<void> {
+  await AsyncStorage.setItem(STATE_KEY, JSON.stringify(normalizeState(state)));
+}
+
+async function appendBufferedLocation(fix: BackgroundDriveFix): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(BUFFER_KEY);
+    const current: BackgroundDriveFix[] = raw ? JSON.parse(raw) : [];
+    current.push(fix);
+    await AsyncStorage.setItem(BUFFER_KEY, JSON.stringify(current.slice(-240)));
+  } catch {
+    // best effort mirror only
+  }
+}
+
+async function showIosDriveNotification(mode: BackgroundDriveMode): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+  try {
+    await Notifications.setNotificationCategoryAsync(
+      IOS_DRIVE_NOTIFICATION_CATEGORY,
+      [
+        {
+          identifier: IOS_DRIVE_STOP_ACTION,
+          buttonTitle: 'Zakończ',
+          options: {
+            isDestructive: true,
+            opensAppToForeground: false,
+          },
+        },
+      ],
+    );
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Wiroom - aktywna jazda',
+        body: mode === 'navigation'
+          ? 'Nawigacja i GPS dzialaja w tle.'
+          : 'Free Drive i GPS dzialaja w tle.',
+        data: { type: 'wiroom_drive_tracking' },
+        categoryIdentifier: IOS_DRIVE_NOTIFICATION_CATEGORY,
+        interruptionLevel: 'timeSensitive',
+        sound: false,
+      },
+      trigger: null,
+    });
+    await AsyncStorage.setItem(IOS_DRIVE_NOTIFICATION_ID_KEY, id);
+  } catch {
+    // Notification actions are a UX layer; native CLLocationManager remains authoritative.
+  }
+}
+
+async function ensureAndroidNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status !== 'granted') {
+      await Notifications.requestPermissionsAsync();
+    }
+  } catch {
+    // Foreground service still starts; Android may hide drawer notification if denied.
+  }
+}
+
+async function dismissIosDriveNotification(): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+  try {
+    const id = await AsyncStorage.getItem(IOS_DRIVE_NOTIFICATION_ID_KEY);
+    if (id) {
+      await Notifications.dismissNotificationAsync(id);
+      await AsyncStorage.removeItem(IOS_DRIVE_NOTIFICATION_ID_KEY);
+    }
+  } catch {
+    // best effort
+  }
+}
+
+export const BackgroundDriveController = {
+  async start(mode: BackgroundDriveMode, tripSessionId?: string | null): Promise<boolean> {
+    const state: BackgroundDriveState = {
+      active: true,
+      mode,
+      tripSessionId: tripSessionId ?? null,
+      startedAt: Date.now(),
+      lastFix: null,
+      endedBy: null,
+      updatedAt: Date.now(),
+    };
+    await persistState(state);
+    const mod = nativeModule();
+    if (!mod?.startDriveTracking) return false;
+    try {
+      await ensureAndroidNotificationPermission();
+      const ok = Platform.OS === 'android'
+        ? await mod.startDriveTracking(mode, tripSessionId ?? '')
+        : await mod.startDriveTracking(mode);
+      await showIosDriveNotification(mode);
+      return ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async stop(reason: BackgroundDriveStopReason): Promise<boolean> {
+    const current = await this.getState();
+    await persistState({
+      ...current,
+      active: false,
+      endedBy: reason,
+      updatedAt: Date.now(),
+    });
+    const mod = nativeModule();
+    await dismissIosDriveNotification();
+    if (!mod?.stopDriveTracking) return false;
+    try {
+      return await mod.stopDriveTracking(reason);
+    } catch {
+      return false;
+    }
+  },
+
+  async getState(): Promise<BackgroundDriveState> {
+    const mod = nativeModule();
+    if (mod?.getState) {
+      try {
+        const nativeState = normalizeState(await mod.getState());
+        await persistState(nativeState);
+        return nativeState;
+      } catch {
+        // fall through to persisted JS mirror
+      }
+    }
+    try {
+      const raw = await AsyncStorage.getItem(STATE_KEY);
+      return normalizeState(raw ? JSON.parse(raw) : null);
+    } catch {
+      return { active: false };
+    }
+  },
+
+  async consumeBufferedLocations(): Promise<BackgroundDriveFix[]> {
+    const mod = nativeModule();
+    let nativeLocations: BackgroundDriveFix[] = [];
+    if (mod?.consumeBufferedLocations) {
+      try {
+        const result = await mod.consumeBufferedLocations();
+        nativeLocations = Array.isArray(result) ? result : [];
+      } catch {
+        nativeLocations = [];
+      }
+    }
+
+    let jsLocations: BackgroundDriveFix[] = [];
+    try {
+      const raw = await AsyncStorage.getItem(BUFFER_KEY);
+      jsLocations = raw ? JSON.parse(raw) : [];
+      await AsyncStorage.removeItem(BUFFER_KEY);
+    } catch {
+      jsLocations = [];
+    }
+
+    return [...jsLocations, ...nativeLocations]
+      .filter((fix) => Number.isFinite(fix?.latitude) && Number.isFinite(fix?.longitude))
+      .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  },
+
+  async consumeNativeStats(): Promise<BackgroundDriveNativeStats> {
+    const mod = nativeModule();
+    if (mod?.consumeNativeStats) {
+      try {
+        const stats = await mod.consumeNativeStats();
+        const distanceKm = Number(stats?.distanceKm);
+        const maxSpeedKmh = Number(stats?.maxSpeedKmh);
+        return {
+          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
+          tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
+          routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
+          speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
+          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
+        };
+      } catch {
+        // fall through
+      }
+    }
+    return { distanceKm: 0, routePoints: [], speedSamples: [], maxSpeedKmh: 0 };
+  },
+
+  addStopListener(listener: (payload?: { reason?: string }) => void): () => void {
+    const emitter = Platform.OS === 'ios' && WiroomLocationService
+      ? new NativeEventEmitter(WiroomLocationService as any)
+      : DeviceEventEmitter;
+    const sub = emitter.addListener(EVENT_STOP, listener);
+    return () => sub.remove();
+  },
+
+  addLocationListener(listener: (fix: BackgroundDriveFix) => void): () => void {
+    const emitter = Platform.OS === 'ios' && WiroomLocationService
+      ? new NativeEventEmitter(WiroomLocationService as any)
+      : DeviceEventEmitter;
+    const sub = emitter.addListener(EVENT_LOCATION, (fix: BackgroundDriveFix) => {
+      void appendBufferedLocation(fix);
+      listener(fix);
+    });
+    return () => sub.remove();
+  },
+};
+
+export { EVENT_LOCATION as BACKGROUND_DRIVE_LOCATION_EVENT, EVENT_STOP as BACKGROUND_DRIVE_STOP_EVENT };

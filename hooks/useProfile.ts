@@ -11,6 +11,7 @@ import {
   avatarUrlHasVersion,
   withAvatarCacheBust,
 } from '../lib/avatarUri';
+import { filterVisibleRideHistory } from '../lib/activityHistoryFilter';
 
 const getToken = async (): Promise<string | null> => {
   return (
@@ -60,6 +61,21 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     followingCount: u.followingCount ?? 0,
     nitroBalance: u.nitroBalance ?? 0,
     shopCosmetics: u.shopCosmetics ?? null,
+  };
+}
+
+function normalizeProfileClub(club: any): UserProfile['club'] {
+  if (!club) return null;
+  const rank = club.myRank;
+  return {
+    id: Number(club.id),
+    name: String(club.name ?? ''),
+    avatarUrl: club.avatarUrl ?? null,
+    memberCount: Number(club.memberCount ?? 0) || 0,
+    myRole: String(club.myRole ?? 'member'),
+    myRank: rank && typeof rank === 'object' && typeof rank.name === 'string' && typeof rank.color === 'string'
+      ? { name: rank.name, color: rank.color }
+      : null,
   };
 }
 
@@ -165,7 +181,7 @@ export function useProfile() {
 
   useEffect(() => {
     return onProfileClubUpdated((club) => {
-      setProfile((prev) => (prev ? { ...prev, club } : prev));
+      setProfile((prev) => (prev ? { ...prev, club: normalizeProfileClub(club) } : prev));
     });
   }, []);
 
@@ -337,7 +353,7 @@ export function useProfile() {
           });
           if (!res.ok) break;
           const data = await res.json();
-          allItems.push(...(data.items ?? []));
+          allItems.push(...filterVisibleRideHistory(data.items ?? []));
           totalPages = Number(data.pages ?? 1);
           nextPage += 1;
         } while (nextPage <= totalPages);
@@ -349,7 +365,7 @@ export function useProfile() {
       });
       if (!res.ok) return;
       const data = await res.json();
-      setActivityHistory(data.items ?? []);
+      setActivityHistory(filterVisibleRideHistory(data.items ?? []));
     } catch {}
   }, []);
 

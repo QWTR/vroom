@@ -10,7 +10,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -28,6 +27,7 @@ import {
 } from './dailyDuelTypes';
 import { DailyDuelHistorySection } from './DailyDuelHistorySection';
 import { EntranceIntroGate, VoteCastPulse } from '../motion';
+import { DailyDuelCarCarousel } from './DailyDuelCarCarousel';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
@@ -75,7 +75,6 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
 }: ArenaCardProps) {
   const router = useRouter();
   const photos = useMemo(() => getCarPhotos(car), [car]);
-  const heroPhoto = photos[0] ?? null;
   const canVote = !voted && !voting;
   const shine = useRef(new Animated.Value(0)).current;
   const selectedPulse = useRef(new Animated.Value(0)).current;
@@ -113,10 +112,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
 
   return (
     <Animated.View style={[{ width: CARD_W }, entranceStyle as object]}>
-      <TouchableOpacity
-        activeOpacity={canVote ? 0.84 : 1}
-        disabled={!canVote}
-        onPress={() => onVote(car.id)}
+      <View
         style={{
           borderRadius: 22,
           overflow: 'hidden',
@@ -150,13 +146,13 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
         ) : null}
 
         <View style={{ height: HERO_PHOTO_H, backgroundColor: '#000', overflow: 'hidden' }}>
-          {heroPhoto ? (
-            <Image source={{ uri: heroPhoto }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-          ) : (
-            <LinearGradient colors={['#111', '#050505']} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons name="car-sports" size={52} color="#ffffff33" />
-            </LinearGradient>
-          )}
+          <DailyDuelCarCarousel
+            photos={photos}
+            width={CARD_W}
+            height={HERO_PHOTO_H}
+            accentColor={color}
+            borderColor="transparent"
+          />
 
           <Animated.View
             pointerEvents="none"
@@ -180,12 +176,14 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
           <LinearGradient
             colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.12)', '#050505']}
             style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 132 }}
+            pointerEvents="none"
           />
           <LinearGradient
             colors={side === 'A' ? [`${color}44`, 'transparent'] : ['transparent', `${color}44`]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 96 }}
+            pointerEvents="none"
           />
 
           <View style={{
@@ -203,22 +201,6 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
               {accentLabel}
             </Text>
           </View>
-
-          {photos.length > 1 ? (
-            <View style={{
-              position: 'absolute',
-              top: 10,
-              right: 10,
-              backgroundColor: '#00000099',
-              borderRadius: 999,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-            }}>
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 8 }}>
-                +{photos.length - 1}
-              </Text>
-            </View>
-          ) : null}
 
           {selected ? (
             <View style={{
@@ -298,7 +280,7 @@ const DuelArenaCarCard = React.memo(function DuelArenaCarCard({
             {formatDuelCount(votes)} głosów
           </Text>
         </View>
-      </TouchableOpacity>
+      </View>
     </Animated.View>
   );
 });

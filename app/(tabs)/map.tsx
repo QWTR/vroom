@@ -1272,7 +1272,7 @@ const TRIP_CHECKPOINT_KM = 0.3;
 /** Minimalny nies zapisany blok przy wymuszonym flushu (tło / kill). */
 const TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
 /** Checkpoint dystansu w trakcie jazdy — zapis co N km niezależnie od końca sesji. */
-const ENABLE_TRIP_DISTANCE_CHECKPOINT = true;
+const ENABLE_TRIP_DISTANCE_CHECKPOINT = false;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
 const GPS_INIT_MAX_ACCURACY_M = 150;
 /** OS last-known starszy niż tyle traktujemy jako nieaktualny (nie ustawia kotwicy anty-teleportu). */
@@ -5853,7 +5853,7 @@ function MapScreenInner() {
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
       // so top speed and km don't get lost when provider reports sparse/zero speed.
       void flushPendingKm(true, {
-        distanceKm: Math.max(0, Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current),
+        distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
         maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
         avgSpeedKmh: finalStats.avgSpeedKmh,
         durationSec: finalStats.elapsedSec,
@@ -6031,6 +6031,7 @@ function MapScreenInner() {
       });
 
       isDrivingRef.current = true;
+      setDrivingFlag(true).catch(() => {});
       setTripCameraActive(true);
       drivingSinceRef.current = Date.now();
       drivingEntryJustStartedRef.current = true;
@@ -9305,6 +9306,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               return;
             }
             isDrivingRef.current      = true;
+            setDrivingFlag(true).catch(() => {});
             drivingManualModeRef.current = false;
             driveSessionGuardRef.current.reset();
             startTrip(Number(routeInfoRef.current?.duration) || 0);
@@ -9336,6 +9338,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             }
 
             isDrivingRef.current = true;
+            setDrivingFlag(true).catch(() => {});
             setTripCameraActive(true);
             drLatRef.current = entryLat;
             drLngRef.current = entryLng;
@@ -9393,7 +9396,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (navStatsFlushedRef.current) return;
     navStatsFlushedRef.current = true;
     flushPendingKm(true, {
-      distanceKm: Math.max(0, Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current),
+      distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
       maxSpeedKmh: finalStats.maxSpeedKmh,
       avgSpeedKmh: finalStats.avgSpeedKmh,
       durationSec: finalStats.elapsedSec,
@@ -12239,6 +12242,7 @@ if (appStateRef.current === 'active') {
     isNavigatingRef.current = false;
     isDrivingRef.current = true;
     setNavigatingFlag(false).catch(() => {});
+    setDrivingFlag(true).catch(() => {});
 
     stopSimulation();
     setIsSimulating(false);

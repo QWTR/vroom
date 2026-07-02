@@ -264,7 +264,7 @@ export default function CarDetailScreen() {
           {/* WŁAŚCICIEL */}
           <TouchableOpacity
             style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.surface4, padding: 10, borderRadius: 10 }}
-            onPress={() => router.push({ pathname: '/profile/[id]', params: { id: String(car.ownerId) } })}
+            onPress={() => router.push({ pathname: '/profile/[userId]', params: { userId: String(car.ownerId) } })}
           >
             <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.primaryBg, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
               {car.owner.avatarUrl

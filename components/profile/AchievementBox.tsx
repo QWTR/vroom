@@ -14,10 +14,20 @@ const RARITY_COLORS = {
 
 const CATEGORY_LABELS: Record<string, string> = {
   distance: '🛣️  Dystans',
-  speed:    '⚡  Prędkość',
-  streak:   '🔥  Streak',
-  social:   '👥  Społeczność',
-  special:  '⭐  Specjalne',
+  rides:       '🚗  Przejazdy',
+  single_ride: '🏁  Długie trasy',
+  speed:       '⚡  Prędkość',
+  streak:      '🔥  Serie jazdy',
+  map:         '🗺️  Mapa i kafelki',
+  cities:      '🏙️  Miasta',
+  exploration: '🧭  Rewiry',
+  drops:       '🎁  Zrzuty',
+  duels:       '🆚  Pojedynki',
+  discussion:  '📝  Dyskusje',
+  chat:        '💬  Czat',
+  spots:       '📍  Spoty',
+  social:      '👥  Społeczność',
+  special:     '⭐  Specjalne',
 };
 
 interface Props {

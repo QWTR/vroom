@@ -70,6 +70,7 @@
     "plugins": [
       "./plugins/withAndroidAuto",
       "./plugins/withVroomBgLocationNotification",
+      "./plugins/withWiroomBackgroundDrive",
       [
         "@rnmapbox/maps",
         {

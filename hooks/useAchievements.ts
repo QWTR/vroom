@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import { mergeAchievementCatalog } from '../constants/achievementCatalog';
 
 export interface Achievement {
   id:             number;
@@ -42,11 +43,11 @@ export function useAchievements() {
       });
       if (!res.ok) throw new Error();
       const data: Achievement[] = await res.json();
-      setAchievements(data.map(a => ({
+      setAchievements(mergeAchievementCatalog(data.map(a => ({
         ...a,
         active: !!(a.unlocked || a.unlockedAt),
         unlocked: !!(a.unlocked || a.unlockedAt),
-      })));
+      }))));
     } catch {
       setAchievements([]);
     } finally {

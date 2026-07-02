@@ -7,6 +7,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { resolveStandardMapStyle, MAPBOX_TOKEN } from '../../constants/mapConfig';
 import { useProfile } from '../../hooks/useProfile';
 import { snapHistoryRouteToRoad } from '../../scripts/snapHistoryRoute';
+import { filterVisibleRideHistory } from '../../lib/activityHistoryFilter';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
@@ -143,7 +144,11 @@ export default function HistoryRidesScreen() {
   }, [selectedHistoryRoute?.id, showAllHistoryOnMap]);
 
   const historyWithRoute = useMemo(
-    () => activityHistory.filter((a: any) => (a?.routePoints?.length ?? 0) > 1),
+    () => filterVisibleRideHistory(activityHistory).filter((a: any) => (a?.routePoints?.length ?? 0) > 1),
+    [activityHistory],
+  );
+  const visibleActivityHistory = useMemo(
+    () => filterVisibleRideHistory(activityHistory),
     [activityHistory],
   );
 
@@ -286,7 +291,7 @@ export default function HistoryRidesScreen() {
         <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
           {loading ? (
             <ActivityIndicator color="#e33835" style={{ marginTop: 20 }} />
-          ) : activityHistory.map((a: any) => {
+          ) : visibleActivityHistory.map((a: any) => {
             const hasRoute = (a?.routePoints?.length ?? 0) > 1;
             const selected = !showAllHistoryOnMap && selectedHistoryRoute?.id === a.id;
             return (
