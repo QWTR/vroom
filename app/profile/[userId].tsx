@@ -11,7 +11,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage       from '@react-native-async-storage/async-storage';
 import Toast              from 'react-native-toast-message';
 import { API_URL }        from '../../constants/config';
-import AchievementBox     from '../../components/profile/AchievementBox';
+import AchievementsPreviewSection from '../../components/profile/AchievementsPreviewSection';
 import type { Achievement } from '../../hooks/useAchievements';
 import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
@@ -1058,31 +1058,12 @@ export default function PublicProfileScreen() {
 
             <View style={glassSection()}>
               <SectionHeader title="OSIĄGNIĘCIA" count={achievements.length} icon="emoji-events" palette={palette} />
-              {achievements.length === 0
-                ? <EmptyState text="Brak odblokowanych osiągnięć" palette={palette} />
-                : (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {achievements.map(a => (
-                      <AchievementBox
-                        key={a.key}
-                        icon={a.icon}
-                        label={a.label}
-                        active={a.active}
-                        rarity={a.rarity}
-                        progress={a.progress}
-                        points={a.points}
-                        description={a.description}
-                        category={a.category}
-                        currentValue={a.currentValue}
-                        conditionValue={a.conditionValue}
-                        conditionField={a.conditionField}
-                        unlockedAt={a.unlockedAt}
-                        theme={cardTheme}
-                      />
-                    ))}
-                  </View>
-                )
-              }
+              <AchievementsPreviewSection
+                achievements={achievements}
+                theme={cardTheme}
+                loading={loading && achievements.length === 0}
+                onSeeAll={() => router.push({ pathname: '/profile/achievements', params: { userId: String(profile.id) } } as any)}
+              />
             </View>
 
             {/* ══ SPOTY ══ */}

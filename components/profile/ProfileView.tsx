@@ -14,7 +14,7 @@ import { UserBadges }               from '../user/UserBadges';
 import { ProvinceBadge }            from '../user/ProvinceBadge';
 import CarCard                      from './CarCard';
 import { GLASS_SHADOW, GLASS_BORDER, glassSurface } from './profileCardTheme';
-import AchievementBox               from './AchievementBox';
+import AchievementsPreviewSection     from './AchievementsPreviewSection';
 import SpotPreviewCard              from './SpotPreviewCard';
 import { SpotifyProfileTrackRow }   from './SpotifyProfileTrackRow';
 import { SpotDetailModal }          from '../spots/SpotDetailModal';
@@ -49,24 +49,6 @@ import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper, useProfileHeroFloat
 import Reanimated from 'react-native-reanimated';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import { ExplorationCoverageMap } from './ExplorationCoverageMap';
-
-const RARITY_ORDER: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
-const RARITY_META: Record<string, { label: string; color: string; border: string }> = {
-  legendary: { label: 'LEGENDARY', color: '#f5c518', border: '#f5c51840' },
-  epic:      { label: 'EPIC',      color: '#a338e3', border: '#a338e340' },
-  rare:      { label: 'RARE',      color: '#38a5e3', border: '#38a5e340' },
-  common:    { label: 'COMMON',    color: '#ff0202b2', border: '#ff020240' },
-};
-
-function sortByRarity(list: Achievement[]) {
-  return [...list].sort((a, b) => (RARITY_ORDER[a.rarity ?? 'common'] ?? 3) - (RARITY_ORDER[b.rarity ?? 'common'] ?? 3));
-}
-function groupByRarity(list: Achievement[]) {
-  return ['legendary', 'epic', 'rare', 'common'].reduce((acc, rarity) => {
-    const items = list.filter(a => (a.rarity ?? 'common') === rarity);
-    return items.length ? [...acc, { rarity, items }] : acc;
-  }, [] as { rarity: string; items: Achievement[] }[]);
-}
 
 type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string; border2?: string; primaryBg?: string };
 
@@ -284,7 +266,6 @@ export default function ProfileView({
 
   const [selectedSpot,        setSelectedSpot]        = useState<Spot | null>(null);
   const [localSpots,          setLocalSpots]          = useState<SpotPreview[]>([]);
-  const [showAllAchs,         setShowAllAchs]         = useState(false);
   const [routesModalVisible,  setRoutesModalVisible]  = useState(false);
   const [lbVisible,           setLbVisible]           = useState(false);
   const [lbRouteId,           setLbRouteId]           = useState<number | null>(null);
@@ -416,10 +397,7 @@ export default function ProfileView({
     setSelectedSpot(prev => prev?.id === spotId ? { ...prev, isLiked: liked, likesCount: count } : prev);
   };
 
-  const unlocked       = sortByRarity(achievements.filter(a => a.active));
-  const locked         = sortByRarity(achievements.filter(a => !a.active));
-  const unlockedGroups = groupByRarity(unlocked);
-  const lockedGroups   = groupByRarity(locked);
+  const unlocked = achievements.filter(a => a.active);
   const exploration = profile?.gamificationSummary ?? null;
   const fogOfWar = exploration?.explorationMap ?? exploration?.fogOfWar;
   const explorationStats = fogOfWar as any;
@@ -1014,84 +992,13 @@ export default function ProfileView({
 
           {/* ══ OSIĄGNIĘCIA ══ */}
           <Section surfaceTheme={theme} accentStrip={sectionAccentStrip} title="OSIĄGNIĘCIA" count={`${unlocked.length}/${achievements.length}`}>
-            {achievements.length === 0
-              ? <EmptyState surfaceTheme={theme} text="Ładowanie osiągnięć..." />
-              : (
-                <>
-                  {unlocked.length === 0
-                    ? <EmptyState surfaceTheme={theme} text="Brak odblokowanych osiągnięć" />
-                    : unlockedGroups.map(({ rarity, items }) => {
-                        const meta = RARITY_META[rarity] ?? RARITY_META.common;
-                        return (
-                          <View key={rarity} style={{ marginBottom: 16 }}>
-                            <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                              {items.map(a => (
-                                <AchievementBox
-                                  key={a.key}
-                                  icon={a.icon}
-                                  label={a.label}
-                                  active
-                                  rarity={a.rarity}
-                                  progress={100}
-                                  points={a.points}
-                                  description={a.description}
-                                  category={a.category}
-                                  currentValue={a.currentValue}
-                                  conditionValue={a.conditionValue}
-                                  conditionField={a.conditionField}
-                                  unlockedAt={a.unlockedAt}
-                                  theme={theme}
-                                />
-                              ))}
-                            </View>
-                          </View>
-                        );
-                      })
-                  }
-                  {locked.length > 0 && (
-                    <>
-                      <TouchableOpacity
-                        style={{ ...glassCard(theme, { marginVertical: 0, alignItems: 'center' }) }}
-                        onPress={() => setShowAllAchs(p => !p)} activeOpacity={0.75}
-                      >
-                        <Text style={{ ...profileLabel(theme), textAlign: 'center' }}>
-                          {showAllAchs ? '▲  UKRYJ ZABLOKOWANE' : `▼  ZABLOKOWANE (${locked.length})`}
-                        </Text>
-                      </TouchableOpacity>
-                      {showAllAchs && lockedGroups.map(({ rarity, items }) => {
-                        const meta = RARITY_META[rarity] ?? RARITY_META.common;
-                        return (
-                          <View key={rarity} style={{ marginBottom: 16 }}>
-                            <RarityDivider surfaceTheme={theme} meta={meta} count={items.length} />
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                              {items.map(a => (
-                                <AchievementBox
-                                  key={a.key}
-                                  icon={a.icon}
-                                  label={a.label}
-                                  active={false}
-                                  rarity={a.rarity}
-                                  progress={a.progress}
-                                  points={a.points}
-                                  description={a.description}
-                                  category={a.category}
-                                  currentValue={a.currentValue}
-                                  conditionValue={a.conditionValue}
-                                  conditionField={a.conditionField}
-                                  unlockedAt={a.unlockedAt}
-                                  theme={theme}
-                                />
-                              ))}
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </>
-                  )}
-                </>
-              )
-            }
+            <AchievementsPreviewSection
+              achievements={achievements}
+              theme={theme}
+              loading={achievements.length === 0}
+              isOwner={isOwner}
+              onSeeAll={() => router.push('/profile/achievements' as any)}
+            />
           </Section>
 
           {/* ══ PRZEJECHANE TRASY ══ */}
@@ -1434,21 +1341,6 @@ function EmptyState({ text, surfaceTheme }: { text: string; surfaceTheme?: Profi
   return (
     <View style={{ ...widgetGlass(t), paddingVertical: 24, alignItems: 'center', marginBottom: 16 }}>
       <Text style={{ fontFamily: 'Orbitron', color: t.textDim, fontSize: 10, letterSpacing: 1.5 }}>{text}</Text>
-    </View>
-  );
-}
-
-function RarityDivider({ meta, count, surfaceTheme }: { meta: { label: string; color: string; border: string }; count: number; surfaceTheme?: ProfileSurface }) {
-  const { theme } = useTheme();
-  const t = surfaceTheme ?? theme;
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-      <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />
-      <View style={{ paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, borderWidth: 1, borderColor: meta.border, backgroundColor: (t as { bg?: string }).bg ?? '#090909' }}>
-        <Text style={{ fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 2, color: meta.color }}>{meta.label}</Text>
-      </View>
-      <View style={{ flex: 1, height: 1, backgroundColor: meta.border }} />
-      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: meta.color }}>{count}</Text>
     </View>
   );
 }

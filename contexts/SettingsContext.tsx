@@ -395,11 +395,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         }
       } catch { /* ignore */ }
 
+      if (!cancelled) setLoading(false);
+
       try {
         await fetchSettingsCore(ac.signal);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      } catch { /* ignore */ }
     })();
 
     return () => {

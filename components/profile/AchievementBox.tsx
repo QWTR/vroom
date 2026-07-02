@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, Modal, Pressable,
 } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
+import { CATEGORY_LABELS } from '../../constants/achievementLabels';
 import { GLASS_SHADOW, resolveProfileCardTheme, type ProfileCardTheme } from './profileCardTheme';
 
 const RARITY_COLORS = {
@@ -10,24 +11,6 @@ const RARITY_COLORS = {
   rare:      { border: '#38a5e340', bg: '#38a5e310', dot: '#38a5e3',   label: 'RARE',      labelColor: '#38a5e3'   },
   epic:      { border: '#a338e340', bg: '#a338e310', dot: '#a338e3',   label: 'EPIC',      labelColor: '#a338e3'   },
   legendary: { border: '#f5c51860', bg: '#f5c51815', dot: '#f5c518',   label: 'LEGENDARY', labelColor: '#f5c518'   },
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  distance: '🛣️  Dystans',
-  rides:       '🚗  Przejazdy',
-  single_ride: '🏁  Długie trasy',
-  speed:       '⚡  Prędkość',
-  streak:      '🔥  Serie jazdy',
-  map:         '🗺️  Mapa i kafelki',
-  cities:      '🏙️  Miasta',
-  exploration: '🧭  Rewiry',
-  drops:       '🎁  Zrzuty',
-  duels:       '🆚  Pojedynki',
-  discussion:  '📝  Dyskusje',
-  chat:        '💬  Czat',
-  spots:       '📍  Spoty',
-  social:      '👥  Społeczność',
-  special:     '⭐  Specjalne',
 };
 
 interface Props {

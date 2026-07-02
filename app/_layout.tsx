@@ -73,7 +73,9 @@ const { width: WIN_W, height: WIN_H } = Dimensions.get('window');
 const SPLASH_LOGO_MS = 320;
 const SPLASH_CARD_DELAY_MS = 140;
 const SPLASH_CARD_MS = 280;
-const SPLASH_FADE_MS = 380;
+const SPLASH_FADE_MS = 250;
+
+const SPLASH_BOOT_ANIMATION_SLOTS: AppAnimationSlot[] = ['app_loading_logo'];
 
 const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
   'home_streak',
@@ -194,10 +196,11 @@ function StatusLine({ label, done }: { label: string; done: boolean }) {
 // ─── INNER ────────────────────────────────────────────────
 function RootLayoutInner() {
   const { isDark, theme } = useTheme();
-  const { updateSetting, settings, loading: settingsLoading } = useSettings();
+  const { updateSetting, settings } = useSettings();
   const { gatesSettled, setGatesSettled, setLayoutGateOpen, homeOverlayOpen } = useStartupGates();
   const { tutorialOpen, startAutoTutorial } = useAppTutorial();
-  const { animations: startupAnimations, loading: startupAnimationsLoading } = useAppAnimations(STARTUP_ANIMATION_SLOTS);
+  const { animations: splashBootAnimations, loading: splashBootAnimationsLoading } = useAppAnimations(SPLASH_BOOT_ANIMATION_SLOTS);
+  const { animations: startupAnimations } = useAppAnimations(STARTUP_ANIMATION_SLOTS);
   const {
     updateAvailable,
     downloading: updateDownloading,
@@ -222,7 +225,7 @@ function RootLayoutInner() {
   const splashStartedRef = useRef(false);
   const updateDismissedRef = useRef(false);
   const lastForegroundUpdateCheckRef = useRef(0);
-  const [animationAssetsReady, setAnimationAssetsReady] = useState(false);
+  const [splashAssetsReady, setSplashAssetsReady] = useState(false);
 
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
@@ -247,25 +250,22 @@ function RootLayoutInner() {
   const notifListener    = useRef<any>(null);
   const responseListener = useRef<any>(null);
   const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
-  const bootReady = (loaded || !!error)
-    && !settingsLoading
-    && !startupAnimationsLoading
-    && animationAssetsReady;
+  const bootReady = (loaded || !!error) && !splashBootAnimationsLoading && splashAssetsReady;
   const bootProgressTarget = useMemo(() => {
     if (!loaded && !error) return 0.06;
-    if (settingsLoading) return 0.28;
-    if (startupAnimationsLoading) return 0.58;
-    if (!animationAssetsReady) return 0.82;
+    if (splashBootAnimationsLoading || !splashAssetsReady) return 0.72;
     return 1;
-  }, [animationAssetsReady, error, loaded, settingsLoading, startupAnimationsLoading]);
+  }, [error, loaded, splashAssetsReady, splashBootAnimationsLoading]);
   const bootStatusLabel = useMemo(() => {
     if (!loaded && !error) return BOOT_STATUS_LINES[0];
-    if (settingsLoading) return BOOT_STATUS_LINES[1];
-    if (startupAnimationsLoading) return BOOT_STATUS_LINES[2];
-    if (!animationAssetsReady) return BOOT_STATUS_LINES[3];
+    if (splashBootAnimationsLoading || !splashAssetsReady) return BOOT_STATUS_LINES[3];
     return BOOT_STATUS_LINES[4];
-  }, [animationAssetsReady, error, loaded, settingsLoading, startupAnimationsLoading]);
-  const startupAnimationAssets = useMemo(
+  }, [error, loaded, splashAssetsReady, splashBootAnimationsLoading]);
+  const splashBootAnimationAssets = useMemo(
+    () => splashBootAnimations,
+    [splashBootAnimations],
+  );
+  const deferredStartupAnimationAssets = useMemo(
     () => [
       ...startupAnimations,
       ...(settings.globalPremiumAnimations ?? []),
@@ -274,21 +274,26 @@ function RootLayoutInner() {
   );
 
   useEffect(() => {
-    if (startupAnimationsLoading) {
-      setAnimationAssetsReady(false);
+    if (splashBootAnimationsLoading) {
+      setSplashAssetsReady(false);
       return undefined;
     }
 
     let cancelled = false;
-    setAnimationAssetsReady(false);
-    preloadAppAnimations(startupAnimationAssets)
+    setSplashAssetsReady(false);
+    preloadAppAnimations(splashBootAnimationAssets)
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) setAnimationAssetsReady(true);
+        if (!cancelled) setSplashAssetsReady(true);
       });
 
     return () => { cancelled = true; };
-  }, [startupAnimationAssets, startupAnimationsLoading]);
+  }, [splashBootAnimationAssets, splashBootAnimationsLoading]);
+
+  useEffect(() => {
+    if (phase !== 'done') return;
+    preloadAppAnimations(deferredStartupAnimationAssets).catch(() => {});
+  }, [deferredStartupAnimationAssets, phase]);
 
   useEffect(() => {
     initMapbox().catch(() => {});

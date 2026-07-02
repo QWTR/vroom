@@ -33,12 +33,20 @@ export function useAppAnimations(slots?: AppAnimationSlot[]) {
 
   useEffect(() => {
     let cancelled = false;
+    let cacheReady = false;
     (async () => {
       try {
         const cached = await AsyncStorage.getItem(CACHE_KEY);
         if (cached && !cancelled) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed)) setAnimations(filterBySlots(parsed, requestedSlots));
+          if (Array.isArray(parsed)) {
+            const next = filterBySlots(parsed, requestedSlots);
+            if (next.length > 0) {
+              setAnimations(next);
+              cacheReady = true;
+              setLoading(false);
+            }
+          }
         }
       } catch {}
 
@@ -58,7 +66,7 @@ export function useAppAnimations(slots?: AppAnimationSlot[]) {
       } catch {
         /* cache fallback */
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !cacheReady) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
