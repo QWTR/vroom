@@ -165,6 +165,9 @@ object NativeRoadMatcher {
     fun latestRoadLength(): Double? =
         latestRoadPoints.takeIf { hasFreshRoad() && it.size >= 2 }?.let(::roadLengthMeters)
 
+    fun latestRoadVersion(): Int =
+        if (hasFreshRoad()) latestRoadVersion else 0
+
     fun snapToRoad(lat: Double, lng: Double, maxDistanceM: Double = 70.0): NativeRoadPose? {
         if (!hasFreshRoad()) {
             if (!hasFreshBootstrapPose()) return null

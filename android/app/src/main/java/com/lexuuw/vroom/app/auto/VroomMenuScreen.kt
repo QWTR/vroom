@@ -1,5 +1,6 @@
 package com.lexuuw.vroom.app.auto
 
+import androidx.car.app.CarToast
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.ScreenManager
@@ -372,7 +373,12 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
                     val ok = runCatching { AutoNavStore.startNavigationToPlace(carContext, place) }.getOrDefault(false)
                     mainHandler.post {
                       routing = false
-                      if (ok) runCatching { manager.popToRoot() } else invalidate()
+                      if (ok) {
+                        runCatching { manager.popToRoot() }
+                      } else {
+                        CarToast.makeText(carContext, "Nie udalo sie wyznaczyc trasy", CarToast.LENGTH_LONG).show()
+                        invalidate()
+                      }
                     }
                   }.start()
                 }
@@ -415,7 +421,12 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
                 val ok = runCatching { AutoNavStore.startNavigationToPlace(carContext, place) }.getOrDefault(false)
                 mainHandler.post {
                   routing = false
-                  if (ok) runCatching { manager.popToRoot() } else invalidate()
+                  if (ok) {
+                    runCatching { manager.popToRoot() }
+                  } else {
+                    CarToast.makeText(carContext, "Nie udalo sie wyznaczyc trasy", CarToast.LENGTH_LONG).show()
+                    invalidate()
+                  }
                 }
               }.start()
             }
@@ -590,6 +601,7 @@ class VroomSearchResultsScreen(
                   if (ok) {
                     runCatching { manager.popToRoot() }
                   } else {
+                    CarToast.makeText(carContext, "Nie udalo sie wyznaczyc trasy", CarToast.LENGTH_LONG).show()
                     invalidate()
                   }
                 }

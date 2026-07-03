@@ -46,6 +46,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         mapRenderer.updateNativeLocation(lat, lng, speedMs, heading)
     }
 
+    fun syncOverlayDrivingTelemetry(speedLimitKmh: Int?) {
+        mapRenderer.syncOverlayDrivingTelemetry(speedLimitKmh)
+    }
+
     fun updateData(jsonPayload: String) {
         val parsed = VroomPayloadParser.parse(jsonPayload)
         if (parsed != null) {

@@ -83,6 +83,7 @@ data class MapState(
     val nativeRoadPose: Boolean,
     val nativeAutoPose: Boolean,
     val nativeRoadMatchedAt: Long,
+    val nativeRoadVersion: Int,
     val speedKmh: Double,
     val speedLimitKmh: Double?,
     val locationMarkerStyle: String,

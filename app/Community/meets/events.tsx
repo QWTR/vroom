@@ -18,6 +18,11 @@ import {
 
 const PAGE = 20;
 
+interface MeetLink {
+  label: string;
+  url:   string;
+}
+
 interface Meet {
   id:               number;
   title:            string;
@@ -32,9 +37,20 @@ interface Meet {
   tags:             string[];
   status:           string | null;
   category:         string;
+  ticketPrice:      number | null;
+  ticketCurrency:   string;
+  ticketUrl:        string | null;
+  websiteUrl:       string | null;
+  organizerName:    string | null;
   isJoined:         boolean;
   creator: { id: number; username: string; avatarUrl: string | null };
   participants: { id: number; username: string; avatarUrl: string | null }[];
+}
+
+function formatTicketLabel(price: number | null | undefined, currency: string) {
+  if (price == null) return null;
+  if (price === 0) return 'Wstęp wolny';
+  return `${price.toFixed(0)} ${currency || 'PLN'}`;
 }
 
 function formatDate(iso: string) {
@@ -56,7 +72,7 @@ export default function EventsScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
 
-  const [category,    setCategory]    = useState<'unofficial' | 'official'>('unofficial');
+  const [category,    setCategory]    = useState<'unofficial' | 'official'>('official');
   const [meets,       setMeets]       = useState<Meet[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -153,6 +169,9 @@ export default function EventsScreen() {
     const isFull   = spots <= 0;
     const isHot    = item.status === 'HOT' || pct >= 0.8;
 
+    const ticketLabel = formatTicketLabel(item.ticketPrice, item.ticketCurrency);
+    const isOfficial  = item.category === 'official';
+
     return (
       <TouchableOpacity
         onPress={() => router.push({ pathname: '/Community/meets/meet', params: { id: String(item.id) } })}
@@ -176,7 +195,12 @@ export default function EventsScreen() {
         )}
 
         {/* Badges na obrazku */}
-        <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', gap: 6 }}>
+        <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', gap: 6, flexWrap: 'wrap', maxWidth: '85%' }}>
+          {isOfficial && (
+            <View style={{ backgroundColor: '#FFD700dd', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+              <Text style={{ color: '#000', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>⭐ OFICJALNE</Text>
+            </View>
+          )}
           {isHot && (
             <View style={{ backgroundColor: theme.primary, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
               <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>🔥 HOT</Text>
@@ -228,6 +252,18 @@ export default function EventsScreen() {
               <MaterialIcons name="location-on" size={13} color={theme.primary} />
               <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }} numberOfLines={1}>{item.locationName}</Text>
             </View>
+            {ticketLabel && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <MaterialIcons name="confirmation-number" size={13} color={theme.primary} />
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>{ticketLabel}</Text>
+              </View>
+            )}
+            {item.organizerName && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <MaterialIcons name="business" size={13} color={theme.primary} />
+                <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }} numberOfLines={1}>{item.organizerName}</Text>
+              </View>
+            )}
           </View>
 
           {/* Tagi */}
@@ -291,22 +327,24 @@ export default function EventsScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
 
       <CommunityScreenHeader
-        title="MEETY"
-        subtitle="Zloty i wydarzenia"
+        title="WYDARZENIA"
+        subtitle="Oficjalne zloty i meety społeczności"
         right={
-          <TouchableOpacity
-            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => router.push('/Community/meets/createmeet' as any)}
-          >
-            <MaterialIcons name="add" size={24} color={theme.primary} />
-          </TouchableOpacity>
+          category === 'unofficial' ? (
+            <TouchableOpacity
+              style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primaryBg, borderWidth: 1, borderColor: theme.primaryBorder, alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => router.push('/Community/meets/createmeet' as any)}
+            >
+              <MaterialIcons name="add" size={24} color={theme.primary} />
+            </TouchableOpacity>
+          ) : undefined
         }
       />
 
       <CommunitySegmentTabs
         tabs={[
-          { key: 'unofficial', label: 'NIEOFICJALNE' },
           { key: 'official', label: 'OFICJALNE' },
+          { key: 'unofficial', label: 'NIEOFICJALNE' },
         ]}
         activeKey={category}
         onChange={(k) => setCategory(k as 'unofficial' | 'official')}
@@ -316,7 +354,7 @@ export default function EventsScreen() {
         <CommunitySearchBar
           value={search}
           onChangeText={handleSearch}
-          placeholder="Szukaj meetów..."
+          placeholder={category === 'official' ? 'Szukaj wydarzeń...' : 'Szukaj meetów...'}
           onClear={() => handleSearch('')}
         />
       </View>

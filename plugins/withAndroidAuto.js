@@ -112,6 +112,7 @@ const withAndroidAutoNative = (config) => {
         'AutoLocationTracker.kt',
         'AutoNavStore.kt',
         'NativeRoadMatcher.kt',
+        'NativeSpeedLimitFetcher.kt',
         'UsersModule.kt',
         'VroomBridgeModule.kt',
         'VroomCarAppService.kt',
@@ -134,6 +135,18 @@ const withAndroidAutoNative = (config) => {
         path.join(srcDir, 'vroom_location_arrow.xml'),
         path.join(drawableDir, 'vroom_location_arrow.xml')
       );
+
+      const drawableSrcDir = path.join(srcDir, 'drawable');
+      if (fs.existsSync(drawableSrcDir)) {
+        fs.readdirSync(drawableSrcDir).forEach((file) => {
+          if (file.endsWith('.xml')) {
+            fs.copyFileSync(
+              path.join(drawableSrcDir, file),
+              path.join(drawableDir, file),
+            );
+          }
+        });
+      }
 
       if (fs.existsSync(mainApplicationPath)) {
         let mainApplication = fs.readFileSync(mainApplicationPath, 'utf8');

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Image,
-  FlatList, Modal, ActivityIndicator, StatusBar, Platform,
+  FlatList, Modal, ActivityIndicator, StatusBar, Platform, Linking, TextInput,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
@@ -16,6 +16,19 @@ interface MeetUser {
   id:        number;
   username:  string;
   avatarUrl: string | null;
+}
+
+interface MeetLink {
+  label: string;
+  url:   string;
+}
+
+interface MeetCar {
+  id:     number;
+  brand:  string;
+  specs:  string;
+  photos: string[];
+  isMain?: boolean;
 }
 
 interface MeetDetail {
@@ -33,9 +46,58 @@ interface MeetDetail {
   rules:             string[];
   status:            string | null;
   category:          string;
+  ticketPrice:       number | null;
+  ticketCurrency:    string;
+  ticketUrl:         string | null;
+  websiteUrl:        string | null;
+  organizerName:     string | null;
+  organizerInstagram: string | null;
+  organizerFacebook:  string | null;
+  organizerTiktok:    string | null;
+  organizerWebsite:   string | null;
+  extraLinks:        MeetLink[];
   isJoined:          boolean;
+  joinedAt:          string | null;
+  checkedInAt:       string | null;
+  entryType:         string | null;
+  canScan:           boolean;
+  canManage:         boolean;
+  canEdit:           boolean;
+  freeEntryRemaining: number;
+  freeEntryQuota:    number;
+  freeEntryUsed:     number;
+  freeParticipantEntryRemaining: number;
+  freeParticipantEntryQuota:     number;
+  freeParticipantEntryUsed:    number;
+  participantStatus: string | null;
+  car: MeetCar | null;
+  isApprovedParticipant: boolean;
+  ticketKind: 'visitor' | 'participant';
+  pendingApplications: number;
+  canReviewApplications: boolean;
   creator:           MeetUser;
   participants:      MeetUser[];
+}
+
+function formatTicketLabel(price: number | null | undefined, currency: string) {
+  if (price == null) return null;
+  if (price === 0) return 'Wstęp wolny';
+  return `od ${price.toFixed(0)} ${currency || 'PLN'}`;
+}
+
+function normalizeUrl(raw: string) {
+  const v = raw.trim();
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('@')) return `https://instagram.com/${v.slice(1)}`;
+  return `https://${v}`;
+}
+
+async function openExternalUrl(url: string) {
+  const normalized = normalizeUrl(url);
+  if (!normalized) return;
+  const can = await Linking.canOpenURL(normalized);
+  if (can) await Linking.openURL(normalized);
 }
 
 function daysUntil(iso: string) {
@@ -60,6 +122,10 @@ export default function MeetDetailScreen() {
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteRadius,  setInviteRadius]  = useState(50);
   const [myId,         setMyId]         = useState<number | null>(null);
+  const [quotaModal,   setQuotaModal]   = useState(false);
+  const [quotaVisitor, setQuotaVisitor] = useState('0');
+  const [quotaParticipant, setQuotaParticipant] = useState('0');
+  const [quotaSaving,  setQuotaSaving]  = useState(false);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -131,6 +197,38 @@ export default function MeetDetailScreen() {
     } finally { setInviteSending(false); }
   }, [meet, inviteSending, inviteRadius]);
 
+  const openQuotaModal = useCallback(() => {
+    if (!meet) return;
+    setQuotaVisitor(String(meet.freeEntryQuota ?? 0));
+    setQuotaParticipant(String(meet.freeParticipantEntryQuota ?? 0));
+    setQuotaModal(true);
+  }, [meet]);
+
+  const saveQuotas = useCallback(async () => {
+    if (!meet || quotaSaving) return;
+    setQuotaSaving(true);
+    try {
+      const token = await getToken();
+      const r = await fetch(`${API_URL}/api/meets/${meet.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          freeEntryQuota: parseInt(quotaVisitor, 10) || 0,
+          freeParticipantEntryQuota: parseInt(quotaParticipant, 10) || 0,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Nie udało się zapisać');
+      setMeet(data);
+      setQuotaModal(false);
+      Toast.show({ type: 'success', text1: 'ZAPISANO', text2: 'Pule free wjazdów zaktualizowane' });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message });
+    } finally {
+      setQuotaSaving(false);
+    }
+  }, [meet, quotaSaving, quotaVisitor, quotaParticipant]);
+
   const openMaps = useCallback(async () => {
     if (!meet?.lat || !meet?.lng) {
       Toast.show({ type: 'error', text1: 'Brak współrzędnych meetu' }); return;
@@ -157,8 +255,24 @@ export default function MeetDetailScreen() {
   const pct     = Math.min(meet.participantsCount / meet.maxParticipants, 1);
   const isFull  = spots <= 0;
   const isOwner = myId === meet.creator.id;
+  const canEdit = meet.canEdit || isOwner;
+  const canScan = meet.canScan;
+  const canManage = meet.canManage;
   const badge   = daysUntil(meet.date);
   const isHot   = meet.status === 'HOT' || pct >= 0.8;
+  const ticketLabel = formatTicketLabel(meet.ticketPrice, meet.ticketCurrency);
+  const extraLinks = Array.isArray(meet.extraLinks) ? meet.extraLinks : [];
+  const socialLinks = [
+    meet.organizerInstagram && { icon: 'photo-camera', label: 'Instagram', url: meet.organizerInstagram },
+    meet.organizerFacebook  && { icon: 'facebook', label: 'Facebook', url: meet.organizerFacebook },
+    meet.organizerTiktok    && { icon: 'music-note', label: 'TikTok', url: meet.organizerTiktok },
+    meet.organizerWebsite   && { icon: 'language', label: 'Strona org.', url: meet.organizerWebsite },
+  ].filter(Boolean) as { icon: string; label: string; url: string }[];
+  const actionLinks = [
+    meet.ticketUrl   && { icon: 'confirmation-number', label: 'Kup bilet', url: meet.ticketUrl, accent: true },
+    meet.websiteUrl  && { icon: 'public', label: 'Strona wydarzenia', url: meet.websiteUrl },
+    ...extraLinks.map(l => ({ icon: 'link', label: l.label || 'Link', url: l.url, accent: false })),
+  ].filter(Boolean) as { icon: string; label: string; url: string; accent?: boolean }[];
 
   const renderParticipant = ({ item }: { item: MeetUser }) => (
     <TouchableOpacity
@@ -206,7 +320,7 @@ export default function MeetDetailScreen() {
             >
               <MaterialIcons name="arrow-back" size={20} color="#fff" />
             </TouchableOpacity>
-            {isOwner && (
+            {canEdit && (
               <TouchableOpacity
                 style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#00000060', alignItems: 'center', justifyContent: 'center' }}
                 onPress={() => router.push({ pathname: '/Community/meets/editmeet', params: { id: String(meet.id) } } as any)}
@@ -238,7 +352,7 @@ export default function MeetDetailScreen() {
 
         <CommunityScreenHeader
           title={meet.title}
-          subtitle={meet.category === 'official' ? 'OFICJALNY MEET' : 'NIEOFICJALNY MEET'}
+          subtitle={meet.category === 'official' ? 'OFICJALNE WYDARZENIE' : 'NIEOFICJALNY MEET'}
           showBack={false}
           breadcrumb=""
         />
@@ -259,7 +373,12 @@ export default function MeetDetailScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>ORGANIZATOR</Text>
-                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>@{meet.creator.username}</Text>
+                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>
+                  {meet.organizerName ? meet.organizerName : `@${meet.creator.username}`}
+                </Text>
+                {meet.organizerName && (
+                  <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>@{meet.creator.username}</Text>
+                )}
               </View>
               <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
             </TouchableOpacity>
@@ -296,6 +415,197 @@ export default function MeetDetailScreen() {
               <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9 }}>{meet.maxParticipants} miejsc łącznie</Text>
             </View>
           </View>
+
+          {/* BILET QR — uczestnik */}
+          {meet.isJoined && (
+            <View style={{ gap: 12 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>
+                {meet.isApprovedParticipant ? 'TWÓJ BILET UCZESTNIKA' : 'TWÓJ BILET VROOM'}
+              </Text>
+              <TouchableOpacity
+                style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: meet.isApprovedParticipant ? '#4de92650' : theme.primaryBorder, gap: 12 }}
+                onPress={() => router.push({ pathname: '/Community/meets/ticket', params: { id: String(meet.id) } } as any)}
+                activeOpacity={0.85}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: meet.isApprovedParticipant ? '#4de92615' : theme.primaryBg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: meet.isApprovedParticipant ? '#4de92640' : theme.primaryBorder }}>
+                    <MaterialIcons name="qr-code-2" size={24} color={meet.isApprovedParticipant ? '#4de926' : theme.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700' }}>
+                      {meet.isApprovedParticipant ? 'QR uczestnika z autem' : 'Pokaż kod QR'}
+                    </Text>
+                    <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4 }}>
+                      {meet.checkedInAt
+                        ? `Weszłeś na teren · ${meet.entryType === 'free_vroom' ? 'FREE VROOM' : 'standard'}`
+                        : meet.isApprovedParticipant && meet.car
+                          ? `${meet.car.brand} ${meet.car.specs}`.trim()
+                          : meet.joinedAt
+                            ? `Zapisany: ${new Date(meet.joinedAt).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                            : 'Zapisany w apce'}
+                    </Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color={theme.textDim} />
+                </View>
+              </TouchableOpacity>
+
+              {/* Zgłoszenie uczestnika z autem */}
+              {!meet.isApprovedParticipant && meet.participantStatus !== 'pending' && (
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: theme.border }}
+                  onPress={() => router.push({ pathname: '/Community/meets/apply-participant', params: { id: String(meet.id) } } as any)}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="car-sports" size={24} color={theme.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>
+                      {meet.participantStatus === 'rejected' ? 'Zgłoś się ponownie z autem' : 'Zgłoś się jako uczestnik z autem'}
+                    </Text>
+                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 3 }}>Wybierz auto z garażu — organizator zatwierdzi</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              )}
+              {meet.participantStatus === 'pending' && (
+                <View style={{ backgroundColor: '#ff980015', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#ff980040', flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                  <MaterialIcons name="hourglass-top" size={22} color="#ff9800" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#ff9800', fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>OCZEKUJE NA AKCEPTACJĘ</Text>
+                    {meet.car && (
+                      <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>
+                        {meet.car.brand} {meet.car.specs}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* ORGANIZATOR — skan / zespół */}
+          {(canScan || canManage) && (
+            <View style={{ gap: 12 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>PANEL ORGANIZATORA</Text>
+              {canScan && (
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.primary, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+                  onPress={() => router.push({ pathname: '/Community/meets/scan', params: { id: String(meet.id) } } as any)}
+                  activeOpacity={0.85}
+                >
+                  <MaterialIcons name="qr-code-scanner" size={22} color="#fff" />
+                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>SKANUJ BILET QR</Text>
+                </TouchableOpacity>
+              )}
+              {canScan && meet.freeEntryQuota > 0 && (
+                <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE VROOM — GOŚCIE</Text>
+                  <Text style={{ color: '#f5c518', fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
+                    {meet.freeEntryRemaining} / {meet.freeEntryQuota}
+                  </Text>
+                </View>
+              )}
+              {canScan && meet.freeParticipantEntryQuota > 0 && (
+                <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: theme.border }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1 }}>FREE VROOM — UCZESTNICY Z AUTEM</Text>
+                  <Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontSize: 18, fontWeight: '700', marginTop: 4 }}>
+                    {meet.freeParticipantEntryRemaining} / {meet.freeParticipantEntryQuota}
+                  </Text>
+                  <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>Free przydzielane przy skanie QR na miejscu</Text>
+                </View>
+              )}
+              {canEdit && (
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: theme.border }}
+                  onPress={openQuotaModal}
+                  activeOpacity={0.85}
+                >
+                  <MaterialIcons name="tune" size={20} color={theme.primary} />
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700' }}>USTAW PULE FREE WJAZDÓW</Text>
+                </TouchableOpacity>
+              )}
+              {meet.canReviewApplications && (
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: theme.border }}
+                  onPress={() => router.push({ pathname: '/Community/meets/applications', params: { id: String(meet.id) } } as any)}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons name="car-multiple" size={22} color={theme.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZGŁOSZENIA Z AUTEM</Text>
+                    <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 2 }}>Zatwierdzaj uczestników z garażu</Text>
+                  </View>
+                  {(meet.pendingApplications ?? 0) > 0 && (
+                    <View style={{ backgroundColor: theme.primary, borderRadius: 12, minWidth: 24, height: 24, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
+                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{meet.pendingApplications}</Text>
+                    </View>
+                  )}
+                  <MaterialIcons name="chevron-right" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              )}
+              {canManage && (
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: theme.border }}
+                  onPress={() => router.push({ pathname: '/Community/meets/staff', params: { id: String(meet.id) } } as any)}
+                  activeOpacity={0.85}
+                >
+                  <MaterialIcons name="groups" size={22} color={theme.primary} />
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZARZĄDZAJ ZESPOŁEM</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* BILET I LINKI */}
+          {(ticketLabel || actionLinks.length > 0) && (
+            <View style={{ gap: 12 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>BILETY I LINKI</Text>
+              {ticketLabel && (
+                <View style={{ backgroundColor: theme.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primaryBg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.primaryBorder }}>
+                    <MaterialIcons name="confirmation-number" size={20} color={theme.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1 }}>CENA BILETU</Text>
+                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>{ticketLabel}</Text>
+                  </View>
+                </View>
+              )}
+              {actionLinks.map((link, i) => (
+                <TouchableOpacity
+                  key={`${link.label}-${i}`}
+                  style={{
+                    backgroundColor: link.accent ? theme.primaryBg : theme.surface,
+                    borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
+                    borderWidth: 1, borderColor: link.accent ? theme.primaryBorder : theme.border,
+                  }}
+                  onPress={() => openExternalUrl(link.url)} activeOpacity={0.85}
+                >
+                  <MaterialIcons name={link.icon as any} size={20} color={theme.primary} />
+                  <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>{link.label}</Text>
+                  <MaterialIcons name="open-in-new" size={16} color={theme.textDim} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* SOCIAL MEDIA ORGANIZATORA */}
+          {socialLinks.length > 0 && (
+            <View style={{ gap: 12 }}>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2 }}>SOCIAL MEDIA</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {socialLinks.map((link, i) => (
+                  <TouchableOpacity
+                    key={`${link.label}-${i}`}
+                    style={{ backgroundColor: theme.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                    onPress={() => openExternalUrl(link.url)} activeOpacity={0.85}
+                  >
+                    <MaterialIcons name={link.icon as any} size={16} color={theme.primary} />
+                    <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>{link.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* TAGI */}
           {meet.tags.length > 0 && (
@@ -339,7 +649,7 @@ export default function MeetDetailScreen() {
                 <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8 }}>NAWIGUJ</Text>
               </View>
             </TouchableOpacity>
-            {isOwner && meet.lat != null && meet.lng != null && (
+            {canEdit && meet.lat != null && meet.lng != null && (
               <TouchableOpacity
                 style={{ marginTop: 12, backgroundColor: theme.primaryBg, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, borderColor: theme.primaryBorder }}
                 onPress={() => setInviteModal(true)} activeOpacity={0.85}
@@ -479,6 +789,51 @@ export default function MeetDetailScreen() {
                 onPress={sendNearbyInvites} disabled={inviteSending}
               >
                 {inviteSending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>WYŚLIJ</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={quotaModal} animationType="fade" transparent onRequestClose={() => !quotaSaving && setQuotaModal(false)}>
+        <View style={{ flex: 1, backgroundColor: theme.overlay, justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: theme.surface2, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: theme.border, gap: 14 }}>
+            <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 14, fontWeight: '700' }}>Pule free wjazdów VROOM</Text>
+            <Text style={{ color: theme.textDim, fontSize: 11, lineHeight: 17 }}>
+              Pierwsze zeskanowane kody QR dostają darmowy wjazd — osobno dla gości i uczestników z autem.
+            </Text>
+            <View>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>FREE — GOŚCIE (QR użytkownika)</Text>
+              <TextInput
+                value={quotaVisitor}
+                onChangeText={setQuotaVisitor}
+                keyboardType="number-pad"
+                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Orbitron' }}
+              />
+            </View>
+            <View>
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1, marginBottom: 6 }}>FREE — UCZESTNICY Z AUTEM</Text>
+              <TextInput
+                value={quotaParticipant}
+                onChangeText={setQuotaParticipant}
+                keyboardType="number-pad"
+                style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, color: theme.text, fontFamily: 'Orbitron' }}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.surface3, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border2 }}
+                onPress={() => !quotaSaving && setQuotaModal(false)}
+                disabled={quotaSaving}
+              >
+                <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', opacity: quotaSaving ? 0.7 : 1 }}
+                onPress={saveQuotas}
+                disabled={quotaSaving}
+              >
+                {quotaSaving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700' }}>ZAPISZ</Text>}
               </TouchableOpacity>
             </View>
           </View>

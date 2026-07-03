@@ -12494,6 +12494,8 @@ if (appStateRef.current === 'active') {
       duration: durationSeconds / 60,
       index: 0,
     };
+    const origin = userLocation ?? { latitude: first.latitude, longitude: first.longitude };
+    setStartLocation({ latitude: origin.latitude, longitude: origin.longitude, name: 'Moja pozycja' });
     previewRouteRef.current = route;
     navRouteRef.current = route;
     routePointsRef.current = event.routePoints;
@@ -12507,8 +12509,12 @@ if (appStateRef.current === 'active') {
     routeInfoRef.current = nextRouteInfo;
     setRouteInfo(nextRouteInfo);
     setCurrentStep(0);
+    if (typeof event.selectedRouteIndex === 'number' && Number.isFinite(event.selectedRouteIndex)) {
+      setSelectedRouteIndex(event.selectedRouteIndex);
+    }
+    if (event.routePreview) return;
     if (!isNavigatingRef.current) setTimeout(beginNavigation, 0);
-  }, [beginNavigation]);
+  }, [beginNavigation, userLocation]);
 
   useAutoNavigationBridge({
     isNavigating,
@@ -13531,7 +13537,7 @@ if (appStateRef.current === 'active') {
                   <View style={styles.routeInfoLocation}>
                     <View style={[styles.routeInfoDot, { backgroundColor: '#4de926' }]} />
                     <Text style={styles.routeInfoLocationName} numberOfLines={1}>
-                      {startLocation.name ?? 'Punkt startowy'}
+                      {startLocation?.name ?? 'Punkt startowy'}
                     </Text>
                   </View>
                 </View>

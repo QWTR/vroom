@@ -24,6 +24,9 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "VROOM używa lokalizacji do mapy, nawigacji i ostrzeżeń drogowych.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM używa lokalizacji także w tle do liczenia kilometrów, aktywnej nawigacji i udostępniania pozycji live po włączeniu tej funkcji.",
+        "NSCameraUsageDescription": "VROOM używa aparatu do skanowania kodów QR biletów na wydarzeniach.",
+        "NSPhotoLibraryAddUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
+        "NSPhotoLibraryUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
         "UIBackgroundModes": [
           "location"
         ],
@@ -59,7 +62,8 @@
         "android.permission.INTERNET",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -121,7 +125,20 @@
       ],
       "@react-native-google-signin/google-signin",
       "expo-apple-authentication",
-      "react-native-iap"
+      "react-native-iap",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "VROOM używa aparatu do skanowania kodów QR biletów na wydarzeniach."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
+          "savePhotosPermission": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

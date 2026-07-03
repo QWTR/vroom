@@ -45,6 +45,7 @@ object VroomPayloadParser {
                 nativeRoadPose = msObj?.optBoolean("nativeRoadPose", false) ?: false,
                 nativeAutoPose = msObj?.optBoolean("nativeAutoPose", false) ?: false,
                 nativeRoadMatchedAt = msObj?.optLong("nativeRoadMatchedAt", 0L) ?: 0L,
+                nativeRoadVersion = msObj?.optInt("nativeRoadVersion", 0) ?: 0,
                 speedKmh = finiteOrNull(msObj?.optDouble("speedKmh", Double.NaN)) ?: ((speed ?: 0.0) * 3.6),
                 speedLimitKmh = finiteOrNull(msObj?.optDouble("speedLimitKmh", Double.NaN)),
                 locationMarkerStyle = msObj?.optString("locationMarkerStyle", "arrow") ?: "arrow",

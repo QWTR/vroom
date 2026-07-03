@@ -47,6 +47,8 @@ export interface AutoNavigationStartedPayload {
   distanceMeters: number;
   durationSeconds: number;
   instruction: string;
+  routePreview?: boolean;
+  selectedRouteIndex?: number;
 }
 
 interface UseAutoNavigationBridgeParams {
@@ -667,8 +669,15 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
           routePoints,
           destination,
           distanceMeters: Number(parsed?.dto?.remainingDistanceMeters ?? parsed?.distanceMeters ?? 0),
-          durationSeconds: Number(parsed?.dto?.remainingDurationSeconds ?? parsed?.durationSeconds ?? 0),
+          durationSeconds: Number(
+            parsed?.dto?.remainingDurationSec
+            ?? parsed?.dto?.remainingDurationSeconds
+            ?? parsed?.durationSeconds
+            ?? 0,
+          ),
           instruction: String(parsed?.dto?.nextInstruction ?? ''),
+          routePreview: parsed?.mapState?.routePreview === true || parsed?.isNavigating === false,
+          selectedRouteIndex: Number(parsed?.mapState?.selectedRouteIndex ?? 0),
         });
       } catch {
       }

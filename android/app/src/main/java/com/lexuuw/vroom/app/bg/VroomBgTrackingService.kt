@@ -164,6 +164,7 @@ class VroomBgTrackingService : Service() {
       return
     }
 
+    tripSessionId = sessionId
     val now = System.currentTimeMillis()
     val previous = readState(applicationContext)
     val startedAt = if (previous.optBoolean("active", false)) {
@@ -410,12 +411,12 @@ class VroomBgTrackingService : Service() {
         JSONObject()
       }
       if (!stats.has("distanceKm")) stats.put("distanceKm", 0.0)
-      val state = readState(context)
-      val sessionId = state.optString("tripSessionId", "")
-      if (sessionId.isNotBlank()) stats.put("tripSessionId", sessionId)
       if (!stats.has("routePoints")) stats.put("routePoints", JSONArray())
       if (!stats.has("speedSamples")) stats.put("speedSamples", JSONArray())
       if (!stats.has("maxSpeedKmh")) stats.put("maxSpeedKmh", 0.0)
+      val state = readState(context)
+      val sessionId = state.optString("tripSessionId", "")
+      if (sessionId.isNotBlank()) stats.put("tripSessionId", sessionId)
 
       if (speedKmh != null && speedKmh in 1.0..MAX_SPEED_KMH) {
         val samples = stats.optJSONArray("speedSamples") ?: JSONArray()
@@ -477,10 +478,10 @@ class VroomBgTrackingService : Service() {
     private fun emptyNativeStats(): JSONObject =
       JSONObject()
         .put("distanceKm", 0.0)
-        .put("tripSessionId", JSONObject.NULL)
         .put("routePoints", JSONArray())
         .put("speedSamples", JSONArray())
         .put("maxSpeedKmh", 0.0)
+        .put("tripSessionId", JSONObject.NULL)
 
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
       val earthKm = 6371.0
