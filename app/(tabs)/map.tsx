@@ -2392,6 +2392,7 @@ function MapScreenInner() {
   const lastGoodDrivingSnapGeometryRef = useRef<{ latitude: number; longitude: number }[]>([]);
   const markerStaleSnapTicksRef = useRef(0);
   const drivingSnapUsesMatchedRef = useRef(false);
+  const lastRoadLockRepairAtRef = useRef(0);
   const drivingMarkerStallRef = useRef({
     rawLat: 0,
     rawLng: 0,
@@ -2414,6 +2415,8 @@ function MapScreenInner() {
   const gpsTickCountRef       = useRef(0);
   const drTickCountRef        = useRef(0);
   const lastGpsTickAtRef      = useRef(0);
+  const lastExpoGpsTickAtRef  = useRef(0);
+  const lastNativeDrivePipelineAtRef = useRef(0);
   /** v10.9: mierzona kadencja GPS (przerwa miedzy poprzednim i przedostatnim
    *  fixem) — uzywana do dobierania durationMs interpolacji markera w worklet. */
   const gpsCadenceMsRef       = useRef(1200);
@@ -3171,6 +3174,43 @@ function MapScreenInner() {
       driveMarker.pushTarget(markerTarget);
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
         rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
+      }
+      if (
+        !out.rejected
+        && isDrivingRef.current
+        && !isNavigatingRef.current
+        && out.snap.pathMode === 'onRoad'
+      ) {
+        const localPose = localRoadGeometryMirror.snapToLocalRoadNearest(
+          out.snap.rawLat,
+          out.snap.rawLng,
+          38,
+          markerTarget.headingDeg,
+          out.hudSpeedKmh,
+        );
+        const targetToLocalM = localPose
+          ? haversineKm(markerTarget.lat, markerTarget.lng, localPose.lat, localPose.lng) * 1000
+          : 0;
+        const suspiciousRoadLock =
+          out.snap.crossTrackM > 18
+          || targetToLocalM > 10;
+        const nowRepair = Date.now();
+        if (suspiciousRoadLock && nowRepair - lastRoadLockRepairAtRef.current >= 1600) {
+          lastRoadLockRepairAtRef.current = nowRepair;
+          void getLocalSnapTarget(out.snap.rawLat, out.snap.rawLng).then((hit) => {
+            if (!isDrivingRef.current || isNavigatingRef.current) return;
+            if (!hit || hit.polylinePoints.length < 2) return;
+            if (!validateGeometryAgainstRaw(hit.polylinePoints, out.snap.rawLat, out.snap.rawLng, 38)) return;
+            applyRoadMatchPoints(hit.polylinePoints, { skipResync: true });
+            bumpMatchedFreshness();
+            resyncSnapAfterRoadGeometry(
+              out.snap.rawLat,
+              out.snap.rawLng,
+              out.hudSpeedKmh,
+              null,
+            );
+          });
+        }
       }
       lastHeadingRef.current = markerTarget.headingDeg;
       lastTripMarkerPoseRef.current = { lat: markerTarget.lat, lng: markerTarget.lng };
@@ -6015,7 +6055,39 @@ function MapScreenInner() {
       exitDrivingMode({ reason: 'manual_toggle_off' });
       setFollowMode('idleBrowse');
     } else {
-      if (!userLocation || !Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude)) {
+      let nativeSeedFix: BackgroundDriveFix | null = null;
+      if (!currentLocRef.current && !userLocation && !lastGoodLocRef.current && !lastSetLocRef.current) {
+        try {
+          const [nativeState, nativeBuffered] = await Promise.all([
+            BackgroundDriveController.getState(),
+            BackgroundDriveController.consumeBufferedLocations(),
+          ]);
+          const nativeFixes = [
+            ...(Array.isArray(nativeBuffered) ? nativeBuffered : []),
+            ...(nativeState?.lastFix ? [nativeState.lastFix] : []),
+          ].filter((fix) => (
+            Number.isFinite(fix?.latitude)
+            && Number.isFinite(fix?.longitude)
+            && !isNullIsland(Number(fix.latitude), Number(fix.longitude))
+          ));
+          nativeSeedFix = nativeFixes[nativeFixes.length - 1] ?? null;
+        } catch {
+          nativeSeedFix = null;
+        }
+      }
+      const nativeSeedLocation = nativeSeedFix
+        ? {
+            latitude: Number(nativeSeedFix.latitude),
+            longitude: Number(nativeSeedFix.longitude),
+          }
+        : null;
+      if (
+        !currentLocRef.current
+        && !lastGoodLocRef.current
+        && !lastSetLocRef.current
+        && !nativeSeedLocation
+        && (!userLocation || !Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude))
+      ) {
         Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na fix lokalizacji zanim włączysz jazdę.' });
         return;
       }
@@ -6027,8 +6099,10 @@ function MapScreenInner() {
         tripActive: false,
         lastSetLoc: lastSetLocRef.current,
         lastGoodLoc: lastGoodLocRef.current,
-        userLocation: currentLocRef.current ?? userLocation,
-        headingFallback: lastHeadingRef.current,
+        userLocation: currentLocRef.current ?? userLocation ?? nativeSeedLocation,
+        headingFallback: nativeSeedFix?.heading != null && Number.isFinite(Number(nativeSeedFix.heading))
+          ? Number(nativeSeedFix.heading)
+          : lastHeadingRef.current,
       });
       if (!entryPose) {
         drivingManualEntryBusyRef.current = false;
@@ -6241,7 +6315,7 @@ function MapScreenInner() {
     setGpsForceActive(active);
   }, []);
 
-  const { start: startGPS, stop: stopGPS, hardRestart: hardRestartGPS } = useDriveLocationWatch({
+  const { start: startGPS, stop: stopGPS, hardRestart: hardRestartGPS, seedLockFromResume: seedGpsLockFromResume } = useDriveLocationWatch({
     isNavigating,
     isDriving,
     isMapFocused,
@@ -6279,6 +6353,7 @@ function MapScreenInner() {
         }
       }
       lastGpsTickAtRef.current = tickNow;
+      lastExpoGpsTickAtRef.current = tickNow;
       const rawLat0 = loc.latitude;
       const rawLng0 = loc.longitude;
       let rawLat = rawLat0;
@@ -9604,7 +9679,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     idleUiJumpCandidateRef.current = null;
     stillLockCandidateRef.current = null;
     if (forceRestart && tripActive) {
-      void hardRestartGPS(`restart_${reason}`);
+      // Mamy już wiarygodną pozycję trasy (DR / natywny bufor) — nie zerujemy
+      // locka, aby pierwszy fix po restarcie nie był odrzucony (brak freeze).
+      const hasKnownTripPose =
+        (Number.isFinite(drLatRef.current) && drLatRef.current !== 0)
+        || lastSetLocRef.current != null
+        || lastGoodLocRef.current != null;
+      void hardRestartGPS(`restart_${reason}`, { preserveLock: hasKnownTripPose });
       foregroundGpsIntentionallyStoppedRef.current = false;
       return;
     }
@@ -10269,7 +10350,8 @@ if (appStateRef.current === 'active') {
     source: 'foreground' | 'focus',
     opts?: { force?: boolean },
   ) => {
-    if (Platform.OS !== 'android') return false;
+    // Cross-platform: iOS korzysta z WiroomLocationService (bufor + lastFix),
+    // Android z VroomBgTracking — oba przez BackgroundDriveController.
     const tripActive = isDrivingRef.current || isNavigatingRef.current;
     if (!tripActive && !opts?.force) return false;
     const now = Date.now();
@@ -10307,7 +10389,9 @@ if (appStateRef.current === 'active') {
       const previous = deduped.length >= 2 ? deduped[deduped.length - 2] : null;
       const latestTs = Number(latest.timestamp ?? 0);
       const latestAgeMs = latestTs > 0 ? Math.max(0, now - latestTs) : 0;
-      if (latestAgeMs > 15 * 60_000) return false;
+      // Pokaż nawet starszą pozycję natychmiast (lepiej niż freeze); świeży fix z
+      // watchera zaktualizuje marker w ~1 s. Ancient (>30 min) pomijamy.
+      if (latestAgeMs > 30 * 60_000) return false;
 
       const latestLat = Number(latest.latitude);
       const latestLng = Number(latest.longitude);
@@ -10349,6 +10433,21 @@ if (appStateRef.current === 'active') {
           const snapped = snapToRoute(latestLat, latestLng, navPts, NAV_ROUTE_SNAP_M);
           applyLat = snapped.latitude;
           applyLng = snapped.longitude;
+        }
+      } else if (isDrivingRef.current) {
+        const roadPts = drivingSnapGeometryRef.current;
+        const onRoad = projectOntoDrivingRoad(
+          latestLat,
+          latestLng,
+          latestLat,
+          latestLng,
+          roadPts,
+          85,
+        );
+        if (onRoad) {
+          applyLat = onRoad.latitude;
+          applyLng = onRoad.longitude;
+          heading = resolveTripRoadHeading(applyLat, applyLng, roadPts, DRIVING_ENTRY_MAX_SNAP_M, heading);
         }
       }
 
@@ -10406,6 +10505,37 @@ if (appStateRef.current === 'active') {
       void saveMapLastLocation(applyLat, applyLng, Number(latest.accuracy) || undefined);
       syncTripCameraAfterResume(applyLat, applyLng, heading);
       driveMarker.ensureFrameActive?.();
+      if (isDrivingRef.current && !isNavigatingRef.current && drivingSnapGeometryRef.current.length < 2) {
+        void getLocalSnapTarget(latestLat, latestLng).then((hit) => {
+          if (!isDrivingRef.current || isNavigatingRef.current) return;
+          if (!hit || hit.polylinePoints.length < 2) return;
+          applyRoadMatchPoints(hit.polylinePoints, { skipResync: true });
+          bumpMatchedFreshness();
+          resyncSnapAfterRoadGeometry(latestLat, latestLng, speedKmhRef.current, null);
+        });
+
+        const resumeReqId = mapMatchCoord.allocRequestId();
+        void mapMatchCoord.requestRecovery({
+          reason: 'MANUAL',
+          lat: latestLat,
+          lng: latestLng,
+          speedKmh,
+          forceImmediate: true,
+        }).then((pts) => {
+          if (mapMatchCoord.isStaleRequest(resumeReqId)) return;
+          if (!isDrivingRef.current || isNavigatingRef.current) return;
+          if (!pts || pts.length < 2) return;
+          applyRoadMatchPoints(pts, { skipResync: true });
+          bumpMatchedFreshness();
+          resyncSnapAfterRoadGeometry(latestLat, latestLng, speedKmhRef.current, null);
+        });
+      }
+
+      // Zasil GPS lock natywnym fixem, aby bramka onLocation od razu przepuszczała
+      // kolejne fixy z watchera — eliminacja 2-3 min freeze po powrocie z tła.
+      seedGpsLockFromResume();
+      gpsLockEstablishedRef.current = true;
+      if (isDrivingRef.current || isNavigatingRef.current) setGpsAcquiring(false);
 
       vroomGpsLog('BG_DRIVE_RESUME_SYNC', {
         source,
@@ -10421,7 +10551,103 @@ if (appStateRef.current === 'active') {
       if (__DEV__) console.log('[GPSDBG] BG_DRIVE_RESUME_SYNC_FAIL', e);
       return false;
     }
-  }, [driveMarker, publishUserLocation, syncTripCameraAfterResume]);
+  }, [
+    driveMarker,
+    publishUserLocation,
+    syncTripCameraAfterResume,
+    seedGpsLockFromResume,
+    getLocalSnapTarget,
+    applyRoadMatchPoints,
+    bumpMatchedFreshness,
+    resyncSnapAfterRoadGeometry,
+    mapMatchCoord,
+  ]);
+
+  const applyNativeDriveFixToV3Pipeline = useCallback((fix: BackgroundDriveFix) => {
+    if (!isDrivingRef.current && !isNavigatingRef.current) return false;
+    const now = Date.now();
+    const lat = Number(fix.latitude);
+    const lng = Number(fix.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || isNullIsland(lat, lng)) return false;
+
+    const fixTsRaw = Number(fix.timestamp ?? 0);
+    const fixTs = fixTsRaw > 0 ? fixTsRaw : now;
+    if (now - fixTs > 30 * 60_000) return false;
+
+    const acc = Number.isFinite(Number(fix.accuracy)) ? Number(fix.accuracy) : 12;
+    let heading = Number(fix.heading);
+    let speedMs: number | null = Number.isFinite(Number(fix.speed)) ? Number(fix.speed) : null;
+    const prevRaw = lastRawTickRef.current;
+    if (prevRaw) {
+      const dtSec = fixTs > 0 && fixTs > prevRaw.at ? (fixTs - prevRaw.at) / 1000 : 0;
+      const movedM = haversineKm(prevRaw.lat, prevRaw.lng, lat, lng) * 1000;
+      if ((!Number.isFinite(heading) || heading < 0) && movedM >= 2.5) {
+        heading = bearingBetween(prevRaw.lat, prevRaw.lng, lat, lng);
+      }
+      if ((speedMs == null || speedMs < 0.3) && dtSec >= 0.5 && movedM >= 2.5) {
+        speedMs = Math.min(MAX_REALISTIC_DRIVING_KMH, (movedM / dtSec) * 3.6) / 3.6;
+      }
+    }
+    if (!Number.isFinite(heading) || heading < 0) {
+      heading = lastHeadingRef.current || drHdgRef.current || 0;
+    }
+    heading = normalizeHeading(heading);
+    if (speedMs == null || !Number.isFinite(speedMs) || speedMs < 0) {
+      speedMs = speedKmhRef.current > 0 ? speedKmhRef.current / 3.6 : null;
+    }
+
+    seedGpsLockFromResume();
+    gpsLockEstablishedRef.current = true;
+    setGpsAcquiring(false);
+    setLocationReady(true);
+
+    rawGpsCourseRef.current = { lat, lng };
+    lastRawTickRef.current = { lat, lng, at: fixTs, acc };
+    lastGpsTickAtRef.current = now;
+    lastAcceptedFixWallClockRef.current = now;
+    currentLocRef.current = { latitude: lat, longitude: lng };
+
+    const out = navV3.processGpsFix({
+      latitude: lat,
+      longitude: lng,
+      accuracy: acc,
+      timestamp: fixTs,
+      speed: speedMs != null && Number.isFinite(speedMs) && speedMs >= 0 ? speedMs : null,
+      heading,
+    });
+
+    if (!out || out.rejected) return false;
+    currentLocRef.current = {
+      latitude: out.target.lat,
+      longitude: out.target.lng,
+    };
+    lastGoodLocRef.current = { lat: out.target.lat, lng: out.target.lng };
+    lastSetLocRef.current = { lat: out.target.lat, lng: out.target.lng };
+    lastTripMarkerPoseRef.current = { lat: out.target.lat, lng: out.target.lng };
+    return true;
+  }, [navV3, seedGpsLockFromResume]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let lastNativeApplyAt = 0;
+    return BackgroundDriveController.addLocationListener((fix) => {
+      if (!isDrivingRef.current && !isNavigatingRef.current) return;
+      const now = Date.now();
+      if (now - lastNativeApplyAt < 450) return;
+      if (appStateRef.current === 'active' && now - lastExpoGpsTickAtRef.current < 1200) return;
+      lastNativeApplyAt = now;
+      lastNativeDrivePipelineAtRef.current = now;
+      const applied = applyNativeDriveFixToV3Pipeline(fix);
+      const markerReady =
+        driveMarker.isBootstrapped
+        && Number.isFinite(driveMarker.lat.value)
+        && Number.isFinite(driveMarker.lng.value)
+        && !(Math.abs(driveMarker.lat.value) < 1e-6 && Math.abs(driveMarker.lng.value) < 1e-6);
+      if (!applied && !markerReady && now - lastBgDriveResumeSyncAtRef.current > 2500) {
+        void syncFromBackgroundDriveSnapshot('foreground', { force: true });
+      }
+    });
+  }, [applyNativeDriveFixToV3Pipeline, driveMarker, syncFromBackgroundDriveSnapshot]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -10440,7 +10666,6 @@ if (appStateRef.current === 'active') {
         if (cancelled) return;
 
         let hasFreshNavSession = false;
-        let persistedNavSession: PersistedNavSession | null = null;
         try {
           if (navRaw) {
             const navSession: PersistedNavSession = JSON.parse(navRaw);
@@ -10449,11 +10674,9 @@ if (appStateRef.current === 'active') {
               && navSession.savedAt
               && Date.now() - navSession.savedAt <= NAV_SESSION_MAX_AGE_MS,
             );
-            if (hasFreshNavSession) persistedNavSession = navSession;
           }
         } catch {
           hasFreshNavSession = false;
-          persistedNavSession = null;
         }
 
         const nativeActive = state?.active === true;
@@ -10464,70 +10687,41 @@ if (appStateRef.current === 'active') {
         }
         const nativeStats = await BackgroundDriveController.getNativeStats();
 
-        const restoreNavigation =
+        // Cold-start = nowy proces = aplikacja została w pełni zamknięta (swipe-kill
+        // lub reclaim systemu). Decyzja UX: nawigacja NIE jest przywracana po pełnym
+        // zamknięciu — degradujemy do trybu jazdy (km liczą się dalej, pozycja gotowa
+        // natychmiast). Minimalizacja nie powoduje cold-startu, więc nawigacja przy
+        // minimalizacji pozostaje aktywna (stan React żyje).
+        const wasNavigation =
           state?.mode === 'navigation'
           || navFlag === 'true'
           || hasFreshNavSession;
 
         const now = Date.now();
-        if (restoreNavigation) {
-          isNavigatingRef.current = true;
-          isDrivingRef.current = false;
-          setIsDriving(false);
-          setIsNavigating(true);
-          await setNavigatingFlag(true);
-          await setDrivingFlag(false);
-          setTripCameraActive(true);
-          setFollowMode('navigationFollow');
-          navStatsFlushedRef.current = false;
+        // Wyczyść pozostałości nawigacji ZANIM wystartujemy natywny tryb jazdy —
+        // setDrivingFlag(true) odczytuje bg_is_navigating i musi zobaczyć 'false',
+        // aby uruchomić natywny serwis w trybie freeDrive (nie navigation).
+        await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false');
+        await AsyncStorage.removeItem(NAV_SESSION_KEY);
+
+        isDrivingRef.current = true;
+        isNavigatingRef.current = false;
+        setIsNavigating(false);
+        setIsDriving(true);
+        await setDrivingFlag(true);
+        await setNavigatingFlag(false);
+        drivingManualModeRef.current = false;
+        drivingManuallyDisabledRef.current = false;
+        drivingManualEntryBusyRef.current = false;
+        driveSessionGuardRef.current.reset();
+        setTripCameraActive(true);
+        setFollowMode('drivingFollow');
+        drivingSinceRef.current = now;
+        drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+        tripSpeedWarmupUntilRef.current = now + 10_000;
+        if (!passiveTripStartedRef.current) {
+          startTrip(Number(routeInfoRef.current?.duration) || 0);
           passiveTripStartedRef.current = true;
-          if (persistedNavSession) {
-            setIsOffroadRoute(Boolean(persistedNavSession.isOffroadRoute));
-            isOffroadRef.current = Boolean(persistedNavSession.isOffroadRoute);
-            if (persistedNavSession.startLocation) setStartLocation(persistedNavSession.startLocation);
-            setEndLocation(persistedNavSession.endLocation);
-            setNavStartLoc(
-              persistedNavSession.navStartLoc
-              ?? persistedNavSession.startLocation
-              ?? null,
-            );
-            setRouteInfo(persistedNavSession.routeInfo ?? null);
-            setCurrentStep(Math.max(0, persistedNavSession.currentStep ?? 0));
-            pendingStepArcClampRef.current = true;
-            if (persistedNavSession.isOffroadRoute && persistedNavSession.offroadPoints?.length > 1) {
-              offroadLoadedPointsRef.current = persistedNavSession.offroadPoints;
-              offroadPointsRef.current = persistedNavSession.offroadPoints;
-              routePointsRef.current = persistedNavSession.offroadPoints;
-            } else if (persistedNavSession.routeSnapshot?.points?.length && persistedNavSession.routeSnapshot.points.length >= 2) {
-              offroadLoadedPointsRef.current = [];
-              routePointsRef.current = persistedNavSession.routeSnapshot.points;
-              setNavRouteOverride(persistedNavSession.routeSnapshot);
-              navV3.setRoutePolyline(
-                persistedNavSession.routeSnapshot.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
-              );
-            }
-          }
-          updateTripEstimate(Number(persistedNavSession?.routeInfo?.duration ?? routeInfoRef.current?.duration) || 0);
-        } else {
-          isDrivingRef.current = true;
-          isNavigatingRef.current = false;
-          setIsNavigating(false);
-          setIsDriving(true);
-          await setDrivingFlag(true);
-          await setNavigatingFlag(false);
-          drivingManualModeRef.current = false;
-          drivingManuallyDisabledRef.current = false;
-          drivingManualEntryBusyRef.current = false;
-          driveSessionGuardRef.current.reset();
-          setTripCameraActive(true);
-          setFollowMode('drivingFollow');
-          drivingSinceRef.current = now;
-          drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
-          tripSpeedWarmupUntilRef.current = now + 10_000;
-          if (!passiveTripStartedRef.current) {
-            startTrip(Number(routeInfoRef.current?.duration) || 0);
-            passiveTripStartedRef.current = true;
-          }
         }
 
         if (Number(nativeStats.distanceKm) > 0) {
@@ -10592,11 +10786,15 @@ if (appStateRef.current === 'active') {
             setLocationReady(true);
             publishUserLocation({ latitude: lat, longitude: lng }, true);
             tripBootstrapPose(lat, lng, heading, { animateCamera: true });
+            // Cold-start z natywnym lastFix: zasil lock, aby watcher od razu podawał fixy.
+            seedGpsLockFromResume();
+            gpsLockEstablishedRef.current = true;
           }
         }
 
         vroomGpsLog('BG_DRIVE_COLD_START_RESTORE', {
-          mode: restoreNavigation ? 'navigation' : 'freeDrive',
+          mode: 'freeDrive',
+          wasNavigation,
           nativeActive,
           synced,
           hasLastFix: Boolean(state?.lastFix),
@@ -10621,6 +10819,7 @@ if (appStateRef.current === 'active') {
     tripBootstrapPose,
     restoreTripSnapshot,
     navV3,
+    seedGpsLockFromResume,
   ]);
 
   /** Krótki powrót z tła (<20s) — bez restartu GPS, map-match i fake 12 km/h. */
@@ -11602,66 +11801,28 @@ if (appStateRef.current === 'active') {
     activeRoute,
   ]);
 
-  // Restore pending navigation session after cold start / process kill.
+  // Cold start / process kill: NIE przywracamy nawigacji (decyzja UX — pełne
+  // zamknięcie aplikacji wyłącza nawigację). Czyścimy zapisaną sesję i flagę BG,
+  // aby po ponownym otwarciu nie było "zawieszonej" trasy. Minimalizacja nie
+  // wywołuje cold-startu, więc nawigacja przy minimalizacji zostaje aktywna.
   useEffect(() => {
     if (didRestoreNavSessionRef.current || !locationReady) return;
     didRestoreNavSessionRef.current = true;
 
     (async () => {
       try {
+        // Na Androidzie cold-start obsługuje BG_DRIVE_COLD_START_RESTORE (degradacja
+        // nav->freeDrive). Tutaj tylko usuwamy resztki sesji nawigacji.
+        if (isNavigatingRef.current) return;
         const raw = await AsyncStorage.getItem(NAV_SESSION_KEY);
         if (!raw) return;
-
-        const data: PersistedNavSession = JSON.parse(raw);
-        if (!data?.endLocation) return;
-        if (!data.savedAt || Date.now() - data.savedAt > NAV_SESSION_MAX_AGE_MS) {
-          await AsyncStorage.removeItem(NAV_SESSION_KEY);
-          return;
-        }
-
-        setIsOffroadRoute(Boolean(data.isOffroadRoute));
-        isOffroadRef.current = Boolean(data.isOffroadRoute);
-
-        if (data.isOffroadRoute && data.offroadPoints?.length > 1) {
-          offroadLoadedPointsRef.current = data.offroadPoints;
-          routePointsRef.current = data.offroadPoints;
-        } else {
-          offroadLoadedPointsRef.current = [];
-          if (data.routeSnapshot?.points?.length && data.routeSnapshot.points.length >= 2) {
-            routePointsRef.current = data.routeSnapshot.points;
-            setNavRouteOverride(data.routeSnapshot);
-            navV3.setRoutePolyline(
-              data.routeSnapshot.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
-            );
-          }
-        }
-
-        if (data.startLocation) setStartLocation(data.startLocation);
-        setEndLocation(data.endLocation);
-        setNavStartLoc(data.navStartLoc ?? data.startLocation ?? userLocation);
-        setRouteInfo(data.routeInfo ?? null);
-        setCurrentStep(Math.max(0, data.currentStep ?? 0));
-        pendingStepArcClampRef.current = true;
-        setArrived(false);
-        setOffRoute(false);
-        v3SnapToRouteSuppressedRef.current = false;
-        announcedPhasesRef.current = new Set();
-        lastSpokenRef.current = '';
-
-        isNavigatingRef.current = true;
-        setIsNavigating(true);
-        setNavigatingFlag(true).catch(() => {});
-
-        Toast.show({
-          type: 'success',
-          text1: '↩️ PRZYWRÓCONO NAWIGACJĘ',
-          text2: data.endLocation.name ?? 'Kontynuuj trasę',
-        });
+        await AsyncStorage.removeItem(NAV_SESSION_KEY);
+        await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false');
       } catch (e) {
-        console.log('restore nav_session error:', e);
+        console.log('clear nav_session on cold start error:', e);
       }
     })();
-  }, [locationReady, userLocation, navV3]);
+  }, [locationReady]);
 
   useEffect(() => {
     const pts = activeRoute?.points ?? [];
@@ -12891,6 +13052,46 @@ if (appStateRef.current === 'active') {
   stopNavigationRef.current = stopNavigation;
 
   useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let cancelled = false;
+
+    const reconcileNativeFreeDrive = async () => {
+      try {
+        const state = await BackgroundDriveController.getState();
+        if (cancelled) return;
+        if (state?.active !== true || state.mode !== 'freeDrive') return;
+
+        await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false');
+        await AsyncStorage.removeItem(NAV_SESSION_KEY);
+        if (cancelled) return;
+
+        if (isNavigatingRef.current) {
+          await stopNavigationRef.current({ silent: true, clearRoute: true });
+          isDrivingRef.current = true;
+          setIsDriving(true);
+          setFollowMode('drivingFollow');
+          setTripCameraActive(true);
+          vroomGpsLog('NAV_DROPPED_AFTER_TASK_REMOVED', {
+            nativeMode: state.mode,
+            hasLastFix: Boolean(state.lastFix),
+          }, 0);
+        }
+      } catch {
+        // best effort: cold-start restore also clears the persisted nav session.
+      }
+    };
+
+    void reconcileNativeFreeDrive();
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void reconcileNativeFreeDrive();
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [setFollowMode, setTripCameraActive]);
+
+  useEffect(() => {
     setDropClaimHandler((dropId, _reward, context) => {
       pendingDropAutoStartRef.current = false;
       approachingRouteStartRef.current = false;
@@ -13470,7 +13671,7 @@ if (appStateRef.current === 'active') {
             }
           }}
         >
-          <TripCameraLocationProvider enabled={isTripActiveMap} marker={driveMarker} />
+          <TripCameraLocationProvider enabled={isTripActiveMap && cameraV3.nativeFollowEnabled} marker={driveMarker} />
           <Mapbox.Camera
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}

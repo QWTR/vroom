@@ -8,6 +8,7 @@ import { logTelemetry } from '../lib/telemetryLogger';
 import {
   createGpsLockState,
   resetGpsLockState,
+  seedGpsLockEstablished,
   shouldEmitLocationFix,
   updateGpsLock,
   type GpsLockState,
@@ -247,6 +248,15 @@ export function useDriveLocationWatch({
       if (__DEV__) console.log('[GPSDBG] GPS_LOCK_ACQUIRED', JSON.stringify({ at: Date.now() }));
     }
   }, []);
+
+  /**
+   * Powrót z tła / cold-start: zasil lock natywnym fixem, aby bramka onLocation
+   * od razu przepuszczała fixy z watchera (bez czekania na 2 fixy / timeout 15 s).
+   */
+  const seedLockFromResume = useCallback(() => {
+    seedGpsLockEstablished(lockRef.current);
+    applyLockState(true);
+  }, [applyLockState]);
 
   const currentProfile = useCallback((): GpsProfile => {
     return resolveGpsProfile(
@@ -596,17 +606,26 @@ export function useDriveLocationWatch({
     lastValidFixAtRef.current = 0;
   }, [teardownSubscription]);
 
-  const hardRestart = useCallback(async (reason: string) => {
-    void logTelemetry('GPS_RESUME_HARD_RESTART', { reason, at: Date.now() });
-    if (__DEV__) console.log('[GPSDBG] GPS_RESUME_HARD_RESTART', JSON.stringify({ reason, at: Date.now() }));
+  const hardRestart = useCallback(async (reason: string, opts?: { preserveLock?: boolean }) => {
+    const preserveLock = opts?.preserveLock === true;
+    void logTelemetry('GPS_RESUME_HARD_RESTART', { reason, at: Date.now(), preserveLock });
+    if (__DEV__) console.log('[GPSDBG] GPS_RESUME_HARD_RESTART', JSON.stringify({ reason, at: Date.now(), preserveLock }));
     lastGpsRestartAtRef.current = Date.now();
     restartAttemptRef.current = 0;
     teardownSubscription();
-    resetGpsLockState(lockRef.current);
-    applyLockState(false);
+    // preserveLock: mamy świeżą pozycję z natywnego bufora — nie zerujemy locka,
+    // aby pierwszy przychodzący fix nie został odrzucony (eliminacja freeze po resume).
+    if (!preserveLock) {
+      resetGpsLockState(lockRef.current);
+      applyLockState(false);
+    }
     lastEmitRef.current = null;
     speedRef.current = 0;
-    await subscribe(navRef.current ? 'activeNav' : 'activeDrive', true, `hard_${reason}`);
+    await subscribe(navRef.current ? 'activeNav' : 'activeDrive', !preserveLock, `hard_${reason}`);
+    if (preserveLock) {
+      seedGpsLockEstablished(lockRef.current);
+      applyLockState(true);
+    }
   }, [subscribe, applyLockState, teardownSubscription]);
 
   useEffect(() => {
@@ -642,6 +661,7 @@ export function useDriveLocationWatch({
     start,
     stop,
     hardRestart,
+    seedLockFromResume,
     gpsLockEstablished,
     gpsLockEstablishedRef,
   };

@@ -25,6 +25,7 @@ const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
 const ROAD_COAST_MAX_M = 16;
 const FREE_COAST_MAX_M = 5;
+const CAMERA_FOLLOW_INTERVAL_MAX_MS = 3200;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -224,7 +225,7 @@ function blendPositionJs(
   roadBlend: number,
 ): { lat: number; lng: number } {
   const blend = Math.max(0, Math.min(1, roadBlend));
-  if (blend >= 0.999) return { lat: roadLat, lng: roadLng };
+  if (blend > 0.001) return { lat: roadLat, lng: roadLng };
   if (blend <= 0.001) return { lat: rawLat, lng: rawLng };
   const inv = 1 - blend;
   return {
@@ -413,7 +414,7 @@ function blendPositionWorklet(
 ): { lat: number; lng: number } {
   'worklet';
   const blend = clampWorklet(roadBlend, 0, 1);
-  if (blend >= 0.999) return { lat: roadLat, lng: roadLng };
+  if (blend > 0.001) return { lat: roadLat, lng: roadLng };
   if (blend <= 0.001) return { lat: rawLat, lng: rawLng };
   const inv = 1 - blend;
   return {
@@ -658,10 +659,14 @@ export function useDriveMarkerV3(
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
     const feedSpeed = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
-    segmentDurationMs.value = Math.max(
+    const rawGpsIntervalMs = Number.isFinite(target.gpsIntervalMs) && target.gpsIntervalMs! > 0
+      ? target.gpsIntervalMs!
+      : 900;
+    const markerSegmentMs = Math.max(
       320,
-      Math.min(1_200, Number.isFinite(target.gpsIntervalMs) ? target.gpsIntervalMs! : 900),
+      Math.min(1_200, rawGpsIntervalMs),
     );
+    segmentDurationMs.value = markerSegmentMs;
     lastTargetAtMs.value = Date.now();
     coastDistanceM.value = 0;
     let resolvedSpeedMs = feedSpeed;
@@ -730,7 +735,10 @@ export function useDriveMarkerV3(
     }
     cameraTargetLat.value = nextCameraLat;
     cameraTargetLng.value = nextCameraLng;
-    cameraSegmentDurationMs.value = segmentDurationMs.value + cameraBridgeMs;
+    cameraSegmentDurationMs.value = Math.max(
+      markerSegmentMs + cameraBridgeMs,
+      Math.min(CAMERA_FOLLOW_INTERVAL_MAX_MS, rawGpsIntervalMs + cameraBridgeMs),
+    );
     cameraTick.value += 1;
 
     const allowInstant = target.allowInstant === true;

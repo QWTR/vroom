@@ -32,12 +32,15 @@ export function buildV3GeometryFromRefs(input: {
     if (packed) roadPolylines.push(packed);
   };
 
-  // During navigation this ref can still contain the old route geometry.
-  // Never feed it back as a generic road candidate after an off-route turn.
-  if (!input.isNavigating) addPolyline('road_match', input.matchedGeometry);
+  // Prefer the local/visible road mirror first. It is closest to the rendered
+  // OSM road and prevents stale map-match geometry from locking the marker onto
+  // a parallel/offscreen road.
   for (let i = 0; i < input.mirrorPolylines.length; i += 1) {
     addPolyline(`mirror_${i}`, input.mirrorPolylines[i]!);
   }
+  // During navigation this ref can still contain the old route geometry.
+  // Never feed it back as a generic road candidate after an off-route turn.
+  if (!input.isNavigating) addPolyline('road_match', input.matchedGeometry);
 
   const routePolyline = input.isNavigating && input.routePoints.length >= 2
     ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))

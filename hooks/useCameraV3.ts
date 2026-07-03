@@ -47,6 +47,7 @@ const MIN_COURSE_SPEED_KMH = NAV_V3.CAMERA_COG_MIN_SPEED_KMH;
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
+const CAMERA_MOVING_SKIP_KMH = 2;
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -438,19 +439,32 @@ export function useCameraV3(opts: UseCameraV3Options) {
       lastZoomTickRef.current = now;
     }
 
-    if (!cachedPaddingRef.current) cachedPaddingRef.current = getTripCameraPadding(isNavigating);
     const displayHeading = resolveTripKeyframeHeadingRef.current(heading);
+    const prevZoom = prevSent?.zoom ?? zoom ?? BROWSE_ZOOM;
+    const zoomDelta = Math.abs((zoom ?? prevZoom) - prevZoom);
+    const hardSnap = coldStartFollowPendingRef.current || !prevSent;
+    const isMoving = speedKmh > CAMERA_MOVING_SKIP_KMH || hudKmh > CAMERA_MOVING_SKIP_KMH;
+    const shouldSkip =
+      !hardSnap
+      && !isMoving
+      && centerDeltaM < NAV_V3.CAMERA_DELTA_MIN_DIST_M
+      && zoomDelta < 0.005;
+    if (shouldSkip) {
+      return;
+    }
 
-    // Pozycję prowadzi natywny FollowPuck. Nie wysyłamy kolejnych setCamera,
-    // bo każda taka komenda przerywa follow i tworzyła cykl ruch-stop-ruch.
+    // The trip camera position is driven by Mapbox native follow using the
+    // marker-backed CustomLocationProvider. Do not send per-GPS setCamera
+    // centers here, because that creates the visible move-stop-move cycle.
     coldStartFollowPendingRef.current = false;
     markSentPose(lat, lng, displayHeading, zoom ?? BROWSE_ZOOM, now);
+    lastCameraPushMsSv.value = now;
   }, [
     enabled,
     followEnabledSv,
-    isNavigating,
     isPaused,
     isTripMode,
+    lastCameraPushMsSv,
     markSentPose,
     speedKmhRef,
   ]);

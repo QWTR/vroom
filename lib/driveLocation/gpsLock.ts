@@ -28,6 +28,18 @@ export function resetGpsLockState(state: GpsLockState, now = Date.now()): void {
 }
 
 /**
+ * Wymusza natychmiastowy lock GPS na podstawie zewnętrznego (natywnego) fixu —
+ * np. po powrocie z tła / cold-starcie, gdy mamy już wiarygodną pozycję z
+ * background drive service i nie chcemy czekać na 2 kolejne fixy ani timeout.
+ */
+export function seedGpsLockEstablished(state: GpsLockState, now = Date.now()): void {
+  state.established = true;
+  state.watchStartedAt = now;
+  state.consecutiveGood = GPS_LOCK_CONSECUTIVE_FIXES;
+  state.lastGoodFixAt = now;
+}
+
+/**
  * Aktualizuje stan locku. Zwraca true gdy lock został właśnie uzyskany (edge).
  */
 export function updateGpsLock(

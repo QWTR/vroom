@@ -437,7 +437,7 @@ export default function MeetDetailScreen() {
                     </Text>
                     <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4 }}>
                       {meet.checkedInAt
-                        ? `Weszłeś na teren · ${meet.entryType === 'free_vroom' ? 'FREE VROOM' : 'standard'}`
+                        ? `Wszedłeś na teren · ${meet.entryType === 'free_vroom' ? 'FREE VROOM' : 'standard'}`
                         : meet.isApprovedParticipant && meet.car
                           ? `${meet.car.brand} ${meet.car.specs}`.trim()
                           : meet.joinedAt

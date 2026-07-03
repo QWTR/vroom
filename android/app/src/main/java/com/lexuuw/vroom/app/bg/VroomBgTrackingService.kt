@@ -74,7 +74,12 @@ class VroomBgTrackingService : Service() {
   override fun onTaskRemoved(rootIntent: Intent?) {
     val state = readState(applicationContext)
     if (state.optBoolean("active", false)) {
-      trackingMode = state.optString("mode", trackingMode)
+      // Swipe z recents = intencjonalne, pelne zamkniecie aplikacji. Nawigacja NIE
+      // ma przetrwac pelnego zamkniecia — degradujemy natywny tryb navigation ->
+      // freeDrive, aby jazda (km, pozycja) liczyla sie dalej, a nawigacja byla
+      // wylaczona po ponownym otwarciu (cold-start odczyta mode=freeDrive).
+      val storedMode = state.optString("mode", trackingMode)
+      trackingMode = if (storedMode == "navigation") MODE_FREE_DRIVE else storedMode
       tripSessionId = state.optString("tripSessionId", "").takeIf { it.isNotBlank() }
       startForeground(NOTIFICATION_ID, buildNotification(true))
       startNativeLocationUpdates(trackingMode, tripSessionId)
