@@ -142,10 +142,31 @@ export type NavigationSpeechPhase = 'far1000' | 'far400' | 'far150' | 'far50' | 
 function isMinorManeuver(maneuver?: string, instruction = ''): boolean {
   const m = (maneuver ?? '').toLowerCase();
   if (!m || m === 'straight' || m === 'continue' || m === 'merge') return true;
-  if (m.includes('new name') || m.includes('notification')) return true;
+  if (
+    m === 'continue-straight'
+    || m === 'depart'
+    || m.includes('new-name')
+    || m.includes('new name')
+    || m.includes('end-of-road')
+    || m.includes('end of road')
+    || m.includes('notification')
+  ) return true;
   const text = instruction.toLowerCase();
   if (/\bjedź prosto\b/.test(text) || /\bkontynuuj\b/.test(text)) return true;
+  if (/\bruszaj\b/.test(text) || /\bhead\b/.test(text)) return true;
   return false;
+}
+
+/** Whether TTS should fire for this step (skip depart/continue/new-name). */
+export function shouldSpeakForStep(step: Step, distanceM?: number): boolean {
+  const instruction = cleanInstruction(step.html_instructions);
+  if (isMinorManeuver(step.maneuver, instruction)) return false;
+  const m = (step.maneuver ?? '').toLowerCase();
+  if (m === 'depart' || m.includes('depart')) return false;
+  if (m === 'arrive' || m.includes('arrive')) {
+    return distanceM == null || distanceM <= 120;
+  }
+  return true;
 }
 
 function extractStreetName(instruction: string): string | null {
@@ -254,56 +275,87 @@ export function formatNavigationBanner(step: Step, distanceM: number | null): st
  */
 export function resolveAnnouncementTarget(
   steps: Step[],
-  currentStep: number,
+  activeStep: number,
+  userArcM: number,
   userLat: number,
-  userLon: number,
+  userLng: number,
+  stepArcIndex: StepArcIndex[],
+  routePoints: LatLngPoint[] = [],
+  forwardPrefix?: number[],
 ): { step: Step; stepIndex: number; distanceM: number } {
-  const idx = Math.min(Math.max(currentStep, 0), steps.length - 1);
-  const step = steps[idx];
-  const distToEndM = distanceToStepEndMeters(userLat, userLon, step);
+  if (!steps.length || !stepArcIndex.length) {
+    const idx = Math.min(Math.max(activeStep, 0), steps.length - 1);
+    return { step: steps[idx], stepIndex: idx, distanceM: Number.POSITIVE_INFINITY };
+  }
 
+  const geoStep = findStepIndexForArcM(userArcM, stepArcIndex);
+  const idx = Math.min(geoStep, steps.length - 1);
+  let step = steps[idx];
+  const arc = stepArcIndex[idx];
   const baseInstruction = cleanInstruction(step.html_instructions);
+  const isMinor = isMinorManeuver(step.maneuver, baseInstruction);
+  const maneuverArcM = isMinor ? arc.endArcM : arc.startArcM;
+  let distToManeuverM = distanceToManeuverHybrid(
+    userLat,
+    userLng,
+    userArcM,
+    maneuverArcM,
+    isMinor ? undefined : step,
+  );
+
   if (
-    isMinorManeuver(step.maneuver, baseInstruction)
+    isMinor
     && idx < steps.length - 1
-    && distToEndM < 220
+    && distToManeuverM <= 180
   ) {
     const upcoming = steps[idx + 1];
     const upcomingText = cleanInstruction(upcoming.html_instructions);
-    if (!isMinorManeuver(upcoming.maneuver, upcomingText)) {
-      const distToUpcomingM = distanceToStepEndMeters(userLat, userLon, upcoming);
-      return { step: upcoming, stepIndex: idx + 1, distanceM: distToUpcomingM };
+    const upcomingManeuver = (upcoming.maneuver ?? '').toLowerCase();
+    const isArrive = upcomingManeuver === 'arrive' || upcomingManeuver.includes('arrive');
+    if (!isMinorManeuver(upcoming.maneuver, upcomingText) && !isArrive) {
+      const upcomingArc = stepArcIndex[idx + 1];
+      const distM = distanceToManeuverHybrid(
+        userLat,
+        userLng,
+        userArcM,
+        upcomingArc.startArcM,
+        upcoming,
+      );
+      if (distM <= 500 && distM > 15) {
+        step = routePoints.length >= 2
+          ? applyGeometryTurnToStep(upcoming, routePoints, upcomingArc, forwardPrefix)
+          : upcoming;
+        return { step, stepIndex: idx + 1, distanceM: distM };
+      }
     }
   }
 
-  return { step, stepIndex: idx, distanceM: distToEndM };
+  if (routePoints.length >= 2 && !isMinor) {
+    step = applyGeometryTurnToStep(step, routePoints, arc, forwardPrefix);
+  }
+
+  return { step, stepIndex: idx, distanceM: distToManeuverM };
 }
 
-/** Faza zapowiedzi wg odległości do manewru (wąskie pasma — jedna zapowiedź na fazę). */
+/** Faza zapowiedzi — 3 progi, mniej gadania. */
 export function getNavigationSpeechPhase(
   distanceM: number,
   previousDistanceM?: number,
 ): NavigationSpeechPhase | null {
-  // With a previous sample, use threshold crossings instead of narrow windows.
-  // This prevents a sparse GPS update from skipping an announcement entirely.
   if (previousDistanceM != null && Number.isFinite(previousDistanceM)) {
     const thresholds: [number, NavigationSpeechPhase][] = [
-      [55, 'now'],
-      [95, 'far50'],
-      [180, 'far150'],
-      [450, 'far400'],
-      [1100, 'far1000'],
+      [40, 'now'],
+      [150, 'far150'],
+      [400, 'far400'],
     ];
     for (const [threshold, phase] of thresholds) {
       if (previousDistanceM > threshold && distanceM <= threshold) return phase;
     }
     return null;
   }
-  if (distanceM <= 55) return 'now';
-  if (distanceM > 55 && distanceM <= 95) return 'far50';
-  if (distanceM > 130 && distanceM <= 180) return 'far150';
-  if (distanceM > 370 && distanceM <= 450) return 'far400';
-  if (distanceM > 950 && distanceM <= 1100) return 'far1000';
+  if (distanceM <= 40) return 'now';
+  if (distanceM > 120 && distanceM <= 180) return 'far150';
+  if (distanceM > 350 && distanceM <= 450) return 'far400';
   return null;
 }
 
@@ -394,6 +446,8 @@ export function buildNavigationSpeech(
   distanceM: number,
   phase: NavigationSpeechPhase = 'far150',
 ): string {
+  if (!shouldSpeakForStep(step, distanceM)) return '';
+
   const rawInstruction = cleanInstruction(step.html_instructions);
   const baseInstruction = humanizeInstruction(normalizeForSpeech(rawInstruction));
   const maneuver = (step.maneuver ?? '').toLowerCase();
@@ -418,7 +472,8 @@ export function buildNavigationSpeech(
   if (phase === 'now') {
     if (turn && street) return `Teraz skręć ${turn} na ${street}`;
     if (turn) return `Teraz skręć ${turn}`;
-    return `Teraz ${lowerFirst(baseInstruction)}`;
+    if (maneuver.includes('arrive')) return 'Teraz dotrzyj do celu';
+    return '';
   }
 
   const distPrefix = speechDistancePrefix(distanceM, phase);
@@ -427,7 +482,8 @@ export function buildNavigationSpeech(
     if (street) return `${distPrefix}, skręć ${turn} na ${street}`;
     return `${distPrefix}, skręć ${turn}`;
   }
-  return `${distPrefix}, ${lowerFirst(baseInstruction)}`;
+  if (maneuver.includes('arrive')) return `${distPrefix}, dotrzyj do celu`;
+  return '';
 }
 
 /** Formatuje minuty → "X min" lub "Xh Ymin" */
@@ -710,7 +766,7 @@ function distanceToStepEndMeters(userLat: number, userLon: number, step: Step): 
     }
   }
 
-  let remainingM = bestProjection.distM;
+  let remainingM = 0;
   remainingM += haversineKm(
     bestProjection.latitude,
     bestProjection.longitude,
@@ -995,52 +1051,231 @@ export function snapStepTowardRoad(
   };
 }
 
+/** Arc distance threshold before advancing to the next step. */
+export const STEP_ADVANCE_THRESHOLD_M = 25;
+
+export type StepArcIndex = {
+  startArcM: number;
+  endArcM: number;
+  maneuverArcM: number;
+};
+
+/** Cumulative arc distance (m) at each route vertex from the start. */
+export function buildRouteForwardArcPrefix(
+  routePoints: LatLngPoint[],
+): number[] {
+  if (routePoints.length === 0) return [];
+  const prefix = new Array<number>(routePoints.length).fill(0);
+  for (let i = 1; i < routePoints.length; i += 1) {
+    prefix[i] = prefix[i - 1] + haversineKm(
+      routePoints[i - 1].latitude,
+      routePoints[i - 1].longitude,
+      routePoints[i].latitude,
+      routePoints[i].longitude,
+    ) * 1000;
+  }
+  return prefix;
+}
+
+export function distanceToManeuverArcM(userArcM: number, targetArcM: number): number {
+  if (!Number.isFinite(userArcM) || !Number.isFinite(targetArcM)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(0, targetArcM - userArcM);
+}
+
+function arcMFromProjection(
+  routePoints: LatLngPoint[],
+  forwardPrefix: number[],
+  projection: RouteWindowProjection,
+): number {
+  const idx = projection.segmentIndex;
+  if (idx >= routePoints.length - 1) {
+    return forwardPrefix[routePoints.length - 1] ?? 0;
+  }
+  const segM = haversineKm(
+    routePoints[idx].latitude,
+    routePoints[idx].longitude,
+    routePoints[idx + 1].latitude,
+    routePoints[idx + 1].longitude,
+  ) * 1000;
+  return forwardPrefix[idx] + projection.segmentProgress * segM;
+}
+
+/** Maps each OSRM step to arc bounds by walking merged step polylines on the route. */
+export function buildStepArcIndex(
+  routePoints: LatLngPoint[],
+  steps: Step[],
+): StepArcIndex[] {
+  if (!steps.length) return [];
+
+  const prefix = routePoints.length >= 2
+    ? buildRouteForwardArcPrefix(routePoints)
+    : [];
+  let vertexIdx = 0;
+
+  return steps.map((step, i) => {
+    const encoded = step.polyline?.points ?? '';
+    const decoded = encoded ? decodePolyline(encoded) : [];
+    const segCount = decoded.length > 1 ? decoded.length - 1 : 0;
+    const startArcM = prefix[Math.min(vertexIdx, Math.max(0, prefix.length - 1))] ?? 0;
+    if (segCount > 0) {
+      vertexIdx += segCount;
+    } else {
+      vertexIdx += 1;
+    }
+    const endIdx = Math.min(vertexIdx, Math.max(0, prefix.length - 1));
+    let endArcM = prefix[endIdx] ?? startArcM;
+    if (i === steps.length - 1 && prefix.length) {
+      endArcM = prefix[prefix.length - 1];
+    }
+    if (endArcM < startArcM) endArcM = startArcM;
+    return {
+      startArcM,
+      endArcM,
+      maneuverArcM: startArcM,
+    };
+  });
+}
+
+function getPointAtArcM(
+  routePoints: LatLngPoint[],
+  prefix: number[],
+  arcM: number,
+): { lat: number; lng: number } {
+  if (!routePoints.length) return { lat: 0, lng: 0 };
+  if (arcM <= 0) {
+    return { lat: routePoints[0].latitude, lng: routePoints[0].longitude };
+  }
+  const total = prefix[prefix.length - 1] ?? 0;
+  if (arcM >= total) {
+    const last = routePoints[routePoints.length - 1];
+    return { lat: last.latitude, lng: last.longitude };
+  }
+  let i = 0;
+  while (i < prefix.length - 2 && (prefix[i + 1] ?? 0) < arcM) i += 1;
+  const segStart = prefix[i] ?? 0;
+  const segEnd = prefix[i + 1] ?? segStart;
+  const segM = segEnd - segStart;
+  const t = segM > 0.01 ? Math.max(0, Math.min(1, (arcM - segStart) / segM)) : 0;
+  const a = routePoints[i];
+  const b = routePoints[Math.min(i + 1, routePoints.length - 1)];
+  return {
+    lat: a.latitude + (b.latitude - a.latitude) * t,
+    lng: a.longitude + (b.longitude - a.longitude) * t,
+  };
+}
+
+/** Turn direction from route geometry at a maneuver point. */
+export function inferGeometryTurnModifier(
+  routePoints: LatLngPoint[],
+  maneuverArcM: number,
+  forwardPrefix?: number[],
+): 'left' | 'right' | 'straight' | null {
+  if (routePoints.length < 2) return null;
+  const prefix = forwardPrefix ?? buildRouteForwardArcPrefix(routePoints);
+  const total = prefix[prefix.length - 1] ?? 0;
+  if (total <= 0) return null;
+
+  const beforeM = Math.max(0, maneuverArcM - 40);
+  const afterM = Math.min(total, maneuverArcM + 40);
+  const beforePt = getPointAtArcM(routePoints, prefix, beforeM);
+  const atPt = getPointAtArcM(routePoints, prefix, maneuverArcM);
+  const afterPt = getPointAtArcM(routePoints, prefix, afterM);
+
+  const bearingBefore = bearingBetween(beforePt.lat, beforePt.lng, atPt.lat, atPt.lng);
+  const bearingAfter = bearingBetween(atPt.lat, atPt.lng, afterPt.lat, afterPt.lng);
+  let delta = bearingAfter - bearingBefore;
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+
+  if (Math.abs(delta) < 25) return 'straight';
+  return delta > 0 ? 'right' : 'left';
+}
+
+/** Override OSRM left/right when it disagrees with the route polyline. */
+export function applyGeometryTurnToStep(
+  step: Step,
+  routePoints: LatLngPoint[],
+  stepArc: StepArcIndex,
+  forwardPrefix?: number[],
+): Step {
+  const geomTurn = inferGeometryTurnModifier(routePoints, stepArc.startArcM, forwardPrefix);
+  if (!geomTurn || geomTurn === 'straight') return step;
+
+  const m = (step.maneuver ?? '').toLowerCase();
+  const mod = (step.maneuverModifier ?? '').toLowerCase();
+  const osrmLeft = m.includes('left') || mod.includes('left');
+  const osrmRight = m.includes('right') || mod.includes('right');
+  if (!osrmLeft && !osrmRight) return step;
+
+  if ((geomTurn === 'left' && osrmRight) || (geomTurn === 'right' && osrmLeft)) {
+    const newMod = geomTurn;
+    let newManeuver = `turn-${newMod}`;
+    if (m.includes('sharp')) newManeuver = `turn-sharp-${newMod}`;
+    else if (m.includes('slight')) newManeuver = `turn-slight-${newMod}`;
+    return {
+      ...step,
+      maneuver: newManeuver,
+      maneuverModifier: newMod,
+    };
+  }
+  return step;
+}
+
+/** Arc distance validated against geographic distance to the maneuver point. */
+export function distanceToManeuverHybrid(
+  userLat: number,
+  userLng: number,
+  userArcM: number,
+  targetArcM: number,
+  step?: Step,
+): number {
+  const arcDist = distanceToManeuverArcM(userArcM, targetArcM);
+  if (!step) return arcDist;
+  const geoDist = haversineKm(
+    userLat,
+    userLng,
+    step.start_location.lat,
+    step.start_location.lng,
+  ) * 1000;
+  if (geoDist > 80 && geoDist > arcDist + 60) return geoDist;
+  return Math.max(arcDist, geoDist > 300 ? geoDist : arcDist);
+}
+
+/** One-shot step index for session restore (no +1 cap). */
+export function findStepIndexForArcM(
+  userArcM: number,
+  stepArcIndex: StepArcIndex[],
+): number {
+  if (!stepArcIndex.length) return 0;
+  for (let i = 0; i < stepArcIndex.length; i += 1) {
+    if (userArcM < stepArcIndex[i].endArcM - STEP_ADVANCE_THRESHOLD_M) return i;
+  }
+  return stepArcIndex.length - 1;
+}
+
+export function computeUserArcM(
+  routePoints: LatLngPoint[],
+  projection: RouteWindowProjection,
+  forwardPrefix?: number[],
+): number {
+  const prefix = forwardPrefix ?? buildRouteForwardArcPrefix(routePoints);
+  return arcMFromProjection(routePoints, prefix, projection);
+}
+
 /**
- * Sprawdza który krok jest aktualny.
- * Ulepszona wersja — sprawdza odległość od odcinków, nie tylko punktów.
+ * Step index from arc position on the route polyline.
  */
 export function detectCurrentStep(
-  userLat: number,
-  userLon: number,
+  userArcM: number,
   steps: Step[],
-  currentStep: number,
+  _currentStep: number,
+  stepArcIndex: StepArcIndex[],
 ): number {
   if (!steps.length) return 0;
-  if (currentStep >= steps.length) return steps.length - 1;
-
-  // 1) Szybki awans po minięciu końca bieżącego kroku.
-  let resolved = currentStep;
-  while (resolved < steps.length - 1) {
-    const endDistM = haversineKm(
-      userLat,
-      userLon,
-      steps[resolved].end_location.lat,
-      steps[resolved].end_location.lng,
-    ) * 1000;
-    if (endDistM > 45) break;
-    resolved += 1;
-  }
-
-  // 2) Lookahead: wybierz najbliższy segment kroku w krótkim oknie do przodu.
-  // Dzięki temu manewr nie "wisi" na poprzednim kroku po szybkich skrzyżowaniach.
-  const LOOKAHEAD_STEPS = 4; // reduced from 10 to 4 since segments are well defined and 10 iterations is expensive
-  let bestStep = resolved;
-  let bestDist = Number.POSITIVE_INFINITY;
-
-  const lastCandidate = Math.min(steps.length - 1, resolved + LOOKAHEAD_STEPS);
-  for (let i = resolved; i <= lastCandidate; i++) {
-    const step = steps[i];
-    const distM = distanceToStepMeters(userLat, userLon, step);
-    if (distM < bestDist) {
-      bestDist = distM;
-      bestStep = i;
-    }
-  }
-
-  if (bestStep > resolved && bestDist <= 45) {
-    return bestStep;
-  }
-  return resolved;
+  if (!stepArcIndex.length) return 0;
+  return findStepIndexForArcM(userArcM, stepArcIndex);
 }
 
 /**
@@ -1208,6 +1443,11 @@ export function getManeuverIcon(maneuver?: string): string {
     case 'fork-right':       return 'turn-right';
     case 'ferry':            return 'directions-boat';
     case 'straight':         return 'straight';
+    case 'continue-straight': return 'straight';
+    case 'on-ramp-left':     return 'turn-left';
+    case 'on-ramp-right':    return 'turn-right';
+    case 'off-ramp-left':    return 'turn-left';
+    case 'off-ramp-right':   return 'turn-right';
     default:                 return 'navigation';
   }
 }

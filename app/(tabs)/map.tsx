@@ -194,6 +194,7 @@ import { localRoadGeometryMirror } from '../../lib/driveCore/localRoadSnap';
 import {
   routeHeadingAtPoint,
   trimRoutePointsFromVehicle,
+  trimNavigationRouteFromVehicle,
 } from '../../lib/driveCore/navRouteBootstrap';
 import { getLiveTripPose, resolveBestKnownPose } from '../../lib/mapScreen/liveTripPose';
 import { validateGeometryAgainstRaw } from '../../hooks/useDrivingSnap';
@@ -241,6 +242,12 @@ import {
   detectCurrentStep,
   getNavigationSpeechPhase,
   resolveAnnouncementTarget,
+  buildStepArcIndex,
+  buildRouteForwardArcPrefix,
+  computeUserArcM,
+  findStepIndexForArcM,
+  shouldSpeakForStep,
+  type StepArcIndex,
   findClosestPointIndex,
   formatDuration,
   getManeuverIcon,
@@ -1956,6 +1963,13 @@ function MapScreenInner() {
   const snapLockStreakRef    = useRef(0);
   const snapLockLastAtRef    = useRef(0);
   const routePrefixSumsRef   = useRef<{ points: any[], sums: number[] }>({ points: [], sums: [] });
+  const routeForwardPrefixRef = useRef<{ points: any[]; prefix: number[] }>({ points: [], prefix: [] });
+  const stepArcIndexRef = useRef<{ points: any[]; steps: any[]; index: StepArcIndex[] }>({
+    points: [],
+    steps: [],
+    index: [],
+  });
+  const pendingStepArcClampRef = useRef(false);
   const locationReadyRef     = useRef(false);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const isOffroadRef         = useRef(false);
@@ -2859,6 +2873,8 @@ function MapScreenInner() {
   const [currentStep,  setCurrentStep]  = useState(0);
   const currentStepRef = useRef(0);
   currentStepRef.current = currentStep;
+  const [announceStepIndex, setAnnounceStepIndex] = useState(0);
+  const announceStepIndexRef = useRef(0);
   const [offRoute,     setOffRoute]     = useState(false);
   const offRouteRef = useRef(false);
   offRouteRef.current = offRoute;
@@ -10477,6 +10493,7 @@ if (appStateRef.current === 'active') {
             );
             setRouteInfo(persistedNavSession.routeInfo ?? null);
             setCurrentStep(Math.max(0, persistedNavSession.currentStep ?? 0));
+            pendingStepArcClampRef.current = true;
             if (persistedNavSession.isOffroadRoute && persistedNavSession.offroadPoints?.length > 1) {
               offroadLoadedPointsRef.current = persistedNavSession.offroadPoints;
               offroadPointsRef.current = persistedNavSession.offroadPoints;
@@ -11292,15 +11309,22 @@ if (appStateRef.current === 'active') {
     rerouteGraceUntilRef.current = now + REROUTE_GRACE_AFTER_APPLY_MS;
     setNavRouteOverride(rerouteResult);
     if (rerouteResult.points?.length) {
-      routePointsRef.current = rerouteResult.points;
       const curLat = Number.isFinite(drLatRef.current) && drLatRef.current !== 0
         ? drLatRef.current
         : userLocation.latitude;
       const curLng = Number.isFinite(drLngRef.current) && drLngRef.current !== 0
         ? drLngRef.current
         : userLocation.longitude;
-      const idx = findClosestPointIndex(curLat, curLng, rerouteResult.points);
-      const snapped = snapToRoute(curLat, curLng, rerouteResult.points, NAV_ROUTE_SNAP_M);
+      const trimmedReroute = rerouteResult.steps?.length
+        ? trimNavigationRouteFromVehicle(rerouteResult, curLat, curLng, NAV_ROUTE_SNAP_M)
+        : rerouteResult;
+      if (trimmedReroute !== rerouteResult) {
+        setNavRouteOverride(trimmedReroute);
+      }
+      routePointsRef.current = trimmedReroute.points;
+      stepArcIndexRef.current = { points: [], steps: [], index: [] };
+      const idx = findClosestPointIndex(curLat, curLng, trimmedReroute.points);
+      const snapped = snapToRoute(curLat, curLng, trimmedReroute.points, NAV_ROUTE_SNAP_M);
       const syncLat = snapped.latitude;
       const syncLng = snapped.longitude;
       const syncHdg = normalizeHeading(lastHeadingRef.current || 0);
@@ -11309,7 +11333,7 @@ if (appStateRef.current === 'active') {
       v3SnapToRouteSuppressedRef.current = false;
       setOffRoute(false);
       navV3.setRoutePolyline(
-        rerouteResult.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
+        trimmedReroute.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
       );
       // Preserve the live marker/camera timeline while the route geometry is
       // swapped. A hard reset here caused the visible freeze + teleport.
@@ -11334,7 +11358,7 @@ if (appStateRef.current === 'active') {
       lastRemainingRouteHeadRef.current = null;
       const remainingPts = [
         { latitude: syncLat, longitude: syncLng },
-        ...rerouteResult.points.slice(idx + 1),
+        ...trimmedReroute.points.slice(idx + 1),
       ];
       requestAnimationFrame(() => {
         setRemainingRoutePoints(remainingPts);
@@ -11342,6 +11366,10 @@ if (appStateRef.current === 'active') {
       lastRerouteMotionAnchorRef.current = { lat: curLat, lng: curLng };
     }
     setCurrentStep(0);
+    setAnnounceStepIndex(0);
+    announceStepIndexRef.current = 0;
+    pendingStepArcClampRef.current = false;
+    stepArcIndexRef.current = { points: [], steps: [], index: [] };
     announcedPhasesRef.current = new Set();
     lastManeuverDistanceRef.current = null;
     lastSpokenRef.current    = '';
@@ -11488,6 +11516,26 @@ if (appStateRef.current === 'active') {
   const activeSteps = effectiveNavRoute?.steps ?? previewRoute?.steps ?? [];
 
   useEffect(() => {
+    if (!isNavigating) return;
+    const pts = effectiveNavRoute?.points?.length
+      ? effectiveNavRoute.points
+      : routePointsRef.current;
+    const steps = effectiveNavRoute?.steps ?? [];
+    if (pts.length < 2 || !steps.length) return;
+    if (
+      stepArcIndexRef.current.points === pts
+      && stepArcIndexRef.current.steps === steps
+    ) return;
+    const prefix = buildRouteForwardArcPrefix(pts);
+    routeForwardPrefixRef.current = { points: pts, prefix };
+    stepArcIndexRef.current = {
+      points: pts,
+      steps,
+      index: buildStepArcIndex(pts, steps),
+    };
+  }, [isNavigating, effectiveNavRoute]);
+
+  useEffect(() => {
     import('react-native').then(({ DeviceEventEmitter }) => {
       const sub = DeviceEventEmitter.addListener('CarPlayReportWarning', (type: string) => {
         handleReport(type);
@@ -11593,6 +11641,7 @@ if (appStateRef.current === 'active') {
         setNavStartLoc(data.navStartLoc ?? data.startLocation ?? userLocation);
         setRouteInfo(data.routeInfo ?? null);
         setCurrentStep(Math.max(0, data.currentStep ?? 0));
+        pendingStepArcClampRef.current = true;
         setArrived(false);
         setOffRoute(false);
         v3SnapToRouteSuppressedRef.current = false;
@@ -11793,11 +11842,11 @@ if (appStateRef.current === 'active') {
 
   useEffect(() => {
     if (!isNavigating) { dismissNavigationNotification(); return; }
-    const stepData = effectiveNavRoute?.steps?.[currentStep];
+    const stepData = effectiveNavRoute?.steps?.[announceStepIndex];
     if (!stepData) return;
     const navRouteInfo = routeInfo as (RouteInfo & { durationText?: string | null }) | null;
     showNavigationNotification(stepData, navRouteInfo?.distance ?? '', navRouteInfo?.durationText ?? '');
-  }, [currentStep, isNavigating, effectiveNavRoute]);
+  }, [announceStepIndex, isNavigating, effectiveNavRoute]);
 
   const nearbyUsers = useMemo(() => {
     if (!liveUsersEnabled) return [];
@@ -11887,14 +11936,14 @@ if (appStateRef.current === 'active') {
     if (!isSpeechRef.current) return;
     const normalizedText = text.replace(/\s+/g, ' ').trim();
     if (!normalizedText) return;
-    if (normalizedText === lastSpokenRef.current && Date.now() - lastSpeechAtRef.current < 12_000) return;
+    if (normalizedText === lastSpokenRef.current && Date.now() - lastSpeechAtRef.current < 25_000) return;
 
     if (speechTimeoutRef.current) {
       clearTimeout(speechTimeoutRef.current);
       speechTimeoutRef.current = null;
     }
     const elapsed = Date.now() - lastSpeechAtRef.current;
-    const delay = elapsed < 900 ? 900 - elapsed : 80;
+    const delay = elapsed < 2800 ? 2800 - elapsed : 120;
 
     speechTimeoutRef.current = setTimeout(() => {
       if (!isSpeechRef.current) return;
@@ -12336,22 +12385,68 @@ if (appStateRef.current === 'active') {
       const prevStep = currentStepRef.current;
       let nextStep = prevStep;
       let distToManeuver = Number.POSITIVE_INFINITY;
-      if (onRoad && !offRouteRef.current) {
-        nextStep = detectCurrentStep(lat, lng, steps, prevStep);
-        if (nextStep !== prevStep) {
-          currentStepRef.current = nextStep;
-          setCurrentStep(nextStep);
-          announcedPhasesRef.current = new Set();
-          lastManeuverDistanceRef.current = null;
+      let userArcM = Number.NaN;
+      if (onRoad && !offRouteRef.current && routeProjection && points.length > 1) {
+        const arcCache = stepArcIndexRef.current;
+        if (arcCache.points !== points || arcCache.steps !== steps) {
+          const prefix = buildRouteForwardArcPrefix(points);
+          routeForwardPrefixRef.current = { points, prefix };
+          stepArcIndexRef.current = {
+            points,
+            steps,
+            index: buildStepArcIndex(points, steps),
+          };
+        }
+        const forwardPrefix = routeForwardPrefixRef.current.points === points
+          ? routeForwardPrefixRef.current.prefix
+          : buildRouteForwardArcPrefix(points);
+        if (routeForwardPrefixRef.current.points !== points) {
+          routeForwardPrefixRef.current = { points, prefix: forwardPrefix };
+        }
+        userArcM = computeUserArcM(points, routeProjection, forwardPrefix);
+        const stepArcIndex = stepArcIndexRef.current.index;
+
+        if (pendingStepArcClampRef.current && stepArcIndex.length) {
+          const clamped = findStepIndexForArcM(userArcM, stepArcIndex);
+          pendingStepArcClampRef.current = false;
+          nextStep = clamped;
+          if (clamped !== prevStep) {
+            currentStepRef.current = clamped;
+            setCurrentStep(clamped);
+            announcedPhasesRef.current = new Set();
+            lastManeuverDistanceRef.current = null;
+          }
+        } else {
+          nextStep = detectCurrentStep(userArcM, steps, prevStep, stepArcIndex);
+          if (nextStep !== prevStep) {
+            currentStepRef.current = nextStep;
+            setCurrentStep(nextStep);
+            announcedPhasesRef.current = new Set();
+            lastManeuverDistanceRef.current = null;
+          }
         }
 
-        const announceTarget = resolveAnnouncementTarget(steps, nextStep, lat, lng);
+        const announceTarget = resolveAnnouncementTarget(
+          steps,
+          nextStep,
+          userArcM,
+          lat,
+          lng,
+          stepArcIndex,
+          points,
+          forwardPrefix,
+        );
         distToManeuver = announceTarget.distanceM;
+        if (announceTarget.stepIndex !== announceStepIndexRef.current) {
+          announceStepIndexRef.current = announceTarget.stepIndex;
+          setAnnounceStepIndex(announceTarget.stepIndex);
+        }
         if (nextStep !== prevStep) {
           visionEvent('NAV_STEP_CHANGE', {
             prevStep,
             nextStep,
             distToManeuverM: Math.round(distToManeuver),
+            userArcM: Math.round(userArcM),
             lat: Number(lat.toFixed(6)),
             lng: Number(lng.toFixed(6)),
           });
@@ -12366,11 +12461,16 @@ if (appStateRef.current === 'active') {
           distanceM: distToManeuver,
         };
 
-        if (speechPhase && isSpeechRef.current) {
+        if (
+          speechPhase
+          && isSpeechRef.current
+          && shouldSpeakForStep(announceTarget.step, distToManeuver)
+        ) {
           const phaseKey = `${announceTarget.stepIndex}:${speechPhase}`;
           if (!announcedPhasesRef.current.has(phaseKey)) {
             announcedPhasesRef.current.add(phaseKey);
-            speak(buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase));
+            const speechText = buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase);
+            if (speechText) speak(speechText);
           }
         }
 
@@ -12485,7 +12585,7 @@ if (appStateRef.current === 'active') {
         const nowMs = Date.now();
         if (nowMs - notifThrottleRef.current > 30_000) {
           notifThrottleRef.current = nowMs;
-          const stepForNotif = steps[nextStep];
+          const stepForNotif = steps[announceStepIndexRef.current] ?? steps[nextStep];
           if (stepForNotif) {
             const distStr = remKm < 1
               ? `${Math.round(remKm * 1000)} m`
@@ -12551,19 +12651,27 @@ if (appStateRef.current === 'active') {
 
     const navStart = { latitude: pose.latitude, longitude: pose.longitude, name: 'Moja pozycja' };
     const seededRoute = previewRouteRef.current ?? navRouteRef.current;
-    let routePts = seededRoute?.points?.length ? seededRoute.points.slice() : [];
 
-    if (routePts.length >= 2) {
-      routePts = trimRoutePointsFromVehicle(
-        routePts,
+    if (seededRoute?.points?.length && seededRoute?.steps?.length) {
+      const trimmed = trimNavigationRouteFromVehicle(
+        seededRoute,
+        navStart.latitude,
+        navStart.longitude,
+        NAV_ROUTE_SNAP_M,
+      );
+      routePointsRef.current = trimmed.points;
+      setNavRouteOverride(trimmed);
+      stepArcIndexRef.current = { points: [], steps: [], index: [] };
+    } else if (seededRoute?.points?.length) {
+      const routePts = trimRoutePointsFromVehicle(
+        seededRoute.points,
         navStart.latitude,
         navStart.longitude,
         NAV_ROUTE_SNAP_M,
       );
       routePointsRef.current = routePts;
-      if (seededRoute) {
-        setNavRouteOverride({ ...seededRoute, points: routePts });
-      }
+      setNavRouteOverride({ ...seededRoute, points: routePts });
+      stepArcIndexRef.current = { points: [], steps: [], index: [] };
     } else {
       setNavRouteOverride(null);
       routePointsRef.current = [];
@@ -12573,7 +12681,7 @@ if (appStateRef.current === 'active') {
     if (isOffroadRef.current) {
       const pts = offroadLoadedPointsRef.current.length > 1
         ? offroadLoadedPointsRef.current
-        : (routePts.length >= 2 ? routePts : (seededRoute?.points ?? activeRoute?.points ?? []));
+        : (routePointsRef.current.length >= 2 ? routePointsRef.current : (seededRoute?.points ?? activeRoute?.points ?? []));
       offroadPointsRef.current = pts;
       routePointsRef.current   = pts.length >= 2
         ? trimRoutePointsFromVehicle(pts, navStart.latitude, navStart.longitude, NAV_ROUTE_SNAP_M)
@@ -12622,6 +12730,9 @@ if (appStateRef.current === 'active') {
     setNavStartLoc(navStart);
     setStartLocation(navStart);
     setCurrentStep(0);
+    setAnnounceStepIndex(0);
+    announceStepIndexRef.current = 0;
+    pendingStepArcClampRef.current = false;
     lastRemainingRouteHeadRef.current = null;
     lastManeuverDistanceRef.current = null;
     setArrived(false);
@@ -12957,6 +13068,8 @@ if (appStateRef.current === 'active') {
     routeInfoRef.current = nextRouteInfo;
     setRouteInfo(nextRouteInfo);
     setCurrentStep(0);
+    setAnnounceStepIndex(0);
+    announceStepIndexRef.current = 0;
     if (typeof event.selectedRouteIndex === 'number' && Number.isFinite(event.selectedRouteIndex)) {
       setSelectedRouteIndex(event.selectedRouteIndex);
     }
@@ -12970,8 +13083,8 @@ if (appStateRef.current === 'active') {
     isBuilding,
     arrived,
     offRoute,
-    currentStep,
-    navStep: effectiveNavRoute?.steps?.[currentStep] ?? null,
+    currentStep: announceStepIndex,
+    navStep: effectiveNavRoute?.steps?.[announceStepIndex] ?? null,
     routeInfo: routeInfo as (RouteInfo & { durationText?: string | null }) | null,
     remainingDistKm,
     distToTurnM,
@@ -13024,6 +13137,8 @@ if (appStateRef.current === 'active') {
     setEndLocation(null);
     setRouteInfo(null);
     setCurrentStep(0);
+    setAnnounceStepIndex(0);
+    announceStepIndexRef.current = 0;
     setRouteEndpointImages({});
     setIsOffroadRoute(false);
     isOffroadRef.current                = false;
@@ -13057,7 +13172,7 @@ if (appStateRef.current === 'active') {
   // Render helpers
   // ─────────────────────────────────────────────────────────
 
-  const currentStepData  = activeSteps[currentStep];
+  const displayStepData = activeSteps[announceStepIndex] ?? activeSteps[currentStep];
   const bannerDistPoints = snappedRoute.length > 0
     ? snappedRoute
     : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
@@ -13623,12 +13738,12 @@ if (appStateRef.current === 'active') {
                     </View>
                   </View>
                 </View>
-              ) : currentStepData ? (
+              ) : displayStepData ? (
                 <View style={styles.instructionBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                     <View style={hudStyles.maneuverBox}>
                       <MaterialIcons
-                        name={getManeuverIcon(currentStepData.maneuver) as any}
+                        name={getManeuverIcon(displayStepData.maneuver) as any}
                         size={28}
                         color={theme.text}
                       />
@@ -13639,26 +13754,26 @@ if (appStateRef.current === 'active') {
                           ? distToTurnM < 1000
                             ? `${Math.round(distToTurnM / 10) * 10} m`
                             : `${(distToTurnM / 1000).toFixed(1)} km`
-                          : currentStepData.distance?.text}
+                          : displayStepData.distance?.text}
                       </Text>
                       <Text style={[hudStyles.instruction, { marginTop: 4 }]} numberOfLines={2}>
-                        {formatNavigationInstruction(currentStepData)}
+                        {formatNavigationInstruction(displayStepData)}
                       </Text>
                     </View>
                   </View>
 
-                  {activeSteps[currentStep + 1] && (
+                  {activeSteps[announceStepIndex + 1] && (
                     <View style={hudStyles.thenRow}>
                       <MaterialIcons name="subdirectory-arrow-right" size={16} color={theme.textMuted} />
                       <Text style={hudStyles.thenText} numberOfLines={1}>
-                        Potem: {formatNavigationInstruction(activeSteps[currentStep + 1])}
+                        Potem: {formatNavigationInstruction(activeSteps[announceStepIndex + 1])}
                       </Text>
                     </View>
                   )}
 
                   <View style={hudStyles.metaRow}>
                     <Text style={hudStyles.meta}>
-                      Krok {currentStep + 1}/{activeSteps.length}
+                      Krok {announceStepIndex + 1}/{activeSteps.length}
                     </Text>
                     {remainingDistKm !== null && (
                       <>

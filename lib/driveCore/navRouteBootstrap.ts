@@ -1,5 +1,15 @@
-import { findClosestPointIndex, snapToRoute } from '../../scripts/navigationUtils';
+import {
+  buildRouteForwardArcPrefix,
+  buildStepArcIndex,
+  computeUserArcM,
+  findStepIndexForArcM,
+  projectPointToRouteWindow,
+  snapToRoute,
+  findClosestPointIndex,
+} from '../../scripts/navigationUtils';
 import { bearingBetween, distanceM } from './geo';
+import type { Step } from '../../hooks/useGoogleDirections';
+import type { DirectionsResult } from '../../hooks/useGoogleDirections';
 import type { RoadPoint } from './types';
 
 export type NavRouteStartAnchor = {
@@ -81,6 +91,49 @@ export function trimRoutePointsFromVehicle(
   return [head, ...tail];
 }
 
+/**
+ * Trim polyline AND drop completed OSRM steps so step index matches remaining geometry.
+ */
+export function trimNavigationRouteFromVehicle(
+  route: DirectionsResult,
+  vehicleLat: number,
+  vehicleLng: number,
+  maxSnapM: number,
+): DirectionsResult {
+  const points = route.points ?? [];
+  const steps = route.steps ?? [];
+  if (points.length < 2 || !steps.length) {
+    return {
+      ...route,
+      points: trimRoutePointsFromVehicle(points, vehicleLat, vehicleLng, maxSnapM),
+    };
+  }
+
+  const snapped = snapToRoute(vehicleLat, vehicleLng, points, maxSnapM);
+  const prefix = buildRouteForwardArcPrefix(points);
+  const snapIdx = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
+  const projection = projectPointToRouteWindow(
+    snapped.latitude,
+    snapped.longitude,
+    points,
+    Math.max(0, snapIdx - 5),
+    Math.max(maxSnapM, 200),
+  );
+  const userArcM = projection
+    ? computeUserArcM(points, projection, prefix)
+    : (prefix[Math.min(snapIdx, prefix.length - 1)] ?? 0);
+  const stepArcIndex = buildStepArcIndex(points, steps);
+  const startStepIdx = findStepIndexForArcM(userArcM, stepArcIndex);
+  const trimmedPoints = trimRoutePointsFromVehicle(points, vehicleLat, vehicleLng, maxSnapM);
+  const trimmedSteps = steps.slice(startStepIdx);
+
+  return {
+    ...route,
+    points: trimmedPoints,
+    steps: trimmedSteps,
+  };
+}
+
 /** Heading aligned to the route segment at the snapped vehicle position. */
 export function routeHeadingAtPoint(
   points: RoadPoint[],
@@ -99,3 +152,5 @@ export function routeHeadingAtPoint(
   if (segM < 2) return fallbackHeadingDeg;
   return bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
 }
+
+export type { Step };

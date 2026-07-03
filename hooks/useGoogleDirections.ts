@@ -25,7 +25,7 @@ export interface Step {
 }
 
 function combineManeuverIconKey(type?: string, modifier?: string): string {
-  const t = String(type || '').toLowerCase().replace(/_/g, '-');
+  const t = String(type || '').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
   const mod = String(modifier || '').toLowerCase().trim().replace(/\s+/g, '-');
   if (!mod) return t || 'navigation';
   if (t === 'turn') return `turn-${mod}`;
@@ -36,8 +36,13 @@ function combineManeuverIconKey(type?: string, modifier?: string): string {
   }
   if (t === 'uturn') return mod.includes('left') ? 'uturn-left' : 'uturn-right';
   if (t === 'fork' || t === 'ramp' || t === 'merge') return `${t}-${mod}`;
+  if (t === 'on-ramp' || t === 'off-ramp' || t === 'end-of-road' || t === 'new-name') {
+    return mod ? `${t}-${mod}` : t;
+  }
   return `${t}-${mod}`;
 }
+
+export { combineManeuverIconKey };
 
 export interface DirectionsResult {
   points:        { latitude: number; longitude: number }[];
@@ -111,13 +116,47 @@ function makeCacheKey(
   return `${oLat}:${oLng}:${dLat}:${dLng}:${hdgBucket ?? ''}:${alternatives}:r${headingRangeDeg}:cs${continueStraight ? 1 : 0}`;
 }
 
+function mergeRoutePointsFromSteps(
+  steps: Step[],
+): { latitude: number; longitude: number }[] {
+  const points: { latitude: number; longitude: number }[] = [];
+  for (const step of steps) {
+    const encoded = step.polyline?.points;
+    if (!encoded) continue;
+    const decoded = decodePolyline(encoded);
+    if (!decoded.length) continue;
+    if (points.length === 0) {
+      points.push(...decoded);
+    } else {
+      points.push(...decoded.slice(1));
+    }
+  }
+  return points;
+}
+
 function parseMapboxRoute(route: any, index: number, includeSteps = true): DirectionsResult {
-  const leg = route.legs[0];
+  const leg = route?.legs?.[0];
+  if (!leg) {
+    return {
+      points: [],
+      steps: [],
+      distanceText: '0 km',
+      distanceValue: 0,
+      durationText: '0 sek.',
+      duration: 0,
+      index,
+    };
+  }
 
   const rawSteps = includeSteps && Array.isArray(leg?.steps) ? leg.steps : [];
-  const steps: Step[] = rawSteps.map((step: any) => {
-    const [sLng, sLat] = step.maneuver.location;
-    const decodedGeom = decodePolyline(step.geometry);
+  const steps: Step[] = rawSteps.flatMap((step: any) => {
+    const loc = step?.maneuver?.location;
+    if (!Array.isArray(loc) || loc.length < 2) return [];
+    const [sLng, sLat] = loc;
+    if (!Number.isFinite(sLat) || !Number.isFinite(sLng)) return [];
+
+    const geometry = typeof step.geometry === 'string' ? step.geometry : '';
+    const decodedGeom = geometry ? decodePolyline(geometry) : [];
     const lastPt = decodedGeom[decodedGeom.length - 1] ?? { latitude: sLat, longitude: sLng };
 
     const maneuverType = step.maneuver?.type;
@@ -129,15 +168,15 @@ function parseMapboxRoute(route: any, index: number, includeSteps = true): Direc
       ? step.name.trim()
       : undefined;
 
-    return {
-      html_instructions: step.maneuver.instruction ?? '',
+    return [{
+      html_instructions: step.maneuver?.instruction ?? '',
       distance: {
-        value: Math.round(step.distance),
-        text: `${(step.distance / 1000).toFixed(1)} km`,
+        value: Math.round(Number(step.distance) || 0),
+        text: `${((Number(step.distance) || 0) / 1000).toFixed(1)} km`,
       },
       duration: {
-        value: Math.round(step.duration),
-        text: formatDurationText(step.duration),
+        value: Math.round(Number(step.duration) || 0),
+        text: formatDurationText(Number(step.duration) || 0),
       },
       start_location: { lat: sLat, lng: sLng },
       end_location: { lat: lastPt.latitude, lng: lastPt.longitude },
@@ -145,12 +184,12 @@ function parseMapboxRoute(route: any, index: number, includeSteps = true): Direc
       maneuverModifier: maneuverModifier || undefined,
       maneuverExit: Number.isFinite(maneuverExit) ? maneuverExit : undefined,
       streetName,
-      polyline: { points: step.geometry },
-    } as Step;
+      polyline: { points: geometry },
+    } as Step];
   });
 
   const points = steps.length > 0
-    ? steps.flatMap((s) => decodePolyline(s.polyline.points))
+    ? mergeRoutePointsFromSteps(steps)
     : decodePolyline(route.geometry ?? '');
 
   return {
