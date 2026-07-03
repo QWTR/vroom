@@ -13,6 +13,7 @@ import android.graphics.Color
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -30,6 +31,7 @@ class VroomBgTrackingService : Service() {
   private var trackingMode: String = MODE_FREE_DRIVE
   private var tripSessionId: String? = null
   private var locationCallback: LocationCallback? = null
+  private var wakeLock: PowerManager.WakeLock? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -70,8 +72,12 @@ class VroomBgTrackingService : Service() {
   }
 
   override fun onTaskRemoved(rootIntent: Intent?) {
-    if (readState(applicationContext).optBoolean("active", false)) {
+    val state = readState(applicationContext)
+    if (state.optBoolean("active", false)) {
+      trackingMode = state.optString("mode", trackingMode)
+      tripSessionId = state.optString("tripSessionId", "").takeIf { it.isNotBlank() }
       startForeground(NOTIFICATION_ID, buildNotification(true))
+      startNativeLocationUpdates(trackingMode, tripSessionId)
     } else {
       stopSelfSafely()
     }
@@ -101,7 +107,7 @@ class VroomBgTrackingService : Service() {
   private fun buildNotification(isTracking: Boolean): Notification {
     ensureChannel()
     val launchIntent = Intent(this, MainActivity::class.java).apply {
-      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }
     val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       PendingIntent.FLAG_MUTABLE
@@ -164,6 +170,7 @@ class VroomBgTrackingService : Service() {
       return
     }
 
+    acquireWakeLock()
     tripSessionId = sessionId
     val now = System.currentTimeMillis()
     val previous = readState(applicationContext)
@@ -213,6 +220,28 @@ class VroomBgTrackingService : Service() {
       fusedLocationClient.removeLocationUpdates(it)
     }
     locationCallback = null
+    releaseWakeLock()
+  }
+
+  private fun acquireWakeLock() {
+    if (wakeLock?.isHeld == true) return
+    val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+    wakeLock = powerManager.newWakeLock(
+      PowerManager.PARTIAL_WAKE_LOCK,
+      "VROOM:ActiveDriveLocation",
+    ).apply {
+      setReferenceCounted(false)
+      acquire()
+    }
+  }
+
+  private fun releaseWakeLock() {
+    try {
+      if (wakeLock?.isHeld == true) wakeLock?.release()
+    } catch (_: RuntimeException) {
+      // already released
+    }
+    wakeLock = null
   }
 
   private fun stopTracking(reason: String, notifyReact: Boolean) {
@@ -353,6 +382,16 @@ class VroomBgTrackingService : Service() {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val raw = prefs.getString(KEY_NATIVE_STATS, null)
       prefs.edit().remove(KEY_NATIVE_STATS).apply()
+      return try {
+        if (raw.isNullOrBlank()) emptyNativeStats() else JSONObject(raw)
+      } catch (_: Exception) {
+        emptyNativeStats()
+      }
+    }
+
+    fun readNativeStats(context: Context): JSONObject {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val raw = prefs.getString(KEY_NATIVE_STATS, null)
       return try {
         if (raw.isNullOrBlank()) emptyNativeStats() else JSONObject(raw)
       } catch (_: Exception) {

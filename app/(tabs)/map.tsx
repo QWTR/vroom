@@ -172,6 +172,10 @@ import {
   BG_IS_NAVIGATING_KEY,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
+import {
+  BackgroundDriveController,
+  type BackgroundDriveFix,
+} from '../../lib/backgroundDriveController';
 import { useSettings } from '../../hooks/useSettings';
 import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
 import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
@@ -1916,7 +1920,8 @@ type PersistedNavSession = {
   startLocation: LocationState | null;
   endLocation: LocationState | null;
   navStartLoc: LocationState | null;
-  routeInfo: RouteInfo | null;
+  routeInfo: (RouteInfo & { durationText?: string | null }) | null;
+  routeSnapshot?: DirectionsResult | null;
   currentStep: number;
   offroadPoints: { latitude: number; longitude: number }[];
 };
@@ -2333,6 +2338,9 @@ function MapScreenInner() {
   const lastBrowseMarkerPublishRef = useRef(0);
   const lastResumeHandledAtRef = useRef<number>(0);
   const lastForegroundResumeAtRef = useRef<number>(0);
+  const lastBgDriveResumeSyncAtRef = useRef<number>(0);
+  const didColdStartBgDriveRestoreRef = useRef(false);
+  const navSessionColdStartGuardUntilRef = useRef(Date.now() + 8_000);
   const lastOneShotAtRef       = useRef<number>(0);
   const pendingDrivingEntryOneShotRef = useRef(false);
   const resumeAwaitFixUntilRef = useRef<number>(0);
@@ -2866,7 +2874,7 @@ function MapScreenInner() {
   const [arrived,      setArrived]      = useState(false);
   const arrivedRef = useRef(false);
   arrivedRef.current = arrived;
-  const [routeInfo,    setRouteInfo]    = useState<RouteInfo | null>(null);
+  const [routeInfo,    setRouteInfo]    = useState<(RouteInfo & { durationText?: string | null }) | null>(null);
 
   useEffect(() => {
     if (isNavigating && !wasNavigatingRef.current) setNavHudVisible(true);
@@ -4976,6 +4984,13 @@ function MapScreenInner() {
     isDrivingRef.current = isDriving;
   }, [isDriving]);
   useEffect(() => {
+    if (
+      Platform.OS === 'android'
+      && !isDriving
+      && Date.now() < navSessionColdStartGuardUntilRef.current
+    ) {
+      return;
+    }
     setDrivingFlag(isDriving).catch(() => {});
   }, [isDriving]);
 
@@ -5102,10 +5117,11 @@ function MapScreenInner() {
       points,
       distanceValue: dist * 1000,
       distance:      dist.toFixed(1),
-      duration:      null,
+      duration:      0,
       durationText:  '—',
       distanceText:  `${dist.toFixed(1)} km`,
       steps:         [],
+      index:         0,
     };
   }, [isOffroadRoute, startLocation, endLocation]);
 
@@ -5397,9 +5413,40 @@ function MapScreenInner() {
   // Reset the navigation flag on screen focus so that if the app was killed
   // or crashed mid-navigation the background auto-flush is not permanently blocked.
   useFocusEffect(useCallback(() => {
-    if (!isNavigatingRef.current) {
-      setNavigatingFlag(false).catch(() => {});
-    }
+    let cancelled = false;
+    void (async () => {
+      if (isNavigatingRef.current) return;
+      try {
+        const [state, navRaw] = await Promise.all([
+          BackgroundDriveController.getState(),
+          AsyncStorage.getItem(NAV_SESSION_KEY),
+        ]);
+        if (cancelled) return;
+        if (state?.active === true && state.mode === 'navigation') return;
+        if (navRaw) {
+          try {
+            const navSession: PersistedNavSession = JSON.parse(navRaw);
+            if (
+              navSession?.endLocation
+              && navSession.savedAt
+              && Date.now() - navSession.savedAt <= NAV_SESSION_MAX_AGE_MS
+            ) {
+              return;
+            }
+          } catch {
+            // stale/corrupt session can fall through to flag cleanup
+          }
+        }
+      } catch {
+        // best effort cleanup below
+      }
+      if (!cancelled && !isNavigatingRef.current) {
+        setNavigatingFlag(false).catch(() => {});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []));
 
   // Zdejmij blokadę ręcznego włączenia jazdy przy opuszczeniu zakładki (zawieszony fetch / brak finally).
@@ -10201,6 +10248,364 @@ if (appStateRef.current === 'active') {
     });
   }, [driveMarker, setFollowMode, cameraV3]);
 
+  /** Powrót z tła: natychmiast podnieś mapę z natywnego trackingu jazdy. */
+  const syncFromBackgroundDriveSnapshot = useCallback(async (
+    source: 'foreground' | 'focus',
+    opts?: { force?: boolean },
+  ) => {
+    if (Platform.OS !== 'android') return false;
+    const tripActive = isDrivingRef.current || isNavigatingRef.current;
+    if (!tripActive && !opts?.force) return false;
+    const now = Date.now();
+    if (!opts?.force && now - lastBgDriveResumeSyncAtRef.current < 1200) return false;
+    lastBgDriveResumeSyncAtRef.current = now;
+
+    try {
+      const [state, buffered] = await Promise.all([
+        BackgroundDriveController.getState(),
+        BackgroundDriveController.consumeBufferedLocations(),
+      ]);
+      const fixes: BackgroundDriveFix[] = [
+        ...(Array.isArray(buffered) ? buffered : []),
+        ...(state?.lastFix ? [state.lastFix] : []),
+      ]
+        .filter((fix) => (
+          Number.isFinite(fix?.latitude)
+          && Number.isFinite(fix?.longitude)
+          && !isNullIsland(Number(fix.latitude), Number(fix.longitude))
+        ))
+        .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
+
+      if (!fixes.length) return false;
+
+      const deduped = fixes.filter((fix, index, arr) => {
+        if (index === 0) return true;
+        const prev = arr[index - 1];
+        return (
+          Math.abs(Number(fix.timestamp ?? 0) - Number(prev.timestamp ?? 0)) > 5
+          || Math.abs(Number(fix.latitude) - Number(prev.latitude)) > 1e-7
+          || Math.abs(Number(fix.longitude) - Number(prev.longitude)) > 1e-7
+        );
+      });
+      const latest = deduped[deduped.length - 1];
+      const previous = deduped.length >= 2 ? deduped[deduped.length - 2] : null;
+      const latestTs = Number(latest.timestamp ?? 0);
+      const latestAgeMs = latestTs > 0 ? Math.max(0, now - latestTs) : 0;
+      if (latestAgeMs > 15 * 60_000) return false;
+
+      const latestLat = Number(latest.latitude);
+      const latestLng = Number(latest.longitude);
+      let applyLat = latestLat;
+      let applyLng = latestLng;
+      let heading = Number(latest.heading);
+      let speedMs = Number(latest.speed);
+      let derivedSpeedKmh = 0;
+
+      if (previous) {
+        const prevLat = Number(previous.latitude);
+        const prevLng = Number(previous.longitude);
+        const prevTs = Number(previous.timestamp ?? 0);
+        const movedM = haversineKm(prevLat, prevLng, latestLat, latestLng) * 1000;
+        const dtSec = prevTs > 0 && latestTs > prevTs ? (latestTs - prevTs) / 1000 : 0;
+        if ((!Number.isFinite(heading) || heading < 0) && movedM >= 2.5) {
+          heading = bearingBetween(prevLat, prevLng, latestLat, latestLng);
+        }
+        if ((!Number.isFinite(speedMs) || speedMs < 0.3) && dtSec >= 0.5 && movedM >= 2.5) {
+          derivedSpeedKmh = Math.min(MAX_REALISTIC_DRIVING_KMH, (movedM / dtSec) * 3.6);
+          speedMs = derivedSpeedKmh / 3.6;
+        }
+      }
+
+      if (!Number.isFinite(heading) || heading < 0) {
+        heading = lastHeadingRef.current || drHdgRef.current || 0;
+      }
+      heading = normalizeHeading(heading);
+      if (!Number.isFinite(speedMs) || speedMs < 0) {
+        speedMs = speedKmhRef.current > 0 ? speedKmhRef.current / 3.6 : 0;
+      }
+      const speedKmh = normalizeHudSpeedKmh(Math.min(MAX_REALISTIC_DRIVING_KMH, speedMs * 3.6));
+
+      if (isNavigatingRef.current) {
+        const navPts = routePointsRef.current.length >= 2
+          ? routePointsRef.current
+          : (navRouteRef.current?.points ?? []);
+        if (navPts.length >= 2 && isOnRoute(latestLat, latestLng, navPts, GPS_ON_ROUTE_THRESHOLD_M)) {
+          const snapped = snapToRoute(latestLat, latestLng, navPts, NAV_ROUTE_SNAP_M);
+          applyLat = snapped.latitude;
+          applyLng = snapped.longitude;
+        }
+      }
+
+      rawGpsCourseRef.current = { lat: latestLat, lng: latestLng };
+      lastRawForHeadingRef.current = { lat: latestLat, lng: latestLng };
+      lastRawTickRef.current = {
+        lat: latestLat,
+        lng: latestLng,
+        at: now,
+        acc: Number.isFinite(Number(latest.accuracy)) ? Number(latest.accuracy) : 10,
+      };
+      lastGpsTickAtRef.current = now;
+      lastAcceptedFixWallClockRef.current = now;
+      lastGoodTimeRef.current = now;
+      prevGoodTimeRef.current = now;
+      lastGoodLocRef.current = { lat: latestLat, lng: latestLng };
+      lastSetLocRef.current = { lat: applyLat, lng: applyLng };
+      lastTripMarkerPoseRef.current = { lat: applyLat, lng: applyLng };
+      lastDrivingPosRef.current = { lat: applyLat, lng: applyLng };
+      drLatRef.current = applyLat;
+      drLngRef.current = applyLng;
+      drHdgRef.current = heading;
+      lastHeadingRef.current = heading;
+      currentLocRef.current = { latitude: applyLat, longitude: applyLng };
+
+      markerProjRef.current = {
+        lat: applyLat,
+        lng: applyLng,
+        hdg: heading,
+        speedMs,
+        at: now,
+      };
+      markerDisplayRef.current = {
+        lat: applyLat,
+        lng: applyLng,
+        hdg: heading,
+        speedMs,
+        at: now,
+      };
+
+      speedKmhRef.current = speedKmh;
+      rawGpsKmhRef.current = speedKmh;
+      if (speedKmh >= 1) {
+        lastReliableSpeedMsRef.current = speedKmh / 3.6;
+        speedSignalHoldUntilRef.current = now + TRIP_FOREGROUND_SPEED_HOLD_MS;
+      }
+      emitSpeedometerKmh(speedKmh);
+      feedSpeedRef.current(speedKmh > 0 ? speedKmh / 3.6 : null);
+      feedPositionRef.current(applyLat, applyLng, speedKmh > 0 ? speedKmh / 3.6 : undefined);
+
+      setGpsAcquiring(false);
+      setLocationReady(true);
+      publishUserLocation({ latitude: applyLat, longitude: applyLng }, true);
+      rememberMapLastLocation(applyLat, applyLng, Number(latest.accuracy) || undefined);
+      void saveMapLastLocation(applyLat, applyLng, Number(latest.accuracy) || undefined);
+      syncTripCameraAfterResume(applyLat, applyLng, heading);
+      driveMarker.ensureFrameActive?.();
+
+      vroomGpsLog('BG_DRIVE_RESUME_SYNC', {
+        source,
+        buffered: deduped.length,
+        ageMs: Math.round(latestAgeMs),
+        speedKmh: Number(speedKmh.toFixed(1)),
+        derivedSpeedKmh: Number(derivedSpeedKmh.toFixed(1)),
+        lat: Number(applyLat.toFixed(6)),
+        lng: Number(applyLng.toFixed(6)),
+      }, 0);
+      return true;
+    } catch (e) {
+      if (__DEV__) console.log('[GPSDBG] BG_DRIVE_RESUME_SYNC_FAIL', e);
+      return false;
+    }
+  }, [driveMarker, publishUserLocation, syncTripCameraAfterResume]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (didColdStartBgDriveRestoreRef.current) return;
+    didColdStartBgDriveRestoreRef.current = true;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const [state, navRaw, navFlag, drivingFlag] = await Promise.all([
+          BackgroundDriveController.getState(),
+          AsyncStorage.getItem(NAV_SESSION_KEY),
+          AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+          AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+        ]);
+        if (cancelled) return;
+
+        let hasFreshNavSession = false;
+        let persistedNavSession: PersistedNavSession | null = null;
+        try {
+          if (navRaw) {
+            const navSession: PersistedNavSession = JSON.parse(navRaw);
+            hasFreshNavSession = Boolean(
+              navSession?.endLocation
+              && navSession.savedAt
+              && Date.now() - navSession.savedAt <= NAV_SESSION_MAX_AGE_MS,
+            );
+            if (hasFreshNavSession) persistedNavSession = navSession;
+          }
+        } catch {
+          hasFreshNavSession = false;
+          persistedNavSession = null;
+        }
+
+        const nativeActive = state?.active === true;
+        const shouldRestore = nativeActive || navFlag === 'true' || drivingFlag === 'true';
+        if (!shouldRestore) {
+          navSessionColdStartGuardUntilRef.current = 0;
+          return;
+        }
+        const nativeStats = await BackgroundDriveController.getNativeStats();
+
+        const restoreNavigation =
+          state?.mode === 'navigation'
+          || navFlag === 'true'
+          || hasFreshNavSession;
+
+        const now = Date.now();
+        if (restoreNavigation) {
+          isNavigatingRef.current = true;
+          isDrivingRef.current = false;
+          setIsDriving(false);
+          setIsNavigating(true);
+          await setNavigatingFlag(true);
+          await setDrivingFlag(false);
+          setTripCameraActive(true);
+          setFollowMode('navigationFollow');
+          navStatsFlushedRef.current = false;
+          passiveTripStartedRef.current = true;
+          if (persistedNavSession) {
+            setIsOffroadRoute(Boolean(persistedNavSession.isOffroadRoute));
+            isOffroadRef.current = Boolean(persistedNavSession.isOffroadRoute);
+            if (persistedNavSession.startLocation) setStartLocation(persistedNavSession.startLocation);
+            setEndLocation(persistedNavSession.endLocation);
+            setNavStartLoc(
+              persistedNavSession.navStartLoc
+              ?? persistedNavSession.startLocation
+              ?? null,
+            );
+            setRouteInfo(persistedNavSession.routeInfo ?? null);
+            setCurrentStep(Math.max(0, persistedNavSession.currentStep ?? 0));
+            if (persistedNavSession.isOffroadRoute && persistedNavSession.offroadPoints?.length > 1) {
+              offroadLoadedPointsRef.current = persistedNavSession.offroadPoints;
+              offroadPointsRef.current = persistedNavSession.offroadPoints;
+              routePointsRef.current = persistedNavSession.offroadPoints;
+            } else if (persistedNavSession.routeSnapshot?.points?.length && persistedNavSession.routeSnapshot.points.length >= 2) {
+              offroadLoadedPointsRef.current = [];
+              routePointsRef.current = persistedNavSession.routeSnapshot.points;
+              setNavRouteOverride(persistedNavSession.routeSnapshot);
+              navV3.setRoutePolyline(
+                persistedNavSession.routeSnapshot.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
+              );
+            }
+          }
+          updateTripEstimate(Number(persistedNavSession?.routeInfo?.duration ?? routeInfoRef.current?.duration) || 0);
+        } else {
+          isDrivingRef.current = true;
+          isNavigatingRef.current = false;
+          setIsNavigating(false);
+          setIsDriving(true);
+          await setDrivingFlag(true);
+          await setNavigatingFlag(false);
+          drivingManualModeRef.current = false;
+          drivingManuallyDisabledRef.current = false;
+          drivingManualEntryBusyRef.current = false;
+          driveSessionGuardRef.current.reset();
+          setTripCameraActive(true);
+          setFollowMode('drivingFollow');
+          drivingSinceRef.current = now;
+          drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+          tripSpeedWarmupUntilRef.current = now + 10_000;
+          if (!passiveTripStartedRef.current) {
+            startTrip(Number(routeInfoRef.current?.duration) || 0);
+            passiveTripStartedRef.current = true;
+          }
+        }
+
+        if (Number(nativeStats.distanceKm) > 0) {
+          restoreTripSnapshot({
+            distanceKm: Math.max(0, Number(nativeStats.distanceKm) || 0),
+            trackedPoints: Array.isArray(nativeStats.routePoints)
+              ? nativeStats.routePoints.filter((p) => (
+                  Number.isFinite(p?.latitude)
+                  && Number.isFinite(p?.longitude)
+                ))
+              : [],
+            speedSamples: Array.isArray(nativeStats.speedSamples)
+              ? nativeStats.speedSamples
+                .map(Number)
+                .filter((s) => Number.isFinite(s) && s > 0)
+              : [],
+            startTimeMs: state?.startedAt ?? null,
+            estimatedSec: Number(routeInfoRef.current?.duration) || 0,
+            floorKm: Math.max(0, Number(nativeStats.distanceKm) || 0),
+            savedAt: Date.now(),
+          });
+        }
+
+        tripResumeFreezeUntilRef.current = 0;
+        tripResumeAnchorRef.current = null;
+        tripResumeConfirmRef.current = null;
+        tripMarkerV2BootstrappedRef.current = true;
+        driveSessionFirstGpsFrameRef.current = true;
+        driveSessionInitFramesRef.current = 0;
+        foregroundGpsIntentionallyStoppedRef.current = false;
+        if (!gpsForceActiveRef.current) {
+          gpsForceActiveRef.current = true;
+          applyGpsForceActive(true);
+        }
+        startGPS();
+
+        const synced = await syncFromBackgroundDriveSnapshot('focus', { force: true });
+        if (cancelled) return;
+
+        if (!synced && state?.lastFix) {
+          const fix = state.lastFix;
+          const lat = Number(fix.latitude);
+          const lng = Number(fix.longitude);
+          if (Number.isFinite(lat) && Number.isFinite(lng) && !isNullIsland(lat, lng)) {
+            const heading = Number.isFinite(Number(fix.heading))
+              ? normalizeHeading(Number(fix.heading))
+              : normalizeHeading(lastHeadingRef.current || drHdgRef.current || 0);
+            const speedMs = Number.isFinite(Number(fix.speed)) && Number(fix.speed) > 0
+              ? Number(fix.speed)
+              : 0;
+            speedKmhRef.current = normalizeHudSpeedKmh(speedMs * 3.6);
+            emitSpeedometerKmh(speedKmhRef.current);
+            currentLocRef.current = { latitude: lat, longitude: lng };
+            lastGoodLocRef.current = { lat, lng };
+            lastSetLocRef.current = { lat, lng };
+            lastTripMarkerPoseRef.current = { lat, lng };
+            drLatRef.current = lat;
+            drLngRef.current = lng;
+            drHdgRef.current = heading;
+            lastHeadingRef.current = heading;
+            setGpsAcquiring(false);
+            setLocationReady(true);
+            publishUserLocation({ latitude: lat, longitude: lng }, true);
+            tripBootstrapPose(lat, lng, heading, { animateCamera: true });
+          }
+        }
+
+        vroomGpsLog('BG_DRIVE_COLD_START_RESTORE', {
+          mode: restoreNavigation ? 'navigation' : 'freeDrive',
+          nativeActive,
+          synced,
+          hasLastFix: Boolean(state?.lastFix),
+        }, 0);
+      } catch (e) {
+        if (__DEV__) console.log('[GPSDBG] BG_DRIVE_COLD_START_RESTORE_FAIL', e);
+      } finally {
+        navSessionColdStartGuardUntilRef.current = 0;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    startGPS,
+    startTrip,
+    updateTripEstimate,
+    setFollowMode,
+    syncFromBackgroundDriveSnapshot,
+    publishUserLocation,
+    tripBootstrapPose,
+    restoreTripSnapshot,
+    navV3,
+  ]);
+
   /** Krótki powrót z tła (<20s) — bez restartu GPS, map-match i fake 12 km/h. */
   const BRIEF_BG_RESUME_MAX_MS = 20_000;
 
@@ -10238,6 +10643,11 @@ if (appStateRef.current === 'active') {
     }
 
     const tripActiveNow = isDrivingRef.current || isNavigatingRef.current;
+    if (tripActiveNow) {
+      void syncFromBackgroundDriveSnapshot(source, {
+        force: bgPauseMs >= GPS_BACKGROUND_STALE_MS,
+      });
+    }
     const fixAgeMs = lastAcceptedFixWallClockRef.current > 0
       ? now - lastAcceptedFixWallClockRef.current
       : Number.POSITIVE_INFINITY;
@@ -10509,6 +10919,7 @@ if (appStateRef.current === 'active') {
     publishUserLocation,
     
     syncTripCameraAfterResume,
+    syncFromBackgroundDriveSnapshot,
   ]);
   const handleGpsResumeRef = useRef(handleGpsResume);
   useEffect(() => {
@@ -10817,7 +11228,7 @@ if (appStateRef.current === 'active') {
     if (isOffroadRoute && offroadPreviewRoute) {
       setRouteInfo({
         distance: offroadPreviewRoute.distance,
-        duration: null,
+        duration: 0,
         durationText: '—',
       });
       return;
@@ -11002,14 +11413,16 @@ if (appStateRef.current === 'active') {
     const vehicleLat = drFresh ? drLatRef.current : fallbackLoc?.latitude;
     const vehicleLng = drFresh ? drLngRef.current : fallbackLoc?.longitude;
     if (!Number.isFinite(vehicleLat) || !Number.isFinite(vehicleLng)) return;
+    const vehicleLatNum = Number(vehicleLat);
+    const vehicleLngNum = Number(vehicleLng);
 
     const now   = Date.now();
     const since = now - lastRerouteTimeRef.current;
 
     if (since < REROUTE_COOLDOWN_MS && lastRerouteLocRef.current) {
       const movedM = haversineKm(
-        vehicleLat,
-        vehicleLng,
+        vehicleLatNum,
+        vehicleLngNum,
         lastRerouteLocRef.current.lat,
         lastRerouteLocRef.current.lng,
       ) * 1000;
@@ -11022,8 +11435,8 @@ if (appStateRef.current === 'active') {
     const rawHdg = lastGpsDeviceHeadingRef.current;
     const travelHdg = resolveRerouteApiHeadingDeg(
       rawHdg,
-      vehicleLat,
-      vehicleLng,
+      vehicleLatNum,
+      vehicleLngNum,
       lastRerouteMotionAnchorRef.current ?? lastSetLocRef.current,
       lastHeadingRef.current ?? 0,
     );
@@ -11032,12 +11445,12 @@ if (appStateRef.current === 'active') {
     reroutePendingRef.current = true;
     reroutePendingSinceRef.current = now;
     lastRerouteTimeRef.current = now;
-    lastRerouteLocRef.current = { lat: vehicleLat, lng: vehicleLng };
+    lastRerouteLocRef.current = { lat: vehicleLatNum, lng: vehicleLngNum };
     setRerouteHeadingForApi(travelHdg);
-    setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLat, lng: vehicleLng }));
+    setRerouteOrigin(buildRerouteOrigin({ lat: vehicleLatNum, lng: vehicleLngNum }));
     visionEvent('NAV_REROUTE_REQUEST', {
-      vehicleLat: Number(vehicleLat.toFixed(6)),
-      vehicleLng: Number(vehicleLng.toFixed(6)),
+      vehicleLat: Number(vehicleLatNum.toFixed(6)),
+      vehicleLng: Number(vehicleLngNum.toFixed(6)),
       travelHdg: Math.round(travelHdg),
       speedKmh: Math.round(speedKmhRef.current),
     });
@@ -11097,6 +11510,9 @@ if (appStateRef.current === 'active') {
   // Persist active navigation so it can be restored after app restart.
   useEffect(() => {
     if (!isNavigating || !endLocation) {
+      if (Platform.OS === 'android' && Date.now() < navSessionColdStartGuardUntilRef.current) {
+        return;
+      }
       AsyncStorage.removeItem(NAV_SESSION_KEY).catch(() => {});
       return;
     }
@@ -11108,6 +11524,20 @@ if (appStateRef.current === 'active') {
       endLocation,
       navStartLoc,
       routeInfo,
+      routeSnapshot: activeRoute?.points?.length
+        ? {
+            ...activeRoute,
+            index: Number.isFinite(Number((activeRoute as any).index))
+              ? Number((activeRoute as any).index)
+              : 0,
+            duration: Number.isFinite(Number((activeRoute as any).duration))
+              ? Number((activeRoute as any).duration)
+              : Number(routeInfo?.duration ?? 0),
+            durationText: typeof (activeRoute as any).durationText === 'string'
+              ? String((activeRoute as any).durationText)
+              : (routeInfo?.duration ? formatDuration(routeInfo.duration) : ''),
+          } as DirectionsResult
+        : null,
       currentStep,
       offroadPoints: isOffroadRoute ? offroadLoadedPointsRef.current : [],
     };
@@ -11121,6 +11551,7 @@ if (appStateRef.current === 'active') {
     navStartLoc,
     routeInfo,
     currentStep,
+    activeRoute,
   ]);
 
   // Restore pending navigation session after cold start / process kill.
@@ -11148,6 +11579,13 @@ if (appStateRef.current === 'active') {
           routePointsRef.current = data.offroadPoints;
         } else {
           offroadLoadedPointsRef.current = [];
+          if (data.routeSnapshot?.points?.length && data.routeSnapshot.points.length >= 2) {
+            routePointsRef.current = data.routeSnapshot.points;
+            setNavRouteOverride(data.routeSnapshot);
+            navV3.setRoutePolyline(
+              data.routeSnapshot.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
+            );
+          }
         }
 
         if (data.startLocation) setStartLocation(data.startLocation);
@@ -11174,7 +11612,7 @@ if (appStateRef.current === 'active') {
         console.log('restore nav_session error:', e);
       }
     })();
-  }, [locationReady, userLocation]);
+  }, [locationReady, userLocation, navV3]);
 
   useEffect(() => {
     const pts = activeRoute?.points ?? [];
@@ -11224,7 +11662,9 @@ if (appStateRef.current === 'active') {
       setRemainingRoutePoints(points);
       return;
     }
-    const snapped = snapToRoute(anchorLat, anchorLng, points, NAV_ROUTE_SNAP_M);
+    const anchorLatNum = Number(anchorLat);
+    const anchorLngNum = Number(anchorLng);
+    const snapped = snapToRoute(anchorLatNum, anchorLngNum, points, NAV_ROUTE_SNAP_M);
     const idx = findClosestPointIndex(snapped.latitude, snapped.longitude, points);
     const headLat = hasSmoothedMarker ? mLat : snapped.latitude;
     const headLng = hasSmoothedMarker ? mLng : snapped.longitude;
@@ -11253,7 +11693,12 @@ if (appStateRef.current === 'active') {
       const tripActive = isDrivingRef.current || isNavigatingRef.current;
       let lat: number;
       let lng: number;
-      let motion: { heading?: number; speedKmh?: number; trail?: { lat: number; lng: number; t: number }[] } | undefined;
+      let motion: {
+        heading?: number;
+        speedKmh?: number;
+        trail?: { lat: number; lng: number; t: number }[];
+        mode?: 'navigation' | 'freeDrive' | 'idle';
+      } | undefined;
 
       if (tripActive) {
         const pose = lastTripMarkerPoseRef.current;
@@ -11350,7 +11795,8 @@ if (appStateRef.current === 'active') {
     if (!isNavigating) { dismissNavigationNotification(); return; }
     const stepData = effectiveNavRoute?.steps?.[currentStep];
     if (!stepData) return;
-    showNavigationNotification(stepData, routeInfo?.distance ?? '', routeInfo?.durationText ?? '');
+    const navRouteInfo = routeInfo as (RouteInfo & { durationText?: string | null }) | null;
+    showNavigationNotification(stepData, navRouteInfo?.distance ?? '', navRouteInfo?.durationText ?? '');
   }, [currentStep, isNavigating, effectiveNavRoute]);
 
   const nearbyUsers = useMemo(() => {
@@ -11684,8 +12130,10 @@ if (appStateRef.current === 'active') {
 
     releaseTripCameraState();
     setFollowMode('idleBrowse');
-    lastMapCenterRef.current = [lng, lat];
-    resetBrowseCamera({ latitude: lat, longitude: lng }, { animate: true });
+    const safeLat = Number(lat);
+    const safeLng = Number(lng);
+    lastMapCenterRef.current = [safeLng, safeLat];
+    resetBrowseCamera({ latitude: safeLat, longitude: safeLng }, { animate: true });
   }, [
     userLocation,
     resetBrowseCamera,

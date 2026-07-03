@@ -90,6 +90,15 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun getNativeStats(promise: Promise) {
+    try {
+      promise.resolve(jsonToWritableMap(VroomBgTrackingService.readNativeStats(reactContext.applicationContext)))
+    } catch (e: Exception) {
+      promise.reject("BG_STATS_READ", e.message, e)
+    }
+  }
+
+  @ReactMethod
   fun consumeStopFromNotification(promise: Promise) {
     val prefs = reactContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val pending = prefs.getBoolean(KEY_STOP_PENDING, false)

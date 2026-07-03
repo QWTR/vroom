@@ -47,6 +47,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
+    getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
   };
   WiroomLocationService?: {
@@ -54,6 +55,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
+    getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
   };
 };
@@ -236,6 +238,27 @@ export const BackgroundDriveController = {
     return [...jsLocations, ...nativeLocations]
       .filter((fix) => Number.isFinite(fix?.latitude) && Number.isFinite(fix?.longitude))
       .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  },
+
+  async getNativeStats(): Promise<BackgroundDriveNativeStats> {
+    const mod = nativeModule();
+    if (mod?.getNativeStats) {
+      try {
+        const stats = await mod.getNativeStats();
+        const distanceKm = Number(stats?.distanceKm);
+        const maxSpeedKmh = Number(stats?.maxSpeedKmh);
+        return {
+          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
+          tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
+          routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
+          speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
+          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
+        };
+      } catch {
+        // fall through
+      }
+    }
+    return { distanceKm: 0, routePoints: [], speedSamples: [], maxSpeedKmh: 0 };
   },
 
   async consumeNativeStats(): Promise<BackgroundDriveNativeStats> {

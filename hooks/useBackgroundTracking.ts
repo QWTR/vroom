@@ -1045,6 +1045,20 @@ export function useBackgroundTracking(
   }, []);
 
   // ── Task management ───────────────────────────────────────────────────────
+  const shouldPreserveNativeDrive = useCallback(async () => {
+    if (Platform.OS !== 'android') return false;
+    try {
+      const [state, navFlag, drivingFlag] = await Promise.all([
+        BackgroundDriveController.getState(),
+        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+        AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+      ]);
+      return state?.active === true || navFlag === 'true' || drivingFlag === 'true';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const startBackgroundTracking = useCallback(async () => {
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
@@ -1053,10 +1067,11 @@ export function useBackgroundTracking(
       const persistedBgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
       const bgAllowed = forceEnabledRef.current || (bgEnabledRef.current && persistedBgSetting === 'true');
       if (!bgAllowed || !isPremium) {
-        if (Platform.OS === 'android') {
+        const preserveNativeDrive = await shouldPreserveNativeDrive();
+        if (Platform.OS === 'android' && !preserveNativeDrive) {
           await stopVroomBgForegroundNotification();
         }
-        await BackgroundDriveController.stop('app');
+        if (!preserveNativeDrive) await BackgroundDriveController.stop('app');
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -1067,7 +1082,8 @@ export function useBackgroundTracking(
 
       const shouldTrack = forceEnabled;
       if (!shouldTrack) {
-        await BackgroundDriveController.stop('app');
+        const preserveNativeDrive = await shouldPreserveNativeDrive();
+        if (!preserveNativeDrive) await BackgroundDriveController.stop('app');
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -1145,7 +1161,7 @@ export function useBackgroundTracking(
     } finally {
       startInFlightRef.current = false;
     }
-  }, [bgEnabled, isSharing, forceEnabled, isPremium]);
+  }, [bgEnabled, isSharing, forceEnabled, isPremium, shouldPreserveNativeDrive]);
 
   const stopBgLocationUpdates = useCallback(async () => {
     try {
@@ -1177,11 +1193,18 @@ export function useBackgroundTracking(
   // Powiadomienie Android gdy włączone śledzenie w tle (lekki, jednorazowy).
   useEffect(() => {
     if (!bgEnabled || !isPremium) {
-      if (Platform.OS === 'android') void stopVroomBgForegroundNotification();
-      if (!forceEnabledRef.current) void BackgroundDriveController.stop('app');
+      void (async () => {
+        const preserveNativeDrive = await shouldPreserveNativeDrive();
+        if (Platform.OS === 'android' && !preserveNativeDrive) {
+          await stopVroomBgForegroundNotification();
+        }
+        if (!forceEnabledRef.current && !preserveNativeDrive) {
+          await BackgroundDriveController.stop('app');
+        }
+      })();
       return;
     }
-  }, [bgEnabled, isPremium]);
+  }, [bgEnabled, isPremium, shouldPreserveNativeDrive]);
 
   // Auto-start GPS w tle tylko podczas aktywnej jazdy/nawigacji.
   useEffect(() => {
@@ -1189,11 +1212,14 @@ export function useBackgroundTracking(
       const timer = setTimeout(() => startBackgroundTracking(), 500);
       return () => clearTimeout(timer);
     }
-    stopBgLocationUpdates().then(() => {
-      void BackgroundDriveController.stop('app');
+    void (async () => {
+      const preserveNativeDrive = await shouldPreserveNativeDrive();
+      await stopBgLocationUpdates();
+      if (preserveNativeDrive) return;
+      await BackgroundDriveController.stop('app');
       if (!forceEnabled) flushPendingKm(false);
-    });
-  }, [bgEnabled, forceEnabled, startBackgroundTracking, stopBgLocationUpdates, flushPendingKm]);
+    })();
+  }, [bgEnabled, forceEnabled, startBackgroundTracking, stopBgLocationUpdates, flushPendingKm, shouldPreserveNativeDrive]);
 
   // Recover BG task on foreground only when user enabled background work
   useEffect(() => {
@@ -1220,8 +1246,13 @@ export function useBackgroundTracking(
             persistAppActive(true);
           }, BG_APP_ACTIVE_HEARTBEAT_MS);
         }
-        void flushPendingKm(false);
-        void stopBgLocationUpdates();
+        void (async () => {
+          const preserveNativeDrive = await shouldPreserveNativeDrive();
+          if (!preserveNativeDrive) {
+            await flushPendingKm(false);
+          }
+          await stopBgLocationUpdates();
+        })();
         return;
       }
       if (activeHeartbeat) {
