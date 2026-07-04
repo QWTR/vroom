@@ -13,6 +13,10 @@ export type BackgroundDriveFix = {
   accuracy: number | null;
   timestamp: number;
   mode?: BackgroundDriveMode | string;
+  source?: 'live' | 'lastKnown' | 'buffer' | string;
+  receivedAt?: number;
+  elapsedRealtimeNanos?: number;
+  isSeed?: boolean;
 };
 
 export type BackgroundDriveState = {

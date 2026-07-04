@@ -14,6 +14,7 @@ import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -27,6 +28,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class VroomBgTrackingService : Service() {
+  private val logTag = "VroomBgTracking"
   private lateinit var fusedLocationClient: FusedLocationProviderClient
   private var trackingMode: String = MODE_FREE_DRIVE
   private var tripSessionId: String? = null
@@ -81,6 +83,14 @@ class VroomBgTrackingService : Service() {
       val storedMode = state.optString("mode", trackingMode)
       trackingMode = if (storedMode == "navigation") MODE_FREE_DRIVE else storedMode
       tripSessionId = state.optString("tripSessionId", "").takeIf { it.isNotBlank() }
+      writeState(applicationContext, JSONObject()
+        .put("active", true)
+        .put("mode", trackingMode)
+        .put("tripSessionId", tripSessionId ?: state.optString("tripSessionId", ""))
+        .put("startedAt", state.optLong("startedAt", System.currentTimeMillis()))
+        .put("lastFix", state.opt("lastFix") ?: JSONObject.NULL)
+        .put("endedBy", JSONObject.NULL)
+        .put("updatedAt", System.currentTimeMillis()))
       startForeground(NOTIFICATION_ID, buildNotification(true))
       startNativeLocationUpdates(trackingMode, tripSessionId)
     } else {
@@ -171,6 +181,7 @@ class VroomBgTrackingService : Service() {
 
   private fun startNativeLocationUpdates(mode: String, sessionId: String?) {
     if (!hasLocationPermission()) {
+      Log.d(logTag, "startTracking blocked: no location permission mode=$mode")
       stopTracking("permission", notifyReact = true)
       return
     }
@@ -193,8 +204,13 @@ class VroomBgTrackingService : Service() {
       .put("lastFix", previous.opt("lastFix") ?: JSONObject.NULL)
       .put("updatedAt", now)
     writeState(applicationContext, state)
+    Log.d(logTag, "startTracking mode=$mode session=$sessionId callbackActive=${locationCallback != null}")
 
-    if (locationCallback != null) return
+    if (locationCallback != null) {
+      Log.d(logTag, "startTracking reuse existing callback; seeding lastKnown mode=$mode")
+      seedLastKnownLocation(mode)
+      return
+    }
 
     val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
       .setMinUpdateIntervalMillis(500L)
@@ -205,9 +221,14 @@ class VroomBgTrackingService : Service() {
     val callback = object : LocationCallback() {
       override fun onLocationResult(result: LocationResult) {
         result.locations.forEach { location ->
-          persistLocation(applicationContext, location, trackingMode)
+          Log.d(
+            logTag,
+            "liveFix mode=$trackingMode lat=${location.latitude} lng=${location.longitude} " +
+              "acc=${location.accuracy} speed=${location.speed} time=${location.time}"
+          )
+          persistLocation(applicationContext, location, trackingMode, "live", false)
           accumulateNativeStats(applicationContext, location)
-          BgTrackingModule.emitLocation(location, trackingMode)
+          BgTrackingModule.emitLocation(location, trackingMode, "live", false)
         }
       }
     }
@@ -215,7 +236,44 @@ class VroomBgTrackingService : Service() {
 
     try {
       fusedLocationClient.requestLocationUpdates(request, callback, mainLooper)
+      Log.d(logTag, "requestLocationUpdates ok mode=$mode")
+      seedLastKnownLocation(mode)
     } catch (_: SecurityException) {
+      Log.d(logTag, "requestLocationUpdates blocked: permission mode=$mode")
+      stopTracking("permission", notifyReact = true)
+    }
+  }
+
+  private fun seedLastKnownLocation(mode: String) {
+    if (!hasLocationPermission()) {
+      Log.d(logTag, "seedLastKnown skipped: no permission mode=$mode")
+      return
+    }
+    try {
+      fusedLocationClient.lastLocation
+        .addOnSuccessListener { location ->
+          if (location == null) {
+            Log.d(logTag, "seedLastKnown empty mode=$mode")
+            return@addOnSuccessListener
+          }
+          if (!isReliableLocation(location)) {
+            Log.d(
+              logTag,
+              "seedLastKnown rejected mode=$mode acc=${location.accuracy} time=${location.time}"
+            )
+            return@addOnSuccessListener
+          }
+          Log.d(
+            logTag,
+            "seedLastKnown accepted mode=$mode lat=${location.latitude} lng=${location.longitude} " +
+              "acc=${location.accuracy} speed=${location.speed} time=${location.time}"
+          )
+          persistLocation(applicationContext, location, mode, "lastKnown", true)
+          accumulateNativeStats(applicationContext, location)
+          BgTrackingModule.emitLocation(location, mode, "lastKnown", true)
+        }
+    } catch (_: SecurityException) {
+      Log.d(logTag, "seedLastKnown blocked: permission mode=$mode")
       stopTracking("permission", notifyReact = true)
     }
   }
@@ -404,7 +462,11 @@ class VroomBgTrackingService : Service() {
       }
     }
 
-    fun persistLocation(context: Context, location: Location, mode: String) {
+    private fun isReliableLocation(location: Location): Boolean {
+      return !location.hasAccuracy() || location.accuracy.toDouble() <= MAX_ACCURACY_M
+    }
+
+    fun persistLocation(context: Context, location: Location, mode: String, source: String = "live", isSeed: Boolean = false) {
       val fix = JSONObject()
         .put("latitude", location.latitude)
         .put("longitude", location.longitude)
@@ -413,6 +475,10 @@ class VroomBgTrackingService : Service() {
         .put("accuracy", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
         .put("timestamp", if (location.time > 0) location.time else System.currentTimeMillis())
         .put("mode", mode)
+        .put("source", source)
+        .put("receivedAt", System.currentTimeMillis())
+        .put("elapsedRealtimeNanos", location.elapsedRealtimeNanos.toDouble())
+        .put("isSeed", isSeed)
 
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val buffer = try {
@@ -426,12 +492,17 @@ class VroomBgTrackingService : Service() {
       }
 
       val previous = readState(context)
+      val lastReliableFix = if (isReliableLocation(location)) {
+        fix
+      } else {
+        previous.opt("lastFix") ?: JSONObject.NULL
+      }
       val state = JSONObject()
         .put("active", true)
         .put("mode", mode)
         .put("tripSessionId", previous.optString("tripSessionId", ""))
         .put("startedAt", previous.optLong("startedAt", System.currentTimeMillis()))
-        .put("lastFix", fix)
+        .put("lastFix", lastReliableFix)
         .put("endedBy", JSONObject.NULL)
         .put("updatedAt", System.currentTimeMillis())
 

@@ -34,4 +34,16 @@ describe('buildV3GeometryFromRefs', () => {
     expect(geometry.routePolyline).toHaveLength(2);
     expect(geometry.roadPolylines.some((road) => road.key === 'road_match')).toBe(false);
   });
+
+  it('prioritizes visible local mirror before matched free-drive geometry', () => {
+    const geometry = buildV3GeometryFromRefs({
+      matchedGeometry: route,
+      routePoints: [],
+      isNavigating: false,
+      mirrorPolylines: [actualRoad],
+    });
+
+    expect(geometry.roadPolylines[0]?.key).toBe('mirror_0');
+    expect(geometry.roadPolylines[1]?.key).toBe('road_match');
+  });
 });

@@ -1,6 +1,9 @@
+import { describe, expect, it } from 'vitest';
+
 import {
   createGpsLockState,
   resetGpsLockState,
+  seedGpsLockEstablished,
   shouldEmitLocationFix,
   updateGpsLock,
   GPS_LOCK_MAX_ACC_M,
@@ -44,5 +47,12 @@ describe('gpsLock', () => {
     resetGpsLockState(state, 5000);
     expect(state.established).toBe(false);
     expect(shouldEmitLocationFix(state, 12)).toBe(true);
+  });
+
+  it('can seed lock from a trusted resume fix', () => {
+    const state = createGpsLockState(1000);
+    seedGpsLockEstablished(state, 5000);
+    expect(state.established).toBe(true);
+    expect(shouldEmitLocationFix(state, 95)).toBe(true);
   });
 });

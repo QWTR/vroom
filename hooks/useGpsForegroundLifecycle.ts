@@ -21,7 +21,7 @@ type Options = {
   getLastBackgroundAt: () => number;
   getFixAgeMs: () => number;
   getTickAgeMs: () => number;
-  hardRestart: (reason: string) => Promise<void>;
+  hardRestart: (reason: string, opts?: { preserveLock?: boolean }) => Promise<void>;
   onResume: (ctx: GpsForegroundResumeContext) => void;
 };
 
@@ -74,7 +74,9 @@ export function useGpsForegroundLifecycle({
       const forceWatcherRestart = tripActive && shouldForceGpsHardRestart(bgPauseMs);
 
       if (forceWatcherRestart) {
-        void hardRestartRef.current(`app_resume_bg_${Math.round(bgPauseMs)}ms`);
+        void hardRestartRef.current(`app_resume_bg_${Math.round(bgPauseMs)}ms`, {
+          preserveLock: true,
+        });
       }
 
       onResumeRef.current({

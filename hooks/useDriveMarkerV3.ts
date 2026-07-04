@@ -15,7 +15,7 @@ const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
 const MAX_HEADING_RATE_DPS = NAV_V3.MARKER_MAX_HEADING_DPS;
 const MARKER_HEADING_EMA = NAV_V3.MARKER_HEADING_EMA;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
-const POLYLINE_KEY_HARD_SNAP_M = 45;
+const POLYLINE_KEY_HARD_SNAP_M = 12;
 const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
 const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
 const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
@@ -832,7 +832,14 @@ export function useDriveMarkerV3(
           }
         } else if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
           const reprojGapM = haversineMJs(lat.value, lng.value, pose.lat, pose.lng);
-          if (reprojGapM < POLYLINE_KEY_HARD_SNAP_M) {
+          if (reprojGapM >= 5) {
+            cancelAnimation(displayArcM);
+            cancelAnimation(lat);
+            cancelAnimation(lng);
+            displayArcM.value = arcM;
+            lat.value = pose.lat;
+            lng.value = pose.lng;
+          } else if (reprojGapM < POLYLINE_KEY_HARD_SNAP_M) {
             displayArcM.value = arcM - reprojGapM * 0.15;
           }
         }

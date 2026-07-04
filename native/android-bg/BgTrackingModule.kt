@@ -120,11 +120,11 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
       .emit(EVENT_STOP, payload)
   }
 
-  private fun emitLocationEvent(location: Location, mode: String) {
+  private fun emitLocationEvent(location: Location, mode: String, source: String, isSeed: Boolean) {
     if (!reactContext.hasActiveReactInstance()) return
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      .emit(EVENT_LOCATION, locationToMap(location, mode))
+      .emit(EVENT_LOCATION, locationToMap(location, mode, source, isSeed))
   }
 
   companion object {
@@ -147,13 +147,13 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
       instance?.emitStopEvent(reason)
     }
 
-    fun emitLocation(location: Location, mode: String) {
-      instance?.emitLocationEvent(location, mode)
+    fun emitLocation(location: Location, mode: String, source: String = "live", isSeed: Boolean = false) {
+      instance?.emitLocationEvent(location, mode, source, isSeed)
     }
   }
 }
 
-private fun locationToMap(location: Location, mode: String): WritableMap =
+private fun locationToMap(location: Location, mode: String, source: String, isSeed: Boolean): WritableMap =
   Arguments.createMap().apply {
     putDouble("latitude", location.latitude)
     putDouble("longitude", location.longitude)
@@ -162,6 +162,10 @@ private fun locationToMap(location: Location, mode: String): WritableMap =
     if (location.hasAccuracy()) putDouble("accuracy", location.accuracy.toDouble()) else putNull("accuracy")
     putDouble("timestamp", (if (location.time > 0) location.time else System.currentTimeMillis()).toDouble())
     putString("mode", mode)
+    putString("source", source)
+    putDouble("receivedAt", System.currentTimeMillis().toDouble())
+    putDouble("elapsedRealtimeNanos", location.elapsedRealtimeNanos.toDouble())
+    putBoolean("isSeed", isSeed)
   }
 
 private fun jsonToWritableMap(json: JSONObject): WritableMap {

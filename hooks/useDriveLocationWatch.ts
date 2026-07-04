@@ -65,6 +65,7 @@ export {
 
 const LAST_GOOD_STALE_RESET_MS = 45000;
 const GPS_DEBUG_LOGS = false;
+const GPS_RESUME_TRACE_LOGS = true;
 const DERIVED_SPEED_MIN_DT_MS = 900;
 const DERIVED_SPEED_MIN_EMIT_KMH = 2;
 /** Mniej callbacków onLocation na main thread (UI freeze przy 20–30 ms). */
@@ -115,8 +116,12 @@ function buildWatchOptions(profile: GpsProfile): Location.LocationOptions {
     distanceInterval: cfg.distanceInterval,
   };
   if ((profile === 'activeDrive' || profile === 'activeNav') && Platform.OS === 'ios') {
-    opts.activityType = Location.ActivityType.AutomotiveNavigation;
-    opts.pausesUpdatesAutomatically = false;
+    const iosOpts = opts as Location.LocationOptions & {
+      activityType?: Location.ActivityType;
+      pausesUpdatesAutomatically?: boolean;
+    };
+    iosOpts.activityType = Location.ActivityType.AutomotiveNavigation;
+    iosOpts.pausesUpdatesAutomatically = false;
   }
   return opts;
 }
@@ -175,6 +180,7 @@ export function useDriveLocationWatch({
   const mapFocusedRef = useRef(isMapFocused);
   const forceActiveRef = useRef(forceActive);
   const lockRef = useRef<GpsLockState>(createGpsLockState());
+  const lastTraceLogAtRef = useRef(0);
 
   const lastGoodRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const consecutiveBadRef = useRef(0);
@@ -183,6 +189,18 @@ export function useDriveLocationWatch({
   const restartAttemptRef = useRef(0);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const opSeqRef = useRef(0);
+
+  const traceGps = useCallback((
+    tag: string,
+    payload: Record<string, unknown> = {},
+    throttleMs = 0,
+  ) => {
+    if (!GPS_RESUME_TRACE_LOGS || !__DEV__) return;
+    const now = Date.now();
+    if (throttleMs > 0 && now - lastTraceLogAtRef.current < throttleMs) return;
+    lastTraceLogAtRef.current = now;
+    console.log(`[GPSDBG] ${tag}`, JSON.stringify({ at: now, ...payload }));
+  }, []);
   const lastEmitRef = useRef<{
     at: number;
     lat: number;
@@ -340,6 +358,16 @@ export function useDriveLocationWatch({
       resetGpsLockState(lockRef.current);
       applyLockState(false);
     }
+    traceGps('GPS_SUBSCRIBE_START', {
+      profile,
+      reason,
+      resetLock,
+      currentLock: lockRef.current.established,
+      mapFocused: mapFocusedRef.current,
+      driving: drivingRef.current,
+      navigating: navRef.current,
+      forceActive: forceActiveRef.current,
+    }, 0);
     if (lastGoodRef.current && Date.now() - lastGoodRef.current.time > LAST_GOOD_STALE_RESET_MS) {
       lastGoodRef.current = null;
     }
@@ -354,6 +382,12 @@ export function useDriveLocationWatch({
             const rawLng = loc.coords.longitude;
             const acc = loc.coords.accuracy ?? 999;
             if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || !Number.isFinite(acc)) {
+              traceGps('GPS_WATCH_REJECT_INVALID', {
+                profile: profileRef.current,
+                lat: rawLat,
+                lng: rawLng,
+                acc,
+              }, 0);
               return;
             }
 
@@ -362,6 +396,13 @@ export function useDriveLocationWatch({
               const justLocked = updateGpsLock(lockRef.current, acc, now);
               if (justLocked) applyLockState(true);
               if (!shouldEmitLocationFix(lockRef.current, acc)) {
+                traceGps('GPS_WATCH_REJECT_PRELOCK', {
+                  profile: profileRef.current,
+                  accM: Math.round(acc),
+                  lockEstablished: lockRef.current.established,
+                  lat: Number(rawLat.toFixed(6)),
+                  lng: Number(rawLng.toFixed(6)),
+                }, 500);
                 void logTelemetry('GPS_REJECT_PRELOCK_ACCURACY', {
                   acc: Math.round(acc),
                   lat: Number(rawLat.toFixed(6)),
@@ -439,6 +480,12 @@ export function useDriveLocationWatch({
 
             if (activeMode) {
               if (acc > MAX_ACCURACY_ACTIVE_HARD_M) {
+                traceGps('GPS_WATCH_REJECT_ACTIVE_ACCURACY', {
+                  profile: profileRef.current,
+                  accM: Math.round(acc),
+                  maxAcc: MAX_ACCURACY_ACTIVE_HARD_M,
+                  lockEstablished: lockRef.current.established,
+                }, 500);
                 void logTelemetry('GPS_REJECT_ACCURACY_ACTIVE', {
                   acc: Math.round(acc),
                   maxAcc: MAX_ACCURACY_ACTIVE_HARD_M,
@@ -453,6 +500,13 @@ export function useDriveLocationWatch({
                   haversineKm(lastGoodRef.current.lat, lastGoodRef.current.lng, rawLat, rawLng)
                   * 1000;
                 if (isActiveLayerATeleport(distM, dtMs)) {
+                  traceGps('GPS_WATCH_REJECT_ACTIVE_TELEPORT', {
+                    profile: profileRef.current,
+                    distM: Math.round(distM),
+                    dtMs,
+                    accM: Math.round(acc),
+                    speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                  }, 500);
                   void logTelemetry('GPS_REJECT_ACTIVE_TELEPORT', {
                     distM: Math.round(distM),
                     dtMs,
@@ -462,6 +516,11 @@ export function useDriveLocationWatch({
                 }
               }
             } else if (acc > MAX_ACCURACY_BROWSING_M && effectiveSpeedKmh < 3) {
+              traceGps('GPS_WATCH_REJECT_BROWSING_ACCURACY', {
+                profile: profileRef.current,
+                accM: Math.round(acc),
+                speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+              }, 500);
               void logTelemetry('GPS_REJECT_ACCURACY_BROWSING', {
                 acc: Math.round(acc),
                 maxAcc: MAX_ACCURACY_BROWSING_M,
@@ -487,6 +546,14 @@ export function useDriveLocationWatch({
                 if (GPS_DEBUG_LOGS) {
                   console.warn(`[GPS] Hard teleport reject: ${Math.round(distM)}m > ${Math.round(hardTeleportM)}m`);
                 }
+                traceGps('GPS_WATCH_REJECT_HARD_TELEPORT', {
+                  profile: profileRef.current,
+                  distM: Math.round(distM),
+                  hardTeleportM: Math.round(hardTeleportM),
+                  dtMs,
+                  accM: Math.round(acc),
+                  speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                }, 500);
                 void logTelemetry('GPS_REJECT_HARD_TELEPORT', {
                   distM: Math.round(distM),
                   hardTeleportM: Math.round(hardTeleportM),
@@ -509,6 +576,14 @@ export function useDriveLocationWatch({
               accuracy: acc,
               timestamp: loc.timestamp ?? now,
             });
+            traceGps('GPS_WATCH_ACCEPT', {
+              profile: profileRef.current,
+              accM: Math.round(acc),
+              speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+              lockEstablished: lockRef.current.established,
+              lat: Number(rawLat.toFixed(6)),
+              lng: Number(rawLng.toFixed(6)),
+            }, 1000);
             void logTelemetry('GPS_ACCEPT', {
               lat: Number(rawLat.toFixed(6)),
               lng: Number(rawLng.toFixed(6)),
@@ -548,10 +623,21 @@ export function useDriveLocationWatch({
       profileRef.current = profile;
       lastValidFixAtRef.current = Date.now();
       restartAttemptRef.current = 0;
+      traceGps('GPS_SUBSCRIBE_OK', {
+        profile,
+        reason,
+        resetLock,
+        lockEstablished: lockRef.current.established,
+      }, 0);
       if (__DEV__ && reason !== 'subscribe') {
         console.log('[GPSDBG] watch subscribed', JSON.stringify({ profile, reason }));
       }
     } catch (e) {
+      traceGps('GPS_SUBSCRIBE_FAIL', {
+        profile,
+        reason,
+        message: e instanceof Error ? e.message : String(e),
+      }, 0);
       console.warn('useDriveLocationWatch subscribe error:', e);
       if (isActiveGpsProfile(profile)) {
         applyLockState(false);
@@ -565,6 +651,7 @@ export function useDriveLocationWatch({
     forceResubscribe,
     markValidFix,
     scheduleRestart,
+    traceGps,
   ]);
 
   subscribeRef.current = subscribe;
