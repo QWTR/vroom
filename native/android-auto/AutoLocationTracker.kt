@@ -116,6 +116,7 @@ object AutoLocationTracker {
         latestHeading = heading
 
         AutoNavStore.onNativeLocationUpdate(context, lat, lng, speedMs, heading)
+        AutoNavStore.refreshFromBackendIfNeeded(context)
         NativeRoadMatcher.ingest(location, speedMs * 3.6)
         val roadPose = NativeRoadMatcher.snapToRoad(
             lat,

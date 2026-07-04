@@ -19,7 +19,6 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.view.Choreographer
 import android.widget.FrameLayout
 import androidx.car.app.CarContext
 import androidx.car.app.ScreenManager
@@ -69,8 +68,6 @@ import kotlin.math.sin
 
 private const val MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
 private const val MAPBOX_NAV_STYLE = "mapbox://styles/mapbox/navigation-night-v1"
-private const val DEFAULT_LAT = 52.2297
-private const val DEFAULT_LNG = 21.0122
 private const val EARTH_RADIUS_M = 6_371_000.0
 private const val AUTO_OSRM_BASE = "https://v-room.app/osrm"
 
@@ -106,11 +103,6 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var lockedUiArea: Rect? = null
     private var latestPayload: VroomPayload? = null
     private var userBrowsing = false
-    private var lastCameraLat = Double.NaN
-    private var lastCameraLng = Double.NaN
-    private var lastCameraZoom = 16.85
-    private var lastCameraBearing = 0.0
-    private var lastCameraPitch = 48.0
     private var stableCameraSpeedKmh = 0.0
     private var stableCameraZoom = 16.85
     private var lastZoomUpdateAt = 0L
@@ -127,6 +119,11 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var routeAnnotationManager: PolylineAnnotationManager? = null
     private var routeAnnotationSignature = ""
     private var poseTickActive = false
+    @Volatile private var hudUiScale = 1f
+    private var lastHudInsets: AutoHudInsets? = null
+    private var lastViewportKey: String = ""
+    private var surfaceWidth = 800
+    private var surfaceHeight = 480
     private val poseTickRunnable = object : Runnable {
         override fun run() {
             if (mapView == null || overlay == null) {
@@ -180,7 +177,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
-        val normalizedTop = kotlin.math.min(
+        val normalizedTop = min(
             visibleArea.top,
             (visibleArea.bottom * 0.13f).toInt()
         )
@@ -212,6 +209,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     fun updateMapWithPayload(payload: VroomPayload) {
         latestPayload = payload
         mainHandler.post { updateMap() }
+    }
+
+    fun resyncMapMarkers() {
+        mainHandler.post {
+            mapMarkerSignature = ""
+            syncMapAnnotations(latestPayload, force = true)
+        }
     }
 
     fun updateNativeLocation(lat: Double, lng: Double, speedMs: Double, heading: Double) {
@@ -278,7 +282,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     override fun onScroll(distanceX: Float, distanceY: Float) {
         mainHandler.post {
             markUserBrowsing()
-            val map = mapView?.getMapboxMap() ?: return@post
+            val map = mapView?.mapboxMap ?: return@post
             val center = map.cameraState.center
             val screen = map.pixelForCoordinate(center)
             val next = map.coordinateForPixel(
@@ -292,7 +296,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
         mainHandler.post {
             markUserBrowsing()
-            val map = mapView?.getMapboxMap() ?: return@post
+            val map = mapView?.mapboxMap ?: return@post
             val zoom = (map.cameraState.zoom + kotlin.math.log(scaleFactor.toDouble(), 2.0)).coerceIn(4.0, 20.0)
             map.setCamera(CameraOptions.Builder().zoom(zoom).build())
             overlay?.postInvalidateOnAnimation()
@@ -312,6 +316,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private fun createMapPresentation(surfaceContainer: SurfaceContainer) {
         val surface = surfaceContainer.surface ?: return
         if (!surface.isValid || surfaceContainer.width <= 0 || surfaceContainer.height <= 0) return
+        surfaceWidth = surfaceContainer.width
+        surfaceHeight = surfaceContainer.height
 
         MapboxOptions.accessToken = MAPBOX_ACCESS_TOKEN
 
@@ -343,8 +349,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         nextMapView.attribution.updateSettings { enabled = false }
         nextMapView.compass.updateSettings { enabled = false }
         nextMapView.scalebar.updateSettings { enabled = false }
-        nextMapView.getMapboxMap().loadStyleUri(MAPBOX_NAV_STYLE)
-        nextMapView.onStart()
+        nextMapView.mapboxMap.loadStyle(MAPBOX_NAV_STYLE)
         nextMapView.location.setLocationProvider(snappedLocationProvider)
         nextMapView.location.updateSettings {
             enabled = true
@@ -359,6 +364,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         }
         mapMarkerAnnotationManager = nextMapView.annotations.createPointAnnotationManager().apply {
             iconRotationAlignment = IconRotationAlignment.VIEWPORT
+            iconAllowOverlap = true
+            iconIgnorePlacement = true
         }
         routeAnnotationManager = nextMapView.annotations.createPolylineAnnotationManager()
 
@@ -373,6 +380,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             visibleArea = this@VroomMapSurfaceRenderer.visibleArea
             renderedPoseListener = { lat, lng, heading, _ ->
                 snappedLocationProvider.update(lat, lng, heading)
+            }
+            hudInsetsListener = { insets, scale ->
+                applyHudInsetsFromOverlay(insets, scale)
             }
         }
         root.addView(nextOverlay, params)
@@ -391,7 +401,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
 
     private fun updateMap(forceFollow: Boolean = false) {
         val payload = latestPayload
-        val map = mapView?.getMapboxMap() ?: return
+        val map = mapView?.mapboxMap ?: return
         overlay?.applyPayload(payload)
         syncRouteAnnotation(payload)
         syncMapAnnotations(payload)
@@ -403,19 +413,20 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         if (routePreviewActive) {
             mapView?.viewport?.idle()
             followViewportActive = false
-            routePreviewCamera(payload!!.routePoints)?.let { preview ->
+            routePreviewCamera(payload.routePoints)?.let { preview ->
+                val insets = lastHudInsets ?: AutoHudInsets(30.0, 24.0, 30.0, 24.0)
                 map.setCamera(
                     CameraOptions.Builder()
                         .center(Point.fromLngLat(preview.first.lng, preview.first.lat))
                         .zoom(preview.second)
                         .pitch(38.0)
                         .bearing(0.0)
-                        .padding(EdgeInsets(30.0, 24.0, 30.0, 24.0))
+                        .padding(EdgeInsets(insets.top, insets.left, insets.bottom, insets.right))
                         .build()
                 )
             }
         } else if (forceFollow || !userBrowsing) {
-            activateFollowPuck()
+            activateFollowPuck(force = forceFollow)
         }
 
         overlay?.followMode = !userBrowsing || forceFollow
@@ -440,24 +451,68 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         val dLng = Math.toRadians(toLng - fromLng)
         val a = kotlin.math.sin(dLat / 2.0) * kotlin.math.sin(dLat / 2.0) +
             cos(lat1) * cos(lat2) * kotlin.math.sin(dLng / 2.0) * kotlin.math.sin(dLng / 2.0)
-        return EARTH_RADIUS_M * 2.0 * kotlin.math.atan2(Math.sqrt(a.coerceIn(0.0, 1.0)), Math.sqrt(1.0 - a.coerceIn(0.0, 1.0)))
+        return EARTH_RADIUS_M * 2.0 * kotlin.math.atan2(kotlin.math.sqrt(a.coerceIn(0.0, 1.0)), kotlin.math.sqrt(1.0 - a.coerceIn(0.0, 1.0)))
     }
 
-    private fun activateFollowPuck() {
+    private fun activateFollowPuck(force: Boolean = false) {
         val viewport = mapView?.viewport ?: return
         val navigating = latestPayload?.isNavigating == true
         val mode = if (navigating) "navigation" else "free-drive"
-        if (followViewportActive && followViewportMode == mode) return
+        val insets = lastHudInsets ?: AutoHudInsets(
+            if (navigating) 160.0 else 140.0,
+            24.0,
+            36.0,
+            24.0,
+        )
+        val speedKmh = latestPayload?.mapState?.speedKmh
+            ?: ((latestPayload?.speed ?: 0.0) * 3.6)
+        var zoom = stableDynamicZoom(speedKmh, navigating)
+        val mapWidth = (visibleArea?.width() ?: surfaceWidth).toDouble().coerceAtLeast(480.0)
+        if (mapWidth > 900.0) {
+            zoom += ((mapWidth - 900.0) / 900.0 * 0.5).coerceAtMost(0.75)
+        }
+        if (!navigating) {
+            zoom = zoom.coerceAtLeast(17.55)
+        }
+        val viewportKey = buildString {
+            append(mode).append(':')
+            append(String.format(java.util.Locale.US, "%.2f", zoom)).append(':')
+            append(insets.top.toInt()).append(':')
+            append(insets.left.toInt()).append(':')
+            append(insets.bottom.toInt()).append(':')
+            append(insets.right.toInt())
+        }
+        if (followViewportActive && followViewportMode == mode && viewportKey == lastViewportKey && !force) return
         val options = FollowPuckViewportStateOptions.Builder()
             .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck)
-            .zoom(if (navigating) 16.55 else 16.85)
-            .pitch(if (navigating) 56.0 else 50.0)
-            .padding(EdgeInsets(if (navigating) 218.0 else 190.0, 28.0, 44.0, 28.0))
+            .zoom(zoom)
+            .pitch(if (navigating) 56.0 else 48.0)
+            .padding(EdgeInsets(insets.top, insets.left, insets.bottom, insets.right))
             .build()
         followViewportMode = mode
         followViewportActive = true
+        lastViewportKey = viewportKey
         viewport.transitionTo(viewport.makeFollowPuckViewportState(options))
     }
+
+    private fun applyHudInsetsFromOverlay(insets: AutoHudInsets, uiScale: Float) {
+        val scaleChanged = kotlin.math.abs(hudUiScale - uiScale) > 0.04f
+        val insetsChanged = lastHudInsets?.nearlyEquals(insets) != true
+        if (!scaleChanged && !insetsChanged) return
+        hudUiScale = uiScale
+        lastHudInsets = insets
+        if (scaleChanged) {
+            markerBitmapCache.clear()
+            mapMarkerSignature = ""
+            syncMapAnnotations(latestPayload, force = true)
+            syncRouteAnnotation(latestPayload)
+        }
+        followViewportActive = false
+        mainHandler.post { activateFollowPuck(force = true) }
+    }
+
+    private fun markerDim(base: Int): Int = (base * hudUiScale).toInt().coerceIn(base, (base * 1.55f).toInt())
+    private fun markerScaleKey(): String = String.format(java.util.Locale.US, "%.2f", hudUiScale)
 
     private fun syncMapAnnotations(payload: VroomPayload?, force: Boolean = false) {
         val manager = mapMarkerAnnotationManager ?: return
@@ -467,12 +522,28 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             return
         }
         val users = if (payload.mapState.showUsers && AutoNavStore.showUsersLayer(carContext)) payload.users.take(40) else emptyList()
-        val fuelStations = if (payload.mapState.showFuelStations && AutoNavStore.showFuelLayer(carContext)) payload.fuelStations.take(40) else emptyList()
-        val speedCameras = if (payload.mapState.showSpeedCameras && AutoNavStore.showSpeedCamerasLayer(carContext)) payload.speedCameras.take(40) else emptyList()
-        val partnerPois = if (payload.mapState.showPartnerPois) payload.partnerPois.take(40) else emptyList()
+        val fuelStations = resolvedPoiMarkers(
+            payload.fuelStations,
+            payload.mapState.showFuelStations && AutoNavStore.showFuelLayer(carContext),
+            "fuelStations",
+            "fuel",
+        )
+        val speedCameras = resolvedPoiMarkers(
+            payload.speedCameras,
+            payload.mapState.showSpeedCameras && AutoNavStore.showSpeedCamerasLayer(carContext),
+            "speedCameras",
+            "camera",
+        )
+        val partnerPois = resolvedPoiMarkers(
+            payload.partnerPois,
+            payload.mapState.showPartnerPois,
+            "partnerPois",
+            "partner",
+        )
         val warnings = if (payload.mapState.showWarnings && AutoNavStore.showWarningsLayer(carContext)) payload.warnings.take(42) else emptyList()
         val geoDrops = payload.mapState.geoDrops.take(40)
         val signature = buildString {
+            append("scale:").append(markerScaleKey()).append('|')
             users.forEach { append("u:").append(it.id).append(':').append(it.lat).append(':').append(it.lng).append(':').append(it.label).append(':').append(it.avatarUrl).append(':').append(it.avatarFrameUrl).append(':').append(it.distanceLabel).append(':').append(it.isPremium).append(':').append(it.isFriend).append(':').append(it.markerSpriteUri).append(':').append(it.vehicleModelUrl).append('|') }
             fuelStations.forEach { append("f:").append(it.id).append(':').append(it.lat).append(':').append(it.lng).append(':').append(it.label).append(':').append(it.value).append(':').append(it.logoUrl).append(':').append(it.spriteUri).append('|') }
             speedCameras.forEach { append("c:").append(it.id).append(':').append(it.lat).append(':').append(it.lng).append(':').append(it.value).append(':').append(it.spriteUri).append('|') }
@@ -510,7 +581,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             routeAnnotationSignature = ""
             return
         }
-        val points = payload!!.routePoints
+        val points = payload.routePoints
         val signature = buildString {
             append(payload.isNavigating).append(':').append(payload.mapState.routePreview).append(':')
             points.forEach { append(it.lat).append(',').append(it.lng).append(';') }
@@ -522,15 +593,43 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             PolylineAnnotationOptions()
                 .withPoints(points.map { Point.fromLngLat(it.lng, it.lat) })
                 .withLineColor(if (payload.isNavigating) Color.rgb(36, 202, 255) else Color.rgb(114, 225, 255))
-                .withLineWidth(9.0)
+                .withLineWidth(9.0 * hudUiScale)
                 .withLineBorderColor(if (payload.isNavigating) Color.rgb(13, 25, 38) else Color.rgb(18, 24, 34))
-                .withLineBorderWidth(3.5)
+                .withLineBorderWidth(3.5 * hudUiScale)
         )
+    }
+
+    private fun resolvedPoiMarkers(
+        fromPayload: List<AutoPoiMarker>,
+        enabled: Boolean,
+        mapStateKey: String,
+        fallbackType: String,
+    ): List<AutoPoiMarker> {
+        if (!enabled) return emptyList()
+        if (fromPayload.isNotEmpty()) return fromPayload.take(40)
+        return nativeCachedPoiMarkers(mapStateKey, fallbackType).take(40)
+    }
+
+    private fun nativeCachedPoiMarkers(mapStateKey: String, fallbackType: String): List<AutoPoiMarker> {
+        val cached = AutoNavStore.cachedMapState?.optJSONArray(mapStateKey)
+            ?: runCatching {
+                JSONObject(
+                    carContext.getSharedPreferences("vroom_auto_nav", Context.MODE_PRIVATE)
+                        .getString("map_state", "{}") ?: "{}",
+                ).optJSONArray(mapStateKey)
+            }.getOrNull()
+            ?: return emptyList()
+        return VroomPayloadParser.parsePoiMarkersPublic(cached, fallbackType)
     }
 
     private fun createMapAnnotation(manager: PointAnnotationManager, lat: Double, lng: Double, bitmap: Bitmap) {
         if (!lat.isFinite() || !lng.isFinite()) return
-        manager.create(PointAnnotationOptions().withPoint(Point.fromLngLat(lng, lat)).withIconImage(bitmap).withIconSize(1.0))
+        manager.create(
+            PointAnnotationOptions()
+                .withPoint(Point.fromLngLat(lng, lat))
+                .withIconImage(bitmap)
+                .withIconSize(1.0),
+        )
     }
 
     private enum class PoiMarkerKind { FUEL, CAMERA, PARTNER }
@@ -544,10 +643,15 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         }
         val avatar = remoteMarkerBitmap(marker.avatarUrl)
         val frame = remoteMarkerBitmap(marker.avatarFrameUrl)
-        val key = "user:${marker.id}:${marker.label}:${marker.distanceLabel}:$accent:${avatar != null}:${frame != null}"
+        val key = "user:${markerScaleKey()}:${marker.id}:${marker.label}:${marker.distanceLabel}:$accent:${avatar != null}:${frame != null}"
         return markerBitmapCache.getOrPut(key) {
-            val bitmap = Bitmap.createBitmap(124, 120, Bitmap.Config.ARGB_8888)
+            val w = markerDim(124)
+            val h = markerDim(120)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
+            val sx = w / 124f
+            val sy = h / 120f
+            canvas.scale(sx, sy)
             val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(232, 17, 17, 17) }
             val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.argb(if (marker.isPremium) 255 else 150, Color.red(accent), Color.green(accent), Color.blue(accent))
@@ -597,10 +701,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             PoiMarkerKind.PARTNER -> parseMarkerColor(marker.accentColor, Color.rgb(255, 215, 0))
         }
         val logo = remoteMarkerBitmap(marker.logoUrl)
-        val key = "poi:$kind:${marker.id}:${marker.label}:${marker.value}:$accent:${logo != null}"
+        val key = "poi:$kind:${markerScaleKey()}:${marker.id}:${marker.label}:${marker.value}:$accent:${logo != null}"
         return markerBitmapCache.getOrPut(key) {
-            val bitmap = Bitmap.createBitmap(96, 92, Bitmap.Config.ARGB_8888)
+            val w = markerDim(96)
+            val h = markerDim(92)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
+            canvas.scale(w / 96f, h / 92f)
             val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(18, 24, 32) }
             val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; style = Paint.Style.STROKE; strokeWidth = 2f }
             val body = RectF(7f, 2f, 89f, 78f)
@@ -630,9 +737,12 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
 
     private fun warningMarkerBitmap(marker: WarningMarker): Bitmap {
         val accent = when (marker.type) { "traffic" -> Color.rgb(255, 107, 107); "weather" -> Color.rgb(255, 212, 59); "accident" -> Color.rgb(255, 146, 43); "speed_control" -> Color.rgb(5, 53, 247); else -> Color.rgb(232, 154, 54) }
-        val key = "warning:${marker.type}:${marker.count}:$accent"
+        val key = "warning:${markerScaleKey()}:${marker.type}:${marker.count}:$accent"
         return markerBitmapCache.getOrPut(key) {
-            val bitmap = Bitmap.createBitmap(56, 58, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap)
+            val w = markerDim(56)
+            val h = markerDim(58)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap)
+            canvas.scale(w / 56f, h / 58f)
             val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
             canvas.drawPath(Path().apply { moveTo(28f, 3f); lineTo(3f, 48f); lineTo(53f, 48f); close() }, fill)
             canvas.drawText("!", 28f, 41f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true; textSize = 27f })
@@ -642,10 +752,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
 
     private fun dropMarkerBitmap(marker: AutoGeoDrop): Bitmap {
         remoteMarkerBitmap(marker.spriteUri)?.let { return it }
-        val key = "drop:${marker.id}:${marker.status}"
+        val key = "drop:${markerScaleKey()}:${marker.id}:${marker.status}"
         return markerBitmapCache.getOrPut(key) {
-            val bitmap = Bitmap.createBitmap(76, 84, Bitmap.Config.ARGB_8888)
+            val w = markerDim(76)
+            val h = markerDim(84)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
+            canvas.scale(w / 76f, h / 84f)
             val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(12, 13, 18) }
             val gold = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 215, 0); style = Paint.Style.STROKE; strokeWidth = 3f }
             val red = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(227, 56, 53); style = Paint.Style.FILL }
@@ -664,8 +777,11 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         }
     }
 
-    private fun destinationMarkerBitmap(): Bitmap = markerBitmapCache.getOrPut("destination") {
-        val bitmap = Bitmap.createBitmap(52, 58, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap)
+    private fun destinationMarkerBitmap(): Bitmap = markerBitmapCache.getOrPut("destination:${markerScaleKey()}") {
+        val w = markerDim(52)
+        val h = markerDim(58)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap)
+        canvas.scale(w / 52f, h / 58f)
         val red = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(227, 56, 53) }
         canvas.drawCircle(26f, 24f, 21f, red); canvas.drawCircle(26f, 24f, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
         canvas.drawPath(Path().apply { moveTo(18f, 41f); lineTo(34f, 41f); lineTo(26f, 56f); close() }, red)
@@ -874,6 +990,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var payload: VroomPayload? = null
     var mapView: MapView? = null
     var visibleArea: Rect? = null
+    var hudInsetsListener: ((AutoHudInsets, Float) -> Unit)? = null
     var followMode: Boolean = true
     var renderedPoseListener: ((Double, Double, Double, Double) -> Unit)? = null
     private var uiMode = AutoUiMode.FREE_DRIVE
@@ -897,7 +1014,6 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var targetSpeedKmh = 0.0
     private var lastTargetAt = 0L
     private var lastFrameAtNs = 0L
-    private var frameLoopScheduled = false
     private var lastRerouteCheckAt = 0L
     private var routeCursorSignature = 0
     private var routeCursorArcM = Double.NaN
@@ -1003,7 +1119,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
 
             if (routeLocked && next.userLat != null && next.userLng != null) {
                 updateRouteTarget(
-                    roadPoints!!,
+                    roadPoints,
                     next.userLat,
                     next.userLng,
                     targetSpeedKmh,
@@ -1947,186 +2063,198 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private fun drawHud(canvas: Canvas, snap: VroomPayload?) {
         hitRects.clear()
         val safe = visibleArea ?: Rect(0, 0, canvas.width, canvas.height)
-        val top = safe.top + 14f
-        val bottom = safe.bottom - 14f
+        val m = AutoHudMetrics.fromVisibleArea(safe, canvas.width, canvas.height)
+        val top = m.contentTop()
+        val bottom = m.contentBottom()
+        strokePaint.strokeWidth = m.s(2.4f)
+        var topPanelBottom = top
+        var layoutMode = AutoHudLayoutMode.FREE_DRIVE
 
         when (uiMode) {
             AutoUiMode.SEARCH_RESULTS -> {
-                drawSearchOverlay(canvas, top, bottom)
-                drawToast(canvas)
+                layoutMode = AutoHudLayoutMode.SEARCH
+                val panel = drawSearchOverlay(canvas, m, top, bottom)
+                topPanelBottom = panel.bottom
+                drawToast(canvas, m)
+                reportHudInsets(m, layoutMode, topPanelBottom, m.speedPanelRect(bottom), m.recenterRect(bottom).left)
                 return
             }
             AutoUiMode.REPORT_MENU -> {
-                drawReportOverlay(canvas, top, bottom)
-                drawToast(canvas)
+                layoutMode = AutoHudLayoutMode.REPORT
+                val panel = drawReportOverlay(canvas, m, top, bottom)
+                topPanelBottom = panel.bottom
+                drawToast(canvas, m)
+                reportHudInsets(m, layoutMode, topPanelBottom, m.speedPanelRect(bottom), m.recenterRect(bottom).left)
                 return
             }
             AutoUiMode.LOADING -> {
-                drawLoadingOverlay(canvas, "Wyznaczam trase...")
-                drawToast(canvas)
+                layoutMode = AutoHudLayoutMode.LOADING
+                drawLoadingOverlay(canvas, m, "Wyznaczam trase...")
+                drawToast(canvas, m)
+                reportHudInsets(m, layoutMode, top + m.s(120f), m.speedPanelRect(bottom), m.recenterRect(bottom).left)
                 return
             }
             else -> {
                 if (snap?.mapState?.routePreview == true && snap.isNavigating.not()) {
-                    drawRoutePreviewPanel(canvas, snap, top, bottom)
+                    layoutMode = AutoHudLayoutMode.ROUTE_PREVIEW
+                    val panel = drawRoutePreviewPanel(canvas, m, snap, top, bottom)
+                    topPanelBottom = panel.bottom
                 } else if (snap?.isNavigating == true) {
-                    drawNavigationTopBar(canvas, snap, top)
+                    layoutMode = AutoHudLayoutMode.NAVIGATING
+                    val panel = drawNavigationTopBar(canvas, m, snap, top)
+                    topPanelBottom = panel.bottom
                 } else {
-                    val searchLeft = 24f
-                    val searchTop = (top - 18f).coerceAtLeast(8f)
-                    val searchRight = (searchLeft + 468f)
-                        .coerceAtMost(canvas.width.toFloat() - 210f)
-                        .coerceAtLeast(searchLeft + 360f)
-                    val search = RectF(searchLeft, searchTop, searchRight, searchTop + 54f)
+                    layoutMode = AutoHudLayoutMode.FREE_DRIVE
+                    val search = m.searchBarRect(top)
                     hitRects["search"] = search
                     panelPaint.color = Color.argb(232, 10, 10, 12)
                     strokePaint.color = Color.argb(190, 227, 56, 53)
-                    canvas.drawRoundRect(search, 29f, 29f, panelPaint)
-                    canvas.drawRoundRect(search, 29f, 29f, strokePaint)
+                    canvas.drawRoundRect(search, m.s(29f), m.s(29f), panelPaint)
+                    canvas.drawRoundRect(search, m.s(29f), m.s(29f), strokePaint)
                     smallText.textAlign = Paint.Align.LEFT
-                    smallText.textSize = 22f
+                    smallText.textSize = m.ts(22f)
                     smallText.color = Color.argb(210, 255, 255, 255)
-                    canvas.drawText("Wyszukaj adres lub miejsce...", search.left + 62f, search.centerY() + 8f, smallText)
-                    drawSearchIcon(canvas, search.left + 32f, search.centerY())
+                    canvas.drawText("Wyszukaj adres lub miejsce...", search.left + m.s(62f), search.centerY() + m.s(8f), smallText)
+                    drawSearchIcon(canvas, search.left + m.s(32f), search.centerY(), m.uiScale)
+                    topPanelBottom = search.bottom
                 }
             }
         }
 
-        val speedRect = RectF(24f, bottom - 136f, 128f, bottom - 4f)
+        val speedRect = m.speedPanelRect(bottom)
         panelPaint.color = Color.argb(235, 8, 8, 10)
-        canvas.drawRoundRect(speedRect, 18f, 18f, panelPaint)
-        textPaint.textSize = 46f
+        canvas.drawRoundRect(speedRect, m.s(18f), m.s(18f), panelPaint)
+        textPaint.textSize = m.ts(46f)
         textPaint.color = Color.WHITE
-        canvas.drawText(Math.round(displayedSpeedKmh.coerceAtLeast(0.0)).toString(), speedRect.centerX(), speedRect.top + 88f, textPaint)
+        canvas.drawText(Math.round(displayedSpeedKmh.coerceAtLeast(0.0)).toString(), speedRect.centerX(), speedRect.top + m.s(88f), textPaint)
         smallText.textAlign = Paint.Align.CENTER
-        smallText.textSize = 16f
+        smallText.textSize = m.ts(16f)
         smallText.color = Color.rgb(160, 160, 166)
-        canvas.drawText("km/h", speedRect.centerX(), speedRect.top + 116f, smallText)
+        canvas.drawText("km/h", speedRect.centerX(), speedRect.top + m.s(116f), smallText)
         snap?.mapState?.speedLimitKmh?.toInt()?.takeIf { it > 0 }?.let { stickySpeedLimitKmh = it }
         val limitKmh = stickySpeedLimitKmh
         if (limitKmh != null) {
             val overLimit = displayedSpeedKmh > limitKmh + 5.0
-            drawSpeedLimitSign(canvas, speedRect.centerX(), speedRect.top + 30f, 21f, limitKmh, overLimit)
+            drawSpeedLimitSign(canvas, speedRect.centerX(), speedRect.top + m.s(30f), m.s(21f), limitKmh, overLimit)
         }
 
-        drawLiveBadge(canvas, canvas.width.toFloat() - 132f, bottom - 208f)
-        val recenterRect = RectF(canvas.width.toFloat() - 138f, bottom - 150f, canvas.width.toFloat() - 26f, bottom - 96f)
+        val (liveLeft, liveTop) = m.liveBadgePosition(bottom)
+        drawLiveBadge(canvas, m, liveLeft, liveTop)
+        val recenterRect = m.recenterRect(bottom)
         hitRects["recenter"] = recenterRect
-        drawRecenterIconButton(canvas, recenterRect)
-        val reportRect = RectF(canvas.width.toFloat() - 138f, bottom - 84f, canvas.width.toFloat() - 26f, bottom)
+        drawRecenterIconButton(canvas, recenterRect, m.uiScale)
+        val reportRect = m.reportRect(bottom)
         hitRects["report"] = reportRect
-        drawReportButton(canvas, reportRect.left, reportRect.top)
+        drawReportButton(canvas, m, reportRect.left, reportRect.top)
 
-        snap?.mapState?.activeDropPrompt?.let { drawDropPrompt(canvas, it, safe) }
-        drawToast(canvas)
+        snap?.mapState?.activeDropPrompt?.let { drawDropPrompt(canvas, m, it) }
+        drawToast(canvas, m)
+        reportHudInsets(m, layoutMode, topPanelBottom, speedRect, recenterRect.left)
     }
 
-    private fun drawDropPrompt(canvas: Canvas, drop: AutoGeoDrop, safe: Rect) {
-        val width = canvas.width.toFloat()
-        val rect = RectF(
-            (width - 360f).coerceAtLeast(150f),
-            safe.top + 84f,
-            width - 26f,
-            safe.top + 150f
-        )
+    private fun reportHudInsets(
+        m: AutoHudMetrics,
+        mode: AutoHudLayoutMode,
+        topPanelBottom: Float,
+        speedRect: RectF,
+        rightControlLeft: Float,
+    ) {
+        hudInsetsListener?.invoke(m.computeInsets(mode, topPanelBottom, speedRect, rightControlLeft), m.uiScale)
+    }
+
+    private fun drawDropPrompt(canvas: Canvas, m: AutoHudMetrics, drop: AutoGeoDrop) {
+        val rect = m.dropPromptRect()
         panelPaint.color = Color.argb(238, 12, 13, 18)
-        canvas.drawRoundRect(rect, 18f, 18f, panelPaint)
+        canvas.drawRoundRect(rect, m.s(18f), m.s(18f), panelPaint)
         strokePaint.color = Color.rgb(255, 215, 0)
-        canvas.drawRoundRect(rect, 18f, 18f, strokePaint)
-        textPaint.textSize = 19f
+        canvas.drawRoundRect(rect, m.s(18f), m.s(18f), strokePaint)
+        textPaint.textSize = m.ts(19f)
         textPaint.color = Color.WHITE
-        canvas.drawText("Zrzut w poblizu", rect.centerX(), rect.top + 27f, textPaint)
+        canvas.drawText("Zrzut w poblizu", rect.centerX(), rect.top + m.s(27f), textPaint)
         smallText.textAlign = Paint.Align.CENTER
-        smallText.textSize = 14f
+        smallText.textSize = m.ts(14f)
         smallText.color = Color.rgb(255, 215, 0)
-        canvas.drawText(drop.label.take(28), rect.centerX(), rect.top + 50f, smallText)
+        canvas.drawText(drop.label.take(28), rect.centerX(), rect.top + m.s(50f), smallText)
     }
 
-    private fun drawSearchOverlay(canvas: Canvas, top: Float, bottom: Float) {
-        val width = canvas.width.toFloat()
-        val maxBottom = bottom - 18f
+    private fun drawSearchOverlay(canvas: Canvas, m: AutoHudMetrics, top: Float, bottom: Float): RectF {
         val wantsResults = searchLoading || searchResults.isNotEmpty()
-        val desiredHeight = if (wantsResults) 296f else 312f
-        val panel = RectF(
-            18f,
-            top + 4f,
-            width - 18f,
-            (top + 4f + desiredHeight).coerceAtMost(maxBottom)
-        )
+        val panel = m.searchOverlayPanel(top, bottom, wantsResults)
         panelPaint.color = Color.argb(246, 248, 250, 252)
-        canvas.drawRoundRect(panel, 22f, 22f, panelPaint)
+        canvas.drawRoundRect(panel, m.s(22f), m.s(22f), panelPaint)
 
-        val close = RectF(panel.left + 14f, panel.top + 12f, panel.left + 58f, panel.top + 56f)
+        val close = RectF(panel.left + m.s(14f), panel.top + m.s(12f), panel.left + m.s(58f), panel.top + m.s(56f))
         hitRects["search_close"] = close
         textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = 30f
+        textPaint.textSize = m.ts(30f)
         textPaint.color = Color.rgb(38, 42, 48)
-        canvas.drawText("<", close.centerX(), close.centerY() + 10f, textPaint)
+        canvas.drawText("<", close.centerX(), close.centerY() + m.s(10f), textPaint)
 
-        val input = RectF(panel.left + 68f, panel.top + 12f, panel.right - 62f, panel.top + 56f)
+        val input = RectF(panel.left + m.s(68f), panel.top + m.s(12f), panel.right - m.s(62f), panel.top + m.s(56f))
         val inputPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(232, 238, 240)
             style = Paint.Style.FILL
         }
-        canvas.drawRoundRect(input, 22f, 22f, inputPaint)
-        drawSearchIcon(canvas, input.left + 28f, input.centerY())
+        canvas.drawRoundRect(input, m.s(22f), m.s(22f), inputPaint)
+        drawSearchIcon(canvas, input.left + m.s(28f), input.centerY(), m.uiScale)
         smallText.textAlign = Paint.Align.LEFT
-        smallText.textSize = 21f
+        smallText.textSize = m.ts(21f)
         smallText.color = Color.rgb(42, 46, 52)
-        canvas.drawText(searchQuery.ifBlank { "Szukaj w VROOM" }.take(30), input.left + 60f, input.centerY() + 8f, smallText)
+        canvas.drawText(searchQuery.ifBlank { "Szukaj w VROOM" }.take(30), input.left + m.s(60f), input.centerY() + m.s(8f), smallText)
 
-        val submit = RectF(panel.right - 56f, panel.top + 12f, panel.right - 14f, panel.top + 56f)
+        val submit = RectF(panel.right - m.s(56f), panel.top + m.s(12f), panel.right - m.s(14f), panel.top + m.s(56f))
         hitRects["search_submit"] = submit
-        textPaint.textSize = 24f
+        textPaint.textSize = m.ts(24f)
         textPaint.color = Color.rgb(12, 132, 126)
-        canvas.drawText(">", submit.centerX(), submit.centerY() + 8f, textPaint)
+        canvas.drawText(">", submit.centerX(), submit.centerY() + m.s(8f), textPaint)
 
         if (searchQuery.isNotEmpty()) {
-            val clear = RectF(input.right - 42f, input.top + 4f, input.right - 5f, input.bottom - 4f)
+            val clear = RectF(input.right - m.s(42f), input.top + m.s(4f), input.right - m.s(5f), input.bottom - m.s(4f))
             hitRects["search_clear"] = clear
-            textPaint.textSize = 20f
+            textPaint.textSize = m.ts(20f)
             textPaint.color = Color.rgb(92, 96, 104)
-            canvas.drawText("x", clear.centerX(), clear.centerY() + 7f, textPaint)
+            canvas.drawText("x", clear.centerX(), clear.centerY() + m.s(7f), textPaint)
         }
 
-        var y = input.bottom + 14f
+        var y = input.bottom + m.s(14f)
         if (searchLoading) {
             smallText.textAlign = Paint.Align.LEFT
-            smallText.textSize = 23f
+            smallText.textSize = m.ts(23f)
             smallText.color = Color.rgb(32, 36, 42)
-            canvas.drawText("Szukam w poblizu...", panel.left + 28f, y + 36f, smallText)
-            return
+            canvas.drawText("Szukam w poblizu...", panel.left + m.s(28f), y + m.s(36f), smallText)
+            return panel
         }
         if (searchResults.isNotEmpty()) {
+            val rowH = m.s(64f)
             searchResults.take(3).forEachIndexed { index, item ->
-                val row = RectF(panel.left + 22f, y, panel.right - 22f, y + 64f)
+                val row = RectF(panel.left + m.s(22f), y, panel.right - m.s(22f), y + rowH)
                 hitRects["search_result_$index"] = row
                 panelPaint.color = Color.argb(0, 0, 0, 0)
-                canvas.drawRoundRect(row, 14f, 14f, panelPaint)
+                canvas.drawRoundRect(row, m.s(14f), m.s(14f), panelPaint)
                 textPaint.textAlign = Paint.Align.LEFT
-                textPaint.textSize = 24f
+                textPaint.textSize = m.ts(24f)
                 textPaint.color = Color.rgb(24, 28, 34)
-                canvas.drawText(item.name.take(25), row.left + 54f, row.top + 28f, textPaint)
+                canvas.drawText(item.name.take(25), row.left + m.s(54f), row.top + m.s(28f), textPaint)
                 smallText.textAlign = Paint.Align.LEFT
-                smallText.textSize = 16f
+                smallText.textSize = m.ts(16f)
                 smallText.color = Color.rgb(92, 96, 104)
-                canvas.drawText(item.address.take(44), row.left + 54f, row.top + 52f, smallText)
+                canvas.drawText(item.address.take(44), row.left + m.s(54f), row.top + m.s(52f), smallText)
                 smallText.textAlign = Paint.Align.RIGHT
                 smallText.color = Color.rgb(166, 24, 45)
-                canvas.drawText(item.etaText, row.right - 4f, row.top + 31f, smallText)
+                canvas.drawText(item.etaText, row.right - m.s(4f), row.top + m.s(31f), smallText)
                 textPaint.textAlign = Paint.Align.CENTER
-                textPaint.textSize = 19f
+                textPaint.textSize = m.ts(19f)
                 textPaint.color = Color.rgb(12, 132, 126)
-                canvas.drawText("o", row.left + 23f, row.top + 38f, textPaint)
+                canvas.drawText("o", row.left + m.s(23f), row.top + m.s(38f), textPaint)
                 val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.rgb(222, 226, 230)
                     strokeWidth = 1f
                 }
-                canvas.drawLine(row.left + 54f, row.bottom + 1f, row.right, row.bottom + 1f, divider)
-                y += 68f
+                canvas.drawLine(row.left + m.s(54f), row.bottom + 1f, row.right, row.bottom + 1f, divider)
+                y += rowH + m.s(4f)
             }
             textPaint.textAlign = Paint.Align.CENTER
-            return
+            return panel
         }
 
         val cats = listOf(
@@ -2135,73 +2263,72 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             Pair("search_cat_food", "Jedzenie"),
             Pair("search_cat_coffee", "Kawa")
         )
-        val gap = 10f
-        val chipW = ((panel.width() - 44f - gap * 3f) / 4f).coerceAtMost(142f)
-        var x = panel.left + 22f
+        val gap = m.s(10f)
+        val chipW = ((panel.width() - m.s(44f) - gap * 3f) / 4f).coerceAtMost(m.s(142f))
+        var x = panel.left + m.s(22f)
         cats.forEach { cat ->
-            val chip = RectF(x, y, x + chipW, y + 38f)
+            val chip = RectF(x, y, x + chipW, y + m.s(38f))
             hitRects[cat.first] = chip
             panelPaint.color = Color.rgb(232, 238, 238)
-            canvas.drawRoundRect(chip, 19f, 19f, panelPaint)
+            canvas.drawRoundRect(chip, m.s(19f), m.s(19f), panelPaint)
             smallText.textAlign = Paint.Align.CENTER
-            smallText.textSize = 16f
+            smallText.textSize = m.ts(16f)
             smallText.color = Color.rgb(28, 32, 38)
-            canvas.drawText(cat.second, chip.centerX(), chip.centerY() + 6f, smallText)
+            canvas.drawText(cat.second, chip.centerX(), chip.centerY() + m.s(6f), smallText)
             x += chipW + gap
         }
-        y += 50f
+        y += m.s(50f)
 
         val rows = listOf("1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM")
         rows.forEachIndexed { rowIndex, rowText ->
-            val keyW = 34f
-            val keyGap = if (rowIndex == 3) 13f else 20f
+            val keyW = m.s(34f)
+            val keyGap = if (rowIndex == 3) m.s(13f) else m.s(20f)
             val rowWidth = rowText.length * keyW + (rowText.length - 1) * keyGap
             x = panel.centerX() - rowWidth / 2f
             rowText.forEach { ch ->
-                val key = RectF(x, y, x + keyW, y + 30f)
+                val key = RectF(x, y, x + keyW, y + m.s(30f))
                 hitRects["search_key_$ch"] = key
                 textPaint.textAlign = Paint.Align.CENTER
-                textPaint.textSize = 19f
+                textPaint.textSize = m.ts(19f)
                 textPaint.color = Color.rgb(38, 42, 48)
-                canvas.drawText(ch.toString(), key.centerX(), key.centerY() + 7f, textPaint)
+                canvas.drawText(ch.toString(), key.centerX(), key.centerY() + m.s(7f), textPaint)
                 x += keyW + keyGap
             }
             if (rowIndex == 3) {
-                val back = RectF(panel.right - 86f, y - 1f, panel.right - 22f, y + 31f)
+                val back = RectF(panel.right - m.s(86f), y - m.s(1f), panel.right - m.s(22f), y + m.s(31f))
                 hitRects["search_backspace"] = back
                 panelPaint.color = Color.rgb(232, 238, 238)
-                canvas.drawRoundRect(back, 16f, 16f, panelPaint)
-                textPaint.textSize = 18f
+                canvas.drawRoundRect(back, m.s(16f), m.s(16f), panelPaint)
+                textPaint.textSize = m.ts(18f)
                 textPaint.color = Color.rgb(38, 42, 48)
-                canvas.drawText("del", back.centerX(), back.centerY() + 6f, textPaint)
+                canvas.drawText("del", back.centerX(), back.centerY() + m.s(6f), textPaint)
             }
-            y += 35f
+            y += m.s(35f)
         }
-        val space = RectF(panel.centerX() - 120f, y - 1f, panel.centerX() + 120f, y + 27f)
+        val space = RectF(panel.centerX() - m.s(120f), y - m.s(1f), panel.centerX() + m.s(120f), y + m.s(27f))
         hitRects["search_space"] = space
         panelPaint.color = Color.rgb(210, 216, 218)
-        canvas.drawRoundRect(space, 14f, 14f, panelPaint)
+        canvas.drawRoundRect(space, m.s(14f), m.s(14f), panelPaint)
+        return panel
     }
 
-    private fun drawReportOverlay(canvas: Canvas, top: Float, bottom: Float) {
-        val width = canvas.width.toFloat()
-        val panelW = 318f.coerceAtMost(width - 44f)
-        val panel = RectF(width - panelW - 22f, top + 70f, width - 22f, (top + 318f).coerceAtMost(bottom - 18f))
+    private fun drawReportOverlay(canvas: Canvas, m: AutoHudMetrics, top: Float, bottom: Float): RectF {
+        val panel = m.reportOverlayPanel(top, bottom)
         panelPaint.color = Color.argb(246, 8, 8, 10)
         strokePaint.color = Color.argb(150, 227, 56, 53)
-        canvas.drawRoundRect(panel, 22f, 22f, panelPaint)
-        canvas.drawRoundRect(panel, 22f, 22f, strokePaint)
+        canvas.drawRoundRect(panel, m.s(22f), m.s(22f), panelPaint)
+        canvas.drawRoundRect(panel, m.s(22f), m.s(22f), strokePaint)
 
         smallText.textAlign = Paint.Align.LEFT
-        smallText.textSize = 22f
+        smallText.textSize = m.ts(22f)
         smallText.color = Color.WHITE
-        canvas.drawText("Zgloszenie", panel.left + 20f, panel.top + 38f, smallText)
-        val close = RectF(panel.right - 50f, panel.top + 10f, panel.right - 12f, panel.top + 48f)
+        canvas.drawText("Zgloszenie", panel.left + m.s(20f), panel.top + m.s(38f), smallText)
+        val close = RectF(panel.right - m.s(50f), panel.top + m.s(10f), panel.right - m.s(12f), panel.top + m.s(48f))
         hitRects["report_close"] = close
         textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = 22f
+        textPaint.textSize = m.ts(22f)
         textPaint.color = Color.rgb(190, 194, 202)
-        canvas.drawText("x", close.centerX(), close.centerY() + 7f, textPaint)
+        canvas.drawText("x", close.centerX(), close.centerY() + m.s(7f), textPaint)
 
         val reports = listOf(
             Pair("report_type_accident", "Wypadek"),
@@ -2210,173 +2337,175 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             Pair("report_type_weather", "Pogoda"),
             Pair("report_type_car_breakdown", "Awaria")
         )
-        val gap = 10f
-        val cellW = (panel.width() - 50f) / 2f
-        val cellH = 54f
+        val gap = m.s(10f)
+        val cellW = (panel.width() - m.s(50f)) / 2f
+        val cellH = m.s(54f)
         reports.forEachIndexed { index, item ->
             val col = index % 2
             val row = index / 2
-            val left = panel.left + 20f + col * (cellW + gap)
-            val topCell = panel.top + 62f + row * (cellH + gap)
+            val left = panel.left + m.s(20f) + col * (cellW + gap)
+            val topCell = panel.top + m.s(62f) + row * (cellH + gap)
             val rect = RectF(left, topCell, left + cellW, topCell + cellH)
             hitRects[item.first] = rect
             panelPaint.color = Color.argb(238, 20, 22, 28)
-            canvas.drawRoundRect(rect, 16f, 16f, panelPaint)
+            canvas.drawRoundRect(rect, m.s(16f), m.s(16f), panelPaint)
             smallText.textAlign = Paint.Align.CENTER
-            smallText.textSize = 17f
+            smallText.textSize = m.ts(17f)
             smallText.color = Color.WHITE
-            canvas.drawText(item.second, rect.centerX(), rect.centerY() + 6f, smallText)
+            canvas.drawText(item.second, rect.centerX(), rect.centerY() + m.s(6f), smallText)
         }
+        return panel
     }
 
-    private fun drawLoadingOverlay(canvas: Canvas, text: String) {
-        val rect = RectF(canvas.width.toFloat() * 0.5f - 160f, canvas.height.toFloat() * 0.5f - 44f, canvas.width.toFloat() * 0.5f + 160f, canvas.height.toFloat() * 0.5f + 44f)
+    private fun drawLoadingOverlay(canvas: Canvas, m: AutoHudMetrics, text: String) {
+        val rect = m.loadingOverlayRect(canvas.width.toFloat(), canvas.height.toFloat())
         panelPaint.color = Color.argb(240, 8, 8, 10)
-        canvas.drawRoundRect(rect, 22f, 22f, panelPaint)
-        textPaint.textSize = 23f
+        canvas.drawRoundRect(rect, m.s(22f), m.s(22f), panelPaint)
+        textPaint.textSize = m.ts(23f)
         textPaint.color = Color.WHITE
-        canvas.drawText(text, rect.centerX(), rect.centerY() + 8f, textPaint)
+        canvas.drawText(text, rect.centerX(), rect.centerY() + m.s(8f), textPaint)
     }
 
-    private fun drawToast(canvas: Canvas) {
+    private fun drawToast(canvas: Canvas, m: AutoHudMetrics) {
         val text = toastText ?: return
         if (System.currentTimeMillis() > toastUntil) {
             toastText = null
             return
         }
-        val rect = RectF(canvas.width.toFloat() * 0.5f - 190f, 88f, canvas.width.toFloat() * 0.5f + 190f, 136f)
+        val rect = m.toastRect(canvas.width.toFloat())
         panelPaint.color = Color.argb(235, 8, 8, 10)
-        canvas.drawRoundRect(rect, 18f, 18f, panelPaint)
+        canvas.drawRoundRect(rect, m.s(18f), m.s(18f), panelPaint)
         smallText.textAlign = Paint.Align.CENTER
-        smallText.textSize = 18f
+        smallText.textSize = m.ts(18f)
         smallText.color = Color.WHITE
-        canvas.drawText(text, rect.centerX(), rect.centerY() + 7f, smallText)
+        canvas.drawText(text, rect.centerX(), rect.centerY() + m.s(7f), smallText)
         postInvalidateDelayed(250L)
     }
 
-    private fun drawRoutePreviewPanel(canvas: Canvas, snap: VroomPayload, top: Float, bottom: Float) {
+    private fun drawRoutePreviewPanel(canvas: Canvas, m: AutoHudMetrics, snap: VroomPayload, top: Float, bottom: Float): RectF {
         val previewJson = runCatching { VroomCarManager.getRoutePreviewPayload()?.let { JSONObject(it) } }.getOrNull()
         val alternatives = previewJson?.optJSONObject("mapState")?.optJSONArray("alternativeRoutes")
         val selectedIndex = previewJson?.optJSONObject("mapState")?.optInt("selectedRouteIndex", 0) ?: 0
         val altCount = alternatives?.length() ?: 0
-        val extraAltHeight = if (altCount > 1) 54f else 0f
-        val panel = RectF(24f, top + 8f, 392f.coerceAtMost(canvas.width.toFloat() - 164f), top + 206f + extraAltHeight)
+        val panel = m.routePreviewPanelRect(top, altCount)
         panelPaint.color = Color.argb(244, 248, 250, 252)
         strokePaint.color = Color.argb(95, 0, 0, 0)
-        canvas.drawRoundRect(panel, 22f, 22f, panelPaint)
-        canvas.drawRoundRect(panel, 22f, 22f, strokePaint)
+        canvas.drawRoundRect(panel, m.s(22f), m.s(22f), panelPaint)
+        canvas.drawRoundRect(panel, m.s(22f), m.s(22f), strokePaint)
 
         smallText.textAlign = Paint.Align.LEFT
-        smallText.textSize = 24f
+        smallText.textSize = m.ts(24f)
         smallText.color = Color.rgb(28, 31, 36)
         val title = snap.destinationName?.takeIf { it.isNotBlank() } ?: "Cel"
-        canvas.drawText(fitText(title, smallText, panel.width() - 48f), panel.left + 24f, panel.top + 42f, smallText)
+        canvas.drawText(fitText(title, smallText, panel.width() - m.s(48f)), panel.left + m.s(24f), panel.top + m.s(42f), smallText)
 
+        val extraAltHeight = if (altCount > 1) m.s(54f) else 0f
         if (altCount > 1 && alternatives != null) {
-            val chipTop = panel.top + 54f
-            val chipWidth = ((panel.width() - 48f) / altCount.coerceAtMost(3)).coerceAtMost(108f)
+            val chipTop = panel.top + m.s(54f)
+            val chipWidth = ((panel.width() - m.s(48f)) / altCount.coerceAtMost(3)).coerceAtMost(m.s(108f))
             for (i in 0 until altCount.coerceAtMost(3)) {
                 val alt = alternatives.optJSONObject(i) ?: continue
-                val chip = RectF(panel.left + 24f + i * (chipWidth + 8f), chipTop, panel.left + 24f + i * (chipWidth + 8f) + chipWidth, chipTop + 44f)
+                val chip = RectF(panel.left + m.s(24f) + i * (chipWidth + m.s(8f)), chipTop, panel.left + m.s(24f) + i * (chipWidth + m.s(8f)) + chipWidth, chipTop + m.s(44f))
                 hitRects["route_alt_$i"] = chip
                 val chipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (i == selectedIndex) Color.rgb(227, 56, 53) else Color.rgb(232, 238, 240)
                     style = Paint.Style.FILL
                 }
-                canvas.drawRoundRect(chip, 14f, 14f, chipPaint)
+                canvas.drawRoundRect(chip, m.s(14f), m.s(14f), chipPaint)
                 textPaint.textAlign = Paint.Align.CENTER
-                textPaint.textSize = 16f
+                textPaint.textSize = m.ts(16f)
                 textPaint.color = if (i == selectedIndex) Color.WHITE else Color.rgb(45, 48, 54)
-                canvas.drawText("Trasa ${i + 1}", chip.centerX(), chip.centerY() + 6f, textPaint)
-                smallText.textSize = 12f
+                canvas.drawText("Trasa ${i + 1}", chip.centerX(), chip.centerY() + m.s(6f), textPaint)
+                smallText.textSize = m.ts(12f)
                 smallText.color = if (i == selectedIndex) Color.argb(220, 255, 255, 255) else Color.rgb(90, 94, 100)
-                canvas.drawText(formatDurationShort(alt.optInt("durationS", 0)), chip.centerX(), chip.bottom - 8f, smallText)
+                canvas.drawText(formatDurationShort(alt.optInt("durationS", 0)), chip.centerX(), chip.bottom - m.s(8f), smallText)
             }
         }
 
-        val statsTop = panel.top + 54f + extraAltHeight
+        val statsTop = panel.top + m.s(54f) + extraAltHeight
         textPaint.textAlign = Paint.Align.LEFT
-        textPaint.textSize = 27f
+        textPaint.textSize = m.ts(27f)
         textPaint.color = Color.rgb(166, 24, 45)
-        canvas.drawText(formatDurationShort(snap.remainingDurationSec), panel.left + 24f, statsTop + 32f, textPaint)
-        smallText.textSize = 18f
+        canvas.drawText(formatDurationShort(snap.remainingDurationSec), panel.left + m.s(24f), statsTop + m.s(32f), textPaint)
+        smallText.textSize = m.ts(18f)
         smallText.color = Color.rgb(45, 48, 54)
-        canvas.drawText(" · ${formatEtaClock(snap.remainingDurationSec)}", panel.left + 128f, statsTop + 31f, smallText)
+        canvas.drawText(" · ${formatEtaClock(snap.remainingDurationSec)}", panel.left + m.s(128f), statsTop + m.s(31f), smallText)
 
-        smallText.textSize = 18f
+        smallText.textSize = m.ts(18f)
         smallText.color = Color.rgb(42, 120, 74)
-        canvas.drawText("${formatKm(snap.remainingDistanceMeters)} do celu", panel.left + 24f, statsTop + 62f, smallText)
+        canvas.drawText("${formatKm(snap.remainingDistanceMeters)} do celu", panel.left + m.s(24f), statsTop + m.s(62f), smallText)
 
-        val start = RectF(panel.left + 24f, panel.bottom - 62f, panel.right - 86f, panel.bottom - 16f)
+        val start = RectF(panel.left + m.s(24f), panel.bottom - m.s(62f), panel.right - m.s(86f), panel.bottom - m.s(16f))
         hitRects["start_preview"] = start
         val startPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(12, 132, 126)
             style = Paint.Style.FILL
         }
-        canvas.drawRoundRect(start, 27f, 27f, startPaint)
+        canvas.drawRoundRect(start, m.s(27f), m.s(27f), startPaint)
         textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = 20f
+        textPaint.textSize = m.ts(20f)
         textPaint.color = Color.WHITE
-        canvas.drawText("Rozpocznij", start.centerX() + 14f, start.centerY() + 8f, textPaint)
-        drawUpArrowGlyph(canvas, start.left + 34f, start.centerY(), 12f)
+        canvas.drawText("Rozpocznij", start.centerX() + m.s(14f), start.centerY() + m.s(8f), textPaint)
+        drawUpArrowGlyph(canvas, start.left + m.s(34f), start.centerY(), m.s(12f))
 
-        val cancel = RectF(panel.right - 70f, panel.bottom - 62f, panel.right - 20f, panel.bottom - 16f)
+        val cancel = RectF(panel.right - m.s(70f), panel.bottom - m.s(62f), panel.right - m.s(20f), panel.bottom - m.s(16f))
         hitRects["cancel_preview"] = cancel
         val cancelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(232, 238, 238)
             style = Paint.Style.FILL
         }
-        canvas.drawRoundRect(cancel, 27f, 27f, cancelPaint)
-        drawCloseGlyph(canvas, cancel.centerX(), cancel.centerY(), 11f, Color.rgb(30, 34, 38))
+        canvas.drawRoundRect(cancel, m.s(27f), m.s(27f), cancelPaint)
+        drawCloseGlyph(canvas, cancel.centerX(), cancel.centerY(), m.s(11f), Color.rgb(30, 34, 38))
         textPaint.textAlign = Paint.Align.CENTER
+        return panel
     }
 
-    private fun drawNavigationTopBar(canvas: Canvas, snap: VroomPayload, top: Float) {
-        val card = RectF(24f, top, canvas.width.toFloat() - 154f, top + 92f)
+    private fun drawNavigationTopBar(canvas: Canvas, m: AutoHudMetrics, snap: VroomPayload, top: Float): RectF {
+        val card = m.navBarRect(top)
         panelPaint.color = Color.argb(242, 6, 8, 12)
         strokePaint.color = Color.argb(135, 36, 202, 255)
-        canvas.drawRoundRect(card, 22f, 22f, panelPaint)
-        canvas.drawRoundRect(card, 22f, 22f, strokePaint)
+        canvas.drawRoundRect(card, m.s(22f), m.s(22f), panelPaint)
+        canvas.drawRoundRect(card, m.s(22f), m.s(22f), strokePaint)
 
-        val iconBox = RectF(card.left + 14f, card.top + 14f, card.left + 78f, card.bottom - 14f)
+        val iconBox = RectF(card.left + m.s(14f), card.top + m.s(14f), card.left + m.s(78f), card.bottom - m.s(14f))
         val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(36, 202, 255)
             style = Paint.Style.FILL
         }
-        canvas.drawRoundRect(iconBox, 18f, 18f, iconPaint)
-        drawManeuverGlyph(canvas, iconBox.centerX(), iconBox.centerY(), 16f, snap.maneuver, snap.maneuverModifier, Color.rgb(4, 7, 12))
+        canvas.drawRoundRect(iconBox, m.s(18f), m.s(18f), iconPaint)
+        drawManeuverGlyph(canvas, iconBox.centerX(), iconBox.centerY(), m.s(16f), snap.maneuver, snap.maneuverModifier, Color.rgb(4, 7, 12))
 
-        val stats = RectF(card.right - 120f, card.top + 12f, card.right - 14f, card.bottom - 12f)
+        val stats = RectF(card.right - m.s(120f), card.top + m.s(12f), card.right - m.s(14f), card.bottom - m.s(12f))
         val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(70, 255, 255, 255)
-            strokeWidth = 1.5f
+            strokeWidth = m.s(1.5f)
         }
-        canvas.drawLine(stats.left - 12f, card.top + 16f, stats.left - 12f, card.bottom - 16f, divider)
+        canvas.drawLine(stats.left - m.s(12f), card.top + m.s(16f), stats.left - m.s(12f), card.bottom - m.s(16f), divider)
         textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = 23f
+        textPaint.textSize = m.ts(23f)
         textPaint.color = Color.WHITE
-        canvas.drawText(formatDurationShort(snap.remainingDurationSec), stats.centerX(), stats.top + 27f, textPaint)
+        canvas.drawText(formatDurationShort(snap.remainingDurationSec), stats.centerX(), stats.top + m.s(27f), textPaint)
         smallText.textAlign = Paint.Align.CENTER
-        smallText.textSize = 15f
+        smallText.textSize = m.ts(15f)
         smallText.color = Color.rgb(36, 202, 255)
-        canvas.drawText(formatKm(snap.remainingDistanceMeters), stats.centerX(), stats.top + 52f, smallText)
+        canvas.drawText(formatKm(snap.remainingDistanceMeters), stats.centerX(), stats.top + m.s(52f), smallText)
 
-        val textLeft = iconBox.right + 16f
-        val textRight = stats.left - 22f
-        val textWidth = (textRight - textLeft).coerceAtLeast(120f)
+        val textLeft = iconBox.right + m.s(16f)
+        val textRight = stats.left - m.s(22f)
+        val textWidth = (textRight - textLeft).coerceAtLeast(m.s(120f))
         smallText.textAlign = Paint.Align.LEFT
-        smallText.textSize = 16f
+        smallText.textSize = m.ts(16f)
         smallText.color = Color.rgb(36, 202, 255)
-        canvas.drawText(formatMeters(snap.turnDistanceMeters ?: snap.remainingDistanceMeters), textLeft, card.top + 28f, smallText)
-        smallText.textSize = 22f
+        canvas.drawText(formatMeters(snap.turnDistanceMeters ?: snap.remainingDistanceMeters), textLeft, card.top + m.s(28f), smallText)
+        smallText.textSize = m.ts(22f)
         smallText.color = Color.WHITE
-        canvas.drawText(fitText(polishInstructionForHud(snap), smallText, textWidth), textLeft, card.top + 58f, smallText)
-        smallText.textSize = 14f
+        canvas.drawText(fitText(polishInstructionForHud(snap), smallText, textWidth), textLeft, card.top + m.s(58f), smallText)
+        smallText.textSize = m.ts(14f)
         smallText.color = Color.rgb(170, 170, 178)
-        canvas.drawText(fitText(snap.destinationName?.takeIf { it.isNotBlank() } ?: "Prowadzenie aktywne", smallText, textWidth), textLeft, card.bottom - 12f, smallText)
+        canvas.drawText(fitText(snap.destinationName?.takeIf { it.isNotBlank() } ?: "Prowadzenie aktywne", smallText, textWidth), textLeft, card.bottom - m.s(12f), smallText)
         textPaint.textAlign = Paint.Align.CENTER
 
-        val stop = RectF(card.right + 12f, card.top + 12f, card.right + 76f, card.bottom - 12f)
+        val stop = RectF(card.right + m.s(12f), card.top + m.s(12f), card.right + m.s(76f), card.bottom - m.s(12f))
         hitRects["stop_navigation"] = stop
         val stopPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(238, 8, 8, 10)
@@ -2385,11 +2514,12 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         val stopStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(150, 255, 255, 255)
             style = Paint.Style.STROKE
-            strokeWidth = 2f
+            strokeWidth = m.s(2f)
         }
-        canvas.drawRoundRect(stop, 18f, 18f, stopPaint)
-        canvas.drawRoundRect(stop, 18f, 18f, stopStroke)
-        drawCloseGlyph(canvas, stop.centerX(), stop.centerY(), 11f, Color.WHITE)
+        canvas.drawRoundRect(stop, m.s(18f), m.s(18f), stopPaint)
+        canvas.drawRoundRect(stop, m.s(18f), m.s(18f), stopStroke)
+        drawCloseGlyph(canvas, stop.centerX(), stop.centerY(), m.s(11f), Color.WHITE)
+        return RectF(card.left, card.top, stop.right, card.bottom)
     }
 
     private fun drawEtaBottomBar(canvas: Canvas, snap: VroomPayload, bottom: Float) {
@@ -2442,7 +2572,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         return if (minutes >= 60) {
             val h = minutes / 60
             val m = minutes % 60
-            if (m == 0) "${h} h" else "${h} h ${m} min"
+            if (m == 0) "$h h" else "$h h $m min"
         } else {
             "$minutes min"
         }
@@ -2497,44 +2627,44 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         return listOf("turn ", "continue", "merge", "arrive", "depart", "roundabout", "keep ", "head ").any { lower.contains(it) }
     }
 
-    private fun drawSearchIcon(canvas: Canvas, cx: Float, cy: Float) {
+    private fun drawSearchIcon(canvas: Canvas, cx: Float, cy: Float, scale: Float = 1f) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(227, 56, 53)
             style = Paint.Style.STROKE
-            strokeWidth = 4f
+            strokeWidth = 4f * scale
         }
-        canvas.drawCircle(cx - 5f, cy - 4f, 11f, paint)
-        canvas.drawLine(cx + 4f, cy + 6f, cx + 17f, cy + 19f, paint)
+        canvas.drawCircle(cx - 5f * scale, cy - 4f * scale, 11f * scale, paint)
+        canvas.drawLine(cx + 4f * scale, cy + 6f * scale, cx + 17f * scale, cy + 19f * scale, paint)
     }
 
-    private fun drawLiveBadge(canvas: Canvas, left: Float, top: Float) {
-        val rect = RectF(left, top, left + 112f, top + 42f)
+    private fun drawLiveBadge(canvas: Canvas, m: AutoHudMetrics, left: Float, top: Float) {
+        val rect = RectF(left, top, left + m.s(112f), top + m.s(42f))
         panelPaint.color = Color.argb(235, 8, 8, 10)
-        canvas.drawRoundRect(rect, 21f, 21f, panelPaint)
+        canvas.drawRoundRect(rect, m.s(21f), m.s(21f), panelPaint)
         val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(77, 233, 38)
             style = Paint.Style.FILL
         }
-        canvas.drawCircle(rect.left + 24f, rect.centerY(), 8f, dot)
-        textPaint.textSize = 18f
+        canvas.drawCircle(rect.left + m.s(24f), rect.centerY(), m.s(8f), dot)
+        textPaint.textSize = m.ts(18f)
         textPaint.color = Color.rgb(77, 233, 38)
-        canvas.drawText("LIVE", rect.left + 70f, rect.centerY() + 7f, textPaint)
+        canvas.drawText("LIVE", rect.left + m.s(70f), rect.centerY() + m.s(7f), textPaint)
     }
 
-    private fun drawReportButton(canvas: Canvas, left: Float, top: Float) {
-        val rect = RectF(left, top, left + 112f, top + 84f)
+    private fun drawReportButton(canvas: Canvas, m: AutoHudMetrics, left: Float, top: Float) {
+        val rect = RectF(left, top, left + m.rightControlWidth(), top + m.s(84f).coerceAtLeast(m.touchMin() * 1.6f))
         val red = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(227, 56, 53)
             style = Paint.Style.FILL
         }
-        canvas.drawRoundRect(rect, 18f, 18f, red)
-        textPaint.textSize = 18f
+        canvas.drawRoundRect(rect, m.s(18f), m.s(18f), red)
+        textPaint.textSize = m.ts(18f)
         textPaint.color = Color.WHITE
-        canvas.drawText("ZGLOS", rect.centerX(), rect.bottom - 18f, textPaint)
+        canvas.drawText("ZGLOS", rect.centerX(), rect.bottom - m.s(18f), textPaint)
         val tri = Path().apply {
-            moveTo(rect.centerX(), rect.top + 16f)
-            lineTo(rect.centerX() - 20f, rect.top + 48f)
-            lineTo(rect.centerX() + 20f, rect.top + 48f)
+            moveTo(rect.centerX(), rect.top + m.s(16f))
+            lineTo(rect.centerX() - m.s(20f), rect.top + m.s(48f))
+            lineTo(rect.centerX() + m.s(20f), rect.top + m.s(48f))
             close()
         }
         val white = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -2543,8 +2673,8 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         }
         canvas.drawPath(tri, white)
         textPaint.color = Color.rgb(227, 56, 53)
-        textPaint.textSize = 22f
-        canvas.drawText("!", rect.centerX(), rect.top + 43f, textPaint)
+        textPaint.textSize = m.ts(22f)
+        canvas.drawText("!", rect.centerX(), rect.top + m.s(43f), textPaint)
     }
 
     private fun drawSpeedLimitSign(
@@ -2562,34 +2692,34 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(227, 56, 53)
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 3f * (radius / 21f)
         }
         canvas.drawCircle(cx, cy, radius, fillPaint)
         canvas.drawCircle(cx, cy, radius, ringPaint)
         textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = if (limitKmh >= 100) 14f else 17f
+        textPaint.textSize = if (limitKmh >= 100) radius * 0.66f else radius * 0.81f
         textPaint.color = Color.rgb(20, 20, 20)
-        canvas.drawText(limitKmh.toString(), cx, cy + 6f, textPaint)
+        canvas.drawText(limitKmh.toString(), cx, cy + radius * 0.28f, textPaint)
     }
 
-    private fun drawRecenterIconButton(canvas: Canvas, rect: RectF) {
+    private fun drawRecenterIconButton(canvas: Canvas, rect: RectF, scale: Float = 1f) {
         panelPaint.color = Color.argb(235, 8, 8, 10)
-        canvas.drawRoundRect(rect, 18f, 18f, panelPaint)
+        canvas.drawRoundRect(rect, 18f * scale, 18f * scale, panelPaint)
         strokePaint.color = Color.argb(130, 255, 255, 255)
-        canvas.drawRoundRect(rect, 18f, 18f, strokePaint)
+        canvas.drawRoundRect(rect, 18f * scale, 18f * scale, strokePaint)
         val cx = rect.centerX()
         val cy = rect.centerY()
         val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(230, 230, 236)
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 3f * scale
         }
-        canvas.drawCircle(cx, cy, 14f, ring)
+        canvas.drawCircle(cx, cy, 14f * scale, ring)
         val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(230, 230, 236)
             style = Paint.Style.FILL
         }
-        canvas.drawCircle(cx, cy, 4f, dot)
+        canvas.drawCircle(cx, cy, 4f * scale, dot)
     }
 
     private fun drawCloseGlyph(canvas: Canvas, cx: Float, cy: Float, half: Float, color: Int) {
@@ -2696,7 +2826,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     }
 
     private fun markerScreenHeading(heading: Double): Double {
-        val bearing = mapView?.getMapboxMap()?.cameraState?.bearing ?: 0.0
+        val bearing = mapView?.mapboxMap?.cameraState?.bearing ?: 0.0
         return ((heading - bearing) % 360.0 + 360.0) % 360.0
     }
 

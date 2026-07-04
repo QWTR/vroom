@@ -50,6 +50,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         mapRenderer.syncOverlayDrivingTelemetry(speedLimitKmh)
     }
 
+    fun resyncMapMarkers() {
+        mapRenderer.resyncMapMarkers()
+    }
+
     fun updateData(jsonPayload: String) {
         val parsed = VroomPayloadParser.parse(jsonPayload)
         if (parsed != null) {

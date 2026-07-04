@@ -21,6 +21,7 @@ class VroomCarSession : Session() {
         val screen = VroomCarScreen(carContext)
         VroomCarManager.setScreen(screen)
         AutoLocationTracker.start(carContext)
+        AutoNavStore.refreshFromBackendIfNeeded(carContext)
         return screen
     }
 }

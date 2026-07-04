@@ -145,7 +145,10 @@ object VroomPayloadParser {
         return warnings
     }
 
-    private fun parsePoiMarkers(array: JSONArray?, fallbackType: String): List<AutoPoiMarker> {
+    private fun parsePoiMarkers(array: JSONArray?, fallbackType: String): List<AutoPoiMarker> =
+        parsePoiMarkersPublic(array, fallbackType)
+
+    fun parsePoiMarkersPublic(array: JSONArray?, fallbackType: String): List<AutoPoiMarker> {
         if (array == null) return emptyList()
         val markers = mutableListOf<AutoPoiMarker>()
         for (i in 0 until array.length()) {

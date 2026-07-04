@@ -1077,6 +1077,11 @@ object AutoNavStore {
     currentMapState.put("speedCameras", camerasArr)
     currentMapState.put("fuelStations", fuelArr)
     p.edit().putString(KEY_MAP_STATE, currentMapState.toString()).apply()
+    cachedMapState = JSONObject(currentMapState.toString())
+    memMapRaw = currentMapState.toString()
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+      VroomCarManager.resyncNativeMapMarkers()
+    }
   }
 
   private fun requestJson(

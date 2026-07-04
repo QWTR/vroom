@@ -108,6 +108,7 @@ const withAndroidAutoNative = (config) => {
       fs.mkdirSync(drawableDir, { recursive: true });
 
       [
+        'AutoHudMetrics.kt',
         'AutoBridgePackage.kt',
         'AutoLocationTracker.kt',
         'AutoNavStore.kt',

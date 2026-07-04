@@ -48,6 +48,10 @@ object VroomCarManager {
         bridgeModule = module
     }
 
+    fun resyncNativeMapMarkers() {
+        currentScreen?.resyncMapMarkers()
+    }
+
     fun sendDataToCar(jsonPayload: String) {
         rememberProfile(jsonPayload)
         rememberJsNavigationState(jsonPayload)
