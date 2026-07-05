@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FLEET_FULL_ANIMATION_EXIT_KM,
   FLEET_FULL_ANIMATION_RADIUS_KM,
+  shouldAcceptFleetMotionUpdate,
 } from './liveFleetMotion';
 import {
   interpolateAlongTrail,
@@ -67,6 +68,36 @@ describe('fleetTrailInterpolation', () => {
       FLEET_FULL_ANIMATION_RADIUS_KM,
       FLEET_FULL_ANIMATION_EXIT_KM,
     )).toBe('static');
+  });
+
+  it('motion gate keeps non-friends static outside 10km and accepts them inside again', () => {
+    expect(shouldAcceptFleetMotionUpdate({
+      isFriend: false,
+      hasPreviousPosition: true,
+      viewerLat: 52,
+      viewerLng: 21,
+      incomingLat: 52,
+      incomingLng: 21.2,
+    })).toBe(false);
+    expect(shouldAcceptFleetMotionUpdate({
+      isFriend: false,
+      hasPreviousPosition: true,
+      viewerLat: 52,
+      viewerLng: 21,
+      incomingLat: 52,
+      incomingLng: 21.05,
+    })).toBe(true);
+  });
+
+  it('motion gate lets friends move without the 10km limit', () => {
+    expect(shouldAcceptFleetMotionUpdate({
+      isFriend: true,
+      hasPreviousPosition: true,
+      viewerLat: 52,
+      viewerLng: 21,
+      incomingLat: 52,
+      incomingLng: 22,
+    })).toBe(true);
   });
 
   it('computeFleetPushDurationMs scales with distance and speed', () => {

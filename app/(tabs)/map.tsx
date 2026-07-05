@@ -13714,7 +13714,7 @@ if (appStateRef.current === 'active') {
     builderRoutePoints: snappedRoute,
     visibleUsers: effectiveVisibleUsers,
     warnings: effectiveWarnings,
-    speedCameras: speedCameras,
+    speedCameras: effectiveCameras,
     fuelStations: fuelStations,
     partnerPois: partnerPois,
     geoDrops: gamificationDrops,

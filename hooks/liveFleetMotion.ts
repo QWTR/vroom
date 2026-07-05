@@ -44,3 +44,45 @@ export function correctionDurationForDistance(distanceM: number): number {
   return SOFT_CORRECTION_MIN_MS + (SOFT_CORRECTION_MAX_MS - SOFT_CORRECTION_MIN_MS) * t;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos((lat1 * Math.PI) / 180)
+    * Math.cos((lat2 * Math.PI) / 180)
+    * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function shouldAcceptFleetMotionUpdate(input: {
+  isFriend?: boolean;
+  hasPreviousPosition: boolean;
+  viewerLat?: number | null;
+  viewerLng?: number | null;
+  incomingLat: number;
+  incomingLng: number;
+  fullRadiusKm?: number;
+}): boolean {
+  if (!input.hasPreviousPosition) return true;
+  if (input.isFriend === true) return true;
+  if (
+    !Number.isFinite(input.viewerLat)
+    || !Number.isFinite(input.viewerLng)
+    || !Number.isFinite(input.incomingLat)
+    || !Number.isFinite(input.incomingLng)
+  ) {
+    return true;
+  }
+  const radiusKm = Number.isFinite(input.fullRadiusKm)
+    ? Number(input.fullRadiusKm)
+    : FLEET_FULL_ANIMATION_RADIUS_KM;
+  const distKm = haversineKm(
+    Number(input.viewerLat),
+    Number(input.viewerLng),
+    input.incomingLat,
+    input.incomingLng,
+  );
+  return Number.isFinite(distKm) && distKm <= radiusKm;
+}

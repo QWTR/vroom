@@ -27,7 +27,9 @@ import {
   extrapolateFleetPosition,
   clamp01 as clamp01Shared,
   lerp as lerpShared,
+  type FleetTrailPoint,
 } from './fleetTrailInterpolation';
+import { maybeEnqueueFleetOsrmSnap } from './fleetReceiveSnap';
 import {
   EMPTY_VIEWPORT,
   expandBoundsByMeters,
@@ -65,6 +67,7 @@ type FleetSlot = {
   fromHeading: number;
   motionHeading: number;
   speedMps: number;
+  roadTrail: FleetTrailPoint[];
   // ostatnia pozycja serwera (detekcja ruchu / snap / teleport guard)
   serverLat: number;
   serverLng: number;
@@ -168,6 +171,7 @@ function pinColorFor(meta: { isPremium?: boolean; isFriend?: boolean }): string 
 }
 
 function bearingDegJs(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  'worklet';
   const lat1 = (aLat * Math.PI) / 180;
   const lat2 = (bLat * Math.PI) / 180;
   const dLng = ((bLng - aLng) * Math.PI) / 180;
@@ -248,6 +252,61 @@ function extrapolateFleetPositionWorklet(
   return { lat: moved.lat, lng: moved.lng, heading };
 }
 
+function trailLengthM(points: FleetTrailPoint[]): number {
+  'worklet';
+  let acc = 0;
+  for (let i = 1; i < points.length; i++) {
+    acc += haversineM(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
+  }
+  return acc;
+}
+
+function walkTrailAtDistance(
+  points: FleetTrailPoint[],
+  targetM: number,
+): { lat: number; lng: number; heading: number } {
+  'worklet';
+  let walked = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const segM = haversineM(a.lat, a.lng, b.lat, b.lng);
+    if (walked + segM >= targetM) {
+      const t = segM > 0 ? clamp01Shared((targetM - walked) / segM) : 0;
+      return {
+        lat: lerpShared(a.lat, b.lat, t),
+        lng: lerpShared(a.lng, b.lng, t),
+        heading: bearingDegJs(a.lat, a.lng, b.lat, b.lng),
+      };
+    }
+    walked += segM;
+  }
+  const tail = points[points.length - 1];
+  const prev = points[Math.max(0, points.length - 2)];
+  return {
+    lat: tail.lat,
+    lng: tail.lng,
+    heading: bearingDegJs(prev.lat, prev.lng, tail.lat, tail.lng),
+  };
+}
+
+function resolveTrailPosition(
+  trail: FleetTrailPoint[],
+  nowMs: number,
+): { lat: number; lng: number; heading: number } | null {
+  'worklet';
+  if (!trail || trail.length < 2) return null;
+  const first = trail[0];
+  const last = trail[trail.length - 1];
+  if (!Number.isFinite(first.t) || !Number.isFinite(last.t) || last.t <= first.t) return null;
+  const totalM = trailLengthM(trail);
+  if (!Number.isFinite(totalM) || totalM <= 0.5) {
+    return { lat: last.lat, lng: last.lng, heading: 0 };
+  }
+  const progress = clamp01Shared((nowMs - first.t) / (last.t - first.t));
+  return walkTrailAtDistance(trail, totalM * progress);
+}
+
 /**
  * Rozwiązanie pozycji slotu w chwili nowMs (zegar Date.now()).
  * Wersja JS — używana przy merge (seed origin / render).
@@ -258,6 +317,10 @@ function resolveMotionJs(
 ): { lat: number; lng: number; heading: number } {
   if (s.animationTier === 0) {
     return { lat: s.serverLat, lng: s.serverLng, heading: s.motionHeading };
+  }
+  if (s.roadTrail.length >= 2) {
+    const resolvedTrail = resolveTrailPosition(s.roadTrail, nowMs);
+    if (resolvedTrail) return resolvedTrail;
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPosition(
@@ -285,6 +348,10 @@ function resolveMotionWorklet(
   'worklet';
   if (s.animationTier === 0) {
     return { lat: s.serverLat, lng: s.serverLng, heading: s.motionHeading };
+  }
+  if (s.roadTrail.length >= 2) {
+    const resolvedTrail = resolveTrailPosition(s.roadTrail, nowMs);
+    if (resolvedTrail) return resolvedTrail;
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPositionWorklet(
@@ -482,6 +549,25 @@ function mergeSlotFromStore(
     FLEET_FULL_ANIMATION_EXIT_KM,
   );
   const animationTier: AnimationTier = tier === 'full' ? 1 : 0;
+  const roadTrail = animationTier === 1 && pos.trail && pos.trail.length >= 2
+    ? pos.trail.slice()
+    : [];
+
+  if (animationTier === 1) {
+    maybeEnqueueFleetOsrmSnap({
+      store,
+      userId: id,
+      isFriend: !!meta.isFriend,
+      distKm,
+      animationTier: tier,
+      trail: pos.trail,
+      speedMps,
+      lat: pos.lat,
+      lng: pos.lng,
+      prevLat: Number.isFinite(Number(prevServerLat)) ? Number(prevServerLat) : null,
+      prevLng: Number.isFinite(Number(prevServerLng)) ? Number(prevServerLng) : null,
+    });
+  }
 
   const toLat = pos.lat;
   const toLng = pos.lng;
@@ -495,7 +581,7 @@ function mergeSlotFromStore(
   let startMs = now;
   let durationMs = 0;
 
-  if (animationTier === 0 || teleport || !prev) {
+  if (animationTier === 0 || teleport || !prev || (prev.animationTier === 0 && animationTier === 1)) {
     // Static / teleport / nowy slot -> natychmiastowy snap na pozycję serwera.
     fromLat = toLat;
     fromLng = toLng;
@@ -553,6 +639,7 @@ function mergeSlotFromStore(
     fromHeading,
     motionHeading,
     speedMps,
+    roadTrail,
     serverLat: pos.lat,
     serverLng: pos.lng,
     lastServerAt: serverAt,

@@ -15,7 +15,7 @@ import {
 } from './liveMapStore';
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
 import { normalizeVehicleLiveFields } from '../lib/vehicleModelContract';
-import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
+import { FLEET_FULL_ANIMATION_RADIUS_KM, FLEET_SLOT_MAX_POINTS, shouldAcceptFleetMotionUpdate } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
 
 export interface LiveUser {
@@ -219,6 +219,24 @@ export function useLiveMap(
     return { lat: baseLat, lng: baseLng };
   }, [isIncomingNewer, store]);
 
+  const shouldAcceptLiveUserMotion = useCallback((
+    incoming: { lat: number; lng: number; isFriend?: boolean },
+    prevPos?: { lat: number; lng: number } | null,
+  ): boolean => {
+    if (!prevPos) return true;
+    if (incoming.isFriend === true) return true;
+    const loc = userLocationRef.current;
+    return shouldAcceptFleetMotionUpdate({
+      isFriend: incoming.isFriend,
+      hasPreviousPosition: true,
+      viewerLat: loc?.latitude,
+      viewerLng: loc?.longitude,
+      incomingLat: incoming.lat,
+      incomingLng: incoming.lng,
+      fullRadiusKm: FLEET_FULL_ANIMATION_RADIUS_KM,
+    });
+  }, []);
+
   const removeLiveUser = useCallback((id: number) => {
     if (!Number.isFinite(id)) return;
     liveUserLastSeenRef.current.delete(id);
@@ -276,10 +294,19 @@ export function useLiveMap(
 
       const prevMeta = store.getMeta(u.id);
       const prevPos = store.getPosition(u.id);
-      const coords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
+      const incomingCoords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
+      const acceptsMotion = shouldAcceptLiveUserMotion(
+        { lat: u.lat, lng: u.lng, isFriend: u.isFriend ?? prevMeta?.isFriend },
+        prevPos,
+      );
+      const coords = acceptsMotion || !prevPos
+        ? incomingCoords
+        : { lat: prevPos.lat, lng: prevPos.lng };
       const motion = parseIncomingMotion(u);
       const trail = parseIncomingTrail(u?.trail);
       const liveVehicle = normalizeVehicleLiveFields(u, prevMeta);
+      const displayHeading = acceptsMotion ? motion.heading : (prevPos?.heading ?? prevMeta?.heading ?? null);
+      const displaySpeedMps = acceptsMotion ? motion.speedMps : (prevPos?.speedMps ?? prevMeta?.speedMps ?? null);
 
       if (Number.isFinite(Number(u?.seq))) {
         const seq = Number(u.seq);
@@ -309,15 +336,15 @@ export function useLiveMap(
           vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
           seq: u.seq ?? prevMeta?.seq ?? null,
-          heading: motion.heading ?? prevMeta?.heading ?? null,
-          speedKmh: motion.speedMps != null ? motion.speedMps * 3.6 : (prevMeta?.speedKmh ?? null),
-          speedMps: motion.speedMps ?? prevMeta?.speedMps ?? null,
+          heading: displayHeading ?? prevMeta?.heading ?? null,
+          speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (prevMeta?.speedKmh ?? null),
+          speedMps: displaySpeedMps ?? prevMeta?.speedMps ?? null,
         },
         lat: coords.lat,
         lng: coords.lng,
-        heading: motion.heading,
-        speedMps: motion.speedMps,
-        trail: trail.length > 0 ? trail : undefined,
+        heading: displayHeading,
+        speedMps: displaySpeedMps,
+        trail: acceptsMotion && trail.length > 0 ? trail : undefined,
       });
     }
 
@@ -359,7 +386,7 @@ export function useLiveMap(
     }
 
     return true;
-  }, [touchLiveUser, store, pickCoords]);
+  }, [touchLiveUser, store, pickCoords, shouldAcceptLiveUserMotion]);
 
   const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
     applyLiveUsersMerge(incoming, mergeGenerationRef.current);
@@ -661,9 +688,16 @@ export function useLiveMap(
         touchLiveUser(id);
 
         const existingMeta = store.getMeta(id);
+        const existingPos = store.getPosition(id);
         const motion = parseIncomingMotion(data);
         const trail = parseIncomingTrail(data?.trail);
         const liveVehicle = normalizeVehicleLiveFields(data, existingMeta);
+        const acceptsMotion = shouldAcceptLiveUserMotion(
+          { lat: rawLat, lng: rawLng, isFriend: data?.isFriend ?? existingMeta?.isFriend },
+          existingPos,
+        );
+        const displayHeading = acceptsMotion ? motion.heading : (existingPos?.heading ?? existingMeta?.heading ?? null);
+        const displaySpeedMps = acceptsMotion ? motion.speedMps : (existingPos?.speedMps ?? existingMeta?.speedMps ?? null);
         const meta: LiveUserMeta = {
           id,
           username: typeof data?.username === 'string'
@@ -682,17 +716,19 @@ export function useLiveMap(
           vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt,
           seq: Number.isFinite(seq) ? seq : null,
-          heading: motion.heading ?? existingMeta?.heading ?? null,
-          speedKmh: motion.speedMps != null ? motion.speedMps * 3.6 : (existingMeta?.speedKmh ?? null),
-          speedMps: motion.speedMps ?? existingMeta?.speedMps ?? null,
+          heading: displayHeading ?? existingMeta?.heading ?? null,
+          speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
+          speedMps: displaySpeedMps ?? existingMeta?.speedMps ?? null,
         };
         store.setMeta(meta);
-        store.setPosition(id, rawLat, rawLng, true, {
-          heading: motion.heading,
-          speedMps: motion.speedMps,
-          trail: trail.length > 0 ? trail : undefined,
-          serverAt,
-        });
+        if (acceptsMotion) {
+          store.setPosition(id, rawLat, rawLng, true, {
+            heading: motion.heading,
+            speedMps: motion.speedMps,
+            trail: trail.length > 0 ? trail : undefined,
+            serverAt,
+          });
+        }
         if (!existingMeta) store.registerUserId(id);
         lastSnapshotAtRef.current = Date.now();
       });
@@ -812,6 +848,7 @@ export function useLiveMap(
     store,
     pickCoords,
     isIncomingNewer,
+    shouldAcceptLiveUserMotion,
   ]);
 
   // Pause socket when app is backgrounded without background permission
