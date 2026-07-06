@@ -377,17 +377,12 @@ const PostCard = React.memo(({
           </TouchableOpacity>
 
           {(post.photos?.length > 0 || post.videos?.length > 0) && (
-            <TouchableOpacity
-              activeOpacity={0.95}
-              onPress={() => onComment(post)}
-              onLongPress={() => onOpenReactionPicker(post)}
-              delayLongPress={400}
-            >
+            <View>
               <MediaGrid photos={post.photos ?? []} videos={post.videos ?? []} />
               <Text style={{ fontSize: 9, alignSelf: 'flex-end', color: theme.textDim, marginRight: 16, marginTop: 4 }}>
                 {new Date(post.createdAt).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' })}
               </Text>
-            </TouchableOpacity>
+            </View>
           )}
 
           {hasPoll && post.poll && (

@@ -8,7 +8,7 @@ import { BlurView } from 'expo-blur';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
-import { Video, ResizeMode }  from 'expo-av';
+import { Video, ResizeMode, type AVPlaybackStatus, type AVPlaybackStatusSuccess }  from 'expo-av';
 import Toast                  from 'react-native-toast-message';
 import AsyncStorage           from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets }  from 'react-native-safe-area-context';
@@ -457,6 +457,184 @@ export const Avatar = ({ user, size = 40 }: { user: { username: string; avatarUr
 // Wyrównanie mediów do treści posta w karcie dyskusji
 export const POST_CONTENT_INSET = 16;
 const POST_MEDIA_MAX_HEIGHT = 350;
+const VIDEO_PLAYER_HEIGHT = Math.min(360, Math.round(SCREEN_W * 0.58));
+
+function formatVideoTime(ms?: number | null): string {
+  const totalSec = Math.max(0, Math.floor((ms ?? 0) / 1000));
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function DiscussionVideoPlayer({ uri }: { uri: string }) {
+  const { theme, isDark } = useTheme();
+  const videoRef = useRef<Video>(null);
+  const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [progressTrackWidth, setProgressTrackWidth] = useState(0);
+
+  const loaded: AVPlaybackStatusSuccess | null = status?.isLoaded === true ? status : null;
+  const isPlaying = !!loaded?.isPlaying;
+  const isBuffering = !!loaded?.isBuffering;
+  const durationMs = loaded?.durationMillis ?? 0;
+  const positionMs = loaded?.positionMillis ?? 0;
+  const progress = durationMs > 0 ? Math.min(1, Math.max(0, positionMs / durationMs)) : 0;
+  const finished = !!loaded?.didJustFinish || (durationMs > 0 && positionMs >= durationMs - 250);
+
+  const togglePlayback = useCallback(async () => {
+    const player = videoRef.current;
+    if (!player) return;
+    setHasStarted(true);
+    try {
+      if (finished) {
+        await player.setPositionAsync(0);
+        await player.playAsync();
+        return;
+      }
+      if (isPlaying) await player.pauseAsync();
+      else await player.playAsync();
+    } catch {
+      // best effort, status overlay will remain visible
+    }
+  }, [finished, isPlaying]);
+
+  const handleProgressPress = useCallback(async (event: any) => {
+    if (!loaded || durationMs <= 0) return;
+    const width = progressTrackWidth;
+    const x = Number(event?.nativeEvent?.locationX ?? 0);
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(x)) return;
+    try {
+      await videoRef.current?.setPositionAsync(Math.min(1, Math.max(0, x / width)) * durationMs);
+    } catch { /* ignore */ }
+  }, [durationMs, loaded, progressTrackWidth]);
+
+  useEffect(() => {
+    const player = videoRef.current;
+    return () => {
+      player?.pauseAsync().catch(() => {});
+    };
+  }, []);
+
+  return (
+    <View style={{
+      width: '100%',
+      height: VIDEO_PLAYER_HEIGHT,
+      maxHeight: POST_MEDIA_MAX_HEIGHT,
+      backgroundColor: '#050505',
+      borderRadius: 14,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+    }}>
+      <Video
+        ref={videoRef}
+        source={{ uri }}
+        style={StyleSheet.absoluteFill}
+        resizeMode={ResizeMode.CONTAIN}
+        shouldPlay={false}
+        isLooping={false}
+        useNativeControls={false}
+        progressUpdateIntervalMillis={250}
+        onPlaybackStatusUpdate={setStatus}
+      />
+
+      {!hasStarted && (
+        <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0000002a' }]}>
+          <View style={{
+            position: 'absolute',
+            top: 12,
+            left: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: 999,
+            backgroundColor: '#0000009a',
+          }}>
+            <MaterialIcons name="smart-display" size={15} color="#fff" />
+            <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9 }}>WIDEO</Text>
+          </View>
+          <TouchableOpacity
+            activeOpacity={0.82}
+            onPress={togglePlayback}
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              backgroundColor: '#e33835',
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: '#e33835',
+              shadowOpacity: 0.42,
+              shadowRadius: 16,
+              elevation: 8,
+            }}
+          >
+            <MaterialIcons name="play-arrow" size={42} color="#fff" style={{ marginLeft: 3 }} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {hasStarted && (
+        <TouchableOpacity activeOpacity={1} onPress={togglePlayback} style={StyleSheet.absoluteFill}>
+          {isBuffering && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ padding: 12, borderRadius: 999, backgroundColor: '#00000099' }}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            </View>
+          )}
+          {!isPlaying && !isBuffering && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#00000099', justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialIcons name={finished ? 'replay' : 'play-arrow'} size={34} color="#fff" />
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
+      <View style={{
+        position: 'absolute',
+        left: 10,
+        right: 10,
+        bottom: 10,
+        borderRadius: 14,
+        backgroundColor: '#000000b8',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={togglePlayback}
+            activeOpacity={0.75}
+            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#ffffff18', justifyContent: 'center', alignItems: 'center' }}
+          >
+            <MaterialIcons name={isPlaying ? 'pause' : finished ? 'replay' : 'play-arrow'} size={22} color="#fff" />
+          </TouchableOpacity>
+          <Pressable
+            onPress={handleProgressPress}
+            onLayout={(event) => setProgressTrackWidth(event.nativeEvent.layout.width)}
+            style={{ flex: 1, height: 32, justifyContent: 'center' }}
+          >
+            <View style={{ height: 4, borderRadius: 999, backgroundColor: '#ffffff2b', overflow: 'hidden' }}>
+              <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: '#e33835' }} />
+            </View>
+          </Pressable>
+          <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, minWidth: 76, textAlign: 'right' }}>
+            {formatVideoTime(positionMs)} / {durationMs ? formatVideoTime(durationMs) : '--:--'}
+          </Text>
+        </View>
+        {!loaded && (
+          <Text style={{ color: theme.textDim, fontSize: 10, marginTop: 4 }}>
+            Przygotowywanie odtwarzania...
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
 
 // ─────────────────────────────────────────────────────────
 // MEDIA GRID — z podglądem po kliknięciu
@@ -485,15 +663,12 @@ export const MediaGrid = ({ photos, videos }: { photos: string[]; videos: string
         marginBottom: 10,
         borderRadius: 16,
         overflow: 'hidden',
+        gap: videos.length > 0 && photoCount > 0 ? 8 : 0,
       }}>
         {videos.map((uri, i) => (
-          <Video
+          <DiscussionVideoPlayer
             key={`v${i}`}
-            source={{ uri }}
-            style={{ width: '100%', height: 200, maxHeight: POST_MEDIA_MAX_HEIGHT }}
-            resizeMode={ResizeMode.COVER}
-            useNativeControls
-            isLooping={false}
+            uri={uri}
           />
         ))}
         {photoCount > 0 && (
