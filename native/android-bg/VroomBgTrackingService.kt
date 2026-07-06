@@ -26,12 +26,17 @@ import com.lexuuw.vroom.app.MainActivity
 import com.lexuuw.vroom.app.R
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 class VroomBgTrackingService : Service() {
   private val logTag = "VroomBgTracking"
   private lateinit var fusedLocationClient: FusedLocationProviderClient
   private var trackingMode: String = MODE_FREE_DRIVE
   private var tripSessionId: String? = null
+  private var apiUrl: String? = null
+  private var authToken: String? = null
   private var locationCallback: LocationCallback? = null
   private var wakeLock: PowerManager.WakeLock? = null
 
@@ -47,6 +52,9 @@ class VroomBgTrackingService : Service() {
       ACTION_START_TRACKING -> {
         trackingMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_FREE_DRIVE
         tripSessionId = intent.getStringExtra(EXTRA_TRIP_SESSION_ID)?.takeIf { it.isNotBlank() }
+        apiUrl = intent.getStringExtra(EXTRA_API_URL)?.takeIf { it.isNotBlank() }
+        authToken = intent.getStringExtra(EXTRA_AUTH_TOKEN)?.takeIf { it.isNotBlank() }
+        saveCheckpointAuth(applicationContext, apiUrl, authToken)
         startForeground(NOTIFICATION_ID, buildNotification(true))
         startNativeLocationUpdates(trackingMode, tripSessionId)
         return START_STICKY
@@ -68,6 +76,9 @@ class VroomBgTrackingService : Service() {
     val active = state.optBoolean("active", false)
     trackingMode = state.optString("mode", MODE_FREE_DRIVE)
     tripSessionId = state.optString("tripSessionId", "").takeIf { it.isNotBlank() }
+    val auth = readCheckpointAuth(applicationContext)
+    apiUrl = auth.first
+    authToken = auth.second
     startForeground(NOTIFICATION_ID, buildNotification(active))
     if (active) startNativeLocationUpdates(trackingMode, tripSessionId)
     return START_STICKY
@@ -308,6 +319,7 @@ class VroomBgTrackingService : Service() {
   }
 
   private fun stopTracking(reason: String, notifyReact: Boolean) {
+    flushNativeCheckpointBlocking(applicationContext, force = true)
     stopNativeLocationUpdates()
     val now = System.currentTimeMillis()
     val previous = readState(applicationContext)
@@ -349,12 +361,15 @@ class VroomBgTrackingService : Service() {
   }
 
   companion object {
+    private const val logTagStatic = "VroomBgTracking"
     const val ACTION_STOP = "com.lexuuw.vroom.app.action.VROOM_BG_SERVICE_STOP"
     const val ACTION_STOP_NOTIFICATION = "com.lexuuw.vroom.app.action.VROOM_BG_SERVICE_STOP_NOTIFICATION"
     const val ACTION_START_TRACKING = "com.lexuuw.vroom.app.action.VROOM_BG_SERVICE_START_TRACKING"
     const val EXTRA_MODE = "mode"
     const val EXTRA_REASON = "reason"
     const val EXTRA_TRIP_SESSION_ID = "tripSessionId"
+    const val EXTRA_API_URL = "apiUrl"
+    const val EXTRA_AUTH_TOKEN = "authToken"
     const val MODE_FREE_DRIVE = "freeDrive"
     private const val CHANNEL_ID = "wiroom_active_drive_tracking_v2"
     private const val NOTIFICATION_ID = 481_756
@@ -363,6 +378,9 @@ class VroomBgTrackingService : Service() {
     private const val KEY_BUFFER = "location_buffer"
     private const val KEY_NATIVE_STATS = "native_stats"
     private const val KEY_NATIVE_STATS_LAST_FIX = "native_stats_last_fix"
+    private const val KEY_NATIVE_CHECKPOINT_API_URL = "native_checkpoint_api_url"
+    private const val KEY_NATIVE_CHECKPOINT_AUTH_TOKEN = "native_checkpoint_auth_token"
+    private const val KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM = "native_last_server_checkpoint_km"
     private const val MAX_BUFFERED_FIXES = 240
     private const val MAX_STATS_ROUTE_POINTS = 1500
     private const val MAX_STATS_SPEED_SAMPLES = 400
@@ -372,6 +390,9 @@ class VroomBgTrackingService : Service() {
     private const val MAX_FIX_GAP_MS = 420_000L
     private const val MIN_SPEED_KMH = 3.0
     private const val MAX_SPEED_KMH = 200.0
+    private const val NATIVE_CHECKPOINT_KM = 0.2
+    private const val NATIVE_CHECKPOINT_FORCE_MIN_KM = 0.05
+    private const val NATIVE_CHECKPOINT_FORCE_MS = 30_000L
 
     fun start(context: Context) {
       val intent = Intent(context, VroomBgTrackingService::class.java)
@@ -382,11 +403,20 @@ class VroomBgTrackingService : Service() {
       }
     }
 
-    fun startTracking(context: Context, mode: String, tripSessionId: String? = null) {
+    fun startTracking(
+      context: Context,
+      mode: String,
+      tripSessionId: String? = null,
+      apiUrl: String? = null,
+      authToken: String? = null,
+    ) {
+      saveCheckpointAuth(context, apiUrl, authToken)
       val intent = Intent(context, VroomBgTrackingService::class.java).apply {
         action = ACTION_START_TRACKING
         putExtra(EXTRA_MODE, if (mode == "navigation") "navigation" else MODE_FREE_DRIVE)
         if (!tripSessionId.isNullOrBlank()) putExtra(EXTRA_TRIP_SESSION_ID, tripSessionId)
+        if (!apiUrl.isNullOrBlank()) putExtra(EXTRA_API_URL, apiUrl)
+        if (!authToken.isNullOrBlank()) putExtra(EXTRA_AUTH_TOKEN, authToken)
       }
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         context.startForegroundService(intent)
@@ -428,6 +458,21 @@ class VroomBgTrackingService : Service() {
         .edit()
         .putString(KEY_STATE, state.toString())
         .apply()
+    }
+
+    fun saveCheckpointAuth(context: Context, apiUrl: String?, authToken: String?) {
+      val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+      if (!apiUrl.isNullOrBlank()) edit.putString(KEY_NATIVE_CHECKPOINT_API_URL, apiUrl)
+      if (!authToken.isNullOrBlank()) edit.putString(KEY_NATIVE_CHECKPOINT_AUTH_TOKEN, authToken)
+      edit.apply()
+    }
+
+    fun readCheckpointAuth(context: Context): Pair<String?, String?> {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      return Pair(
+        prefs.getString(KEY_NATIVE_CHECKPOINT_API_URL, null)?.takeIf { it.isNotBlank() },
+        prefs.getString(KEY_NATIVE_CHECKPOINT_AUTH_TOKEN, null)?.takeIf { it.isNotBlank() },
+      )
     }
 
     fun consumeBufferedLocations(context: Context): JSONArray {
@@ -525,10 +570,15 @@ class VroomBgTrackingService : Service() {
       } catch (_: Exception) {
         JSONObject()
       }
-      if (!stats.has("distanceKm")) stats.put("distanceKm", 0.0)
+      if (!stats.has("distanceKm")) {
+        stats.put("distanceKm", prefs.getFloat(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM, 0f).toDouble())
+      }
       if (!stats.has("routePoints")) stats.put("routePoints", JSONArray())
       if (!stats.has("speedSamples")) stats.put("speedSamples", JSONArray())
       if (!stats.has("maxSpeedKmh")) stats.put("maxSpeedKmh", 0.0)
+      if (!stats.has("lastServerCheckpointKm")) {
+        stats.put("lastServerCheckpointKm", prefs.getFloat(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM, 0f).toDouble())
+      }
       val state = readState(context)
       val sessionId = state.optString("tripSessionId", "")
       if (sessionId.isNotBlank()) stats.put("tripSessionId", sessionId)
@@ -588,6 +638,8 @@ class VroomBgTrackingService : Service() {
         .putString(KEY_NATIVE_STATS, stats.toString())
         .putString(KEY_NATIVE_STATS_LAST_FIX, lastFix.toString())
         .apply()
+
+      maybeFlushNativeCheckpoint(context, stats, force = false)
     }
 
     private fun emptyNativeStats(): JSONObject =
@@ -596,7 +648,135 @@ class VroomBgTrackingService : Service() {
         .put("routePoints", JSONArray())
         .put("speedSamples", JSONArray())
         .put("maxSpeedKmh", 0.0)
+        .put("lastServerCheckpointKm", 0.0)
+        .put("lastCheckpointAttemptAt", 0L)
         .put("tripSessionId", JSONObject.NULL)
+
+    fun flushNativeCheckpointBlocking(context: Context, force: Boolean = false) {
+      val stats = readNativeStats(context)
+      val distance = stats.optDouble("distanceKm", 0.0)
+      if (!distance.isFinite() || distance < 0.05) return
+      val worker = thread(start = true) {
+        postNativeCheckpoint(context, stats, force)
+      }
+      try {
+        worker.join(4_500L)
+      } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+      }
+    }
+
+    private fun maybeFlushNativeCheckpoint(context: Context, stats: JSONObject, force: Boolean) {
+      val distance = stats.optDouble("distanceKm", 0.0)
+      if (!distance.isFinite() || distance < 0.05) return
+      val lastServer = stats.optDouble("lastServerCheckpointKm", 0.0).takeIf { it.isFinite() } ?: 0.0
+      val lastAttempt = stats.optLong("lastCheckpointAttemptAt", 0L)
+      val delta = distance - lastServer
+      val now = System.currentTimeMillis()
+      val dueByDistance = delta >= NATIVE_CHECKPOINT_KM
+      val dueByForce = delta >= NATIVE_CHECKPOINT_FORCE_MIN_KM && now - lastAttempt >= NATIVE_CHECKPOINT_FORCE_MS
+      if (!force && !dueByDistance && !dueByForce) return
+
+      val updatedStats = JSONObject(stats.toString()).put("lastCheckpointAttemptAt", now)
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_NATIVE_STATS, updatedStats.toString())
+        .apply()
+
+      thread(start = true) {
+        postNativeCheckpoint(context, updatedStats, force)
+      }
+    }
+
+    private fun postNativeCheckpoint(context: Context, statsSnapshot: JSONObject, force: Boolean): Boolean {
+      val distance = statsSnapshot.optDouble("distanceKm", 0.0)
+      if (!distance.isFinite() || distance < 0.05) return false
+      val state = readState(context)
+      val sessionId = statsSnapshot.optString("tripSessionId", "")
+        .ifBlank { state.optString("tripSessionId", "") }
+      if (sessionId.isBlank()) return false
+
+      val (rawApiUrl, token) = readCheckpointAuth(context)
+      if (rawApiUrl.isNullOrBlank() || token.isNullOrBlank()) return false
+      val endpoint = rawApiUrl.trim().removeSuffix("/") + "/api/activity/session/checkpoint"
+      val mode = state.optString("mode", MODE_FREE_DRIVE)
+      val source = if (mode == "navigation") "navigation" else "trip-checkpoint"
+      val maxSpeed = statsSnapshot.optDouble("maxSpeedKmh", 0.0).takeIf { it.isFinite() } ?: 0.0
+      val avgSpeed = averageSpeed(statsSnapshot.optJSONArray("speedSamples") ?: JSONArray())
+
+      return try {
+        val body = JSONObject()
+          .put("tripSessionId", sessionId)
+          .put("distanceTotal", roundKm(distance))
+          .put("maxSpeed", roundSpeed(maxSpeed))
+          .put("avgSpeed", roundSpeed(avgSpeed))
+          .put("source", source)
+          .put("visibleInHistory", false)
+          .toString()
+
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+          requestMethod = "POST"
+          connectTimeout = if (force) 3000 else 5000
+          readTimeout = if (force) 3000 else 5000
+          doOutput = true
+          setRequestProperty("Content-Type", "application/json")
+          setRequestProperty("Authorization", "Bearer $token")
+        }
+        connection.outputStream.use { stream ->
+          stream.write(body.toByteArray(Charsets.UTF_8))
+        }
+        val code = connection.responseCode
+        val responseText = if (code in 200..299) {
+          connection.inputStream.bufferedReader().use { it.readText() }
+        } else {
+          connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+        }
+        connection.disconnect()
+        if (code !in 200..299) {
+          Log.d(logTagStatic, "native checkpoint failed code=$code body=${responseText.take(160)}")
+          return false
+        }
+
+        val responseJson = try { JSONObject(responseText) } catch (_: Exception) { JSONObject() }
+        val checkpointKm = responseJson.optDouble("checkpointDistanceKm", distance)
+          .takeIf { it.isFinite() } ?: distance
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val latest = try {
+          JSONObject(prefs.getString(KEY_NATIVE_STATS, null) ?: "{}")
+        } catch (_: Exception) {
+          JSONObject()
+        }
+        latest.put("lastServerCheckpointKm", maxOf(latest.optDouble("lastServerCheckpointKm", 0.0), checkpointKm))
+        latest.put("lastCheckpointAttemptAt", System.currentTimeMillis())
+        if (sessionId.isNotBlank()) latest.put("tripSessionId", sessionId)
+        prefs.edit()
+          .putString(KEY_NATIVE_STATS, latest.toString())
+          .putFloat(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM, checkpointKm.toFloat())
+          .apply()
+        true
+      } catch (e: Exception) {
+        Log.d(logTagStatic, "native checkpoint error: ${e.message}")
+        false
+      }
+    }
+
+    private fun averageSpeed(samples: JSONArray): Double {
+      if (samples.length() == 0) return 0.0
+      var sum = 0.0
+      var count = 0
+      for (i in 0 until samples.length()) {
+        val value = samples.optDouble(i, Double.NaN)
+        if (value.isFinite() && value in 1.0..MAX_SPEED_KMH) {
+          sum += value
+          count += 1
+        }
+      }
+      return if (count > 0) sum / count else 0.0
+    }
+
+    private fun roundKm(value: Double): Double = kotlin.math.round(value * 1000.0) / 1000.0
+
+    private fun roundSpeed(value: Double): Double = kotlin.math.round(value * 10.0) / 10.0
 
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
       val earthKm = 6371.0

@@ -1,6 +1,7 @@
 import { DeviceEventEmitter, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import { API_URL } from '../constants/mapConfig';
 
 export type BackgroundDriveMode = 'freeDrive' | 'navigation';
 export type BackgroundDriveStopReason = 'app' | 'notification' | 'permission' | 'system';
@@ -35,6 +36,7 @@ export type BackgroundDriveNativeStats = {
   routePoints: Array<{ latitude: number; longitude: number }>;
   speedSamples: number[];
   maxSpeedKmh: number;
+  lastServerCheckpointKm?: number;
 };
 
 const STATE_KEY = 'wiroom_background_drive_state';
@@ -47,7 +49,12 @@ const IOS_DRIVE_NOTIFICATION_ID_KEY = 'wiroom_drive_notification_id';
 
 const { VroomBgTracking, WiroomLocationService } = NativeModules as {
   VroomBgTracking?: {
-    startDriveTracking?: (mode: BackgroundDriveMode, tripSessionId?: string) => Promise<boolean>;
+    startDriveTracking?: (
+      mode: BackgroundDriveMode,
+      tripSessionId?: string,
+      apiUrl?: string,
+      authToken?: string,
+    ) => Promise<boolean>;
     stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
@@ -63,6 +70,13 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
   };
 };
+
+async function getAuthToken(): Promise<string | null> {
+  return (
+    (await AsyncStorage.getItem('userToken')) ??
+    (await AsyncStorage.getItem('token'))
+  );
+}
 
 function nativeModule() {
   return Platform.OS === 'ios' ? WiroomLocationService : VroomBgTracking;
@@ -171,8 +185,9 @@ export const BackgroundDriveController = {
     if (!mod?.startDriveTracking) return false;
     try {
       await ensureAndroidNotificationPermission();
+      const token = Platform.OS === 'android' ? await getAuthToken() : null;
       const ok = Platform.OS === 'android'
-        ? await mod.startDriveTracking(mode, tripSessionId ?? '')
+        ? await (mod.startDriveTracking as any)(mode, tripSessionId ?? '', API_URL, token ?? '')
         : await mod.startDriveTracking(mode);
       await showIosDriveNotification(mode);
       return ok;
@@ -251,12 +266,16 @@ export const BackgroundDriveController = {
         const stats = await mod.getNativeStats();
         const distanceKm = Number(stats?.distanceKm);
         const maxSpeedKmh = Number(stats?.maxSpeedKmh);
+        const lastServerCheckpointKm = Number(stats?.lastServerCheckpointKm);
         return {
           distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
           tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
           routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
           speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
           maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
+          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
+            ? lastServerCheckpointKm
+            : undefined,
         };
       } catch {
         // fall through
@@ -272,12 +291,16 @@ export const BackgroundDriveController = {
         const stats = await mod.consumeNativeStats();
         const distanceKm = Number(stats?.distanceKm);
         const maxSpeedKmh = Number(stats?.maxSpeedKmh);
+        const lastServerCheckpointKm = Number(stats?.lastServerCheckpointKm);
         return {
           distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
           tripSessionId: typeof stats?.tripSessionId === 'string' ? stats.tripSessionId : null,
           routePoints: Array.isArray(stats?.routePoints) ? stats.routePoints : [],
           speedSamples: Array.isArray(stats?.speedSamples) ? stats.speedSamples : [],
           maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
+          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
+            ? lastServerCheckpointKm
+            : undefined,
         };
       } catch {
         // fall through

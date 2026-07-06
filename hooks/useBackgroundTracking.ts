@@ -117,8 +117,11 @@ const BG_TRACE_MIN_MOVE_M       = 8;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
 const BG_TRACE_MAX_JUMP_M       = 220;
 const BG_PENDING_KM_HARD_CAP    = 1200;
-const BG_TRIP_CHECKPOINT_KM     = 0.3;
+const BG_TRIP_CHECKPOINT_KM     = 0.2;
+const BG_TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
+const BG_TRIP_CHECKPOINT_FORCE_MS = 30_000;
 let _bgCheckpointInFlight       = false;
+let _bgLastCheckpointAttemptAt  = 0;
 
 export async function stopBackgroundLocationTaskIfRunning(): Promise<void> {
   try {
@@ -295,11 +298,17 @@ export async function saveIncrementalTripKm(payload: {
   maxSpeedKmh?: number;
   avgSpeedKmh?: number;
   source?: 'navigation' | 'driving' | 'trip-checkpoint' | 'background-passive';
-}): Promise<boolean> {
+}): Promise<{
+  tripSessionId: string;
+  creditedDeltaKm: number;
+  checkpointDistanceKm: number;
+  userTotalDistance?: number;
+  dailyDistance?: number;
+} | null> {
   const dist = Number(payload.distanceKm);
-  if (!Number.isFinite(dist) || dist < 0.05) return false;
+  if (!Number.isFinite(dist) || dist < 0.05) return null;
   const token = await getAuthToken();
-  if (!token) return false;
+  if (!token) return null;
   try {
     const tripSessionId = await ensureTripSessionId();
     const res = await fetch(`${API_URL}/api/activity/session/checkpoint`, {
@@ -307,40 +316,65 @@ export async function saveIncrementalTripKm(payload: {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         tripSessionId,
-        distance: Math.round(dist * 1000) / 1000,
+        distanceTotal: Math.round(dist * 1000) / 1000,
         maxSpeed: Math.round((payload.maxSpeedKmh ?? 0) * 10) / 10,
         avgSpeed: Math.round((payload.avgSpeedKmh ?? 0) * 10) / 10,
         source: payload.source ?? 'trip-checkpoint',
         visibleInHistory: false,
       }),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const checkpointDistanceKm = Number(data?.checkpointDistanceKm);
+    const creditedDeltaKm = Number(data?.creditedDeltaKm);
     void syncProfileStatsFromServer();
-    return true;
+    return {
+      tripSessionId: String(data?.tripSessionId ?? tripSessionId),
+      creditedDeltaKm: Number.isFinite(creditedDeltaKm) ? creditedDeltaKm : 0,
+      checkpointDistanceKm: Number.isFinite(checkpointDistanceKm)
+        ? checkpointDistanceKm
+        : Math.round(dist * 1000) / 1000,
+      userTotalDistance: Number.isFinite(Number(data?.userTotalDistance))
+        ? Number(data.userTotalDistance)
+        : undefined,
+      dailyDistance: Number.isFinite(Number(data?.dailyDistance))
+        ? Number(data.dailyDistance)
+        : undefined,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
 async function maybeFlushBgTripCheckpoint(pendingKm: number): Promise<number> {
-  if (_bgCheckpointInFlight || pendingKm < BG_TRIP_CHECKPOINT_KM) return pendingKm;
+  const now = Date.now();
+  const dueByDistance = pendingKm >= BG_TRIP_CHECKPOINT_KM;
+  const dueByForce =
+    pendingKm >= BG_TRIP_CHECKPOINT_FORCE_MIN_KM &&
+    now - _bgLastCheckpointAttemptAt >= BG_TRIP_CHECKPOINT_FORCE_MS;
+  if (_bgCheckpointInFlight || (!dueByDistance && !dueByForce)) return pendingKm;
 
-  const chunkKm = Math.floor(pendingKm / BG_TRIP_CHECKPOINT_KM) * BG_TRIP_CHECKPOINT_KM;
-  if (chunkKm < BG_TRIP_CHECKPOINT_KM) return pendingKm;
+  const savedTotal = await loadTripCheckpointSavedKm();
+  const chunkKm = dueByForce
+    ? pendingKm
+    : Math.floor(pendingKm / BG_TRIP_CHECKPOINT_KM) * BG_TRIP_CHECKPOINT_KM;
+  if (chunkKm < BG_TRIP_CHECKPOINT_FORCE_MIN_KM) return pendingKm;
+  const targetTotal = savedTotal + chunkKm;
 
   _bgCheckpointInFlight = true;
+  _bgLastCheckpointAttemptAt = now;
   try {
     const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
     const maxSpeed = parseFloat(maxRaw ?? '0');
     const ok = await saveIncrementalTripKm({
-      distanceKm: chunkKm,
+      distanceKm: targetTotal,
       maxSpeedKmh: Number.isFinite(maxSpeed) ? maxSpeed : 0,
       source: 'trip-checkpoint',
     });
     if (ok) {
-      const savedTotal = await loadTripCheckpointSavedKm();
-      await persistTripCheckpointSavedKm(savedTotal + chunkKm);
-      return pendingKm - chunkKm;
+      const checkpointTotal = Math.max(savedTotal, ok.checkpointDistanceKm);
+      await persistTripCheckpointSavedKm(checkpointTotal);
+      return Math.max(0, savedTotal + pendingKm - checkpointTotal);
     }
   } finally {
     _bgCheckpointInFlight = false;
@@ -390,11 +424,23 @@ export async function consumeNativeDriveStatsToStorage(): Promise<void> {
       return;
     }
     const nativeKm = Number(stats.distanceKm);
+    const nativeCheckpointKm = Number(stats.lastServerCheckpointKm);
     const writes: Promise<any>[] = [];
 
-    if (Number.isFinite(nativeKm) && nativeKm > 0) {
+    if (Number.isFinite(nativeCheckpointKm) && nativeCheckpointKm > 0) {
+      const savedKm = await loadTripCheckpointSavedKm();
+      if (nativeCheckpointKm > savedKm) {
+        writes.push(persistTripCheckpointSavedKm(nativeCheckpointKm));
+      }
+    }
+
+    const nativePendingKm = Number.isFinite(nativeCheckpointKm) && nativeCheckpointKm > 0
+      ? Math.max(0, nativeKm - nativeCheckpointKm)
+      : nativeKm;
+
+    if (Number.isFinite(nativePendingKm) && nativePendingKm > 0) {
       const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
-      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + nativeKm)));
+      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + nativePendingKm)));
     }
 
     const nativeRoute = Array.isArray(stats.routePoints)
@@ -985,8 +1031,9 @@ export function useBackgroundTracking(
           ? samples.reduce((a, b) => a + b, 0) / samples.length
           : 0;
 
+        const savedCheckpointKm = await loadTripCheckpointSavedKm();
         const saveResOk = await saveIncrementalTripKm({
-          distanceKm: bgPending,
+          distanceKm: savedCheckpointKm + bgPending,
           maxSpeedKmh: maxSpeed,
           avgSpeedKmh: avgSpeed,
           source: 'background-passive',
@@ -1019,6 +1066,7 @@ export function useBackgroundTracking(
         }
         */
         telemetryRef.current.flushSuccess += 1;
+        await persistTripCheckpointSavedKm(Math.max(savedCheckpointKm, saveResOk.checkpointDistanceKm));
         void syncProfileStatsFromServer();
 
         await Promise.all([
@@ -1026,7 +1074,6 @@ export function useBackgroundTracking(
           AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
           AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
           AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
-          AsyncStorage.removeItem(EMERGENCY_TRIP_SAVE_KEY),
         ]);
       }
     } catch (e) {

@@ -168,6 +168,7 @@ import {
   persistTripCheckpointSavedKm,
   loadTripCheckpointSavedKm,
   clearTripCheckpointSavedKm,
+  consumeNativeDriveStatsToStorage,
   BG_IS_DRIVING_KEY,
   BG_IS_NAVIGATING_KEY,
   useBackgroundTracking,
@@ -1290,11 +1291,11 @@ const LIVE_ACHIEVEMENT_DISTANCE_DELTA_TRIGGER_KM = 0.4;
 const LIVE_ACHIEVEMENT_MIN_MOVING_DISTANCE_KM = 1.0;
 const DRIVE_HEALTH_LOG_MS = 15_000;
 /** Co tyle km zapisujemy postęp trasy na serwer (profil nie „zamraża się” na długiej jeździe). */
-const TRIP_CHECKPOINT_KM = 0.3;
+const TRIP_CHECKPOINT_KM = 0.2;
 /** Minimalny nies zapisany blok przy wymuszonym flushu (tło / kill). */
 const TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
 /** Checkpoint dystansu w trakcie jazdy — zapis co N km niezależnie od końca sesji. */
-const ENABLE_TRIP_DISTANCE_CHECKPOINT = false;
+const ENABLE_TRIP_DISTANCE_CHECKPOINT = true;
 /** Odrzuć pierwszy fix inicjalizacji, jeśli provider zwraca zbyt zgrubną niedokładność (często cache sieci). */
 const GPS_INIT_MAX_ACCURACY_M = 150;
 /** OS last-known starszy niż tyle traktujemy jako nieaktualny (nie ustawia kotwicy anty-teleportu). */
@@ -3973,31 +3974,37 @@ function MapScreenInner() {
     const unsavedKm = currentKm - tripCheckpointSavedKmRef.current;
     if (unsavedKm < minKm) return false;
 
-    const chunkKm = opts?.forceAll
-      ? unsavedKm
-      : Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
-    if (chunkKm < minKm) return false;
+    const checkpointTotalKm = opts?.forceAll
+      ? currentKm
+      : tripCheckpointSavedKmRef.current + Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
+    if (checkpointTotalKm - tripCheckpointSavedKmRef.current < minKm) return false;
 
     tripCheckpointInFlightRef.current = true;
     try {
       const ok = await saveIncrementalTripKm({
-        distanceKm: chunkKm,
+        distanceKm: checkpointTotalKm,
         maxSpeedKmh: tripPeakSpeedRef.current,
-        source: 'trip-checkpoint',
+        source: isNavigatingRef.current ? 'navigation' : 'driving',
       });
       if (ok) {
-        tripCheckpointSavedKmRef.current += chunkKm;
-        profileTotalDistanceKmRef.current += chunkKm;
+        const previousSavedKm = tripCheckpointSavedKmRef.current;
+        tripCheckpointSavedKmRef.current = Math.max(previousSavedKm, ok.checkpointDistanceKm);
+        if (Number.isFinite(ok.userTotalDistance)) {
+          profileTotalDistanceKmRef.current = Math.max(0, Number(ok.userTotalDistance));
+        } else {
+          profileTotalDistanceKmRef.current += Math.max(0, ok.creditedDeltaKm);
+        }
         await persistTripCheckpointSavedKm(tripCheckpointSavedKmRef.current);
         if (__DEV__) {
           console.log('[TripCheckpoint] saved', {
             reason: opts?.reason ?? 'periodic',
-            chunkKm: Number(chunkKm.toFixed(3)),
+            creditedDeltaKm: Number(ok.creditedDeltaKm.toFixed(3)),
+            checkpointTotalKm: Number(tripCheckpointSavedKmRef.current.toFixed(3)),
             totalSavedKm: Number(tripCheckpointSavedKmRef.current.toFixed(3)),
           });
         }
       }
-      return ok;
+      return !!ok;
     } finally {
       tripCheckpointInFlightRef.current = false;
     }
@@ -4490,7 +4497,7 @@ function MapScreenInner() {
         forceAll: true,
         reason: 'periodic_safety',
       });
-    }, 60_000);
+    }, 30_000);
     return () => clearInterval(id);
   }, [isDriving, isNavigating]);
 
@@ -9832,6 +9839,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     emergencyTripRestoredRef.current = true;
     void (async () => {
       try {
+        await consumeNativeDriveStatsToStorage();
         const [drivingFlag, navFlag, emergency, savedKm] = await Promise.all([
           AsyncStorage.getItem(BG_IS_DRIVING_KEY),
           AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
@@ -9847,17 +9855,21 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             const peakFromEmergency = (emergency.speedSamples ?? [])
               .filter((s) => s > 2 && s <= 200);
             const ok = await saveIncrementalTripKm({
-              distanceKm: unsavedKm,
+              distanceKm: emergency.distanceKm,
               maxSpeedKmh: peakFromEmergency.length ? Math.max(...peakFromEmergency) : 0,
               source: navFlag === 'true' ? 'navigation' : 'driving',
             });
             if (ok) {
-              tripCheckpointSavedKmRef.current = emergency.distanceKm;
-              profileTotalDistanceKmRef.current += unsavedKm;
-              await persistTripCheckpointSavedKm(emergency.distanceKm);
+              tripCheckpointSavedKmRef.current = Math.max(savedKm, ok.checkpointDistanceKm);
+              if (Number.isFinite(ok.userTotalDistance)) {
+                profileTotalDistanceKmRef.current = Math.max(0, Number(ok.userTotalDistance));
+              } else {
+                profileTotalDistanceKmRef.current += Math.max(0, ok.creditedDeltaKm);
+              }
+              await persistTripCheckpointSavedKm(tripCheckpointSavedKmRef.current);
               vroomGpsLog('EMERGENCY_TRIP_FLUSH', {
-                flushedKm: Number(unsavedKm.toFixed(3)),
-                totalKm: Number(emergency.distanceKm.toFixed(3)),
+                creditedDeltaKm: Number(ok.creditedDeltaKm.toFixed(3)),
+                totalKm: Number(tripCheckpointSavedKmRef.current.toFixed(3)),
               }, 0);
             }
           }

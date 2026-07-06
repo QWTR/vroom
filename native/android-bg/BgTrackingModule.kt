@@ -43,9 +43,21 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun startDriveTracking(mode: String, tripSessionId: String?, promise: Promise) {
+  fun startDriveTracking(
+    mode: String,
+    tripSessionId: String?,
+    apiUrl: String?,
+    authToken: String?,
+    promise: Promise
+  ) {
     try {
-      VroomBgTrackingService.startTracking(reactContext.applicationContext, mode, tripSessionId)
+      VroomBgTrackingService.startTracking(
+        reactContext.applicationContext,
+        mode,
+        tripSessionId,
+        apiUrl,
+        authToken,
+      )
       promise.resolve(true)
     } catch (e: Exception) {
       promise.reject("BG_DRIVE_START", e.message, e)
