@@ -39,6 +39,11 @@ import { EntranceIntroGate } from '../../../components/motion';
 const API = `${API_URL}/api/public-chat`;
 
 type PublicNotifMode = 'all' | 'mentions_only' | 'muted';
+type VroomToastParams = { type?: string; text1?: string; text2?: string; [key: string]: unknown };
+
+function showToast(params: VroomToastParams) {
+  Toast.show(params as any);
+}
 
 function modeFromSettings(msgsMuted: boolean, mentionsMuted: boolean): PublicNotifMode {
   if (msgsMuted && mentionsMuted) return 'muted';
@@ -52,9 +57,8 @@ function settingsFromMode(mode: PublicNotifMode) {
   return { msgsMuted: false, mentionsMuted: false };
 }
 
-const INPUT_MIN_HEIGHT = 40;
-const INPUT_MAX_HEIGHT = 120;
 const PAGE_SIZE = 40;
+const LOAD_OLDER_THRESHOLD = 72;
 const { width: SCREEN_W } = Dimensions.get('window');
 
 interface ChatUser {
@@ -104,6 +108,13 @@ function replyPreviewLabel(reply: {
   return '…';
 }
 
+function mergePublicMessages(current: PublicMessage[], incoming: PublicMessage[]) {
+  const byId = new Map<number, PublicMessage>();
+  for (const msg of current) byId.set(msg.id, msg);
+  for (const msg of incoming) byId.set(msg.id, msg);
+  return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+}
+
 export default function PublicChatScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
@@ -113,9 +124,7 @@ export default function PublicChatScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [text, setText] = useState('');
-  const [inputHeight, setInputHeight] = useState(INPUT_MIN_HEIGHT);
   const [photos, setPhotos] = useState<string[]>([]);
   const [video, setVideo] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<PublicMessage | null>(null);
@@ -140,23 +149,28 @@ export default function PublicChatScreen() {
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myUsernameRef = useRef('');
   const stickToNewestRef = useRef(true);
-  const [anchorOlderLoad, setAnchorOlderLoad] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const nextCursorRef = useRef<number | null>(null);
+  const didInitialScrollRef = useRef(false);
   const listLayoutHeightRef = useRef(0);
 
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const scrollToNewest = useCallback((animated = false) => {
-    const lastIndex = Math.max(0, messages.length - 1);
-    pinChatToBottom(listRef, animated, lastIndex);
-  }, [messages.length]);
+    pinChatToBottom(listRef, animated);
+  }, []);
 
-  const appendMessage = useCallback((msg: PublicMessage) => {
+  const appendMessage = useCallback((msg: PublicMessage, forceScroll = false) => {
+    const shouldStick = forceScroll || stickToNewestRef.current || msg.senderId === myIdRef.current;
     setMessages(prev => {
       if (prev.some(m => m.id === msg.id)) return prev;
-      return [...prev, msg];
+      return mergePublicMessages(prev, [msg]);
     });
-    stickToNewestRef.current = true;
-    setTimeout(() => scrollToNewest(true), 50);
+    if (shouldStick) {
+      stickToNewestRef.current = true;
+      setTimeout(() => scrollToNewest(true), 50);
+    }
   }, [scrollToNewest]);
 
   const fetchMessages = useCallback(async (token: string, cursor?: number) => {
@@ -200,11 +214,12 @@ export default function PublicChatScreen() {
         const data = await fetchMessages(token);
         if (cancelled) return;
         setMessages(data.messages ?? []);
-        setNextCursor(data.nextCursor ?? null);
         setHasMore(!!data.nextCursor);
+        nextCursorRef.current = data.nextCursor ?? null;
+        hasMoreRef.current = !!data.nextCursor;
         stickToNewestRef.current = true;
       } catch {
-        Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się załadować czatu.' });
+        showToast({ type: 'error', text1: 'Błąd', text2: 'Nie udało się załadować czatu.' });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -256,17 +271,17 @@ export default function PublicChatScreen() {
   }, [fetchMessages, router, loadPushSettings, appendMessage]);
 
   useEffect(() => {
-    if (loading || messages.length === 0) return;
+    if (loading || didInitialScrollRef.current || messages.length === 0) return;
+    didInitialScrollRef.current = true;
     scrollToNewest(false);
   }, [loading, messages.length, scrollToNewest]);
 
   useFocusEffect(
     useCallback(() => {
-      if (loading || messages.length === 0) return;
+      if (loading) return;
       stickToNewestRef.current = true;
-      setAnchorOlderLoad(false);
       scrollToNewest(false);
-    }, [loading, messages.length, scrollToNewest]),
+    }, [loading, scrollToNewest]),
   );
 
   useEffect(() => {
@@ -299,12 +314,12 @@ export default function PublicChatScreen() {
       if (!r.ok) throw new Error();
       setNotifMode(mode);
       setNotifModalOpen(false);
-      Toast.show({
+      showToast({
         type: 'success',
         text1: mode === 'all' ? 'Powiadomienia włączone' : mode === 'mentions_only' ? 'Tylko oznaczenia (@)' : 'Powiadomienia wyciszone',
       });
     } catch {
-      Toast.show({ type: 'error', text1: 'Nie udało się zapisać ustawień' });
+      showToast({ type: 'error', text1: 'Nie udało się zapisać ustawień' });
     } finally {
       setNotifSaving(false);
     }
@@ -323,24 +338,33 @@ export default function PublicChatScreen() {
   }, []);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || loadingMore || !hasMore) return;
+    const cursor = nextCursorRef.current;
+    if (!cursor || loadingMoreRef.current || !hasMoreRef.current) return;
     stickToNewestRef.current = false;
-    setAnchorOlderLoad(true);
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const data = await fetchMessages(tokenRef.current, nextCursor);
-      if ((data.messages ?? []).length === 0) { setHasMore(false); return; }
-      setMessages(prev => [...(data.messages ?? []), ...prev]);
-      setNextCursor(data.nextCursor ?? null);
+      const data = await fetchMessages(tokenRef.current, cursor);
+      if ((data.messages ?? []).length === 0) {
+        hasMoreRef.current = false;
+        setHasMore(false);
+        return;
+      }
+      setMessages(prev => mergePublicMessages(prev, data.messages ?? []));
+      nextCursorRef.current = data.nextCursor ?? null;
+      hasMoreRef.current = !!data.nextCursor;
       setHasMore(!!data.nextCursor);
     } catch { /* ignore */ }
-    finally { setLoadingMore(false); }
-  }, [nextCursor, loadingMore, hasMore, fetchMessages]);
+    finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [fetchMessages]);
 
   const pickPhotos = async () => {
     if (video) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Toast.show({ type: 'error', text1: 'Brak uprawnień' }); return; }
+    if (!perm.granted) { showToast({ type: 'error', text1: 'Brak uprawnień' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
@@ -355,7 +379,7 @@ export default function PublicChatScreen() {
   const pickVideo = async () => {
     if (photos.length > 0) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Toast.show({ type: 'error', text1: 'Brak uprawnień' }); return; }
+    if (!perm.granted) { showToast({ type: 'error', text1: 'Brak uprawnień' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsMultipleSelection: false,
@@ -369,7 +393,6 @@ export default function PublicChatScreen() {
   const cancelEdit = useCallback(() => {
     setEditingMsg(null);
     setText('');
-    setInputHeight(INPUT_MIN_HEIGHT);
   }, []);
 
   const startEdit = useCallback((msg: PublicMessage) => {
@@ -378,7 +401,6 @@ export default function PublicChatScreen() {
     setPhotos([]);
     setVideo(null);
     setText(msg.content ?? '');
-    setInputHeight(INPUT_MIN_HEIGHT);
     setMenuMsg(null);
   }, []);
 
@@ -392,7 +414,6 @@ export default function PublicChatScreen() {
       const editTarget = editingMsg;
       setText('');
       setEditingMsg(null);
-      setInputHeight(INPUT_MIN_HEIGHT);
       try {
         const res = await fetch(`${API}/messages/${editTarget.id}`, {
           method: 'PATCH',
@@ -409,7 +430,7 @@ export default function PublicChatScreen() {
         const updated: PublicMessage = await res.json();
         setMessages(prev => prev.map(m => (m.id === updated.id ? updated : m)));
       } catch (e: any) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie udało się edytować wiadomości.' });
+        showToast({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie udało się edytować wiadomości.' });
         setText(t);
         setEditingMsg(editTarget);
       } finally {
@@ -428,7 +449,6 @@ export default function PublicChatScreen() {
     setPhotos([]);
     setVideo(null);
     setReplyTo(null);
-    setInputHeight(INPUT_MIN_HEIGHT);
 
     const form = new FormData();
     if (t) form.append('content', t);
@@ -451,9 +471,9 @@ export default function PublicChatScreen() {
         throw new Error(err.error ?? 'Błąd wysyłki');
       }
       const msg: PublicMessage = await res.json();
-      appendMessage(msg);
+      appendMessage(msg, true);
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie wysłano wiadomości.' });
+      showToast({ type: 'error', text1: 'BŁĄD', text2: e.message ?? 'Nie wysłano wiadomości.' });
       setText(t);
       setPhotos(p);
       setVideo(v);
@@ -494,7 +514,7 @@ export default function PublicChatScreen() {
         ...(hasMine ? {} : { body: JSON.stringify({ emoji }) }),
       });
       if (!res.ok) {
-        Toast.show({ type: 'error', text1: 'Nie udało się dodać reakcji' });
+        showToast({ type: 'error', text1: 'Nie udało się dodać reakcji' });
         return;
       }
       const data = await res.json();
@@ -502,7 +522,7 @@ export default function PublicChatScreen() {
         m.id === msgId ? { ...m, reactions: data.reactions ?? [] } : m
       )));
     } catch {
-      Toast.show({ type: 'error', text1: 'Brak połączenia' });
+      showToast({ type: 'error', text1: 'Brak połączenia' });
     }
   }, [messages]);
 
@@ -683,21 +703,25 @@ export default function PublicChatScreen() {
             flexGrow: messages.length > 0 ? 1 : undefined,
             justifyContent: messages.length > 0 ? 'flex-end' : undefined,
           },
-          maintainVisibleContentPosition: anchorOlderLoad
-            ? { minIndexForVisible: 1, autoscrollToTopThreshold: 100 }
-            : undefined,
           onLayout: (e) => { listLayoutHeightRef.current = e.nativeEvent.layout.height; },
           onScroll: (e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
             const viewH = layoutMeasurement.height > 0 ? layoutMeasurement.height : listLayoutHeightRef.current;
             const distFromBottom = contentSize.height - viewH - contentOffset.y;
             stickToNewestRef.current = distFromBottom < 160;
-            if (stickToNewestRef.current && anchorOlderLoad) setAnchorOlderLoad(false);
+            if (
+              contentOffset.y <= LOAD_OLDER_THRESHOLD
+              && contentSize.height > viewH + LOAD_OLDER_THRESHOLD
+              && hasMoreRef.current
+              && !loadingMoreRef.current
+            ) {
+              void loadMore();
+            }
           },
           scrollEventThrottle: 16,
           onContentSizeChange: () => {
             if (stickToNewestRef.current) {
-              pinChatToBottom(listRef, false, Math.max(0, messages.length - 1));
+              scrollToNewest(false);
             }
           },
           onScrollToIndexFailed: (info) => {

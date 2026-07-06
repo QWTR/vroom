@@ -57,6 +57,11 @@ export function ChatMessageList({
   listProps,
 }: Props) {
   const { theme } = useTheme();
+  const {
+    contentContainerStyle: listContentContainerStyle,
+    maintainVisibleContentPosition: listMaintainVisibleContentPosition,
+    ...restListProps
+  } = listProps ?? {};
 
   const renderItem = useCallback(
     ({ item, index }: { item: UnifiedChatMessage; index: number }) => {
@@ -121,11 +126,14 @@ export function ChatMessageList({
         styles.content,
         { paddingBottom: listPaddingBottom },
         messages.length === 0 && styles.emptyGrow,
+        listContentContainerStyle,
       ]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-      maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
-      {...listProps}
+      maintainVisibleContentPosition={
+        listMaintainVisibleContentPosition ?? { minIndexForVisible: 0, autoscrollToTopThreshold: 10 }
+      }
+      {...restListProps}
     />
   );
 }
