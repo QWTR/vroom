@@ -49,6 +49,14 @@ export function parseRouteMessage(content: string): Record<string, unknown> | nu
   return null;
 }
 
+export function parseVroomkiMessage(content: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed?.type === 'vroomki') return parsed;
+  } catch {}
+  return null;
+}
+
 export function replyPreviewLabel(reply: {
   content?: string | null;
   photos?: string[];

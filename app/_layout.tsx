@@ -340,7 +340,7 @@ function RootLayoutInner() {
   const handleNotificationNavigation = async (data: any) => {
     if (!data?.type) return;
     try {
-      const navKey = `${String(data.type)}:${String(data.conversationId ?? data.postId ?? data.clubId ?? data.spotId ?? data.carId ?? data.meetId ?? data.userId ?? 'none')}`;
+      const navKey = `${String(data.type)}:${String(data.conversationId ?? data.postId ?? data.clubId ?? data.spotId ?? data.carId ?? data.meetId ?? data.vroomkiPostId ?? data.userId ?? 'none')}`;
       const now = Date.now();
       if (lastNotifRouteRef.current && lastNotifRouteRef.current.key === navKey && now - lastNotifRouteRef.current.ts < 2500) {
         console.log('[Notifications] Skip duplicate navigation:', navKey);
@@ -376,6 +376,8 @@ function RootLayoutInner() {
           target = `/(tabs)/account`;
         } else if (data.type === 'friend_request' || data.type === 'friend_accepted') {
           target = `/Community/chats/chats`;
+        } else if ((data.type === 'like_vroomki' || data.type === 'comment_vroomki') && data.vroomkiPostId) {
+          target = `/Community/vroomki?vroomkiId=${data.vroomkiPostId}`;
         } else if (data.type === 'achievement') {
           target = `/(tabs)/account`;
         }

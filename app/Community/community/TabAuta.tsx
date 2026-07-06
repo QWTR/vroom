@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { API_URL } from '../../../constants/config';
 import { type VroomkiPost, type VroomkiComment, Avatar, ListFooter } from './communityShared';
+import { ShareVroomkiModal } from '../../../components/modals/ShareVroomkiModal';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -347,11 +348,20 @@ function VroomkiCommentsModal({
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
-  const commentsUrl = post?.legacyCarId
-    ? `${API_URL}/api/cars/${post.legacyCarId}/comments`
-    : post
-    ? `${API_URL}/api/vroomki/${post.id}/comments`
+  const [replyTo, setReplyTo] = useState<{ id: number; username: string } | null>(null);
+  const pendingCommentLikesRef = useRef<Set<number>>(new Set());
+  const isLegacyCarOnly = post != null && post.id < 0;
+  const useVroomkiCommentsApi = post != null && post.id > 0;
+  const commentsUrl = isLegacyCarOnly
+    ? `${API_URL}/api/cars/${Math.abs(post!.id)}/comments`
+    : useVroomkiCommentsApi
+    ? `${API_URL}/api/vroomki/${post!.id}/comments`
     : null;
+
+  useEffect(() => {
+    setReplyTo(null);
+    setText('');
+  }, [post?.id]);
 
   useEffect(() => {
     if (!post || !commentsUrl) return;
@@ -359,43 +369,101 @@ function VroomkiCommentsModal({
       setLoading(true);
       try {
         const token = await getToken();
-        const res = await fetch(commentsUrl, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : [];
-        setComments(list.map((comment: any) => ({
+        const headers = { Authorization: `Bearer ${token}` };
+        const mapComment = (comment: any, legacy = false): VroomkiComment => ({
           id: comment.id,
           content: comment.content ?? comment.text ?? '',
           createdAt: comment.createdAt,
           author: comment.author ?? comment.user,
-        })));
+          replyTo: legacy ? null : (comment.replyTo ?? null),
+          likesCount: legacy ? 0 : (comment.likesCount ?? 0),
+          isLiked: legacy ? false : !!comment.isLiked,
+          legacyOnly: legacy,
+        });
+
+        const res = await fetch(commentsUrl, { headers });
+        const data = await res.json();
+        let list: VroomkiComment[] = (Array.isArray(data) ? data : []).map((c: any) => mapComment(c));
+
+        if (useVroomkiCommentsApi && post.legacyCarId) {
+          const carRes = await fetch(`${API_URL}/api/cars/${post.legacyCarId}/comments`, { headers });
+          if (carRes.ok) {
+            const carData = await carRes.json();
+            const legacyList = (Array.isArray(carData) ? carData : []).map((c: any) => mapComment(c, true));
+            const vroomkiIds = new Set(list.map((c) => `${c.author.id}:${c.content}:${c.createdAt}`));
+            const merged = [
+              ...list,
+              ...legacyList.filter((c) => !vroomkiIds.has(`${c.author.id}:${c.content}:${c.createdAt}`)),
+            ];
+            merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            list = merged;
+          }
+        }
+
+        setComments(list);
       } catch {
         showToast({ type: 'error', text1: 'Błąd ładowania komentarzy' });
       } finally {
         setLoading(false);
       }
     })();
-  }, [commentsUrl, post]);
+  }, [commentsUrl, post, useVroomkiCommentsApi]);
+
+  const likeComment = async (commentId: number) => {
+    if (!useVroomkiCommentsApi) return;
+    if (pendingCommentLikesRef.current.has(commentId)) return;
+    const current = comments.find(c => c.id === commentId);
+    if (!current) return;
+    const nextLiked = !current.isLiked;
+    const nextCount = Math.max(0, (current.likesCount ?? 0) + (nextLiked ? 1 : -1));
+    pendingCommentLikesRef.current.add(commentId);
+    setComments(prev => prev.map(c => c.id === commentId ? { ...c, isLiked: nextLiked, likesCount: nextCount } : c));
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/vroomki/comments/${commentId}/like`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setComments(prev => prev.map(c => c.id === commentId
+        ? { ...c, isLiked: !!data.liked, likesCount: data.likesCount ?? nextCount }
+        : c,
+      ));
+    } catch {
+      setComments(prev => prev.map(c => c.id === commentId ? current : c));
+    } finally {
+      pendingCommentLikesRef.current.delete(commentId);
+    }
+  };
 
   const send = async () => {
     if (!post || !commentsUrl || !text.trim() || posting) return;
     setPosting(true);
     try {
       const token = await getToken();
+      const body = isLegacyCarOnly
+        ? { text: text.trim() }
+        : { content: text.trim(), ...(replyTo ? { replyToId: replyTo.id } : {}) };
       const res = await fetch(commentsUrl, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(post.legacyCarId ? { text: text.trim() } : { content: text.trim() }),
+        body: JSON.stringify(body),
       });
       const rawComment = await res.json();
       if (!res.ok) throw new Error(rawComment?.error);
-      const comment = {
+      const comment: VroomkiComment = {
         id: rawComment.id,
         content: rawComment.content ?? rawComment.text ?? '',
         createdAt: rawComment.createdAt,
         author: rawComment.author ?? rawComment.user,
+        replyTo: rawComment.replyTo ?? null,
+        likesCount: rawComment.likesCount ?? 0,
+        isLiked: !!rawComment.isLiked,
       };
       setComments(prev => [...prev, comment]);
       setText('');
+      setReplyTo(null);
       onCommentAdded(post.id);
     } catch (e: any) {
       showToast({ type: 'error', text1: e?.message ?? 'Nie udało się dodać komentarza' });
@@ -414,26 +482,106 @@ function VroomkiCommentsModal({
           {loading ? <ActivityIndicator color="#e33835" style={{ marginVertical: 30 }} /> : (
             <FlatList
               data={comments}
-              keyExtractor={item => String(item.id)}
+              keyExtractor={item => `${item.legacyOnly ? 'legacy' : 'vroomki'}-${item.id}`}
               style={{ maxHeight: 330 }}
               contentContainerStyle={{ gap: 10, paddingBottom: 10 }}
               ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginVertical: 28 }}>Bądź pierwszy w komentarzach</Text>}
               renderItem={({ item }) => (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Avatar user={item.author} size={30} />
-                  <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 10 }}>
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10 }}>{item.author.username}</Text>
-                    <Text style={{ color: theme.text, marginTop: 5, fontSize: 13 }}>{item.content}</Text>
+                  <Avatar user={item.author} size={34} />
+                  <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 12 }}>
+                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                      {item.author.username}
+                    </Text>
+                    {item.replyTo && (
+                      <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10, marginTop: 5, opacity: 0.85 }}>
+                        ↩ odpowiedź dla @{item.replyTo.username}
+                      </Text>
+                    )}
+                    <Text style={{ color: theme.text, marginTop: 6, fontSize: 14, lineHeight: 20 }}>{item.content}</Text>
+                    {useVroomkiCommentsApi && !item.legacyOnly && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
+                        <TouchableOpacity
+                          onPress={() => setReplyTo({ id: item.id, username: item.author.username })}
+                          activeOpacity={0.85}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            backgroundColor: '#e3383520',
+                            borderWidth: 1,
+                            borderColor: '#e3383540',
+                            borderRadius: 12,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                          }}
+                        >
+                          <MaterialIcons name="reply" size={18} color="#e33835" />
+                          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>
+                            ODPOWIEDZ
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => likeComment(item.id)}
+                          activeOpacity={0.85}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            backgroundColor: item.isLiked ? '#e3383528' : theme.surface,
+                            borderWidth: 1,
+                            borderColor: item.isLiked ? '#e3383560' : theme.border,
+                            borderRadius: 12,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                          }}
+                        >
+                          <MaterialCommunityIcons
+                            name={item.isLiked ? 'heart' : 'heart-outline'}
+                            size={20}
+                            color={item.isLiked ? '#e33835' : theme.textDim}
+                          />
+                          <Text style={{ fontFamily: 'Orbitron', color: item.isLiked ? '#e33835' : theme.textDim, fontSize: 11, fontWeight: '700' }}>
+                            {item.likesCount ?? 0}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 </View>
               )}
             />
           )}
+          {replyTo && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: 10,
+              marginBottom: 4,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: '#e3383518',
+              borderWidth: 1,
+              borderColor: '#e3383540',
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <MaterialIcons name="reply" size={18} color="#e33835" />
+                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
+                  Odpowiadasz @{replyTo.username}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <MaterialIcons name="close" size={20} color={theme.textDim} />
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
             <TextInput
               value={text}
               onChangeText={setText}
-              placeholder="Dodaj komentarz..."
+              placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Dodaj komentarz...'}
               placeholderTextColor={theme.textDim}
               style={{ flex: 1, minHeight: 42, borderRadius: 16, backgroundColor: theme.surface2, color: theme.text, paddingHorizontal: 12 }}
             />
@@ -454,6 +602,7 @@ function ReelCard({
   myId,
   onLike,
   onOpenComments,
+  onShare,
   onFollowAuthor,
   onProfile,
   onCar,
@@ -466,6 +615,7 @@ function ReelCard({
   myId: number | null;
   onLike: (id: number) => void;
   onOpenComments: (post: VroomkiPost) => void;
+  onShare: (post: VroomkiPost) => void;
   onFollowAuthor: (authorId: number) => void;
   onProfile: (id: number) => void;
   onCar: (id: number) => void;
@@ -594,6 +744,11 @@ function ReelCard({
           </View>
           <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, marginTop: 4 }}>{post.commentsCount}</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => onShare(post)} style={{ alignItems: 'center' }}>
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
+            <MaterialIcons name="share" size={24} color="#fff" />
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => onMore(post)}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialIcons name={own ? 'more-vert' : 'flag'} size={24} color="#fff" />
@@ -622,11 +777,12 @@ function ReelCard({
 }
 
 export function TabAuta({
-  posts, myId, loadingC, refreshingC, loadingMoreC, hasMoreC,
+  posts, myId, focusPostId, loadingC, refreshingC, loadingMoreC, hasMoreC,
   onLike, onCreate, onDelete, onReport, onBlock, onView, onCommentAdded,
   onFollowAuthor, onRefresh, onLoadMore, bottomInset, router,
 }: {
   posts: VroomkiPost[];
+  focusPostId?: number | null;
   myId: number | null;
   loadingC: boolean;
   refreshingC: boolean;
@@ -648,30 +804,42 @@ export function TabAuta({
   const { theme } = useTheme();
   const [composerOpen, setComposerOpen] = useState(false);
   const [commentsPost, setCommentsPost] = useState<VroomkiPost | null>(null);
+  const [sharePost, setSharePost] = useState<VroomkiPost | null>(null);
   const [activeId, setActiveId] = useState<number | null>(posts[0]?.id ?? null);
   const [reelHeight, setReelHeight] = useState(FALLBACK_REEL_H);
   const listRef = useRef<FlatList<VroomkiPost> | null>(null);
   const dragStartIndexRef = useRef(0);
   const viewedRef = useRef<Set<number>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstPostId = posts[0]?.id ?? null;
+  const lastFocusIdRef = useRef<number | null>(null);
+  const initialActiveSetRef = useRef(false);
 
   useEffect(() => {
-    if (!activeId && posts[0]) setActiveId(posts[0].id);
-  }, [activeId, posts]);
+    if (initialActiveSetRef.current) return;
+    if (!posts[0]) return;
+    initialActiveSetRef.current = true;
+    setActiveId(posts[0].id);
+  }, [posts]);
 
   useEffect(() => {
-    if (firstPostId != null) {
-      dragStartIndexRef.current = 0;
-      setActiveId(firstPostId);
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    if (focusPostId != null && posts.length > 0 && reelHeight > 0) {
+      const idx = posts.findIndex((p) => p.id === focusPostId);
+      if (idx >= 0 && lastFocusIdRef.current !== focusPostId) {
+        lastFocusIdRef.current = focusPostId;
+        dragStartIndexRef.current = idx;
+        setActiveId(posts[idx].id);
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToIndex({ index: idx, animated: false });
+        });
+        return;
+      }
     }
-  }, [firstPostId]);
+  }, [focusPostId, posts, reelHeight]);
 
   const reportSoftView = useCallback((post: VroomkiPost) => {
     if (viewedRef.current.has(post.id)) return;
     viewedRef.current.add(post.id);
-    if (post.legacyCarId) return;
+    if (post.id < 0) return;
     onView(post.id, VIEW_THRESHOLD_MS, false);
   }, [onView]);
 
@@ -743,12 +911,13 @@ export function TabAuta({
             onLike={onLike}
             onFollowAuthor={onFollowAuthor}
             onOpenComments={setCommentsPost}
+            onShare={setSharePost}
             onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
             onCar={id => router.push({ pathname: '/profile/car-detail', params: { id: String(id) } })}
             onMore={openMore}
             onCompletedView={(post, watchMs) => {
               viewedRef.current.add(post.id);
-              if (post.legacyCarId) return;
+              if (post.id < 0) return;
               onView(post.id, watchMs, true);
             }}
           />
@@ -814,6 +983,12 @@ export function TabAuta({
         post={commentsPost}
         onClose={() => setCommentsPost(null)}
         onCommentAdded={onCommentAdded}
+      />
+      <ShareVroomkiModal
+        visible={!!sharePost}
+        post={sharePost}
+        myId={myId}
+        onClose={() => setSharePost(null)}
       />
     </>
   );

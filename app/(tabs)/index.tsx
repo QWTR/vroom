@@ -1192,7 +1192,7 @@ export default function HomeScreen() {
 				{/* ══════════════════════════════════════════════ */}
 				{/* THE GRID — aktywne głosowanie                  */}
 				{/* ══════════════════════════════════════════════ */}
-				{activeGridVotes.length > 0 && (
+				{false && activeGridVotes.length > 0 && (
 					<Animated.View
 						style={{
 							opacity: fadeAnim,
@@ -1733,7 +1733,7 @@ export default function HomeScreen() {
 								lib: "mi",
 								label: "VROOMKI",
 								sub: "Rolki aut",
-								route: { pathname: "/Community/community/community", params: { tab: "vroomki" } },
+								route: "/Community/vroomki",
 							},
 							{
 								icon: "chat-bubble",

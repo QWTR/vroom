@@ -58,13 +58,13 @@ const QUICK_ACCESS: CommunityModuleItem[] = [
 
 const RIVALRY: CommunityModuleItem[] = [
   {
-    label: 'THE GRID',
-    desc: 'Turniej 1v1 — zgłoś auto i walcz o LEGENDARY.',
-    route: '/Community/grid/grid',
-    icon: 'flag-checkered',
+    label: 'VROOMKI',
+    desc: 'Rolki aut — lajki, komentarze i udostępnianie.',
+    route: '/Community/vroomki',
+    icon: 'smart-display',
     iconLib: 'material',
-    tag: 'ARENA',
-    moduleKey: 'grid',
+    tag: 'REELS',
+    moduleKey: 'vroomki',
   },
 ];
 

@@ -1309,7 +1309,7 @@ export default function ProfileView({
         }}
         onOpenPost={(id) => {
           setVroomkiModalVisible(false);
-          router.push({ pathname: '/Community/community/community', params: { tab: 'vroomki', vroomkiId: String(id) } } as any);
+          router.push({ pathname: '/Community/vroomki', params: { vroomkiId: String(id) } } as any);
         }}
         onDeletePost={deleteVroomkiPost}
       />

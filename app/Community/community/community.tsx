@@ -28,7 +28,7 @@ import {
 import { RouteLeaderboardModal } from '../../../components/modals/RouteLeaderboardModal';
 import { useRouteLeaderboard }   from '../../../hooks/useRouteLeaderboard';
 import {
-  type Comment, type Post, type PublicRoute, type VroomkiPost, type Tab,
+  type Comment, type Post, type PublicRoute, type Tab,
   type DiscussionCategoryFilter,
   DISCUSSION_ALL_CATEGORIES,
   Avatar, PhotoViewer, LoadingView,
@@ -42,64 +42,11 @@ import {
   reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
 } from '../../../lib/ugcActions';
 import { TabTrasy }    from './TabTrasy';
-import { TabAuta }     from './TabAuta';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
 const FREE_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
 const PREMIUM_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
-
-function shuffleVroomki<T>(items: T[]): T[] {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-type LegacyCommunityCar = {
-  id: number;
-  brand: string;
-  specs: string;
-  photos: string[];
-  isMain: boolean;
-  createdAt: string;
-  owner: { id: number; username: string; avatarUrl: string | null };
-  likesCount: number;
-  commentsCount: number;
-  isLiked: boolean;
-};
-
-function mapLegacyCarToVroomki(car: LegacyCommunityCar): VroomkiPost {
-  return {
-    id: -car.id,
-    legacyCarId: car.id,
-    caption: `${car.brand} ${car.specs}`.trim(),
-    photos: car.photos ?? [],
-    videos: [],
-    mediaType: 'photo',
-    createdAt: car.createdAt,
-    author: {
-      id: car.owner.id,
-      username: car.owner.username,
-      avatarUrl: car.owner.avatarUrl,
-      points: 0,
-    },
-    car: {
-      id: car.id,
-      brand: car.brand,
-      specs: car.specs,
-      photos: car.photos ?? [],
-      isMain: car.isMain,
-      ownerId: car.owner.id,
-    },
-    likesCount: car.likesCount ?? 0,
-    commentsCount: car.commentsCount ?? 0,
-    viewsCount: 0,
-    isLiked: !!car.isLiked,
-  };
-}
 
 export default function CommunityScreen() {
   const router = useRouter();
@@ -131,15 +78,6 @@ export default function CommunityScreen() {
   const [routeCursor,   setRouteCursor]   = useState<number | null>(null);
   const [loadingMoreR,  setLoadingMoreR]  = useState(false);
   const [hasMoreR,      setHasMoreR]      = useState(true);
-
-  // VROOMKI
-  const [vroomkiPosts, setVroomkiPosts] = useState<VroomkiPost[]>([]);
-  const [loadingC,    setLoadingC]    = useState(false);
-  const [refreshingC, setRefreshingC] = useState(false);
-  const [carCursor,   setCarCursor]   = useState<number | null>(null);
-  const [loadingMoreC,setLoadingMoreC]= useState(false);
-  const [hasMoreC,    setHasMoreC]    = useState(true);
-  const focusedVroomkiRef = useRef<VroomkiPost | null>(null);
 
   // Leaderboard
   const { data: lbData, runsData: lbRunsData, loading: lbLoading, fetchLeaderboard, fetchRuns } = useRouteLeaderboard();
@@ -206,30 +144,12 @@ export default function CommunityScreen() {
   }, []);
 
   useEffect(() => {
-    if (params.tab === 'vroomki') setActiveTab('vroomki');
-  }, [params.tab]);
-
-  useEffect(() => {
-    if (params.tab !== 'vroomki' || !params.vroomkiId) return;
-    const postId = parseInt(String(params.vroomkiId), 10);
-    if (!Number.isFinite(postId)) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getToken();
-        const res = await fetch(`${API_URL}/api/vroomki/${postId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        const post: VroomkiPost = await res.json();
-        if (cancelled) return;
-        focusedVroomkiRef.current = post;
-        setActiveTab('vroomki');
-        setVroomkiPosts(prev => [post, ...prev.filter(p => p.id !== post.id)]);
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [params.tab, params.vroomkiId]);
+    if (params.tab !== 'vroomki') return;
+    router.replace({
+      pathname: '/Community/vroomki',
+      params: params.vroomkiId ? { vroomkiId: String(params.vroomkiId) } : {},
+    } as any);
+  }, [params.tab, params.vroomkiId, router]);
 
   // ── Fetch functions ──────────────────────────────────────
   const fetchPosts = useCallback(async (cursor?: number) => {
@@ -272,81 +192,15 @@ export default function CommunityScreen() {
     finally { setLoadingR(false); setRefreshingR(false); setLoadingMoreR(false); }
   }, []);
 
-  const fetchVroomki = useCallback(async (cursor?: number) => {
-    if (!cursor) setLoadingC(true);
-    try {
-      const token = await getToken();
-      const exclude = vroomkiPosts.map(p => p.id).join(',');
-      const url   = cursor
-        ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}`
-        : `${API_URL}/api/vroomki?limit=${PAGE_SIZE}`;
-      const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const json  = await res.json();
-      const newPosts   = (Array.isArray(json) ? json : json.posts ?? []).filter((post: VroomkiPost) => !post.isLiked);
-      let mergedPosts: VroomkiPost[] = newPosts;
-      if (!cursor) {
-        const carsRes = await fetch(`${API_URL}/api/cars/community?limit=100`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (carsRes.ok) {
-          const carsJson = await carsRes.json();
-          const legacyCars: LegacyCommunityCar[] = Array.isArray(carsJson) ? carsJson : carsJson.cars ?? [];
-          const representedCarIds = new Set(
-            newPosts
-              .map((post: VroomkiPost) => post.legacyCarId ?? post.car?.id)
-              .filter((id: number | undefined | null): id is number => typeof id === 'number'),
-          );
-          const legacyPosts = legacyCars
-            .filter(car => !car.isLiked && !representedCarIds.has(car.id))
-            .map(mapLegacyCarToVroomki);
-          mergedPosts = shuffleVroomki([...newPosts, ...legacyPosts.filter(p => !p.isLiked)]);
-        }
-      }
-      if (!cursor && focusedVroomkiRef.current) {
-        const focused = focusedVroomkiRef.current;
-        mergedPosts = [focused, ...mergedPosts.filter(p => p.id !== focused.id)];
-      }
-      const nextCursor = Array.isArray(json) ? null : (json.nextCursor ?? null);
-      if (cursor) setVroomkiPosts(prev => [...prev, ...mergedPosts]);
-      else        setVroomkiPosts(mergedPosts);
-      setCarCursor(nextCursor);
-      setHasMoreC(!!nextCursor);
-    } catch {
-      try {
-        if (!cursor) {
-          const token = await getToken();
-          const carsRes = await fetch(`${API_URL}/api/cars/community?limit=100`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (carsRes.ok) {
-            const carsJson = await carsRes.json();
-            const legacyCars: LegacyCommunityCar[] = Array.isArray(carsJson) ? carsJson : carsJson.cars ?? [];
-            const fallbackPosts = shuffleVroomki(legacyCars.filter(car => !car.isLiked).map(mapLegacyCarToVroomki));
-            if (focusedVroomkiRef.current) {
-              setVroomkiPosts([focusedVroomkiRef.current, ...fallbackPosts.filter(p => p.id !== focusedVroomkiRef.current?.id)]);
-            } else {
-              setVroomkiPosts(fallbackPosts);
-            }
-            setHasMoreC(false);
-            return;
-          }
-        }
-      } catch {}
-      Toast.show({ type: 'error', text1: 'Błąd ładowania VROOMKI' });
-    }
-    finally { setLoadingC(false); setRefreshingC(false); setLoadingMoreC(false); }
-  }, [vroomkiPosts]);
-
   useFocusEffect(useCallback(() => {
     setLoadingP(true);
-    setHasMoreP(true); setHasMoreR(true); setHasMoreC(true);
-    fetchPosts(); fetchRoutes(); fetchVroomki();
+    setHasMoreP(true); setHasMoreR(true);
+    fetchPosts(); fetchRoutes();
     void syncBlockedUserIdsFromServer().then(setBlockedIds);
   }, []));
 
   const loadMorePosts  = useCallback(() => { if (!postCursor  || loadingMoreP || !hasMoreP) return; setLoadingMoreP(true);  fetchPosts(postCursor);   }, [postCursor,  loadingMoreP,  hasMoreP,  fetchPosts]);
   const loadMoreRoutes = useCallback(() => { if (!routeCursor || loadingMoreR || !hasMoreR) return; setLoadingMoreR(true); fetchRoutes(routeCursor); }, [routeCursor, loadingMoreR, hasMoreR, fetchRoutes]);
-  const loadMoreVroomki = useCallback(() => { if (!carCursor || loadingMoreC || !hasMoreC) return; setLoadingMoreC(true); fetchVroomki(carCursor); }, [carCursor, loadingMoreC, hasMoreC, fetchVroomki]);
 
   const openLeaderboard = useCallback(async (route: PublicRoute) => {
     setLbRoute(route);
@@ -386,7 +240,6 @@ export default function CommunityScreen() {
     setBlockedIds(ids);
     setPosts((prev) => prev.filter((p) => !ids.includes(p.author.id)));
     setComments((prev) => prev.filter((c) => !ids.includes(c.author.id)));
-    setVroomkiPosts((prev) => prev.filter((p) => !ids.includes(p.author.id)));
   }, []);
 
   const handleBlockPostAuthor = useCallback((post: Post) => {
@@ -402,141 +255,6 @@ export default function CommunityScreen() {
     const token = await getToken();
     await fetch(`${API_URL}/api/routes/${id}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
   }, []);
-
-  const handleLikeVroomki = useCallback(async (id: number) => {
-    const current = vroomkiPosts.find(p => p.id === id);
-    if (!current) return;
-    const legacyCarId = current?.legacyCarId ?? (id < 0 ? Math.abs(id) : null);
-    setVroomkiPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isLiked: !p.isLiked, likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1 }));
-    const token = await getToken();
-    try {
-      const res = await fetch(`${API_URL}/api/${legacyCarId ? `cars/${legacyCarId}` : `vroomki/${id}`}/like`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setVroomkiPosts(prev => prev.map(p => p.id === id
-        ? { ...p, isLiked: !!data.liked, likesCount: data.likesCount ?? p.likesCount }
-        : p,
-      ));
-    } catch {
-      setVroomkiPosts(prev => prev.map(p => p.id === id ? current : p));
-    }
-  }, [vroomkiPosts]);
-
-  const handleCreateVroomki = useCallback(async (
-    caption: string,
-    photos: string[],
-    video: string | null,
-    carId: number | null,
-  ) => {
-    const token = await getToken();
-    if (!token) throw new Error('Brak tokenu');
-    if (video) {
-      const info = await FileSystem.getInfoAsync(video, { size: true } as any);
-      const fileSize = Number((info as any)?.size ?? 0);
-      const isPremium = !!settings.isPremium;
-      const isAdmin = !!settings.isAdmin;
-      const maxBytes = isAdmin ? null : (isPremium ? PREMIUM_VIDEO_MAX_BYTES : FREE_VIDEO_MAX_BYTES);
-      if (maxBytes !== null && fileSize > maxBytes) {
-        if (!isPremium && !isAdmin) {
-          router.push('/premium' as any);
-          throw new Error('Odblokuj Premium, aby wysyłać filmy do 120MB');
-        }
-        throw new Error('Maksymalny rozmiar filmu to 120MB');
-      }
-      Toast.show({ type: 'info', text1: 'Wysyłanie VROOMKI...', text2: 'Upload filmu działa w tle' });
-      const ext = video.split('.').pop() ?? 'mp4';
-      const result = await FileSystem.uploadAsync(`${API_URL}/api/vroomki`, video, {
-        httpMethod: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-        fieldName: 'video',
-        mimeType: `video/${ext}`,
-        parameters: {
-          caption,
-          ...(carId ? { carId: String(carId) } : {}),
-        },
-        sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
-      });
-      const payload = result.body ? JSON.parse(result.body) : null;
-      if (result.status !== 200 && result.status !== 201) {
-        if (payload?.code === 'PREMIUM_REQUIRED_VIDEO_LIMIT') router.push('/premium' as any);
-        throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
-      }
-      if (payload) setVroomkiPosts(prev => [payload, ...prev]);
-      return;
-    }
-
-    const form = new FormData();
-    form.append('caption', caption);
-    if (carId) form.append('carId', String(carId));
-    photos.forEach((uri, i) => {
-      const ext = uri.split('.').pop() ?? 'jpg';
-      form.append('photos', { uri, name: `vroomki_${i}.${ext}`, type: `image/${ext}` } as any);
-    });
-    const res = await fetch(`${API_URL}/api/vroomki`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
-    const payload = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(payload?.error ?? 'Nie udało się opublikować VROOMKI');
-    setVroomkiPosts(prev => [payload, ...prev]);
-  }, [router, settings.isAdmin, settings.isPremium]);
-
-  const handleDeleteVroomki = useCallback(async (id: number) => {
-    setVroomkiPosts(prev => prev.filter(p => p.id !== id));
-    const token = await getToken();
-    await fetch(`${API_URL}/api/vroomki/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-  }, []);
-
-  const handleReportVroomki = useCallback(async (post: VroomkiPost, reason: string) => {
-    await reportContent({
-      targetType: 'vroomki_post',
-      targetId: post.id,
-      reason,
-      offenderUserId: post.author.id,
-      details: `authorId=${post.author.id}`,
-    });
-  }, []);
-
-  const handleBlockVroomkiAuthor = useCallback((post: VroomkiPost) => {
-    showBlockUserAlert(post.author.id, post.author.username, applyBlockedIds);
-  }, [applyBlockedIds]);
-
-  const handleVroomkiView = useCallback(async (id: number, watchMs: number, completed: boolean) => {
-    try {
-      const token = await getToken();
-      await fetch(`${API_URL}/api/vroomki/${id}/view`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ watchMs, completed }),
-      });
-      setVroomkiPosts(prev => prev.map(p => p.id === id ? { ...p, viewsCount: p.viewsCount + 1 } : p));
-    } catch {}
-  }, []);
-
-  const handleVroomkiCommentAdded = useCallback((id: number) => {
-    setVroomkiPosts(prev => prev.map(p => p.id === id ? { ...p, commentsCount: p.commentsCount + 1 } : p));
-  }, []);
-
-  const handleFollowVroomkiAuthor = useCallback(async (authorId: number) => {
-    if (!authorId || authorId === myId) return;
-    const current = vroomkiPosts.find(p => p.author.id === authorId);
-    const nextFollowing = !current?.isFollowingAuthor;
-    setVroomkiPosts(prev => prev.map(p => p.author.id === authorId ? { ...p, isFollowingAuthor: nextFollowing } : p));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/follow/${authorId}`, {
-        method: nextFollowing ? 'POST' : 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error();
-      Toast.show({ type: 'success', text1: nextFollowing ? 'Obserwujesz autora' : 'Przestałeś obserwować' });
-    } catch {
-      setVroomkiPosts(prev => prev.map(p => p.author.id === authorId ? { ...p, isFollowingAuthor: !nextFollowing } : p));
-      Toast.show({ type: 'error', text1: 'Nie udało się zmienić obserwacji' });
-    }
-  }, [myId, vroomkiPosts]);
 
   const handleNavigateRoute = useCallback(async (route: PublicRoute) => {
     let points = route.points;
@@ -972,15 +690,6 @@ export default function CommunityScreen() {
     setDiscussionCategory(category);
   }, []);
   const filteredRoutes = search.trim() ? routes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())     || r.author.username.toLowerCase().includes(search.toLowerCase())) : routes;
-  const filteredVroomki = search.trim()
-    ? vroomkiPosts.filter(p => {
-        const q = search.toLowerCase();
-        return p.caption.toLowerCase().includes(q) ||
-          p.author.username.toLowerCase().includes(q) ||
-          (p.car?.brand ?? '').toLowerCase().includes(q) ||
-          (p.car?.specs ?? '').toLowerCase().includes(q);
-      })
-    : vroomkiPosts;
 
   const modalBottomPadding = Math.max(insets.bottom, 12);
   const commentInputBottomPad = Platform.OS === 'ios'
@@ -1055,7 +764,6 @@ export default function CommunityScreen() {
         tabs={[
           { key: 'dyskusje', label: 'DYSKUSJE', icon: 'forum' },
           { key: 'trasy',    label: 'TRASY',    icon: 'map' },
-          { key: 'vroomki',  label: 'VROOMKI',  icon: 'smart-display' },
         ]}
         activeKey={activeTab}
         onChange={key => setActiveTab(key as Tab)}
@@ -1101,29 +809,6 @@ export default function CommunityScreen() {
           onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
           onRefresh={() => { setRefreshingR(true); setHasMoreR(true); fetchRoutes(); }}
           onLoadMore={loadMoreRoutes} bottomInset={insets.bottom}
-        />
-        }
-        </View>
-      )}
-
-      {/* ══ VROOMKI ═══════════════════════════════════════════ */}
-      {activeTab === 'vroomki' && (
-        <View style={{ flex: 1 }}>
-        {loadingC ? <LoadingView /> :
-        <TabAuta
-          posts={filteredVroomki} myId={myId} loadingC={loadingC}
-          loadingMoreC={loadingMoreC} refreshingC={refreshingC} hasMoreC={hasMoreC}
-          onLike={handleLikeVroomki}
-          onCreate={handleCreateVroomki}
-          onDelete={handleDeleteVroomki}
-          onReport={handleReportVroomki}
-          onBlock={handleBlockVroomkiAuthor}
-          onView={handleVroomkiView}
-          onCommentAdded={handleVroomkiCommentAdded}
-          onFollowAuthor={handleFollowVroomkiAuthor}
-          onRefresh={() => { setRefreshingC(true); setHasMoreC(true); fetchVroomki(); }}
-          onLoadMore={loadMoreVroomki}
-          bottomInset={insets.bottom} router={router}
         />
         }
         </View>

@@ -23,6 +23,7 @@ export const DM_CAPABILITIES = {
   reactions: true,
   photos: true,
   routeCard: true,
+  vroomkiCard: true,
   linkPreview: true,
   report: true,
   block: true,

@@ -1,6 +1,6 @@
 import { API_URL } from '../../../constants/config';
 import type { BugReportMsg } from '../../../hooks/useBugReportSocket';
-import { normalizeChatMediaUri, parseRouteMessage, replyPreviewLabel } from './helpers';
+import { normalizeChatMediaUri, parseRouteMessage, parseVroomkiMessage, replyPreviewLabel } from './helpers';
 import type { UnifiedChatMessage, UnifiedChatUser } from './types';
 
 function mapUser(u: {
@@ -40,11 +40,12 @@ export function mapDmMessageToUnified(msg: {
   reactions?: { emoji: string; count: number; myReaction: boolean }[];
 }): UnifiedChatMessage {
   const routeData = parseRouteMessage(msg.content);
+  const vroomkiData = routeData ? null : parseVroomkiMessage(msg.content);
   return {
     id: msg.id,
     senderId: msg.senderId,
     sender: mapUser(msg.sender),
-    content: routeData ? '' : msg.content,
+    content: routeData || vroomkiData ? '' : msg.content,
     photos: (msg.photos ?? []).map(u => normalizeChatMediaUri(u)),
     videos: [],
     createdAt: msg.createdAt,
@@ -58,6 +59,7 @@ export function mapDmMessageToUnified(msg: {
       : null,
     reactions: msg.reactions,
     routeData,
+    vroomkiData,
     raw: msg,
   };
 }

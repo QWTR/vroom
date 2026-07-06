@@ -45,6 +45,7 @@ export interface UnifiedChatMessage {
   reactions?: UnifiedChatReaction[];
   isPinned?: boolean;
   routeData?: Record<string, unknown> | null;
+  vroomkiData?: Record<string, unknown> | null;
   isRead?: boolean;
   /** Original API message — passed back to screen handlers */
   raw?: unknown;
@@ -66,6 +67,7 @@ export interface ChatActionCapabilities {
   block?: boolean;
   copy?: boolean;
   routeCard?: boolean;
+  vroomkiCard?: boolean;
   linkPreview?: boolean;
   attachments?: boolean;
 }

@@ -98,8 +98,12 @@ export interface VroomkiComment {
   content: string;
   createdAt: string;
   author: Author;
+  replyTo?: { id: number; username: string } | null;
+  likesCount?: number;
+  isLiked?: boolean;
+  legacyOnly?: boolean;
 }
-export type Tab = 'dyskusje' | 'trasy' | 'vroomki';
+export type Tab = 'dyskusje' | 'trasy';
 
 // ─── Utils ────────────────────────────────────────────────
 export function extractUrl(text: string): string | null {

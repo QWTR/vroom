@@ -4,6 +4,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { UserBadges } from '../../user/UserBadges';
 import { ProvinceBadge } from '../../user/ProvinceBadge';
 import { RouteMessageCard } from '../RouteMessageCard';
+import { VroomkiMessageCard } from '../VroomkiMessageCard';
 // @ts-ignore
 import { LinkPreviewCard } from '../LinkPreviewCard';
 import { ChatMediaGrid } from './ChatMediaGrid';
@@ -46,8 +47,23 @@ export function ChatMessageBubble({
   const bubbleRadius = getBubbleRadii(isMe, isFirst, isLast);
   const myStyle = getMyBubbleStyle(theme, isDark);
   const theirStyle = getTheirBubbleStyle(theme, isDark);
-  const linkUrl = capabilities.linkPreview && !message.routeData ? extractChatUrl(message.content) : null;
+  const linkUrl = capabilities.linkPreview && !message.routeData && !message.vroomkiData ? extractChatUrl(message.content) : null;
   const hasMedia = message.photos.length > 0 || message.videos.length > 0;
+
+  if (message.vroomkiData && capabilities.vroomkiCard) {
+    return (
+      <View style={[styles.row, isMe ? styles.rowMe : styles.rowThem, { marginBottom: isLast ? 8 : 2 }]}>
+        {!isMe && <AvatarSlot show={showAvatar} user={message.sender} />}
+        <View style={isMe ? styles.alignEnd : styles.alignStart}>
+          {showName && <SenderName user={message.sender} />}
+          <VroomkiMessageCard data={message.vroomkiData as any} isMe={isMe} />
+          <Text style={[styles.timeStandalone, { color: isDark ? '#ffffff40' : '#00000040' }]}>
+            {formatChatTime(message.createdAt)}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   if (message.routeData && capabilities.routeCard) {
     return (
