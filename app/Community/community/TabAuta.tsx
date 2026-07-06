@@ -896,6 +896,11 @@ export function TabAuta({
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}
+        removeClippedSubviews
+        maxToRenderPerBatch={2}
+        windowSize={3}
+        initialNumToRender={1}
+        updateCellsBatchingPeriod={50}
         onLayout={(event) => {
           const next = Math.round(event.nativeEvent.layout.height);
           if (next > 0 && Math.abs(next - reelHeight) > 2) setReelHeight(next);

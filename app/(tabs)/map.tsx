@@ -31,6 +31,7 @@ import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { showGpsLocationErrorToast } from '../../lib/gpsErrorToast';
+import { fetchProfileMeCached } from '../../lib/cachedProfileMe';
 import { API_URL } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
@@ -4739,13 +4740,9 @@ function MapScreenInner() {
 
         const token = await AsyncStorage.getItem('token');
         if (!token) return;
-        const res = await fetch(`${API_URL}/api/profile/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
+        const data = await fetchProfileMeCached({ token });
         if (cancelled || !data) return;
-        const profileAvatar = data.avatarUrl ?? data.avatar ?? null;
+        const profileAvatar = (data.avatarUrl ?? data.avatar) as string | null;
         if (profileAvatar && typeof profileAvatar === 'string') {
           setMyAvatarUrl(
             profileAvatar.startsWith('http')
@@ -11755,13 +11752,9 @@ if (appStateRef.current === 'active') {
     try {
       const token = await AsyncStorage.getItem('token')
         ?? await AsyncStorage.getItem('userToken');
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/profile/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const profileAvatar = data.avatarUrl ?? data.avatar ?? null;
+      const data = await fetchProfileMeCached({ token });
+      if (!data) return;
+      const profileAvatar = (data.avatarUrl ?? data.avatar) as string | null;
       if (profileAvatar && typeof profileAvatar === 'string') {
         setMyAvatarUrl(
           profileAvatar.startsWith('http')
@@ -11769,7 +11762,7 @@ if (appStateRef.current === 'active') {
             : `${API_URL}${profileAvatar.startsWith('/') ? profileAvatar : `/${profileAvatar}`}`,
         );
       }
-      if (data.username) setMyUsername(data.username);
+      if (data.username) setMyUsername(String(data.username));
       if (Number.isFinite(Number(data.totalDistance))) {
         profileTotalDistanceKmRef.current = Math.max(0, Number(data.totalDistance));
       }

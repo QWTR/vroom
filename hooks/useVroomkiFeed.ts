@@ -13,6 +13,7 @@ import {
   showBlockUserAlert,
   syncBlockedUserIdsFromServer,
 } from '../lib/ugcActions';
+import { prepareUploadImages } from '../lib/prepareUploadImages';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
@@ -274,12 +275,12 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
         return;
       }
 
+      const preparedPhotos = photos.length ? await prepareUploadImages(photos) : [];
       const form = new FormData();
       form.append('caption', caption);
       if (carId) form.append('carId', String(carId));
-      photos.forEach((uri, i) => {
-        const ext = uri.split('.').pop() ?? 'jpg';
-        form.append('photos', { uri, name: `vroomki_${i}.${ext}`, type: `image/${ext}` } as any);
+      preparedPhotos.forEach((uri, i) => {
+        form.append('photos', { uri, name: `vroomki_${i}.jpg`, type: 'image/jpeg' } as any);
       });
       const res = await fetch(`${API_URL}/api/vroomki`, {
         method: 'POST',
