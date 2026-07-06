@@ -362,8 +362,10 @@ import { AdSlot }               from '../../components/ads/AdSlot';
 import { useFuelStations }      from '../../hooks/useFuelStations';
 import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
 import { PartnerPoiMarker }     from '../../components/markers/PartnerPoiMarker';
+import { OfficialMeetMarker }   from '../../components/markers/OfficialMeetMarker';
 import { PartnerPoiModal }      from '../../components/modals/PartnerPoiModal';
 import { usePartnerPois, type PartnerPoi } from '../../hooks/usePartnerPois';
+import { useOfficialMapMeets, type OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
 import { useCursorSkin }        from '../../hooks/useCursorSkin';
 import { useEquippedMapVehicle } from '../../hooks/useEquippedMapVehicle';
 import { FuelStationModal }     from '../../components/modals/FuelStationModal';
@@ -1744,11 +1746,14 @@ function MapScreenInner() {
   const [fuelStationModalVisible, setFuelStationModalVisible] = useState(false);
   const [selectedPartnerPoi, setSelectedPartnerPoi] = useState<PartnerPoi | null>(null);
   const [partnerPoiModalVisible, setPartnerPoiModalVisible] = useState(false);
+  const [selectedOfficialMeet, setSelectedOfficialMeet] = useState<OfficialMapMeet | null>(null);
+  const [officialMeetModalVisible, setOfficialMeetModalVisible] = useState(false);
   const [fuelAddMode, setFuelAddMode] = useState(false);
   const [addFuelStationVisible, setAddFuelStationVisible] = useState(false);
   const [addFuelStationCoords, setAddFuelStationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const { stations: fuelStations, updatePrices: updateFuelPrices, refetch: refetchFuelStations, onLocationChange: onFuelLocationChange, createStation: createFuelStation } = useFuelStations(userLocation);
   const { pois: partnerPois } = usePartnerPois(userLocation);
+  const { meets: officialMapMeets } = useOfficialMapMeets();
   // ── State – live / ostrzeżenia ────────────────────────────
   const [isSharing,           setIsSharing]           = useState(true);
   const isSharingRef          = useRef(true);
@@ -12270,7 +12275,6 @@ if (appStateRef.current === 'active') {
     }
     return partnerPois.slice(0, zoomCap);
   }, [currentZoom, partnerPois, userLocation]);
-
   const handleAutoNavigationStarted = useCallback((event: AutoNavigationStartedPayload) => {
     if (event.routePoints.length < 2) return;
     const distanceMeters = Math.max(0, event.distanceMeters || 0);
@@ -12794,6 +12798,17 @@ if (appStateRef.current === 'active') {
               onPress={() => {
                 setSelectedPartnerPoi(poi);
                 setPartnerPoiModalVisible(true);
+              }}
+            />
+          ))}
+
+          {officialMapMeets.map(meet => (
+            <OfficialMeetMarker
+              key={`official_meet_${meet.id}`}
+              meet={meet}
+              onPress={() => {
+                setSelectedOfficialMeet(meet);
+                setOfficialMeetModalVisible(true);
               }}
             />
           ))}
@@ -13371,6 +13386,7 @@ if (appStateRef.current === 'active') {
           selectedCamera={selectedCamera}
           selectedFuelStation={selectedFuelStation}
           selectedPartnerPoi={selectedPartnerPoi}
+          selectedOfficialMeet={selectedOfficialMeet}
           addFuelStationCoords={addFuelStationCoords}
           pendingAddCameraParams={pendingAddCameraParams}
           pickCenterRef={pickCenterRef}
@@ -13390,6 +13406,7 @@ if (appStateRef.current === 'active') {
           cameraDetailVisible={cameraDetailVisible}
           fuelStationModalVisible={fuelStationModalVisible}
           partnerPoiModalVisible={partnerPoiModalVisible}
+          officialMeetModalVisible={officialMeetModalVisible}
           leaderboardVisible={leaderboardVisible}
           addFuelStationVisible={addFuelStationVisible}
           isSubmittingWarning={isSubmittingWarning}
@@ -13455,6 +13472,21 @@ if (appStateRef.current === 'active') {
             setEndLocation({ latitude: lat, longitude: lng, name: name || 'Partner' });
             setPartnerPoiModalVisible(false);
             Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: name || 'Partner' });
+          }}
+          onCloseOfficialMeet={() => setOfficialMeetModalVisible(false)}
+          onOpenOfficialMeet={(meetId) => {
+            setOfficialMeetModalVisible(false);
+            router.push({ pathname: '/Community/meets/meet', params: { id: String(meetId) } } as any);
+          }}
+          onNavigateToOfficialMeet={(lat, lng, name) => {
+            if (!userLocation || !Number.isFinite(userLocation.latitude) || !Number.isFinite(userLocation.longitude)) {
+              Toast.show({ type: 'error', text1: 'GPS', text2: 'Poczekaj na lokalizację, potem ponów Nawiguj.' });
+              return;
+            }
+            setStartLocation({ ...userLocation, name: 'Moja pozycja' });
+            setEndLocation({ latitude: lat, longitude: lng, name: name || 'Wydarzenie' });
+            setOfficialMeetModalVisible(false);
+            Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: name || 'Wydarzenie' });
           }}
         />
 

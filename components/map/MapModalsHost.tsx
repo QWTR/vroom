@@ -15,9 +15,11 @@ import { SpeedCameraDetailModal } from '../modals/SpeedCameraDetailModal';
 import { AddFuelStationModal } from '../modals/AddFuelStationModal';
 import { FuelStationModal } from '../modals/FuelStationModal';
 import { PartnerPoiModal } from '../modals/PartnerPoiModal';
+import { OfficialMeetMapModal } from '../modals/OfficialMeetMapModal';
 import type { LocationState, User } from '../../constants/types';
 import type { SpeedCamera } from '../../hooks/useSpeedCameras';
 import type { PartnerPoi } from '../../hooks/usePartnerPois';
+import type { OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
 import type { LiveWarning } from '../../hooks/useLiveMap';
 import { API_URL } from '../../constants/mapConfig';
 
@@ -39,6 +41,7 @@ export type MapModalsHostProps = {
   selectedCamera: SpeedCamera | null;
   selectedFuelStation: unknown;
   selectedPartnerPoi: PartnerPoi | null;
+  selectedOfficialMeet: OfficialMapMeet | null;
   addFuelStationCoords: { latitude: number; longitude: number } | null;
   pendingAddCameraParams: {
     maxspeed: number | null;
@@ -62,6 +65,7 @@ export type MapModalsHostProps = {
   cameraDetailVisible: boolean;
   fuelStationModalVisible: boolean;
   partnerPoiModalVisible: boolean;
+  officialMeetModalVisible: boolean;
   leaderboardVisible: boolean;
   addFuelStationVisible: boolean;
   isSubmittingWarning: boolean;
@@ -103,6 +107,9 @@ export type MapModalsHostProps = {
   updateFuelPrices: (stationId: string, prices: unknown) => void;
   onClosePartnerPoi: () => void;
   onNavigateToPartner: (lat: number, lng: number, name: string) => void;
+  onCloseOfficialMeet: () => void;
+  onOpenOfficialMeet: (meetId: number) => void;
+  onNavigateToOfficialMeet: (lat: number, lng: number, name: string) => void;
 };
 
 export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostProps) {
@@ -124,6 +131,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     selectedCamera,
     selectedFuelStation,
     selectedPartnerPoi,
+    selectedOfficialMeet,
     addFuelStationCoords,
     pickCenterRef,
     leaderboardRouteId,
@@ -142,6 +150,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     cameraDetailVisible,
     fuelStationModalVisible,
     partnerPoiModalVisible,
+    officialMeetModalVisible,
     leaderboardVisible,
     addFuelStationVisible,
     isSubmittingWarning,
@@ -179,6 +188,9 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     updateFuelPrices,
     onClosePartnerPoi,
     onNavigateToPartner,
+    onCloseOfficialMeet,
+    onOpenOfficialMeet,
+    onNavigateToOfficialMeet,
   } = props;
 
   return (
@@ -319,6 +331,13 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         poi={selectedPartnerPoi}
         onClose={onClosePartnerPoi}
         onNavigate={onNavigateToPartner}
+      />
+      <OfficialMeetMapModal
+        visible={officialMeetModalVisible}
+        meet={selectedOfficialMeet}
+        onClose={onCloseOfficialMeet}
+        onOpenEvent={onOpenOfficialMeet}
+        onNavigate={onNavigateToOfficialMeet}
       />
     </>
   );
