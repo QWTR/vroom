@@ -1729,11 +1729,11 @@ export default function HomeScreen() {
 								route: "/Community/meets/events",
 							},
 							{
-								icon: "leaderboard",
+								icon: "smart-display",
 								lib: "mi",
-								label: "RANKING",
-								sub: "Top gracze",
-								route: "/Community/Ranks/stats",
+								label: "VROOMKI",
+								sub: "Rolki aut",
+								route: { pathname: "/Community/community/community", params: { tab: "vroomki" } },
 							},
 							{
 								icon: "chat-bubble",

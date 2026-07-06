@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing,
+  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -49,8 +49,25 @@ import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper, useProfileHeroFloat
 import Reanimated from 'react-native-reanimated';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import { ExplorationCoverageMap } from './ExplorationCoverageMap';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '../../constants/config';
 
 type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string; border2?: string; primaryBg?: string };
+type ProfileVroomkiPost = {
+  id: number;
+  caption: string;
+  photos: string[];
+  videos: string[];
+  mediaType: string;
+  createdAt: string;
+  likesCount: number;
+  commentsCount: number;
+  viewsCount: number;
+  car?: { id: number; brand: string; specs: string; photos: string[] } | null;
+};
+
+const getToken = async () =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 function glassCard(t: ProfileSurface, extra?: Record<string, unknown>) {
   return {
@@ -82,6 +99,117 @@ function widgetGlass(t: ProfileSurface, extra?: Record<string, unknown>) {
 
 function socialRowDivider(isLast: boolean) {
   return isLast ? {} : { borderBottomWidth: 1, borderBottomColor: GLASS_BORDER };
+}
+
+function ProfileVroomkiModal({
+  visible,
+  posts,
+  loading,
+  username,
+  theme,
+  isOwner,
+  onClose,
+  onOpenCar,
+  onOpenPost,
+  onDeletePost,
+}: {
+  visible: boolean;
+  posts: ProfileVroomkiPost[];
+  loading: boolean;
+  username: string;
+  theme: ProfileSurface;
+  isOwner: boolean;
+  onClose: () => void;
+  onOpenCar: (id: number) => void;
+  onOpenPost: (id: number) => void;
+  onDeletePost: (id: number) => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+        <View style={{ maxHeight: '88%', backgroundColor: theme.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderBottomWidth: 0, borderColor: theme.border }}>
+          <View style={{ alignItems: 'center', paddingTop: 12 }}>
+            <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border }} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+            <View style={{ width: 38, height: 38, borderRadius: 14, backgroundColor: '#e3383518', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+              <MaterialIcons name="smart-display" size={19} color="#e33835" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>VROOMKI</Text>
+              <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 8, letterSpacing: 2, marginTop: 2 }}>@{username}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialIcons name="close" size={18} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+          {loading ? (
+            <ActivityIndicator color="#e33835" style={{ marginVertical: 42 }} />
+          ) : (
+            <FlatList
+              data={posts}
+              keyExtractor={item => String(item.id)}
+              contentContainerStyle={{ padding: 16, paddingBottom: 34, gap: 14 }}
+              ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, textAlign: 'center', marginVertical: 36 }}>BRAK VROOMEK</Text>}
+              renderItem={({ item }) => {
+                const cover = item.photos?.[0] ?? item.car?.photos?.[0] ?? null;
+                const hasVideo = (item.videos?.length ?? 0) > 0;
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    onPress={() => onOpenPost(item.id)}
+                    style={{ borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, backgroundColor: theme.bg }}
+                  >
+                    {cover ? (
+                      <Image source={{ uri: cover }} style={{ width: '100%', height: 220 }} resizeMode="cover" />
+                    ) : (
+                      <View style={{ height: 220, alignItems: 'center', justifyContent: 'center', backgroundColor: '#050505' }}>
+                        <MaterialIcons name={hasVideo ? 'videocam' : 'directions-car'} size={54} color="#e33835" />
+                      </View>
+                    )}
+                    {hasVideo && (
+                      <View style={{ position: 'absolute', top: 12, right: 12, borderRadius: 999, backgroundColor: '#000000aa', paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                        <MaterialIcons name="videocam" size={13} color="#fff" />
+                        <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 9 }}>WIDEO</Text>
+                      </View>
+                    )}
+                    {isOwner && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          Alert.alert('Usuń VROOMKĘ?', 'Ta rolka zniknie z VROOMKI.', [
+                            { text: 'Anuluj', style: 'cancel' },
+                            { text: 'Usuń', style: 'destructive', onPress: () => onDeletePost(item.id) },
+                          ]);
+                        }}
+                        style={{ position: 'absolute', top: 12, left: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: '#000000aa', alignItems: 'center', justifyContent: 'center' }}
+                        activeOpacity={0.82}
+                      >
+                        <MaterialIcons name="delete-outline" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    )}
+                    <View style={{ padding: 12 }}>
+                      {item.car && (
+                        <TouchableOpacity onPress={() => onOpenCar(item.car!.id)} style={{ alignSelf: 'flex-start', backgroundColor: '#e3383518', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 }}>
+                          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9 }}>{item.car.brand} · {item.car.specs}</Text>
+                        </TouchableOpacity>
+                      )}
+                      {!!item.caption && <Text style={{ color: theme.text, fontSize: 13, lineHeight: 18 }}>{item.caption}</Text>}
+                      <View style={{ flexDirection: 'row', gap: 14, marginTop: 10 }}>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>♥ {item.likesCount}</Text>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>💬 {item.commentsCount}</Text>
+                        <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9 }}>👁 {item.viewsCount}</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 
@@ -273,6 +401,9 @@ export default function ProfileView({
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
   const [invitesModalVisible, setInvitesModalVisible] = useState(false);
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
+  const [vroomkiModalVisible, setVroomkiModalVisible] = useState(false);
+  const [vroomkiPosts,        setVroomkiPosts]        = useState<ProfileVroomkiPost[]>([]);
+  const [vroomkiLoading,      setVroomkiLoading]      = useState(false);
   const [showAllSpots,        setShowAllSpots]        = useState(false);
   const statsSlide = useRef(new Animated.Value(0)).current;
   const ROUTES_PREVIEW = 0;
@@ -385,6 +516,38 @@ export default function ProfileView({
   const handleLeaderboard = async (route: { id: number; name: string }) => {
     setLbRouteId(route.id); setLbRouteName(route.name); setLbVisible(true);
     await Promise.all([fetchLeaderboard(route.id), fetchRuns(route.id)]);
+  };
+
+  const openVroomkiModal = async () => {
+    if (!profile?.id) return;
+    setVroomkiModalVisible(true);
+    setVroomkiLoading(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/vroomki/user/${profile.id}?limit=60`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      setVroomkiPosts(Array.isArray(data?.posts) ? data.posts : []);
+    } catch {
+      setVroomkiPosts([]);
+    } finally {
+      setVroomkiLoading(false);
+    }
+  };
+
+  const deleteVroomkiPost = async (id: number) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/vroomki/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error();
+      setVroomkiPosts(prev => prev.filter(post => post.id !== id));
+    } catch {
+      Alert.alert('Błąd', 'Nie udało się usunąć VROOMKI.');
+    }
   };
 
   React.useEffect(() => { setLocalSpots(spots); }, [spots]);
@@ -879,9 +1042,14 @@ export default function ProfileView({
             title={isOwner ? 'MOJE AUTA' : 'AUTA'}
             count={cars.length}
             right={isOwner ? (
-              <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity onPress={openVroomkiModal} style={{ backgroundColor: theme.primaryBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: theme.primaryBorder }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.primary, fontWeight: '700', letterSpacing: 1 }}>VROOMKI</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={onAddCar} style={{ backgroundColor: '#e33835', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700', letterSpacing: 1 }}>+ DODAJ</Text>
+                </TouchableOpacity>
+              </View>
             ) : null}
           >
             {cars.length === 0
@@ -1127,6 +1295,24 @@ export default function ProfileView({
       </View>
 
       <RouteLeaderboardModal visible={lbVisible} routeId={lbRouteId} routeName={lbRouteName} data={lbData} runsData={lbRunsData} loading={lbLoading} onClose={() => { setLbVisible(false); setLbRouteId(null); setLbRouteName(''); }} />
+      <ProfileVroomkiModal
+        visible={vroomkiModalVisible}
+        posts={vroomkiPosts}
+        loading={vroomkiLoading}
+        username={profile?.username ?? ''}
+        theme={theme}
+        isOwner={isOwner}
+        onClose={() => setVroomkiModalVisible(false)}
+        onOpenCar={(id) => {
+          setVroomkiModalVisible(false);
+          onCarPress(id);
+        }}
+        onOpenPost={(id) => {
+          setVroomkiModalVisible(false);
+          router.push({ pathname: '/Community/community/community', params: { tab: 'vroomki', vroomkiId: String(id) } } as any);
+        }}
+        onDeletePost={deleteVroomkiPost}
+      />
       <FriendsModal visible={friendsModalVisible} friends={friends} loading={false} isOwner={isOwner} onClose={() => setFriendsModalVisible(false)} onRemove={async (f) => { await removeFriend((f as any).friendshipId ?? f.id); fetchFriends(); }} />
       <FriendRequestsModal
         visible={invitesModalVisible}

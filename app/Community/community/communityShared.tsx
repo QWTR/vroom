@@ -68,7 +68,38 @@ export interface Post         {
 }
 export interface PublicRoute  { id: number; name: string; description: string | null; distance: number; isPublic: boolean; createdAt: string; author: { id: number; username: string; avatarUrl: string | null }; points?: { latitude: number; longitude: number; order: number }[]; likesCount: number; isLiked: boolean; _count?: { likes: number }; runsCount?: number; }
 export interface CommunityCar { id: number; brand: string; specs: string; isMain: boolean; photos: string[]; createdAt: string; sharedToCommunity: boolean; owner: { id: number; username: string; avatarUrl: string | null }; likesCount: number; commentsCount: number; isLiked: boolean; }
-export type Tab = 'dyskusje' | 'trasy' | 'auta';
+export interface VroomkiCar {
+  id: number;
+  brand: string;
+  specs: string;
+  photos: string[];
+  isMain: boolean;
+  ownerId: number;
+}
+export interface VroomkiPost {
+  id: number;
+  legacyCarId?: number | null;
+  caption: string;
+  photos: string[];
+  videos: string[];
+  mediaType: 'photo' | 'video' | string;
+  createdAt: string;
+  author: Author;
+  car: VroomkiCar | null;
+  likesCount: number;
+  commentsCount: number;
+  viewsCount: number;
+  isLiked: boolean;
+  isFollowingAuthor?: boolean;
+  score?: number;
+}
+export interface VroomkiComment {
+  id: number;
+  content: string;
+  createdAt: string;
+  author: Author;
+}
+export type Tab = 'dyskusje' | 'trasy' | 'vroomki';
 
 // ─── Utils ────────────────────────────────────────────────
 export function extractUrl(text: string): string | null {

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { API_URL } from '../constants/config';
 
-export type UgcTargetType = 'post' | 'post_comment' | 'chat_message' | 'club_message' | 'public_chat_message' | 'user';
+export type UgcTargetType = 'post' | 'post_comment' | 'vroomki_post' | 'chat_message' | 'club_message' | 'public_chat_message' | 'user';
 
 export const BLOCKED_IDS_KEY = 'blockedUserIds';
 
