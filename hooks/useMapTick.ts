@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MAP_PERF } from '../constants/mapPerformance';
 
 type TickHandler = () => void;
 
@@ -25,11 +26,14 @@ export function useMapTick(intervalMs: number, handlers: TickHandler[], enabled 
   }, [enabled, intervalMs]);
 }
 
-/** Shared map polling intervals (ms). */
+/** Shared map polling intervals (ms) — synced with constants/mapPerformance.ts */
 export const MAP_TICK = {
-  navigationProgress: 1000,
-  liveLocationRest: 5000,
-  geoDropCheck: 10_000,
-  cameraSpeed: 2000,
+  navigationProgress: MAP_PERF.navProgressUi,
+  liveLocationRest: MAP_PERF.geoDropRefreshIdle,
+  geoDropCheck: MAP_PERF.geoDropClaimPoll,
+  cameraSpeed: MAP_PERF.cameraSpeedFast,
   fuelRefresh: 60_000,
+  tripCheckpoint: MAP_PERF.tripCheckpointPeriodic,
+  heartbeat: MAP_PERF.heartbeat,
+  anchorSync: MAP_PERF.anchorSync,
 } as const;

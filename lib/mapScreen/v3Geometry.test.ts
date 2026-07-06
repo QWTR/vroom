@@ -6,8 +6,8 @@ const route = [
   { latitude: 52.24, longitude: 21.01 },
 ];
 const actualRoad = [
-  { latitude: 52.23, longitude: 21.01 },
-  { latitude: 52.23, longitude: 21.02 },
+  { latitude: 52.231, longitude: 21.015 },
+  { latitude: 52.232, longitude: 21.025 },
 ];
 
 describe('buildV3GeometryFromRefs', () => {
