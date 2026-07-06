@@ -35,6 +35,7 @@ import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
 import { BACKGROUND_LOCATION_TASK, stopBackgroundLocationTaskIfRunning, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
+import { BackgroundDriveController } from '../../lib/backgroundDriveController';
 import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
 import {
   hasAcceptedBackgroundLocationDisclosure,
@@ -457,6 +458,7 @@ export default function SettingsScreen() {
       await updateSetting('backgroundTracking', false);
       await mirrorBackgroundTrackingSetting(false);
       await stopVroomBgForegroundNotification();
+      await BackgroundDriveController.stop('app');
       const isRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isRunning) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       Toast.show({ type: 'info', text1: '📍 Śledzenie w tle wyłączone' });

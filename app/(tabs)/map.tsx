@@ -3259,7 +3259,7 @@ function MapScreenInner() {
     isSharing,
     userLocation,
     isSpeechEnabled,
-    settings.backgroundTracking || isSharing,
+    settings.backgroundTracking && isPremium,
     liveMapEnabled && sharingHydrated,
     isSharing && sharingHydrated,
   );
@@ -10276,12 +10276,8 @@ if (appStateRef.current === 'active') {
           void notifyBackgroundPremiumRequired();
         }
         if (!bgTrackingEnabled) {
-          // Bez śledzenia w tle: zatrzymaj GPS tylko poza aktywną jazdą.
-          // Krótkie przejście (np. zmiana muzyki) — watcher zostaje, powrót bez 15s freeze.
-          if (!tripActive) {
-            stopGPSRef.current();
-            void 0;
-          }
+          // Bez śledzenia w tle: zatrzymaj GPS po zminimalizowaniu (także podczas jazdy).
+          stopGPSRef.current();
         } else {
           // bgEnabled=true → trzymamy watcher i DR przy życiu w tle (Premium).
           if (!tripActive) {

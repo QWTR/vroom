@@ -41,6 +41,7 @@ export type BackgroundDriveNativeStats = {
 
 const STATE_KEY = 'wiroom_background_drive_state';
 const BUFFER_KEY = 'wiroom_background_drive_buffer';
+const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 const EVENT_STOP = 'VROOM_BG_TRACKING_END';
 const EVENT_LOCATION = 'VROOM_BG_LOCATION';
 export const IOS_DRIVE_NOTIFICATION_CATEGORY = 'wiroom_drive_tracking';
@@ -171,6 +172,8 @@ async function dismissIosDriveNotification(): Promise<void> {
 
 export const BackgroundDriveController = {
   async start(mode: BackgroundDriveMode, tripSessionId?: string | null): Promise<boolean> {
+    if ((await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY)) !== 'true') return false;
+
     const state: BackgroundDriveState = {
       active: true,
       mode,

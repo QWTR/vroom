@@ -138,6 +138,12 @@ export async function mirrorBackgroundTrackingSetting(enabled: boolean): Promise
   } catch { /* ignore */ }
 }
 
+/** Single source of truth: user enabled „Praca w tle” (readable from headless BG task). */
+export async function isBackgroundWorkAllowed(): Promise<boolean> {
+  const bgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
+  return bgSetting === 'true';
+}
+
 function encodeAppActiveSnapshot(active: boolean): string {
   return JSON.stringify({ active, at: Date.now() });
 }
@@ -484,8 +490,10 @@ export async function consumeNativeDriveStatsToStorage(): Promise<void> {
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
   if (active) {
-    const tripSessionId = await ensureTripSessionId();
-    await BackgroundDriveController.start('navigation', tripSessionId);
+    if (await isBackgroundWorkAllowed()) {
+      const tripSessionId = await ensureTripSessionId();
+      await BackgroundDriveController.start('navigation', tripSessionId);
+    }
     return;
   }
   const driving = await AsyncStorage.getItem(BG_IS_DRIVING_KEY);
@@ -495,9 +503,11 @@ export async function setNavigatingFlag(active: boolean): Promise<void> {
 export async function setDrivingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_DRIVING_KEY, active ? 'true' : 'false');
   if (active) {
-    const tripSessionId = await ensureTripSessionId();
-    const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
-    await BackgroundDriveController.start(navigating === 'true' ? 'navigation' : 'freeDrive', tripSessionId);
+    if (await isBackgroundWorkAllowed()) {
+      const tripSessionId = await ensureTripSessionId();
+      const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
+      await BackgroundDriveController.start(navigating === 'true' ? 'navigation' : 'freeDrive', tripSessionId);
+    }
     return;
   }
   const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
@@ -603,15 +613,10 @@ export async function recordDrivingTracePoint(
 // MUSI być nieaktywny niezależnie od jazdy/nawigacji/share. Wcześniej navFlag/
 // driveFlag potrafiły obejść przełącznik (BG GPS pracował podczas jazdy mimo
 // wyłączonego BG w ustawieniach) — to złamanie obietnicy UX i baterii.
-async function isBgTripTaskAllowed(): Promise<boolean> {
-  const bgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
-  return bgSetting === 'true';
-}
-
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
   if (error || !data) return;
 
-  if (!(await isBgTripTaskAllowed())) return;
+  if (!(await isBackgroundWorkAllowed())) return;
 
   const premiumStatus = await AsyncStorage.getItem(USER_IS_PREMIUM_KEY);
   if (premiumStatus !== 'true') return;
@@ -1093,6 +1098,7 @@ export function useBackgroundTracking(
 
   // ── Task management ───────────────────────────────────────────────────────
   const shouldPreserveNativeDrive = useCallback(async () => {
+    if (!(await isBackgroundWorkAllowed())) return false;
     if (Platform.OS !== 'android') return false;
     try {
       const [state, navFlag, drivingFlag] = await Promise.all([
@@ -1112,7 +1118,7 @@ export function useBackgroundTracking(
     try {
       // Hard runtime guard: never run BG task when user disabled the toggle.
       const persistedBgSetting = await AsyncStorage.getItem(BG_TRACKING_SETTING_KEY);
-      const bgAllowed = forceEnabledRef.current || (bgEnabledRef.current && persistedBgSetting === 'true');
+      const bgAllowed = bgEnabledRef.current && persistedBgSetting === 'true';
       if (!bgAllowed || !isPremium) {
         const preserveNativeDrive = await shouldPreserveNativeDrive();
         if (Platform.OS === 'android' && !preserveNativeDrive) {
@@ -1127,7 +1133,7 @@ export function useBackgroundTracking(
         return;
       }
 
-      const shouldTrack = forceEnabled;
+      const shouldTrack = forceEnabled && bgAllowed;
       if (!shouldTrack) {
         const preserveNativeDrive = await shouldPreserveNativeDrive();
         if (!preserveNativeDrive) await BackgroundDriveController.stop('app');
@@ -1245,17 +1251,18 @@ export function useBackgroundTracking(
         if (Platform.OS === 'android' && !preserveNativeDrive) {
           await stopVroomBgForegroundNotification();
         }
-        if (!forceEnabledRef.current && !preserveNativeDrive) {
+        if (!preserveNativeDrive) {
           await BackgroundDriveController.stop('app');
         }
+        await stopBgLocationUpdates();
       })();
       return;
     }
-  }, [bgEnabled, isPremium, shouldPreserveNativeDrive]);
+  }, [bgEnabled, isPremium, shouldPreserveNativeDrive, stopBgLocationUpdates]);
 
-  // Auto-start GPS w tle tylko podczas aktywnej jazdy/nawigacji.
+  // Auto-start GPS w tle tylko podczas aktywnej jazdy/nawigacji i włączonej Pracy w tle.
   useEffect(() => {
-    if (forceEnabled) {
+    if (forceEnabled && bgEnabled) {
       const timer = setTimeout(() => startBackgroundTracking(), 500);
       return () => clearTimeout(timer);
     }
@@ -1309,7 +1316,7 @@ export function useBackgroundTracking(
       if (s === 'inactive' || s === 'background') {
         if (s === 'background') void flushTracePendingKmToStorage();
         persistAppActive(false);
-        if (forceEnabledRef.current) {
+        if (forceEnabledRef.current && bgEnabledRef.current) {
           void startBackgroundTracking();
         } else if (!bgEnabled) {
           stopBackgroundTracking();
