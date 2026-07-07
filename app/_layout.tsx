@@ -17,6 +17,7 @@ import AsyncStorage         from '@react-native-async-storage/async-storage';
 import * as Notifications   from 'expo-notifications';
 import Toast from 'react-native-toast-message';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
@@ -135,6 +136,7 @@ async function refreshUserData() {
 // ─── ROOT ─────────────────────────────────────────────────
 export default function RootLayout() {
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <ThemeProvider>
         <SettingsProvider>
@@ -148,6 +150,7 @@ export default function RootLayout() {
         </SettingsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

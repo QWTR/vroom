@@ -1,7 +1,10 @@
 import type { ProfilePremiumExtras } from './profilePremiumExtras';
 import type { UserShopCosmetics } from './shopCosmetics';
 
+export type ProfileMusicSource = 'spotify' | 'deezer' | 'itunes' | 'audius';
+
 export interface SpotifyProfileTrack {
+  sourceType?: ProfileMusicSource | null;
   trackId: string;
   url: string;
   trackName: string;

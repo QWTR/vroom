@@ -1,75 +1,130 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, Image, TouchableOpacity, FlatList, RefreshControl,
-  Modal, Pressable, ActivityIndicator, Dimensions, TextInput, ScrollView,
-  Alert, Platform, StyleSheet,
+  Pressable, ActivityIndicator, Dimensions, ScrollView,
+  Alert, StyleSheet,
 } from 'react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
-import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Toast from 'react-native-toast-message';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { API_URL } from '../../../constants/config';
-import { type VroomkiPost, type VroomkiComment, Avatar, ListFooter } from './communityShared';
+import { type VroomkiPost, Avatar, ListFooter } from './communityShared';
 import { ShareVroomkiModal } from '../../../components/modals/ShareVroomkiModal';
+import { VroomkiOverlays } from '../../../components/vroomki/VroomkiOverlays';
+import { VroomkiSoundChip } from '../../../components/vroomki/VroomkiSoundPicker';
+import { VroomkiCommentsModal } from '../../../components/vroomki/VroomkiCommentsModal';
+import { VroomkiPrefetch } from '../../../components/vroomki/VroomkiPrefetch';
+import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
+import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
+import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
 const VIEW_THRESHOLD_MS = 1600;
 const DOUBLE_TAP_MS = 280;
 
-const getToken = () => AsyncStorage.getItem('token');
-const showToast = (params: any) => Toast.show(params);
-
-interface GarageCar {
-  id: number;
-  brand: string;
-  specs: string;
-  isMain: boolean;
-  photos: string[];
+async function openVroomkiCreateFlow(router: ReturnType<typeof useRouter>) {
+  const picked = await pickVroomkiMediaFromGallery();
+  if (!picked) return;
+  setVroomkiDraft({
+    photos: picked.kind === 'photos' ? picked.photos : [],
+    video: picked.kind === 'video' ? picked.video : null,
+    overlays: [],
+    sound: null,
+    useOriginalAudio: picked.kind === 'video',
+    soundStartMs: 0,
+    photoDurationMs: 3000,
+    clipStartMs: 0,
+    clipDurationMs: null,
+  });
+  router.push('/Community/vroomki/create');
 }
 
 function ReelVideo({
   uri,
   active,
+  muted = false,
+  clipStartMs = 0,
+  clipDurationMs = null,
   onCompleted,
   onDoubleTap,
+  onMediaReadyChange,
 }: {
   uri: string;
   active: boolean;
+  muted?: boolean;
+  clipStartMs?: number;
+  clipDurationMs?: number | null;
   onCompleted: (watchMs: number) => void;
   onDoubleTap: () => void;
+  onMediaReadyChange?: (ready: boolean) => void;
 }) {
   const videoRef = useRef<Video>(null);
   const completedRef = useRef(false);
+  const readyRef = useRef(false);
   const lastTapRef = useRef(0);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pausedByUser, setPausedByUser] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const clipEndMs = clipDurationMs ? clipStartMs + clipDurationMs : null;
+
+  const reportReady = (ready: boolean) => {
+    if (readyRef.current === ready) return;
+    readyRef.current = ready;
+    onMediaReadyChange?.(ready);
+  };
 
   useEffect(() => {
     if (!active) {
       setPausedByUser(false);
+      reportReady(false);
       videoRef.current?.pauseAsync().catch(() => {});
       return;
     }
-    if (!pausedByUser) videoRef.current?.playAsync().catch(() => {});
+    if (pausedByUser) {
+      reportReady(false);
+      videoRef.current?.pauseAsync().catch(() => {});
+      return;
+    }
+    videoRef.current?.playAsync().catch(() => {});
   }, [active, pausedByUser]);
 
+  useEffect(() => {
+    if (!active) return;
+    completedRef.current = false;
+    reportReady(false);
+    videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
+  }, [active, uri, clipStartMs]);
+
   const onStatus = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
+    if (!status.isLoaded) {
+      reportReady(false);
+      return;
+    }
     setPlaying(!!status.isPlaying);
     if (status.isPlaying || (status.positionMillis ?? 0) > 0) setHasLoadedOnce(true);
     setBuffering(!!status.isBuffering && !status.isPlaying);
-    const duration = status.durationMillis ?? 0;
+
     const position = status.positionMillis ?? 0;
+    const isReady = active && !pausedByUser && !status.isBuffering && (status.isPlaying || position >= 60);
+    reportReady(isReady);
+
+    const duration = status.durationMillis ?? 0;
+
+    if (clipEndMs && position >= clipEndMs - 80) {
+      videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
+      if (!completedRef.current) {
+        completedRef.current = true;
+        onCompleted(clipDurationMs ?? position);
+      }
+      return;
+    }
+
     if (!completedRef.current && duration > 0 && position / duration >= 0.85) {
       completedRef.current = true;
       onCompleted(position);
@@ -111,9 +166,10 @@ function ReelVideo({
         style={StyleSheet.absoluteFill}
         resizeMode={ResizeMode.COVER}
         shouldPlay={active && !pausedByUser}
-        isLooping
+        isLooping={!clipEndMs}
+        isMuted={muted}
         useNativeControls={false}
-        progressUpdateIntervalMillis={500}
+        progressUpdateIntervalMillis={250}
         onPlaybackStatusUpdate={onStatus}
       />
       {(pausedByUser || (!hasLoadedOnce && active) || (buffering && !playing)) && (
@@ -126,472 +182,6 @@ function ReelVideo({
         </View>
       )}
     </Pressable>
-  );
-}
-
-function VroomkiComposer({
-  visible,
-  onClose,
-  onCreate,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onCreate: (caption: string, photos: string[], video: string | null, carId: number | null) => Promise<void>;
-}) {
-  const { theme } = useTheme();
-  const [garageCars, setGarageCars] = useState<GarageCar[]>([]);
-  const [garageLoading, setGarageLoading] = useState(false);
-  const [selectedCarId, setSelectedCarId] = useState<number | null>(null);
-  const [caption, setCaption] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [video, setVideo] = useState<string | null>(null);
-  const [posting, setPosting] = useState(false);
-
-  useEffect(() => {
-    if (!visible) return;
-    (async () => {
-      setGarageLoading(true);
-      try {
-        const token = await getToken();
-        const res = await fetch(`${API_URL}/api/cars`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setGarageCars(Array.isArray(data) ? data : data.cars ?? []);
-      } catch {
-        showToast({ type: 'error', text1: 'Błąd ładowania garażu' });
-      } finally {
-        setGarageLoading(false);
-      }
-    })();
-  }, [visible]);
-
-  const reset = () => {
-    setCaption('');
-    setPhotos([]);
-    setVideo(null);
-    setSelectedCarId(null);
-  };
-
-  const pickPhotos = async () => {
-    if (video) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      showToast({ type: 'info', text1: 'Brak dostępu do galerii' });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.86,
-      allowsMultipleSelection: true,
-      selectionLimit: Math.max(1, 6 - photos.length),
-    });
-    if (!result.canceled) {
-      setPhotos(prev => [...prev, ...result.assets.map(a => a.uri)].slice(0, 6));
-    }
-  };
-
-  const pickVideo = async () => {
-    if (photos.length > 0 || video) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      showToast({ type: 'info', text1: 'Brak dostępu do galerii' });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      videoMaxDuration: 90,
-    });
-    if (!result.canceled && result.assets[0]) setVideo(result.assets[0].uri);
-  };
-
-  const submit = async () => {
-    if (posting) return;
-    if (!caption.trim() && photos.length === 0 && !video && !selectedCarId) {
-      showToast({ type: 'info', text1: 'Dodaj opis, media albo wybierz auto' });
-      return;
-    }
-    setPosting(true);
-    try {
-      await onCreate(caption.trim(), photos, video, selectedCarId);
-      showToast({ type: 'success', text1: 'VROOMKA opublikowana' });
-      reset();
-      onClose();
-    } catch (e: any) {
-      showToast({ type: 'error', text1: e?.message ?? 'Nie udało się opublikować' });
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <View style={{ maxHeight: '88%', backgroundColor: theme.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 16, paddingBottom: 28 }}>
-          <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 16 }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 14, letterSpacing: 2 }}>NOWA VROOMKA</Text>
-            <TouchableOpacity onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}>
-              <MaterialIcons name="close" size={18} color={theme.text} />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            value={caption}
-            onChangeText={setCaption}
-            placeholder="Co pokazujesz? Setup, brzmienie, spot, mod?"
-            placeholderTextColor={theme.textDim}
-            multiline
-            style={{
-              minHeight: 90,
-              maxHeight: 150,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.surface2,
-              color: theme.text,
-              padding: 12,
-              fontFamily: 'Orbitron',
-              fontSize: 11,
-              textAlignVertical: 'top',
-            }}
-          />
-
-          <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 1, marginTop: 14, marginBottom: 8 }}>AUTO Z GARAŻU</Text>
-          {garageLoading ? <ActivityIndicator color="#e33835" style={{ marginVertical: 12 }} /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-              {garageCars.map(car => {
-                const selected = selectedCarId === car.id;
-                return (
-                  <TouchableOpacity
-                    key={car.id}
-                    onPress={() => setSelectedCarId(selected ? null : car.id)}
-                    style={{
-                      width: 132,
-                      borderRadius: 16,
-                      borderWidth: 1.5,
-                      borderColor: selected ? '#e33835' : theme.border,
-                      backgroundColor: selected ? '#e3383518' : theme.surface2,
-                      padding: 8,
-                    }}
-                  >
-                    {car.photos[0] ? (
-                      <Image source={{ uri: car.photos[0] }} style={{ width: '100%', height: 72, borderRadius: 12 }} resizeMode="cover" />
-                    ) : (
-                      <View style={{ height: 72, borderRadius: 12, backgroundColor: '#e3383510', justifyContent: 'center', alignItems: 'center' }}>
-                        <MaterialIcons name="directions-car" size={30} color="#e33835" />
-                      </View>
-                    )}
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 10, marginTop: 7 }} numberOfLines={1}>{car.brand}</Text>
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 2 }} numberOfLines={1}>{car.specs}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
-
-          {(photos.length > 0 || video) && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 14 }}>
-              {video && (
-                <View style={{ width: 92, height: 92, borderRadius: 14, overflow: 'hidden' }}>
-                  <Video source={{ uri: video }} style={{ flex: 1 }} resizeMode={ResizeMode.COVER} shouldPlay={false} />
-                  <TouchableOpacity onPress={() => setVideo(null)} style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' }}>
-                    <MaterialIcons name="close" size={14} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              )}
-              {photos.map((uri, index) => (
-                <View key={`${uri}-${index}`} style={{ width: 92, height: 92, borderRadius: 14, overflow: 'hidden' }}>
-                  <Image source={{ uri }} style={{ flex: 1 }} resizeMode="cover" />
-                  <TouchableOpacity onPress={() => setPhotos(prev => prev.filter((_, i) => i !== index))} style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center' }}>
-                    <MaterialIcons name="close" size={14} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
-          )}
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity onPress={pickPhotos} disabled={!!video || photos.length >= 6} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialIcons name="add-photo-alternate" size={22} color={video || photos.length >= 6 ? theme.textDim : '#e33835'} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={pickVideo} disabled={photos.length > 0 || !!video} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialIcons name="videocam" size={22} color={photos.length > 0 || video ? theme.textDim : '#e33835'} />
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity
-              onPress={submit}
-              disabled={posting}
-              style={{ borderRadius: 16, backgroundColor: '#e33835', paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-            >
-              {posting && <ActivityIndicator size={14} color="#fff" />}
-              <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11, fontWeight: '800' }}>PUBLIKUJ</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function VroomkiCommentsModal({
-  post,
-  onClose,
-  onCommentAdded,
-}: {
-  post: VroomkiPost | null;
-  onClose: () => void;
-  onCommentAdded: (id: number) => void;
-}) {
-  const { theme } = useTheme();
-  const [comments, setComments] = useState<VroomkiComment[]>([]);
-  const [text, setText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ id: number; username: string } | null>(null);
-  const pendingCommentLikesRef = useRef<Set<number>>(new Set());
-  const isLegacyCarOnly = post != null && post.id < 0;
-  const useVroomkiCommentsApi = post != null && post.id > 0;
-  const commentsUrl = isLegacyCarOnly
-    ? `${API_URL}/api/cars/${Math.abs(post!.id)}/comments`
-    : useVroomkiCommentsApi
-    ? `${API_URL}/api/vroomki/${post!.id}/comments`
-    : null;
-
-  useEffect(() => {
-    setReplyTo(null);
-    setText('');
-  }, [post?.id]);
-
-  useEffect(() => {
-    if (!post || !commentsUrl) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const token = await getToken();
-        const headers = { Authorization: `Bearer ${token}` };
-        const mapComment = (comment: any, legacy = false): VroomkiComment => ({
-          id: comment.id,
-          content: comment.content ?? comment.text ?? '',
-          createdAt: comment.createdAt,
-          author: comment.author ?? comment.user,
-          replyTo: legacy ? null : (comment.replyTo ?? null),
-          likesCount: legacy ? 0 : (comment.likesCount ?? 0),
-          isLiked: legacy ? false : !!comment.isLiked,
-          legacyOnly: legacy,
-        });
-
-        const res = await fetch(commentsUrl, { headers });
-        const data = await res.json();
-        let list: VroomkiComment[] = (Array.isArray(data) ? data : []).map((c: any) => mapComment(c));
-
-        if (useVroomkiCommentsApi && post.legacyCarId) {
-          const carRes = await fetch(`${API_URL}/api/cars/${post.legacyCarId}/comments`, { headers });
-          if (carRes.ok) {
-            const carData = await carRes.json();
-            const legacyList = (Array.isArray(carData) ? carData : []).map((c: any) => mapComment(c, true));
-            const vroomkiIds = new Set(list.map((c) => `${c.author.id}:${c.content}:${c.createdAt}`));
-            const merged = [
-              ...list,
-              ...legacyList.filter((c) => !vroomkiIds.has(`${c.author.id}:${c.content}:${c.createdAt}`)),
-            ];
-            merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-            list = merged;
-          }
-        }
-
-        setComments(list);
-      } catch {
-        showToast({ type: 'error', text1: 'Błąd ładowania komentarzy' });
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [commentsUrl, post, useVroomkiCommentsApi]);
-
-  const likeComment = async (commentId: number) => {
-    if (!useVroomkiCommentsApi) return;
-    if (pendingCommentLikesRef.current.has(commentId)) return;
-    const current = comments.find(c => c.id === commentId);
-    if (!current) return;
-    const nextLiked = !current.isLiked;
-    const nextCount = Math.max(0, (current.likesCount ?? 0) + (nextLiked ? 1 : -1));
-    pendingCommentLikesRef.current.add(commentId);
-    setComments(prev => prev.map(c => c.id === commentId ? { ...c, isLiked: nextLiked, likesCount: nextCount } : c));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/vroomki/comments/${commentId}/like`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setComments(prev => prev.map(c => c.id === commentId
-        ? { ...c, isLiked: !!data.liked, likesCount: data.likesCount ?? nextCount }
-        : c,
-      ));
-    } catch {
-      setComments(prev => prev.map(c => c.id === commentId ? current : c));
-    } finally {
-      pendingCommentLikesRef.current.delete(commentId);
-    }
-  };
-
-  const send = async () => {
-    if (!post || !commentsUrl || !text.trim() || posting) return;
-    setPosting(true);
-    try {
-      const token = await getToken();
-      const body = isLegacyCarOnly
-        ? { text: text.trim() }
-        : { content: text.trim(), ...(replyTo ? { replyToId: replyTo.id } : {}) };
-      const res = await fetch(commentsUrl, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const rawComment = await res.json();
-      if (!res.ok) throw new Error(rawComment?.error);
-      const comment: VroomkiComment = {
-        id: rawComment.id,
-        content: rawComment.content ?? rawComment.text ?? '',
-        createdAt: rawComment.createdAt,
-        author: rawComment.author ?? rawComment.user,
-        replyTo: rawComment.replyTo ?? null,
-        likesCount: rawComment.likesCount ?? 0,
-        isLiked: !!rawComment.isLiked,
-      };
-      setComments(prev => [...prev, comment]);
-      setText('');
-      setReplyTo(null);
-      onCommentAdded(post.id);
-    } catch (e: any) {
-      showToast({ type: 'error', text1: e?.message ?? 'Nie udało się dodać komentarza' });
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  return (
-    <Modal visible={!!post} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#00000099', justifyContent: 'flex-end' }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <View style={{ maxHeight: '78%', backgroundColor: theme.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, paddingBottom: Platform.OS === 'ios' ? 28 : 18 }}>
-          <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
-          <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 13, letterSpacing: 2, marginBottom: 12 }}>KOMENTARZE</Text>
-          {loading ? <ActivityIndicator color="#e33835" style={{ marginVertical: 30 }} /> : (
-            <FlatList
-              data={comments}
-              keyExtractor={item => `${item.legacyOnly ? 'legacy' : 'vroomki'}-${item.id}`}
-              style={{ maxHeight: 330 }}
-              contentContainerStyle={{ gap: 10, paddingBottom: 10 }}
-              ListEmptyComponent={<Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10, textAlign: 'center', marginVertical: 28 }}>Bądź pierwszy w komentarzach</Text>}
-              renderItem={({ item }) => (
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Avatar user={item.author} size={34} />
-                  <View style={{ flex: 1, backgroundColor: theme.surface2, borderRadius: 14, padding: 12 }}>
-                    <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
-                      {item.author.username}
-                    </Text>
-                    {item.replyTo && (
-                      <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 10, marginTop: 5, opacity: 0.85 }}>
-                        ↩ odpowiedź dla @{item.replyTo.username}
-                      </Text>
-                    )}
-                    <Text style={{ color: theme.text, marginTop: 6, fontSize: 14, lineHeight: 20 }}>{item.content}</Text>
-                    {useVroomkiCommentsApi && !item.legacyOnly && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
-                        <TouchableOpacity
-                          onPress={() => setReplyTo({ id: item.id, username: item.author.username })}
-                          activeOpacity={0.85}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 6,
-                            backgroundColor: '#e3383520',
-                            borderWidth: 1,
-                            borderColor: '#e3383540',
-                            borderRadius: 12,
-                            paddingHorizontal: 14,
-                            paddingVertical: 9,
-                          }}
-                        >
-                          <MaterialIcons name="reply" size={18} color="#e33835" />
-                          <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>
-                            ODPOWIEDZ
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => likeComment(item.id)}
-                          activeOpacity={0.85}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 6,
-                            backgroundColor: item.isLiked ? '#e3383528' : theme.surface,
-                            borderWidth: 1,
-                            borderColor: item.isLiked ? '#e3383560' : theme.border,
-                            borderRadius: 12,
-                            paddingHorizontal: 14,
-                            paddingVertical: 9,
-                          }}
-                        >
-                          <MaterialCommunityIcons
-                            name={item.isLiked ? 'heart' : 'heart-outline'}
-                            size={20}
-                            color={item.isLiked ? '#e33835' : theme.textDim}
-                          />
-                          <Text style={{ fontFamily: 'Orbitron', color: item.isLiked ? '#e33835' : theme.textDim, fontSize: 11, fontWeight: '700' }}>
-                            {item.likesCount ?? 0}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-            />
-          )}
-          {replyTo && (
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginTop: 10,
-              marginBottom: 4,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              borderRadius: 12,
-              backgroundColor: '#e3383518',
-              borderWidth: 1,
-              borderColor: '#e3383540',
-            }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                <MaterialIcons name="reply" size={18} color="#e33835" />
-                <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
-                  Odpowiadasz @{replyTo.username}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <MaterialIcons name="close" size={20} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              placeholder={replyTo ? `Odpowiedz @${replyTo.username}...` : 'Dodaj komentarz...'}
-              placeholderTextColor={theme.textDim}
-              style={{ flex: 1, minHeight: 42, borderRadius: 16, backgroundColor: theme.surface2, color: theme.text, paddingHorizontal: 12 }}
-            />
-            <TouchableOpacity onPress={send} disabled={posting || !text.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#e33835', justifyContent: 'center', alignItems: 'center', opacity: posting || !text.trim() ? 0.5 : 1 }}>
-              {posting ? <ActivityIndicator size={16} color="#fff" /> : <MaterialIcons name="send" size={18} color="#fff" />}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -608,6 +198,7 @@ function ReelCard({
   onCar,
   onMore,
   onCompletedView,
+  onOpenSound,
 }: {
   post: VroomkiPost;
   active: boolean;
@@ -621,6 +212,7 @@ function ReelCard({
   onCar: (id: number) => void;
   onMore: (post: VroomkiPost) => void;
   onCompletedView: (post: VroomkiPost, watchMs: number) => void;
+  onOpenSound?: (soundId: number) => void;
 }) {
   const time = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
   const hasVideo = post.videos.length > 0;
@@ -631,6 +223,33 @@ function ReelCard({
   const [heartVisible, setHeartVisible] = useState(false);
   const lastTapRef = useRef(0);
   const likedByDoubleTapRef = useRef(false);
+  const photoDurationMs = post.photoDurationMs ?? 3000;
+  const clipStartMs = post.clipStartMs ?? 0;
+  const clipDurationMs = post.clipDurationMs ?? null;
+  const overlays = post.overlays ?? [];
+  const externalSound = post.sound?.audioUrl ? post.sound : null;
+  const [videoMediaReady, setVideoMediaReady] = useState(false);
+
+  useVroomkiSoundPlayback({
+    active,
+    sound: externalSound,
+    soundStartMs: post.soundStartMs ?? 0,
+    restartKey: post.id,
+    waitForMedia: hasVideo,
+    mediaReady: hasVideo ? videoMediaReady : true,
+  });
+
+  useEffect(() => {
+    if (!hasVideo) setVideoMediaReady(false);
+  }, [post.id, hasVideo]);
+
+  useEffect(() => {
+    if (hasVideo || photos.length <= 1 || !active) return undefined;
+    const timer = setInterval(() => {
+      setPhotoIndex((prev) => (prev + 1) % photos.length);
+    }, photoDurationMs);
+    return () => clearInterval(timer);
+  }, [hasVideo, photos.length, photoDurationMs, active, post.id]);
 
   const likeFromDoubleTap = useCallback(() => {
     setHeartVisible(true);
@@ -661,32 +280,24 @@ function ReelCard({
         <ReelVideo
           uri={post.videos[0]}
           active={active}
+          muted={!!externalSound}
+          clipStartMs={clipStartMs}
+          clipDurationMs={clipDurationMs}
+          onMediaReadyChange={setVideoMediaReady}
           onCompleted={(ms) => onCompletedView(post, ms)}
           onDoubleTap={likeFromDoubleTap}
         />
       ) : coverPhoto ? (
-        <FlatList
-          data={photos}
-          keyExtractor={(uri, index) => `${uri}-${index}`}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          style={StyleSheet.absoluteFill}
-          onMomentumScrollEnd={(event) => {
-            const next = Math.round(event.nativeEvent.contentOffset.x / SCREEN_W);
-            setPhotoIndex(next);
-          }}
-          renderItem={({ item }) => (
-            <Pressable onPress={handlePhotoPress} style={{ width: SCREEN_W, height }}>
-              <Image source={{ uri: item }} style={{ width: SCREEN_W, height }} resizeMode="cover" />
-            </Pressable>
-          )}
-        />
+        <Pressable onPress={handlePhotoPress} style={{ width: SCREEN_W, height }}>
+          <Image source={{ uri: photos[photoIndex] ?? coverPhoto }} style={{ width: SCREEN_W, height }} resizeMode="cover" />
+        </Pressable>
       ) : (
         <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#170909' }]}>
           <MaterialIcons name="directions-car" size={86} color="#e3383555" />
         </View>
       )}
+
+      <VroomkiOverlays overlays={overlays} width={SCREEN_W} height={height} />
 
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.18)' }]} pointerEvents="none" />
       {heartVisible && (
@@ -767,6 +378,20 @@ function ReelCard({
             </Text>
           </TouchableOpacity>
         )}
+        {post.sound && (
+          <VroomkiSoundChip
+            sound={{
+              id: post.sound.id,
+              title: post.sound.title,
+              artist: post.sound.artist,
+              coverUrl: post.sound.coverUrl,
+              audioUrl: post.sound.audioUrl,
+              sourceType: post.sound.sourceType,
+              sourceId: post.sound.sourceId ?? String(post.sound.id),
+            }}
+            onPress={post.sound.id && onOpenSound ? () => onOpenSound(post.sound!.id) : undefined}
+          />
+        )}
         {!!post.caption && (
           <Text style={{ color: '#fff', fontSize: 13, lineHeight: 18, marginTop: 9 }} numberOfLines={3}>{post.caption}</Text>
         )}
@@ -779,7 +404,7 @@ function ReelCard({
 export function TabAuta({
   posts, myId, focusPostId, loadingC, refreshingC, loadingMoreC, hasMoreC,
   onLike, onCreate, onDelete, onReport, onBlock, onView, onCommentAdded,
-  onFollowAuthor, onRefresh, onLoadMore, bottomInset, router,
+  onFollowAuthor, onRefresh, onLoadMore, bottomInset, router, hideFab = false,
 }: {
   posts: VroomkiPost[];
   focusPostId?: number | null;
@@ -789,7 +414,7 @@ export function TabAuta({
   loadingMoreC: boolean;
   hasMoreC: boolean;
   onLike: (id: number) => void;
-  onCreate: (caption: string, photos: string[], video: string | null, carId: number | null) => Promise<void>;
+  onCreate: (...args: any[]) => Promise<void>;
   onDelete: (id: number) => void;
   onReport: (post: VroomkiPost, reason: string) => void;
   onBlock: (post: VroomkiPost) => void;
@@ -800,9 +425,9 @@ export function TabAuta({
   onLoadMore: () => void;
   bottomInset: number;
   router: ReturnType<typeof useRouter>;
+  hideFab?: boolean;
 }) {
   const { theme } = useTheme();
-  const [composerOpen, setComposerOpen] = useState(false);
   const [commentsPost, setCommentsPost] = useState<VroomkiPost | null>(null);
   const [sharePost, setSharePost] = useState<VroomkiPost | null>(null);
   const [activeId, setActiveId] = useState<number | null>(posts[0]?.id ?? null);
@@ -885,7 +510,7 @@ export function TabAuta({
       <Text style={{ color: theme.textDim, textAlign: 'center', marginTop: 10, lineHeight: 20 }}>
         Wrzuć auto z garażu, zdjęcia albo film. Feed będzie uczył się po lajkach, komentarzach i oglądaniu.
       </Text>
-      <TouchableOpacity onPress={() => setComposerOpen(true)} style={{ marginTop: 20, backgroundColor: '#e33835', borderRadius: 16, paddingHorizontal: 18, paddingVertical: 13 }}>
+      <TouchableOpacity onPress={() => void openVroomkiCreateFlow(router)} style={{ marginTop: 20, backgroundColor: '#e33835', borderRadius: 16, paddingHorizontal: 18, paddingVertical: 13 }}>
         <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11 }}>DODAJ VROOMKĘ</Text>
       </TouchableOpacity>
     </View>
@@ -893,13 +518,14 @@ export function TabAuta({
 
   return (
     <>
+      <VroomkiPrefetch posts={posts} activeId={activeId} />
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}
-        removeClippedSubviews
-        maxToRenderPerBatch={2}
-        windowSize={3}
-        initialNumToRender={1}
+        removeClippedSubviews={false}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        initialNumToRender={2}
         updateCellsBatchingPeriod={50}
         onLayout={(event) => {
           const next = Math.round(event.nativeEvent.layout.height);
@@ -920,6 +546,7 @@ export function TabAuta({
             onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
             onCar={id => router.push({ pathname: '/profile/car-detail', params: { id: String(id) } })}
             onMore={openMore}
+            onOpenSound={(soundId) => router.push(`/Community/vroomki/sound/${soundId}`)}
             onCompletedView={(post, watchMs) => {
               viewedRef.current.add(post.id);
               if (post.id < 0) return;
@@ -957,35 +584,33 @@ export function TabAuta({
         contentContainerStyle={{ paddingBottom: 0 }}
       />
 
-      <TouchableOpacity
-        onPress={() => setComposerOpen(true)}
-        activeOpacity={0.86}
-        style={{
-          position: 'absolute',
-          right: 18,
-          bottom: Math.max(bottomInset + 18, 32),
-          width: 58,
-          height: 58,
-          borderRadius: 29,
-          backgroundColor: '#e33835',
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#e33835',
-          shadowOpacity: 0.35,
-          shadowRadius: 14,
-          elevation: 8,
-        }}
-      >
-        <MaterialIcons name="add" size={30} color="#fff" />
-      </TouchableOpacity>
+      {!hideFab && (
+        <TouchableOpacity
+          onPress={() => void openVroomkiCreateFlow(router)}
+          activeOpacity={0.86}
+          style={{
+            position: 'absolute',
+            right: 18,
+            bottom: Math.max(bottomInset + 18, 32),
+            width: 58,
+            height: 58,
+            borderRadius: 29,
+            backgroundColor: '#e33835',
+            justifyContent: 'center',
+            alignItems: 'center',
+            shadowColor: '#e33835',
+            shadowOpacity: 0.35,
+            shadowRadius: 14,
+            elevation: 8,
+          }}
+        >
+          <MaterialIcons name="add" size={30} color="#fff" />
+        </TouchableOpacity>
+      )}
 
-      <VroomkiComposer
-        visible={composerOpen}
-        onClose={() => setComposerOpen(false)}
-        onCreate={onCreate}
-      />
       <VroomkiCommentsModal
         post={commentsPost}
+        myId={myId}
         onClose={() => setCommentsPost(null)}
         onCommentAdded={onCommentAdded}
       />
