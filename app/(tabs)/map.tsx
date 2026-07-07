@@ -683,8 +683,8 @@ const DR_REANCHOR_MAX_HARD_STEP_M = 35;
 // worklet 35ms. 6\u00d7 STALE_ANCHOR w 35s = 6 widocznych skok\u00f3w 35m. Dedicated
 // 15m cap dla snap stale rescue = marker w 2-3 ramki (33-50ms) p\u0142ynnie dosko\u0107y.
 const SNAP_RESCUE_MAX_STEP_M = 15;
-/** Max realistyczna prędkość auta w driving mode — wszystko powyżej to artefakt skoku GPS. */
-const MAX_REALISTIC_DRIVING_KMH = 200;
+/** HUD / marker — nie wpływa na zapis vmax. */
+const MAX_REALISTIC_DRIVING_KMH = MAX_SPEED_HUD_KMH;
 const MAX_REALISTIC_NAV_KMH = 250;
 const HEADING_FLIP_ALERT_DEG = 95;
 const CAMERA_LAG_ALERT_M = 34;
@@ -1951,7 +1951,7 @@ function MapScreenInner() {
       const hudSpeedKmh = quarantineHudSpeedKmh(
         resumeRecoveryRef.current,
         out.hudSpeedKmh,
-        { now: Date.now(), maxSpeedKmh: MAX_REALISTIC_DRIVING_KMH },
+        { now: Date.now() },
       );
       speedKmhRef.current = hudSpeedKmh;
       rawGpsKmhRef.current = hudSpeedKmh;
@@ -2812,6 +2812,7 @@ function MapScreenInner() {
       display = null;
     }
     let peakTrusted = false;
+    let peakKmh = 0;
     if (tripActive) {
       const nowTs = opts?.now ?? Date.now();
       const netMoveM = opts?.netMoveM ?? 0;
@@ -2848,8 +2849,8 @@ function MapScreenInner() {
       let reliableSpeedKmh = display != null && display > 0 ? display * 3.6 : 0;
       if (
         rawGpsKmh >= 8
-        && netMoveM >= 8
-        && (sustainedKmh >= 4.5 || motionKmh >= 5)
+        && netMoveM >= 12
+        && sustainedKmh >= 6
       ) {
         stationaryEvidence = false;
         dopplerGhostWhileStill = false;
@@ -2869,15 +2870,16 @@ function MapScreenInner() {
             return (haversineKm(prev.lat, prev.lng, opts.lat, opts.lng) / (dt / 1000)) * 3600;
           })()
           : 0;
-        if (motionKmh >= 3 && netMoveM >= 4) {
-          reliableSpeedKmh = Math.min(
-            MAX_REALISTIC_DRIVING_KMH,
-            Math.max(motionKmh, Number.isFinite(derivedKmhEarly) ? derivedKmhEarly : 0),
+        if (motionKmh >= 3 && netMoveM >= 10) {
+          reliableSpeedKmh = Math.max(
+            motionKmh,
+            Number.isFinite(derivedKmhEarly) ? derivedKmhEarly : 0,
+            reliableSpeedKmh,
           );
         } else if (motionKmh >= 6 && netMoveM >= 14) {
-          reliableSpeedKmh = Math.min(MAX_REALISTIC_DRIVING_KMH, motionKmh);
+          reliableSpeedKmh = Math.max(reliableSpeedKmh, motionKmh);
         } else if (sustainedKmh >= 6 && netMoveM >= 14) {
-          reliableSpeedKmh = Math.min(MAX_REALISTIC_DRIVING_KMH, sustainedKmh);
+          reliableSpeedKmh = Math.max(reliableSpeedKmh, sustainedKmh);
         } else if (
           lastReliableSpeedMsRef.current != null
           && nowTs < speedSignalHoldUntilRef.current
@@ -2932,8 +2934,7 @@ function MapScreenInner() {
           && motionKmh < 6
           && reliableSpeedKmh > 6;
         const impossibleHud =
-          reliableSpeedKmh > MAX_REALISTIC_DRIVING_KMH + 15
-          || (
+          (
             !motionConfirmed
             && reliableSpeedKmh >= 95
             && netMoveM < 22
@@ -2983,7 +2984,7 @@ function MapScreenInner() {
         && rawGpsKmh < 70
         && reliableSpeedKmh < 8
         && netMoveM >= 12
-        && motionKmh >= 6
+        && sustainedKmh >= 4
       ) {
         reliableSpeedKmh = Math.min(90, rawGpsKmh);
       }
@@ -3000,10 +3001,7 @@ function MapScreenInner() {
         reliableSpeedKmh = 0;
       }
       if (drivingMotionEvidence && reliableSpeedKmh < 4) {
-        reliableSpeedKmh = Math.min(
-          MAX_REALISTIC_DRIVING_KMH,
-          Math.max(rawGpsKmh, motionKmh, sustainedKmh, 6),
-        );
+        reliableSpeedKmh = Math.max(rawGpsKmh, motionKmh, sustainedKmh, 6, reliableSpeedKmh);
       }
       if (
         rawGpsKmh >= 15
@@ -3017,11 +3015,12 @@ function MapScreenInner() {
             : Math.min(reliableSpeedKmh, motionKmh);
         }
       }
+      const recordSpeedKmh = Math.max(0, reliableSpeedKmh);
       reliableSpeedKmh = Math.max(0, Math.min(MAX_SPEED_HUD_KMH, reliableSpeedKmh));
       if (reliableSpeedKmh > 0.5 && !stationaryEvidence) {
         lastReliableSpeedMsRef.current = Math.min(
           reliableSpeedKmh / 3.6,
-          MAX_REALISTIC_DRIVING_KMH / 3.6,
+          MAX_SPEED_HUD_KMH / 3.6,
         );
         speedSignalHoldUntilRef.current = nowTs + 1800;
       } else if (reliableSpeedKmh <= 0.5) {
@@ -3044,12 +3043,11 @@ function MapScreenInner() {
       const dopplerPeakOk = peakRawGps < 31.67 * 3.6 || peakNetM >= 18;
       peakTrusted =
         !parkedForPeak
-        && reliableSpeedKmh >= 8
-        && reliableSpeedKmh <= MAX_REALISTIC_DRIVING_KMH
+        && recordSpeedKmh >= 8
         && peakNetM >= 15
         && peakSustained >= 8
         && dopplerPeakOk;
-      const peakKmh = Math.min(MAX_REALISTIC_DRIVING_KMH, reliableSpeedKmh);
+      peakKmh = recordSpeedKmh;
       if (peakTrusted && peakKmh > tripPeakSpeedRef.current) {
         tripPeakSpeedRef.current = peakKmh;
       }
@@ -3078,8 +3076,9 @@ function MapScreenInner() {
         holdActive: Date.now() < speedSignalHoldUntilRef.current,
       }, hudFrozenSuspect ? 0 : 450);
     }
-    feedSpeedSample(display, peakTrusted);
-    feedSpeed(display != null && display > 0 ? display : null);
+    const peakFeedMs = peakTrusted && peakKmh > 0 ? peakKmh / 3.6 : display;
+    feedSpeedSample(peakFeedMs, peakTrusted);
+    feedSpeed(peakFeedMs != null && peakFeedMs > 0 ? peakFeedMs : null);
     if (tripActive) {
       const displayKmh = display != null && display > 0 ? display * 3.6 : 0;
       emitSpeedometerKmh(displayKmh);
@@ -3121,15 +3120,11 @@ function MapScreenInner() {
     );
     const force = reason === 'trip_end';
     const includeTripEndPeak = force && movedInTripKm >= LIVE_ACHIEVEMENT_MIN_MOVING_DISTANCE_KM;
-    const currentSpeedKmh = Math.min(
-      MAX_REALISTIC_DRIVING_KMH,
-      MAX_SPEED_HUD_KMH,
-      Math.max(
-        0,
-        Number(speedKmhRef.current || 0),
-        Number(liveAchSessionPeakSpeedRef.current || 0),
-        includeTripEndPeak ? Math.min(MAX_REALISTIC_DRIVING_KMH, Number(extraPeakKmh || 0)) : 0,
-      ),
+    const currentSpeedKmh = Math.max(
+      0,
+      Number(speedKmhRef.current || 0),
+      Number(liveAchSessionPeakSpeedRef.current || 0),
+      includeTripEndPeak ? Number(extraPeakKmh || 0) : 0,
     );
     if (!Number.isFinite(currentSpeedKmh) || !Number.isFinite(projectedDistanceKm)) return;
     const speedDelta = currentSpeedKmh - liveAchLastSpeedSubmittedRef.current;
@@ -5197,7 +5192,6 @@ function MapScreenInner() {
             resumeRecoveryRef.current,
             {
               now,
-              maxSpeedKmh: MAX_REALISTIC_DRIVING_KMH,
               previousReliableKmh: Math.max(speedKmhRef.current, rawGpsKmhRef.current),
             },
           )
@@ -9326,7 +9320,6 @@ if (appStateRef.current === 'active') {
         resumeRecoveryRef.current,
         {
           now,
-          maxSpeedKmh: MAX_REALISTIC_DRIVING_KMH,
           previousReliableKmh: Math.max(speedKmhRef.current, rawGpsKmhRef.current),
         },
       );
@@ -9568,7 +9561,6 @@ if (appStateRef.current === 'active') {
           resumeRecoveryRef.current,
           {
             now,
-            maxSpeedKmh: MAX_REALISTIC_DRIVING_KMH,
             previousReliableKmh: Math.max(speedKmhRef.current, rawGpsKmhRef.current),
           },
         )

@@ -21,7 +21,6 @@ const { width, height } = Dimensions.get('window');
 const RED = '#e33835';
 
 const API_URL  = 'https://v-room.app/api/auth';
-const SAPI_URL = 'https://v-room.app/sapi';
 const TERMS_URL   = 'https://v-room.app/terms';
 const PRIVACY_URL = 'https://v-room.app/privacy';
 
@@ -226,7 +225,7 @@ export default function LoginScreen() {
     if (!forgotEmail) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Podaj e-mail.' });
     setLoading(true);
     try {
-      await fetch(`${SAPI_URL}/auth/forgot-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim() }) });
+      await fetch(`${API_URL}/forgot-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim() }) });
       setResetStep('code');
       Toast.show({ type: 'success', text1: '📧 KOD WYSŁANY', text2: 'Sprawdź skrzynkę.' });
     } catch { Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Błąd serwera.' }); }
@@ -237,7 +236,7 @@ export default function LoginScreen() {
     if (resetCode.length !== 6) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Wpisz 6-cyfrowy kod.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${SAPI_URL}/auth/verify-reset-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode }) });
+      const res  = await fetch(`${API_URL}/verify-reset-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? 'Nieprawidłowy kod.');
       setResetStep('password');
@@ -249,7 +248,7 @@ export default function LoginScreen() {
     if (newPassword.length < 6) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Min. 6 znaków.' });
     setLoading(true);
     try {
-      const res  = await fetch(`${SAPI_URL}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode, newPassword }) });
+      const res  = await fetch(`${API_URL}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: forgotEmail.trim(), code: resetCode, newPassword }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? 'Błąd serwera.');
       Toast.show({ type: 'success', text1: '✅ HASŁO ZMIENIONE', text2: 'Możesz się zalogować.' });

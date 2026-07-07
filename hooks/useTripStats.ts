@@ -16,10 +16,10 @@ export interface TripStats {
   trackedPoints: { latitude: number; longitude: number }[];
 }
 
-/** Statystyki / achievement — nie wyżej niż realistyczna jazda (log mpl5q39s: fallback + 360 = fałszywe 330 km/h). */
-const TRIP_MAX_PLAUSIBLE_KMH = 200;
-const TRIP_MAX_DERIVED_SAMPLE_KMH = 200;
-/** Dłuższe przerwy GPS (tunel, Doze) — po tym segmencie reset kotwicy zamiast wiecznego odrzucania. */
+/** Segment distance sanity only - not a vmax cap. */
+const TRIP_SEGMENT_MAX_PLAUSIBLE_KMH = 9999;
+const TRIP_MAX_DERIVED_SAMPLE_KMH = 9999;
+/** Long GPS gaps (tunnel / Doze) reset the anchor instead of rejecting forever. */
 const TRIP_MAX_FIX_GAP_SEC   = 480;
 const TRIP_FALLBACK_MAX_GAP_SEC = 900;
 const TRIP_MAX_SPEED_SAMPLES = 3000;
@@ -29,9 +29,13 @@ const TRIP_MAX_SEGMENT_KM = 2.5;
 const TRIP_FALLBACK_MAX_SEGMENT_KM = 1.4;
 const TRIP_FALLBACK_MIN_SPEED_KMH = 4;
 const TRIP_MAX_DISTANCE_KM = 1200;
-/** Lokalny snapshot trasy co N km — przetrwa kill procesu (profil flush przy starcie). */
+/** Local trip snapshot every N km - survives process kill. */
 const EMERGENCY_CHECKPOINT_KM = 0.1;
 const TRIP_STATS_DIAGNOSTICS = __DEV__;
+
+function isValidSpeedSampleKmh(kmh: number): boolean {
+  return Number.isFinite(kmh) && kmh > 2;
+}
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
   if (points.length <= TRIP_MAX_TRACKED_POINTS) return points;
@@ -49,17 +53,6 @@ function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
     compacted = next;
   }
   return compacted;
-}
-
-function percentile95(samples: number[]): number {
-  if (!samples.length) return 0;
-  const filtered = samples.filter(
-    (s) => Number.isFinite(s) && s > 2 && s <= TRIP_MAX_PLAUSIBLE_KMH,
-  );
-  if (!filtered.length) return 0;
-  const sorted = [...filtered].sort((a, b) => a - b);
-  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
-  return sorted[idx];
 }
 
 export function useTripStats() {
@@ -86,20 +79,20 @@ export function useTripStats() {
     fallbackAccepted: 0,
     derivedSpeedUsed: 0,
     derivedSpeedRejected: 0,
-    /** Liczba segmentów zaakceptowanych głównym torem (segment.accepted=true). */
+    /** Accepted by the main segment path (segment.accepted=true). */
     acceptedMain: 0,
-    /** Suma km dodanych z głównego toru. */
+    /** Km added by the main segment path. */
     acceptedMainKm: 0,
     /** Suma km dodanych z fallbacku (jump/impossible_speed/stale_gap recovery). */
     fallbackKm: 0,
-    /** Liczba segmentów z 0 przemieszczenia (appliedSnap = poprzednia pozycja). */
+    /** Segments with zero movement (appliedSnap = previous position). */
     zeroMove: 0,
     /** Lokalny low_speed counter (speedKmh < 2 && movedKm < min*1.5). */
     lowSpeedDropped: 0,
   });
 
   const [stats, setStats] = useState<TripStats | null>(null);
-  /** Aktualny dystans trasy (ten sam silnik co zapis trasy / nawigacja) — do HUD w trybie jazdy. */
+  /** Current trip distance from the same engine used for trip saving/navigation HUD. */
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
 
   const maybeEmergencyCheckpoint = useCallback(() => {
@@ -178,7 +171,7 @@ export function useTripStats() {
     void clearEmergencyTripSave();
   }, [resetSegmentDiag]);
 
-  /** Kontynuacja trasy (np. jazda → nawigacja) — dystans bez resetu. */
+  /** Continue a route (e.g. drive -> navigation) without resetting distance. */
   const updateTripEstimate = useCallback((estimatedDurationSec: number) => {
     estSecRef.current = estimatedDurationSec;
     if (startTimeRef.current == null) {
@@ -189,7 +182,7 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (kmh > 1 && kmh <= TRIP_MAX_PLAUSIBLE_KMH) {
+    if (Number.isFinite(kmh) && kmh > 1) {
       speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
       if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
         speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);
@@ -205,7 +198,7 @@ export function useTripStats() {
     const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
-    // Android często zgłasza 0 m/s przy jeździe — nie odrzucaj segmentu wyłącznie z powodu prędkości.
+    // Android often reports 0 m/s while moving, so do not reject only by speed.
     if (speedKmh != null && speedKmh < 2 && lastMeta) {
       const movedKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
       if (movedKm < TRIP_MIN_SEGMENT_KM * 1.5) {
@@ -238,7 +231,7 @@ export function useTripStats() {
         minSegmentKm: TRIP_MIN_SEGMENT_KM,
         maxSegmentKm: TRIP_MAX_SEGMENT_KM,
         maxFixGapSec: TRIP_MAX_FIX_GAP_SEC,
-        maxPlausibleKmh: TRIP_MAX_PLAUSIBLE_KMH,
+        maxPlausibleKmh: TRIP_SEGMENT_MAX_PLAUSIBLE_KMH,
         minSpeedKmh: 2,
       },
     );
@@ -248,7 +241,7 @@ export function useTripStats() {
       const isRecoverable = segment.reason === 'jump' || segment.reason === 'impossible_speed' || segment.reason === 'stale_gap';
       if (isRecoverable && dtSec > 0 && dtSec <= TRIP_FALLBACK_MAX_GAP_SEC) {
         const rawKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
-        const cappedByTimeKm = (TRIP_MAX_PLAUSIBLE_KMH / 3600) * Math.min(dtSec, TRIP_MAX_FIX_GAP_SEC);
+        const cappedByTimeKm = (TRIP_SEGMENT_MAX_PLAUSIBLE_KMH / 3600) * Math.min(dtSec, TRIP_MAX_FIX_GAP_SEC);
         const derivedRawKmh = dtSecRaw > 0 ? (rawKm * 3600) / dtSecRaw : 0;
         const hasMotionSignal =
           (speedKmh != null && speedKmh >= TRIP_FALLBACK_MIN_SPEED_KMH)
@@ -365,7 +358,7 @@ export function useTripStats() {
       const diag = segmentDiagRef.current;
       const rejected = diag.rejected;
       const totalRejected = (Object.values(rejected) as number[]).reduce((sum: number, n: number) => sum + Number(n || 0), 0);
-      // Emituj zawsze gdy trip jest aktywny — daje pełny obraz akumulacji.
+      // Emit when the trip is active to show accumulation details.
       if (totalRejected <= 0 && diag.acceptedMain <= 0 && diag.fallbackAccepted <= 0 && diag.lowSpeedDropped <= 0) {
         return;
       }
@@ -397,9 +390,9 @@ export function useTripStats() {
       ? Math.round((Date.now() - startTimeRef.current) / 1000)
       : 0;
     const samples  = speedSamples.current.filter(
-      (s: number) => s > 2 && s <= TRIP_MAX_PLAUSIBLE_KMH,
+      (s: number) => isValidSpeedSampleKmh(s),
     );
-    const maxSpeed = samples.length ? percentile95(samples) : 0;
+    const maxSpeed = samples.length ? Math.max(...samples) : 0;
     const avgSpeed = samples.length
       ? samples.reduce((a: number, b: number) => a + b, 0) / samples.length
       : 0;

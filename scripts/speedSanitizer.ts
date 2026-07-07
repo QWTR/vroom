@@ -7,11 +7,9 @@ export function computeStandstillNetM(motionKmh: number, speedKmh = 0): number {
   return Math.max(4, Math.min(12, ref * 0.35));
 }
 
-/** HUD: nigdy 360 — artefakt GPS; realna autostrada mieści się w 200. */
+/** HUD / marker — stabilny wyświetlacz (nie wpływa na zapis vmax). */
 export const MAX_SPEED_HUD_KMH = 200;
 export const MAX_SPEED_BROWSE_KMH = 150;
-/** Statystyki trasy: osobny sufit (peak z kilku próbek). */
-export const MAX_SPEED_TRIP_STATS_KMH = 200;
 /** Powyżej tej prędkości wymagamy dokładnego GPS (metry). */
 export const GPS_ACCURACY_HIGH_SPEED_MAX_M = 30;
 /** Doppler powyżej tego progu odrzucamy przy słabej dokładności. */
@@ -50,8 +48,6 @@ export type SanitizeSpeedInput = {
 
 const TRIP_SPEED_WINDOW_MS = 1000;
 const TRIP_STANDSTILL_NET_M = 10;
-/** net/path — poniżej = GPS skacze tam-z powrotem bez realnego jazdy. */
-const TRIP_MIN_PATH_EFFICIENCY = 0.38;
 
 /** Prędkość i netto dystans z ostatnich próbek (odcina jitter 30+ km/h na postoju). */
 export function sustainedTripSpeedFromSamples(
@@ -136,9 +132,9 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const netM = input.netMoveM ?? 0;
     const pathM = input.pathMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
-    const hasPhysicalMotion = netM >= 6 || pathM >= 8 || sustained >= 3;
-    const trustHighSpeedDoppler = sustained >= 8 && gpsKmh >= 6;
-    const trustHighwayDoppler = gpsKmh >= 50 && netM >= 4;
+    const hasPhysicalMotion = netM >= 10 && (sustained >= 3 || pathM >= 14);
+    const trustHighSpeedDoppler = sustained >= 8 && netM >= 12 && gpsKmh >= 6;
+    const trustHighwayDoppler = gpsKmh >= 50 && netM >= 18 && sustained >= 8;
     if (hasPhysicalMotion || trustHighSpeedDoppler || trustHighwayDoppler) {
       if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
       return Math.min(gpsKmh, maxKmh);
@@ -174,16 +170,22 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
   if (input.isTripActive) {
     const netM = input.netMoveM ?? 0;
     const sustained = input.sustainedKmh ?? 0;
+    const pathM = input.pathMoveM ?? 0;
     const geoKmh = Math.max(sustained, derivedKmh > 0 ? derivedKmh * 0.92 : 0);
     const motionKmh = Math.max(geoKmh, derivedKmh);
     const slowCrawl = (derivedKmh >= 3 || sustained >= 3) && netM >= 4;
     const standstillNetM = computeStandstillNetM(motionKmh, gpsKmh);
+    const parkedLikeDoppler =
+      gpsKmh >= 8
+      && netM < 12
+      && sustained < 4
+      && pathM < 30;
+    if (parkedLikeDoppler) return 0;
     const stationaryEvidence = netM < standstillNetM && sustained < 4.5;
 
     if (stationaryEvidence) {
-      const pathM = input.pathMoveM ?? 0;
       // Wolna jazda / rondo: path rośnie, net w oknie mały — nie zeruj (wymaga net ≥ 6 m).
-      if (netM >= 6 && pathM >= 8 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
+      if (netM >= 8 && pathM >= 10 && sustained >= 3 && (derivedKmh >= 2.5 || gpsKmh >= 2)) {
         return Math.min(
           maxKmh,
           Math.max(derivedKmh, gpsKmh, motionKmh, 4),
@@ -191,17 +193,18 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
       }
       // P1: brak paczek GPS, ale Doppler / skok punktów wskazuje jazdę.
       if (gpsKmh >= 10 || motionKmh >= 15) {
-        if (netM < 6 && pathM < 10 && sustained < 3) {
+        if (netM < 10 || sustained < 4) {
           return 0;
         }
         return Math.min(Math.max(gpsKmh, motionKmh), maxKmh);
       }
       const frozenCoordsDriving =
         gpsKmh >= 15
+        && netM >= 10
         && netM < 22
         && pathM >= 8
         && geoKmh < 8
-        && sustained >= 2.5;
+        && sustained >= 4;
       if (frozenCoordsDriving) {
         if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
         return Math.min(gpsKmh, maxKmh);
@@ -217,26 +220,28 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
       // iOS/Android: lat/lng stoi, Doppler żywy (100+ km/h) — nie zeruj HUD.
       const dopplerLiveCoordsFrozen =
         gpsKmh >= 15
+        && netM >= 12
         && netM < 22
-        && (input.pathMoveM ?? 0) < 35
+        && pathM < 35
         && geoKmh < 8
+        && sustained >= 4
         && sustained < 8;
       if (dopplerLiveCoordsFrozen) {
         if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
         return Math.min(gpsKmh, maxKmh);
       }
       if (netM < 22 && geoKmh < 5 && sustained < 5 && !slowCrawl) {
-        const pathM = input.pathMoveM ?? 0;
         const dopplerWithoutGeometry =
           gpsKmh >= 15
-          && netM < 10
-          && pathM >= 8
-          && (input.pathMoveM ?? 0) / Math.max(netM, 0.5) >= 0.35;
+          && netM >= 10
+          && pathM >= 14
+          && sustained >= 4
+          && pathM / Math.max(netM, 0.5) >= 0.35;
         if (dopplerWithoutGeometry) {
           if (rejectHighSpeedWithPoorAccuracy(gpsKmh, accM)) return 0;
           return Math.min(gpsKmh, maxKmh);
         }
-        if (pathM >= 6 && (gpsKmh >= 2.5 || derivedKmh >= 2.5)) {
+        if (netM >= 8 && sustained >= 3 && pathM >= 8 && (gpsKmh >= 2.5 || derivedKmh >= 2.5)) {
           return Math.min(maxKmh, Math.max(gpsKmh, derivedKmh, sustained, 4));
         }
         return 0;
@@ -388,10 +393,6 @@ export function clampSpeedKmhToGeometry(
   if (!opts.isTripActive || !Number.isFinite(kmh)) return Math.max(0, kmh);
   const netM = opts.netMoveM;
   const geo = Math.max(opts.sustainedKmh, opts.motionKmh * 0.88);
-  const parkedLike =
-    netM < 6
-    && opts.sustainedKmh < 4
-    && opts.motionKmh < 5;
   if (kmh <= 0) return 0;
   const standstillNetM = computeStandstillNetM(opts.motionKmh, opts.rawGpsKmh);
   if (netM < standstillNetM && opts.motionKmh < 5 && opts.sustainedKmh < 4) {

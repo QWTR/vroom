@@ -27,13 +27,11 @@ async function getAuthToken(): Promise<string | null> {
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
 
-const MAX_FEED_SPEED_KMH = 200;
-
-/** trusted=true: ten sam gate co trip peak (ruch potwierdzony, cap 200 km/h). */
+/** trusted=true: ten sam gate co trip peak (ruch potwierdzony). */
 export function feedSpeedSample(speedMs: number | null, trusted = false) {
   if (!trusted || speedMs == null || speedMs < 0) return;
   const kmh = speedMs * 3.6;
-  if (kmh < 1 || kmh > MAX_FEED_SPEED_KMH) return;
+  if (!Number.isFinite(kmh) || kmh < 1) return;
   _speedSamples.push(kmh);
   if (kmh > _speedMax) _speedMax = kmh;
 }
@@ -462,7 +460,7 @@ export async function consumeNativeDriveStatsToStorage(): Promise<void> {
     }
 
     const nativeSamples = Array.isArray(stats.speedSamples)
-      ? stats.speedSamples.map(Number).filter((v) => Number.isFinite(v) && v >= 1 && v <= MAX_FEED_SPEED_KMH)
+      ? stats.speedSamples.map(Number).filter((v) => Number.isFinite(v) && v >= 1)
       : [];
     if (nativeSamples.length > 0) {
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
@@ -584,7 +582,7 @@ export async function recordDrivingTracePoint(
       }
     }
 
-    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1 && opts.speedKmh <= MAX_FEED_SPEED_KMH) {
+    if (opts?.speedKmh != null && Number.isFinite(opts.speedKmh) && opts.speedKmh >= 1) {
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples: number[] = samplesRaw ? JSON.parse(samplesRaw) : [];
       const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
@@ -644,7 +642,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     }
 
     // ── Accumulate speed stats ────────────────────────────────────────────
-    if (speed != null && speed * 3.6 >= 1 && speed * 3.6 <= MAX_FEED_SPEED_KMH) {
+    if (speed != null && speed * 3.6 >= 1) {
       const kmh        = speed * 3.6;
       const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
       const samples    = samplesRaw ? JSON.parse(samplesRaw) : [];

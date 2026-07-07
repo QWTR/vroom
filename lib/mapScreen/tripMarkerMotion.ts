@@ -148,12 +148,12 @@ export function trustDopplerInTripEvidence(opts: {
   rawGpsKmh: number;
 }): boolean {
   if (opts.rawGpsKmh < 6 || isParkedLikeTripEvidence(opts)) return false;
-  // Zakręty / autostrada: ufaj Dopplerowi przy motionKmh >= 8 nawet przy niskim net.
-  if (opts.rawGpsKmh >= 6 && opts.motionKmh >= 8) return true;
-  if (opts.rawGpsKmh >= 50 && opts.netMoveM >= 4) return true;
+  // Nie ufaj samemu Dopplerowi na postoju. Wymagamy ruchu netto albo sustained.
+  if (opts.rawGpsKmh >= 6 && opts.motionKmh >= 8 && opts.netMoveM >= 10) return true;
+  if (opts.rawGpsKmh >= 50 && opts.netMoveM >= 18 && opts.sustainedKmh >= 8) return true;
   const geoKmh = Math.max(opts.motionKmh, opts.sustainedKmh);
   const delta = Math.abs(opts.rawGpsKmh - geoKmh);
-  return opts.netMoveM >= 6 || delta < 25;
+  return opts.netMoveM >= 10 || (opts.netMoveM >= 6 && opts.sustainedKmh >= 4 && delta < 25);
 }
 
 export function hasDrivingMotionEvidence(opts: {
@@ -166,13 +166,14 @@ export function hasDrivingMotionEvidence(opts: {
   const pathM = opts.pathMoveM ?? 0;
   const dopplerWithGeometry =
     opts.rawGpsKmh >= 6
-    && (opts.netMoveM >= 5 || opts.motionKmh >= 3.5 || opts.sustainedKmh >= 3 || pathM >= 7);
+    && opts.netMoveM >= 10
+    && (opts.motionKmh >= 3.5 || opts.sustainedKmh >= 3 || pathM >= 14);
   return (
     dopplerWithGeometry
-    || opts.motionKmh >= 5
-    || opts.sustainedKmh >= 4
-    || opts.netMoveM >= 6
-    || pathM >= 8
+    || (opts.motionKmh >= 5 && opts.netMoveM >= 10)
+    || (opts.sustainedKmh >= 4 && opts.netMoveM >= 8)
+    || opts.netMoveM >= 12
+    || (pathM >= 18 && opts.netMoveM >= 8)
   );
 }
 

@@ -389,7 +389,7 @@ class VroomBgTrackingService : Service() {
     private const val MAX_SEGMENT_KM = 2.0
     private const val MAX_FIX_GAP_MS = 420_000L
     private const val MIN_SPEED_KMH = 3.0
-    private const val MAX_SPEED_KMH = 200.0
+    // vmax bez limitu — tylko dolny próg próbki
     private const val NATIVE_CHECKPOINT_KM = 0.2
     private const val NATIVE_CHECKPOINT_FORCE_MIN_KM = 0.05
     private const val NATIVE_CHECKPOINT_FORCE_MS = 30_000L
@@ -583,14 +583,6 @@ class VroomBgTrackingService : Service() {
       val sessionId = state.optString("tripSessionId", "")
       if (sessionId.isNotBlank()) stats.put("tripSessionId", sessionId)
 
-      if (speedKmh != null && speedKmh in 1.0..MAX_SPEED_KMH) {
-        val samples = stats.optJSONArray("speedSamples") ?: JSONArray()
-        samples.put(speedKmh)
-        while (samples.length() > MAX_STATS_SPEED_SAMPLES) samples.remove(0)
-        stats.put("speedSamples", samples)
-        stats.put("maxSpeedKmh", maxOf(stats.optDouble("maxSpeedKmh", 0.0), speedKmh))
-      }
-
       val last = try {
         JSONObject(prefs.getString(KEY_NATIVE_STATS_LAST_FIX, null) ?: "{}")
       } catch (_: Exception) {
@@ -606,6 +598,7 @@ class VroomBgTrackingService : Service() {
         (!currentAcc.isFinite() || currentAcc <= MAX_ACCURACY_M) &&
           (!lastAcc.isFinite() || lastAcc <= MAX_ACCURACY_M)
 
+      var acceptedMovement = false
       if (hasLast && accurateEnough) {
         val dt = now - lastTime
         val segmentKm = haversineKm(lastLat, lastLon, lat, lon)
@@ -617,6 +610,7 @@ class VroomBgTrackingService : Service() {
           segmentKm <= MAX_SEGMENT_KM &&
           speedOk
         ) {
+          acceptedMovement = true
           stats.put("distanceKm", stats.optDouble("distanceKm", 0.0) + segmentKm)
           val route = stats.optJSONArray("routePoints") ?: JSONArray()
           if (route.length() == 0) {
@@ -626,6 +620,14 @@ class VroomBgTrackingService : Service() {
           while (route.length() > MAX_STATS_ROUTE_POINTS) route.remove(0)
           stats.put("routePoints", route)
         }
+      }
+
+      if (acceptedMovement && speedKmh != null && speedKmh >= 1.0) {
+        val samples = stats.optJSONArray("speedSamples") ?: JSONArray()
+        samples.put(speedKmh)
+        while (samples.length() > MAX_STATS_SPEED_SAMPLES) samples.remove(0)
+        stats.put("speedSamples", samples)
+        stats.put("maxSpeedKmh", maxOf(stats.optDouble("maxSpeedKmh", 0.0), speedKmh))
       }
 
       val lastFix = JSONObject()
@@ -766,7 +768,7 @@ class VroomBgTrackingService : Service() {
       var count = 0
       for (i in 0 until samples.length()) {
         val value = samples.optDouble(i, Double.NaN)
-        if (value.isFinite() && value in 1.0..MAX_SPEED_KMH) {
+        if (value.isFinite() && value >= 1.0) {
           sum += value
           count += 1
         }
