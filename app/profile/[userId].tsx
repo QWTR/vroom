@@ -136,6 +136,7 @@ export default function PublicProfileScreen() {
   const [shopVisitFx, setShopVisitFx] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
+  const [profileMusicMuted, setProfileMusicMuted] = useState(false);
 
   const { startConversation } = useChat();
 
@@ -164,6 +165,7 @@ export default function PublicProfileScreen() {
 
   const loadAll = async () => {
     setLoading(true);
+    setProfileMusicMuted(false);
     try {
       const token = await getToken();
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -859,6 +861,11 @@ export default function PublicProfileScreen() {
                   autoplayOnVisit={
                     !!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl
                   }
+                  showVisitorMuteBar={
+                    !!profile.spotifyProfileTrack.previewAutoplay && !!profile.spotifyProfileTrack.previewUrl
+                  }
+                  visitorMuted={profileMusicMuted}
+                  onVisitorMute={() => setProfileMusicMuted(true)}
                 />
               )}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: GLASS_BORDER }}>

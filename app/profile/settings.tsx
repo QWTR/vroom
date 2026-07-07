@@ -25,7 +25,9 @@ import { useCursorSkin } from '../../hooks/useCursorSkin';
 import { ThemeMode }    from '../../constants/theme';
 import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow, normalizePickerHex } from '../../components/settings/ColorWheelPickerSheet';
-import { SpotifyTrackSearchField } from '../../components/settings/SpotifyTrackSearchField';
+import { ProfileMusicSearchField } from '../../components/settings/ProfileMusicSearchField';
+import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
+import type { ProfileMusicSource } from '../../constants/profile';
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
 import { setEntranceMotionMode } from '../../hooks/useEntranceIntroPolicy';
 import type { EntranceMotionMode } from '../../components/motion/entranceFxTypes';
@@ -639,7 +641,12 @@ export default function SettingsScreen() {
     finally { setBugLoading(false); }
   };
 
-  const persistSpotifyTrack = useCallback(async (body: { url?: string; trackId?: string }) => {
+  const persistProfileTrack = useCallback(async (body: {
+    sourceType?: ProfileMusicSource;
+    trackId?: string;
+    url?: string;
+    previewAutoplay?: boolean;
+  }) => {
     const token = await getToken();
     if (!token) {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak sesji' });
@@ -647,14 +654,18 @@ export default function SettingsScreen() {
     }
     setSpotifySaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+      const useProfileEndpoint = !!body.sourceType && !!body.trackId && !body.url;
+      const res = await fetch(
+        `${API_URL}/api/settings/${useProfileEndpoint ? 'profile-track' : 'spotify-track'}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      });
+      );
       const json = await res.json().catch(() => ({} as any));
       if (!res.ok) {
         Toast.show({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się ustawić utworu' });
@@ -664,7 +675,7 @@ export default function SettingsScreen() {
       if (json?.spotifyProfileTrack?.url) {
         setSpotifyTrackUrl(json.spotifyProfileTrack.url);
       }
-      Toast.show({ type: 'success', text1: 'Spotify', text2: 'Utwór ustawiony w profilu' });
+      Toast.show({ type: 'success', text1: 'Muzyka profilu', text2: 'Utwór ustawiony w profilu' });
       return true;
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
@@ -673,6 +684,11 @@ export default function SettingsScreen() {
       setSpotifySaving(false);
     }
   }, [fetchSettings]);
+
+  const persistSpotifyTrack = useCallback(
+    async (body: { url?: string; trackId?: string }) => persistProfileTrack(body),
+    [persistProfileTrack],
+  );
 
   const handleSaveSpotifyTrack = async () => {
     const url = spotifyTrackUrl.trim();
@@ -683,9 +699,9 @@ export default function SettingsScreen() {
     await persistSpotifyTrack({ url });
   };
 
-  const pickSpotifyTrackFromSearch = useCallback(
-    (trackId: string) => persistSpotifyTrack({ trackId }),
-    [persistSpotifyTrack],
+  const pickProfileTrackFromSearch = useCallback(
+    (sourceType: ProfileMusicSource, trackId: string) => persistProfileTrack({ sourceType, trackId }),
+    [persistProfileTrack],
   );
 
   const handleClearSpotifyTrack = async () => {
@@ -706,7 +722,7 @@ export default function SettingsScreen() {
       }
       await fetchSettings();
       setSpotifyTrackUrl('');
-      Toast.show({ type: 'success', text1: 'Spotify', text2: 'Utwór usunięty z profilu' });
+      Toast.show({ type: 'success', text1: 'Muzyka profilu', text2: 'Utwór usunięty z profilu' });
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Brak połączenia' });
     } finally {
@@ -722,7 +738,7 @@ export default function SettingsScreen() {
     }
     setSpotifySaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/settings/spotify-track`, {
+      const res = await fetch(`${API_URL}/api/settings/profile-track`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -738,7 +754,7 @@ export default function SettingsScreen() {
       await fetchSettings();
       Toast.show({
         type: 'success',
-        text1: 'Spotify',
+        text1: 'Muzyka profilu',
         text2: val ? 'Goście usłyszą podgląd po wejściu na profil' : 'Autoodtwarzanie dla gości wyłączone',
       });
     } catch {
@@ -2048,26 +2064,20 @@ export default function SettingsScreen() {
 						<SettingsCard {...settingsCardProps}>
 							<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
 								<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
-									Muzyka w profilu (Spotify)
+									Muzyka w profilu
 								</Text>
-								{settings.spotifySearchAvailable ? (
-									<SpotifyTrackSearchField
-										apiUrl={API_URL}
-										onPickTrack={pickSpotifyTrackFromSearch}
-										saving={spotifySaving}
-										textMain={textMain}
-										textDim={textDim}
-										inputBg={inputBg}
-										inputBorder={inputBorder}
-										rowAlt={rowAlt}
-									/>
-								) : (
-									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim }}>
-										Wyszukiwanie w aplikacji wymaga kluczy Spotify Web API na serwerze (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET). Nadal możesz wkleić link do utworu poniżej.
-									</Text>
-								)}
+								<ProfileMusicSearchField
+									apiUrl={API_URL}
+									onPickTrack={pickProfileTrackFromSearch}
+									saving={spotifySaving}
+									textMain={textMain}
+									textDim={textDim}
+									inputBg={inputBg}
+									inputBorder={inputBorder}
+									rowAlt={rowAlt}
+								/>
 								<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 4 }}>
-									Alternatywnie: w aplikacji Spotify — Udostępnij → Kopiuj link utworu.
+									Alternatywnie Spotify: Udostępnij → Kopiuj link utworu.
 								</Text>
 								<TextInput
 									value={spotifyTrackUrl}
@@ -2090,19 +2100,11 @@ export default function SettingsScreen() {
 									}}
 								/>
 								{!!settings.spotifyProfileTrack && (
-									<View style={{ backgroundColor: rowAlt, borderRadius: 10, borderWidth: 1, borderColor: inputBorder, padding: 10 }}>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 1 }}>
-											AKTUALNY UTWÓR
-										</Text>
-										<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: textMain, marginTop: 5 }}>
-											{settings.spotifyProfileTrack.trackName}
-										</Text>
-										{!!settings.spotifyProfileTrack.artistName && (
-											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 3 }}>
-												{settings.spotifyProfileTrack.artistName}
-											</Text>
-										)}
-									</View>
+									<SpotifyProfileTrackRow
+										track={settings.spotifyProfileTrack}
+										theme={{ text: textMain, textDim, surface: rowAlt, border: inputBorder }}
+										embedded
+									/>
 								)}
 								{!!settings.spotifyProfileTrack && (
 									<View

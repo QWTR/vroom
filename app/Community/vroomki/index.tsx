@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   SafeAreaView,
   StatusBar,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { CommunityScreenHeader } from '../../../components/community';
 import { TabAuta } from '../community/TabAuta';
 import { useVroomkiFeed } from '../../../hooks/useVroomkiFeed';
+import { consumeVroomkiFocusPostId } from '../../../lib/vroomkiTypes';
 
 export default function VroomkiScreen() {
   const { theme, isDark } = useTheme();
@@ -37,7 +38,17 @@ export default function VroomkiScreen() {
     trackView,
     markCommentAdded,
     followAuthor,
+    focusOnPost,
   } = useVroomkiFeed(Number.isFinite(initialId ?? NaN) ? initialId : null);
+
+  useFocusEffect(
+    useCallback(() => {
+      const publishedId = consumeVroomkiFocusPostId();
+      if (publishedId && Number.isFinite(publishedId)) {
+        void focusOnPost(publishedId);
+      }
+    }, [focusOnPost]),
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['left', 'right', 'bottom']}>
@@ -71,4 +82,3 @@ export default function VroomkiScreen() {
     </SafeAreaView>
   );
 }
-

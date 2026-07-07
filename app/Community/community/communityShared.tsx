@@ -92,6 +92,34 @@ export interface VroomkiPost {
   isLiked: boolean;
   isFollowingAuthor?: boolean;
   score?: number;
+  sound?: {
+    id: number;
+    title: string;
+    artist: string;
+    coverUrl?: string | null;
+    audioUrl?: string | null;
+    sourceType: 'spotify' | 'original' | string;
+    sourceId?: string;
+    durationMs?: number | null;
+    usageCount?: number;
+  } | null;
+  overlays?: {
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+    scale: number;
+    rotation: number;
+    color: string;
+    fontSize: number;
+    bgColor?: string | null;
+    strokeColor?: string | null;
+    strokeWidth?: number;
+  }[];
+  soundStartMs?: number;
+  photoDurationMs?: number;
+  clipStartMs?: number;
+  clipDurationMs?: number | null;
 }
 export interface VroomkiComment {
   id: number;

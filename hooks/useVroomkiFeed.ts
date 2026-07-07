@@ -14,6 +14,7 @@ import {
   syncBlockedUserIdsFromServer,
 } from '../lib/ugcActions';
 import { prepareUploadImages } from '../lib/prepareUploadImages';
+import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
@@ -25,7 +26,7 @@ type LocalLikeState = {
   likesCount: number;
 };
 
-export function useVroomkiFeed(initialVroomkiId?: number | null) {
+export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: number | null) {
   const router = useRouter();
   const { settings } = useSettings();
 
@@ -88,9 +89,10 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
       try {
         const token = await getToken();
         const exclude = excludeIdsRef.current.join(',');
+        const soundQuery = Number.isFinite(soundId ?? NaN) ? `&soundId=${soundId}` : '';
         const url = cursor
-          ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}`
-          : `${API_URL}/api/vroomki?limit=${PAGE_SIZE}`;
+          ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}${soundQuery}`
+          : `${API_URL}/api/vroomki?limit=${PAGE_SIZE}${soundQuery}`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error('fetch vroomki failed');
         const json = await res.json();
@@ -132,7 +134,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
         setLoadingMoreC(false);
       }
     },
-    [mergeLocalState, setPosts],
+    [mergeLocalState, setPosts, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -167,7 +169,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
     return () => {
       cancelled = true;
     };
-  }, [initialVroomkiId, mergeLocalState, setPosts]);
+  }, [initialVroomkiId, mergeLocalState, setPosts, soundId]);
 
   const refresh = useCallback(() => {
     setRefreshingC(true);
@@ -236,9 +238,43 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
   );
 
   const handleCreateVroomki = useCallback(
-    async (caption: string, photos: string[], video: string | null, carId: number | null) => {
+    async (payload: VroomkiCreatePayload) => {
+      const {
+        caption,
+        photos,
+        video,
+        carId,
+        overlays,
+        soundId: selectedSoundId,
+        spotifyTrackId,
+        audiusTrackId,
+        deezerTrackId,
+        itunesTrackId,
+        useOriginalAudio,
+        soundStartMs,
+        photoDurationMs,
+        clipStartMs,
+        clipDurationMs,
+      } = payload;
       const token = await getToken();
       if (!token) throw new Error('Brak tokenu');
+
+      const commonFields: Record<string, string> = {
+        caption,
+        overlays: JSON.stringify(overlays ?? []),
+        soundStartMs: String(soundStartMs ?? 0),
+        photoDurationMs: String(photoDurationMs ?? 3000),
+        clipStartMs: String(clipStartMs ?? 0),
+        ...(clipDurationMs ? { clipDurationMs: String(clipDurationMs) } : {}),
+        ...(carId ? { carId: String(carId) } : {}),
+        ...(useOriginalAudio ? { useOriginalAudio: 'true' } : {}),
+        ...(selectedSoundId ? { soundId: String(selectedSoundId) } : {}),
+        ...(spotifyTrackId ? { spotifyTrackId } : {}),
+        ...(audiusTrackId ? { audiusTrackId } : {}),
+        ...(deezerTrackId ? { deezerTrackId } : {}),
+        ...(itunesTrackId ? { itunesTrackId } : {}),
+      };
+
       if (video) {
         const info = await FileSystem.getInfoAsync(video, { size: true } as any);
         const fileSize = Number((info as any)?.size ?? 0);
@@ -260,25 +296,21 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
           uploadType: FileSystem.FileSystemUploadType.MULTIPART,
           fieldName: 'video',
           mimeType: `video/${ext}`,
-          parameters: {
-            caption,
-            ...(carId ? { carId: String(carId) } : {}),
-          },
+          parameters: commonFields,
           sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
         });
-        const payload = result.body ? JSON.parse(result.body) : null;
+        const body = result.body ? JSON.parse(result.body) : null;
         if (result.status !== 200 && result.status !== 201) {
-          if (payload?.code === 'PREMIUM_REQUIRED_VIDEO_LIMIT') router.push('/premium' as any);
-          throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
+          if (body?.code === 'PREMIUM_REQUIRED_VIDEO_LIMIT') router.push('/premium' as any);
+          throw new Error(body?.error ?? 'Błąd wysyłania filmu');
         }
-        if (payload) setPosts((prev) => [payload, ...prev]);
+        if (body) setPosts((prev) => [body, ...prev]);
         return;
       }
 
       const preparedPhotos = photos.length ? await prepareUploadImages(photos) : [];
       const form = new FormData();
-      form.append('caption', caption);
-      if (carId) form.append('carId', String(carId));
+      Object.entries(commonFields).forEach(([key, value]) => form.append(key, value));
       preparedPhotos.forEach((uri, i) => {
         form.append('photos', { uri, name: `vroomki_${i}.jpg`, type: 'image/jpeg' } as any);
       });
@@ -287,9 +319,9 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(payload?.error ?? 'Nie udało się opublikować VROOMKI');
-      setPosts((prev) => [payload, ...prev]);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? 'Nie udało się opublikować VROOMKI');
+      setPosts((prev) => [body, ...prev]);
     },
     [router, settings.isAdmin, settings.isPremium, setPosts],
   );
@@ -373,6 +405,26 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
 
   const filteredVroomki = vroomkiPosts.filter((p) => !blockedIds.includes(p.author.id));
 
+  const focusOnPost = useCallback(async (postId: number) => {
+    if (!Number.isFinite(postId)) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/vroomki/${postId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const post: VroomkiPost = await res.json();
+      const merged = mergeLocalState(post);
+      focusedVroomkiRef.current = merged;
+      setResolvedFocusPostId(merged.id);
+      excludeIdsRef.current = [];
+      setPosts((prev) => [merged, ...prev.filter((p) => p.id !== merged.id)]);
+      await fetchVroomkiRef.current?.();
+    } catch {
+      // ignore
+    }
+  }, [mergeLocalState, setPosts]);
+
   return {
     myId,
     posts: filteredVroomki,
@@ -391,6 +443,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null) {
     trackView: handleVroomkiView,
     markCommentAdded: handleVroomkiCommentAdded,
     followAuthor: handleFollowVroomkiAuthor,
+    focusOnPost,
   };
 }
 
