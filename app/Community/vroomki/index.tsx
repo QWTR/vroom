@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { CommunityScreenHeader } from '../../../components/community';
 import { TabAuta } from '../community/TabAuta';
@@ -16,6 +17,7 @@ export default function VroomkiScreen() {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const params = useLocalSearchParams<{ vroomkiId?: string }>();
 
   const initialId = params.vroomkiId ? parseInt(String(params.vroomkiId), 10) : null;
@@ -77,6 +79,7 @@ export default function VroomkiScreen() {
           onLoadMore={loadMore}
           bottomInset={insets.bottom}
           router={router}
+          feedActive={isFocused}
         />
       </View>
     </SafeAreaView>

@@ -9,6 +9,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -26,11 +27,17 @@ const getToken = async () =>
 export default function VroomkiSoundScreen() {
   const { theme, isDark } = useTheme();
   const router = useRouter();
+  const isFocused = useIsFocused();
+  const [pickingMedia, setPickingMedia] = useState(false);
   const params = useLocalSearchParams<{ id?: string }>();
   const soundId = params.id ? parseInt(String(params.id), 10) : null;
 
   const [sound, setSound] = useState<VroomkiSound | null>(null);
   const [loadingSound, setLoadingSound] = useState(true);
+
+  useEffect(() => {
+    if (isFocused) setPickingMedia(false);
+  }, [isFocused]);
 
   const {
     myId,
@@ -75,8 +82,12 @@ export default function VroomkiSoundScreen() {
 
   const useThisSound = useCallback(async () => {
     if (!sound) return;
+    setPickingMedia(true);
     const picked = await pickVroomkiMediaFromGallery();
-    if (!picked) return;
+    if (!picked) {
+      if (isFocused) setPickingMedia(false);
+      return;
+    }
     setVroomkiDraft({
       photos: picked.kind === 'photos' ? picked.photos : [],
       video: picked.kind === 'video' ? picked.video : null,
@@ -90,7 +101,7 @@ export default function VroomkiSoundScreen() {
       preselectedSoundId: sound.id,
     });
     router.push('/Community/vroomki/create');
-  }, [router, sound]);
+  }, [router, sound, isFocused]);
 
   if (loadingSound) {
     return (
@@ -157,6 +168,7 @@ export default function VroomkiSoundScreen() {
         bottomInset={0}
         router={router}
         hideFab
+        feedActive={isFocused && !pickingMedia}
       />
     </SafeAreaView>
   );

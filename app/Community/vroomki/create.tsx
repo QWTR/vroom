@@ -37,6 +37,7 @@ import Toast from 'react-native-toast-message';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useSettings } from '../../../contexts/SettingsContext';
 
 import { API_URL } from '../../../constants/config';
 
@@ -50,19 +51,18 @@ import { VroomkiDraggableOverlay, VroomkiSnapGuides } from '../../../components/
 
 import { VroomkiDurationPanel } from '../../../components/vroomki/VroomkiDurationPanel';
 
+import { MusicTrimSheet } from '../../../components/shared/MusicTrimSheet';
+import { fetchVroomkiSoundPreviewUrl } from '../../../utils/freshAudioPreview';
+import { isFullTrackSource, PREVIEW_CLIP_MS } from '../../../utils/musicPreviewLimits';
+
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 
 import {
-
   consumeVroomkiDraft,
-
-  setVroomkiFocusPostId,
-
   type VroomkiDraft,
-
   type VroomkiSound,
-
 } from '../../../lib/vroomkiTypes';
+import { enqueueVroomkiPublish } from '../../../lib/vroomkiPublishQueue';
 
 
 
@@ -221,6 +221,7 @@ export default function VroomkiCreateScreen() {
   const insets = useSafeAreaInsets();
 
   const { theme } = useTheme();
+  const { settings } = useSettings();
 
 
 
@@ -236,6 +237,8 @@ export default function VroomkiCreateScreen() {
 
   const [durationOpen, setDurationOpen] = useState(false);
 
+  const [soundTrimOpen, setSoundTrimOpen] = useState(false);
+
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
 
   const [snapGuides, setSnapGuides] = useState({ horizontal: false, vertical: false });
@@ -246,9 +249,8 @@ export default function VroomkiCreateScreen() {
 
   const [selectedCarId, setSelectedCarId] = useState<number | null>(null);
 
-  const [posting, setPosting] = useState(false);
-
   const [previewMediaReady, setPreviewMediaReady] = useState(true);
+  const [mediaLoopTick, setMediaLoopTick] = useState(0);
 
 
 
@@ -256,15 +258,29 @@ export default function VroomkiCreateScreen() {
 
   const previewSound = draft?.useOriginalAudio ? null : draft?.sound;
 
+  const resolveVroomkiTrimAudio = useCallback(async () => {
+    if (!previewSound) return null;
+    return fetchVroomkiSoundPreviewUrl(previewSound);
+  }, [previewSound]);
+
+  const musicSelectionMs = useMemo(() => {
+    if (!draft) return 30000;
+    if (hasVideo) return draft.clipDurationMs ?? 30000;
+    if (draft.photos.length > 0) return Math.max(3000, draft.photos.length * draft.photoDurationMs);
+    return 30000;
+  }, [draft, hasVideo]);
+
 
 
   useVroomkiSoundPlayback({
 
-    active: step === 'edit' && !!previewSound?.audioUrl,
+    active: step === 'edit' && !!previewSound && !soundTrimOpen,
 
     sound: previewSound,
 
     soundStartMs: draft?.soundStartMs ?? 0,
+
+    mediaLoopTick,
 
     waitForMedia: hasVideo,
 
@@ -358,156 +374,39 @@ export default function VroomkiCreateScreen() {
 
 
 
-  const navigateToPublishedReel = (createdId: number | null) => {
-
-    if (createdId) setVroomkiFocusPostId(createdId);
-
-    router.back();
-
-  };
-
-
-
   const handlePublish = async () => {
-
-    if (!draft || posting) return;
+    if (!draft) return;
 
     if (!caption.trim() && draft.photos.length === 0 && !draft.video && !selectedCarId) {
-
       Toast.show({ type: 'info', text1: 'Dodaj opis, media albo wybierz auto' });
-
       return;
-
     }
 
-    setPosting(true);
-
-    try {
-
-      const token = await getToken();
-
-      if (!token) throw new Error('Brak tokenu');
-
-
-
-      const commonFields = {
-
-        caption: caption.trim(),
-
-        overlays: JSON.stringify(draft.overlays),
-
-        soundStartMs: String(draft.soundStartMs ?? 0),
-
-        photoDurationMs: String(draft.photoDurationMs ?? 3000),
-
-        clipStartMs: String(draft.clipStartMs ?? 0),
-
-        ...(draft.clipDurationMs ? { clipDurationMs: String(draft.clipDurationMs) } : {}),
-
-        ...(selectedCarId ? { carId: String(selectedCarId) } : {}),
-
-        ...(draft.useOriginalAudio ? { useOriginalAudio: 'true' } : {}),
-
-        ...(draft.sound?.id ? { soundId: String(draft.sound.id) } : {}),
-
-        ...(draft.sound?.spotifyTrackId ? { spotifyTrackId: draft.sound.spotifyTrackId } : {}),
-
-        ...(draft.sound?.audiusTrackId ? { audiusTrackId: draft.sound.audiusTrackId } : {}),
-
-        ...(draft.sound?.deezerTrackId ? { deezerTrackId: draft.sound.deezerTrackId } : {}),
-
-        ...(draft.sound?.itunesTrackId ? { itunesTrackId: draft.sound.itunesTrackId } : {}),
-
-      };
-
-
-
-      let createdId: number | null = null;
-
-
-
-      if (draft.video) {
-
-        const FileSystem = await import('expo-file-system/legacy');
-
-        const ext = draft.video.split('.').pop() ?? 'mp4';
-
-        const result = await FileSystem.uploadAsync(`${API_URL}/api/vroomki`, draft.video, {
-
-          httpMethod: 'POST',
-
-          headers: { Authorization: `Bearer ${token}` },
-
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-
-          fieldName: 'video',
-
-          mimeType: `video/${ext}`,
-
-          parameters: commonFields,
-
-        });
-
-        const payload = result.body ? JSON.parse(result.body) : null;
-
-        if (result.status !== 200 && result.status !== 201) {
-
-          throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
-
-        }
-
-        createdId = payload?.id ?? null;
-
-      } else {
-
-        const { prepareUploadImages } = await import('../../../lib/prepareUploadImages');
-
-        const preparedPhotos = draft.photos.length ? await prepareUploadImages(draft.photos) : [];
-
-        const form = new FormData();
-
-        Object.entries(commonFields).forEach(([key, value]) => form.append(key, value));
-
-        preparedPhotos.forEach((uri, i) => {
-
-          form.append('photos', { uri, name: `vroomki_${i}.jpg`, type: 'image/jpeg' } as any);
-
-        });
-
-        const res = await fetch(`${API_URL}/api/vroomki`, {
-
-          method: 'POST',
-
-          headers: { Authorization: `Bearer ${token}` },
-
-          body: form,
-
-        });
-
-        const payload = await res.json().catch(() => null);
-
-        if (!res.ok) throw new Error(payload?.error ?? 'Nie udało się opublikować');
-
-        createdId = payload?.id ?? null;
-
-      }
-
-
-
-      Toast.show({ type: 'success', text1: 'VROOMKA opublikowana!', text2: 'Oglądasz swój reels' });
-
-      navigateToPublishedReel(createdId);
-
-    } catch (e: any) {
-
-      Toast.show({ type: 'error', text1: e?.message ?? 'Nie udało się opublikować' });
-
-    } finally {
-
-      setPosting(false);
-
+    const token = await getToken();
+    if (!token) {
+      Toast.show({ type: 'error', text1: 'Brak tokenu — zaloguj się ponownie' });
+      return;
     }
 
+    enqueueVroomkiPublish(
+      {
+        caption,
+        carId: selectedCarId,
+        draft,
+      },
+      {
+        isPremium: !!settings.isPremium,
+        isAdmin: !!settings.isAdmin,
+      },
+    );
+
+    Toast.show({
+      type: 'info',
+      text1: 'Publikujemy w tle',
+      text2: draft.video ? 'Upload filmu trwa — możesz scrollować feed' : 'Za chwilę pojawi się w feedzie',
+    });
+
+    router.back();
   };
 
 
@@ -571,25 +470,10 @@ export default function VroomkiCreateScreen() {
 
 
           <TouchableOpacity
-
             onPress={() => (step === 'edit' ? setStep('publish') : handlePublish())}
-
-            disabled={posting}
-
-            style={[styles.publishBtn, posting && { opacity: 0.6 }]}
-
+            style={styles.publishBtn}
           >
-
-            {posting ? (
-
-              <ActivityIndicator color="#fff" size="small" />
-
-            ) : (
-
-              <Text style={styles.publishBtnText}>{step === 'edit' ? 'DALEJ' : 'PUBLIKUJ'}</Text>
-
-            )}
-
+            <Text style={styles.publishBtnText}>{step === 'edit' ? 'DALEJ' : 'PUBLIKUJ'}</Text>
           </TouchableOpacity>
 
         </View>
@@ -626,9 +510,11 @@ export default function VroomkiCreateScreen() {
 
                     overlays={[]}
 
-                    muted={!!previewSound?.audioUrl || draft.useOriginalAudio}
+                    muted={!!previewSound?.audioUrl}
 
                     onMediaReadyChange={setPreviewMediaReady}
+
+                    onClipLoop={() => setMediaLoopTick((t) => t + 1)}
 
                   />
 
@@ -682,7 +568,13 @@ export default function VroomkiCreateScreen() {
 
             {(draft.sound || draft.useOriginalAudio) && (
 
-              <View style={styles.soundChip}>
+              <TouchableOpacity
+                style={styles.soundChip}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (!draft.useOriginalAudio && draft.sound) setSoundTrimOpen(true);
+                }}
+              >
 
                 <MaterialIcons name="music-note" size={14} color="#e33835" />
 
@@ -692,7 +584,16 @@ export default function VroomkiCreateScreen() {
 
                 </Text>
 
-              </View>
+                {!draft.useOriginalAudio && !!draft.sound && (
+                  <View style={styles.soundTrimBtn}>
+                    <MaterialIcons name="content-cut" size={16} color="#fff" />
+                    <Text style={styles.soundTrimBtnText}>
+                      {draft.soundStartMs > 0 ? `${Math.round(draft.soundStartMs / 1000)}s` : 'PRZYTNij'}
+                    </Text>
+                  </View>
+                )}
+
+              </TouchableOpacity>
 
             )}
 
@@ -708,13 +609,15 @@ export default function VroomkiCreateScreen() {
 
                 photoDurationMs={draft.photoDurationMs}
 
+                clipStartMs={draft.clipStartMs ?? 0}
+
                 clipDurationMs={draft.clipDurationMs}
 
                 videoUri={draft.video}
 
                 onPhotoDurationChange={(ms) => patchDraft({ photoDurationMs: ms })}
 
-                onClipDurationChange={(ms) => patchDraft({ clipDurationMs: ms })}
+                onClipRangeChange={(startMs, durationMs) => patchDraft({ clipStartMs: startMs, clipDurationMs: durationMs })}
 
               />
 
@@ -878,28 +781,11 @@ export default function VroomkiCreateScreen() {
 
           <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
 
-            <TouchableOpacity onPress={handlePublish} disabled={posting} style={styles.bigPublishBtn}>
-
+            <TouchableOpacity onPress={handlePublish} style={styles.bigPublishBtn}>
               <LinearGradient colors={['#ff4d4a', '#e33835', '#b82a28']} style={styles.bigPublishGradient}>
-
-                {posting ? (
-
-                  <ActivityIndicator color="#fff" />
-
-                ) : (
-
-                  <>
-
-                    <MaterialIcons name="rocket-launch" size={20} color="#fff" />
-
-                    <Text style={styles.bigPublishText}>OPUBLIKUJ VROOMKĘ</Text>
-
-                  </>
-
-                )}
-
+                <MaterialIcons name="rocket-launch" size={20} color="#fff" />
+                <Text style={styles.bigPublishText}>OPUBLIKUJ VROOMKĘ</Text>
               </LinearGradient>
-
             </TouchableOpacity>
 
           </View>
@@ -946,15 +832,53 @@ export default function VroomkiCreateScreen() {
 
               patchDraft({ sound: null, useOriginalAudio: true });
 
+              setSoundOpen(false);
+
             } else {
 
-              patchDraft({ sound, useOriginalAudio: false });
+              patchDraft({ sound, useOriginalAudio: false, soundStartMs: 0 });
+
+              setSoundOpen(false);
+
+              setSoundTrimOpen(true);
 
             }
 
           }}
 
         />
+
+
+
+        {!!previewSound && (
+          <MusicTrimSheet
+            visible={soundTrimOpen}
+            title={previewSound.title}
+            trackLabel={previewSound.artist}
+            audioUrl={previewSound.audioUrl}
+            resolveAudioUrl={resolveVroomkiTrimAudio}
+            sourceType={previewSound.sourceType}
+            startMs={draft?.soundStartMs ?? 0}
+            trackDurationMs={
+              isFullTrackSource(previewSound.sourceType)
+                ? (previewSound.durationMs ?? 120000)
+                : PREVIEW_CLIP_MS
+            }
+            fullSongDurationMs={previewSound.durationMs ?? null}
+            selectionDurationMs={
+              isFullTrackSource(previewSound.sourceType)
+                ? Math.min(musicSelectionMs, previewSound.durationMs ?? 120000)
+                : Math.min(musicSelectionMs, PREVIEW_CLIP_MS)
+            }
+            clipDurationMs={musicSelectionMs}
+            accent="#e33835"
+            onCancel={() => setSoundTrimOpen(false)}
+            onConfirm={(ms) => {
+              patchDraft({ soundStartMs: ms });
+              setSoundTrimOpen(false);
+            }}
+          />
+        )}
 
       </LinearGradient>
 
@@ -1102,23 +1026,53 @@ const styles = StyleSheet.create({
 
     gap: 8,
 
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
 
-    marginTop: 12,
+    marginTop: 10,
 
-    backgroundColor: '#ffffff10',
+    marginHorizontal: 16,
+
+    backgroundColor: '#00000088',
 
     borderRadius: 999,
 
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
 
     paddingVertical: 8,
 
-    maxWidth: '90%',
+    maxWidth: '92%',
 
-    borderWidth: 1,
+  },
 
-    borderColor: '#ffffff18',
+  soundTrimBtn: {
+
+    flexDirection: 'row',
+
+    alignItems: 'center',
+
+    gap: 4,
+
+    backgroundColor: '#e33835',
+
+    borderRadius: 999,
+
+    paddingHorizontal: 10,
+
+    paddingVertical: 5,
+
+    marginLeft: 4,
+
+  },
+
+  soundTrimBtnText: {
+
+    fontFamily: 'Orbitron',
+
+    color: '#fff',
+
+    fontSize: 9,
+
+    fontWeight: '700',
 
   },
 

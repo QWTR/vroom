@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, Image, TouchableOpacity, FlatList, RefreshControl,
-  Pressable, ActivityIndicator, Dimensions, ScrollView,
-  Alert, StyleSheet,
+  View, Text, TouchableOpacity, FlatList, RefreshControl,
+  Dimensions, Alert, StyleSheet,
 } from 'react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
-import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
@@ -17,175 +15,19 @@ import { VroomkiOverlays } from '../../../components/vroomki/VroomkiOverlays';
 import { VroomkiSoundChip } from '../../../components/vroomki/VroomkiSoundPicker';
 import { VroomkiCommentsModal } from '../../../components/vroomki/VroomkiCommentsModal';
 import { VroomkiPrefetch } from '../../../components/vroomki/VroomkiPrefetch';
+import { VroomkiPhotoCarousel } from '../../../components/vroomki/VroomkiPhotoCarousel';
+import { ReelVideo, isReelPostWarmed } from '../../../components/vroomki/ReelVideo';
+import { VroomkiReelWarmup } from '../../../components/vroomki/VroomkiReelWarmup';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
+import { priorityPrefetchVroomkiVideo, warmFeedVideos } from '../../../lib/vroomkiVideoCache';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
 const VIEW_THRESHOLD_MS = 1600;
-const DOUBLE_TAP_MS = 280;
 
-async function openVroomkiCreateFlow(router: ReturnType<typeof useRouter>) {
-  const picked = await pickVroomkiMediaFromGallery();
-  if (!picked) return;
-  setVroomkiDraft({
-    photos: picked.kind === 'photos' ? picked.photos : [],
-    video: picked.kind === 'video' ? picked.video : null,
-    overlays: [],
-    sound: null,
-    useOriginalAudio: picked.kind === 'video',
-    soundStartMs: 0,
-    photoDurationMs: 3000,
-    clipStartMs: 0,
-    clipDurationMs: null,
-  });
-  router.push('/Community/vroomki/create');
-}
-
-function ReelVideo({
-  uri,
-  active,
-  muted = false,
-  clipStartMs = 0,
-  clipDurationMs = null,
-  onCompleted,
-  onDoubleTap,
-  onMediaReadyChange,
-}: {
-  uri: string;
-  active: boolean;
-  muted?: boolean;
-  clipStartMs?: number;
-  clipDurationMs?: number | null;
-  onCompleted: (watchMs: number) => void;
-  onDoubleTap: () => void;
-  onMediaReadyChange?: (ready: boolean) => void;
-}) {
-  const videoRef = useRef<Video>(null);
-  const completedRef = useRef(false);
-  const readyRef = useRef(false);
-  const lastTapRef = useRef(0);
-  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [pausedByUser, setPausedByUser] = useState(false);
-  const [buffering, setBuffering] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const clipEndMs = clipDurationMs ? clipStartMs + clipDurationMs : null;
-
-  const reportReady = (ready: boolean) => {
-    if (readyRef.current === ready) return;
-    readyRef.current = ready;
-    onMediaReadyChange?.(ready);
-  };
-
-  useEffect(() => {
-    if (!active) {
-      setPausedByUser(false);
-      reportReady(false);
-      videoRef.current?.pauseAsync().catch(() => {});
-      return;
-    }
-    if (pausedByUser) {
-      reportReady(false);
-      videoRef.current?.pauseAsync().catch(() => {});
-      return;
-    }
-    videoRef.current?.playAsync().catch(() => {});
-  }, [active, pausedByUser]);
-
-  useEffect(() => {
-    if (!active) return;
-    completedRef.current = false;
-    reportReady(false);
-    videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
-  }, [active, uri, clipStartMs]);
-
-  const onStatus = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      reportReady(false);
-      return;
-    }
-    setPlaying(!!status.isPlaying);
-    if (status.isPlaying || (status.positionMillis ?? 0) > 0) setHasLoadedOnce(true);
-    setBuffering(!!status.isBuffering && !status.isPlaying);
-
-    const position = status.positionMillis ?? 0;
-    const isReady = active && !pausedByUser && !status.isBuffering && (status.isPlaying || position >= 60);
-    reportReady(isReady);
-
-    const duration = status.durationMillis ?? 0;
-
-    if (clipEndMs && position >= clipEndMs - 80) {
-      videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
-      if (!completedRef.current) {
-        completedRef.current = true;
-        onCompleted(clipDurationMs ?? position);
-      }
-      return;
-    }
-
-    if (!completedRef.current && duration > 0 && position / duration >= 0.85) {
-      completedRef.current = true;
-      onCompleted(position);
-    }
-  };
-
-  const toggle = async () => {
-    const nextPaused = !pausedByUser;
-    setPausedByUser(nextPaused);
-    try {
-      if (nextPaused) await videoRef.current?.pauseAsync();
-      else await videoRef.current?.playAsync();
-    } catch {}
-  };
-
-  const handlePress = () => {
-    const now = Date.now();
-    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
-      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
-      lastTapRef.current = 0;
-      onDoubleTap();
-      return;
-    }
-    lastTapRef.current = now;
-    singleTapTimerRef.current = setTimeout(() => {
-      void toggle();
-    }, DOUBLE_TAP_MS);
-  };
-
-  useEffect(() => () => {
-    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
-  }, []);
-
-  return (
-    <Pressable style={StyleSheet.absoluteFill} onPress={handlePress}>
-      <Video
-        ref={videoRef}
-        source={{ uri }}
-        style={StyleSheet.absoluteFill}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={active && !pausedByUser}
-        isLooping={!clipEndMs}
-        isMuted={muted}
-        useNativeControls={false}
-        progressUpdateIntervalMillis={250}
-        onPlaybackStatusUpdate={onStatus}
-      />
-      {(pausedByUser || (!hasLoadedOnce && active) || (buffering && !playing)) && (
-        <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>
-          <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#0000008c', justifyContent: 'center', alignItems: 'center' }}>
-            {(!hasLoadedOnce && active) || (buffering && !playing)
-              ? <ActivityIndicator color="#fff" />
-              : <MaterialIcons name="play-arrow" size={42} color="#fff" style={{ marginLeft: 3 }} />}
-          </View>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-function ReelCard({
+const ReelCard = React.memo(function ReelCard({
   post,
   active,
   height,
@@ -221,35 +63,40 @@ function ReelCard({
   const own = myId === post.author.id;
   const [photoIndex, setPhotoIndex] = useState(0);
   const [heartVisible, setHeartVisible] = useState(false);
-  const lastTapRef = useRef(0);
   const likedByDoubleTapRef = useRef(false);
   const photoDurationMs = post.photoDurationMs ?? 3000;
   const clipStartMs = post.clipStartMs ?? 0;
   const clipDurationMs = post.clipDurationMs ?? null;
   const overlays = post.overlays ?? [];
-  const externalSound = post.sound?.audioUrl ? post.sound : null;
-  const [videoMediaReady, setVideoMediaReady] = useState(false);
+  const externalSound = post.sound ?? null;
+  const mediaReadyLatchRef = useRef(isReelPostWarmed(post.id));
+  const [videoMediaReady, setVideoMediaReady] = useState(mediaReadyLatchRef.current);
+  const [mediaLoopTick, setMediaLoopTick] = useState(0);
+
+  const handleMediaReady = useCallback((ready: boolean) => {
+    if (ready) mediaReadyLatchRef.current = true;
+    setVideoMediaReady(mediaReadyLatchRef.current);
+  }, []);
 
   useVroomkiSoundPlayback({
     active,
     sound: externalSound,
     soundStartMs: post.soundStartMs ?? 0,
     restartKey: post.id,
-    waitForMedia: hasVideo,
+    mediaLoopTick,
+    waitForMedia: hasVideo && !mediaReadyLatchRef.current,
     mediaReady: hasVideo ? videoMediaReady : true,
   });
 
   useEffect(() => {
-    if (!hasVideo) setVideoMediaReady(false);
-  }, [post.id, hasVideo]);
+    mediaReadyLatchRef.current = isReelPostWarmed(post.id);
+    setVideoMediaReady(mediaReadyLatchRef.current);
+    setMediaLoopTick(0);
+  }, [post.id]);
 
   useEffect(() => {
-    if (hasVideo || photos.length <= 1 || !active) return undefined;
-    const timer = setInterval(() => {
-      setPhotoIndex((prev) => (prev + 1) % photos.length);
-    }, photoDurationMs);
-    return () => clearInterval(timer);
-  }, [hasVideo, photos.length, photoDurationMs, active, post.id]);
+    setPhotoIndex(0);
+  }, [post.id]);
 
   const likeFromDoubleTap = useCallback(() => {
     setHeartVisible(true);
@@ -264,33 +111,32 @@ function ReelCard({
     if (!post.isLiked) likedByDoubleTapRef.current = false;
   }, [post.isLiked]);
 
-  const handlePhotoPress = () => {
-    const now = Date.now();
-    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
-      lastTapRef.current = 0;
-      likeFromDoubleTap();
-      return;
-    }
-    lastTapRef.current = now;
-  };
-
   return (
     <View style={{ height, backgroundColor: '#050505', overflow: 'hidden' }}>
       {hasVideo ? (
         <ReelVideo
+          postId={post.id}
           uri={post.videos[0]}
           active={active}
           muted={!!externalSound}
           clipStartMs={clipStartMs}
           clipDurationMs={clipDurationMs}
-          onMediaReadyChange={setVideoMediaReady}
+          onMediaReadyChange={handleMediaReady}
+          onClipLoop={() => setMediaLoopTick((t) => t + 1)}
           onCompleted={(ms) => onCompletedView(post, ms)}
           onDoubleTap={likeFromDoubleTap}
         />
       ) : coverPhoto ? (
-        <Pressable onPress={handlePhotoPress} style={{ width: SCREEN_W, height }}>
-          <Image source={{ uri: photos[photoIndex] ?? coverPhoto }} style={{ width: SCREEN_W, height }} resizeMode="cover" />
-        </Pressable>
+        <VroomkiPhotoCarousel
+          photos={photos}
+          width={SCREEN_W}
+          height={height}
+          active={active}
+          photoDurationMs={photoDurationMs}
+          restartKey={post.id}
+          onDoubleTap={likeFromDoubleTap}
+          onIndexChange={setPhotoIndex}
+        />
       ) : (
         <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#170909' }]}>
           <MaterialIcons name="directions-car" size={86} color="#e3383555" />
@@ -399,12 +245,13 @@ function ReelCard({
       </View>
     </View>
   );
-}
+});
 
 export function TabAuta({
   posts, myId, focusPostId, loadingC, refreshingC, loadingMoreC, hasMoreC,
   onLike, onCreate, onDelete, onReport, onBlock, onView, onCommentAdded,
   onFollowAuthor, onRefresh, onLoadMore, bottomInset, router, hideFab = false,
+  feedActive = true,
 }: {
   posts: VroomkiPost[];
   focusPostId?: number | null;
@@ -426,6 +273,7 @@ export function TabAuta({
   bottomInset: number;
   router: ReturnType<typeof useRouter>;
   hideFab?: boolean;
+  feedActive?: boolean;
 }) {
   const { theme } = useTheme();
   const [commentsPost, setCommentsPost] = useState<VroomkiPost | null>(null);
@@ -438,6 +286,47 @@ export function TabAuta({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusIdRef = useRef<number | null>(null);
   const initialActiveSetRef = useRef(false);
+  const [playbackSuspended, setPlaybackSuspended] = useState(false);
+  const reelsPlaybackActive = feedActive && !playbackSuspended;
+
+  const warmupUri = useMemo(() => {
+    if (!activeId) return null;
+    const idx = posts.findIndex((p) => p.id === activeId);
+    if (idx < 0) return null;
+    for (let i = idx + 1; i <= idx + 2; i += 1) {
+      if (posts[i]?.videos[0]) return posts[i].videos[0];
+    }
+    return null;
+  }, [posts, activeId]);
+
+  useEffect(() => {
+    if (feedActive) setPlaybackSuspended(false);
+  }, [feedActive]);
+
+  const suspendPlayback = useCallback(() => {
+    setPlaybackSuspended(true);
+  }, []);
+
+  const startCreateFlow = useCallback(async () => {
+    suspendPlayback();
+    const picked = await pickVroomkiMediaFromGallery();
+    if (!picked) {
+      if (feedActive) setPlaybackSuspended(false);
+      return;
+    }
+    setVroomkiDraft({
+      photos: picked.kind === 'photos' ? picked.photos : [],
+      video: picked.kind === 'video' ? picked.video : null,
+      overlays: [],
+      sound: null,
+      useOriginalAudio: picked.kind === 'video',
+      soundStartMs: 0,
+      photoDurationMs: 3000,
+      clipStartMs: 0,
+      clipDurationMs: null,
+    });
+    router.push('/Community/vroomki/create');
+  }, [feedActive, router, suspendPlayback]);
 
   useEffect(() => {
     if (initialActiveSetRef.current) return;
@@ -460,6 +349,19 @@ export function TabAuta({
       }
     }
   }, [focusPostId, posts, reelHeight]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const idx = posts.findIndex((p) => p.id === activeId);
+    if (idx < 0) return;
+    const urls = [
+      posts[idx]?.videos[0],
+      posts[idx - 1]?.videos[0],
+      posts[idx + 1]?.videos[0],
+      posts[idx + 2]?.videos[0],
+    ];
+    warmFeedVideos(urls);
+  }, [activeId, posts]);
 
   const reportSoftView = useCallback((post: VroomkiPost) => {
     if (viewedRef.current.has(post.id)) return;
@@ -510,7 +412,7 @@ export function TabAuta({
       <Text style={{ color: theme.textDim, textAlign: 'center', marginTop: 10, lineHeight: 20 }}>
         Wrzuć auto z garażu, zdjęcia albo film. Feed będzie uczył się po lajkach, komentarzach i oglądaniu.
       </Text>
-      <TouchableOpacity onPress={() => void openVroomkiCreateFlow(router)} style={{ marginTop: 20, backgroundColor: '#e33835', borderRadius: 16, paddingHorizontal: 18, paddingVertical: 13 }}>
+      <TouchableOpacity onPress={() => void startCreateFlow()} style={{ marginTop: 20, backgroundColor: '#e33835', borderRadius: 16, paddingHorizontal: 18, paddingVertical: 13 }}>
         <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11 }}>DODAJ VROOMKĘ</Text>
       </TouchableOpacity>
     </View>
@@ -519,34 +421,38 @@ export function TabAuta({
   return (
     <>
       <VroomkiPrefetch posts={posts} activeId={activeId} />
+      <VroomkiReelWarmup uri={warmupUri} />
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}
         removeClippedSubviews={false}
-        maxToRenderPerBatch={3}
-        windowSize={5}
-        initialNumToRender={2}
-        updateCellsBatchingPeriod={50}
+        maxToRenderPerBatch={5}
+        windowSize={9}
+        initialNumToRender={3}
+        updateCellsBatchingPeriod={40}
         onLayout={(event) => {
           const next = Math.round(event.nativeEvent.layout.height);
           if (next > 0 && Math.abs(next - reelHeight) > 2) setReelHeight(next);
         }}
         data={posts}
-        keyExtractor={item => String(item.id)}
+        keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
           <ReelCard
             post={item}
-            active={activeId === item.id}
+            active={reelsPlaybackActive && activeId === item.id}
             height={reelHeight}
             myId={myId}
             onLike={onLike}
             onFollowAuthor={onFollowAuthor}
             onOpenComments={setCommentsPost}
             onShare={setSharePost}
-            onProfile={id => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
-            onCar={id => router.push({ pathname: '/profile/car-detail', params: { id: String(id) } })}
+            onProfile={(id) => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
+            onCar={(id) => router.push({ pathname: '/profile/car-detail', params: { id: String(id) } })}
             onMore={openMore}
-            onOpenSound={(soundId) => router.push(`/Community/vroomki/sound/${soundId}`)}
+            onOpenSound={(soundId) => {
+              suspendPlayback();
+              router.push(`/Community/vroomki/sound/${soundId}`);
+            }}
             onCompletedView={(post, watchMs) => {
               viewedRef.current.add(post.id);
               if (post.id < 0) return;
@@ -560,7 +466,12 @@ export function TabAuta({
         snapToAlignment="start"
         decelerationRate="fast"
         onScrollBeginDrag={(event) => {
-          dragStartIndexRef.current = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
+          const idx = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
+          dragStartIndexRef.current = idx;
+          const next = posts[idx + 1]?.videos[0];
+          const prev = posts[idx - 1]?.videos[0];
+          if (next) priorityPrefetchVroomkiVideo(next);
+          if (prev) priorityPrefetchVroomkiVideo(prev);
         }}
         onMomentumScrollEnd={(event) => {
           const rawIndex = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
@@ -586,7 +497,7 @@ export function TabAuta({
 
       {!hideFab && (
         <TouchableOpacity
-          onPress={() => void openVroomkiCreateFlow(router)}
+          onPress={() => void startCreateFlow()}
           activeOpacity={0.86}
           style={{
             position: 'absolute',

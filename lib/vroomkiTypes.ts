@@ -89,4 +89,15 @@ export function consumeVroomkiDraft() {
   return draft;
 }
 
+export function resolveVroomkiSoundTrackIds(sound: VroomkiSound | null): Record<string, string> {
+  if (!sound?.sourceId || sound.id) return {};
+  const sourceId = sound.sourceId;
+  const out: Record<string, string> = {};
+  if (sound.spotifyTrackId || sound.sourceType === 'spotify') out.spotifyTrackId = sound.spotifyTrackId ?? sourceId;
+  if (sound.audiusTrackId || sound.sourceType === 'audius') out.audiusTrackId = sound.audiusTrackId ?? sourceId;
+  if (sound.deezerTrackId || sound.sourceType === 'deezer') out.deezerTrackId = sound.deezerTrackId ?? sourceId;
+  if (sound.itunesTrackId || sound.sourceType === 'itunes') out.itunesTrackId = sound.itunesTrackId ?? sourceId;
+  return out;
+}
+
 export const VROOMKI_TEXT_COLORS = ['#ffffff', '#000000', '#e33835', '#ffd700', '#00e5ff', '#9b59ff'];

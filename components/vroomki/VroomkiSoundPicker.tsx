@@ -22,10 +22,8 @@ const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
 function isPlayableSound(sound: VroomkiSound) {
-  if (sound.sourceType === 'audius' || sound.isFullTrack) return true;
   if (sound.sourceType === 'original') return true;
-  if (sound.sourceType === 'deezer' || sound.sourceType === 'itunes') return !!sound.audioUrl;
-  return !!(sound.audioUrl || sound.spotifyTrackId || sound.deezerTrackId || sound.itunesTrackId);
+  return !!sound.audioUrl;
 }
 
 function sourceBadge(sound: VroomkiSound) {

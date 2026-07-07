@@ -14,6 +14,7 @@ import {
   syncBlockedUserIdsFromServer,
 } from '../lib/ugcActions';
 import { prepareUploadImages } from '../lib/prepareUploadImages';
+import { subscribeVroomkiPublish } from '../lib/vroomkiPublishQueue';
 import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
 
 const PAGE_SIZE = 20;
@@ -79,6 +80,16 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
       blockedIdsRef.current = ids;
       setBlockedIds(ids);
       setPosts((prev) => prev.filter((p) => !ids.includes(p.author.id)));
+    });
+  }, [setPosts]);
+
+  useEffect(() => {
+    return subscribeVroomkiPublish((event) => {
+      if (event.type !== 'success') return;
+      const post = event.post;
+      focusedVroomkiRef.current = post;
+      setResolvedFocusPostId(post.id);
+      setPosts((prev) => [post, ...prev.filter((p) => p.id !== post.id)]);
     });
   }, [setPosts]);
 

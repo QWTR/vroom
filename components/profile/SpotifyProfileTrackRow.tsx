@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, TouchableOpacity, Image, ActivityIndicator, Linking } from 'react-native';
 import { Text } from 'react-native';
 import { Audio } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import Toast from 'react-native-toast-message';
 import type { ProfileMusicSource, SpotifyProfileTrack } from '../../constants/profile';
+import { fetchProfileMusicPreviewUrl } from '../../utils/freshAudioPreview';
+import { clampTrimStartMs, isFullTrackSource, PREVIEW_CLIP_MS } from '../../utils/musicPreviewLimits';
 import { GLASS_BORDER } from './profileCardTheme';
 
 type ThemeBits = {
@@ -20,6 +23,10 @@ const SOURCE_META: Record<ProfileMusicSource, { label: string; color: string; ic
   spotify: { label: 'SPOTIFY', color: '#1DB954', icon: 'spotify' },
   audius: { label: 'AUDIUS', color: '#CC0FE0', icon: 'waveform' },
 };
+
+async function fetchFreshPreviewUrl(sourceType: ProfileMusicSource, trackId: string): Promise<string | null> {
+  return fetchProfileMusicPreviewUrl(sourceType, trackId);
+}
 
 type Props = {
   track: SpotifyProfileTrack;
@@ -50,6 +57,44 @@ export function SpotifyProfileTrackRow({
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(track.previewUrl ?? null);
+  const startMs = track.previewStartMs ?? 0;
+  const previewAudioMs = isFullTrackSource(source)
+    ? Math.max(5000, track.durationMs ?? 120000)
+    : PREVIEW_CLIP_MS;
+  const effectiveStartMs = clampTrimStartMs(startMs, previewAudioMs, 1000);
+  const startMsRef = useRef(effectiveStartMs);
+  startMsRef.current = effectiveStartMs;
+
+  const makeLoopHandler = useCallback((player: Audio.Sound) => (st: import('expo-av').AVPlaybackStatus) => {
+    if (!st.isLoaded || !st.didJustFinish) return;
+    void player.setPositionAsync(startMsRef.current).then(() => player.playAsync()).catch(() => {});
+  }, []);
+
+  const playPreviewUri = useCallback(async (uri: string, player?: Audio.Sound | null) => {
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+    });
+    if (player) {
+      await player.setPositionAsync(startMsRef.current);
+      await player.playAsync();
+      setPlaying(true);
+      return player;
+    }
+    const { sound: s } = await Audio.Sound.createAsync(
+      { uri },
+      { shouldPlay: true, isLooping: false, positionMillis: startMsRef.current },
+    );
+    s.setOnPlaybackStatusUpdate(makeLoopHandler(s));
+    setSound(s);
+    setPlaying(true);
+    return s;
+  }, [makeLoopHandler]);
+
+  useEffect(() => {
+    setPreviewUrl(track.previewUrl ?? null);
+  }, [track.previewUrl, track.trackId, source]);
 
   const effectiveAutoplay = autoplayOnVisit && !visitorMuted;
 
@@ -78,32 +123,26 @@ export function SpotifyProfileTrackRow({
   }, [visitorMuted, stopSound]);
 
   useEffect(() => {
-    if (!effectiveAutoplay || !track.previewUrl) return;
+    if (!sound) return;
+    void sound.setPositionAsync(startMsRef.current).catch(() => {});
+  }, [startMs, sound]);
+
+  useEffect(() => {
+    if (!effectiveAutoplay || !previewUrl) return;
     let cancelled = false;
     let created: Audio.Sound | null = null;
     (async () => {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-        });
-        const { sound: s } = await Audio.Sound.createAsync(
-          { uri: track.previewUrl! },
-          { shouldPlay: true, isLooping: source === 'audius' },
-          (st) => {
-            if (!st.isLoaded) return;
-            if (st.didJustFinish && source !== 'audius') setPlaying(false);
-          },
-        );
-        if (cancelled) {
+        const s = await playPreviewUri(previewUrl);
+        if (cancelled && s) {
           await s.unloadAsync().catch(() => {});
           return;
         }
-        created = s;
-        setSound(s);
-        setPlaying(true);
+        created = s ?? null;
       } catch {
-        /* brak autoodtwarzenia */
+        const fresh = await fetchFreshPreviewUrl(source, track.trackId);
+        if (cancelled || !fresh) return;
+        setPreviewUrl(fresh);
       }
     })();
     return () => {
@@ -113,18 +152,33 @@ export function SpotifyProfileTrackRow({
         setSound((prev) => (prev === created ? null : prev));
       }
     };
-  }, [effectiveAutoplay, track.previewUrl, track.trackId, source]);
+  }, [effectiveAutoplay, previewUrl, track.trackId, source, startMs, playPreviewUri]);
 
   const openExternal = useCallback(() => {
     if (track.url) Linking.openURL(track.url).catch(() => {});
   }, [track.url]);
 
+  const showPreviewError = useCallback(() => {
+    Toast.show({
+      type: 'info',
+      text1: 'Podgląd niedostępny',
+      text2: 'Ten utwór nie ma podglądu w aplikacji. Użyj ikony ↗ aby otworzyć w serwisie.',
+    });
+  }, []);
+
   const togglePreview = useCallback(async () => {
-    const uri = track.previewUrl;
+    let uri = previewUrl;
     if (!uri) {
-      openExternal();
+      setLoading(true);
+      uri = await fetchFreshPreviewUrl(source, track.trackId);
+      setLoading(false);
+      if (uri) setPreviewUrl(uri);
+    }
+    if (!uri) {
+      showPreviewError();
       return;
     }
+
     try {
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
@@ -161,37 +215,38 @@ export function SpotifyProfileTrackRow({
 
     setLoading(true);
     try {
-      const { sound: s } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true, isLooping: source === 'audius' },
-        (st) => {
-          if (!st.isLoaded) return;
-          if (st.didJustFinish && source !== 'audius') setPlaying(false);
-        },
-      );
-      setSound(s);
-      setPlaying(true);
+      await playPreviewUri(uri);
     } catch {
-      openExternal();
+      const fresh = await fetchFreshPreviewUrl(source, track.trackId);
+      if (fresh && fresh !== uri) {
+        setPreviewUrl(fresh);
+        try {
+          await playPreviewUri(fresh);
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
+      showPreviewError();
     } finally {
       setLoading(false);
     }
-  }, [sound, track.previewUrl, openExternal, source]);
+  }, [sound, previewUrl, source, track.trackId, playPreviewUri, showPreviewError]);
 
   const handleVisitorMute = useCallback(() => {
     stopSound().catch(() => {});
     onVisitorMute?.();
   }, [stopSound, onVisitorMute]);
 
-  const hasPreview = !!track.previewUrl;
+  const hasPreview = !!previewUrl;
   const showMuteBar = showVisitorMuteBar && effectiveAutoplay && hasPreview && !visitorMuted;
 
   const openHint = useMemo(() => {
     switch (source) {
-      case 'deezer': return 'Brak podglądu · otwórz w Deezer';
-      case 'itunes': return 'Brak podglądu · otwórz w Apple Music';
-      case 'audius': return 'Brak podglądu · otwórz w Audius';
-      default: return 'Brak podglądu · otwórz w Spotify';
+      case 'deezer': return 'Dotknij ▶ aby odtworzyć podgląd';
+      case 'itunes': return 'Dotknij ▶ aby odtworzyć podgląd';
+      case 'audius': return 'Dotknij ▶ aby odtworzyć utwór';
+      default: return 'Dotknij ▶ aby odtworzyć podgląd';
     }
   }, [source]);
 
@@ -266,28 +321,26 @@ export function SpotifyProfileTrackRow({
           ) : (
             <MaterialCommunityIcons name={meta.icon as any} size={22} color={accent} />
           )}
-          {hasPreview && (
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 2,
-                right: 2,
-                width: 18,
-                height: 18,
-                borderRadius: 9,
-                backgroundColor: '#000c',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-              {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={14} color="#fff" />
-              )}
-            </View>
-          )}
+          <View
+            style={{
+              position: 'absolute',
+              bottom: 2,
+              right: 2,
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              backgroundColor: '#000c',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <MaterialIcons name={playing ? 'pause' : 'play-arrow'} size={14} color="#fff" />
+            )}
+          </View>
         </TouchableOpacity>
-        <TouchableOpacity onPress={hasPreview ? togglePreview : openExternal} activeOpacity={0.85} style={{ flex: 1 }}>
+        <TouchableOpacity onPress={togglePreview} activeOpacity={0.85} style={{ flex: 1 }}>
           <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: accent, letterSpacing: 1.5, marginBottom: 4 }}>
             {displayLabel}
           </Text>
@@ -299,19 +352,17 @@ export function SpotifyProfileTrackRow({
               {track.artistName}
             </Text>
           )}
-          {hasPreview && (
-            <View style={{ marginTop: 8, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-              <View
-                style={{
-                  height: '100%',
-                  width: playing ? '45%' : '0%',
-                  backgroundColor: accent,
-                  borderRadius: 2,
-                }}
-              />
-            </View>
-          )}
-          {!hasPreview && (
+          <View style={{ marginTop: 8, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <View
+              style={{
+                height: '100%',
+                width: playing ? '45%' : '0%',
+                backgroundColor: accent,
+                borderRadius: 2,
+              }}
+            />
+          </View>
+          {!hasPreview && !loading && (
             <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim, letterSpacing: 1, marginTop: 5, opacity: 0.85 }}>
               {openHint}
             </Text>

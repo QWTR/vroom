@@ -14,6 +14,9 @@ export interface SpotifyProfileTrack {
   previewUrl?: string | null;
   /** When true, visitors hear preview automatically on public profile (stored in profile JSON). */
   previewAutoplay?: boolean;
+  /** Offset in ms where profile preview playback starts. */
+  previewStartMs?: number;
+  durationMs?: number | null;
   embedHtml?: string | null;
   providerName?: string | null;
 }

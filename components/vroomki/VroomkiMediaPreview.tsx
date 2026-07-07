@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Image, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { VroomkiOverlays } from './VroomkiOverlays';
+import { VroomkiPhotoCarousel } from './VroomkiPhotoCarousel';
 import type { VroomkiTextOverlay } from '../../lib/vroomkiTypes';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -19,6 +20,7 @@ export function VroomkiMediaPreview({
   muted = false,
   restartKey = 0,
   onMediaReadyChange,
+  onClipLoop,
 }: {
   photos: string[];
   video: string | null;
@@ -32,8 +34,8 @@ export function VroomkiMediaPreview({
   muted?: boolean;
   restartKey?: number | string;
   onMediaReadyChange?: (ready: boolean) => void;
+  onClipLoop?: () => void;
 }) {
-  const [photoIndex, setPhotoIndex] = useState(0);
   const videoRef = React.useRef<Video>(null);
   const readyRef = useRef(false);
   const clipEndMs = clipDurationMs ? clipStartMs + clipDurationMs : null;
@@ -45,21 +47,9 @@ export function VroomkiMediaPreview({
   };
 
   useEffect(() => {
-    setPhotoIndex(0);
-  }, [photos, video, restartKey]);
-
-  useEffect(() => {
     if (video) return;
     reportReady(active);
   }, [video, active, onMediaReadyChange]);
-
-  useEffect(() => {
-    if (video || photos.length <= 1 || !active) return undefined;
-    const timer = setInterval(() => {
-      setPhotoIndex((prev) => (prev + 1) % photos.length);
-    }, photoDurationMs);
-    return () => clearInterval(timer);
-  }, [video, photos, photoDurationMs, active, restartKey]);
 
   const handleVideoStatus = (status: AVPlaybackStatus) => {
     if (!status.isLoaded) {
@@ -74,6 +64,7 @@ export function VroomkiMediaPreview({
     if (!clipEndMs) return;
     if (position >= clipEndMs - 80) {
       videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
+      onClipLoop?.();
     }
   };
 
@@ -101,7 +92,14 @@ export function VroomkiMediaPreview({
           onPlaybackStatusUpdate={handleVideoStatus}
         />
       ) : photos.length > 0 ? (
-        <Image source={{ uri: photos[photoIndex] ?? photos[0] }} style={{ width, height }} resizeMode="cover" />
+        <VroomkiPhotoCarousel
+          photos={photos}
+          width={width}
+          height={height}
+          active={active}
+          photoDurationMs={photoDurationMs}
+          restartKey={restartKey}
+        />
       ) : null}
       <VroomkiOverlays overlays={overlays} width={width} height={height} />
     </View>

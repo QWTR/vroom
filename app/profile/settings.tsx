@@ -27,6 +27,10 @@ import { CustomThemeEditor } from '../../components/settings/CustomThemeEditor';
 import { ColorWheelPickerSheet, ColorPickTriggerRow, normalizePickerHex } from '../../components/settings/ColorWheelPickerSheet';
 import { ProfileMusicSearchField } from '../../components/settings/ProfileMusicSearchField';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
+import { TrackStartScrubber } from '../../components/shared/TrackStartScrubber';
+import { MusicTrimSheet } from '../../components/shared/MusicTrimSheet';
+import { fetchProfileMusicPreviewUrl } from '../../utils/freshAudioPreview';
+import { defaultTrimSelectionMs, isFullTrackSource, PREVIEW_CLIP_MS } from '../../utils/musicPreviewLimits';
 import type { ProfileMusicSource } from '../../constants/profile';
 import { SettingsSectionLabel, SettingsCard, SettingsRow } from '../../components/settings/SettingsLayout';
 import { setEntranceMotionMode } from '../../hooks/useEntranceIntroPolicy';
@@ -331,6 +335,7 @@ export default function SettingsScreen() {
   const [ringC3, setRingC3] = useState('#4DE926');
   const [spotifyTrackUrl, setSpotifyTrackUrl] = useState('');
   const [spotifySaving, setSpotifySaving] = useState(false);
+  const [profileMusicTrimOpen, setProfileMusicTrimOpen] = useState(false);
   const [refCodeInput, setRefCodeInput] = useState('');
   const [refCodeCurrent, setRefCodeCurrent] = useState('');
   const [refLink, setRefLink] = useState('');
@@ -700,7 +705,11 @@ export default function SettingsScreen() {
   };
 
   const pickProfileTrackFromSearch = useCallback(
-    (sourceType: ProfileMusicSource, trackId: string) => persistProfileTrack({ sourceType, trackId }),
+    async (sourceType: ProfileMusicSource, trackId: string) => {
+      const ok = await persistProfileTrack({ sourceType, trackId });
+      if (ok) setProfileMusicTrimOpen(true);
+      return ok;
+    },
     [persistProfileTrack],
   );
 
@@ -763,6 +772,32 @@ export default function SettingsScreen() {
       setSpotifySaving(false);
     }
   };
+
+  const handleProfilePreviewStart = async (ms: number) => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/settings/profile-track`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ previewStartMs: ms }),
+      });
+      if (!res.ok) return;
+      await fetchSettings();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const resolveProfileTrimAudio = useCallback(async () => {
+    const track = settings.spotifyProfileTrack;
+    if (!track?.trackId) return track?.previewUrl ?? null;
+    const fresh = await fetchProfileMusicPreviewUrl(track.sourceType ?? 'deezer', track.trackId);
+    return fresh ?? track.previewUrl ?? null;
+  }, [settings.spotifyProfileTrack]);
 
   const saveReferralCode = async () => {
     const code = refCodeInput.trim().toUpperCase();
@@ -2106,6 +2141,30 @@ export default function SettingsScreen() {
 										embedded
 									/>
 								)}
+								{!!settings.spotifyProfileTrack?.trackId && (
+									<TouchableOpacity
+										onPress={() => setProfileMusicTrimOpen(true)}
+										style={{
+											flexDirection: 'row',
+											alignItems: 'center',
+											justifyContent: 'center',
+											gap: 8,
+											marginTop: 10,
+											paddingVertical: 12,
+											borderRadius: 12,
+											backgroundColor: '#1DB95422',
+											borderWidth: 1,
+											borderColor: '#1DB95455',
+										}}>
+										<MaterialIcons name="content-cut" size={18} color="#1DB954" />
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#1DB954', fontWeight: '700' }}>
+											PRZYTNij UTWÓR
+											{(settings.spotifyProfileTrack.previewStartMs ?? 0) > 0
+												? ` · od ${Math.round((settings.spotifyProfileTrack.previewStartMs ?? 0) / 1000)}s`
+												: ''}
+										</Text>
+									</TouchableOpacity>
+								)}
 								{!!settings.spotifyProfileTrack && (
 									<View
 										style={{
@@ -3434,6 +3493,31 @@ export default function SettingsScreen() {
 				}}
 				onConfirm={handleBannerCropConfirm}
 			/>
+
+			{!!settings.spotifyProfileTrack?.trackId && (
+				<MusicTrimSheet
+					visible={profileMusicTrimOpen}
+					title={settings.spotifyProfileTrack.trackName}
+					trackLabel={settings.spotifyProfileTrack.artistName ?? ''}
+					audioUrl={settings.spotifyProfileTrack.previewUrl}
+					resolveAudioUrl={resolveProfileTrimAudio}
+					sourceType={settings.spotifyProfileTrack.sourceType ?? 'deezer'}
+					startMs={settings.spotifyProfileTrack.previewStartMs ?? 0}
+					trackDurationMs={
+						isFullTrackSource(settings.spotifyProfileTrack.sourceType)
+							? (settings.spotifyProfileTrack.durationMs ?? 120000)
+							: PREVIEW_CLIP_MS
+					}
+					fullSongDurationMs={settings.spotifyProfileTrack.durationMs ?? null}
+					selectionDurationMs={defaultTrimSelectionMs(settings.spotifyProfileTrack.sourceType)}
+					accent="#1DB954"
+					onCancel={() => setProfileMusicTrimOpen(false)}
+					onConfirm={(ms) => {
+						void handleProfilePreviewStart(ms);
+						setProfileMusicTrimOpen(false);
+					}}
+				/>
+			)}
 		</>
 	);
 }

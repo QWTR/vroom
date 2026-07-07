@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { Image } from 'react-native';
 import type { VroomkiPost } from '../../app/Community/community/communityShared';
+import { priorityPrefetchVroomkiVideo, prefetchVroomkiVideo } from '../../lib/vroomkiVideoCache';
 
-/** Lekki prefetch — bez ukrytych Video/Audio (OOM / restart apki). */
 export function VroomkiPrefetch({
   posts,
   activeId,
@@ -14,27 +14,30 @@ export function VroomkiPrefetch({
     if (!activeId) return [];
     const idx = posts.findIndex((p) => p.id === activeId);
     if (idx < 0) return [];
-    return posts.slice(idx + 1, idx + 3);
+    return posts.slice(Math.max(0, idx - 1), idx + 4);
   }, [posts, activeId]);
 
   const uris = useMemo(() => {
-    const set = new Set<string>();
+    const images: string[] = [];
+    const videos: string[] = [];
     targets.forEach((post) => {
-      post.photos.forEach((uri) => set.add(uri));
-      post.car?.photos?.forEach((uri) => set.add(uri));
-      if (post.videos[0]) set.add(post.videos[0]);
-      if (post.sound?.audioUrl) set.add(post.sound.audioUrl);
+      post.photos.forEach((uri) => images.push(uri));
+      post.car?.photos?.forEach((uri) => images.push(uri));
+      if (post.videos[0]) videos.push(post.videos[0]);
     });
-    return Array.from(set).slice(0, 10);
+    return {
+      images: Array.from(new Set(images)).slice(0, 12),
+      videos: Array.from(new Set(videos)).slice(0, 5),
+    };
   }, [targets]);
 
   useEffect(() => {
-    uris.forEach((uri) => {
-      if (/\.(jpg|jpeg|png|webp|gif)/i.test(uri) || uri.includes('/uploads/')) {
-        Image.prefetch(uri).catch(() => {});
-      } else {
-        fetch(uri, { method: 'HEAD' }).catch(() => {});
-      }
+    uris.images.forEach((uri) => {
+      Image.prefetch(uri).catch(() => {});
+    });
+    uris.videos.forEach((uri, index) => {
+      if (index === 0) priorityPrefetchVroomkiVideo(uri);
+      else prefetchVroomkiVideo(uri);
     });
   }, [uris]);
 
