@@ -112,6 +112,7 @@ const withAndroidAutoNative = (config) => {
         'AutoBridgePackage.kt',
         'AutoLocationTracker.kt',
         'AutoNavStore.kt',
+        'AutoRouteGeometry.kt',
         'NativeRoadMatcher.kt',
         'NativeSpeedLimitFetcher.kt',
         'UsersModule.kt',
@@ -196,4 +197,4 @@ const withAndroidAuto = (config) => {
   return config;
 };
 
-module.exports = createRunOncePlugin(withAndroidAuto, 'with-android-auto', '1.1.0');
+module.exports = createRunOncePlugin(withAndroidAuto, 'with-android-auto', '1.1.1');
