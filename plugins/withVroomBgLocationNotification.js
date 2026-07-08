@@ -78,6 +78,14 @@ function copyBgTrackingNative(projectRoot, packageName) {
     fs.writeFileSync(mainApplicationPath, mainApplication);
   }
 
+  const drawableDir = path.join(projectRoot, 'android', 'app', 'src', 'main', 'res', 'drawable');
+  fs.mkdirSync(drawableDir, { recursive: true });
+  const trackingIcon = 'ic_bg_tracking_stat.xml';
+  const iconSource = path.join(sourceDir, trackingIcon);
+  if (fs.existsSync(iconSource)) {
+    fs.copyFileSync(iconSource, path.join(drawableDir, trackingIcon));
+  }
+
   const gradlePath = path.join(projectRoot, 'android', 'app', 'build.gradle');
   if (fs.existsSync(gradlePath)) {
     let gradle = fs.readFileSync(gradlePath, 'utf8');
@@ -147,5 +155,5 @@ const withVroomBgLocationNotification = (config) => {
 module.exports = createRunOncePlugin(
   withVroomBgLocationNotification,
   'withVroomBgLocationNotification',
-  '1.0.0',
+  '1.1.0',
 );

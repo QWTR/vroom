@@ -637,9 +637,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             PointAnnotationOptions()
                 .withPoint(Point.fromLngLat(lng, lat))
                 .withIconImage(bitmap)
-                .withIconSize(1.0)
-                .withIconAllowOverlap(true)
-                .withIconIgnorePlacement(true),
+                .withIconSize(1.0),
         )
     }
 
