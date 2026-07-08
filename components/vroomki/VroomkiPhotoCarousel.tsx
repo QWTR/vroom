@@ -19,6 +19,7 @@ export function VroomkiPhotoCarousel({
   restartKey = 0,
   onDoubleTap,
   onIndexChange,
+  onLoopComplete,
 }: {
   photos: string[];
   width: number;
@@ -28,6 +29,7 @@ export function VroomkiPhotoCarousel({
   restartKey?: number | string;
   onDoubleTap?: () => void;
   onIndexChange?: (index: number) => void;
+  onLoopComplete?: () => void;
 }) {
   const listRef = useRef<FlatList<string>>(null);
   const [userDragging, setUserDragging] = useState(false);
@@ -50,12 +52,13 @@ export function VroomkiPhotoCarousel({
     if (photos.length <= 1 || !active || userDragging) return undefined;
     const timer = setInterval(() => {
       const next = (photoIndexRef.current + 1) % photos.length;
+      if (next === 0 && photos.length > 1) onLoopComplete?.();
       photoIndexRef.current = next;
       onIndexChange?.(next);
       listRef.current?.scrollToIndex({ index: next, animated: true });
     }, photoDurationMs);
     return () => clearInterval(timer);
-  }, [photos.length, photoDurationMs, active, userDragging, restartKey, onIndexChange]);
+  }, [photos.length, photoDurationMs, active, userDragging, restartKey, onIndexChange, onLoopComplete]);
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const w = e.nativeEvent.layoutMeasurement.width || width;

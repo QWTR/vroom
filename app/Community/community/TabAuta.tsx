@@ -20,6 +20,7 @@ import { ReelVideo } from '../../../components/vroomki/ReelVideo';
 import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
+import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -65,6 +66,30 @@ const ReelCard = React.memo(function ReelCard({
   const photoDurationMs = post.photoDurationMs ?? 3000;
   const overlays = post.overlays ?? [];
   const posterUri = post.videoThumbnailUrl ?? coverPhoto;
+  const playbackSound = !hasVideo && post.sound ? post.sound : null;
+  const [mediaLoopTick, setMediaLoopTick] = useState(0);
+
+  useEffect(() => {
+    setMediaLoopTick(0);
+  }, [post.id]);
+
+  useVroomkiSoundPlayback({
+    active: active && !!playbackSound,
+    sound: playbackSound
+      ? {
+          id: playbackSound.id,
+          title: playbackSound.title,
+          artist: playbackSound.artist,
+          coverUrl: playbackSound.coverUrl,
+          audioUrl: playbackSound.audioUrl,
+          sourceType: playbackSound.sourceType,
+          sourceId: playbackSound.sourceId ?? String(playbackSound.id),
+        }
+      : null,
+    soundStartMs: post.soundStartMs ?? 0,
+    restartKey: post.id,
+    mediaLoopTick,
+  });
 
   useEffect(() => {
     setPhotoIndex(0);
@@ -103,6 +128,7 @@ const ReelCard = React.memo(function ReelCard({
           restartKey={post.id}
           onDoubleTap={likeFromDoubleTap}
           onIndexChange={setPhotoIndex}
+          onLoopComplete={playbackSound ? () => setMediaLoopTick((t) => t + 1) : undefined}
         />
       ) : (
         <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#170909' }]}>

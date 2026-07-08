@@ -23,10 +23,11 @@ export default function VroomkiScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ vroomkiId?: string; userId?: string }>();
+  const params = useLocalSearchParams<{ vroomkiId?: string; userId?: string; q?: string }>();
 
   const initialId = params.vroomkiId ? parseInt(String(params.vroomkiId), 10) : null;
   const authorUserId = params.userId ? parseInt(String(params.userId), 10) : null;
+  const searchQuery = String(params.q ?? '').trim() || null;
 
   const {
     myId,
@@ -51,7 +52,12 @@ export default function VroomkiScreen() {
     Number.isFinite(initialId ?? NaN) ? initialId : null,
     null,
     Number.isFinite(authorUserId ?? NaN) ? authorUserId : null,
+    searchQuery,
   );
+
+  const openSearch = useCallback(() => {
+    router.push('/Community/vroomki/search' as any);
+  }, [router]);
 
   const openMyVroomkiProfile = useCallback(() => {
     if (!myId) return;
@@ -81,23 +87,47 @@ export default function VroomkiScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={['left', 'right', 'bottom']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <CommunityScreenHeader
-        title={Number.isFinite(authorUserId ?? NaN) ? 'VROOMKI PROFIL' : 'VROOMKI'}
+        title={
+          searchQuery
+            ? 'WYNIKI SZUKANIA'
+            : Number.isFinite(authorUserId ?? NaN)
+            ? 'VROOMKI PROFIL'
+            : 'VROOMKI'
+        }
+        subtitle={searchQuery ?? undefined}
         right={
-          <TouchableOpacity
-            onPress={openMyVroomkiProfile}
-            disabled={!myId}
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              backgroundColor: '#e33835',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: myId ? 1 : 0.45,
-            }}
-          >
-            <MaterialIcons name="person" size={22} color="#fff" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={openSearch}
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.border,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <MaterialIcons name="search" size={22} color={theme.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={openMyVroomkiProfile}
+              disabled={!myId}
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                backgroundColor: '#e33835',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: myId ? 1 : 0.45,
+              }}
+            >
+              <MaterialIcons name="person" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
         }
       />
       <View style={{ flex: 1 }}>

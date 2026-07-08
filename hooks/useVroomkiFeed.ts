@@ -30,6 +30,7 @@ export function useVroomkiFeed(
   initialVroomkiId?: number | null,
   soundId?: number | null,
   authorUserId?: number | null,
+  searchQuery?: string | null,
 ) {
   const router = useRouter();
   const { settings } = useSettings();
@@ -97,6 +98,8 @@ export function useVroomkiFeed(
     });
   }, [setPosts]);
 
+  const normalizedSearchQuery = String(searchQuery ?? '').trim();
+
   const fetchVroomki = useCallback(
     async (cursor?: number) => {
       if (!cursor) setLoadingC(true);
@@ -104,9 +107,14 @@ export function useVroomkiFeed(
       try {
         const token = await getToken();
         const authorFilterId = Number.isFinite(authorUserId ?? NaN) ? authorUserId : null;
-        const exclude = authorFilterId ? '' : excludeIdsRef.current.join(',');
+        const exclude = authorFilterId || normalizedSearchQuery ? '' : excludeIdsRef.current.join(',');
         const soundQuery = Number.isFinite(soundId ?? NaN) ? `&soundId=${soundId}` : '';
-        const url = authorFilterId
+        const encodedSearch = encodeURIComponent(normalizedSearchQuery);
+        const url = normalizedSearchQuery
+          ? cursor
+            ? `${API_URL}/api/vroomki/search?q=${encodedSearch}&cursor=${cursor}&limit=${PAGE_SIZE}`
+            : `${API_URL}/api/vroomki/search?q=${encodedSearch}&limit=${PAGE_SIZE}`
+          : authorFilterId
           ? `${API_URL}/api/vroomki/user/${authorFilterId}?limit=60`
           : cursor
           ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}${soundQuery}`
@@ -126,7 +134,9 @@ export function useVroomkiFeed(
           const incomingFocused = mergedPosts.find((p) => p.id === focusedId);
           focusedVroomkiRef.current = mergeLocalState(incomingFocused ?? focusedVroomkiRef.current);
         }
-        const nextCursor = authorFilterId ? null : (Array.isArray(json) ? null : json.nextCursor ?? null);
+        const nextCursor = authorFilterId
+          ? null
+          : (Array.isArray(json) ? null : json.nextCursor ?? null);
         if (cursor && !authorFilterId) {
           setPosts((prev) => {
             const existingIds = new Set(prev.map((p) => p.id));
@@ -152,7 +162,7 @@ export function useVroomkiFeed(
         setLoadingMoreC(false);
       }
     },
-    [authorUserId, mergeLocalState, setPosts, soundId],
+    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -187,7 +197,7 @@ export function useVroomkiFeed(
     return () => {
       cancelled = true;
     };
-  }, [authorUserId, initialVroomkiId, mergeLocalState, setPosts, soundId]);
+  }, [authorUserId, initialVroomkiId, mergeLocalState, normalizedSearchQuery, setPosts, soundId]);
 
   const refresh = useCallback(() => {
     setRefreshingC(true);
@@ -198,11 +208,11 @@ export function useVroomkiFeed(
   }, [fetchVroomki]);
 
   const loadMore = useCallback(() => {
-    if (Number.isFinite(authorUserId ?? NaN)) return;
+    if (Number.isFinite(authorUserId ?? NaN) && !normalizedSearchQuery) return;
     if (!carCursor || loadingMoreC || !hasMoreC) return;
     setLoadingMoreC(true);
     void fetchVroomki(carCursor);
-  }, [authorUserId, carCursor, loadingMoreC, hasMoreC, fetchVroomki]);
+  }, [authorUserId, carCursor, fetchVroomki, hasMoreC, loadingMoreC, normalizedSearchQuery]);
 
   const patchPost = useCallback((id: number, patch: Partial<VroomkiPost>) => {
     const current = postsRef.current.find((p) => p.id === id);
