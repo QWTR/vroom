@@ -147,13 +147,19 @@ class AutoHudMetrics private constructor(
         val rawTop = when (mode) {
             AutoHudLayoutMode.SEARCH, AutoHudLayoutMode.REPORT, AutoHudLayoutMode.LOADING ->
                 (safeH * 0.28).toDouble().coerceAtLeast(s(160f).toDouble())
+            AutoHudLayoutMode.NAVIGATING ->
+                (topPanelBottom - safeTop + margin + s(145f)).coerceAtLeast(s(205f).toDouble())
             else -> (topPanelBottom - safeTop + margin).coerceAtLeast(s(72f).toDouble())
         }
+        val maxTop = when (mode) {
+            AutoHudLayoutMode.NAVIGATING -> safeH * 0.48
+            else -> safeH * 0.18
+        }.toDouble()
         val rawLeft = (speedRect.right - safeLeft + margin).coerceAtLeast(s(24f).toDouble())
         val rawBottom = (safeBottom - speedRect.top + margin).coerceAtLeast(s(36f).toDouble())
         val rawRight = (safeRight - rightControlLeft + margin).coerceAtLeast(s(24f).toDouble())
         return AutoHudInsets(
-            top = min(rawTop, (safeH * 0.18).toDouble()),
+            top = min(rawTop, maxTop),
             left = min(rawLeft, (safeW * 0.12).toDouble()),
             bottom = min(rawBottom, (safeH * 0.22).toDouble()),
             right = min(rawRight, (safeW * 0.12).toDouble()),

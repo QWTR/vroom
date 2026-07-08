@@ -24,12 +24,14 @@ object AutoLocationTracker {
     @Volatile private var latestLng = Double.NaN
     @Volatile private var latestSpeedMs = 0.0
     @Volatile private var latestHeading = 0.0
+    @Volatile private var latestElapsedMs = 0L
 
     data class Pose(
         val lat: Double,
         val lng: Double,
         val speedMs: Double,
-        val heading: Double
+        val heading: Double,
+        val ageMs: Long
     )
 
     @SuppressLint("MissingPermission")
@@ -77,12 +79,15 @@ object AutoLocationTracker {
         latestLng = Double.NaN
         latestSpeedMs = 0.0
         latestHeading = 0.0
+        latestElapsedMs = 0L
         NativeRoadMatcher.reset()
     }
 
-    fun lastKnownPose(): Pose? {
+    fun lastKnownPose(maxAgeMs: Long = 5_000L): Pose? {
         if (!validCoordinate(latestLat, latestLng)) return null
-        return Pose(latestLat, latestLng, latestSpeedMs, latestHeading)
+        val ageMs = if (latestElapsedMs > 0L) SystemClock.elapsedRealtime() - latestElapsedMs else Long.MAX_VALUE
+        if (ageMs > maxAgeMs) return null
+        return Pose(latestLat, latestLng, latestSpeedMs, latestHeading, ageMs)
     }
 
     private fun hasFineLocationPermission(context: Context): Boolean =
@@ -114,6 +119,7 @@ object AutoLocationTracker {
         latestLng = lng
         latestSpeedMs = speedMs
         latestHeading = heading
+        latestElapsedMs = SystemClock.elapsedRealtime()
 
         AutoNavStore.onNativeLocationUpdate(context, lat, lng, speedMs, heading)
         AutoNavStore.refreshFromBackendIfNeeded(context)

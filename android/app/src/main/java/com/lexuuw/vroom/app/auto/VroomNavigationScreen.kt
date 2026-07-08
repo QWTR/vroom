@@ -8,6 +8,7 @@ import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.Distance
 import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Template
+import androidx.car.app.navigation.model.Maneuver
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
@@ -48,8 +49,8 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     ActionStrip.Builder()
       .addAction(
         Action.Builder()
-          .setTitle("\u200B")
-          .setOnClickListener { }
+          .setTitle("Zakoncz")
+          .setOnClickListener { VroomCarManager.stopClick() }
           .build(),
       )
       .build()
@@ -63,9 +64,36 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
       .setCurrentStep(
         Step.Builder()
           .setCue(cue)
+          .setManeuver(Maneuver.Builder(maneuverType(snapshot.maneuver, snapshot.maneuverModifier, cue)).build())
           .build(),
         Distance.create(meters, Distance.UNIT_METERS),
       )
       .build()
+  }
+
+  private fun maneuverType(maneuver: String?, modifier: String?, cue: String?): Int {
+    if (isStraightCue(cue)) return Maneuver.TYPE_STRAIGHT
+    val type = maneuver?.lowercase(java.util.Locale.US).orEmpty()
+    val mod = modifier?.lowercase(java.util.Locale.US).orEmpty()
+    return when {
+      type == "roundabout" || type == "rotary" || mod.contains("exit") -> Maneuver.TYPE_ROUNDABOUT_ENTER_CW
+      type == "merge" && mod.contains("left") -> Maneuver.TYPE_MERGE_LEFT
+      type == "merge" && mod.contains("right") -> Maneuver.TYPE_MERGE_RIGHT
+      type == "merge" -> Maneuver.TYPE_MERGE_SIDE_UNSPECIFIED
+      mod.contains("uturn") && mod.contains("right") -> Maneuver.TYPE_U_TURN_RIGHT
+      mod.contains("uturn") -> Maneuver.TYPE_U_TURN_LEFT
+      mod.contains("slight left") -> Maneuver.TYPE_TURN_SLIGHT_LEFT
+      mod.contains("slight right") -> Maneuver.TYPE_TURN_SLIGHT_RIGHT
+      mod.contains("sharp left") -> Maneuver.TYPE_TURN_SHARP_LEFT
+      mod.contains("sharp right") -> Maneuver.TYPE_TURN_SHARP_RIGHT
+      mod.contains("left") -> Maneuver.TYPE_TURN_NORMAL_LEFT
+      mod.contains("right") -> Maneuver.TYPE_TURN_NORMAL_RIGHT
+      else -> Maneuver.TYPE_STRAIGHT
+    }
+  }
+
+  private fun isStraightCue(cue: String?): Boolean {
+    val clean = cue?.trim()?.lowercase(java.util.Locale("pl", "PL")).orEmpty()
+    return clean == "jedz prosto" || clean == "jedź prosto" || clean.startsWith("jedz prosto ") || clean.startsWith("jedź prosto ")
   }
 }

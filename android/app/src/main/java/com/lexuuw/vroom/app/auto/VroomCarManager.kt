@@ -12,6 +12,12 @@ object VroomCarManager {
     private const val KEY_MARKER_STYLE = "marker_style"
     private const val KEY_AVATAR_URL = "avatar_url"
     private const val AUTO_OSRM_BASE = "https://v-room.app/osrm"
+    private const val OFF_ROUTE_REROUTE_DISTANCE_M = 14.0
+    private const val OFF_ROUTE_HEADING_DISTANCE_M = 3.0
+    private const val OFF_ROUTE_HEADING_DELTA_DEG = 45.0
+    private const val OFF_ROUTE_HARD_HEADING_DELTA_DEG = 60.0
+    private const val OFF_ROUTE_HEADING_MIN_SPEED_MS = 2.0
+    private const val REROUTE_MIN_INTERVAL_MS = 1_200L
 
     private var currentScreen: VroomCarScreen? = null
     private var bridgeModule: VroomBridgeModule? = null
@@ -21,13 +27,16 @@ object VroomCarManager {
     private var rerouteInFlight = false
     private var lastRerouteAt = 0L
     private var jsMirroredNativeNavigation = false
+    private var nativeNavigationRouteKey: String = ""
     private var appContext: Context? = null
     @Volatile private var nativeLat = Double.NaN
     @Volatile private var nativeLng = Double.NaN
     @Volatile private var nativeSpeedMs = 0.0
     @Volatile private var nativeHeading = 0.0
     @Volatile private var nativeAccuracyMeters = Float.NaN
+    @Volatile private var nativePoseAtMs = 0L
     @Volatile private var lastColdPayloadAt = 0L
+    @Volatile private var lastNavigationArcM = 0.0
 
     fun setScreen(screen: VroomCarScreen) {
         currentScreen = screen
@@ -103,6 +112,13 @@ object VroomCarManager {
             lat in -90.0..90.0 && lng in -180.0..180.0 &&
             !(kotlin.math.abs(lat) < 1e-6 && kotlin.math.abs(lng) < 1e-6)
 
+    fun currentNativeOrigin(maxAgeMs: Long): Pair<Double, Double>? {
+        if (!validCoordinate(nativeLat, nativeLng)) return null
+        val ageMs = if (nativePoseAtMs > 0L) System.currentTimeMillis() - nativePoseAtMs else Long.MAX_VALUE
+        if (ageMs > maxAgeMs) return null
+        return nativeLat to nativeLng
+    }
+
     fun updateNativePose(
         lat: Double,
         lng: Double,
@@ -119,7 +135,9 @@ object VroomCarManager {
         nativeSpeedMs = cleanSpeed
         nativeHeading = cleanHeading
         nativeAccuracyMeters = accuracyMeters
+        nativePoseAtMs = now
         currentScreen?.updateNativeLocation(lat, lng, cleanSpeed, cleanHeading)
+        updateNativeNavigationProgress(lat, lng)
 
         val base = runCatching {
             if (latestPayloadJson.isBlank()) JSONObject() else JSONObject(latestPayloadJson)
@@ -257,8 +275,10 @@ object VroomCarManager {
 
     fun setNativeNavigation(jsonPayload: String) {
         nativeNavigationPayloadJson = jsonPayload
+        nativeNavigationRouteKey = routeKeyFromPayload(jsonPayload)
         nativeRoutePreviewPayloadJson = null
         jsMirroredNativeNavigation = false
+        lastNavigationArcM = 0.0
         lastColdPayloadAt = 0L
         sendDataToCar(jsonPayload)
         jsMirroredNativeNavigation = false
@@ -268,6 +288,8 @@ object VroomCarManager {
         nativeNavigationPayloadJson = null
         nativeRoutePreviewPayloadJson = null
         jsMirroredNativeNavigation = false
+        nativeNavigationRouteKey = ""
+        lastNavigationArcM = 0.0
         latestPayloadJson.takeIf { it.isNotBlank() }?.let { current ->
             val cleaned = runCatching {
                 val base = JSONObject(current)
@@ -290,6 +312,10 @@ object VroomCarManager {
     }
 
     fun setNativeRoutePreview(jsonPayload: String) {
+        nativeNavigationPayloadJson = null
+        nativeNavigationRouteKey = ""
+        jsMirroredNativeNavigation = false
+        lastNavigationArcM = 0.0
         nativeRoutePreviewPayloadJson = jsonPayload
         sendDataToCar(jsonPayload)
         bridgeModule?.sendEvent("onAutoNavigationStarted", jsonPayload)
@@ -305,10 +331,21 @@ object VroomCarManager {
             val alternatives = mapState.optJSONArray("alternativeRoutes") ?: return@runCatching preview
             if (index < 0 || index >= alternatives.length()) return@runCatching preview
             val selected = alternatives.optJSONObject(index) ?: return@runCatching preview
-            val route = selected.optJSONArray("route") ?: JSONArray()
+            val rawRoute = selected.optJSONArray("route") ?: JSONArray()
+            val pose = AutoLocationTracker.lastKnownPose(2_500L)
+            val route = if (pose != null && rawRoute.length() >= 2) {
+                AutoRouteGeometry.anchorRoutePoints(rawRoute, pose.lat, pose.lng)
+            } else {
+                rawRoute
+            }
             mapState.put("selectedRouteIndex", index)
             mapState.put("route", JSONArray(route.toString()))
             root.put("route", JSONArray(route.toString()))
+            val routeSteps = selected.optJSONArray("routeSteps")
+            if (routeSteps != null) {
+                mapState.put("routeSteps", JSONArray(routeSteps.toString()))
+                root.put("routeSteps", JSONArray(routeSteps.toString()))
+            }
             root.optJSONObject("dto")?.apply {
                 put("nextInstruction", selected.optString("instruction", "Jedz do celu"))
                 put("maneuver", selected.optString("maneuver", "straight"))
@@ -327,8 +364,29 @@ object VroomCarManager {
 
     fun startNativeRoutePreview() {
         val preview = nativeRoutePreviewPayloadJson ?: return
+        val pose = AutoLocationTracker.lastKnownPose(5_000L)
+        val preparedPreview = if (pose != null) {
+            runCatching {
+                val root = JSONObject(preview)
+                val route = root.optJSONArray("route")
+                    ?: root.optJSONObject("mapState")?.optJSONArray("route")
+                if (route != null && route.length() >= 2) {
+                    val anchored = AutoRouteGeometry.anchorRoutePoints(route, pose.lat, pose.lng)
+                    root.put("route", anchored)
+                    root.optJSONObject("mapState")?.put("route", JSONArray(anchored.toString()))
+                    root.put("userLocation", JSONObject().apply {
+                        put("latitude", pose.lat)
+                        put("longitude", pose.lng)
+                    })
+                    root.put("heading", pose.heading)
+                }
+                root.toString()
+            }.getOrDefault(preview)
+        } else {
+            preview
+        }
         val navigating = runCatching {
-            val root = JSONObject(preview)
+            val root = JSONObject(preparedPreview)
             root.put("isNavigating", true)
             root.optJSONObject("dto")?.put("isNavigating", true)
             val mapState = root.optJSONObject("mapState") ?: JSONObject()
@@ -337,10 +395,13 @@ object VroomCarManager {
             mapState.put("isDriving", true)
             root.put("mapState", mapState)
             root.toString()
-        }.getOrDefault(preview)
+        }.getOrDefault(preparedPreview)
         nativeRoutePreviewPayloadJson = null
         setNativeNavigation(navigating)
         appContext?.let { AutoNavStore.setNavigating(it, true) }
+        if (pose != null) {
+            requestNativeReroute(pose.lat, pose.lng, pose.heading)
+        }
         bridgeModule?.sendEvent("onAutoNavigationStarted", navigating)
     }
 
@@ -410,37 +471,132 @@ object VroomCarManager {
         bridgeModule?.sendEvent("onStop", null)
     }
 
+    private fun updateNativeNavigationProgress(currentLat: Double, currentLng: Double) {
+        val navPayload = nativeNavigationPayloadJson ?: return
+        if (!validCoordinate(currentLat, currentLng)) return
+        val updated = runCatching {
+            val root = JSONObject(navPayload)
+            val route = parseRoutePoints(root.optJSONArray("route") ?: root.optJSONObject("mapState")?.optJSONArray("route"))
+            val steps = root.optJSONObject("mapState")?.optJSONArray("routeSteps") ?: root.optJSONArray("routeSteps")
+            if (route.size < 2) return
+            val projection = projectOnRoute(
+                currentLat,
+                currentLng,
+                route,
+                minArcM = (lastNavigationArcM - 25.0).coerceAtLeast(0.0)
+            ) ?: return
+            if (shouldRerouteFromProjection(projection)) {
+                requestNativeReroute(currentLat, currentLng, nativeHeading)
+                return
+            }
+            lastNavigationArcM = kotlin.math.max(lastNavigationArcM, projection.arcM)
+            if (steps == null || steps.length() == 0) return
+            val dto = root.optJSONObject("dto") ?: JSONObject()
+            val totalM = routeTotalMeters(route).coerceAtLeast(projection.arcM)
+            val remainingM = (totalM - projection.arcM).toInt().coerceAtLeast(1)
+            val active = nextRouteStep(steps, projection.arcM)
+            if (active == null && remainingM > 100) {
+                requestNativeReroute(currentLat, currentLng, nativeHeading)
+                return
+            }
+            val safeActive = active ?: activeRouteStep(steps, projection.arcM)
+            val turnM = (safeActive.optDouble("arcM", projection.arcM) - projection.arcM).toInt().coerceAtLeast(1)
+            if (isDeadManeuver(safeActive, turnM, remainingM)) {
+                requestNativeReroute(currentLat, currentLng, nativeHeading)
+                return
+            }
+            dto.put("isNavigating", true)
+            dto.put("nextInstruction", safeActive.optString("instruction", "Jedz prosto"))
+            dto.put("maneuver", safeActive.optString("maneuver", "straight"))
+            dto.put("maneuverModifier", safeActive.optString("maneuverModifier", ""))
+            dto.put("remainingDistanceMeters", remainingM)
+            dto.put("turnDistanceMeters", turnM)
+            root.put("dto", dto)
+            root.toString()
+        }.getOrNull() ?: return
+        if (updated != nativeNavigationPayloadJson) {
+            nativeNavigationPayloadJson = updated
+            sendDataToCar(updated)
+        }
+    }
+
+    private fun activeRouteStep(steps: JSONArray, arcM: Double): JSONObject {
+        val first = steps.optJSONObject(0) ?: JSONObject().apply {
+            put("instruction", "Jedz prosto")
+            put("maneuver", "straight")
+            put("arcM", arcM)
+        }
+        var fallback = first
+        for (i in 0 until steps.length()) {
+            val step = steps.optJSONObject(i) ?: continue
+            val stepArc = step.optDouble("arcM", Double.NaN)
+            if (!stepArc.isFinite()) continue
+            if (stepArc >= arcM - 6.0) return step
+            fallback = step
+        }
+        return fallback
+    }
+
+    private fun nextRouteStep(steps: JSONArray, arcM: Double): JSONObject? {
+        for (i in 0 until steps.length()) {
+            val step = steps.optJSONObject(i) ?: continue
+            val stepArc = step.optDouble("arcM", Double.NaN)
+            if (!stepArc.isFinite()) continue
+            if (stepArc >= arcM - 6.0) return step
+        }
+        return null
+    }
+
+    private fun isDeadManeuver(step: JSONObject, turnM: Int, remainingM: Int): Boolean {
+        if (remainingM <= 100 || turnM > 3 || nativeSpeedMs < 2.0) return false
+        val maneuver = step.optString("maneuver", "").lowercase(java.util.Locale.US)
+        val instruction = step.optString("instruction", "").lowercase(java.util.Locale("pl", "PL"))
+        return maneuver == "roundabout" || maneuver == "rotary" || instruction.contains("rond")
+    }
+
     fun requestNativeReroute(fromLat: Double, fromLng: Double, headingDeg: Double? = null) {
         val navPayload = nativeNavigationPayloadJson ?: return
         if (!fromLat.isFinite() || !fromLng.isFinite()) return
         val now = System.currentTimeMillis()
-        if (rerouteInFlight || now - lastRerouteAt < 4_000L) return
-        val destination = runCatching { JSONObject(navPayload).optJSONObject("destination") }.getOrNull() ?: return
-        val toLat = destination.optDouble("latitude", destination.optDouble("lat", Double.NaN))
-        val toLng = destination.optDouble("longitude", destination.optDouble("lng", Double.NaN))
-        val toName = destination.optString("name", "Cel")
-        if (!toLat.isFinite() || !toLng.isFinite()) return
+        if (rerouteInFlight || now - lastRerouteAt < REROUTE_MIN_INTERVAL_MS) return
+        val root = runCatching { JSONObject(navPayload) }.getOrNull() ?: return
+        val destination = resolveNavigationDestination(root) ?: return
+        val toLat = destination.lat
+        val toLng = destination.lng
+        val toName = destination.name
         val resolvedHeading = headingDeg?.takeIf { it.isFinite() }
-            ?: runCatching { JSONObject(navPayload).optDouble("heading", Double.NaN) }.getOrNull()?.takeIf { it.isFinite() }
+            ?: root.optDouble("heading", Double.NaN).takeIf { it.isFinite() }
             ?: AutoLocationTracker.lastKnownPose()?.heading
         rerouteInFlight = true
         lastRerouteAt = now
         Thread {
             val nextPayload = runCatching {
-                val bearings = resolvedHeading?.let {
-                    val bearing = (Math.round((((it % 360.0) + 360.0) % 360.0) / 45.0) * 45).toInt() % 360
-                    "&bearings=$bearing,60;"
-                }.orEmpty()
-                val url = "$AUTO_OSRM_BASE/route/v1/driving/$fromLng,$fromLat;$toLng,$toLat" +
-                    "?alternatives=false&geometries=geojson&steps=true&overview=full$bearings"
-                val body = requestJson(url, 3_800, 3_800)
+                val bearings = AutoRouteGeometry.bearingsParam(resolvedHeading, toleranceDeg = 45)
+                val baseUrl = "$AUTO_OSRM_BASE/route/v1/driving/$fromLng,$fromLat;$toLng,$toLat" +
+                    "?alternatives=true&geometries=geojson&steps=true&overview=full&continue_straight=true"
+                val body = runCatching {
+                    val withBearings = requestJson(baseUrl + bearings, 3_800, 3_800)
+                    val parsed = JSONObject(withBearings)
+                    if (!isUsableRouteResponse(parsed) || AutoRouteGeometry.firstStepRequiresUturn(parsed)) {
+                        val fallback = requestJson(baseUrl, 3_800, 3_800)
+                        AutoRouteGeometry.selectBestRoute(JSONObject(fallback), preferNoUturn = true).toString()
+                    } else {
+                        withBearings
+                    }
+                }.recoverCatching {
+                    requestJson(baseUrl, 3_800, 3_800)
+                }.getOrThrow()
                 buildReroutedPayload(navPayload, body, fromLat, fromLng, toLat, toLng, toName)
             }.getOrNull()
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 rerouteInFlight = false
                 if (nextPayload != null) {
                     nativeNavigationPayloadJson = nextPayload
+                    nativeNavigationRouteKey = routeKeyFromPayload(nextPayload)
+                    lastNavigationArcM = 0.0
                     sendDataToCar(nextPayload)
+                } else {
+                    Log.w("VroomCarManager", "Native reroute failed or returned no payload")
                 }
             }
         }.start()
@@ -450,16 +606,17 @@ object VroomCarManager {
         val nativePayload = nativeNavigationPayloadJson ?: return jsonPayload
         return runCatching {
             val base = JSONObject(jsonPayload)
-            if (base.optBoolean("isNavigating", false)) return@runCatching jsonPayload
             val native = JSONObject(nativePayload)
             base.put("isNavigating", true)
             base.put("dto", native.optJSONObject("dto"))
             base.put("destination", native.optJSONObject("destination"))
             base.put("route", native.optJSONArray("route"))
+            native.optJSONArray("routeSteps")?.let { base.put("routeSteps", it) }
             val baseMap = base.optJSONObject("mapState") ?: JSONObject()
             val nativeMap = native.optJSONObject("mapState")
             if (nativeMap != null) {
                 baseMap.put("route", nativeMap.optJSONArray("route"))
+                nativeMap.optJSONArray("routeSteps")?.let { baseMap.put("routeSteps", it) }
                 baseMap.put("destinationLat", nativeMap.optDouble("destinationLat"))
                 baseMap.put("destinationLng", nativeMap.optDouble("destinationLng"))
                 baseMap.put("routePreview", false)
@@ -481,10 +638,16 @@ object VroomCarManager {
             base.put("dto", preview.optJSONObject("dto"))
             base.put("destination", preview.optJSONObject("destination"))
             base.put("route", preview.optJSONArray("route"))
+            preview.optJSONArray("routeSteps")?.let { base.put("routeSteps", it) }
             val baseMap = base.optJSONObject("mapState") ?: JSONObject()
             val previewMap = preview.optJSONObject("mapState")
             if (previewMap != null) {
                 baseMap.put("route", previewMap.optJSONArray("route"))
+                previewMap.optJSONArray("routeSteps")?.let { baseMap.put("routeSteps", it) }
+                previewMap.optJSONArray("alternativeRoutes")?.let { baseMap.put("alternativeRoutes", it) }
+                if (previewMap.has("selectedRouteIndex")) {
+                    baseMap.put("selectedRouteIndex", previewMap.optInt("selectedRouteIndex", 0))
+                }
                 baseMap.put("destinationLat", previewMap.optDouble("destinationLat"))
                 baseMap.put("destinationLng", previewMap.optDouble("destinationLng"))
                 baseMap.put("routePreview", true)
@@ -497,11 +660,20 @@ object VroomCarManager {
 
     private fun rememberJsNavigationState(jsonPayload: String) {
         runCatching {
-            val jsNavigating = JSONObject(jsonPayload).optBoolean("isNavigating", false)
+            val root = JSONObject(jsonPayload)
+            val jsNavigating = root.optBoolean("isNavigating", false)
             if (jsNavigating) {
                 if (nativeNavigationPayloadJson != null) jsMirroredNativeNavigation = true
-            } else if (nativeNavigationPayloadJson != null && jsMirroredNativeNavigation) {
-                clearNativeNavigation()
+                val routeKey = routeKeyFromRoot(root)
+                if (routeKey.isNotBlank()) {
+                    val routeChanged = routeKey != nativeNavigationRouteKey
+                    nativeNavigationPayloadJson = root.toString()
+                    nativeNavigationRouteKey = routeKey
+                    nativeRoutePreviewPayloadJson = null
+                    if (routeChanged) lastNavigationArcM = 0.0
+                    rerouteInFlight = false
+                    if (routeChanged) Log.d("VroomCarManager", "Przejmuje trase z telefonu dla Android Auto")
+                }
             }
         }
     }
@@ -542,6 +714,174 @@ object VroomCarManager {
         return body
     }
 
+    private data class RoutePoint(val lat: Double, val lng: Double)
+    private data class RouteProjection(val arcM: Double, val distanceM: Double, val routeHeading: Double)
+    private data class NavDestination(val lat: Double, val lng: Double, val name: String)
+
+    private fun routeStepsJson(steps: JSONArray, routePointsJson: JSONArray): JSONArray {
+        val route = parseRoutePoints(routePointsJson)
+        return JSONArray().apply {
+            for (i in 0 until steps.length()) {
+                val step = steps.optJSONObject(i) ?: continue
+                val maneuver = step.optJSONObject("maneuver")
+                val loc = maneuver?.optJSONArray("location")
+                val lng = loc?.optDouble(0, Double.NaN) ?: Double.NaN
+                val lat = loc?.optDouble(1, Double.NaN) ?: Double.NaN
+                val arcM = if (lat.isFinite() && lng.isFinite()) {
+                    projectOnRoute(lat, lng, route)?.arcM ?: 0.0
+                } else {
+                    0.0
+                }
+                put(JSONObject().apply {
+                    put("arcM", arcM)
+                    put("instruction", polishInstruction(step, maneuver))
+                    put("maneuver", maneuver?.optString("type", "straight") ?: "straight")
+                    put("maneuverModifier", maneuverModifierForStep(maneuver))
+                    put("distanceMeters", step.optDouble("distance", 0.0).toInt().coerceAtLeast(1))
+                    put("durationSec", step.optDouble("duration", 0.0).toInt().coerceAtLeast(0))
+                })
+            }
+        }
+    }
+
+    private fun parseRoutePoints(points: JSONArray?): List<RoutePoint> {
+        if (points == null) return emptyList()
+        return buildList {
+            for (i in 0 until points.length()) {
+                val p = points.optJSONObject(i) ?: continue
+                val lat = p.optDouble("lat", Double.NaN)
+                val lng = p.optDouble("lng", Double.NaN)
+                if (lat.isFinite() && lng.isFinite()) add(RoutePoint(lat, lng))
+            }
+        }
+    }
+
+    private fun routeKeyFromPayload(payload: String): String =
+        runCatching { routeKeyFromRoot(JSONObject(payload)) }.getOrDefault("")
+
+    private fun routeKeyFromRoot(root: JSONObject): String {
+        val route = parseRoutePoints(root.optJSONArray("route") ?: root.optJSONObject("mapState")?.optJSONArray("route"))
+        if (route.size < 2) return ""
+        val first = route.first()
+        val last = route.last()
+        return "${route.size}:${coordKey(first.lat)},${coordKey(first.lng)}:${coordKey(last.lat)},${coordKey(last.lng)}"
+    }
+
+    private fun coordKey(value: Double): Int =
+        kotlin.math.round(value * 100_000.0).toInt()
+
+    private fun routeTotalMeters(points: List<RoutePoint>): Double {
+        var total = 0.0
+        for (i in 0 until points.size - 1) {
+            total += distanceMeters(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng)
+        }
+        return total
+    }
+
+    private fun projectOnRoute(
+        lat: Double,
+        lng: Double,
+        points: List<RoutePoint>,
+        minArcM: Double = 0.0
+    ): RouteProjection? {
+        if (points.size < 2) return null
+        var cumM = 0.0
+        var bestArc = 0.0
+        var bestDistance = Double.POSITIVE_INFINITY
+        var bestHeading = nativeHeading
+        var bestScore = Double.POSITIVE_INFINITY
+        for (i in 0 until points.size - 1) {
+            val a = points[i]
+            val b = points[i + 1]
+            val segM = distanceMeters(a.lat, a.lng, b.lat, b.lng)
+            if (segM < 0.2) continue
+            val latScale = kotlin.math.cos(Math.toRadians((a.lat + b.lat + lat) / 3.0)).coerceAtLeast(0.15)
+            val ax = a.lng * latScale
+            val ay = a.lat
+            val bx = b.lng * latScale
+            val by = b.lat
+            val px = lng * latScale
+            val py = lat
+            val vx = bx - ax
+            val vy = by - ay
+            val len2 = vx * vx + vy * vy
+            val t = if (len2 > 0.0) (((px - ax) * vx + (py - ay) * vy) / len2).coerceIn(0.0, 1.0) else 0.0
+            val projLat = a.lat + (b.lat - a.lat) * t
+            val projLng = a.lng + (b.lng - a.lng) * t
+            val distM = distanceMeters(lat, lng, projLat, projLng)
+            val arcPenalty = if (cumM + segM * t + 2.0 < minArcM) (minArcM - (cumM + segM * t)) * 8.0 else 0.0
+            val score = distM + arcPenalty
+            if (score < bestScore) {
+                bestScore = score
+                bestDistance = distM
+                bestArc = cumM + segM * t
+                bestHeading = bearingDeg(a.lat, a.lng, b.lat, b.lng)
+            }
+            cumM += segM
+        }
+        return RouteProjection(bestArc, bestDistance, bestHeading).takeIf { bestDistance.isFinite() }
+    }
+
+    private fun shouldRerouteFromProjection(projection: RouteProjection): Boolean {
+        if (projection.distanceM > OFF_ROUTE_REROUTE_DISTANCE_M) return true
+        if (projection.arcM + 35.0 < lastNavigationArcM) return true
+        val heading = nativeHeading.takeIf { it.isFinite() } ?: return false
+        if (nativeSpeedMs < OFF_ROUTE_HEADING_MIN_SPEED_MS) return false
+        val delta = headingDeltaDeg(heading, projection.routeHeading)
+        if (delta >= OFF_ROUTE_HARD_HEADING_DELTA_DEG && projection.distanceM >= 2.0) return true
+        return delta >= OFF_ROUTE_HEADING_DELTA_DEG && projection.distanceM >= OFF_ROUTE_HEADING_DISTANCE_M
+    }
+
+    private fun isUsableRouteResponse(root: JSONObject): Boolean {
+        if (root.optString("code", "Ok") != "Ok") return false
+        val routes = root.optJSONArray("routes") ?: return false
+        return routes.length() > 0 && routes.optJSONObject(0) != null
+    }
+
+    private fun resolveNavigationDestination(root: JSONObject): NavDestination? {
+        val destination = root.optJSONObject("destination")
+        val mapState = root.optJSONObject("mapState")
+        val dto = root.optJSONObject("dto")
+        val lat = destination?.optDouble("latitude", destination.optDouble("lat", Double.NaN))?.takeIf { it.isFinite() }
+            ?: mapState?.optDouble("destinationLat", Double.NaN)?.takeIf { it.isFinite() }
+            ?: Double.NaN
+        val lng = destination?.optDouble("longitude", destination.optDouble("lng", Double.NaN))?.takeIf { it.isFinite() }
+            ?: mapState?.optDouble("destinationLng", Double.NaN)?.takeIf { it.isFinite() }
+            ?: Double.NaN
+        if (!lat.isFinite() || !lng.isFinite()) return null
+        val name = destination?.optString("name", "")?.takeIf { it.isNotBlank() }
+            ?: dto?.optString("destinationName", "")?.takeIf { it.isNotBlank() }
+            ?: "Cel"
+        return NavDestination(lat, lng, name)
+    }
+
+    private fun bearingDeg(fromLat: Double, fromLng: Double, toLat: Double, toLng: Double): Double {
+        val lat1 = Math.toRadians(fromLat)
+        val lat2 = Math.toRadians(toLat)
+        val dLng = Math.toRadians(toLng - fromLng)
+        val y = kotlin.math.sin(dLng) * kotlin.math.cos(lat2)
+        val x = kotlin.math.cos(lat1) * kotlin.math.sin(lat2) -
+            kotlin.math.sin(lat1) * kotlin.math.cos(lat2) * kotlin.math.cos(dLng)
+        return ((Math.toDegrees(kotlin.math.atan2(y, x)) % 360.0) + 360.0) % 360.0
+    }
+
+    private fun headingDeltaDeg(a: Double, b: Double): Double {
+        val delta = kotlin.math.abs((((a - b) % 360.0) + 540.0) % 360.0 - 180.0)
+        return delta.coerceIn(0.0, 180.0)
+    }
+
+    private fun distanceMeters(fromLat: Double, fromLng: Double, toLat: Double, toLng: Double): Double {
+        val earthRadiusM = 6_371_000.0
+        val lat1 = Math.toRadians(fromLat)
+        val lat2 = Math.toRadians(toLat)
+        val dLat = lat2 - lat1
+        val dLng = Math.toRadians(toLng - fromLng)
+        val a = kotlin.math.sin(dLat / 2.0) * kotlin.math.sin(dLat / 2.0) +
+            kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * kotlin.math.sin(dLng / 2.0) * kotlin.math.sin(dLng / 2.0)
+        val clamped = a.coerceIn(0.0, 1.0)
+        return earthRadiusM * 2.0 * kotlin.math.atan2(Math.sqrt(clamped), Math.sqrt(1.0 - clamped))
+    }
+
     private fun buildReroutedPayload(
         previousPayload: String,
         routeBody: String,
@@ -569,8 +909,11 @@ object VroomCarManager {
             }
         }
         if (points.length() < 2) throw IllegalStateException("Brak geometrii trasy")
+        val anchoredPoints = AutoRouteGeometry.anchorRoutePoints(points, fromLat, fromLng)
         val leg = route.optJSONArray("legs")?.optJSONObject(0)
         val step = leg?.optJSONArray("steps")?.optJSONObject(0)
+        val steps = leg?.optJSONArray("steps") ?: JSONArray()
+        val routeSteps = routeStepsJson(steps, anchoredPoints)
         val maneuver = step?.optJSONObject("maneuver")
         val distance = route.optDouble("distance", 0.0).toInt().coerceAtLeast(1)
         val duration = route.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
@@ -587,7 +930,8 @@ object VroomCarManager {
             put("latitude", toLat)
             put("longitude", toLng)
         })
-        base.put("route", JSONArray(points.toString()))
+        base.put("route", JSONArray(anchoredPoints.toString()))
+        base.put("routeSteps", JSONArray(routeSteps.toString()))
         base.put("dto", JSONObject().apply {
             put("isNavigating", true)
             put("nextInstruction", instruction)
@@ -599,7 +943,8 @@ object VroomCarManager {
             put("turnDistanceMeters", turnDistance)
         })
         val mapState = base.optJSONObject("mapState") ?: JSONObject()
-        mapState.put("route", JSONArray(points.toString()))
+        mapState.put("route", JSONArray(anchoredPoints.toString()))
+        mapState.put("routeSteps", JSONArray(routeSteps.toString()))
         mapState.put("destinationLat", toLat)
         mapState.put("destinationLng", toLng)
         mapState.put("routePreview", false)
@@ -609,14 +954,40 @@ object VroomCarManager {
         return base.toString()
     }
 
+    private fun maneuverModifierForStep(maneuver: JSONObject?): String {
+        if (maneuver == null) return ""
+        val modifier = maneuver.optString("modifier", "").orEmpty()
+        val exit = maneuver.optInt("exit", 0)
+        if (exit > 0) return "exit $exit"
+        return modifier
+    }
+
+    private fun roundaboutInstruction(maneuver: JSONObject?): String {
+        val exit = maneuver?.optInt("exit", 0) ?: 0
+        return if (exit > 0) {
+            "Na rondzie zjedz ${roundaboutExitLabel(exit)} zjazdem"
+        } else {
+            "Wjedz na rondo"
+        }
+    }
+
+    private fun roundaboutExitLabel(exit: Int): String = when (exit) {
+        1 -> "pierwszym"
+        2 -> "drugim"
+        3 -> "trzecim"
+        4 -> "czwartym"
+        5 -> "piatym"
+        else -> "${exit}."
+    }
+
     private fun polishInstruction(step: JSONObject?, maneuver: JSONObject?): String {
         val type = maneuver?.optString("type", "").orEmpty()
         val modifier = maneuver?.optString("modifier", "").orEmpty()
         val roadName = step?.optString("name", "").orEmpty().trim()
         val base = when (type) {
-            "depart" -> "Rusz"
+            "depart" -> "Jedz prosto"
             "arrive" -> "Dojezdzasz do celu"
-            "roundabout", "rotary" -> "Rondo"
+            "roundabout", "rotary" -> roundaboutInstruction(maneuver)
             "merge" -> "Wlacz sie do ruchu"
             "fork" -> "Trzymaj sie rozwidlenia"
             "on ramp" -> "Wjedz na zjazd"
