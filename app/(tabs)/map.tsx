@@ -212,6 +212,7 @@ import {
   GPS_DOPPLER_HIGH_SPEED_TRUST_KMH,
   sustainedTripSpeedFromSamples,
   computeStandstillNetM,
+  isStationaryGpsSpike,
   type TripMoveSample,
 } from '../../scripts/speedSanitizer';
 
@@ -2819,6 +2820,14 @@ function MapScreenInner() {
       const motionKmh = opts?.motionKmh ?? 0;
       const sustainedKmh = opts?.sustainedKmh ?? 0;
       const rawGpsKmh = opts?.rawGpsKmh ?? (gpsSpeedMs != null ? gpsSpeedMs * 3.6 : 0);
+      const stationaryGpsSpike = isStationaryGpsSpike({
+        rawGpsKmh,
+        derivedKmh: display != null && display > 0 ? display * 3.6 : 0,
+        netMoveM,
+        pathMoveM: opts?.pathMoveM,
+        sustainedKmh,
+        motionKmh,
+      });
       const fgRefreshPublish =
         tripForegroundRefreshUntilRef.current > nowTs
         && (isDrivingRef.current || isNavigatingRef.current);
@@ -2831,14 +2840,17 @@ function MapScreenInner() {
         pathMoveM: opts?.pathMoveM,
       });
       let stationaryEvidence =
-        rawGpsKmh < 15
-        && netMoveM < standstillNetM
-        && sustainedKmh < 3.5
-        && motionKmh < 2.5;
+        stationaryGpsSpike
+        || (
+          rawGpsKmh < 15
+          && netMoveM < standstillNetM
+          && sustainedKmh < 3.5
+          && motionKmh < 2.5
+        );
       if (fgRefreshPublish && rawGpsKmh >= 6) {
         stationaryEvidence = false;
       }
-      if (drivingMotionEvidence) {
+      if (drivingMotionEvidence && !stationaryGpsSpike) {
         stationaryEvidence = false;
       }
       let dopplerGhostWhileStill =
@@ -6638,6 +6650,31 @@ publishSpeed(0, {
           rawLng,
         ) * 1000
         : Infinity;
+      const stationaryGpsSpikeNow = isStationaryGpsSpike({
+        rawGpsKmh: rawGpsKmhForSpike,
+        derivedKmh: Math.max(kmh, derivedKmhEarly),
+        netMoveM,
+        pathMoveM,
+        sustainedKmh,
+        motionKmh,
+        accuracyM: acc,
+      });
+      if (stationaryGpsSpikeNow) {
+        kmh = 0;
+        sanitizedSpeedMs = 0;
+        rawGpsKmhForSpike = 0;
+        rawGpsKmhRef.current = 0;
+        rawMotionWakeUntilRef.current = 0;
+        vroomGpsLog('SPEED_STATIONARY_SPIKE_REJECT', {
+          rawGpsKmh: Number(rawSpeedEvidenceKmh.toFixed(1)),
+          derivedKmh: Number(derivedKmhEarly.toFixed(1)),
+          netMoveM: Math.round(netMoveM),
+          pathMoveM: Math.round(pathMoveM),
+          motionKmh: Number(motionKmh.toFixed(1)),
+          sustainedKmh: Number(sustainedKmh.toFixed(1)),
+          accM: Math.round(acc),
+        }, 1200);
+      }
       const hardZeroSpeedClamp = !TRIP_PIPELINE_SIMPLE
         && tripActiveNow
         && isDrivingRef.current
@@ -6655,6 +6692,7 @@ publishSpeed(0, {
       if (
         tripActiveNow
         && isDrivingRef.current
+        && !stationaryGpsSpikeNow
         && (sanitizedSpeedMs == null || kmh < 1.5)
         && rawSpeedEvidenceKmh >= 6
         && rawSpeedEvidenceKmh <= 45
@@ -6753,6 +6791,7 @@ publishSpeed(0, {
       });
       const drivingPhysicalMotionEvidence =
         isDrivingRef.current
+        && !stationaryGpsSpikeNow
         && (
           rawGpsMotionDetected
           || motionKmh >= 5

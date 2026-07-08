@@ -48,6 +48,50 @@ export type SanitizeSpeedInput = {
 
 const TRIP_SPEED_WINDOW_MS = 1000;
 const TRIP_STANDSTILL_NET_M = 10;
+const STATIONARY_GHOST_DOPPLER_KMH = 6;
+const STATIONARY_GHOST_DERIVED_KMH = 35;
+
+export type StationaryGpsSpikeInput = {
+  rawGpsKmh: number;
+  derivedKmh?: number;
+  netMoveM?: number;
+  pathMoveM?: number;
+  sustainedKmh?: number;
+  motionKmh?: number;
+  accuracyM?: number | null;
+};
+
+/**
+ * Postój + jitter GPS: Doppler albo delta pozycji raportuje jazdę, ale okno ruchu
+ * nie potwierdza przemieszczenia. Tę bramkę stosujemy przed HUD/statystykami.
+ */
+export function isStationaryGpsSpike(input: StationaryGpsSpikeInput): boolean {
+  const rawGpsKmh = Number.isFinite(input.rawGpsKmh) ? Math.max(0, input.rawGpsKmh) : 0;
+  const derivedKmh = Number.isFinite(input.derivedKmh) ? Math.max(0, input.derivedKmh ?? 0) : 0;
+  const netM = Number.isFinite(input.netMoveM) ? Math.max(0, input.netMoveM ?? 0) : 0;
+  const pathM = Number.isFinite(input.pathMoveM) ? Math.max(0, input.pathMoveM ?? 0) : 0;
+  const sustainedKmh = Number.isFinite(input.sustainedKmh) ? Math.max(0, input.sustainedKmh ?? 0) : 0;
+  const motionKmh = Number.isFinite(input.motionKmh) ? Math.max(0, input.motionKmh ?? 0) : 0;
+  const accM = input.accuracyM != null && Number.isFinite(input.accuracyM) ? input.accuracyM : null;
+  const weakAccuracy = accM == null || accM > 25;
+
+  const noWindowMotion =
+    netM < 8
+    && pathM < 14
+    && sustainedKmh < 4
+    && motionKmh < 6;
+  const weakMotion =
+    netM < 18
+    && sustainedKmh < 8
+    && motionKmh < 14;
+
+  if (noWindowMotion && rawGpsKmh >= STATIONARY_GHOST_DOPPLER_KMH) return true;
+  if (weakMotion && rawGpsKmh >= 55) return true;
+  if (netM < 28 && sustainedKmh < 12 && motionKmh < 20 && rawGpsKmh >= 100) return true;
+  if (noWindowMotion && derivedKmh >= STATIONARY_GHOST_DERIVED_KMH) return true;
+  if (weakAccuracy && netM < 12 && sustainedKmh < 5 && rawGpsKmh >= 25) return true;
+  return false;
+}
 
 /** Prędkość i netto dystans z ostatnich próbek (odcina jitter 30+ km/h na postoju). */
 export function sustainedTripSpeedFromSamples(
@@ -173,6 +217,17 @@ export function sanitizeSpeedKmh(input: SanitizeSpeedInput): number {
     const pathM = input.pathMoveM ?? 0;
     const geoKmh = Math.max(sustained, derivedKmh > 0 ? derivedKmh * 0.92 : 0);
     const motionKmh = Math.max(geoKmh, derivedKmh);
+    if (isStationaryGpsSpike({
+      rawGpsKmh: gpsKmh,
+      derivedKmh,
+      netMoveM: netM,
+      pathMoveM: pathM,
+      sustainedKmh: sustained,
+      motionKmh,
+      accuracyM: accM,
+    })) {
+      return 0;
+    }
     const slowCrawl = (derivedKmh >= 3 || sustained >= 3) && netM >= 4;
     const standstillNetM = computeStandstillNetM(motionKmh, gpsKmh);
     const parkedLikeDoppler =
@@ -336,6 +391,15 @@ export function sanitizeSpeedMs(input: SanitizeSpeedInput): number | null {
   }
   const kmh = sanitizeSpeedKmh(input);
   const gpsKmh = input.gpsSpeedMs != null && input.gpsSpeedMs > 0 ? input.gpsSpeedMs * 3.6 : 0;
+  if (input.isTripActive && isStationaryGpsSpike({
+    rawGpsKmh: gpsKmh,
+    netMoveM: input.netMoveM,
+    pathMoveM: input.pathMoveM,
+    sustainedKmh: input.sustainedKmh,
+    accuracyM: input.accuracyM,
+  })) {
+    return 0;
+  }
   const accelLagDetected =
     !!input.isTripActive
     && gpsKmh >= 10
@@ -394,6 +458,15 @@ export function clampSpeedKmhToGeometry(
   const netM = opts.netMoveM;
   const geo = Math.max(opts.sustainedKmh, opts.motionKmh * 0.88);
   if (kmh <= 0) return 0;
+  if (isStationaryGpsSpike({
+    rawGpsKmh: opts.rawGpsKmh,
+    derivedKmh: kmh,
+    netMoveM,
+    sustainedKmh: opts.sustainedKmh,
+    motionKmh: opts.motionKmh,
+  })) {
+    return 0;
+  }
   const standstillNetM = computeStandstillNetM(opts.motionKmh, opts.rawGpsKmh);
   if (netM < standstillNetM && opts.motionKmh < 5 && opts.sustainedKmh < 4) {
     return 0;

@@ -17,8 +17,9 @@ export interface TripStats {
 }
 
 /** Segment distance sanity only - not a vmax cap. */
-const TRIP_SEGMENT_MAX_PLAUSIBLE_KMH = 9999;
-const TRIP_MAX_DERIVED_SAMPLE_KMH = 9999;
+const TRIP_STATS_MAX_PLAUSIBLE_KMH = 320;
+const TRIP_SEGMENT_MAX_PLAUSIBLE_KMH = TRIP_STATS_MAX_PLAUSIBLE_KMH;
+const TRIP_MAX_DERIVED_SAMPLE_KMH = TRIP_STATS_MAX_PLAUSIBLE_KMH;
 /** Long GPS gaps (tunnel / Doze) reset the anchor instead of rejecting forever. */
 const TRIP_MAX_FIX_GAP_SEC   = 480;
 const TRIP_FALLBACK_MAX_GAP_SEC = 900;
@@ -34,7 +35,7 @@ const EMERGENCY_CHECKPOINT_KM = 0.1;
 const TRIP_STATS_DIAGNOSTICS = __DEV__;
 
 function isValidSpeedSampleKmh(kmh: number): boolean {
-  return Number.isFinite(kmh) && kmh > 2;
+  return Number.isFinite(kmh) && kmh > 2 && kmh <= TRIP_STATS_MAX_PLAUSIBLE_KMH;
 }
 
 function compactTrackPoints(points: { latitude: number; longitude: number }[]) {
@@ -182,7 +183,7 @@ export function useTripStats() {
   const feedSpeed = useCallback((speedMs: number | null) => {
     if (speedMs === null || speedMs < 0) return;
     const kmh = speedMs * 3.6;
-    if (Number.isFinite(kmh) && kmh > 1) {
+    if (isValidSpeedSampleKmh(kmh)) {
       speedSamples.current.push(kmh); // ignoruj postoje + spike GPS
       if (speedSamples.current.length > TRIP_MAX_SPEED_SAMPLES) {
         speedSamples.current = speedSamples.current.slice(-TRIP_MAX_SPEED_SAMPLES);

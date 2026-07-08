@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { haversineKm } from '../scripts/navigationUtils';
+import { isStationaryGpsSpike } from '../scripts/speedSanitizer';
 import { BG_GPS_STATIONARY_KEY } from './useBackgroundTracking';
 import { logTelemetry } from '../lib/telemetryLogger';
 import {
@@ -433,9 +434,27 @@ export function useDriveLocationWatch({
               speedMs * 3.6,
               Math.min(Math.max(0, derivedSpeedKmh), MAX_SPEED_ACTIVE_KMH),
             );
-            const emitSpeedMs = gpsSpeedMs != null
+            const stationaryGpsSpike = activeMode && lastGoodRef.current
+              ? (() => {
+                const dtMs = now - lastGoodRef.current!.time;
+                const distM = haversineKm(lastGoodRef.current!.lat, lastGoodRef.current!.lng, rawLat, rawLng) * 1000;
+                return isStationaryGpsSpike({
+                  rawGpsKmh: speedMs * 3.6,
+                  derivedKmh: derivedSpeedKmh,
+                  netMoveM: distM,
+                  pathMoveM: distM,
+                  sustainedKmh: dtMs >= DERIVED_SPEED_MIN_DT_MS ? derivedSpeedKmh : 0,
+                  motionKmh: derivedSpeedKmh,
+                  accuracyM: acc,
+                });
+              })()
+              : false;
+            const safeEffectiveSpeedKmh = stationaryGpsSpike ? 0 : effectiveSpeedKmh;
+            const emitSpeedMs = stationaryGpsSpike
+              ? 0
+              : gpsSpeedMs != null
               ? gpsSpeedMs
-              : (effectiveSpeedKmh >= DERIVED_SPEED_MIN_EMIT_KMH ? effectiveSpeedKmh / 3.6 : 0);
+              : (safeEffectiveSpeedKmh >= DERIVED_SPEED_MIN_EMIT_KMH ? safeEffectiveSpeedKmh / 3.6 : 0);
 
             const maybeEmitLocation = (
               payload: DriveLocationFix,
@@ -451,7 +470,7 @@ export function useDriveLocationWatch({
                 ) * 3.6
                 : 0;
               const isFast = activeMode && (
-                effectiveSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH
+                safeEffectiveSpeedKmh >= HIGHWAY_EMIT_SPEED_KMH
                 || fallbackDerivedKmh >= HIGHWAY_EMIT_SPEED_KMH
               );
               const minInterval = isFast
@@ -505,7 +524,7 @@ export function useDriveLocationWatch({
                     distM: Math.round(distM),
                     dtMs,
                     accM: Math.round(acc),
-                    speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                    speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
                   }, 500);
                   void logTelemetry('GPS_REJECT_ACTIVE_TELEPORT', {
                     distM: Math.round(distM),
@@ -515,16 +534,16 @@ export function useDriveLocationWatch({
                   return;
                 }
               }
-            } else if (acc > MAX_ACCURACY_BROWSING_M && effectiveSpeedKmh < 3) {
+            } else if (acc > MAX_ACCURACY_BROWSING_M && safeEffectiveSpeedKmh < 3) {
               traceGps('GPS_WATCH_REJECT_BROWSING_ACCURACY', {
                 profile: profileRef.current,
                 accM: Math.round(acc),
-                speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               }, 500);
               void logTelemetry('GPS_REJECT_ACCURACY_BROWSING', {
                 acc: Math.round(acc),
                 maxAcc: MAX_ACCURACY_BROWSING_M,
-                speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               });
               return;
             }
@@ -540,7 +559,7 @@ export function useDriveLocationWatch({
               ) * 1000;
               const hardTeleportM = Math.max(
                 1500,
-                ((Math.max(effectiveSpeedKmh, 20) / 3.6) * (Math.max(dtMs, 1000) / 1000)) * 8,
+                ((Math.max(safeEffectiveSpeedKmh, 20) / 3.6) * (Math.max(dtMs, 1000) / 1000)) * 8,
               );
               if (distM > hardTeleportM) {
                 if (GPS_DEBUG_LOGS) {
@@ -552,7 +571,7 @@ export function useDriveLocationWatch({
                   hardTeleportM: Math.round(hardTeleportM),
                   dtMs,
                   accM: Math.round(acc),
-                  speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+                  speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
                 }, 500);
                 void logTelemetry('GPS_REJECT_HARD_TELEPORT', {
                   distM: Math.round(distM),
@@ -565,7 +584,7 @@ export function useDriveLocationWatch({
             }
 
             lastGoodRef.current = { lat: rawLat, lng: rawLng, time: now };
-            speedRef.current = effectiveSpeedKmh;
+            speedRef.current = safeEffectiveSpeedKmh;
             markValidFix();
 
             maybeEmitLocation({
@@ -579,7 +598,7 @@ export function useDriveLocationWatch({
             traceGps('GPS_WATCH_ACCEPT', {
               profile: profileRef.current,
               accM: Math.round(acc),
-              speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+              speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               lockEstablished: lockRef.current.established,
               lat: Number(rawLat.toFixed(6)),
               lng: Number(rawLng.toFixed(6)),
@@ -588,17 +607,17 @@ export function useDriveLocationWatch({
               lat: Number(rawLat.toFixed(6)),
               lng: Number(rawLng.toFixed(6)),
               acc: Math.round(acc),
-              speedKmh: Number(effectiveSpeedKmh.toFixed(1)),
+              speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               gpsLock: lockRef.current.established,
             });
 
-            applyStationaryState(effectiveSpeedKmh, now);
+            applyStationaryState(safeEffectiveSpeedKmh, now);
 
             const nextProfile = resolveGpsProfile(
               mapFocusedRef.current,
               navRef.current,
               drivingRef.current,
-              effectiveSpeedKmh,
+              safeEffectiveSpeedKmh,
               forceActiveRef.current,
               isStationaryParkedRef.current,
             );

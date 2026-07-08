@@ -1,14 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, FlatList,
-  StyleSheet, Platform, StatusBar,
-  Image, ActivityIndicator, Linking, Dimensions,
+  StyleSheet, StatusBar,
+  Image, ActivityIndicator,
   BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from 'expo-av';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   Announcement,
@@ -19,7 +17,6 @@ import {
 } from '../../hooks/useAnnouncements';
 import { LinkedText } from '../LinkedText';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
-const { width } = Dimensions.get('window');
 
 interface Props {
   visible: boolean;
@@ -28,6 +25,7 @@ interface Props {
 
 export function AnnouncementsModal({ visible, onClose }: Props) {
   const { theme: t } = useTheme();
+  const insets = useSafeAreaInsets();
   const {
     announcements, loading,
     seenIds, load, markSeen, markAllSeen,
@@ -60,15 +58,15 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
   useModalBackHandler(visible, onClose);
   // ── LISTA ─────────────────────────────────────────────
   const renderList = () => (
-    <SafeAreaView style={[ss.root, { backgroundColor: t.bg }]} onRequestClose={onClose}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[ss.root, { backgroundColor: t.bg }]} onRequestClose={onClose}>
       {/* Header */}
-      <View style={[ss.header, { borderBottomColor: t.border2 }]}>
+      <View style={[ss.header, { borderBottomColor: t.border2, paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={[ss.iconBtn, { backgroundColor: t.surface2, borderColor: t.border2 }]}
           onPress={onClose}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
         >
-          <MaterialIcons name="close" size={18} color={t.textMuted} />
+          <MaterialIcons name="close" size={22} color={t.textMuted} />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={[ss.headerTitle, { color: t.text }]}>OGŁOSZENIA</Text>
@@ -76,7 +74,7 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
             {announcements.length} {announcements.length === 1 ? 'ogłoszenie' : 'ogłoszeń'}
           </Text>
         </View>
-        <View style={{ width: 36 }} />
+        <View style={{ width: 48 }} />
       </View>
 
       {loading && announcements.length === 0 ? (
@@ -179,20 +177,20 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
   const renderDetail = (item: Announcement) => {
     const accent = categoryColor(item.category);
     return (
-      <SafeAreaView style={[ss.root, { backgroundColor: t.bg }]}>
+      <SafeAreaView edges={['left', 'right', 'bottom']} style={[ss.root, { backgroundColor: t.bg }]}>
         {/* Header */}
-        <View style={[ss.header, { borderBottomColor: t.border2 }]}>
+        <View style={[ss.header, { borderBottomColor: t.border2, paddingTop: insets.top + 8 }]}>
           <TouchableOpacity
             style={[ss.iconBtn, { backgroundColor: t.surface2, borderColor: t.border2 }]}
             onPress={() => setSelected(null)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
           >
-            <MaterialIcons name="arrow-back" size={18} color={t.textMuted} />
+            <MaterialIcons name="arrow-back" size={22} color={t.textMuted} />
           </TouchableOpacity>
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={[ss.headerTitle, { color: t.text }]}>OGŁOSZENIE</Text>
           </View>
-          <View style={{ width: 36 }} />
+          <View style={{ width: 48 }} />
         </View>
 
         <FlatList
@@ -283,11 +281,11 @@ const ss = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop:    Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 8 : 8,
+    paddingTop:    8,
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
-  iconBtn:     { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  iconBtn:     { width: 48, height: 48, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontFamily: 'Orbitron', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
   headerSub:   { fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1, marginTop: 2 },
 
