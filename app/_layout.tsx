@@ -98,11 +98,21 @@ const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
 
 // ─── NOTIFICATIONS ────────────────────────────────────────
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    // Foreground: brak systemowych popupów/listy/dźwięku.
-    shouldShowAlert: false, shouldPlaySound: false,
-    shouldSetBadge: true, shouldShowBanner: false, shouldShowList: false,
-  }),
+  handleNotification: async (notification) => {
+    const type = String(notification.request.content.data?.type ?? '');
+    const shouldShowVroomkiPublish =
+      type === 'vroomki_publish_status' ||
+      type === 'vroomki_published' ||
+      type === 'vroomki_publish_failed';
+
+    return {
+      shouldShowAlert: shouldShowVroomkiPublish,
+      shouldPlaySound: shouldShowVroomkiPublish,
+      shouldSetBadge: true,
+      shouldShowBanner: shouldShowVroomkiPublish,
+      shouldShowList: shouldShowVroomkiPublish,
+    };
+  },
 });
 Notifications.setNotificationChannelAsync('default', {
   name: 'Powiadomienia', importance: Notifications.AndroidImportance.MAX,
@@ -113,6 +123,12 @@ Notifications.setNotificationChannelAsync('navigation', {
   name: 'Nawigacja', importance: Notifications.AndroidImportance.HIGH,
   sound: null, vibrationPattern: [0],
   lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: true,
+});
+Notifications.setNotificationChannelAsync('vroomki_publish', {
+  name: 'Publikacja VROOMKI', importance: Notifications.AndroidImportance.MAX,
+  sound: 'default', vibrationPattern: [0, 250, 250, 250],
+  lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  bypassDnd: true,
 });
 
 
@@ -379,7 +395,12 @@ function RootLayoutInner() {
           target = `/(tabs)/account`;
         } else if (data.type === 'friend_request' || data.type === 'friend_accepted') {
           target = `/Community/chats/chats`;
-        } else if ((data.type === 'like_vroomki' || data.type === 'comment_vroomki') && data.vroomkiPostId) {
+        } else if (
+          (data.type === 'like_vroomki' ||
+            data.type === 'comment_vroomki' ||
+            data.type === 'vroomki_published') &&
+          data.vroomkiPostId
+        ) {
           target = `/Community/vroomki?vroomkiId=${data.vroomkiPostId}`;
         } else if (data.type === 'achievement') {
           target = `/(tabs)/account`;

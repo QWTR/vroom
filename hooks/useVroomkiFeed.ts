@@ -19,15 +19,18 @@ import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
-const FREE_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
-const PREMIUM_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
+const VROOMKI_FREE_VIDEO_MAX_BYTES = 250 * 1024 * 1024;
 
 type LocalLikeState = {
   isLiked: boolean;
   likesCount: number;
 };
 
-export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: number | null) {
+export function useVroomkiFeed(
+  initialVroomkiId?: number | null,
+  soundId?: number | null,
+  authorUserId?: number | null,
+) {
   const router = useRouter();
   const { settings } = useSettings();
 
@@ -87,6 +90,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
     return subscribeVroomkiPublish((event) => {
       if (event.type !== 'success') return;
       const post = event.post;
+      console.info('[useVroomkiFeed] publish success received', { postId: post.id });
       focusedVroomkiRef.current = post;
       setResolvedFocusPostId(post.id);
       setPosts((prev) => [post, ...prev.filter((p) => p.id !== post.id)]);
@@ -99,9 +103,12 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
       const blocked = blockedIdsRef.current;
       try {
         const token = await getToken();
-        const exclude = excludeIdsRef.current.join(',');
+        const authorFilterId = Number.isFinite(authorUserId ?? NaN) ? authorUserId : null;
+        const exclude = authorFilterId ? '' : excludeIdsRef.current.join(',');
         const soundQuery = Number.isFinite(soundId ?? NaN) ? `&soundId=${soundId}` : '';
-        const url = cursor
+        const url = authorFilterId
+          ? `${API_URL}/api/vroomki/user/${authorFilterId}?limit=60`
+          : cursor
           ? `${API_URL}/api/vroomki?cursor=${cursor}&limit=${PAGE_SIZE}&exclude=${exclude}${soundQuery}`
           : `${API_URL}/api/vroomki?limit=${PAGE_SIZE}${soundQuery}`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -119,8 +126,8 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
           const incomingFocused = mergedPosts.find((p) => p.id === focusedId);
           focusedVroomkiRef.current = mergeLocalState(incomingFocused ?? focusedVroomkiRef.current);
         }
-        const nextCursor = Array.isArray(json) ? null : json.nextCursor ?? null;
-        if (cursor) {
+        const nextCursor = authorFilterId ? null : (Array.isArray(json) ? null : json.nextCursor ?? null);
+        if (cursor && !authorFilterId) {
           setPosts((prev) => {
             const existingIds = new Set(prev.map((p) => p.id));
             return [...prev, ...mergedPosts.filter((p) => !existingIds.has(p.id))];
@@ -145,7 +152,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
         setLoadingMoreC(false);
       }
     },
-    [mergeLocalState, setPosts, soundId],
+    [authorUserId, mergeLocalState, setPosts, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -180,7 +187,7 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
     return () => {
       cancelled = true;
     };
-  }, [initialVroomkiId, mergeLocalState, setPosts, soundId]);
+  }, [authorUserId, initialVroomkiId, mergeLocalState, setPosts, soundId]);
 
   const refresh = useCallback(() => {
     setRefreshingC(true);
@@ -191,10 +198,11 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
   }, [fetchVroomki]);
 
   const loadMore = useCallback(() => {
+    if (Number.isFinite(authorUserId ?? NaN)) return;
     if (!carCursor || loadingMoreC || !hasMoreC) return;
     setLoadingMoreC(true);
     void fetchVroomki(carCursor);
-  }, [carCursor, loadingMoreC, hasMoreC, fetchVroomki]);
+  }, [authorUserId, carCursor, loadingMoreC, hasMoreC, fetchVroomki]);
 
   const patchPost = useCallback((id: number, patch: Partial<VroomkiPost>) => {
     const current = postsRef.current.find((p) => p.id === id);
@@ -291,13 +299,9 @@ export function useVroomkiFeed(initialVroomkiId?: number | null, soundId?: numbe
         const fileSize = Number((info as any)?.size ?? 0);
         const isPremium = !!settings.isPremium;
         const isAdmin = !!settings.isAdmin;
-        const maxBytes = isAdmin ? null : isPremium ? PREMIUM_VIDEO_MAX_BYTES : FREE_VIDEO_MAX_BYTES;
+        const maxBytes = (isAdmin || isPremium) ? null : VROOMKI_FREE_VIDEO_MAX_BYTES;
         if (maxBytes !== null && fileSize > maxBytes) {
-          if (!isPremium && !isAdmin) {
-            router.push('/premium' as any);
-            throw new Error('Odblokuj Premium, aby wysyłać filmy do 120MB');
-          }
-          throw new Error('Maksymalny rozmiar filmu to 120MB');
+          throw new Error('Maksymalny rozmiar filmu VROOMKI bez Premium to 250MB');
         }
         Toast.show({ type: 'info', text1: 'Wysyłanie VROOMKI...', text2: 'Upload filmu działa w tle' });
         const ext = video.split('.').pop() ?? 'mp4';

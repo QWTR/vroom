@@ -363,7 +363,7 @@ export function TabAuta({
   }, [myId, onBlock, onDelete, onReport, router]);
 
   const handleProfile = useCallback((id: number) => {
-    router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } });
+    router.push({ pathname: '/Community/vroomki/profile/[userId]', params: { userId: String(id) } } as any);
   }, [router]);
 
   const handleCar = useCallback((id: number) => {
