@@ -4,8 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 import type { VroomkiSound } from '../lib/vroomkiTypes';
 
-const MEDIA_READY_TIMEOUT_MS = 900;
-
 async function readAuthToken(): Promise<string | null> {
   return (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 }
@@ -56,22 +54,19 @@ async function fetchFreshAudioUrl(sound: VroomkiSound | null | undefined): Promi
   }
 }
 
+/** Creator-only preview: plays external soundtrack synced with video loop tick. */
 export function useVroomkiSoundPlayback({
   active,
   sound,
   soundStartMs = 0,
   restartKey = 0,
   mediaLoopTick = 0,
-  waitForMedia = false,
-  mediaReady = true,
 }: {
   active: boolean;
   sound?: VroomkiSound | null;
   soundStartMs?: number;
   restartKey?: number | string;
   mediaLoopTick?: number;
-  waitForMedia?: boolean;
-  mediaReady?: boolean;
 }) {
   const soundRef = useRef<Audio.Sound | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
@@ -79,7 +74,6 @@ export function useVroomkiSoundPlayback({
   const canPlayRef = useRef(false);
   const soundStartMsRef = useRef(soundStartMs);
   const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string | null>(sound?.audioUrl ?? null);
-  const [mediaWaitExpired, setMediaWaitExpired] = useState(false);
 
   soundStartMsRef.current = soundStartMs;
 
@@ -107,14 +101,7 @@ export function useVroomkiSoundPlayback({
     };
   }, [sound?.audioUrl, sound?.id, sound?.sourceType, sound?.sourceId, restartKey]);
 
-  useEffect(() => {
-    setMediaWaitExpired(false);
-    if (!waitForMedia || mediaReady || !active || !resolvedAudioUrl) return undefined;
-    const timer = setTimeout(() => setMediaWaitExpired(true), MEDIA_READY_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [waitForMedia, mediaReady, active, resolvedAudioUrl, restartKey]);
-
-  const canPlay = active && !!resolvedAudioUrl && (!waitForMedia || mediaReady || mediaWaitExpired);
+  const canPlay = active && !!resolvedAudioUrl;
   canPlayRef.current = canPlay;
 
   const syncPlayback = async (player: Audio.Sound, shouldPlay: boolean) => {
@@ -157,8 +144,8 @@ export function useVroomkiSoundPlayback({
   useEffect(() => {
     if (!mediaLoopTick) return;
     const player = soundRef.current;
-    if (!player) return;
-    void syncPlayback(player, canPlayRef.current);
+    if (!player || !canPlayRef.current) return;
+    void player.setPositionAsync(Math.max(0, soundStartMsRef.current)).catch(() => {});
   }, [mediaLoopTick]);
 
   useEffect(() => {

@@ -193,7 +193,7 @@ export default function Community() {
           ))}
         </View>
 
-        <CommunitySectionLabel label="RYWALIZACJA" icon="trophy" iconLib="material" />
+        <CommunitySectionLabel label="ROLKI" icon="trophy" iconLib="material" />
         <View style={{ paddingHorizontal: 16, gap: 12, marginBottom: 24 }}>
           {RIVALRY.map(item => (
             <CommunityModuleCardList key={item.route} item={item} />

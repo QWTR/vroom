@@ -252,8 +252,6 @@ export default function VroomkiCreateScreen() {
   const [previewMediaReady, setPreviewMediaReady] = useState(true);
   const [mediaLoopTick, setMediaLoopTick] = useState(0);
 
-
-
   const hasVideo = !!draft?.video;
 
   const previewSound = draft?.useOriginalAudio ? null : draft?.sound;
@@ -273,19 +271,10 @@ export default function VroomkiCreateScreen() {
 
 
   useVroomkiSoundPlayback({
-
     active: step === 'edit' && !!previewSound && !soundTrimOpen,
-
     sound: previewSound,
-
     soundStartMs: draft?.soundStartMs ?? 0,
-
     mediaLoopTick,
-
-    waitForMedia: hasVideo,
-
-    mediaReady: hasVideo ? previewMediaReady : true,
-
   });
 
 
@@ -367,12 +356,13 @@ export default function VroomkiCreateScreen() {
 
 
   const patchDraft = useCallback((patch: Partial<VroomkiDraft>) => {
-
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
-
   }, []);
 
-
+  const handleAdvanceToPublish = useCallback(() => {
+    if (!draft) return;
+    setStep('publish');
+  }, [draft]);
 
   const handlePublish = async () => {
     if (!draft) return;
@@ -403,7 +393,9 @@ export default function VroomkiCreateScreen() {
     Toast.show({
       type: 'info',
       text1: 'Publikujemy w tle',
-      text2: draft.video ? 'Upload filmu trwa — możesz scrollować feed' : 'Za chwilę pojawi się w feedzie',
+      text2: draft.video
+        ? 'Film zostanie połączony z muzyką na serwerze'
+        : 'Za chwilę pojawi się w feedzie',
     });
 
     router.back();
@@ -470,7 +462,7 @@ export default function VroomkiCreateScreen() {
 
 
           <TouchableOpacity
-            onPress={() => (step === 'edit' ? setStep('publish') : handlePublish())}
+            onPress={() => (step === 'edit' ? handleAdvanceToPublish() : handlePublish())}
             style={styles.publishBtn}
           >
             <Text style={styles.publishBtnText}>{step === 'edit' ? 'DALEJ' : 'PUBLIKUJ'}</Text>
@@ -510,7 +502,7 @@ export default function VroomkiCreateScreen() {
 
                     overlays={[]}
 
-                    muted={!!previewSound?.audioUrl}
+                    muted={!!previewSound}
 
                     onMediaReadyChange={setPreviewMediaReady}
 

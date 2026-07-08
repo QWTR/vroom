@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Pressable, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import {
@@ -10,161 +10,110 @@ import {
 
 const DOUBLE_TAP_MS = 280;
 
-const warmedPostIds = new Set<number>();
-
-export function isReelPostWarmed(postId: number) {
-  return warmedPostIds.has(postId);
-}
-
 export function ReelVideo({
-  postId,
   uri,
+  posterUri = null,
   active,
-  muted = false,
-  clipStartMs = 0,
-  clipDurationMs = null,
   onCompleted,
   onDoubleTap,
-  onMediaReadyChange,
-  onClipLoop,
 }: {
-  postId: number;
   uri: string;
+  posterUri?: string | null;
   active: boolean;
-  muted?: boolean;
-  clipStartMs?: number;
-  clipDurationMs?: number | null;
   onCompleted: (watchMs: number) => void;
   onDoubleTap: () => void;
-  onMediaReadyChange?: (ready: boolean) => void;
-  onClipLoop?: () => void;
 }) {
   const videoRef = useRef<Video>(null);
   const completedRef = useRef(false);
-  const readyRef = useRef(false);
-  const hasLoadedOnceRef = useRef(warmedPostIds.has(postId));
-  const uriLockedRef = useRef(hasLoadedOnceRef.current);
+  const hasLoadedOnceRef = useRef(false);
+  const uriLockedRef = useRef(false);
   const lastUriRef = useRef<string | null>(null);
-  const lastClipStartRef = useRef(clipStartMs);
   const lastTapRef = useRef(0);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playingRef = useRef(false);
+  const bufferingRef = useRef(false);
 
   const [pausedByUser, setPausedByUser] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(hasLoadedOnceRef.current);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [playbackUri, setPlaybackUri] = useState(() => getMemoryCachedVroomkiVideoUri(uri) ?? uri);
 
-  const clipEndMs = clipDurationMs ? clipStartMs + clipDurationMs : null;
-  const wasWarmed = warmedPostIds.has(postId);
-
-  const reportReady = useCallback((ready: boolean) => {
-    if (readyRef.current === ready) return;
-    readyRef.current = ready;
-    onMediaReadyChange?.(ready);
-  }, [onMediaReadyChange]);
-
   useEffect(() => {
+    if (!active) return;
+
     const mem = getMemoryCachedVroomkiVideoUri(uri);
-    if (mem) {
+    if (mem && !uriLockedRef.current && !hasLoadedOnceRef.current) {
       setPlaybackUri(mem);
-      uriLockedRef.current = true;
       return;
     }
 
     let cancelled = false;
     void peekCachedVroomkiVideoUri(uri).then((cached) => {
       if (cancelled || uriLockedRef.current || hasLoadedOnceRef.current) return;
-      if (cached) {
-        setPlaybackUri(cached);
-        uriLockedRef.current = true;
-      }
+      if (cached) setPlaybackUri(cached);
     });
     prefetchVroomkiVideo(uri);
 
     return () => {
       cancelled = true;
     };
-  }, [uri]);
+  }, [uri, active]);
 
   useEffect(() => {
-    if (!active) {
-      setPausedByUser(false);
-      videoRef.current?.pauseAsync().catch(() => {});
-      return;
-    }
+    if (!active) return;
     if (pausedByUser) {
-      reportReady(false);
       videoRef.current?.pauseAsync().catch(() => {});
       return;
     }
     videoRef.current?.playAsync().catch(() => {});
-  }, [active, pausedByUser, reportReady]);
+  }, [active, pausedByUser]);
 
   useEffect(() => {
     if (!active) return;
 
     const uriChanged = lastUriRef.current !== playbackUri;
-    const clipChanged = lastClipStartRef.current !== clipStartMs;
-    const needsSeek = uriChanged || clipChanged || !hasLoadedOnceRef.current;
-
-    if (needsSeek) {
+    if (uriChanged || !hasLoadedOnceRef.current) {
       completedRef.current = false;
-      if (!hasLoadedOnceRef.current && !wasWarmed) reportReady(false);
-      else reportReady(true);
-      videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
+      videoRef.current?.setPositionAsync(0).catch(() => {});
       lastUriRef.current = playbackUri;
-      lastClipStartRef.current = clipStartMs;
       return;
     }
 
-    reportReady(true);
     videoRef.current?.playAsync().catch(() => {});
-  }, [active, playbackUri, clipStartMs, reportReady, wasWarmed]);
+  }, [active, playbackUri]);
 
   const onStatus = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if (!hasLoadedOnceRef.current && !wasWarmed) reportReady(false);
-      return;
-    }
-
-    setPlaying(!!status.isPlaying);
+    if (!status.isLoaded) return;
 
     const position = status.positionMillis ?? 0;
     if (status.isPlaying || position > 0) {
+      uriLockedRef.current = true;
       if (!hasLoadedOnceRef.current) {
         hasLoadedOnceRef.current = true;
-        uriLockedRef.current = true;
-        warmedPostIds.add(postId);
         setHasLoadedOnce(true);
       }
     }
 
-    const isBuffering = !!status.isBuffering && !status.isPlaying;
-    setBuffering(isBuffering);
+    const nextPlaying = !!status.isPlaying;
+    if (playingRef.current !== nextPlaying) {
+      playingRef.current = nextPlaying;
+      setPlaying(nextPlaying);
+    }
 
-    const isReady = active && !pausedByUser && (
-      hasLoadedOnceRef.current || wasWarmed || (!isBuffering && (status.isPlaying || position >= 40))
-    );
-    reportReady(isReady);
+    const nextBuffering = !!status.isBuffering;
+    if (bufferingRef.current !== nextBuffering) {
+      bufferingRef.current = nextBuffering;
+      setBuffering(nextBuffering);
+    }
 
     const duration = status.durationMillis ?? 0;
-
-    if (clipEndMs && position >= clipEndMs - 80) {
-      videoRef.current?.setPositionAsync(clipStartMs).catch(() => {});
-      onClipLoop?.();
-      if (!completedRef.current) {
-        completedRef.current = true;
-        onCompleted(clipDurationMs ?? position);
-      }
-      return;
-    }
 
     if (!completedRef.current && duration > 0 && position / duration >= 0.85) {
       completedRef.current = true;
       onCompleted(position);
     }
-  }, [active, pausedByUser, clipEndMs, clipStartMs, clipDurationMs, onClipLoop, onCompleted, postId, reportReady, wasWarmed]);
+  }, [onCompleted]);
 
   const toggle = async () => {
     const nextPaused = !pausedByUser;
@@ -197,7 +146,19 @@ export function ReelVideo({
 
   const showLoader = pausedByUser
     ? true
-    : active && !hasLoadedOnce && !wasWarmed && (buffering || !playing);
+    : active && !hasLoadedOnce && (buffering || !playing);
+
+  if (!active) {
+    return (
+      <Pressable style={StyleSheet.absoluteFill} onPress={handlePress}>
+        {posterUri ? (
+          <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#050505' }]} />
+        )}
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable style={StyleSheet.absoluteFill} onPress={handlePress}>
@@ -207,20 +168,11 @@ export function ReelVideo({
         style={StyleSheet.absoluteFill}
         resizeMode={ResizeMode.COVER}
         shouldPlay={active && !pausedByUser}
-        isLooping={!clipEndMs}
-        isMuted={muted}
+        isLooping
+        isMuted={false}
         useNativeControls={false}
-        progressUpdateIntervalMillis={500}
+        progressUpdateIntervalMillis={1000}
         onPlaybackStatusUpdate={onStatus}
-        onReadyForDisplay={() => {
-          if (!hasLoadedOnceRef.current) {
-            hasLoadedOnceRef.current = true;
-            uriLockedRef.current = true;
-            warmedPostIds.add(postId);
-            setHasLoadedOnce(true);
-          }
-          reportReady(true);
-        }}
       />
       {showLoader && (
         <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>

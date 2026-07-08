@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, RefreshControl,
   Dimensions, Alert, StyleSheet,
@@ -16,12 +16,10 @@ import { VroomkiSoundChip } from '../../../components/vroomki/VroomkiSoundPicker
 import { VroomkiCommentsModal } from '../../../components/vroomki/VroomkiCommentsModal';
 import { VroomkiPrefetch } from '../../../components/vroomki/VroomkiPrefetch';
 import { VroomkiPhotoCarousel } from '../../../components/vroomki/VroomkiPhotoCarousel';
-import { ReelVideo, isReelPostWarmed } from '../../../components/vroomki/ReelVideo';
-import { VroomkiReelWarmup } from '../../../components/vroomki/VroomkiReelWarmup';
-import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
+import { ReelVideo } from '../../../components/vroomki/ReelVideo';
 import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
-import { priorityPrefetchVroomkiVideo, warmFeedVideos } from '../../../lib/vroomkiVideoCache';
+import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -53,7 +51,7 @@ const ReelCard = React.memo(function ReelCard({
   onProfile: (id: number) => void;
   onCar: (id: number) => void;
   onMore: (post: VroomkiPost) => void;
-  onCompletedView: (post: VroomkiPost, watchMs: number) => void;
+  onCompletedView: (postId: number, watchMs: number) => void;
   onOpenSound?: (soundId: number) => void;
 }) {
   const time = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
@@ -65,34 +63,8 @@ const ReelCard = React.memo(function ReelCard({
   const [heartVisible, setHeartVisible] = useState(false);
   const likedByDoubleTapRef = useRef(false);
   const photoDurationMs = post.photoDurationMs ?? 3000;
-  const clipStartMs = post.clipStartMs ?? 0;
-  const clipDurationMs = post.clipDurationMs ?? null;
   const overlays = post.overlays ?? [];
-  const externalSound = post.sound ?? null;
-  const mediaReadyLatchRef = useRef(isReelPostWarmed(post.id));
-  const [videoMediaReady, setVideoMediaReady] = useState(mediaReadyLatchRef.current);
-  const [mediaLoopTick, setMediaLoopTick] = useState(0);
-
-  const handleMediaReady = useCallback((ready: boolean) => {
-    if (ready) mediaReadyLatchRef.current = true;
-    setVideoMediaReady(mediaReadyLatchRef.current);
-  }, []);
-
-  useVroomkiSoundPlayback({
-    active,
-    sound: externalSound,
-    soundStartMs: post.soundStartMs ?? 0,
-    restartKey: post.id,
-    mediaLoopTick,
-    waitForMedia: hasVideo && !mediaReadyLatchRef.current,
-    mediaReady: hasVideo ? videoMediaReady : true,
-  });
-
-  useEffect(() => {
-    mediaReadyLatchRef.current = isReelPostWarmed(post.id);
-    setVideoMediaReady(mediaReadyLatchRef.current);
-    setMediaLoopTick(0);
-  }, [post.id]);
+  const posterUri = post.videoThumbnailUrl ?? coverPhoto;
 
   useEffect(() => {
     setPhotoIndex(0);
@@ -115,15 +87,10 @@ const ReelCard = React.memo(function ReelCard({
     <View style={{ height, backgroundColor: '#050505', overflow: 'hidden' }}>
       {hasVideo ? (
         <ReelVideo
-          postId={post.id}
           uri={post.videos[0]}
+          posterUri={posterUri}
           active={active}
-          muted={!!externalSound}
-          clipStartMs={clipStartMs}
-          clipDurationMs={clipDurationMs}
-          onMediaReadyChange={handleMediaReady}
-          onClipLoop={() => setMediaLoopTick((t) => t + 1)}
-          onCompleted={(ms) => onCompletedView(post, ms)}
+          onCompleted={(ms) => onCompletedView(post.id, ms)}
           onDoubleTap={likeFromDoubleTap}
         />
       ) : coverPhoto ? (
@@ -288,16 +255,8 @@ export function TabAuta({
   const initialActiveSetRef = useRef(false);
   const [playbackSuspended, setPlaybackSuspended] = useState(false);
   const reelsPlaybackActive = feedActive && !playbackSuspended;
-
-  const warmupUri = useMemo(() => {
-    if (!activeId) return null;
-    const idx = posts.findIndex((p) => p.id === activeId);
-    if (idx < 0) return null;
-    for (let i = idx + 1; i <= idx + 2; i += 1) {
-      if (posts[i]?.videos[0]) return posts[i].videos[0];
-    }
-    return null;
-  }, [posts, activeId]);
+  const postsRef = useRef(posts);
+  postsRef.current = posts;
 
   useEffect(() => {
     if (feedActive) setPlaybackSuspended(false);
@@ -328,12 +287,23 @@ export function TabAuta({
     router.push('/Community/vroomki/create');
   }, [feedActive, router, suspendPlayback]);
 
+  const prefetchAroundIndex = useCallback((index: number) => {
+    const list = postsRef.current;
+    const urls = [
+      list[index]?.videos[0],
+      list[index + 1]?.videos[0],
+      list[index - 1]?.videos[0],
+    ].filter(Boolean) as string[];
+    warmFeedVideos(urls);
+  }, []);
+
   useEffect(() => {
     if (initialActiveSetRef.current) return;
     if (!posts[0]) return;
     initialActiveSetRef.current = true;
     setActiveId(posts[0].id);
-  }, [posts]);
+    prefetchAroundIndex(0);
+  }, [posts, prefetchAroundIndex]);
 
   useEffect(() => {
     if (focusPostId != null && posts.length > 0 && reelHeight > 0) {
@@ -342,26 +312,14 @@ export function TabAuta({
         lastFocusIdRef.current = focusPostId;
         dragStartIndexRef.current = idx;
         setActiveId(posts[idx].id);
+        prefetchAroundIndex(idx);
         requestAnimationFrame(() => {
           listRef.current?.scrollToIndex({ index: idx, animated: false });
         });
         return;
       }
     }
-  }, [focusPostId, posts, reelHeight]);
-
-  useEffect(() => {
-    if (!activeId) return;
-    const idx = posts.findIndex((p) => p.id === activeId);
-    if (idx < 0) return;
-    const urls = [
-      posts[idx]?.videos[0],
-      posts[idx - 1]?.videos[0],
-      posts[idx + 1]?.videos[0],
-      posts[idx + 2]?.videos[0],
-    ];
-    warmFeedVideos(urls);
-  }, [activeId, posts]);
+  }, [focusPostId, posts, reelHeight, prefetchAroundIndex]);
 
   const reportSoftView = useCallback((post: VroomkiPost) => {
     if (viewedRef.current.has(post.id)) return;
@@ -373,7 +331,6 @@ export function TabAuta({
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const next = viewableItems?.[0]?.item as VroomkiPost | undefined;
     if (!next) return;
-    setActiveId(next.id);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => reportSoftView(next), VIEW_THRESHOLD_MS);
   }).current;
@@ -382,7 +339,7 @@ export function TabAuta({
     if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
 
-  const openMore = (post: VroomkiPost) => {
+  const openMore = useCallback((post: VroomkiPost) => {
     const isOwn = myId === post.author.id;
     if (isOwn && post.legacyCarId) {
       Alert.alert('AUTO Z GARAŻU', 'To jest auto przeniesione ze starej zakładki. Zarządzasz nim w garażu.', [
@@ -403,7 +360,56 @@ export function TabAuta({
       { text: 'Zgłoś', onPress: () => onReport(post, 'other') },
       { text: 'Zablokuj użytkownika', style: 'destructive', onPress: () => onBlock(post) },
     ]);
-  };
+  }, [myId, onBlock, onDelete, onReport, router]);
+
+  const handleProfile = useCallback((id: number) => {
+    router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } });
+  }, [router]);
+
+  const handleCar = useCallback((id: number) => {
+    router.push({ pathname: '/profile/car-detail', params: { id: String(id) } });
+  }, [router]);
+
+  const handleOpenSound = useCallback((soundId: number) => {
+    suspendPlayback();
+    router.push(`/Community/vroomki/sound/${soundId}`);
+  }, [router, suspendPlayback]);
+
+  const handleCompletedView = useCallback((postId: number, watchMs: number) => {
+    viewedRef.current.add(postId);
+    if (postId < 0) return;
+    onView(postId, watchMs, true);
+  }, [onView]);
+
+  const renderReel = useCallback(({ item }: { item: VroomkiPost }) => (
+    <ReelCard
+      post={item}
+      active={reelsPlaybackActive && activeId === item.id}
+      height={reelHeight}
+      myId={myId}
+      onLike={onLike}
+      onFollowAuthor={onFollowAuthor}
+      onOpenComments={setCommentsPost}
+      onShare={setSharePost}
+      onProfile={handleProfile}
+      onCar={handleCar}
+      onMore={openMore}
+      onOpenSound={handleOpenSound}
+      onCompletedView={handleCompletedView}
+    />
+  ), [
+    activeId,
+    handleCar,
+    handleCompletedView,
+    handleOpenSound,
+    handleProfile,
+    myId,
+    onFollowAuthor,
+    onLike,
+    openMore,
+    reelHeight,
+    reelsPlaybackActive,
+  ]);
 
   const Empty = () => (
     <View style={{ minHeight: reelHeight, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, backgroundColor: theme.bg }}>
@@ -421,14 +427,13 @@ export function TabAuta({
   return (
     <>
       <VroomkiPrefetch posts={posts} activeId={activeId} />
-      <VroomkiReelWarmup uri={warmupUri} />
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}
-        removeClippedSubviews={false}
-        maxToRenderPerBatch={5}
-        windowSize={9}
-        initialNumToRender={3}
+        removeClippedSubviews
+        maxToRenderPerBatch={2}
+        windowSize={3}
+        initialNumToRender={2}
         updateCellsBatchingPeriod={40}
         onLayout={(event) => {
           const next = Math.round(event.nativeEvent.layout.height);
@@ -436,30 +441,7 @@ export function TabAuta({
         }}
         data={posts}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <ReelCard
-            post={item}
-            active={reelsPlaybackActive && activeId === item.id}
-            height={reelHeight}
-            myId={myId}
-            onLike={onLike}
-            onFollowAuthor={onFollowAuthor}
-            onOpenComments={setCommentsPost}
-            onShare={setSharePost}
-            onProfile={(id) => router.push({ pathname: '/profile/[userId]', params: { userId: String(id) } })}
-            onCar={(id) => router.push({ pathname: '/profile/car-detail', params: { id: String(id) } })}
-            onMore={openMore}
-            onOpenSound={(soundId) => {
-              suspendPlayback();
-              router.push(`/Community/vroomki/sound/${soundId}`);
-            }}
-            onCompletedView={(post, watchMs) => {
-              viewedRef.current.add(post.id);
-              if (post.id < 0) return;
-              onView(post.id, watchMs, true);
-            }}
-          />
-        )}
+        renderItem={renderReel}
         pagingEnabled
         disableIntervalMomentum
         snapToInterval={reelHeight}
@@ -468,10 +450,6 @@ export function TabAuta({
         onScrollBeginDrag={(event) => {
           const idx = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
           dragStartIndexRef.current = idx;
-          const next = posts[idx + 1]?.videos[0];
-          const prev = posts[idx - 1]?.videos[0];
-          if (next) priorityPrefetchVroomkiVideo(next);
-          if (prev) priorityPrefetchVroomkiVideo(prev);
         }}
         onMomentumScrollEnd={(event) => {
           const rawIndex = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
@@ -482,6 +460,7 @@ export function TabAuta({
           }
           const nextPost = posts[targetIndex];
           if (nextPost) setActiveId(nextPost.id);
+          prefetchAroundIndex(targetIndex);
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshingC} onRefresh={onRefresh} tintColor="#e33835" />}

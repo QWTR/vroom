@@ -82,6 +82,7 @@ export interface VroomkiPost {
   caption: string;
   photos: string[];
   videos: string[];
+  videoThumbnailUrl?: string | null;
   mediaType: 'photo' | 'video' | string;
   createdAt: string;
   author: Author;
@@ -120,6 +121,8 @@ export interface VroomkiPost {
   photoDurationMs?: number;
   clipStartMs?: number;
   clipDurationMs?: number | null;
+  /** Informacyjne — playback zawsze z jednego pliku MP4 z serwera */
+  audioBaked?: boolean;
 }
 export interface VroomkiComment {
   id: number;
