@@ -1013,7 +1013,7 @@ export default function SettingsScreen() {
           <View
             style={{
               position: 'absolute',
-              top: 52,
+              top: insets.top + 8,
               right: 20,
               flexDirection: 'row',
               alignItems: 'center',

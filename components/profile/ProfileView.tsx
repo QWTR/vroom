@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, RefreshControl,
-  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert,
+  Image, Animated, Dimensions, StatusBar, Modal, Switch, ActivityIndicator, StyleSheet, Easing, FlatList, Alert, Platform,
 } from 'react-native';
 import { LinearGradient }           from 'expo-linear-gradient';
 import MaterialIcons                from '@expo/vector-icons/MaterialIcons';
@@ -51,6 +51,7 @@ import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtr
 import { ExplorationCoverageMap } from './ExplorationCoverageMap';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../../constants/config';
+import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/screenHeaderInsets';
 
 type ProfileSurface = { text: string; textDim: string; surface: string; border: string; bg: string; border2?: string; primaryBg?: string };
 type ProfileVroomkiPost = {
@@ -272,6 +273,8 @@ export default function ProfileView({
   onBannerChange, bannerUploading = false,
   activityHistory = [], monthlyStats = [], monthlyCompare = null,
 }: Props) {
+  const headerTop = useScreenHeaderTop(8);
+  const scrollBottomPad = useScreenScrollBottomPadding({ inTab: !onBack });
   const { theme: appTheme, isDark } = useTheme();
   const { settings } = useSettings();
   const premiumActive = !!isPremium;
@@ -593,7 +596,7 @@ export default function ProfileView({
 
   return (
     <>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent={Platform.OS === 'android'} />
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* ══ KINOWY BANER — 70% ekranu, absolute, fade w theme.bg ══ */}
       <View
@@ -627,7 +630,7 @@ export default function ProfileView({
 
       <ScrollView
         style={{ flex: 1, backgroundColor: 'transparent', zIndex: 1 }}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: scrollBottomPad }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={onRefresh} tintColor="#e33835" colors={['#e33835']} />}
       >
@@ -640,14 +643,14 @@ export default function ProfileView({
               position:              'relative',
               justifyContent:        'flex-end',
               alignItems:            'center',
-              paddingTop:            52,
+              paddingTop:            headerTop,
               paddingBottom:         28,
             },
             heroFloatStyle,
           ]}
         >
           {/* Top bar */}
-          <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 }}>
+          <View style={{ position: 'absolute', top: headerTop, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {onBack ? (
                 <TouchableOpacity

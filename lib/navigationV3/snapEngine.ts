@@ -240,6 +240,18 @@ export function computeTravelHeadingDeg(
     }
   }
 
+  // iOS: sparse GPS fixes — use device course when coords haven't moved enough.
+  if (
+    tripActive
+    && speedKmh >= NAV_V3.IOS_COURSE_FALLBACK_MIN_SPEED_KMH
+    && raw.headingDeg != null
+    && Number.isFinite(raw.headingDeg)
+    && raw.headingDeg >= 0
+  ) {
+    const hdg = safeHeadingDeg(raw.headingDeg, locked);
+    return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };
+  }
+
   if (tripActive) {
     const hdg = safeHeadingDeg(locked, safeHeadingDeg(fallbackDeg, 0));
     return { headingDeg: hdg, lockedTravelHeadingDeg: hdg };

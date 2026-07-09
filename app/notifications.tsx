@@ -10,6 +10,7 @@ import Toast from 'react-native-toast-message';
 import { emitFriendInviteHandled } from '../lib/friendInviteEvents';
 import { useTheme } from '../contexts/ThemeContext';
 import { API_URL } from '../constants/config';
+import { useScreenHeaderTop } from '../lib/screenHeaderInsets';
 
 const CHAT_API = `${API_URL}/api/chat`;
 
@@ -38,6 +39,7 @@ function parseData(data: unknown): Record<string, unknown> | null {
 export default function NotificationsScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
   const [rows, setRows]       = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -246,7 +248,7 @@ export default function NotificationsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <View style={{ paddingTop: 52, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.border }}>
+      <View style={{ paddingTop: headerTop, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.border }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 6 }}>
           <MaterialIcons name="arrow-back" size={22} color={theme.text} />
         </TouchableOpacity>

@@ -42,7 +42,6 @@ const TabIcon = ({
 
   return (
     <View style={styles.wrapper}>
-      <Animated.View style={[styles.topBar, { opacity: glowAnim, backgroundColor: theme.primary }]} />
       <Animated.View style={[
         styles.iconBg,
         { transform: [{ scale: scaleAnim }] },
@@ -145,10 +144,14 @@ export default function TabLayout() {
           paddingTop:       10,
           paddingHorizontal: 0,
           elevation:        0,
+          overflow:         'hidden',
         },
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
-            <BlurView tint={isDark ? 'dark' : 'light'} intensity={70} style={StyleSheet.absoluteFill} />
+            <View style={StyleSheet.absoluteFill}>
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBg, opacity: 0.92 }]} />
+              <BlurView tint={isDark ? 'dark' : 'light'} intensity={90} style={StyleSheet.absoluteFill} />
+            </View>
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.tabBg }]} />
           ),
@@ -184,7 +187,6 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   wrapper:  { width: TAB_WIDTH, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 6 },
-  topBar:   { position: 'absolute', top: 0, width: 28, height: 2.5, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
   iconBg:   { width: 42, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent', backgroundColor: 'transparent' },
   label:    { fontSize: 8.5, fontFamily: 'Orbitron', letterSpacing: 0.2, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
 });

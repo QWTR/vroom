@@ -22,11 +22,13 @@ import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
 import { DistanceModal }   from '../../components/spots/DistanceModal';
 import { SpotMapLayers } from '../../components/spots/SpotMapLayers';
 import { SpotCategorySpriteGenerator } from '../../components/spots/SpotCategorySpriteGenerator';
+import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 
 type PickingState = 'idle' | 'picking';
 
 export default function SpotMap() {
   const mapRef = useRef<Mapbox.MapView>(null);
+  const headerTop = useScreenHeaderTop(8);
   // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
   const cameraRef = useRef<Mapbox.Camera>(null);
   const { theme, isDark, presetId } = useTheme();
@@ -203,7 +205,7 @@ export default function SpotMap() {
       {/* GÓRNY PASEK */}
       {picking === 'idle' && (
         <>
-          <View style={{ position: 'absolute', top: 52, left: 16, right: 16, flexDirection: 'row', gap: 8 }}>
+          <View style={{ position: 'absolute', top: headerTop, left: 16, right: 16, flexDirection: 'row', gap: 8 }}>
 
             {/* Dystans */}
             <TouchableOpacity
@@ -333,7 +335,7 @@ export default function SpotMap() {
       {/* BANNER — picking */}
       {picking === 'picking' && (
         <View style={{
-          position: 'absolute', top: 52, left: 16, right: 16,
+          position: 'absolute', top: headerTop, left: 16, right: 16,
           flexDirection: 'row', alignItems: 'center', gap: 10,
           backgroundColor: panelBg, borderRadius: 14,
           paddingHorizontal: 14, paddingVertical: 12,

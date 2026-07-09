@@ -8,6 +8,7 @@ import { resolveStandardMapStyle, MAPBOX_TOKEN } from '../../constants/mapConfig
 import { useProfile } from '../../hooks/useProfile';
 import { snapHistoryRouteToRoad } from '../../scripts/snapHistoryRoute';
 import { filterVisibleRideHistory } from '../../lib/activityHistoryFilter';
+import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
@@ -108,6 +109,7 @@ function sanitizeAndDownsampleRoutePoints(points: any[]): [number, number][] {
 export default function HistoryRidesScreen() {
   const router = useRouter();
   const { theme, isDark, presetId } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
   const { activityHistory, fetchActivityHistory } = useProfile();
   const cameraRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
@@ -221,7 +223,7 @@ export default function HistoryRidesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 54, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: headerTop, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface }}>
           <MaterialIcons name="arrow-back" size={20} color={theme.text} />
         </TouchableOpacity>

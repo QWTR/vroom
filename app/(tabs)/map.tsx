@@ -2101,6 +2101,7 @@ function MapScreenInner() {
     () => getTripCameraPadding(isNavigating),
     [isNavigating],
   );
+  const useNativeTripFollow = cameraV3.useNativeTripFollow;
 
   const tripBootstrapPose = useCallback((
     lat: number,
@@ -12720,11 +12721,11 @@ if (appStateRef.current === 'active') {
             }
           }}
         >
-          <TripCameraLocationProvider enabled={isTripActiveMap && cameraV3.nativeFollowEnabled} marker={driveMarker} />
+          <TripCameraLocationProvider enabled={isTripActiveMap && useNativeTripFollow} marker={driveMarker} />
           <Mapbox.Camera
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}
-            followUserLocation={isTripActiveMap && cameraV3.nativeFollowEnabled}
+            followUserLocation={isTripActiveMap && useNativeTripFollow}
             followUserMode={Mapbox.UserTrackingMode.FollowWithCourse}
             followZoomLevel={18.2}
             followPitch={isNavigating ? 62 : 58}

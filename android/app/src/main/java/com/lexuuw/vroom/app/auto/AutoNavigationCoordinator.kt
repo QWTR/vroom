@@ -64,10 +64,6 @@ object AutoNavigationCoordinator {
 
     fun onAutoDriveRequested() {
         autoDriveEnabled = true
-        val context = carContext ?: return
-        if (navigationActive || VroomCarManager.hasActiveRouteSurface()) {
-            AutoDriveSimulator.start(context)
-        }
     }
 
     fun handleNavigationIntent(context: CarContext, intent: Intent?) {

@@ -12,6 +12,7 @@ import { API_URL }               from '../../constants/config';
 import { useTheme }              from '../../contexts/ThemeContext';
 import { useEffectivePremium }   from '../../hooks/useEffectivePremium';
 import { PhotoGalleryModal }     from '../../components/spots/PhotoGalleryModal';
+import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -46,6 +47,7 @@ interface CarComment {
 export default function CarDetailScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
   const { isPremium } = useEffectivePremium();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -148,7 +150,7 @@ export default function CarDetailScreen() {
       <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: 80 }}>
 
         {/* NAGŁÓWEK */}
-        <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <View style={{ paddingTop: headerTop, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <TouchableOpacity onPress={() => router.back()}>
             <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
           </TouchableOpacity>

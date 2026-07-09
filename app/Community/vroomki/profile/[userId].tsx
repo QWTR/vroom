@@ -25,6 +25,7 @@ import { mergeProfilePremiumExtras, type ProfileGradientSpec, type ProfilePremiu
 import type { UserShopCosmetics } from '../../../../constants/shopCosmetics';
 import { ShopAvatarDecoration } from '../../../../components/shop/ShopAvatarDecoration';
 import type { VroomkiPost } from '../../community/communityShared';
+import { useScreenHeaderTop } from '../../../../lib/screenHeaderInsets';
 
 type VroomkiProfileResponse = {
   user: {
@@ -96,6 +97,7 @@ export default function VroomkiProfileScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ userId?: string }>();
   const userId = Number(params.userId);
+  const headerTop = useScreenHeaderTop(8);
 
   const [data, setData] = useState<VroomkiProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -228,7 +230,7 @@ export default function VroomkiProfileScreen() {
             style={StyleSheet.absoluteFillObject}
           />
         </View>
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: headerTop }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
             <MaterialIcons name="arrow-back" size={26} color="#fff" />
           </TouchableOpacity>

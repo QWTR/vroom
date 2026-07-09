@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { Platform } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import {
   runOnJS,
@@ -48,6 +49,10 @@ const MIN_COURSE_SPEED_KMH = NAV_V3.CAMERA_COG_MIN_SPEED_KMH;
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
 const CAMERA_MOVING_SKIP_KMH = 2;
+/** iOS: natywny FollowWithCourse + CustomLocationProvider nie obraca/nie centruje kamery — setCamera. */
+const IOS_PROGRAMMATIC_TRIP_CAMERA = Platform.OS === 'ios';
+const IOS_CAMERA_MIN_INTERVAL_MS = 66;
+const IOS_CAMERA_MAX_ANIM_MS = 480;
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -180,6 +185,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
   /** Bootstrap przed React enabled — nie czyść lastSent w useEffect. */
   const tripFollowPrearmedRef = useRef(false);
   const nativeFollowResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastIosCameraApplyMsRef = useRef(0);
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
@@ -284,6 +290,11 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lastCameraPushMsSv.value = 0;
     coldStartFollowPendingRef.current = true;
   }, [enabled, isTripMode, followEnabledSv, lastCameraPushMsSv, lastSentReadySv, release]);
+
+  useEffect(() => {
+    if (!enabled || !isTripMode) return;
+    cachedPaddingRef.current = getTripCameraPadding(isNavigating);
+  }, [enabled, isNavigating, isTripMode]);
 
   /** Utrzymuj speedKmhSv dla adaptacyjnego throttlingu na worklecie. */
   useEffect(() => {
@@ -453,15 +464,41 @@ export function useCameraV3(opts: UseCameraV3Options) {
       return;
     }
 
-    // The trip camera position is driven by Mapbox native follow using the
-    // marker-backed CustomLocationProvider. Do not send per-GPS setCamera
-    // centers here, because that creates the visible move-stop-move cycle.
+    if (IOS_PROGRAMMATIC_TRIP_CAMERA) {
+      const padding = cachedPaddingRef.current ?? getTripCameraPadding(isNavigating);
+      const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
+      const minInterval = hardSnap ? 0 : (speedKmh >= 50 ? IOS_CAMERA_MIN_INTERVAL_MS : 90);
+      if (!hardSnap && now - lastIosCameraApplyMsRef.current < minInterval) {
+        return;
+      }
+      let animMs = 0;
+      if (!hardSnap) {
+        const segMs = Number.isFinite(_segmentDurationMs) && _segmentDurationMs > 0
+          ? _segmentDurationMs
+          : speedKmh >= 60 ? 320 : 400;
+        animMs = Math.min(Math.max(segMs, 280), IOS_CAMERA_MAX_ANIM_MS);
+      }
+      lastIosCameraApplyMsRef.current = now;
+      (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
+        centerCoordinate: [lng, lat],
+        heading: displayHeading,
+        zoomLevel: zoom ?? BROWSE_ZOOM,
+        pitch,
+        padding,
+        animationDuration: animMs,
+        animationMode: hardSnap ? 'linear' : 'easeTo',
+      });
+    }
+
+    // Android: natywny follow przez CustomLocationProvider (bez setCamera center).
     coldStartFollowPendingRef.current = false;
     markSentPose(lat, lng, displayHeading, zoom ?? BROWSE_ZOOM, now);
     lastCameraPushMsSv.value = now;
   }, [
+    cameraRef,
     enabled,
     followEnabledSv,
+    isNavigating,
     isPaused,
     isTripMode,
     lastCameraPushMsSv,
@@ -677,6 +714,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     smoothedCameraHeading: smoothedCameraHeadingSv,
     targetCameraHeading: targetCameraHeadingSv,
     nativeFollowEnabled,
+    useNativeTripFollow: !IOS_PROGRAMMATIC_TRIP_CAMERA && nativeFollowEnabled,
   };
 }
 

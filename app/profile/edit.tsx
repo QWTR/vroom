@@ -11,11 +11,13 @@ import Toast             from 'react-native-toast-message';
 import { useProfile }    from '../../hooks/useProfile';
 import { useTheme }      from '../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
+import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 import { POLISH_PROVINCES } from '../../constants/provinces';
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
   const { profile, loading, avatarLoading, fetchProfile, updateProfile, uploadAvatar } = useProfile();
 
   const [username,    setUsername]    = useState('');
@@ -98,7 +100,7 @@ export default function EditProfileScreen() {
     <ScrollView style={{ flex: 1, backgroundColor: theme.bgAlt, paddingHorizontal: '5%' }} contentContainerStyle={{ paddingBottom: scrollPaddingBottom }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
       {/* NAGŁÓWEK */}
-      <View style={{ marginTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+      <View style={{ paddingTop: headerTop, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={{ fontFamily: 'Orbitron', color: theme.primary, fontSize: 12 }}>← Wróć</Text>
         </TouchableOpacity>

@@ -35,6 +35,7 @@ import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper } from '../../compon
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
 import { ExplorationCoverageMap } from '../../components/profile/ExplorationCoverageMap';
+import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/screenHeaderInsets';
 
 const RED = '#e33835';
 
@@ -114,6 +115,8 @@ export default function PublicProfileScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { isDark } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
+  const scrollBottomPad = useScreenScrollBottomPadding();
 
   const [profile,       setProfile]       = useState<PublicProfile | null>(null);
   const [cars,          setCars]          = useState<PublicCar[]>([]);
@@ -666,7 +669,7 @@ export default function PublicProfileScreen() {
 
         <ScrollView
           style={{ flex: 1, backgroundColor: 'transparent', zIndex: 1 }}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: scrollBottomPad }}
           showsVerticalScrollIndicator={false}
         >
           {/* ══ HERO — wyśrodkowana tożsamość ══ */}
@@ -676,14 +679,14 @@ export default function PublicProfileScreen() {
               position: 'relative',
               justifyContent: 'flex-end',
               alignItems: 'center',
-              paddingTop: 52,
+              paddingTop: headerTop,
               paddingBottom: 28,
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }],
             }}
           >
             {/* Top bar */}
-            <View style={{ position: 'absolute', top: 52, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', zIndex: 2 }}>
+            <View style={{ position: 'absolute', top: headerTop, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', zIndex: 2 }}>
               <TouchableOpacity
                 onPress={handleBack}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

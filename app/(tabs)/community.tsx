@@ -17,6 +17,7 @@ import {
   CommunityModuleCardList,
   type CommunityModuleItem,
 } from '../../components/community';
+import { useTabScrollBottomPadding } from '../../lib/screenHeaderInsets';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QUICK_CARD_W = (SCREEN_W - 16 * 2 - 12) / 2;
@@ -107,6 +108,7 @@ export default function Community() {
   const { animations } = useAppAnimations(['community_daily_duel_vs']);
   const duelVsAnimation = pickAppAnimationForValue(animations, 'community_daily_duel_vs');
   const insets = useSafeAreaInsets();
+  const tabScrollBottomPad = useTabScrollBottomPadding(16);
   const { duel, loading: duelLoading } = useDailyDuel(30000);
 
   const bgGradient = chrome.pageGradient;
@@ -131,7 +133,7 @@ export default function Community() {
       />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: insets.top + 12 }}
+        contentContainerStyle={{ paddingBottom: tabScrollBottomPad, paddingTop: insets.top + 12 }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>

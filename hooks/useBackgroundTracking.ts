@@ -13,6 +13,8 @@ import {
   stopVroomBgForegroundNotification,
 } from '../lib/vroomBgForegroundService';
 import { BackgroundDriveController } from '../lib/backgroundDriveController';
+import { ingestGamificationPing } from '../lib/gamificationClient';
+import type { NavMode } from '../lib/navigationV3/types';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
@@ -99,6 +101,10 @@ const BG_APP_ACTIVE_HEARTBEAT_MS = 30_000;
 export const BG_IS_NAVIGATING_KEY      = 'bg_is_navigating';
 // Flag: 'true' when driving mode is active — keep one continuous trip session
 export const BG_IS_DRIVING_KEY         = 'bg_is_driving';
+const BG_LAST_INGEST_LOC_KEY           = 'bg_last_ingest_loc';
+const BG_LAST_INGEST_AT_KEY            = 'bg_last_ingest_at';
+const BG_INGEST_REFRESH_MS             = 8_000;
+const BG_INGEST_MIN_MOVE_M             = 8;
 export const TRIP_SESSION_ID_KEY       = 'active_trip_session_id';
 export const TRIP_SESSION_STARTED_AT_KEY = 'active_trip_session_started_at';
 const BG_LAST_FIX_MAX_GAP_SEC   = 420;
@@ -606,6 +612,52 @@ export async function recordDrivingTracePoint(
   }
 }
 
+async function maybeIngestGamificationInBackground(
+  latitude: number,
+  longitude: number,
+  speedMs: number | null | undefined,
+  headingDeg: number | null | undefined,
+): Promise<void> {
+  const [navFlag, driveFlag] = await Promise.all([
+    AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+    AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+  ]);
+  if (navFlag !== 'true' && driveFlag !== 'true') return;
+
+  const mode: NavMode = navFlag === 'true' ? 'navigation' : 'freeDrive';
+  const now = Date.now();
+  const lastAt = Number(await AsyncStorage.getItem(BG_LAST_INGEST_AT_KEY) ?? 0);
+  const lastRaw = await AsyncStorage.getItem(BG_LAST_INGEST_LOC_KEY);
+  let movedEnough = true;
+  if (lastRaw) {
+    try {
+      const last = JSON.parse(lastRaw) as { lat?: number; lng?: number };
+      const lastLat = Number(last?.lat);
+      const lastLng = Number(last?.lng);
+      if (Number.isFinite(lastLat) && Number.isFinite(lastLng)) {
+        const movedM = haversineKm(lastLat, lastLng, latitude, longitude) * 1000;
+        movedEnough = movedM >= BG_INGEST_MIN_MOVE_M;
+      }
+    } catch {
+      movedEnough = true;
+    }
+  }
+  if (!movedEnough && now - lastAt < BG_INGEST_REFRESH_MS) return;
+
+  await ingestGamificationPing({
+    lat: latitude,
+    lng: longitude,
+    mode,
+    headingDeg: headingDeg ?? null,
+    speedKmh: speedMs != null && speedMs >= 0 ? speedMs * 3.6 : null,
+    ts: now,
+  });
+  await Promise.all([
+    AsyncStorage.setItem(BG_LAST_INGEST_LOC_KEY, JSON.stringify({ lat: latitude, lng: longitude })),
+    AsyncStorage.setItem(BG_LAST_INGEST_AT_KEY, String(now)),
+  ]);
+}
+
 // ── BG task ───────────────────────────────────────────────────────────────────
 // Hard rule: gdy użytkownik wyłączył „Śledzenie w tle" w ustawieniach, BG task
 // MUSI być nieaktywny niezależnie od jazdy/nawigacji/share. Wcześniej navFlag/
@@ -627,7 +679,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     const token = await getAuthToken();
     if (!token) return;
 
-    const { latitude, longitude, speed, accuracy } = location.coords;
+    const { latitude, longitude, speed, accuracy, heading } = location.coords;
 
     // ── Send live location only when sharing is active (Ghost = zero POST) ─
     const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
@@ -770,6 +822,13 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       time: nowMs,
       accuracy: accuracy ?? null,
     }));
+
+    await maybeIngestGamificationInBackground(
+      latitude,
+      longitude,
+      speed,
+      heading ?? null,
+    );
   } catch (e) {
     console.log('BG task error:', e);
   }
@@ -1155,8 +1214,13 @@ export function useBackgroundTracking(
       if (fg !== 'granted') return;
       const { status: bg } = await Location.requestBackgroundPermissionsAsync();
       if (bg !== 'granted') return;
-      const [navFlag, stationaryFlag] = [navFlagBeforeStart, stationaryFlagBeforeStart];
+      const [navFlag, stationaryFlag, driveFlag] = await Promise.all([
+        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
+        AsyncStorage.getItem(BG_GPS_STATIONARY_KEY),
+        AsyncStorage.getItem(BG_IS_DRIVING_KEY),
+      ]);
       const isNavigatingBg = navFlag === 'true';
+      const isDrivingBg = driveFlag === 'true';
       const isStationaryBg = stationaryFlag === 'true';
       const tripSessionId = await ensureTripSessionId();
       await BackgroundDriveController.start(isNavigatingBg ? 'navigation' : 'freeDrive', tripSessionId);
@@ -1174,7 +1238,7 @@ export function useBackgroundTracking(
         return;
       }
 
-      const highCadence = isSharing || (forceEnabled && (isNavigatingBg || !isStationaryBg));
+      const highCadence = isSharing || isNavigatingBg || isDrivingBg || (forceEnabled && !isStationaryBg);
       const cadenceKey: 'high' | 'low' = highCadence ? 'high' : 'low';
 
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
@@ -1189,7 +1253,7 @@ export function useBackgroundTracking(
         distanceInterval: highCadence ? 10 : 35,
         timeInterval:     highCadence ? 5000 : 20000,
         showsBackgroundLocationIndicator: true,
-        ...(Platform.OS === 'ios'
+        ...(Platform.OS === 'android'
           ? {
               foregroundService: {
                 notificationTitle: 'VROOM — statystyki jazdy',
@@ -1197,12 +1261,17 @@ export function useBackgroundTracking(
                 notificationColor: '#e33835',
                 killServiceOnDestroy: false,
               },
-              pausesUpdatesAutomatically: !highCadence,
-              activityType: Location.ActivityType.AutomotiveNavigation,
-              deferredUpdatesInterval: highCadence ? 10_000 : 30_000,
-              deferredUpdatesDistance: highCadence ? 40 : 120,
             }
-          : {}),
+          : {
+              pausesUpdatesAutomatically: false,
+              activityType: Location.ActivityType.AutomotiveNavigation,
+              ...(highCadence
+                ? {}
+                : {
+                    deferredUpdatesInterval: 30_000,
+                    deferredUpdatesDistance: 120,
+                  }),
+            }),
       });
       lastBgCadenceRef.current = cadenceKey;
       telemetryRef.current.bgStarts += 1;

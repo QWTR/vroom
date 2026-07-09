@@ -1,4 +1,6 @@
 /** V3 navigation constants — keep in sync with snapEngine + useDriveMarkerV3. */
+import { Platform } from 'react-native';
+
 export const NAV_V3 = {
   MARKER_MAX_HEADING_DPS: 90,
   MARKER_MIN_CRUISE_MS: 0.5,
@@ -22,7 +24,9 @@ export const NAV_V3 = {
   INTERSECTION_TURN_CROSS_TRACK_M: 20,
   /** Heading lock — bez kompasu poniżej tej prędkości (km/h). */
   TRAVEL_HEADING_LOCK_SPEED_KMH: 2.5,
-  TRAVEL_HEADING_MIN_MOVE_M: 2.5,
+  TRAVEL_HEADING_MIN_MOVE_M: Platform.OS === 'ios' ? 1.0 : 2.5,
+  /** iOS Doppler course fallback when lat/lng lag between fixes (km/h). */
+  IOS_COURSE_FALLBACK_MIN_SPEED_KMH: 15,
   /** COG z surowego GPS — poniżej tego progu heading lock. */
   CAMERA_COG_MIN_SPEED_KMH: 3,
   /** Adaptacyjny throttle setCamera (ms) — szybko / średnio / wolno. */

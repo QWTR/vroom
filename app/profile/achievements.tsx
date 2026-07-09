@@ -17,11 +17,13 @@ import {
 import { GLASS_SHADOW } from '../../components/profile/profileCardTheme';
 import AchievementBox from '../../components/profile/AchievementBox';
 import { RarityDivider, AchievementGrid } from '../../components/profile/AchievementsPreviewSection';
+import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 
 export default function AchievementsScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId?: string }>();
   const { theme } = useTheme();
+  const headerTop = useScreenHeaderTop(8);
   const { achievements, loading, fetchMyAchievements, fetchAchievements } = useAchievements();
   const [showLocked, setShowLocked] = useState(false);
 
@@ -56,7 +58,7 @@ export default function AchievementsScreen() {
       <View style={{
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: 56,
+        paddingTop: headerTop,
         paddingHorizontal: 16,
         paddingBottom: 14,
         borderBottomWidth: 1,

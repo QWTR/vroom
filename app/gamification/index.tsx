@@ -162,7 +162,7 @@ export default function GamificationScreen() {
                 </Text>
               </View>
             </View>
-            <ExplorationCoverageMap height={260} limit={1500} interactive />
+            <ExplorationCoverageMap height={260} limit={1500} interactive autoRefreshMs={15_000} />
           </View>
 
           <View style={styles.quickGrid}>

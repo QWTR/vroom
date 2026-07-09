@@ -49,6 +49,7 @@ import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
 import { StreakUnlockFx } from "../../components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTabScrollBottomPadding } from "../../lib/screenHeaderInsets";
 
 const { width, height } = Dimensions.get("window");
 
@@ -133,6 +134,7 @@ export default function HomeScreen() {
 	const isFocused = useIsFocused();
 	const { theme, isDark } = useTheme();
 	const insets = useSafeAreaInsets();
+	const tabScrollBottomPad = useTabScrollBottomPadding(16);
 	const {
 		isLoading: premiumLoading,
 		refreshPremiumStatus,
@@ -631,7 +633,7 @@ export default function HomeScreen() {
 			<LinearGradient colors={pageBg} style={{ flex: 1 }}>
 			<ScrollView
 				style={{ flex: 1, backgroundColor: "transparent" }}
-				contentContainerStyle={{ paddingBottom: 40 }}
+				contentContainerStyle={{ paddingBottom: tabScrollBottomPad }}
 				showsVerticalScrollIndicator={false}
 				refreshControl={
 					<RefreshControl
