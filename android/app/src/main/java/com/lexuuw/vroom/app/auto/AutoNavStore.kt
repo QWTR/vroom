@@ -1,6 +1,7 @@
 package com.lexuuw.vroom.app.auto
 
 import android.content.Context
+import android.location.Geocoder
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -554,7 +555,7 @@ object AutoNavStore {
     val origin = currentOrigin(context, SEARCH_ORIGIN_MAX_AGE_MS)
     val lat = origin?.first ?: 0.0
     val lng = origin?.second ?: 0.0
-    if (token.isBlank()) return emptyList()
+    if (token.isBlank()) return searchPlacesLocal(context, cleaned, limit)
     val payload = JSONObject().apply {
       put("query", cleaned)
       put("limit", limit.coerceIn(1, 15))
@@ -572,13 +573,81 @@ object AutoNavStore {
     return parseSearchFeatures(features)
   }
 
+  private fun searchPlacesLocal(context: Context, query: String, limit: Int): List<AutoSearchPlace> {
+    if (!Geocoder.isPresent()) return emptyList()
+    val origin = currentOrigin(context, SEARCH_ORIGIN_MAX_AGE_MS)
+    val geocoder = Geocoder(context, java.util.Locale("pl", "PL"))
+    val maxResults = limit.coerceIn(1, 6)
+    @Suppress("DEPRECATION")
+    val results = runCatching {
+      if (origin != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        geocoder.getFromLocationName(
+          query,
+          maxResults,
+          origin.first - 0.45,
+          origin.second - 0.45,
+          origin.first + 0.45,
+          origin.second + 0.45,
+        )
+      } else {
+        geocoder.getFromLocationName(query, maxResults)
+      }
+    }.getOrNull().orEmpty()
+    return results.mapIndexed { index, address ->
+      AutoSearchPlace(
+        id = "local-$index-${address.latitude}-${address.longitude}",
+        name = address.featureName?.takeIf { it.isNotBlank() }
+          ?: address.locality?.takeIf { it.isNotBlank() }
+          ?: query,
+        address = listOfNotNull(
+          address.thoroughfare,
+          address.subThoroughfare,
+          address.locality,
+          address.countryName,
+        ).joinToString(", ").ifBlank { query },
+        lat = address.latitude,
+        lng = address.longitude,
+      )
+    }.filter { it.lat.isFinite() && it.lng.isFinite() }
+  }
+
   fun startNavigationToPlace(context: Context, place: AutoSearchPlace): Boolean =
     startRoutePreviewToPlace(context, place)
+
+  fun startRoutePreviewToQuery(context: Context, query: String): Boolean {
+    val results = searchPlaces(context, query, limit = 6)
+    if (results.isEmpty()) return false
+    return startRoutePreviewToPlace(context, results.first())
+  }
+
+  fun startRoutePreviewToCoordinates(
+    context: Context,
+    lat: Double,
+    lng: Double,
+    name: String,
+  ): Boolean {
+    if (!lat.isFinite() || !lng.isFinite()) return false
+    return startRoutePreviewToPlace(
+      context,
+      AutoSearchPlace(
+        id = "intent-${formatCoord(lat)}-${formatCoord(lng)}",
+        name = name.ifBlank { "Cel" },
+        address = "",
+        lat = lat,
+        lng = lng,
+      ),
+    )
+  }
 
   fun startRoutePreviewToPlace(context: Context, place: AutoSearchPlace): Boolean {
     val p = prefs(context)
     val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val (lat, lng) = routeOrigin(context) ?: return false
+    val origin = routeOrigin(context) ?: if (place.lat.isFinite() && place.lng.isFinite()) {
+      place.lat + 0.01 to place.lng + 0.01
+    } else {
+      return false
+    }
+    val (lat, lng) = origin
     if (!place.lat.isFinite() || !place.lng.isFinite()) return false
     val (fromSpeed, fromHeading) = currentSpeedHeading(context)
 

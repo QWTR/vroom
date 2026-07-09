@@ -13,6 +13,8 @@ class VroomCarSession : Session() {
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
+                VroomCarManager.clearCarContext()
+                AutoNavigationCoordinator.detach()
                 AutoLocationTracker.stop()
                 VroomCarManager.clearScreen()
                 carScreen = null
@@ -21,6 +23,8 @@ class VroomCarSession : Session() {
     }
 
     override fun onCreateScreen(intent: Intent): Screen {
+        AutoNavigationCoordinator.attach(carContext)
+        VroomCarManager.setCarContext(carContext)
         VroomCarManager.setAppContext(carContext)
         val screen = VroomCarScreen(carContext)
         screen.setNightModeActive(carContext.resources.configuration.isNightModeActive())
@@ -28,7 +32,14 @@ class VroomCarSession : Session() {
         VroomCarManager.setScreen(screen)
         AutoLocationTracker.start(carContext)
         AutoNavStore.refreshFromBackendIfNeeded(carContext)
+        val pendingIntent = AutoPendingNavigation.consumeIntent(carContext)
+        AutoNavigationCoordinator.handleNavigationIntent(carContext, pendingIntent ?: intent)
+        VroomCarManager.dispatchPendingNavigation(carContext)
         return screen
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        AutoNavigationCoordinator.handleNavigationIntent(carContext, intent)
     }
 
     override fun onCarConfigurationChanged(newConfiguration: Configuration) {

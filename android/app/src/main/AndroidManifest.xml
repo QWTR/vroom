@@ -50,6 +50,7 @@
       <intent-filter>
         <action android:name="androidx.car.app.CarAppService"/>
         <category android:name="androidx.car.app.category.NAVIGATION"/>
+        <category android:name="androidx.car.app.category.FEATURE_CLUSTER"/>
       </intent-filter>
     </service>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
@@ -64,7 +65,28 @@
         <data android:scheme="vroom"/>
         <data android:scheme="exp+vroom"/>
       </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.car.app.action.NAVIGATE"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:scheme="geo"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.NAVIGATE"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:scheme="geo"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:scheme="geo"/>
+      </intent-filter>
     </activity>
+    <receiver android:name=".auto.AutoDriveReceiver" android:exported="true">
+      <intent-filter>
+        <action android:name="com.lexuuw.vroom.app.action.ENABLE_AUTO_DRIVE"/>
+        <action android:name="com.lexuuw.vroom.app.action.TEST_NAVIGATION"/>
+      </intent-filter>
+    </receiver>
     <receiver android:name=".bg.BgTrackingStopReceiver" android:exported="false">
       <intent-filter>
         <action android:name="com.lexuuw.vroom.app.action.BG_TRACKING_END"/>

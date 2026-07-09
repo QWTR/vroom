@@ -18,6 +18,7 @@ import com.google.android.gms.location.Priority
 
 object AutoLocationTracker {
     @Volatile private var started = false
+    @Volatile private var pausedForSimulation = false
     private var fusedClient: FusedLocationProviderClient? = null
     private var locationCallback: LocationCallback? = null
     @Volatile private var latestLat = Double.NaN
@@ -33,6 +34,14 @@ object AutoLocationTracker {
         val heading: Double,
         val ageMs: Long
     )
+
+    fun pauseForSimulation() {
+        pausedForSimulation = true
+    }
+
+    fun resumeFromSimulation() {
+        pausedForSimulation = false
+    }
 
     @SuppressLint("MissingPermission")
     fun start(context: Context) {
@@ -95,6 +104,7 @@ object AutoLocationTracker {
             PackageManager.PERMISSION_GRANTED
 
     private fun handleLocation(context: Context, location: Location) {
+        if (pausedForSimulation || AutoDriveSimulator.isRunning()) return
         val nowElapsedNanos = SystemClock.elapsedRealtimeNanos()
         val sampleElapsedNanos = location.elapsedRealtimeNanos.takeIf { it > 0L } ?: nowElapsedNanos
         val ageMs = (nowElapsedNanos - sampleElapsedNanos).coerceAtLeast(0L) / 1_000_000L

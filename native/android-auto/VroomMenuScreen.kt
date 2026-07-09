@@ -303,20 +303,30 @@ class VroomSearchCategoryScreen(carContext: CarContext) : Screen(carContext) {
     .build()
 }
 
-class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
+class VroomSearchTextScreen(
+  carContext: CarContext,
+  initialQuery: String? = null,
+) : Screen(carContext) {
   private val mainHandler = Handler(Looper.getMainLooper())
   private val resultLimit = runCatching {
     carContext
       .getCarService(ConstraintManager::class.java)
       .getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_PLACE_LIST)
   }.getOrDefault(6).coerceIn(4, 6)
-  private var searchText = ""
+  private var searchText = initialQuery?.trim().orEmpty()
   private var lastSubmitted = ""
   private var searchSeq = 0
   private var loading = false
   private var routing = false
   private var places: List<AutoSearchPlace> = emptyList()
   private var pendingSearch: Runnable? = null
+  private var initialSearchStarted = false
+
+  init {
+    initialQuery?.trim()?.takeIf { it.length >= 2 }?.let { query ->
+      mainHandler.post { scheduleSearch(query, submitOnReady = true) }
+    }
+  }
 
   override fun onGetTemplate(): Template =
     runCatching {
@@ -490,13 +500,29 @@ class VroomSearchTextScreen(carContext: CarContext) : Screen(carContext) {
       }
       .build()
 
-  private fun scheduleSearch(raw: String) {
+  private fun scheduleSearch(raw: String, submitOnReady: Boolean = false) {
     val query = raw.trim()
     pendingSearch?.let { mainHandler.removeCallbacks(it) }
     if (query.length < 2) {
       loading = false
       places = emptyList()
       invalidate()
+      return
+    }
+    if (submitOnReady && !initialSearchStarted) {
+      initialSearchStarted = true
+      lastSubmitted = query
+      loading = true
+      places = emptyList()
+      invalidate()
+      Thread {
+        val result = runCatching { AutoNavStore.searchPlaces(carContext, query) }.getOrDefault(emptyList())
+        mainHandler.post {
+          places = result
+          loading = false
+          invalidate()
+        }
+      }.start()
       return
     }
     val currentSeq = ++searchSeq

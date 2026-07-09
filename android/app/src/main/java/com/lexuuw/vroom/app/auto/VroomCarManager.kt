@@ -2,6 +2,7 @@ package com.lexuuw.vroom.app.auto
 
 import android.content.Context
 import android.util.Log
+import androidx.car.app.CarContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -29,6 +30,7 @@ object VroomCarManager {
     private var jsMirroredNativeNavigation = false
     private var nativeNavigationRouteKey: String = ""
     private var appContext: Context? = null
+    private var activeCarContext: CarContext? = null
     @Volatile private var nativeLat = Double.NaN
     @Volatile private var nativeLng = Double.NaN
     @Volatile private var nativeSpeedMs = 0.0
@@ -37,6 +39,7 @@ object VroomCarManager {
     @Volatile private var nativePoseAtMs = 0L
     @Volatile private var lastColdPayloadAt = 0L
     @Volatile private var lastNavigationArcM = 0.0
+    @Volatile private var simulationMode = false
 
     fun setScreen(screen: VroomCarScreen) {
         currentScreen = screen
@@ -46,6 +49,25 @@ object VroomCarManager {
 
     fun setAppContext(context: Context) {
         appContext = context.applicationContext
+    }
+
+    fun setCarContext(context: CarContext) {
+        activeCarContext = context
+    }
+
+    fun clearCarContext() {
+        activeCarContext = null
+    }
+
+    fun dispatchPendingNavigation(context: Context) {
+        val carContext = activeCarContext ?: return
+        val pending = AutoPendingNavigation.peekIntent(context.applicationContext) ?: return
+        AutoPendingNavigation.consumeIntent(context.applicationContext)
+        AutoNavigationCoordinator.handleNavigationIntent(carContext, pending)
+    }
+
+    fun dispatchAutoDriveRequest() {
+        AutoNavigationCoordinator.onAutoDriveRequested()
     }
 
     fun clearScreen() {
@@ -77,6 +99,15 @@ object VroomCarManager {
 
     fun hasActiveRouteSurface(): Boolean =
         nativeNavigationPayloadJson != null || nativeRoutePreviewPayloadJson != null
+
+    fun setSimulationMode(active: Boolean) {
+        simulationMode = active
+        if (active) {
+            rerouteInFlight = false
+        }
+    }
+
+    fun isSimulationMode(): Boolean = simulationMode
 
     private fun mergeNativePose(jsonPayload: String): String {
         return runCatching {
@@ -124,8 +155,10 @@ object VroomCarManager {
         lng: Double,
         speedMs: Double,
         heading: Double,
-        accuracyMeters: Float
+        accuracyMeters: Float,
+        fromSimulation: Boolean = false,
     ) {
+        if (!fromSimulation && simulationMode) return
         if (!validCoordinate(lat, lng)) return
         val now = System.currentTimeMillis()
         val cleanSpeed = if (speedMs.isFinite()) speedMs.coerceIn(0.0, 50.0) else 0.0
@@ -156,41 +189,53 @@ object VroomCarManager {
         mapState.put("speedKmh", cleanSpeed * 3.6)
         mapState.put("autoPoseActive", false)
         mapState.put("nativeAutoPose", true)
-
-        val road = NativeRoadMatcher.latestRoadJson()
-        val roadVersion = NativeRoadMatcher.latestRoadVersion()
-        if (road != null) {
-            mapState.put("nativeRoadGeometry", JSONArray(road.toString()))
-            mapState.put("autoArcWindow", JSONObject().apply {
-                put("points", JSONArray(road.toString()))
-                put("baseArcM", 0.0)
-                put("totalM", NativeRoadMatcher.latestRoadLength() ?: 0.0)
-            })
-            NativeRoadMatcher.latestMatchedArc()?.let { mapState.put("autoTargetArcM", it) }
-            mapState.put("autoRoadBlend", 1.0)
-            mapState.put("autoPathMode", "onRoad")
-            mapState.put("nativeRoadMatch", true)
-            mapState.put("nativeRoadPose", false)
-            mapState.put("nativeRoadMatchedAt", now)
-            mapState.put("nativeRoadVersion", roadVersion)
-            if (!base.optBoolean("isNavigating", false) && !mapState.optBoolean("routePreview", false)) {
-                mapState.remove("route")
-                base.remove("route")
-            }
-        } else if (NativeRoadMatcher.hasFreshBootstrapPose()) {
+        if (fromSimulation) {
+            mapState.put("simulationMode", true)
             mapState.remove("nativeRoadGeometry")
             mapState.remove("autoArcWindow")
             mapState.remove("autoTargetArcM")
             mapState.put("nativeRoadMatch", false)
-            mapState.put("nativeRoadPose", true)
-            mapState.put("nativeRoadMatchedAt", now)
-            mapState.put("nativeRoadVersion", 0)
-            if (!base.optBoolean("isNavigating", false) && !mapState.optBoolean("routePreview", false)) {
-                mapState.remove("route")
-                base.remove("route")
-            }
+            mapState.put("nativeRoadPose", false)
         } else {
-            clearExpiredNativeRoadState(base, mapState)
+            mapState.remove("simulationMode")
+        }
+
+        if (!fromSimulation) {
+            val road = NativeRoadMatcher.latestRoadJson()
+            val roadVersion = NativeRoadMatcher.latestRoadVersion()
+            if (road != null) {
+                mapState.put("nativeRoadGeometry", JSONArray(road.toString()))
+                mapState.put("autoArcWindow", JSONObject().apply {
+                    put("points", JSONArray(road.toString()))
+                    put("baseArcM", 0.0)
+                    put("totalM", NativeRoadMatcher.latestRoadLength() ?: 0.0)
+                })
+                NativeRoadMatcher.latestMatchedArc()?.let { mapState.put("autoTargetArcM", it) }
+                mapState.put("autoRoadBlend", 1.0)
+                mapState.put("autoPathMode", "onRoad")
+                mapState.put("nativeRoadMatch", true)
+                mapState.put("nativeRoadPose", false)
+                mapState.put("nativeRoadMatchedAt", now)
+                mapState.put("nativeRoadVersion", roadVersion)
+                if (!base.optBoolean("isNavigating", false) && !mapState.optBoolean("routePreview", false)) {
+                    mapState.remove("route")
+                    base.remove("route")
+                }
+            } else if (NativeRoadMatcher.hasFreshBootstrapPose()) {
+                mapState.remove("nativeRoadGeometry")
+                mapState.remove("autoArcWindow")
+                mapState.remove("autoTargetArcM")
+                mapState.put("nativeRoadMatch", false)
+                mapState.put("nativeRoadPose", true)
+                mapState.put("nativeRoadMatchedAt", now)
+                mapState.put("nativeRoadVersion", 0)
+                if (!base.optBoolean("isNavigating", false) && !mapState.optBoolean("routePreview", false)) {
+                    mapState.remove("route")
+                    base.remove("route")
+                }
+            } else {
+                clearExpiredNativeRoadState(base, mapState)
+            }
         }
 
         val navigating = base.optBoolean("isNavigating", false)
@@ -282,6 +327,7 @@ object VroomCarManager {
         lastColdPayloadAt = 0L
         sendDataToCar(jsonPayload)
         jsMirroredNativeNavigation = false
+        latestPayload()?.let { AutoNavigationCoordinator.syncFromPayload(it) }
     }
 
     fun clearNativeNavigation() {
@@ -308,6 +354,7 @@ object VroomCarManager {
             }.getOrDefault(current)
             latestPayloadJson = cleaned
             currentScreen?.updateData(cleaned)
+            AutoNavigationCoordinator.stopNavigation()
         }
     }
 
@@ -364,8 +411,9 @@ object VroomCarManager {
 
     fun startNativeRoutePreview() {
         val preview = nativeRoutePreviewPayloadJson ?: return
-        val pose = AutoLocationTracker.lastKnownPose(5_000L)
-        val preparedPreview = if (pose != null) {
+        val autoDrive = AutoNavigationCoordinator.isAutoDriveEnabled()
+        val pose = if (autoDrive) null else AutoLocationTracker.lastKnownPose(5_000L)
+        val preparedPreview = if (pose != null && !autoDrive) {
             runCatching {
                 val root = JSONObject(preview)
                 val route = root.optJSONArray("route")
@@ -399,7 +447,7 @@ object VroomCarManager {
         nativeRoutePreviewPayloadJson = null
         setNativeNavigation(navigating)
         appContext?.let { AutoNavStore.setNavigating(it, true) }
-        if (pose != null) {
+        if (pose != null && !autoDrive) {
             requestNativeReroute(pose.lat, pose.lng, pose.heading)
         }
         bridgeModule?.sendEvent("onAutoNavigationStarted", navigating)
@@ -472,6 +520,7 @@ object VroomCarManager {
     }
 
     private fun updateNativeNavigationProgress(currentLat: Double, currentLng: Double) {
+        if (simulationMode) return
         val navPayload = nativeNavigationPayloadJson ?: return
         if (!validCoordinate(currentLat, currentLng)) return
         val updated = runCatching {
@@ -555,6 +604,7 @@ object VroomCarManager {
     }
 
     fun requestNativeReroute(fromLat: Double, fromLng: Double, headingDeg: Double? = null) {
+        if (simulationMode) return
         val navPayload = nativeNavigationPayloadJson ?: return
         if (!fromLat.isFinite() || !fromLng.isFinite()) return
         val now = System.currentTimeMillis()
@@ -623,6 +673,12 @@ object VroomCarManager {
                 baseMap.put("nativeRoadMatch", false)
                 baseMap.put("isDriving", true)
             }
+            applySpeedLimitToMapState(
+                baseMap,
+                base.optJSONObject("userLocation")?.optDouble("latitude", Double.NaN),
+                base.optJSONObject("userLocation")?.optDouble("longitude", Double.NaN),
+                navigating = true,
+            )
             base.put("mapState", baseMap)
             base.toString()
         }.getOrElse { jsonPayload }
@@ -978,6 +1034,20 @@ object VroomCarManager {
         4 -> "czwartym"
         5 -> "piatym"
         else -> "${exit}."
+    }
+
+    private fun applySpeedLimitToMapState(
+        mapState: JSONObject,
+        lat: Double?,
+        lng: Double?,
+        navigating: Boolean,
+    ) {
+        val jsLimit = mapState.optInt("speedLimitKmh", 0).takeIf { it > 0 }
+        if (lat != null && lng != null && lat.isFinite() && lng.isFinite()) {
+            NativeSpeedLimitFetcher.maybeFetch(lat, lng, navigating, jsLimit)
+        }
+        val resolved = jsLimit ?: NativeSpeedLimitFetcher.currentLimit()
+        resolved?.let { mapState.put("speedLimitKmh", it) }
     }
 
     private fun polishInstruction(step: JSONObject?, maneuver: JSONObject?): String {

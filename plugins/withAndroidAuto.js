@@ -64,7 +64,77 @@ const withAndroidAutoManifest = (config) => {
         'intent-filter': [
           {
             action: [{ $: { 'android:name': 'androidx.car.app.CarAppService' } }],
-            category: [{ $: { 'android:name': 'androidx.car.app.category.NAVIGATION' } }],
+            category: [
+              { $: { 'android:name': 'androidx.car.app.category.NAVIGATION' } },
+              { $: { 'android:name': 'androidx.car.app.category.FEATURE_CLUSTER' } },
+            ],
+          },
+        ],
+      });
+    } else {
+      const service = mainApplication.service.find((entry) => entry.$?.['android:name'] === serviceName);
+      if (service) {
+        const filter = service['intent-filter']?.[0];
+        if (filter) {
+          filter.category = filter.category || [];
+          const hasCluster = filter.category.some(
+            (c) => c.$?.['android:name'] === 'androidx.car.app.category.FEATURE_CLUSTER',
+          );
+          if (!hasCluster) {
+            filter.category.push({ $: { 'android:name': 'androidx.car.app.category.FEATURE_CLUSTER' } });
+          }
+        }
+      }
+    }
+
+    mainApplication.activity = mainApplication.activity || [];
+    const mainActivity = mainApplication.activity.find((entry) => entry.$?.['android:name'] === '.MainActivity');
+    if (mainActivity) {
+      mainActivity['intent-filter'] = mainActivity['intent-filter'] || [];
+      const navigateFilters = [
+        {
+          action: [{ $: { 'android:name': 'androidx.car.app.action.NAVIGATE' } }],
+          category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+          data: [{ $: { 'android:scheme': 'geo' } }],
+        },
+        {
+          action: [{ $: { 'android:name': 'android.intent.action.NAVIGATE' } }],
+          category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+          data: [{ $: { 'android:scheme': 'geo' } }],
+        },
+        {
+          action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+          category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+          data: [{ $: { 'android:scheme': 'geo' } }],
+        },
+      ];
+      navigateFilters.forEach((filter) => {
+        const actionName = filter.action[0].$['android:name'];
+        const exists = mainActivity['intent-filter'].some((existing) =>
+          existing.action?.some((action) => action.$?.['android:name'] === actionName) &&
+          existing.data?.some((data) => data.$?.['android:scheme'] === 'geo'),
+        );
+        if (!exists) mainActivity['intent-filter'].push(filter);
+      });
+    }
+
+    const receiverName = '.auto.AutoDriveReceiver';
+    mainApplication.receiver = mainApplication.receiver || [];
+    const hasAutoDriveReceiver = mainApplication.receiver.some(
+      (entry) => entry.$?.['android:name'] === receiverName,
+    );
+    if (!hasAutoDriveReceiver) {
+      mainApplication.receiver.push({
+        $: {
+          'android:name': receiverName,
+          'android:exported': 'true',
+        },
+        'intent-filter': [
+          {
+            action: [
+              { $: { 'android:name': 'com.lexuuw.vroom.app.action.ENABLE_AUTO_DRIVE' } },
+              { $: { 'android:name': 'com.lexuuw.vroom.app.action.TEST_NAVIGATION' } },
+            ],
           },
         ],
       });
@@ -108,6 +178,12 @@ const withAndroidAutoNative = (config) => {
       fs.mkdirSync(drawableDir, { recursive: true });
 
       [
+        'AutoDriveReceiver.kt',
+        'AutoDriveSimulator.kt',
+        'AutoManeuverResolver.kt',
+        'AutoNavigationCoordinator.kt',
+        'AutoNavigationIntentHandler.kt',
+        'AutoPendingNavigation.kt',
         'AutoHudMetrics.kt',
         'AutoBridgePackage.kt',
         'AutoLocationTracker.kt',
@@ -166,6 +242,40 @@ const withAndroidAutoNative = (config) => {
           );
         }
         fs.writeFileSync(mainApplicationPath, mainApplication);
+      }
+
+      const mainActivityPath = path.join(
+        projectRoot,
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        ...packageName.split('.'),
+        'MainActivity.kt',
+      );
+      if (fs.existsSync(mainActivityPath)) {
+        let mainActivity = fs.readFileSync(mainActivityPath, 'utf8');
+        const pendingImport = `import ${packageName}.auto.AutoPendingNavigation`;
+        if (!mainActivity.includes(pendingImport)) {
+          mainActivity = mainActivity.replace(
+            'import expo.modules.ReactActivityDelegateWrapper',
+            `import expo.modules.ReactActivityDelegateWrapper\nimport ${packageName}.auto.AutoPendingNavigation`,
+          );
+        }
+        if (!mainActivity.includes('AutoPendingNavigation.store(this, intent)')) {
+          mainActivity = mainActivity.replace(
+            'super.onCreate(null)',
+            'super.onCreate(null)\n    AutoPendingNavigation.store(this, intent)',
+          );
+        }
+        if (!mainActivity.includes('override fun onNewIntent')) {
+          mainActivity = mainActivity.replace(
+            '  /**\n   * Returns the name of the main component',
+            `  override fun onNewIntent(intent: android.content.Intent) {\n    super.onNewIntent(intent)\n    setIntent(intent)\n    AutoPendingNavigation.store(this, intent)\n  }\n\n  /**\n   * Returns the name of the main component`,
+          );
+        }
+        fs.writeFileSync(mainActivityPath, mainActivity);
       }
 
       if (fs.existsSync(gradlePath)) {
