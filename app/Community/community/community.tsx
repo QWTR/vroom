@@ -307,6 +307,7 @@ export default function CommunityScreen() {
     video: string | null,
     category: Post['category'],
     poll?: { question: string; options: string[] } | null,
+    title?: string,
   ) => {
     try {
       const token = await getToken();
@@ -342,6 +343,7 @@ export default function CommunityScreen() {
         const bgVideo = video;
         const bgText = text;
         const bgPoll = poll;
+        const bgTitle = title?.trim() || '';
         void (async () => {
           try {
             const ext = bgVideo.split('.').pop() ?? 'mp4';
@@ -354,6 +356,7 @@ export default function CommunityScreen() {
               parameters: {
                 content: bgText,
                 category,
+                ...(bgTitle ? { title: bgTitle } : {}),
                 ...(bgPoll ? { poll: JSON.stringify(bgPoll) } : {}),
               },
               sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
@@ -397,6 +400,7 @@ export default function CommunityScreen() {
       const form  = new FormData();
       form.append('content', text);
       form.append('category', category);
+      if (title?.trim()) form.append('title', title.trim());
       if (poll) form.append('poll', JSON.stringify(poll));
       photos.forEach((uri, i) => { const ext = uri.split('.').pop() ?? 'jpg'; form.append('photos', { uri, name: `p${i}.${ext}`, type: `image/${ext}` } as any); });
       const res  = await fetch(`${API_URL}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
@@ -672,7 +676,10 @@ export default function CommunityScreen() {
           return postMatchesDiscussionSearch(p.content, q);
         }
         const ql = q.toLowerCase();
-        return p.content.toLowerCase().includes(ql) || p.author.username.toLowerCase().includes(ql);
+        return p.content.toLowerCase().includes(ql)
+          || (p.title || '').toLowerCase().includes(ql)
+          || (p.excerpt || '').toLowerCase().includes(ql)
+          || p.author.username.toLowerCase().includes(ql);
       })
     : visiblePosts;
   useEffect(() => {
@@ -889,6 +896,7 @@ export default function CommunityScreen() {
                     </View>
                     {(() => {
                       const routePreview = parseRoutePostContent(commentPost.content);
+                      const isSystemNews = commentPost.postType === 'system_news' || !!commentPost.isSystem;
                       if (routePreview) {
                         return (
                           <RoutePreviewCard
@@ -898,18 +906,40 @@ export default function CommunityScreen() {
                           />
                         );
                       }
-                      if (commentPost.content.length > 0) {
+                      if (commentPost.content.length > 0 || commentPost.title) {
                         return (
-                          <Text style={{ fontSize: 15, lineHeight: 22 }}>
-                            {renderDiscussionBody(commentPost.content, theme, {
-                              textColor: theme.textDim,
-                              onMentionPress: async (username) => {
-                                const uid = await resolveMentionUserId(username);
-                                if (uid) goToProfile(uid);
-                              },
-                              onHashtagPress: handleHashtagPress,
-                            })}
-                          </Text>
+                          <View style={{ gap: 8 }}>
+                            {isSystemNews && (
+                              <View style={{
+                                alignSelf: 'flex-start',
+                                borderRadius: 999,
+                                backgroundColor: '#e33835',
+                                paddingHorizontal: 9,
+                                paddingVertical: 4,
+                              }}>
+                                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+                                  {commentPost.sourceName ? `VROOM NEWS / ${commentPost.sourceName}` : 'VROOM NEWS'}
+                                </Text>
+                              </View>
+                            )}
+                            {!!commentPost.title && (
+                              <Text style={{ color: theme.text, fontSize: 17, lineHeight: 23, fontWeight: '800' }}>
+                                {commentPost.title}
+                              </Text>
+                            )}
+                            {!!commentPost.content && (
+                              <Text style={{ fontSize: 15, lineHeight: 22 }}>
+                                {renderDiscussionBody(commentPost.content, theme, {
+                                  textColor: theme.textDim,
+                                  onMentionPress: async (username) => {
+                                    const uid = await resolveMentionUserId(username);
+                                    if (uid) goToProfile(uid);
+                                  },
+                                  onHashtagPress: handleHashtagPress,
+                                })}
+                              </Text>
+                            )}
+                          </View>
                         );
                       }
                       return null;

@@ -77,7 +77,12 @@ const PostCard = React.memo(({
   const hasPoll   = !!post.poll;
   const plainText = clubInviteData ? clubInviteMessage : (hasPoll || routeData ? '' : post.content);
   const caption   = hasPoll ? post.content?.trim() : '';
-  const linkUrl   = (!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null;
+  const isSystemNews = post.postType === 'system_news' || !!post.isSystem;
+  const titleText = post.title?.trim() || '';
+  const newsExcerpt = (post.excerpt || '').trim();
+  const feedText = isSystemNews ? (newsExcerpt || plainText) : plainText;
+  const hasMoreNews = isSystemNews && !!post.content?.trim() && post.content.trim() !== feedText.trim();
+  const linkUrl   = isSystemNews ? post.sourceUrl : ((!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null);
   const categoryMeta = getDiscussionCategoryMeta(post.category);
 
   useEffect(() => {
@@ -249,6 +254,18 @@ const PostCard = React.memo(({
                 <MaterialIcons name={categoryMeta.icon as any} size={10} color={theme.primary} />
                 <Text style={{ color: theme.primary, fontSize: 9, fontFamily: 'Orbitron' }}>{categoryMeta.label}</Text>
               </View>
+              {isSystemNews && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 6,
+                  borderRadius: 10,
+                  backgroundColor: '#e33835',
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                }}>
+                  <MaterialIcons name="newspaper" size={10} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 8, fontFamily: 'Orbitron', fontWeight: '700' }}>VROOM NEWS</Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -306,6 +323,35 @@ const PostCard = React.memo(({
             delayLongPress={400}
             style={{ gap: 8 }}
           >
+            {isSystemNews && (
+              <View style={{ paddingHorizontal: 16, paddingTop: 2 }}>
+                <View style={{
+                  alignSelf: 'flex-start',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: '#e3383545',
+                  backgroundColor: isDark ? '#e3383518' : '#e338350f',
+                  paddingHorizontal: 9,
+                  paddingVertical: 4,
+                  marginBottom: 4,
+                }}>
+                  <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 }}>
+                    {post.sourceName ? `ZRODLO: ${post.sourceName}` : 'SYSTEMOWY TEMAT'}
+                  </Text>
+                </View>
+              </View>
+            )}
+            {!!titleText && (
+              <Text style={{
+                color: theme.text,
+                fontSize: isSystemNews ? 18 : 15,
+                lineHeight: isSystemNews ? 23 : 20,
+                fontWeight: '800',
+                paddingHorizontal: 16,
+              }}>
+                {titleText}
+              </Text>
+            )}
             {!!caption?.length && (
               <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 16, paddingBottom: 4 }}>
                 {renderDiscussionBody(caption, theme, {
@@ -317,9 +363,12 @@ const PostCard = React.memo(({
                 })}
               </Text>
             )}
-            {!!plainText?.length && !routeData && (
-              <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 16 }}>
-                {renderDiscussionBody(plainText, theme, {
+            {!!feedText?.length && !routeData && (
+              <Text
+                style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, paddingHorizontal: 16 }}
+                numberOfLines={isSystemNews ? 3 : undefined}
+              >
+                {renderDiscussionBody(feedText, theme, {
                   onMentionPress: async (username) => {
                     const uid = await resolveMentionUserId(username);
                     if (uid) onProfile(uid);
@@ -327,6 +376,16 @@ const PostCard = React.memo(({
                   onHashtagPress,
                 })}
               </Text>
+            )}
+            {hasMoreNews && (
+              <TouchableOpacity
+                onPress={() => onComment(post)}
+                style={{ alignSelf: 'flex-start', marginHorizontal: 16, marginTop: -2 }}
+              >
+                <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+                  CZYTAJ WIECEJ
+                </Text>
+              </TouchableOpacity>
             )}
             {!!routeData && (
               <View style={{ paddingHorizontal: 16 }}>
@@ -464,7 +523,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onProfile: (id: number) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
-  onPost: (text: string, photos: string[], video: string | null, category: DiscussionCategoryId, poll?: PostPollInput | null) => Promise<void>;
+  onPost: (text: string, photos: string[], video: string | null, category: DiscussionCategoryId, poll?: PostPollInput | null, title?: string) => Promise<void>;
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
   onPollVote: (postId: number, optionIdx: number) => Promise<PostPollData | null>;
@@ -541,7 +600,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16, gap: 4, paddingBottom: 4 }}
           >
-            {[{ id: DISCUSSION_ALL_CATEGORIES, label: 'Wszystkie' }, ...DISCUSSION_CATEGORIES].map((cat) => {
+            {([{ id: DISCUSSION_ALL_CATEGORIES, label: 'Wszystkie' }, ...DISCUSSION_CATEGORIES] as Array<{ id: DiscussionCategoryFilter; label: string; icon?: string }>).map((cat) => {
               const active = selectedCategory === cat.id;
               return (
                 <TouchableOpacity

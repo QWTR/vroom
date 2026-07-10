@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ResizeMode, Video } from 'expo-av';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons    from '@expo/vector-icons/MaterialIcons';
@@ -14,6 +15,7 @@ import AsyncStorage     from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as TaskManager from 'expo-task-manager';
 import * as Location    from 'expo-location';
+import * as WebBrowser  from 'expo-web-browser';
 import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useSettings }  from '../../hooks/useSettings';
@@ -111,6 +113,12 @@ const BANNER_FOCUS_OPTIONS: { key: ProfileBannerFocusPoint; label: string }[] = 
   { key: 'top', label: 'GÓRA' },
   { key: 'center', label: 'ŚRODEK' },
   { key: 'bottom', label: 'DÓŁ' },
+];
+
+const REFERRAL_PROMO_FORMATS = [
+  { key: 'story' as const, label: 'STORY', hint: '9:16' },
+  { key: 'post' as const, label: 'POST', hint: '1:1' },
+  { key: 'banner' as const, label: 'BANER', hint: '16:9' },
 ];
 
 export default function SettingsScreen() {
@@ -342,6 +350,11 @@ export default function SettingsScreen() {
   const [refUsedCount, setRefUsedCount] = useState(0);
   const [refLoading, setRefLoading] = useState(false);
   const [refSaving, setRefSaving] = useState(false);
+  const [promoFormat, setPromoFormat] = useState<'story' | 'post' | 'banner'>('story');
+  const [promoPreviewMode, setPromoPreviewMode] = useState<'png' | 'mp4'>('mp4');
+  const [promoPreviewUrl, setPromoPreviewUrl] = useState('');
+  const [promoVideoPreviewUrl, setPromoVideoPreviewUrl] = useState('');
+  const [promoBusy, setPromoBusy] = useState<'png' | 'mp4' | null>(null);
 
   const { checkForUpdate, applyUpdate, downloading: otaDownloading } = useAppUpdate();
   const [otaChecking, setOtaChecking] = useState(false);
@@ -846,6 +859,94 @@ export default function SettingsScreen() {
   // ── Sub-components (module-level SettingsLayout — stable identity for TextInput focus) ─
 
   // ── Loading (max 4s — potem pokaż UI z cache) ──
+  const fetchReferralPromoUrl = useCallback(async (media: 'png' | 'mp4') => {
+    const token = await getToken();
+    if (!token) return '';
+    const res = await fetch(
+      `${API_URL}/api/referral/promo-ticket?media=${media}&format=${promoFormat}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const json = await res.json().catch(() => ({} as any));
+    if (!res.ok) throw new Error(json?.error ?? 'Nie udało się przygotować materiału');
+    return String(json?.url ? `${API_URL}${json.url}` : (json?.absoluteUrl || ''));
+  }, [promoFormat]);
+
+  const refreshPromoPreview = useCallback(async () => {
+    if (!refCodeCurrent) return;
+    try {
+      const media = promoPreviewMode === 'mp4' ? 'mp4' : 'png';
+      const url = await fetchReferralPromoUrl(media);
+      if (media === 'mp4') {
+        setPromoVideoPreviewUrl(`${url}${url.includes('?') ? '&' : '?'}preview=${Date.now()}`);
+        return;
+      }
+      setPromoPreviewUrl(`${url}${url.includes('?') ? '&' : '?'}preview=${Date.now()}`);
+    } catch {
+      if (promoPreviewMode === 'mp4') setPromoVideoPreviewUrl('');
+      else setPromoPreviewUrl('');
+    }
+  }, [fetchReferralPromoUrl, promoPreviewMode, refCodeCurrent]);
+
+  useEffect(() => {
+    if (activeSettingsTab !== 'account') return;
+    void refreshPromoPreview();
+  }, [activeSettingsTab, refreshPromoPreview]);
+
+  const saveReferralCodeForPromo = async () => {
+    const code = refCodeInput.trim().toUpperCase();
+    if (code === refCodeCurrent) return true;
+    if (code.length < 4 || code.length > 24 || !/^[A-Z0-9]+$/.test(code)) {
+      (Toast.show as any)({ type: 'error', text1: 'Kod musi mieć 4-24 znaki A-Z/0-9' });
+      return false;
+    }
+    const token = await getToken();
+    if (!token) return false;
+    setRefSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/referral/my-code`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        (Toast.show as any)({ type: 'error', text1: 'BŁĄD', text2: json?.error ?? 'Nie udało się zapisać kodu' });
+        return false;
+      }
+      const nextCode = String(json?.code ?? code).toUpperCase();
+      setRefCodeCurrent(nextCode);
+      setRefCodeInput(nextCode);
+      setRefLink(String(json?.link ?? ''));
+      setRefUsedCount(Number(json?.usedCount ?? 0));
+      return true;
+    } finally {
+      setRefSaving(false);
+    }
+  };
+
+  const openReferralPromoDownload = async (media: 'png' | 'mp4') => {
+    const saved = await saveReferralCodeForPromo();
+    if (!saved) return;
+
+    setPromoBusy(media);
+    try {
+      const url = await fetchReferralPromoUrl(media);
+      await WebBrowser.openBrowserAsync(url);
+      if (media === 'png') void refreshPromoPreview();
+    } catch (e: any) {
+      (Toast.show as any)({
+        type: 'error',
+        text1: 'Nie udało się pobrać',
+        text2: e?.message ?? 'Spróbuj ponownie za chwilę',
+      });
+    } finally {
+      setPromoBusy(null);
+    }
+  };
+
   if (settingsLoading && !loadTimedOut) {
     return (
       <View style={{ flex: 1, backgroundColor: bg, justifyContent: 'center', alignItems: 'center', gap: 14 }}>
@@ -2502,6 +2603,151 @@ export default function SettingsScreen() {
 									</View>
 								</>
 							)}
+						</View>
+					</View>
+
+					<SettingsSectionLabel isDark={isDark} title='MATERIALY PROMOCYJNE' />
+					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
+						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 12 }}>
+							<Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: textMain }}>
+								Baner z kodem VROOM
+							</Text>
+							<View style={{ flexDirection: 'row', gap: 8 }}>
+								{REFERRAL_PROMO_FORMATS.map((item) => {
+									const selected = promoFormat === item.key;
+									return (
+										<TouchableOpacity
+											key={item.key}
+											onPress={() => setPromoFormat(item.key)}
+											style={{
+												flex: 1,
+												borderRadius: 10,
+												borderWidth: 1,
+												borderColor: selected ? RED : inputBorder,
+												backgroundColor: selected ? '#e3383522' : rowAlt,
+												paddingVertical: 10,
+												alignItems: 'center',
+											}}>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: selected ? RED : textMain, fontWeight: '800' }}>
+												{item.label}
+											</Text>
+											<Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: textDim, marginTop: 3 }}>
+												{item.hint}
+											</Text>
+										</TouchableOpacity>
+									);
+								})}
+							</View>
+
+							<View style={{ flexDirection: 'row', gap: 8 }}>
+								<TouchableOpacity
+									onPress={() => setPromoPreviewMode('mp4')}
+									style={{
+										flex: 1,
+										borderRadius: 10,
+										borderWidth: 1,
+										borderColor: promoPreviewMode === 'mp4' ? '#4de92670' : inputBorder,
+										backgroundColor: promoPreviewMode === 'mp4' ? '#4de92616' : rowAlt,
+										paddingVertical: 10,
+										alignItems: 'center',
+									}}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: promoPreviewMode === 'mp4' ? '#4de926' : textDim, fontWeight: '800' }}>
+										PODGLAD MP4
+									</Text>
+								</TouchableOpacity>
+								<TouchableOpacity
+									onPress={() => setPromoPreviewMode('png')}
+									style={{
+										flex: 1,
+										borderRadius: 10,
+										borderWidth: 1,
+										borderColor: promoPreviewMode === 'png' ? RED : inputBorder,
+										backgroundColor: promoPreviewMode === 'png' ? '#e3383522' : rowAlt,
+										paddingVertical: 10,
+										alignItems: 'center',
+									}}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: promoPreviewMode === 'png' ? RED : textDim, fontWeight: '800' }}>
+										PODGLAD PNG
+									</Text>
+								</TouchableOpacity>
+							</View>
+
+							<View style={{
+								borderRadius: 14,
+								overflow: 'hidden',
+								borderWidth: 1,
+								borderColor: inputBorder,
+								backgroundColor: '#08090f',
+								aspectRatio: promoFormat === 'story' ? 9 / 16 : promoFormat === 'post' ? 1 : 1200 / 628,
+							}}>
+								{promoPreviewMode === 'mp4' && promoVideoPreviewUrl ? (
+									<Video
+										key={promoVideoPreviewUrl}
+										source={{ uri: promoVideoPreviewUrl }}
+										style={{ width: '100%', height: '100%' }}
+										resizeMode={ResizeMode.COVER}
+										shouldPlay
+										isLooping
+										isMuted
+									/>
+								) : promoPreviewMode === 'png' && promoPreviewUrl ? (
+									<Image
+										source={{ uri: promoPreviewUrl }}
+										style={{ width: '100%', height: '100%' }}
+										resizeMode="cover"
+									/>
+								) : (
+									<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+										<MaterialCommunityIcons name={promoPreviewMode === 'mp4' ? 'movie-open-play-outline' : 'image-refresh-outline'} size={26} color={textDim} />
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: textDim, marginTop: 8, textAlign: 'center' }}>
+											Podglad pojawi sie po odswiezeniu kodu
+										</Text>
+									</View>
+								)}
+							</View>
+
+							<View style={{ flexDirection: 'row', gap: 8 }}>
+								<TouchableOpacity
+									onPress={() => openReferralPromoDownload('png')}
+									disabled={!!promoBusy || refSaving || refLoading}
+									style={{
+										flex: 1,
+										backgroundColor: RED,
+										borderRadius: 10,
+										paddingVertical: 12,
+										alignItems: 'center',
+										opacity: promoBusy || refSaving || refLoading ? 0.6 : 1,
+									}}>
+									{promoBusy === 'png' ? (
+										<ActivityIndicator size={14} color="#fff" />
+									) : (
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '800' }}>
+											POBIERZ PNG
+										</Text>
+									)}
+								</TouchableOpacity>
+								<TouchableOpacity
+									onPress={() => openReferralPromoDownload('mp4')}
+									disabled={!!promoBusy || refSaving || refLoading}
+									style={{
+										flex: 1,
+										borderRadius: 10,
+										borderWidth: 1,
+										borderColor: '#4de92650',
+										backgroundColor: '#4de92618',
+										paddingVertical: 12,
+										alignItems: 'center',
+										opacity: promoBusy || refSaving || refLoading ? 0.6 : 1,
+									}}>
+									{promoBusy === 'mp4' ? (
+										<ActivityIndicator size={14} color="#4de926" />
+									) : (
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#4de926', fontWeight: '800' }}>
+											POBIERZ MP4
+										</Text>
+									)}
+								</TouchableOpacity>
+							</View>
 						</View>
 					</View>
 

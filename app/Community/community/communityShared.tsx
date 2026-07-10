@@ -61,7 +61,8 @@ export interface PostPollData {
 }
 export interface PostPollInput { question: string; options: string[]; }
 export interface Post         {
-  id: number; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; author: Author;
+  id: number; title?: string | null; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; author: Author;
+  postType?: 'user' | 'system_news' | string; sourceUrl?: string | null; sourceName?: string | null; excerpt?: string | null; isSystem?: boolean; metadata?: any;
   likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean;
   reactions?: DiscussionReaction[];
   poll?: PostPollData | null;
@@ -1075,6 +1076,7 @@ export const ComposeBox = ({
     video: string | null,
     category: DiscussionCategoryId,
     poll?: PostPollInput | null,
+    title?: string,
   ) => Promise<void>;
   bottomInset: number;
   defaultCategory?: DiscussionCategoryId;
@@ -1101,6 +1103,7 @@ export const ComposeBox = ({
     default: {},
   });
   const [text,    setText]    = useState('');
+  const [title,   setTitle]   = useState('');
   const [inputH,  setInputH]  = useState(50);
   const [photos,  setPhotos]  = useState<string[]>([]);
   const [video,   setVideo]   = useState<string | null>(null);
@@ -1191,8 +1194,8 @@ export const ComposeBox = ({
       return;
     }
     setPosting(true);
-    await onPost(text.trim(), photos, video, selectedCategory, pollDraft);
-    setText(''); setPhotos([]); setVideo(null); setPollDraft(null);
+    await onPost(text.trim(), photos, video, selectedCategory, pollDraft, title.trim());
+    setText(''); setTitle(''); setPhotos([]); setVideo(null); setPollDraft(null);
     setPosting(false); setFocused(false);
     setMentionUsers([]);
     Keyboard.dismiss();
@@ -1341,6 +1344,31 @@ export const ComposeBox = ({
               </TouchableOpacity>
             ))}
           </ScrollView>
+        </View>
+      )}
+
+      {(focused || title.trim().length > 0) && (
+        <View style={{ marginHorizontal: 16, marginBottom: 8 }}>
+          <TextInput
+            style={{
+              minHeight: 42,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: pillBorder,
+              backgroundColor: pillSolidBg,
+              color: theme.text,
+              fontSize: 13,
+              fontFamily: 'Orbitron',
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+            }}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Tytul posta (opcjonalnie)"
+            placeholderTextColor={theme.textDim}
+            maxLength={80}
+            returnKeyType="next"
+          />
         </View>
       )}
 
