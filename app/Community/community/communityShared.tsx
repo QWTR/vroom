@@ -137,6 +137,34 @@ export interface VroomkiComment {
 }
 export type Tab = 'dyskusje' | 'trasy';
 
+/** Domena zrodla do wyswietlenia (bez linku) — np. autokult.pl */
+export function getSystemNewsSourceLabel(post: {
+  sourceUrl?: string | null;
+  sourceName?: string | null;
+}): string {
+  const url = String(post.sourceUrl || '').trim();
+  if (url) {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./i, '');
+      if (host) return host;
+    } catch {
+      // fallthrough
+    }
+  }
+  const name = String(post.sourceName || '').trim();
+  if (name) return name.replace(/^www\./i, '');
+  return 'VROOM';
+}
+
+/** Usuwa z tresci newsa linie z linkiem do zewnetrznego portalu (stare posty). */
+export function sanitizeSystemNewsContent(content: string): string {
+  if (!content) return '';
+  return content
+    .replace(/\n*Zr[oó]d[lł]o:\s*https?:\/\/\S+/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ─── Utils ────────────────────────────────────────────────
 export function extractUrl(text: string): string | null {
   if (!text) return null;
@@ -1104,6 +1132,7 @@ export const ComposeBox = ({
   });
   const [text,    setText]    = useState('');
   const [title,   setTitle]   = useState('');
+  const [showTitleField, setShowTitleField] = useState(false);
   const [inputH,  setInputH]  = useState(50);
   const [photos,  setPhotos]  = useState<string[]>([]);
   const [video,   setVideo]   = useState<string | null>(null);
@@ -1119,6 +1148,7 @@ export const ComposeBox = ({
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleInputRef = useRef<TextInput>(null);
   const keyboardInset = useKeyboardInset();
   const pollKeyboardInset = useKeyboardInset(pollModal);
 
@@ -1187,6 +1217,11 @@ export const ComposeBox = ({
     setPollModal(false);
   };
 
+  const openTitleField = () => {
+    setShowTitleField(true);
+    requestAnimationFrame(() => titleInputRef.current?.focus());
+  };
+
   const handleSend = async () => {
     if (!canSend) return;
     if (!selectedCategory) {
@@ -1195,7 +1230,7 @@ export const ComposeBox = ({
     }
     setPosting(true);
     await onPost(text.trim(), photos, video, selectedCategory, pollDraft, title.trim());
-    setText(''); setTitle(''); setPhotos([]); setVideo(null); setPollDraft(null);
+    setText(''); setTitle(''); setShowTitleField(false); setPhotos([]); setVideo(null); setPollDraft(null);
     setPosting(false); setFocused(false);
     setMentionUsers([]);
     Keyboard.dismiss();
@@ -1347,9 +1382,10 @@ export const ComposeBox = ({
         </View>
       )}
 
-      {(focused || title.trim().length > 0) && (
+      {(showTitleField || title.trim().length > 0) && (
         <View style={{ marginHorizontal: 16, marginBottom: 8 }}>
           <TextInput
+            ref={titleInputRef}
             style={{
               minHeight: 42,
               borderRadius: 14,
@@ -1451,6 +1487,13 @@ export const ComposeBox = ({
           </Text>
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          {!showTitleField && !title.trim() && (
+            <TouchableOpacity onPress={openTitleField} hitSlop={8}>
+              <Text style={{ color: theme.textDim, fontSize: 11, fontFamily: 'Satoshi' }}>
+                Dodaj tytul
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={pickPhoto} disabled={photos.length >= 4 || !!video} hitSlop={8}>
             <MaterialIcons name="add-photo-alternate" size={18} color={photos.length >= 4 || !!video ? theme.textDim : theme.textMuted} />
           </TouchableOpacity>

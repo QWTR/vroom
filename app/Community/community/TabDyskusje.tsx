@@ -27,6 +27,7 @@ import {
   getDiscussionCategoryMeta,
   Avatar, MediaGrid, DeleteModal, ActionBtn, ListFooter, ComposeBox,
   DiscussionPollCard, extractUrl, renderDiscussionBody, resolveMentionUserId,
+  getSystemNewsSourceLabel,
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
   type PostPollData, type PostPollInput,
 } from './communityShared';
@@ -82,7 +83,7 @@ const PostCard = React.memo(({
   const newsExcerpt = (post.excerpt || '').trim();
   const feedText = isSystemNews ? (newsExcerpt || plainText) : plainText;
   const hasMoreNews = isSystemNews && !!post.content?.trim() && post.content.trim() !== feedText.trim();
-  const linkUrl   = isSystemNews ? post.sourceUrl : ((!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null);
+  const linkUrl   = isSystemNews ? null : ((!routeData && !clubInviteData && !hasPoll) ? extractUrl(post.content) : null);
   const categoryMeta = getDiscussionCategoryMeta(post.category);
 
   useEffect(() => {
@@ -336,7 +337,7 @@ const PostCard = React.memo(({
                   marginBottom: 4,
                 }}>
                   <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700', letterSpacing: 1 }}>
-                    {post.sourceName ? `ZRODLO: ${post.sourceName}` : 'SYSTEMOWY TEMAT'}
+                    {`ZRODLO: ${getSystemNewsSourceLabel(post)}`}
                   </Text>
                 </View>
               </View>

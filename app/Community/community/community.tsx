@@ -33,6 +33,7 @@ import {
   DISCUSSION_ALL_CATEGORIES,
   Avatar, PhotoViewer, LoadingView,
   renderDiscussionBody, searchMentionUsers, resolveMentionUserId,
+  getSystemNewsSourceLabel, sanitizeSystemNewsContent,
   postMatchesDiscussionSearch, normalizeHashtag,
   ReactionChips, DISCUSSION_REACTION_EMOJIS,
 } from './communityShared';
@@ -918,7 +919,7 @@ export default function CommunityScreen() {
                                 paddingVertical: 4,
                               }}>
                                 <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
-                                  {commentPost.sourceName ? `VROOM NEWS / ${commentPost.sourceName}` : 'VROOM NEWS'}
+                                  {`ZRODLO: ${getSystemNewsSourceLabel(commentPost)}`}
                                 </Text>
                               </View>
                             )}
@@ -929,14 +930,20 @@ export default function CommunityScreen() {
                             )}
                             {!!commentPost.content && (
                               <Text style={{ fontSize: 15, lineHeight: 22 }}>
-                                {renderDiscussionBody(commentPost.content, theme, {
-                                  textColor: theme.textDim,
-                                  onMentionPress: async (username) => {
-                                    const uid = await resolveMentionUserId(username);
-                                    if (uid) goToProfile(uid);
+                                {renderDiscussionBody(
+                                  isSystemNews
+                                    ? sanitizeSystemNewsContent(commentPost.content)
+                                    : commentPost.content,
+                                  theme,
+                                  {
+                                    textColor: theme.textDim,
+                                    onMentionPress: async (username) => {
+                                      const uid = await resolveMentionUserId(username);
+                                      if (uid) goToProfile(uid);
+                                    },
+                                    onHashtagPress: handleHashtagPress,
                                   },
-                                  onHashtagPress: handleHashtagPress,
-                                })}
+                                )}
                               </Text>
                             )}
                           </View>

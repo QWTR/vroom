@@ -31,6 +31,7 @@ import { pickAppAnimationForValue } from "../../constants/appAnimations";
 import AppAnimationLayer from "../../components/animations/AppAnimationLayer";
 import { useAppAnimations } from "../../hooks/useAppAnimations";
 import { AnnouncementsModal } from "../../components/modals/AnnouncementsModal";
+import { SystemNewsModal } from "../../components/modals/SystemNewsModal";
 import { useAnnouncements } from "../../hooks/useAnnouncements";
 import { usePolls } from "../../hooks/usePolls";
 import { useGifts } from "../../hooks/useGifts";
@@ -149,6 +150,7 @@ export default function HomeScreen() {
 	const prevStreakRef = useRef(0);
 	const { unseenCount, load: loadAnnouncements } = useAnnouncements();
 	const [showAnnouncements, setShowAnnouncements] = useState(false);
+	const [showSystemNews, setShowSystemNews] = useState(false);
 
 	const [activeGridVotes, setActiveGridVotes] = useState<ActiveGridVote[]>([]);
 	const [gridCarouselIndex, setGridCarouselIndex] = useState(0);
@@ -1192,6 +1194,63 @@ export default function HomeScreen() {
 					</TouchableOpacity>
 				</Animated.View>
 				{/* ══════════════════════════════════════════════ */}
+				{/* VROOM NEWS BANNER                            */}
+				{/* ══════════════════════════════════════════════ */}
+				<Animated.View
+					style={{
+						opacity: fadeAnim,
+						paddingHorizontal: 20,
+						marginBottom: 20,
+					}}>
+					<TouchableOpacity
+						onPress={() => setShowSystemNews(true)}
+						activeOpacity={0.85}>
+						<View
+							style={{
+								backgroundColor: glassCardFill,
+								borderRadius: 20,
+								borderWidth: 1,
+								borderColor: glassBorder,
+								padding: 18,
+								flexDirection: "row",
+								alignItems: "center",
+								gap: 14,
+								overflow: "hidden",
+								...glassShadow,
+							}}>
+							<View style={{ ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }}>
+								<MaterialIcons name="newspaper" size={22} color={t.primary} />
+							</View>
+
+							<View style={{ flex: 1 }}>
+								<Text
+									style={{
+										fontFamily: "Orbitron",
+										fontSize: 13,
+										color: t.text,
+										fontWeight: "700",
+										marginBottom: 3,
+									}}>
+									Newsy
+								</Text>
+								<Text
+									style={{
+										fontSize: 10,
+										color: t.textDim,
+									}}>
+									Motoryzacja · VROOM Radar · Czytaj więcej
+								</Text>
+							</View>
+
+							<MaterialIcons
+								name='arrow-forward-ios'
+								size={13}
+								color={t.primary}
+							/>
+						</View>
+					</TouchableOpacity>
+				</Animated.View>
+				{/* ══════════════════════════════════════════════ */}
 				{/* THE GRID — aktywne głosowanie                  */}
 				{/* ══════════════════════════════════════════════ */}
 				{false && activeGridVotes.length > 0 && (
@@ -1838,6 +1897,11 @@ export default function HomeScreen() {
 				<AnnouncementsModal
 					visible={showAnnouncements}
 					onClose={() => setShowAnnouncements(false)}
+				/>
+
+				<SystemNewsModal
+					visible={showSystemNews}
+					onClose={() => setShowSystemNews(false)}
 				/>
 
 				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />

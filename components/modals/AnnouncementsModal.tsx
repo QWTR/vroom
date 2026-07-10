@@ -43,7 +43,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
     }
   }, [visible, announcements]);
 
-  // BackHandler przez ref
   const selectedRef = useRef<Announcement | null>(null);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
@@ -54,12 +53,11 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
       onClose(); return true;
     });
     return () => sub.remove();
-  }, [visible]);
+  }, [visible, onClose]);
   useModalBackHandler(visible, onClose);
-  // ── LISTA ─────────────────────────────────────────────
+
   const renderList = () => (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[ss.root, { backgroundColor: t.bg }]} onRequestClose={onClose}>
-      {/* Header */}
       <View style={[ss.header, { borderBottomColor: t.border2, paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={[ss.iconBtn, { backgroundColor: t.surface2, borderColor: t.border2 }]}
@@ -109,7 +107,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                   backgroundColor: t.surface,
                   borderColor: unseen ? accent + '60' : t.border2,
                 }]}>
-                  {/* Pinned badge */}
                   {item.pinned && (
                     <View style={[ss.pinnedBadge, {
                       backgroundColor: accent + '20',
@@ -120,7 +117,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                     </View>
                   )}
 
-                  {/* Cover image */}
                   {item.coverImage && (
                     <Image
                       source={{ uri: item.coverImage }}
@@ -130,7 +126,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                   )}
 
                   <View style={{ padding: 14 }}>
-                    {/* Kategoria chip */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <View style={[ss.catChip, { backgroundColor: accent + '18', borderColor: accent + '35' }]}>
                         <Text style={{ fontSize: 10 }}>{categoryEmoji(item.category)}</Text>
@@ -141,17 +136,14 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                       {unseen && <View style={[ss.unseenDot, { backgroundColor: accent }]} />}
                     </View>
 
-                    {/* Tytuł */}
                     <Text style={[ss.cardTitle, { color: t.text }]} numberOfLines={2}>
                       {item.title}
                     </Text>
 
-                    {/* Excerpt / preview contentu */}
                     <Text style={[ss.cardBody, { color: t.textDim }]} numberOfLines={2}>
                       {item.excerpt ?? item.content}
                     </Text>
 
-                    {/* Footer */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
                       <Text style={[ss.cardDate, { color: t.textFaint }]}>
                         {new Date(item.createdAt).toLocaleDateString('pl-PL', {
@@ -173,12 +165,10 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
     </SafeAreaView>
   );
 
-  // ── DETAIL ────────────────────────────────────────────
   const renderDetail = (item: Announcement) => {
     const accent = categoryColor(item.category);
     return (
       <SafeAreaView edges={['left', 'right', 'bottom']} style={[ss.root, { backgroundColor: t.bg }]}>
-        {/* Header */}
         <View style={[ss.header, { borderBottomColor: t.border2, paddingTop: insets.top + 8 }]}>
           <TouchableOpacity
             style={[ss.iconBtn, { backgroundColor: t.surface2, borderColor: t.border2 }]}
@@ -194,13 +184,12 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
         </View>
 
         <FlatList
-          data={[item]} // jeden element — używamy ListHeaderComponent na treść
+          data={[item]}
           keyExtractor={i => `detail_${i.id}`}
           showsVerticalScrollIndicator={false}
           renderItem={() => null}
           ListHeaderComponent={
             <View>
-              {/* Cover */}
               {item.coverImage && (
                 <Image
                   source={{ uri: item.coverImage }}
@@ -210,7 +199,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
               )}
 
               <View style={{ padding: 20 }}>
-                {/* Pinned */}
                 {item.pinned && (
                   <View style={[ss.pinnedBadge, {
                     backgroundColor: accent + '20',
@@ -222,7 +210,6 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                   </View>
                 )}
 
-                {/* Kategoria */}
                 <View style={[ss.catChip, { backgroundColor: accent + '18', borderColor: accent + '35', alignSelf: 'flex-start', marginBottom: 14 }]}>
                   <Text style={{ fontSize: 12 }}>{categoryEmoji(item.category)}</Text>
                   <Text style={[ss.catChipText, { color: accent, fontSize: 9 }]}>
@@ -230,10 +217,8 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                   </Text>
                 </View>
 
-                {/* Tytuł */}
                 <Text style={[ss.detailTitle, { color: t.text }]}>{item.title}</Text>
 
-                {/* Excerpt jako lead */}
                 {item.excerpt && (
                 <LinkedText
                     style={[ss.detailExcerpt, { color: t.textMuted }]}
@@ -242,17 +227,14 @@ export function AnnouncementsModal({ visible, onClose }: Props) {
                     {item.excerpt}
                 </LinkedText>
                 )}
-                {/* Data */}
                 <Text style={[ss.cardDate, { color: t.textFaint, marginTop: 6, marginBottom: 16 }]}>
                   {new Date(item.createdAt).toLocaleDateString('pl-PL', {
                     day: '2-digit', month: 'long', year: 'numeric',
                   })}
                 </Text>
 
-                {/* Divider */}
                 <View style={[ss.divider, { backgroundColor: accent + '30' }]} />
 
-                {/* Content — pełna treść */}
                 <LinkedText
                     style={[ss.detailBody, { color: t.text }]}
                     linkStyle={{ color: t.primary }}
