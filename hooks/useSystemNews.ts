@@ -25,6 +25,26 @@ export type SystemNewsPagination = {
 
 const PAGE_LIMIT = 12;
 
+function normalizeNewsImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^http:\/\/(www\.)?v-room\.app/i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, 'https://');
+  }
+  if (trimmed.startsWith('/uploads/')) {
+    return `${API_URL}${trimmed}`;
+  }
+  return trimmed;
+}
+
+function normalizeNewsItem(item: SystemNewsItem): SystemNewsItem {
+  return {
+    ...item,
+    imageUrl: normalizeNewsImageUrl(item.imageUrl),
+  };
+}
+
 export function systemNewsSourceDomain(item: {
   sourceUrl?: string | null;
   sourceName?: string | null;
@@ -62,7 +82,8 @@ export function useSystemNews() {
       );
       if (!res.ok) throw new Error('fetch failed');
       const data = await res.json();
-      const nextItems: SystemNewsItem[] = Array.isArray(data?.items) ? data.items : [];
+      const nextItems: SystemNewsItem[] = (Array.isArray(data?.items) ? data.items : [])
+        .map((item: SystemNewsItem) => normalizeNewsItem(item));
       setItems((prev) => (append ? [...prev, ...nextItems] : nextItems));
       if (data?.pagination) setPagination(data.pagination);
     } catch (e) {
@@ -85,7 +106,8 @@ export function useSystemNews() {
     try {
       const res = await fetch(`${API_URL}/api/system-news/${id}`);
       if (!res.ok) return null;
-      return await res.json();
+      const item = await res.json();
+      return item ? normalizeNewsItem(item) : null;
     } catch (e) {
       console.warn('useSystemNews detail error:', e);
       return null;
