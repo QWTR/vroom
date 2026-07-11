@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
 
 export type SystemNewsItem = {
@@ -24,6 +25,7 @@ export type SystemNewsPagination = {
 };
 
 const PAGE_LIMIT = 12;
+const SEEN_KEY = 'system_news_seen';
 
 function normalizeNewsImageUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -63,6 +65,7 @@ export function systemNewsSourceDomain(item: {
 
 export function useSystemNews() {
   const [items, setItems] = useState<SystemNewsItem[]>([]);
+  const [seenIds, setSeenIds] = useState<number[]>([]);
   const [pagination, setPagination] = useState<SystemNewsPagination>({
     page: 1,
     limit: PAGE_LIMIT,
@@ -77,6 +80,10 @@ export function useSystemNews() {
     if (append) setLoadingMore(true);
     else setLoading(true);
     try {
+      const seenRaw = await AsyncStorage.getItem(SEEN_KEY);
+      const seen: number[] = seenRaw ? JSON.parse(seenRaw) : [];
+      setSeenIds(Array.isArray(seen) ? seen : []);
+
       const res = await fetch(
         `${API_URL}/api/system-news?page=${page}&limit=${PAGE_LIMIT}`,
       );
@@ -121,8 +128,29 @@ export function useSystemNews() {
     setPagination({ page: 1, limit: PAGE_LIMIT, total: 0, totalPages: 1 });
   }, []);
 
+  const markSeen = useCallback(async (id: number) => {
+    setSeenIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const markAllSeen = useCallback(async (ids: number[]) => {
+    setSeenIds((prev) => {
+      const next = Array.from(new Set([...prev, ...ids]));
+      AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const unseenCount = items.filter((item) => !seenIds.includes(item.id)).length;
+
   return {
     items,
+    seenIds,
+    unseenCount,
     pagination,
     loading,
     loadingMore,
@@ -130,6 +158,8 @@ export function useSystemNews() {
     loadPage,
     loadMore,
     loadDetail,
+    markSeen,
+    markAllSeen,
     reset,
   };
 }

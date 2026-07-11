@@ -22,8 +22,8 @@ export function SystemNewsPanel({ active, onDetailOpenChange, onRegisterBack }: 
   const { theme: t } = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    items, pagination, loading, loadingMore, detailLoading,
-    loadPage, loadMore, loadDetail, reset,
+    items, seenIds, pagination, loading, loadingMore, detailLoading,
+    loadPage, loadMore, loadDetail, markSeen, markAllSeen, reset,
   } = useSystemNews();
   const [selected, setSelected] = useState<SystemNewsItem | null>(null);
 
@@ -34,6 +34,12 @@ export function SystemNewsPanel({ active, onDetailOpenChange, onRegisterBack }: 
       reset();
     }
   }, [active]);
+
+  useEffect(() => {
+    if (active && items.length > 0) {
+      void markAllSeen(items.map((item) => item.id));
+    }
+  }, [active, items, markAllSeen]);
 
   useEffect(() => {
     onDetailOpenChange?.(!!selected);
@@ -52,6 +58,7 @@ export function SystemNewsPanel({ active, onDetailOpenChange, onRegisterBack }: 
   }, [selected, onRegisterBack]);
 
   const openItem = async (item: SystemNewsItem) => {
+    void markSeen(item.id);
     setSelected(item);
     const full = await loadDetail(item.id);
     if (full) setSelected(full);
@@ -172,7 +179,7 @@ export function SystemNewsPanel({ active, onDetailOpenChange, onRegisterBack }: 
         ) : null}
         renderItem={({ item }) => (
           <TouchableOpacity onPress={() => openItem(item)} activeOpacity={0.85}>
-            <View style={[ss.card, { backgroundColor: t.surface, borderColor: t.border2 }]}>
+            <View style={[ss.card, { backgroundColor: t.surface, borderColor: seenIds.includes(item.id) ? t.border2 : t.primary + '70' }]}>
               {item.imageUrl ? (
                 <Image source={{ uri: item.imageUrl }} style={ss.cardBanner} resizeMode="cover" />
               ) : (

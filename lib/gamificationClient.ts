@@ -96,6 +96,7 @@ export async function ingestGamificationPing(input: {
   headingDeg?: number | null;
   speedKmh?: number | null;
   ts?: number;
+  force?: boolean;
 }): Promise<void> {
   if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng)) return;
   if (input.mode !== 'freeDrive' && input.mode !== 'navigation') return;
@@ -108,6 +109,7 @@ export async function ingestGamificationPing(input: {
       headingDeg: input.headingDeg,
       speedKmh: input.speedKmh,
       ts: input.ts ?? Date.now(),
+      force: input.force === true,
     }),
   });
 }
@@ -285,6 +287,7 @@ export async function fetchGamificationStatus(): Promise<{
   buffers: number;
   bufferedPings: number;
   cachedModes: number;
+  activeDrivers?: number;
   lastFlushAt: number;
   lastFlushUserId: number | null;
   lastFlushPingCount: number;

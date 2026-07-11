@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
-import { fetchCoverageCells, type CoverageCell } from '../../lib/gamificationClient';
+import { fetchCoverageCells, fetchGamificationStatus, type CoverageCell } from '../../lib/gamificationClient';
 
 type Props = {
   userId?: number | null;
@@ -58,15 +58,23 @@ export function ExplorationCoverageMap({
   const { theme, isDark } = useTheme();
   const [cells, setCells] = useState<CoverageCell[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [mapControlEnabled, setMapControlEnabled] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [manualCamera, setManualCamera] = useState<{ center: [number, number]; zoom: number } | null>(null);
 
   const loadCells = useCallback((silent = false) => {
     let cancelled = false;
     if (!silent) setLoading(true);
-    fetchCoverageCells({ userId: userId ?? undefined, limit })
+    Promise.all([
+      fetchCoverageCells({ userId: userId ?? undefined, limit }),
+      userId == null ? fetchGamificationStatus() : Promise.resolve(null),
+    ])
       .then((next) => {
-        if (!cancelled) setCells(next);
+        if (!cancelled) {
+          setCells(next[0]);
+          setSyncing(Number(next[1]?.bufferedPings ?? 0) > 0);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -105,10 +113,11 @@ export function ExplorationCoverageMap({
 
   const camera = useMemo(() => getCameraForCells(cells), [cells]);
   const visibleCamera = manualCamera ?? camera;
+  const cameraKey = `${camera.center[0]}:${camera.center[1]}:${camera.zoom}`;
 
   useEffect(() => {
     if (!mapControlEnabled) setManualCamera(null);
-  }, [camera.center[0], camera.center[1], camera.zoom, mapControlEnabled]);
+  }, [cameraKey, mapControlEnabled]);
 
   const setZoom = useCallback((direction: 1 | -1) => {
     setManualCamera((current) => {
@@ -123,7 +132,7 @@ export function ExplorationCoverageMap({
   }, [camera]);
 
   const handleCameraChanged = useCallback((event: any) => {
-    if (!mapControlEnabled) return;
+    if (!mapControlEnabled && !fullscreen) return;
     const center = event?.properties?.center;
     const zoom = Number(event?.properties?.zoom);
     if (Array.isArray(center) && center.length >= 2 && Number.isFinite(zoom)) {
@@ -132,7 +141,11 @@ export function ExplorationCoverageMap({
         zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)),
       });
     }
-  }, [mapControlEnabled]);
+  }, [fullscreen, mapControlEnabled]);
+
+  const progressLabel = cells.length > 0
+    ? `${cells.length} kafelkow`
+    : syncing ? 'Synchronizuje przejazd' : '0 kafelkow';
 
   return (
     <View
@@ -192,7 +205,9 @@ export function ExplorationCoverageMap({
           {!mapControlEnabled ? (
             <TouchableOpacity
               activeOpacity={0.9}
-              onPress={() => setMapControlEnabled(true)}
+              onPress={() => {
+                setFullscreen(true);
+              }}
               style={{
                 position: 'absolute',
                 right: 10,
@@ -261,24 +276,6 @@ export function ExplorationCoverageMap({
               </TouchableOpacity>
             </View>
           )}
-          {mapControlEnabled ? (
-            <View
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                left: 10,
-                bottom: 10,
-                borderRadius: 999,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                backgroundColor: '#000000b8',
-                borderWidth: 1,
-                borderColor: theme.border,
-              }}
-            >
-              <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: '800' }}>Przesuwaj i przyblizaj mape</Text>
-            </View>
-          ) : null}
         </>
       ) : null}
 
@@ -308,10 +305,130 @@ export function ExplorationCoverageMap({
           backgroundColor: '#00000055',
         }}>
           <Text style={{ color: theme.textMuted, fontWeight: '800', textAlign: 'center' }}>
-            Brak odkrytych kafelkow
+            {syncing ? 'Synchronizuje przejazd...' : 'Brak odkrytych kafelkow'}
           </Text>
         </View>
       ) : null}
+
+      <Modal
+        visible={fullscreen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setFullscreen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: isDark ? '#050505' : '#f5f5f5' }}>
+          <Mapbox.MapView
+            style={{ flex: 1 }}
+            styleURL={isDark ? Mapbox.StyleURL.Dark : Mapbox.StyleURL.Light}
+            scaleBarEnabled={false}
+            compassEnabled
+            logoEnabled={false}
+            attributionEnabled={false}
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled={false}
+            rotateEnabled={false}
+            onCameraChanged={handleCameraChanged}
+          >
+            <Mapbox.Camera
+              zoomLevel={visibleCamera.zoom}
+              centerCoordinate={visibleCamera.center}
+              animationMode="flyTo"
+              animationDuration={250}
+            />
+            {shape.features.length > 0 ? (
+              <Mapbox.ShapeSource id={`exploration-coverage-full-${userId ?? 'me'}`} shape={shape as any}>
+                <Mapbox.FillLayer
+                  id={`exploration-coverage-full-fill-${userId ?? 'me'}`}
+                  style={{
+                    fillColor: theme.primary,
+                    fillOpacity: 0.82,
+                    fillOutlineColor: theme.primary,
+                  }}
+                />
+                <Mapbox.LineLayer
+                  id={`exploration-coverage-full-line-${userId ?? 'me'}`}
+                  style={{
+                    lineColor: isDark ? '#ffffff' : theme.primary,
+                    lineOpacity: 0.95,
+                    lineWidth: 1.8,
+                  }}
+                />
+              </Mapbox.ShapeSource>
+            ) : null}
+          </Mapbox.MapView>
+
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              top: 46,
+              left: 14,
+              right: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <View style={{
+              flex: 1,
+              borderRadius: 16,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              backgroundColor: '#000000d9',
+              borderWidth: 1,
+              borderColor: theme.border,
+            }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: '900' }}>Mapa odkryc</Text>
+              <Text style={{ color: theme.textMuted, fontSize: 11, fontWeight: '800', marginTop: 2 }}>
+                {progressLabel}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setFullscreen(false)}
+              activeOpacity={0.85}
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 23,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#000000d9',
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+            >
+              <MaterialCommunityIcons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View
+            style={{
+              position: 'absolute',
+              right: 14,
+              bottom: 34,
+              borderRadius: 18,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: theme.border,
+              backgroundColor: '#000000d9',
+            }}
+          >
+            <TouchableOpacity onPress={() => setZoom(1)} style={{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 24, fontWeight: '900', lineHeight: 26 }}>+</Text>
+            </TouchableOpacity>
+            <View style={{ height: 1, backgroundColor: theme.border }} />
+            <TouchableOpacity onPress={() => setZoom(-1)} style={{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 26, fontWeight: '900', lineHeight: 26 }}>-</Text>
+            </TouchableOpacity>
+            <View style={{ height: 1, backgroundColor: theme.border }} />
+            <TouchableOpacity onPress={resetView} style={{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialCommunityIcons name="crosshairs-gps" size={20} color={theme.primary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

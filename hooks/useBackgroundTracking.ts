@@ -14,6 +14,7 @@ import {
 } from '../lib/vroomBgForegroundService';
 import { BackgroundDriveController } from '../lib/backgroundDriveController';
 import { ingestGamificationPing } from '../lib/gamificationClient';
+import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
 import type { NavMode } from '../lib/navigationV3/types';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -940,6 +941,7 @@ export function useBackgroundTracking(
       avgSpeedKmh?: number;
       durationSec?: number;
       routePoints?: { latitude: number; longitude: number }[];
+      checkpointDistanceKm?: number;
     },
     sourceTag: 'navigation' | 'driving' = 'navigation',
   ) => {
@@ -948,8 +950,9 @@ export function useBackgroundTracking(
     try {
       await consumeNativeDriveStatsToStorage();
       const token = await getAuthToken();
-      if (!token) return;
-      await flushPendingActivitySave(token);
+      if (token) {
+        await flushPendingActivitySave(token);
+      }
 
       if (fromNavigation) {
         // Collect foreground stats (fg) + background distance (bg) together
@@ -958,13 +961,22 @@ export function useBackgroundTracking(
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
+        const savedCheckpointKm = Math.max(
+          safePendingKm(String(navPayload?.checkpointDistanceKm ?? 0)),
+          await loadTripCheckpointSavedKm(),
+        );
+        const emergencySnapshot = await readEmergencyTripSave();
         // Merge foreground route-matched distance with any pending passive/background distance.
         // This prevents km loss when switching driving -> navigation.
         const navDistance = Number.isFinite(navPayload?.distanceKm) ? Number(navPayload?.distanceKm) : 0;
-        // FG (TripStats) and BG can overlap — take the larger stream, never sum both.
-        const distanceToSaveRaw = bgPending > 0 && navDistance > 0
-          ? Math.max(navDistance, bgPending)
-          : navDistance + bgPending;
+        // FG, BG, checkpoint and emergency snapshots can overlap. Take the best
+        // surviving total, never sum streams that may represent the same drive.
+        const distanceToSaveRaw = resolveFinalTripDistanceKm({
+          foregroundTripKm: navDistance,
+          backgroundPendingKm: bgPending,
+          checkpointKm: savedCheckpointKm,
+          emergencySnapshotKm: emergencySnapshot?.distanceKm,
+        });
         telemetryRef.current.navMergedFlushes += 1;
         telemetryRef.current.navMergedBgKm += bgPending;
         const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
@@ -976,10 +988,14 @@ export function useBackgroundTracking(
           : avgSpeed;
         const routePointsRaw = navPayload?.routePoints && navPayload.routePoints.length > 1
           ? navPayload.routePoints
-          : (bgRoutePoints.length > 1 ? bgRoutePoints : undefined);
+          : (bgRoutePoints.length > 1
+            ? bgRoutePoints
+            : (emergencySnapshot?.trackedPoints && emergencySnapshot.trackedPoints.length > 1
+              ? emergencySnapshot.trackedPoints
+              : undefined));
         const routePointsToSave = trimRoutePointsForActivitySave(routePointsRaw);
 
-    if (distanceToSave < 0.05) return;
+        if (distanceToSave < 0.05) return;
 
         const session = await getTripSessionContext();
         const payload = {
@@ -1004,6 +1020,14 @@ export function useBackgroundTracking(
             avgSpeedKmh: avgSpeedToSave,
             routePointsCount: routePointsToSave?.length ?? 0,
           });
+        }
+        if (!token) {
+          await Promise.all([
+            AsyncStorage.setItem(BG_PENDING_ACTIVITY_SAVE_KEY, JSON.stringify(payload)),
+            AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'false'),
+          ]);
+          telemetryRef.current.pendingRetrySaved += 1;
+          return;
         }
         const saveRes = await fetch(`${API_URL}/api/activity/save`, {
           method:  'POST',
@@ -1070,6 +1094,7 @@ export function useBackgroundTracking(
         void syncProfileStatsFromServer();
 
       } else {
+        if (!token) return;
         // Passive flush: no navigation was active, save whatever background accumulated
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);

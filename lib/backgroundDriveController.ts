@@ -191,7 +191,7 @@ export const BackgroundDriveController = {
       const token = Platform.OS === 'android' ? await getAuthToken() : null;
       const ok = Platform.OS === 'android'
         ? await (mod.startDriveTracking as any)(mode, tripSessionId ?? '', API_URL, token ?? '')
-        : await mod.startDriveTracking(mode);
+        : await mod.startDriveTracking(mode, tripSessionId ?? '');
       await showIosDriveNotification(mode);
       return ok;
     } catch {

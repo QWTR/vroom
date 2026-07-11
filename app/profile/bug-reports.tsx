@@ -12,6 +12,10 @@ import { useTheme } from '../../contexts/ThemeContext';
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 
+function showToast(params: { type: 'error' | 'info' | 'success'; text1: string; text2?: string }) {
+  (Toast.show as unknown as (input: typeof params) => void)(params);
+}
+
 type Row = {
   id: number;
   category: string;
@@ -52,7 +56,7 @@ export default function BugReportsListScreen() {
       setRows(Array.isArray(data) ? data : []);
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        Toast.show({ type: 'error', text1: 'Nie udało się pobrać zgłoszeń' });
+        showToast({ type: 'error', text1: 'Nie udało się pobrać zgłoszeń' });
       }
       setRows([]);
     } finally {

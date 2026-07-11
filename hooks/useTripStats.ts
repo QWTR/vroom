@@ -411,7 +411,7 @@ export function useTripStats() {
     return result;
   }, []);
 
-  const clearStats = useCallback(() => {
+  const clearStats = useCallback((opts?: { preserveEmergency?: boolean }) => {
     setStats(null);
     speedSamples.current = [];
     trackedPts.current   = [];
@@ -420,7 +420,9 @@ export function useTripStats() {
     lastPointRef.current = null;
     lastEmergencyKmRef.current = 0;
     setLiveDistanceKm(0);
-    void clearEmergencyTripSave();
+    if (!opts?.preserveEmergency) {
+      void clearEmergencyTripSave();
+    }
   }, []);
 
   return {

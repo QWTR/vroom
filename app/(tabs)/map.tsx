@@ -2013,13 +2013,15 @@ function MapScreenInner() {
       lastSetLocRef.current = { lat: markerTarget.lat, lng: markerTarget.lng };
       lastAcceptedFixWallClockRef.current = Date.now();
 
-      // V3 SSOT → trip distance / speed / route trace (snapped coords, not raw GPS).
+      // V3 SSOT drives the marker, but trip distance uses raw GPS when available.
       if (!out.rejected && appStateRef.current === 'active') {
         const speedMs = hudSpeedKmh > 0 ? hudSpeedKmh / 3.6 : undefined;
+        const distanceLat = Number.isFinite(out.snap.rawLat) ? out.snap.rawLat : markerTarget.lat;
+        const distanceLng = Number.isFinite(out.snap.rawLng) ? out.snap.rawLng : markerTarget.lng;
         feedSpeedRef.current(speedMs ?? null);
         const segKm = feedPositionRef.current(
-          markerTarget.lat,
-          markerTarget.lng,
+          distanceLat,
+          distanceLng,
           speedMs,
         );
         if (segKm > 0) {
@@ -4619,7 +4621,7 @@ function MapScreenInner() {
     tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
     profileTotalDistanceKmRef.current += Math.max(
       0,
-      Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
+      Math.max(Number(finalStats.distanceKm || 0), tripCheckpointSavedKmRef.current) - tripCheckpointSavedKmRef.current,
     );
     void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
     void deliverGamificationRewards();
@@ -4710,13 +4712,23 @@ function MapScreenInner() {
     if (!opts?.skipFlush) {
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
       // so top speed and km don't get lost when provider reports sparse/zero speed.
-      void flushPendingKm(true, {
-        distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
-        maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
-        avgSpeedKmh: finalStats.avgSpeedKmh,
-        durationSec: finalStats.elapsedSec,
-        routePoints: finalStats.trackedPoints,
-      }, 'driving');
+      void (async () => {
+        await flushTripDistanceCheckpointRef.current({
+          minKm: 0.05,
+          forceAll: true,
+          reason: 'driving_final',
+        });
+        await flushPendingKm(true, {
+          distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+          maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
+          avgSpeedKmh: finalStats.avgSpeedKmh,
+          durationSec: finalStats.elapsedSec,
+          routePoints: finalStats.trackedPoints,
+          checkpointDistanceKm: tripCheckpointSavedKmRef.current,
+        }, 'driving');
+        tripCheckpointSavedKmRef.current = 0;
+        await clearTripCheckpointSavedKm();
+      })();
       if (DRIVE_TEST_DIAGNOSTICS) {
         console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({
           at: Date.now(),
@@ -4731,12 +4743,10 @@ function MapScreenInner() {
         }));
       }
     }
-    tripCheckpointSavedKmRef.current = 0;
-    void clearTripCheckpointSavedKm();
     tripMoveSamplesRef.current = [];
     speedKmhRef.current = 0;
     setSpeed(null);
-    clearStats();
+    clearStats({ preserveEmergency: true });
     tripPeakSpeedRef.current = 0;
     resetSpeedometerEmitterThrottle();
     emitSpeedometerKmh(0);
@@ -8194,8 +8204,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             : Infinity;
           const useRawForDistance =
             rawMoveM >= 4
-            && rawMoveM > snapMoveM * 1.35
-            && (kmh >= 20 || rawGpsKmhForSpike >= 20);
+            && (
+              isNavigatingRef.current
+              || Platform.OS === 'ios'
+              || (rawMoveM > snapMoveM * 1.35 && (kmh >= 20 || rawGpsKmhForSpike >= 20))
+            );
           const distLat = useRawForDistance ? rawLat : appliedSnap.latitude;
           const distLng = useRawForDistance ? rawLng : appliedSnap.longitude;
           const segKm = feedPosition(distLat, distLng, sanitizedSpeedMs ?? undefined);
@@ -8473,15 +8486,23 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   }) => {
     if (navStatsFlushedRef.current) return;
     navStatsFlushedRef.current = true;
-    flushPendingKm(true, {
-      distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
-      maxSpeedKmh: finalStats.maxSpeedKmh,
-      avgSpeedKmh: finalStats.avgSpeedKmh,
-      durationSec: finalStats.elapsedSec,
-      routePoints: finalStats.trackedPoints,
-    });
-    tripCheckpointSavedKmRef.current = 0;
-    void clearTripCheckpointSavedKm();
+    void (async () => {
+      await flushTripDistanceCheckpointRef.current({
+        minKm: 0.05,
+        forceAll: true,
+        reason: 'navigation_final',
+      });
+      await flushPendingKm(true, {
+        distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+        maxSpeedKmh: finalStats.maxSpeedKmh,
+        avgSpeedKmh: finalStats.avgSpeedKmh,
+        durationSec: finalStats.elapsedSec,
+        routePoints: finalStats.trackedPoints,
+        checkpointDistanceKm: tripCheckpointSavedKmRef.current,
+      });
+      tripCheckpointSavedKmRef.current = 0;
+      await clearTripCheckpointSavedKm();
+    })();
   }, [flushPendingKm]);
 
   useEffect(() => {
@@ -8783,8 +8804,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           lastGoodLocRef.current = { lat: navSnapped.latitude, lng: navSnapped.longitude };
           lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
           lastSetLocRef.current = { lat: navSnapped.latitude, lng: navSnapped.longitude };
-if (appStateRef.current === 'active') {
-            feedPosition(navSnapped.latitude, navSnapped.longitude, speedMs);
+          if (appStateRef.current === 'active') {
+            feedPosition(rawLat, rawLng, speedMs);
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -8798,8 +8819,8 @@ if (appStateRef.current === 'active') {
           lastGoodLocRef.current = { lat, lng };
           lastSetLocRef.current = { lat, lng };
           lastNavLocRef.current = { latitude: lat, longitude: lng };
-if (appStateRef.current === 'active') {
-            feedPosition(lat, lng, speedMs);
+          if (appStateRef.current === 'active') {
+            feedPosition(rawLat, rawLng, speedMs);
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -11502,7 +11523,7 @@ if (appStateRef.current === 'active') {
     tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
     profileTotalDistanceKmRef.current += Math.max(
       0,
-      Number(finalStats.distanceKm || 0) - tripCheckpointSavedKmRef.current,
+      Math.max(Number(finalStats.distanceKm || 0), tripCheckpointSavedKmRef.current) - tripCheckpointSavedKmRef.current,
     );
     setIsNavigating(false);
     setArrived(true);

@@ -33,6 +33,7 @@ import { useAppAnimations } from "../../hooks/useAppAnimations";
 import { AnnouncementsModal } from "../../components/modals/AnnouncementsModal";
 import { SystemNewsModal } from "../../components/modals/SystemNewsModal";
 import { useAnnouncements } from "../../hooks/useAnnouncements";
+import { useSystemNews } from "../../hooks/useSystemNews";
 import { usePolls } from "../../hooks/usePolls";
 import { useGifts } from "../../hooks/useGifts";
 import { PollModal } from "../../components/modals/PollModal";
@@ -148,7 +149,9 @@ export default function HomeScreen() {
 	const [user, setUser] = useState<User | null>(null);
 	const [streakFxVisible, setStreakFxVisible] = useState(false);
 	const prevStreakRef = useRef(0);
-	const { unseenCount, load: loadAnnouncements } = useAnnouncements();
+	const { unseenCount: announcementsUnseenCount, load: loadAnnouncements } = useAnnouncements();
+	const { unseenCount: systemNewsUnseenCount, loadPage: loadSystemNews } = useSystemNews();
+	const announcementsBadgeCount = announcementsUnseenCount + systemNewsUnseenCount;
 	const [showAnnouncements, setShowAnnouncements] = useState(false);
 	const [showSystemNews, setShowSystemNews] = useState(false);
 
@@ -194,10 +197,12 @@ export default function HomeScreen() {
 	useFocusEffect(
 		useCallback(() => {
 			fetchNotifUnread();
+			loadAnnouncements();
+			loadSystemNews(1, false);
 			void fetchFreshUser().then((fresh) => {
 				if (fresh) setUser(fresh);
 			});
-		}, [fetchNotifUnread]),
+		}, [fetchNotifUnread, loadAnnouncements, loadSystemNews]),
 	);
 
 	useEffect(() => {
@@ -242,7 +247,8 @@ export default function HomeScreen() {
 
 	useEffect(() => {
 		loadAnnouncements();
-	}, []);
+		loadSystemNews(1, false);
+	}, [loadAnnouncements, loadSystemNews]);
 
 	useEffect(() => {
 		refreshPremiumStatus().catch(() => {});
@@ -523,10 +529,16 @@ export default function HomeScreen() {
 		refreshPremiumStatus().catch(() => {});
 		refreshPremiumAccess().catch(() => {});
 		loadAnnouncements();
+		loadSystemNews(1, false);
 		fetchActiveGridVotes();
 		fetchNotifUnread();
 		loadUser(false);
 	};
+
+	const refreshAnnouncementBadges = useCallback(() => {
+		loadAnnouncements();
+		loadSystemNews(1, false);
+	}, [loadAnnouncements, loadSystemNews]);
 
 	const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(
 		user ? { isPremium: !!user.isPremium, premiumExpiresAt: user.premiumExpiresAt ?? null } : null,
@@ -1163,7 +1175,7 @@ export default function HomeScreen() {
 								</Text>
 							</View>
 
-							{unseenCount > 0 && (
+							{announcementsBadgeCount > 0 && (
 								<View
 									style={{
 										backgroundColor: t.primary,
@@ -1180,7 +1192,7 @@ export default function HomeScreen() {
 											color: "#fff",
 											fontWeight: "900",
 										}}>
-										{unseenCount}
+										{announcementsBadgeCount > 99 ? "99+" : announcementsBadgeCount}
 									</Text>
 								</View>
 							)}
@@ -1896,12 +1908,18 @@ export default function HomeScreen() {
 				{/* Modal ogłoszeń */}
 				<AnnouncementsModal
 					visible={showAnnouncements}
-					onClose={() => setShowAnnouncements(false)}
+					onClose={() => {
+						setShowAnnouncements(false);
+						refreshAnnouncementBadges();
+					}}
 				/>
 
 				<SystemNewsModal
 					visible={showSystemNews}
-					onClose={() => setShowSystemNews(false)}
+					onClose={() => {
+						setShowSystemNews(false);
+						refreshAnnouncementBadges();
+					}}
 				/>
 
 				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />

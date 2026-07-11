@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   Image, ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Pressable,
@@ -48,6 +48,7 @@ const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
 const FREE_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
 const PREMIUM_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
+const COMMENT_POST_PREVIEW_CHARS = 420;
 
 export default function CommunityScreen() {
   const router = useRouter();
@@ -105,6 +106,7 @@ export default function CommunityScreen() {
   const [commentMentionUsers, setCommentMentionUsers] = useState<{ id: number; username: string; avatarUrl: string | null }[]>([]);
   const [commentAuthorFollowing, setCommentAuthorFollowing] = useState(false);
   const [commentFollowLoading, setCommentFollowLoading] = useState(false);
+  const [commentPostExpanded, setCommentPostExpanded] = useState(false);
   const [reactionPicker, setReactionPicker] = useState<{ type: 'post' | 'comment'; id: number } | null>(null);
   const commentMentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commentListRef = useRef<FlatList<Comment>>(null);
@@ -477,6 +479,7 @@ export default function CommunityScreen() {
 
   const openComments = useCallback(async (post: Post) => {
     setCommentPost(post); setComments([]); setLoadingComments(true);
+    setCommentPostExpanded(false);
     setCommentMentionUsers([]);
     setCommentAuthorFollowing(false);
     if (post.author.id !== myId && myId) {
@@ -502,6 +505,7 @@ export default function CommunityScreen() {
   const closeComments = useCallback(() => {
     Keyboard.dismiss();
     setCommentPost(null);
+    setCommentPostExpanded(false);
     restoreDiscussionsScroll();
   }, []);
 
@@ -707,7 +711,15 @@ export default function CommunityScreen() {
         { parentHasKeyboardAvoiding: true },
       )
     : modalBottomPadding;
-  const commentListMaxHeight = commentKeyboardInset > 0 ? 200 : 340;
+  const commentPostBody = useMemo(() => {
+    if (!commentPost?.content) return '';
+    const isSystemNews = commentPost.postType === 'system_news' || !!commentPost.isSystem;
+    return isSystemNews ? sanitizeSystemNewsContent(commentPost.content) : commentPost.content;
+  }, [commentPost]);
+  const shouldCollapseCommentPost = commentPostBody.length > COMMENT_POST_PREVIEW_CHARS;
+  const visibleCommentPostBody = shouldCollapseCommentPost && !commentPostExpanded
+    ? `${commentPostBody.slice(0, COMMENT_POST_PREVIEW_CHARS).trim()}...`
+    : commentPostBody;
 
   // ─────────────────────────────────────────────────────────
   return (
@@ -856,137 +868,8 @@ export default function CommunityScreen() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
           >
           <View style={{ flex: 1, backgroundColor: theme.surface }}>
-            <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 12 }}>
-              {commentPost ? (
-                <View style={{
-                  flexDirection: 'row', gap: 10, marginBottom: 12,
-                  backgroundColor: theme.surface2, borderRadius: 14, padding: 10,
-                  borderWidth: 1, borderColor: theme.border,
-                }}>
-                  <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
-                    <Avatar user={commentPost.author} size={30} />
-                  </TouchableOpacity>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
-                        <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11 }}>{commentPost.author.username}</Text>
-                      </TouchableOpacity>
-                      {commentPost.author.id !== myId && myId != null && (
-                        <TouchableOpacity
-                          onPress={handleCommentAuthorFollow}
-                          disabled={commentFollowLoading}
-                          style={{
-                            paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
-                            backgroundColor: commentAuthorFollowing ? theme.surface : '#e33835',
-                            borderWidth: 1, borderColor: commentAuthorFollowing ? theme.border : '#e33835',
-                          }}
-                        >
-                          {commentFollowLoading
-                            ? <ActivityIndicator size="small" color={commentAuthorFollowing ? theme.textDim : '#fff'} />
-                            : (
-                              <Text style={{
-                                fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
-                                color: commentAuthorFollowing ? theme.textDim : '#fff',
-                              }}>
-                                {commentAuthorFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
-                              </Text>
-                            )
-                          }
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    {(() => {
-                      const routePreview = parseRoutePostContent(commentPost.content);
-                      const isSystemNews = commentPost.postType === 'system_news' || !!commentPost.isSystem;
-                      if (routePreview) {
-                        return (
-                          <RoutePreviewCard
-                            data={routePreview}
-                            onNavigate={handleNavigateRoutePreview}
-                            fullWidth
-                          />
-                        );
-                      }
-                      if (commentPost.content.length > 0 || commentPost.title) {
-                        return (
-                          <View style={{ gap: 8 }}>
-                            {isSystemNews && (
-                              <View style={{
-                                alignSelf: 'flex-start',
-                                borderRadius: 999,
-                                backgroundColor: '#e33835',
-                                paddingHorizontal: 9,
-                                paddingVertical: 4,
-                              }}>
-                                <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
-                                  {`ZRODLO: ${getSystemNewsSourceLabel(commentPost)}`}
-                                </Text>
-                              </View>
-                            )}
-                            {!!commentPost.title && (
-                              <Text style={{ color: theme.text, fontSize: 17, lineHeight: 23, fontWeight: '800' }}>
-                                {commentPost.title}
-                              </Text>
-                            )}
-                            {!!commentPost.content && (
-                              <Text style={{ fontSize: 15, lineHeight: 22 }}>
-                                {renderDiscussionBody(
-                                  isSystemNews
-                                    ? sanitizeSystemNewsContent(commentPost.content)
-                                    : commentPost.content,
-                                  theme,
-                                  {
-                                    textColor: theme.textDim,
-                                    onMentionPress: async (username) => {
-                                      const uid = await resolveMentionUserId(username);
-                                      if (uid) goToProfile(uid);
-                                    },
-                                    onHashtagPress: handleHashtagPress,
-                                  },
-                                )}
-                              </Text>
-                            )}
-                          </View>
-                        );
-                      }
-                      return null;
-                    })()}
-                    {commentPost.photos?.length > 0 && (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                        {commentPost.photos.map((uri, i) => (
-                          <TouchableOpacity
-                            key={`${uri}-${i}`}
-                            onPress={() => {
-                              setCommentPhotoUris(commentPost.photos);
-                              setCommentPhotoIdx(i);
-                              setCommentPhotoViewer(true);
-                            }}
-                          >
-                            <Image
-                              source={{ uri }}
-                              style={{ width: 72, height: 72, borderRadius: 10 }}
-                              resizeMode="cover"
-                            />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                    {!!commentPost.reactions?.length && (
-                      <ReactionChips
-                        reactions={commentPost.reactions}
-                        onToggle={(emoji) => handlePostReact(commentPost.id, emoji)}
-                      />
-                    )}
-                  </View>
-                </View>
-              ) : null}
-
-              <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 12 }} />
-              <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 10 }}>
-                KOMENTARZE
-              </Text>
-
-              {/* Lista komentarzy */}
+            <View style={{ flex: 1 }}>
+              {/* Post i komentarze sa jedna lista, zeby dlugi post nie blokowal czytania odpowiedzi. */}
               {loadingComments ? (
                 <ActivityIndicator color="#e33835" style={{ margin: 30 }} />
               ) : (
@@ -995,8 +878,155 @@ export default function CommunityScreen() {
                   data={comments}
                   keyExtractor={c => String(c.id)}
                   style={{ flex: 1 }}
-                  contentContainerStyle={{ paddingBottom: 8 }}
+                  contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}
                   showsVerticalScrollIndicator={true}
+                  ListHeaderComponent={commentPost ? (
+                    <>
+                      <View style={{
+                        flexDirection: 'row', gap: 10, marginBottom: 12,
+                        backgroundColor: theme.surface2, borderRadius: 14, padding: 10,
+                        borderWidth: 1, borderColor: theme.border,
+                      }}>
+                        <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
+                          <Avatar user={commentPost.author} size={30} />
+                        </TouchableOpacity>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                            <TouchableOpacity onPress={() => goToProfile(commentPost.author.id)}>
+                              <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 11 }}>{commentPost.author.username}</Text>
+                            </TouchableOpacity>
+                            {commentPost.author.id !== myId && myId != null && (
+                              <TouchableOpacity
+                                onPress={handleCommentAuthorFollow}
+                                disabled={commentFollowLoading}
+                                style={{
+                                  paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+                                  backgroundColor: commentAuthorFollowing ? theme.surface : '#e33835',
+                                  borderWidth: 1, borderColor: commentAuthorFollowing ? theme.border : '#e33835',
+                                }}
+                              >
+                                {commentFollowLoading
+                                  ? <ActivityIndicator size="small" color={commentAuthorFollowing ? theme.textDim : '#fff'} />
+                                  : (
+                                    <Text style={{
+                                      fontFamily: 'Orbitron', fontSize: 7, fontWeight: '700',
+                                      color: commentAuthorFollowing ? theme.textDim : '#fff',
+                                    }}>
+                                      {commentAuthorFollowing ? 'OBSERWUJESZ' : 'OBSERWUJ'}
+                                    </Text>
+                                  )
+                                }
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {(() => {
+                            const routePreview = parseRoutePostContent(commentPost.content);
+                            const isSystemNews = commentPost.postType === 'system_news' || !!commentPost.isSystem;
+                            if (routePreview) {
+                              return (
+                                <RoutePreviewCard
+                                  data={routePreview}
+                                  onNavigate={handleNavigateRoutePreview}
+                                  fullWidth
+                                />
+                              );
+                            }
+                            if (commentPostBody.length > 0 || commentPost.title) {
+                              return (
+                                <View style={{ gap: 8 }}>
+                                  {isSystemNews && (
+                                    <View style={{
+                                      alignSelf: 'flex-start',
+                                      borderRadius: 999,
+                                      backgroundColor: '#e33835',
+                                      paddingHorizontal: 9,
+                                      paddingVertical: 4,
+                                    }}>
+                                      <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
+                                        {`ZRODLO: ${getSystemNewsSourceLabel(commentPost)}`}
+                                      </Text>
+                                    </View>
+                                  )}
+                                  {!!commentPost.title && (
+                                    <Text style={{ color: theme.text, fontSize: 17, lineHeight: 23, fontWeight: '800' }}>
+                                      {commentPost.title}
+                                    </Text>
+                                  )}
+                                  {!!visibleCommentPostBody && (
+                                    <Text style={{ fontSize: 15, lineHeight: 22 }}>
+                                      {renderDiscussionBody(
+                                        visibleCommentPostBody,
+                                        theme,
+                                        {
+                                          textColor: theme.textDim,
+                                          onMentionPress: async (username) => {
+                                            const uid = await resolveMentionUserId(username);
+                                            if (uid) goToProfile(uid);
+                                          },
+                                          onHashtagPress: handleHashtagPress,
+                                        },
+                                      )}
+                                    </Text>
+                                  )}
+                                  {shouldCollapseCommentPost && (
+                                    <TouchableOpacity
+                                      onPress={() => setCommentPostExpanded(v => !v)}
+                                      activeOpacity={0.85}
+                                      style={{
+                                        alignSelf: 'flex-start',
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 7,
+                                        borderRadius: 999,
+                                        backgroundColor: '#e3383515',
+                                        borderWidth: 1,
+                                        borderColor: '#e3383530',
+                                      }}
+                                    >
+                                      <Text style={{ fontFamily: 'Orbitron', color: '#e33835', fontSize: 9, fontWeight: '800' }}>
+                                        {commentPostExpanded ? 'ZWIN POST' : 'POKAZ CALY POST'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {commentPost.photos?.length > 0 && (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                              {commentPost.photos.map((uri, i) => (
+                                <TouchableOpacity
+                                  key={`${uri}-${i}`}
+                                  onPress={() => {
+                                    setCommentPhotoUris(commentPost.photos);
+                                    setCommentPhotoIdx(i);
+                                    setCommentPhotoViewer(true);
+                                  }}
+                                >
+                                  <Image
+                                    source={{ uri }}
+                                    style={{ width: 72, height: 72, borderRadius: 10 }}
+                                    resizeMode="cover"
+                                  />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
+                          {!!commentPost.reactions?.length && (
+                            <ReactionChips
+                              reactions={commentPost.reactions}
+                              onToggle={(emoji) => handlePostReact(commentPost.id, emoji)}
+                            />
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={{ height: 1, backgroundColor: theme.border, marginBottom: 12 }} />
+                      <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 9, letterSpacing: 2, marginBottom: 10 }}>
+                        KOMENTARZE
+                      </Text>
+                    </>
+                  ) : null}
                   renderItem={({ item }) => (
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
                       <TouchableOpacity onPress={() => goToProfile(item.author.id)}>

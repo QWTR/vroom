@@ -30,6 +30,42 @@ const getToken = async () =>
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const HEADER_HEIGHT = 56;
 
+type PendingUpload = {
+  uri: string;
+  kind: 'photo' | 'video';
+  name: string;
+  mimeType: string;
+};
+
+async function readApiJson(res: Response) {
+  const text = await res.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: res.ok ? 'Nieprawidlowa odpowiedz serwera' : 'Serwer zwrocil blad. Sprobuj ponownie.',
+    };
+  }
+}
+
+function mediaName(uri: string, fallback: string) {
+  const raw = uri.split('/').pop()?.split('?')[0] || fallback;
+  return raw.includes('.') ? raw : fallback;
+}
+
+function toPendingUpload(asset: ImagePicker.ImagePickerAsset, index: number): PendingUpload {
+  const kind = asset.type === 'video' ? 'video' : 'photo';
+  const fallbackName = kind === 'video' ? `video-${index}.mp4` : `photo-${index}.jpg`;
+  const name = asset.fileName || mediaName(asset.uri, fallbackName);
+  const mimeType = asset.mimeType || (kind === 'video' ? 'video/mp4' : 'image/jpeg');
+  return { uri: asset.uri, kind, name, mimeType };
+}
+
+function showToast(params: { type: 'error' | 'info' | 'success'; text1: string; text2?: string }) {
+  (Toast.show as unknown as (input: typeof params) => void)(params);
+}
+
 export default function BugReportThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -44,7 +80,7 @@ export default function BugReportThreadScreen() {
   const [staffLastReadAt, setStaffLastReadAt] = useState<string | null>(null);
   const [staffTyping, setStaffTyping] = useState(false);
   const [body, setBody] = useState('');
-  const [pending, setPending] = useState<string[]>([]);
+  const [pending, setPending] = useState<PendingUpload[]>([]);
   const [sending, setSending] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [introDone, setIntroDone] = useState(false);
@@ -89,14 +125,14 @@ export default function BugReportThreadScreen() {
         headers: { Authorization: `Bearer ${token}` },
         signal: ac.signal,
       });
-      const data = await res.json();
+      const data = await readApiJson(res);
       if (!res.ok) throw new Error(data.error || 'Błąd');
       setMessages(data.messages || []);
       setMeta({ category: data.category, status: data.status });
       setStaffLastReadAt(data.staffLastReadAt ?? null);
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        Toast.show({ type: 'error', text1: 'Nie udało się wczytać wątku' });
+        showToast({ type: 'error', text1: 'Nie udało się wczytać wątku' });
       }
     } finally {
       clearTimeout(timer);
@@ -120,35 +156,40 @@ export default function BugReportThreadScreen() {
       videoMaxDuration: 120,
     });
     if (r.canceled || !r.assets[0]) return;
-    setPending(prev => [...prev, r.assets[0].uri].slice(0, 4));
+    setPending(prev => [...prev, toPendingUpload(r.assets[0], prev.length)].slice(0, 4));
   };
 
   const send = async () => {
     if (!body.trim() && pending.length === 0) {
-      Toast.show({ type: 'info', text1: 'Dodaj tekst lub załącznik' });
+      showToast({ type: 'info', text1: 'Dodaj tekst lub załącznik' });
       return;
     }
     setSending(true);
     try {
       const token = await getToken();
       const form = new FormData();
-      form.append('content', body.trim());
-      pending.forEach((uri, i) => {
-        form.append('files', { uri, name: `file-${i}.jpg`, type: 'image/jpeg' } as any);
+      form.append('body', body.trim());
+      pending.forEach((item) => {
+        form.append(item.kind === 'video' ? 'videos' : 'photos', {
+          uri: item.uri,
+          name: item.name,
+          type: item.mimeType,
+        } as any);
       });
       const res = await fetch(`${API_URL}/api/bug-reports/my/${id}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const data = await res.json();
+      const data = await readApiJson(res);
       if (!res.ok) throw new Error(data.error || 'Błąd');
       setBody('');
       setPending([]);
       emitTyping(false);
-      if (data.message) appendMessage(data.message);
+      const createdMessage = data.message || data;
+      if (createdMessage?.id) appendMessage(createdMessage);
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: e.message || 'Nie udało się wysłać' });
+      showToast({ type: 'error', text1: e.message || 'Nie udało się wysłać' });
     } finally {
       setSending(false);
     }
@@ -208,7 +249,7 @@ export default function BugReportThreadScreen() {
           onSend={send}
           onAttach={pickMedia}
           onClear={() => { setBody(''); emitTyping(false); }}
-          attachments={pending}
+          attachments={pending.map(item => item.uri)}
           onRemoveAttachment={i => setPending(prev => prev.filter((_, j) => j !== i))}
           inputPaddingBottom={chatInputPad}
           placeholder="Napisz do supportu…"

@@ -22,6 +22,7 @@ const INGEST_REFRESH_MS = 8_000;
 const INGEST_MIN_MOVE_M = 8;
 const DROP_PROMPT_DEFAULT_RADIUS_M = 5000;
 const DROP_SNOOZE_MS = 5 * 60_000;
+const DROP_HIDE_MS = 30 * 60_000;
 const REWARD_POLL_MS = 4_000;
 const REWARD_POLL_THROTTLE_MS = 2_000;
 const CLAIM_RETRY_MS = 2_500;
@@ -89,6 +90,7 @@ export function useGamification() {
   const dropsRef = useRef<GeoDropNearby[]>([]);
   const claimingDropIdsRef = useRef<Set<number>>(new Set());
   const lastClaimAttemptRef = useRef<Map<number, number>>(new Map());
+  const lastClaimErrorToastRef = useRef(0);
   const dropRefreshGenRef = useRef(0);
 
   dropNavigationTargetIdRef.current = dropNavigationTargetId;
@@ -145,6 +147,9 @@ export function useGamification() {
       setAvailableDropPrompt(null);
       setDropNavigationTargetId(null);
       trackedDropRef.current = null;
+    } else {
+      lastDropFetchRef.current = null;
+      lastIngestRef.current = null;
     }
   }, []);
 
@@ -327,6 +332,14 @@ export function useGamification() {
         } else {
           void pollPendingRewards(true);
         }
+      } else if (distM <= drop.radiusM * 1.15 && now - lastClaimErrorToastRef.current > 8000) {
+        lastClaimErrorToastRef.current = now;
+        Toast.show({
+          type: 'info',
+          text1: 'Zrzut jest blisko',
+          text2: 'Nie udalo sie jeszcze odebrac. Podjedz w strefe i sprobuj za chwile.',
+          visibilityTime: 3200,
+        } as any);
       }
     }
   }, [collectDropCandidates, normalizeDropId, presentDropClaimSuccess, presentReward, pollPendingRewards, purgeDrop]);
@@ -445,8 +458,12 @@ export function useGamification() {
 
   const hideDropPrompt = useCallback((dropId?: number) => {
     const id = dropId ?? availableDropPrompt?.id;
-    if (id != null) purgeDrop(id);
-  }, [availableDropPrompt?.id, purgeDrop]);
+    if (id != null) {
+      snoozedDropIdsRef.current.set(id, Date.now() + DROP_HIDE_MS);
+      promptedDropIdsRef.current.delete(id);
+    }
+    setAvailableDropPrompt(null);
+  }, [availableDropPrompt?.id]);
 
   const dismissDropPrompt = useCallback(() => {
     setAvailableDropPrompt(null);
@@ -508,6 +525,7 @@ export function useGamification() {
       headingDeg: input.headingDeg,
       speedKmh: input.speedKmh,
       ts: now,
+      force: input.force === true,
     });
 
     if (nearAnyDrop) {
