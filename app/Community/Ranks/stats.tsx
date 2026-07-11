@@ -18,7 +18,7 @@ import { API_URL } from '../../../constants/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { CommunityScreenHeader, CommunitySegmentTabs } from '../../../components/community';
 
-type RankCategory = 'points' | 'distance';
+type RankCategory = 'points' | 'distance' | 'referrals';
 type RankPeriod = 'day' | 'week' | 'month' | 'all';
 
 interface RankUser {
@@ -30,6 +30,25 @@ interface RankUser {
   sub: string;
   streak?: number;
   isPremium?: boolean;
+  isWinner?: boolean;
+}
+
+interface ReferralCompetition {
+  id: number;
+  title: string;
+  prizeDescription: string;
+  winnerPlaces: number;
+  endsAt: string;
+  status: 'scheduled' | 'active' | 'ended' | 'archived';
+  winners?: Array<{
+    userId: number;
+    username: string;
+    avatar: string | null;
+    invitedCount: number;
+    position: number;
+  }>;
+  winnersUntil?: string;
+  finalizedAt?: string;
 }
 
 const PERIODS: Array<{ key: RankPeriod; label: string }> = [
@@ -60,6 +79,17 @@ function normalizePeriod(raw?: string): RankPeriod | null {
 
 function formatScore(value: number): string {
   return Number(value || 0).toLocaleString('pl-PL');
+}
+
+function formatCountdown(endsAt: string): string {
+  const diff = new Date(endsAt).getTime() - Date.now();
+  if (diff <= 0) return 'Koniec konkursu';
+  const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+  const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+  const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+  if (days > 0) return `Zostało ${days} d ${hours} godz.`;
+  if (hours > 0) return `Zostało ${hours} godz. ${mins} min`;
+  return `Zostało ${mins} min`;
 }
 
 function RankAvatar({ user, size }: { user: RankUser; size: number }) {
@@ -171,6 +201,34 @@ function TopRankCard({
   );
 }
 
+function CompetitionBanner({
+  competition,
+  theme,
+}: {
+  competition: ReferralCompetition;
+  theme: ReturnType<typeof useTheme>['theme'];
+}) {
+  const isEnded = competition.status === 'ended';
+  return (
+    <View style={[styles.competitionBanner, { backgroundColor: '#e3383512', borderColor: '#e3383540' }]}>
+      <View style={styles.competitionHeader}>
+        <MaterialCommunityIcons name="trophy" size={18} color="#FFD700" />
+        <Text style={[styles.competitionTitle, { color: theme.text }]} numberOfLines={2}>
+          {competition.title}
+        </Text>
+      </View>
+      <Text style={[styles.competitionPrize, { color: theme.primary }]} numberOfLines={3}>
+        🎁 {competition.prizeDescription}
+      </Text>
+      <Text style={[styles.competitionMeta, { color: theme.textDim }]}>
+        {isEnded
+          ? `Zwycięzcy ogłoszeni — Top ${competition.winnerPlaces}`
+          : `Top ${competition.winnerPlaces} wygrywa · ${formatCountdown(competition.endsAt)}`}
+      </Text>
+    </View>
+  );
+}
+
 export default function StatsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ rankPeriod?: string; rankCategory?: string }>();
@@ -180,6 +238,7 @@ export default function StatsScreen() {
   const [period, setPeriod] = useState<RankPeriod>('all');
   const [users, setUsers] = useState<RankUser[]>([]);
   const [myPosition, setMyPosition] = useState<number | null>(null);
+  const [competition, setCompetition] = useState<ReferralCompetition | null>(null);
   const [myId, setMyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -202,10 +261,12 @@ export default function StatsScreen() {
     const rawCategory = Array.isArray(params.rankCategory) ? params.rankCategory[0] : params.rankCategory;
     const nextPeriod = normalizePeriod(rawPeriod);
     if (nextPeriod) setPeriod(nextPeriod);
-    if (rawCategory === 'points' || rawCategory === 'distance') setCategory(rawCategory);
+    if (rawCategory === 'points' || rawCategory === 'distance' || rawCategory === 'referrals') {
+      setCategory(rawCategory);
+    }
   }, [params.rankCategory, params.rankPeriod]);
 
-  const scoreLabel = category === 'points' ? 'pkt' : 'km';
+  const scoreLabel = category === 'points' ? 'pkt' : category === 'distance' ? 'km' : 'zaproszeń';
 
   const fetchRanking = useCallback(async (nextCategory: RankCategory, nextPeriod: RankPeriod, silent = false) => {
     if (!silent) setLoading(true);
@@ -224,9 +285,11 @@ export default function StatsScreen() {
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       setUsers(Array.isArray(data?.users) ? data.users : []);
       setMyPosition(data?.myPosition ?? null);
+      setCompetition(nextCategory === 'referrals' ? (data?.competition ?? null) : null);
     } catch (e) {
       setUsers([]);
       setMyPosition(null);
+      setCompetition(null);
       setError(e instanceof Error ? e.message : 'Nie udało się pobrać rankingu');
     } finally {
       setLoading(false);
@@ -256,35 +319,49 @@ export default function StatsScreen() {
         tabs={[
           { key: 'points', label: 'PUNKTY', icon: 'star' },
           { key: 'distance', label: 'DYSTANS', icon: 'speed' },
+          { key: 'referrals', label: 'ZAPROSZENIA', icon: 'group-add' },
         ]}
         activeKey={category}
         onChange={(key) => setCategory(key as RankCategory)}
         compact
       />
 
-      <View style={styles.periodRow}>
-        {PERIODS.map((p) => {
-          const active = period === p.key;
-          return (
-            <TouchableOpacity
-              key={p.key}
-              activeOpacity={0.82}
-              onPress={() => setPeriod(p.key)}
-              style={[
-                styles.periodChip,
-                { backgroundColor: theme.surface, borderColor: theme.border2 },
-                active && { backgroundColor: '#e3383518', borderColor: theme.primary },
-              ]}
-            >
-              <Text style={[styles.periodText, { color: active ? theme.primary : theme.textDim }]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {category === 'referrals' && competition ? (
+        <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
+          <CompetitionBanner competition={competition} theme={theme} />
+        </View>
+      ) : null}
 
-      {myPosition ? (
+      {category !== 'referrals' ? (
+        <View style={styles.periodRow}>
+          {PERIODS.map((p) => {
+            const active = period === p.key;
+            return (
+              <TouchableOpacity
+                key={p.key}
+                activeOpacity={0.82}
+                onPress={() => setPeriod(p.key)}
+                style={[
+                  styles.periodChip,
+                  { backgroundColor: theme.surface, borderColor: theme.border2 },
+                  active && { backgroundColor: '#e3383518', borderColor: theme.primary },
+                ]}
+              >
+                <Text style={[styles.periodText, { color: active ? theme.primary : theme.textDim }]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {competition?.status === 'ended' ? (
+        <View style={[styles.myPosition, { backgroundColor: '#FFD70018', borderColor: '#FFD70040' }]}>
+          <MaterialCommunityIcons name="trophy" size={16} color="#FFD700" />
+          <Text style={[styles.myPositionText, { color: '#FFD700' }]}>KONKURS ZAKOŃCZONY — ZWYCIĘZCY</Text>
+        </View>
+      ) : myPosition ? (
         <View style={[styles.myPosition, { backgroundColor: '#e3383512', borderColor: '#e3383535' }]}>
           <MaterialIcons name="leaderboard" size={16} color={theme.primary} />
           <Text style={[styles.myPositionText, { color: theme.primary }]}>Twoja pozycja: #{myPosition}</Text>
@@ -305,10 +382,12 @@ export default function StatsScreen() {
       ) : null}
 
       {restUsers.length > 0 ? (
-        <Text style={[styles.sectionLabel, { color: theme.textDim }]}>DALEJ W RANKINGU</Text>
+        <Text style={[styles.sectionLabel, { color: theme.textDim }]}>
+          {competition?.status === 'ended' ? 'ZWYCIĘZCY' : 'DALEJ W RANKINGU'}
+        </Text>
       ) : null}
     </View>
-  ), [category, myPosition, openProfile, period, restUsers.length, scoreLabel, theme]);
+  ), [category, competition, myPosition, openProfile, period, restUsers.length, scoreLabel, theme]);
 
   const renderItem: ListRenderItem<RankUser> = useCallback(({ item }) => (
     <RankListRow
@@ -342,7 +421,12 @@ export default function StatsScreen() {
                 {error ? 'Nie udało się wczytać' : 'Brak danych'}
               </Text>
               <Text style={[styles.emptySub, { color: theme.textDim }]}>
-                {error ?? 'Zmień zakres czasu albo wróć później.'}
+                {error
+                  ?? (category === 'referrals' && !competition && users.length === 0
+                    ? 'Nikt jeszcze nikogo nie zaprosił.'
+                    : category === 'referrals' && !competition
+                      ? 'Brak aktywnego eventu — pełny ranking zaproszeń.'
+                      : 'Zmień zakres czasu albo wróć później.')}
               </Text>
             </View>
           ) : null}
@@ -369,6 +453,33 @@ const styles = StyleSheet.create({
   headerContent: {
     marginHorizontal: -16,
     paddingBottom: 10,
+  },
+  competitionBanner: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    gap: 8,
+  },
+  competitionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  competitionTitle: {
+    flex: 1,
+    fontFamily: 'Orbitron',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  competitionPrize: {
+    fontFamily: 'Satoshi',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  competitionMeta: {
+    fontFamily: 'Satoshi',
+    fontSize: 12,
   },
   periodRow: {
     flexDirection: 'row',
