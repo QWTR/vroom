@@ -68,6 +68,39 @@ function routeHeadingNearFix(
   return bearingBetween(a.lat, a.lng, b.lat, b.lng);
 }
 
+/**
+ * A navigation payload is often trimmed behind the vehicle. A different first
+ * point is therefore not a reroute by itself. Keep the snap engine warm while
+ * the displayed pose still belongs to the replacement geometry.
+ */
+function distanceToRouteM(
+  lat: number,
+  lng: number,
+  route: { lat: number; lng: number }[],
+): number {
+  if (route.length < 2) return Number.POSITIVE_INFINITY;
+  const latScale = Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+  let closestM = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < route.length - 1; index += 1) {
+    const a = route[index]!;
+    const b = route[index + 1]!;
+    const ax = a.lng * latScale;
+    const ay = a.lat;
+    const bx = b.lng * latScale;
+    const by = b.lat;
+    const px = lng * latScale;
+    const py = lat;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const lengthSq = vx * vx + vy * vy;
+    const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / lengthSq)) : 0;
+    const projectedLat = a.lat + (b.lat - a.lat) * t;
+    const projectedLng = a.lng + (b.lng - a.lng) * t;
+    closestM = Math.min(closestM, haversineKm(lat, lng, projectedLat, projectedLng) * 1000);
+  }
+  return closestM;
+}
+
 function resolveFeedSpeedMs(
   fix: RawGpsFix,
   prev: RawGpsFix | null,
@@ -202,18 +235,15 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
 
     setRoutePolyline(points: { lat: number; lng: number }[] | null): void {
       const prev = geometry.routePolyline;
-      let changed = false;
-      if (prev !== points) {
-        if (!prev || !points || prev.length !== points.length) {
-          changed = true;
-        } else if (points.length > 0) {
-          const pStart = prev[0];
-          const nStart = points[0];
-          const pEnd = prev[prev.length - 1];
-          const nEnd = points[points.length - 1];
-          changed = pStart.lat !== nStart.lat || pStart.lng !== nStart.lng || pEnd.lat !== nEnd.lat || pEnd.lng !== nEnd.lng;
-        }
-      }
+      const anchor = state.displayPrev;
+      const continuesAtDisplayedPose = !!(
+        points
+        && anchor
+        && distanceToRouteM(anchor.lat, anchor.lng, points) <= 75
+      );
+      // Reset only when the new geometry is genuinely detached from the pose
+      // currently being animated. Trimmed/renewed route windows stay smooth.
+      const changed = !prev || !points || !continuesAtDisplayedPose;
       geometry = { ...geometry, routePolyline: points };
       if (changed) {
         snapEngine.reset();

@@ -3,7 +3,7 @@ import Mapbox from '@rnmapbox/maps';
 import { runOnJS, useAnimatedReaction, useSharedValue } from 'react-native-reanimated';
 import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
 
-const PROVIDER_FRAME_MS = 33;
+const PROVIDER_FRAME_MS = 25;
 
 type Pose = {
   lat: number;

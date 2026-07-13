@@ -30,11 +30,11 @@ describe('DriveSessionGuard', () => {
       manualDriving: false,
       now: t0 + 1000,
     });
-    expect(guard.canAutoStop(t0 + AUTO_STOP_STATIONARY_MS + 1000)).toBe(false);
     expect(guard.canAutoStop(t0 + AUTO_STOP_HIGH_SPEED_LOCK_MS - 1000)).toBe(false);
+    expect(guard.canAutoStop(t0 + AUTO_STOP_STATIONARY_MS + 1000)).toBe(true);
   });
 
-  it('allows auto-stop only after 3 minutes below crawl speed', () => {
+  it('allows auto-stop only after 10 minutes below crawl speed', () => {
     const guard = new DriveSessionGuard();
     const t0 = 3_000_000;
     guard.noteSample({

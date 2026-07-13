@@ -36,33 +36,41 @@ class AutoHudMetrics private constructor(
     val safeW: Float,
     val safeH: Float,
 ) {
+    val compact: Boolean = safeW < 820f || safeW / safeH < 1.55f
+
     fun s(value: Float): Float = value * uiScale
     fun ts(value: Float): Float = value * uiScale
     fun touchMin(): Float = max(s(48f), 44f)
 
-    fun contentTop(): Float = safeTop + s(14f)
-    fun contentBottom(): Float = safeBottom - s(14f)
+    fun contentTop(): Float = safeTop + s(if (compact) 10f else 14f)
+    fun contentBottom(): Float = safeBottom - s(if (compact) 10f else 14f)
 
     fun speedPanelRect(bottom: Float): RectF {
-        val h = s(132f)
-        val w = s(104f)
-        return RectF(safeLeft + s(24f), bottom - h, safeLeft + s(24f) + w, bottom - s(4f))
+        val h = s(if (compact) 112f else 132f)
+        val w = s(if (compact) 88f else 104f)
+        val left = safeLeft + s(if (compact) 16f else 24f)
+        return RectF(left, bottom - h, left + w, bottom - s(4f))
     }
 
+    fun speedValueBaseline(rect: RectF): Float = rect.top + s(if (compact) 76f else 88f)
+    fun speedUnitBaseline(rect: RectF): Float = rect.top + s(if (compact) 101f else 116f)
+    fun speedLimitCenterY(rect: RectF): Float = rect.top + s(if (compact) 27f else 30f)
+
     fun searchBarRect(top: Float): RectF {
-        val left = safeLeft + s(24f)
+        val left = safeLeft + s(if (compact) 18f else 24f)
         val barTop = (top - s(18f)).coerceAtLeast(safeTop + s(8f))
-        val minW = s(360f)
-        val prefW = s(468f)
-        val rightReserve = s(210f)
+        val minW = min(s(360f), safeW * 0.56f)
+        val prefW = min(s(468f), safeW * if (compact) 0.58f else 0.62f)
+        val rightReserve = s(if (compact) 150f else 210f)
         val right = (left + prefW).coerceAtMost(safeRight - rightReserve).coerceAtLeast(left + minW)
         return RectF(left, barTop, right, barTop + s(54f))
     }
 
     fun navBarRect(top: Float): RectF {
-        val h = s(92f)
-        val rightMargin = s(154f)
-        return RectF(safeLeft + s(24f), top, safeRight - rightMargin, top + h)
+        val h = s(if (compact) 76f else 92f)
+        val side = s(if (compact) 14f else 24f)
+        val rightMargin = s(if (compact) 88f else 154f)
+        return RectF(safeLeft + side, top, safeRight - rightMargin, top + h)
     }
 
     fun routePreviewPanelRect(top: Float, altCount: Int): RectF {
@@ -72,27 +80,30 @@ class AutoHudMetrics private constructor(
         return RectF(safeLeft + s(24f), top + s(8f), right.coerceAtMost(safeRight - s(164f)), top + s(206f) + extraAlt)
     }
 
-    fun rightControlWidth(): Float = max(s(112f), touchMin() * 2.1f)
+    fun rightControlWidth(): Float = max(s(if (compact) 94f else 112f), touchMin() * if (compact) 1.75f else 2.1f)
 
     fun recenterRect(bottom: Float): RectF {
         val w = rightControlWidth()
-        val h = max(s(54f), touchMin())
-        val right = safeRight - s(26f)
-        return RectF(right - w, bottom - s(150f), right, bottom - s(150f) + h)
+        val h = max(s(if (compact) 50f else 54f), touchMin())
+        val right = safeRight - s(if (compact) 18f else 26f)
+        val topOffset = if (compact) 132f else 150f
+        return RectF(right - w, bottom - s(topOffset), right, bottom - s(topOffset) + h)
     }
 
     fun reportRect(bottom: Float): RectF {
         val w = rightControlWidth()
-        val h = max(s(84f), touchMin() * 1.6f)
-        val right = safeRight - s(26f)
+        val h = max(s(if (compact) 74f else 84f), touchMin() * if (compact) 1.42f else 1.6f)
+        val right = safeRight - s(if (compact) 18f else 26f)
         return RectF(right - w, bottom - h, right, bottom)
     }
 
     fun liveBadgePosition(bottom: Float): Pair<Float, Float> {
-        val w = s(112f)
-        val left = safeRight - s(26f) - w
-        return Pair(left, bottom - s(208f))
+        val w = liveBadgeWidth()
+        val left = safeRight - s(if (compact) 18f else 26f) - w
+        return Pair(left, bottom - s(if (compact) 184f else 208f))
     }
+
+    fun liveBadgeWidth(): Float = s(if (compact) 96f else 112f)
 
     fun searchOverlayPanel(top: Float, bottom: Float, wantsResults: Boolean): RectF {
         val margin = s(18f)
@@ -155,14 +166,16 @@ class AutoHudMetrics private constructor(
             AutoHudLayoutMode.NAVIGATING -> safeH * 0.48
             else -> safeH * 0.18
         }.toDouble()
-        val rawLeft = (speedRect.right - safeLeft + margin).coerceAtLeast(s(24f).toDouble())
+        val rawLeft = (speedRect.right - safeLeft + margin).coerceAtLeast(s(if (compact) 18f else 24f).toDouble())
         val rawBottom = (safeBottom - speedRect.top + margin).coerceAtLeast(s(36f).toDouble())
-        val rawRight = (safeRight - rightControlLeft + margin).coerceAtLeast(s(24f).toDouble())
+        val rawRight = (safeRight - rightControlLeft + margin).coerceAtLeast(s(if (compact) 18f else 24f).toDouble())
+        val sideLimit = if (compact) 0.18 else 0.16
+        val bottomLimit = if (compact) 0.24 else 0.22
         return AutoHudInsets(
             top = min(rawTop, maxTop),
-            left = min(rawLeft, (safeW * 0.12).toDouble()),
-            bottom = min(rawBottom, (safeH * 0.22).toDouble()),
-            right = min(rawRight, (safeW * 0.12).toDouble()),
+            left = min(rawLeft, (safeW * sideLimit).toDouble()),
+            bottom = min(rawBottom, (safeH * bottomLimit).toDouble()),
+            right = min(rawRight, (safeW * sideLimit).toDouble()),
         )
     }
 
@@ -174,7 +187,7 @@ class AutoHudMetrics private constructor(
             val safe = visible ?: Rect(0, 0, canvasW, canvasH)
             val safeW = (safe.right - safe.left).toFloat().coerceAtLeast(1f)
             val safeH = (safe.bottom - safe.top).toFloat().coerceAtLeast(1f)
-            val scale = min(safeW / REF_W, safeH / REF_H).coerceIn(0.9f, 1.55f)
+            val scale = min(safeW / REF_W, safeH / REF_H).coerceIn(0.76f, 1.55f)
             return AutoHudMetrics(
                 uiScale = scale,
                 safeLeft = safe.left.toFloat(),

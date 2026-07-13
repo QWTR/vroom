@@ -63,7 +63,12 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
   };
   WiroomLocationService?: {
-    startDriveTracking?: (mode: BackgroundDriveMode, tripSessionId?: string) => Promise<boolean>;
+    startDriveTracking?: (
+      mode: BackgroundDriveMode,
+      tripSessionId?: string,
+      apiUrl?: string,
+      authToken?: string,
+    ) => Promise<boolean>;
     stopDriveTracking?: (reason: BackgroundDriveStopReason | string) => Promise<boolean>;
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
@@ -183,15 +188,19 @@ export const BackgroundDriveController = {
       endedBy: null,
       updatedAt: Date.now(),
     };
-    await persistState(state);
     const mod = nativeModule();
     if (!mod?.startDriveTracking) return false;
     try {
       await ensureAndroidNotificationPermission();
-      const token = Platform.OS === 'android' ? await getAuthToken() : null;
-      const ok = Platform.OS === 'android'
-        ? await (mod.startDriveTracking as any)(mode, tripSessionId ?? '', API_URL, token ?? '')
-        : await mod.startDriveTracking(mode, tripSessionId ?? '');
+      const token = await getAuthToken();
+      const ok = await (mod.startDriveTracking as any)(
+        mode,
+        tripSessionId ?? '',
+        API_URL,
+        token ?? '',
+      );
+      if (!ok) return false;
+      await persistState(state);
       await showIosDriveNotification(mode);
       return ok;
     } catch {

@@ -39,6 +39,7 @@ class VroomBgTrackingService : Service() {
   private var authToken: String? = null
   private var locationCallback: LocationCallback? = null
   private var wakeLock: PowerManager.WakeLock? = null
+  private var idleSinceMs = 0L
 
   override fun onCreate() {
     super.onCreate()
@@ -201,7 +202,12 @@ class VroomBgTrackingService : Service() {
     tripSessionId = sessionId
     val now = System.currentTimeMillis()
     val previous = readState(applicationContext)
-    val startedAt = if (previous.optBoolean("active", false)) {
+    val previousSessionId = previous.optString("tripSessionId", "")
+    val isNewSession = !sessionId.isNullOrBlank() && sessionId != previousSessionId
+    if (isNewSession) {
+      resetNativeSessionStats(applicationContext)
+    }
+    val startedAt = if (previous.optBoolean("active", false) && !isNewSession) {
       previous.optLong("startedAt", now).takeIf { it > 0 } ?: now
     } else {
       now
@@ -240,6 +246,10 @@ class VroomBgTrackingService : Service() {
           persistLocation(applicationContext, location, trackingMode, "live", false)
           accumulateNativeStats(applicationContext, location)
           BgTrackingModule.emitLocation(location, trackingMode, "live", false)
+          if (observeIdle(location)) {
+            stopTracking("idle", notifyReact = false)
+            return
+          }
         }
       }
     }
@@ -334,6 +344,24 @@ class VroomBgTrackingService : Service() {
     writeState(applicationContext, state)
     if (notifyReact) BgTrackingModule.notifyStopRequested(applicationContext, reason)
     stopSelfSafely()
+  }
+
+  /** A real, reliable standstill ends the trip after ten minutes. GPS silence
+   * never enters this path, so tunnels and temporary signal loss stay active. */
+  private fun observeIdle(location: Location): Boolean {
+    val speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null
+    val reliable = isReliableLocation(location)
+    val stopped = reliable && speedKmh != null && speedKmh < 3.0
+    if (!stopped) {
+      idleSinceMs = 0L
+      return false
+    }
+    val now = if (location.time > 0L) location.time else System.currentTimeMillis()
+    if (idleSinceMs == 0L) {
+      idleSinceMs = now
+      return false
+    }
+    return now - idleSinceMs >= 10 * 60_000L
   }
 
   private fun hasLocationPermission(): Boolean {
@@ -495,6 +523,15 @@ class VroomBgTrackingService : Service() {
       } catch (_: Exception) {
         emptyNativeStats()
       }
+    }
+
+    private fun resetNativeSessionStats(context: Context) {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(KEY_NATIVE_STATS)
+        .remove(KEY_NATIVE_STATS_LAST_FIX)
+        .remove(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM)
+        .apply()
     }
 
     fun readNativeStats(context: Context): JSONObject {
@@ -702,7 +739,7 @@ class VroomBgTrackingService : Service() {
       if (rawApiUrl.isNullOrBlank() || token.isNullOrBlank()) return false
       val endpoint = rawApiUrl.trim().removeSuffix("/") + "/api/activity/session/checkpoint"
       val mode = state.optString("mode", MODE_FREE_DRIVE)
-      val source = if (mode == "navigation") "navigation" else "trip-checkpoint"
+      val source = if (mode == "navigation") "navigation" else "driving"
       val maxSpeed = statsSnapshot.optDouble("maxSpeedKmh", 0.0).takeIf { it.isFinite() } ?: 0.0
       val avgSpeed = averageSpeed(statsSnapshot.optJSONArray("speedSamples") ?: JSONArray())
 

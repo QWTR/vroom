@@ -427,6 +427,42 @@ function pathModeOnRoad(mode: PathMode): boolean {
   return mode === 'onRoad';
 }
 
+function projectPointToWindowArcJs(
+  lat: number,
+  lng: number,
+  ptsFlat: number[],
+  cumM: number[],
+  baseArcM: number,
+): { arcM: number; distanceM: number } | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || ptsFlat.length < 4 || cumM.length < 2) return null;
+  const latScale = Math.max(0.15, Math.cos(lat * Math.PI / 180));
+  let best: { arcM: number; distanceM: number } | null = null;
+  for (let index = 0; index < cumM.length - 1; index += 1) {
+    const aLat = ptsFlat[index * 2];
+    const aLng = ptsFlat[index * 2 + 1];
+    const bLat = ptsFlat[index * 2 + 2];
+    const bLng = ptsFlat[index * 2 + 3];
+    if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) continue;
+    const ax = aLng * latScale;
+    const ay = aLat;
+    const bx = bLng * latScale;
+    const by = bLat;
+    const px = lng * latScale;
+    const py = lat;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const lengthSq = vx * vx + vy * vy;
+    const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / lengthSq)) : 0;
+    const projectedLat = aLat + (bLat - aLat) * t;
+    const projectedLng = aLng + (bLng - aLng) * t;
+    const distanceM = haversineMJs(lat, lng, projectedLat, projectedLng);
+    if (!best || distanceM < best.distanceM) {
+      best = { arcM: baseArcM + cumM[index] + (cumM[index + 1] - cumM[index]) * t, distanceM };
+    }
+  }
+  return best;
+}
+
 /**
  * V3 marker — withTiming @ GPS cadence + 60 FPS projekcja arc → lat/lng.
  */
@@ -662,9 +698,12 @@ export function useDriveMarkerV3(
     const rawGpsIntervalMs = Number.isFinite(target.gpsIntervalMs) && target.gpsIntervalMs! > 0
       ? target.gpsIntervalMs!
       : 900;
+    // The target must span the real GPS cadence. Capping it at 1.2 seconds
+    // made navigation reach the snapped point early, wait there, then jump
+    // when the next iOS/Android fix finally arrived.
     const markerSegmentMs = Math.max(
       320,
-      Math.min(1_200, rawGpsIntervalMs),
+      Math.min(5_000, rawGpsIntervalMs * 0.96),
     );
     segmentDurationMs.value = markerSegmentMs;
     lastTargetAtMs.value = Date.now();
@@ -796,54 +835,23 @@ export function useDriveMarkerV3(
       polylineKeySv.value = key;
       onRoadSv.value = 1;
       const arcM = target.targetArcM as number;
-      targetArcM.value = arcM;
-
       if (keyChanged) {
-        const gapBeforeKey = arcM - displayArcM.value;
-        const localM = arcM - arcFeed.baseArcM;
-        const pose = pointAtWindowArcLocalJs(arcFeed.ptsFlat, arcFeed.cumM, localM);
-        if (Math.abs(gapBeforeKey) >= POLYLINE_KEY_HARD_SNAP_M) {
+        // Arc windows are refreshed while navigating. Reproject the *current*
+        // animated pose into the replacement window; never assign its lat/lng
+        // to the fresh snapped coordinate because that visibly teleports it.
+        const continuity = projectPointToWindowArcJs(
+          lat.value,
+          lng.value,
+          arcFeed.ptsFlat,
+          arcFeed.cumM,
+          arcFeed.baseArcM,
+        );
+        if (continuity && continuity.distanceM <= POLYLINE_KEY_HARD_SNAP_M) {
           cancelAnimation(displayArcM);
-          cancelAnimation(lat);
-          cancelAnimation(lng);
-          cancelAnimation(heading);
-          displayArcM.value = arcM;
-          if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
-            const blended = blendPositionJs(
-              pose.lat,
-              pose.lng,
-              target.rawLat,
-              target.rawLng,
-              visualBlend,
-            );
-            lat.value = blended.lat;
-            lng.value = blended.lng;
-            const poseHdg = lookAheadHeadingJs(
-              arcFeed.ptsFlat,
-              arcFeed.cumM,
-              localM,
-              blended.lat,
-              blended.lng,
-              tgtHdg,
-            );
-            const snappedHdg = visualBlend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
-            heading.value = snappedHdg;
-            segmentHdgTargetSv.value = snappedHdg;
-          }
-        } else if (Number.isFinite(pose.lat) && Number.isFinite(pose.lng)) {
-          const reprojGapM = haversineMJs(lat.value, lng.value, pose.lat, pose.lng);
-          if (reprojGapM >= 5) {
-            cancelAnimation(displayArcM);
-            cancelAnimation(lat);
-            cancelAnimation(lng);
-            displayArcM.value = arcM;
-            lat.value = pose.lat;
-            lng.value = pose.lng;
-          } else if (reprojGapM < POLYLINE_KEY_HARD_SNAP_M) {
-            displayArcM.value = arcM - reprojGapM * 0.15;
-          }
+          displayArcM.value = continuity.arcM;
         }
       }
+      targetArcM.value = arcM;
     } else {
       onRoadSv.value = 0;
       roadPtsFlat.value = [];

@@ -13,6 +13,7 @@ class VroomCarSession : Session() {
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
+                AutoNavStore.endNativeTripSession(carContext)
                 VroomCarManager.clearCarContext()
                 AutoNavigationCoordinator.detach()
                 AutoLocationTracker.stop()

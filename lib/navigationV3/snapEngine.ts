@@ -142,7 +142,10 @@ function buildSnapArcWindow(
 ): ArcWindowSlice | null {
   if (!arc || dense.length < 2 || arc.totalM <= 0) return null;
 
-  const backM = 40;
+  // Navigation GPS can arrive every few seconds. Keep enough geometry behind
+  // the latest snap for the marker that is still finishing the prior segment;
+  // a 40 m window clipped its current arc and caused a visible forward jump.
+  const backM = Math.max(220, speedMs * 8);
   const aheadM = 90 + Math.max(0, speedMs) * 10;
   const winStart = Math.max(0, arcM - backM);
   const winEnd = Math.min(arc.totalM, arcM + aheadM);

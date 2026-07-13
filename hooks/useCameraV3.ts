@@ -51,8 +51,7 @@ const RECENTER_ANIM_MS = 420;
 const CAMERA_MOVING_SKIP_KMH = 2;
 /** iOS: natywny FollowWithCourse + CustomLocationProvider nie obraca/nie centruje kamery — setCamera. */
 const IOS_PROGRAMMATIC_TRIP_CAMERA = Platform.OS === 'ios';
-const IOS_CAMERA_MIN_INTERVAL_MS = 66;
-const IOS_CAMERA_MAX_ANIM_MS = 480;
+const IOS_CAMERA_FRAME_MS = 33;
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -163,6 +162,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const speedKmhSv = useSharedValue(0);
   const lastCameraPushMsSv = useSharedValue(0);
+  const lastIosFramePushMsSv = useSharedValue(0);
   const lastSentReadySv = useSharedValue(0);
   const lastSentLatSv = useSharedValue(0);
   const lastSentLngSv = useSharedValue(0);
@@ -464,31 +464,8 @@ export function useCameraV3(opts: UseCameraV3Options) {
       return;
     }
 
-    if (IOS_PROGRAMMATIC_TRIP_CAMERA) {
-      const padding = cachedPaddingRef.current ?? getTripCameraPadding(isNavigating);
-      const pitch = isNavigating ? NAV_PITCH : DRIVE_PITCH;
-      const minInterval = hardSnap ? 0 : (speedKmh >= 50 ? IOS_CAMERA_MIN_INTERVAL_MS : 90);
-      if (!hardSnap && now - lastIosCameraApplyMsRef.current < minInterval) {
-        return;
-      }
-      let animMs = 0;
-      if (!hardSnap) {
-        const segMs = Number.isFinite(_segmentDurationMs) && _segmentDurationMs > 0
-          ? _segmentDurationMs
-          : speedKmh >= 60 ? 320 : 400;
-        animMs = Math.min(Math.max(segMs, 280), IOS_CAMERA_MAX_ANIM_MS);
-      }
-      lastIosCameraApplyMsRef.current = now;
-      (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
-        centerCoordinate: [lng, lat],
-        heading: displayHeading,
-        zoomLevel: zoom ?? BROWSE_ZOOM,
-        pitch,
-        padding,
-        animationDuration: animMs,
-        animationMode: hardSnap ? 'linear' : 'easeTo',
-      });
-    }
+    // iOS is driven by the marker-frame reaction below. Sending a second,
+    // long animation only on each GPS target made the camera wait and chase.
 
     // Android: natywny follow przez CustomLocationProvider (bez setCamera center).
     coldStartFollowPendingRef.current = false;
@@ -536,6 +513,52 @@ export function useCameraV3(opts: UseCameraV3Options) {
   ) => {
     applyCameraKeyframeFromMarker(lat, lng, markerHdg, segmentDurationMs);
   }, [applyCameraKeyframeFromMarker]);
+
+  const applyIosCameraFrame = useCallback((lat: number, lng: number, markerHeading: number) => {
+    if (!IOS_PROGRAMMATIC_TRIP_CAMERA || !isTripMode || !enabled || isPaused()) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const now = Date.now();
+    if (now - lastIosCameraApplyMsRef.current < IOS_CAMERA_FRAME_MS) return;
+
+    const heading = normalizeHeading(markerHeading);
+    syncCourseHeadingTargetRef.current(heading);
+    const speedKmh = Math.max(0, speedKmhRef?.current ?? 0);
+    const zoom = smoothedZoomRef.current ?? (zoomFromSpeed(speedKmh) - 0.3);
+    lastIosCameraApplyMsRef.current = now;
+    (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
+      centerCoordinate: [lng, lat],
+      heading,
+      zoomLevel: zoom,
+      pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
+      padding: cachedPaddingRef.current ?? getTripCameraPadding(isNavigating),
+      // The marker is already interpolated at frame rate. A second easing
+      // animation here would queue behind it and make the camera lag.
+      animationDuration: 0,
+      animationMode: 'linearTo',
+    });
+  }, [cameraRef, enabled, isNavigating, isPaused, isTripMode, speedKmhRef]);
+
+  const onApplyIosCameraFrame = useCallback((lat: number, lng: number, heading: number) => {
+    applyIosCameraFrame(lat, lng, heading);
+  }, [applyIosCameraFrame]);
+
+  useAnimatedReaction(
+    () => ({
+      lat: marker.lat.value,
+      lng: marker.lng.value,
+      heading: marker.heading.value,
+      follow: followEnabledSv.value,
+    }),
+    (next) => {
+      if (!IOS_PROGRAMMATIC_TRIP_CAMERA || next.follow < 0.5) return;
+      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng) || !Number.isFinite(next.heading)) return;
+      const now = Date.now();
+      if (now - lastIosFramePushMsSv.value < IOS_CAMERA_FRAME_MS) return;
+      lastIosFramePushMsSv.value = now;
+      runOnJS(onApplyIosCameraFrame)(next.lat, next.lng, next.heading);
+    },
+    [followEnabledSv, lastIosFramePushMsSv, marker.heading, marker.lat, marker.lng, onApplyIosCameraFrame],
+  );
 
   useAnimatedReaction(
     () => ({

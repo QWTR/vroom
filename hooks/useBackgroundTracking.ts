@@ -15,6 +15,20 @@ import {
 import { BackgroundDriveController } from '../lib/backgroundDriveController';
 import { ingestGamificationPing } from '../lib/gamificationClient';
 import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
+import {
+  averageLedgerSpeed,
+  clearTripSessionLedger,
+  createTripSessionLedger,
+  loadTripSessionLedger,
+  markLedgerFinalizationPending,
+  mergeForegroundLedgerSnapshot,
+  mergeNativeLedgerSnapshot,
+  saveTripSessionLedger,
+  shouldSnapshotLedger,
+  TRIP_FINALIZATION_OUTBOX_KEY,
+  type TripFinalizationReason,
+  type TripSessionLedger,
+} from '../lib/tripSessionLedger';
 import type { NavMode } from '../lib/navigationV3/types';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -81,6 +95,10 @@ export const BG_PENDING_KM_KEY  = 'bg_pending_km';
 export const EMERGENCY_TRIP_SAVE_KEY = 'vroom_emergency_trip_save';
 /** Ile km z bieżącej trasy już trafiło na serwer (checkpointy) — przetrwa kill procesu. */
 export const TRIP_CHECKPOINT_SAVED_KM_KEY = 'trip_checkpoint_saved_km';
+/** Session that owns the persisted checkpoint watermark. Old app versions stored
+ * only a number here, which could block a later trip whose UI distance restarted
+ * from zero. */
+export const TRIP_CHECKPOINT_SESSION_ID_KEY = 'trip_checkpoint_session_id';
 const BG_PENDING_ACTIVITY_SAVE_KEY = 'bg_pending_activity_save';
 const BG_LAST_LOC_KEY           = 'bg_last_location';
 const BG_ROUTE_POINTS_KEY       = 'bg_route_points';
@@ -243,16 +261,33 @@ export async function persistTripCheckpointSavedKm(km: number): Promise<void> {
   try {
     const n = Number(km);
     if (!Number.isFinite(n) || n <= 0) {
-      await AsyncStorage.removeItem(TRIP_CHECKPOINT_SAVED_KM_KEY);
+      await AsyncStorage.multiRemove([
+        TRIP_CHECKPOINT_SAVED_KM_KEY,
+        TRIP_CHECKPOINT_SESSION_ID_KEY,
+      ]);
       return;
     }
-    await AsyncStorage.setItem(TRIP_CHECKPOINT_SAVED_KM_KEY, String(n));
+    const sessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+    if (!sessionId) return;
+    await AsyncStorage.multiSet([
+      [TRIP_CHECKPOINT_SAVED_KM_KEY, String(n)],
+      [TRIP_CHECKPOINT_SESSION_ID_KEY, sessionId],
+    ]);
   } catch { /* ignore */ }
 }
 
 export async function loadTripCheckpointSavedKm(): Promise<number> {
   try {
-    return safePendingKm(await AsyncStorage.getItem(TRIP_CHECKPOINT_SAVED_KM_KEY));
+    const [[, rawKm], [, checkpointSessionId], [, activeSessionId]] = await AsyncStorage.multiGet([
+      TRIP_CHECKPOINT_SAVED_KM_KEY,
+      TRIP_CHECKPOINT_SESSION_ID_KEY,
+      TRIP_SESSION_ID_KEY,
+    ]);
+    // An unscoped legacy watermark is deliberately ignored. It cannot safely
+    // be applied to a fresh trip, and used to make 1 km drives wait for an old
+    // 18 km checkpoint before sending anything.
+    if (!checkpointSessionId || !activeSessionId || checkpointSessionId !== activeSessionId) return 0;
+    return safePendingKm(rawKm);
   } catch {
     return 0;
   }
@@ -260,7 +295,10 @@ export async function loadTripCheckpointSavedKm(): Promise<number> {
 
 export async function clearTripCheckpointSavedKm(): Promise<void> {
   try {
-    await AsyncStorage.removeItem(TRIP_CHECKPOINT_SAVED_KM_KEY);
+    await AsyncStorage.multiRemove([
+      TRIP_CHECKPOINT_SAVED_KM_KEY,
+      TRIP_CHECKPOINT_SESSION_ID_KEY,
+    ]);
   } catch { /* ignore */ }
 }
 
@@ -427,67 +465,225 @@ function compactBgRoutePoints(
 }
 
 export async function consumeNativeDriveStatsToStorage(): Promise<void> {
+  await syncNativeTripSessionLedger();
+}
+
+/**
+ * Keeps a genuinely running native session intact, but starts a clean session
+ * when only stale keys from an already-ended/older build remain. This is the
+ * boundary that prevents a previous checkpoint total from poisoning a new trip.
+ */
+async function prepareTripSessionForStart(mode: 'navigation' | 'freeDrive'): Promise<string> {
+  const [nativeState, ledger, existingSessionId] = await Promise.all([
+    BackgroundDriveController.getState(),
+    loadTripSessionLedger(),
+    AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
+  ]);
+  const nativeSessionId = typeof nativeState.tripSessionId === 'string' ? nativeState.tripSessionId : null;
+  const nativeOwnsSession = nativeState.active && !!nativeSessionId;
+  const ledgerIsRecoverable = !!(
+    ledger?.active
+    && ledger.tripSessionId === existingSessionId
+    && ledger.finalization.state === 'open'
+  );
+
+  if (nativeOwnsSession || ledgerIsRecoverable) {
+    return nativeSessionId || ledger?.tripSessionId || ensureTripSessionId();
+  }
+
+  await Promise.all([
+    clearTripSession(),
+    clearTripCheckpointSavedKm(),
+    clearEmergencyTripSave(),
+    clearTripSessionLedger(),
+    AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+    AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+    AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+    AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+  ]);
+  const tripSessionId = await ensureTripSessionId();
+  const startedAt = await AsyncStorage.getItem(TRIP_SESSION_STARTED_AT_KEY);
+  await saveTripSessionLedger(createTripSessionLedger({
+    tripSessionId,
+    startedAt: startedAt ?? undefined,
+    mode,
+  }));
+  return tripSessionId;
+}
+
+/**
+ * Copies the native, session-total ledger into durable JS storage without
+ * consuming or resetting the native tracker. It is safe to call repeatedly.
+ */
+export async function syncNativeTripSessionLedger(): Promise<TripSessionLedger | null> {
   try {
-    const stats = await BackgroundDriveController.consumeNativeStats();
+    const [state, stats] = await Promise.all([
+      BackgroundDriveController.getState(),
+      BackgroundDriveController.getNativeStats(),
+    ]);
     const nativeSessionId = typeof stats.tripSessionId === 'string' ? stats.tripSessionId : null;
-    const currentSessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
-    if (nativeSessionId && currentSessionId && nativeSessionId !== currentSessionId) {
-      return;
-    }
     const nativeKm = Number(stats.distanceKm);
     const nativeCheckpointKm = Number(stats.lastServerCheckpointKm);
-    const writes: Promise<any>[] = [];
+    const sessionId = nativeSessionId || state.tripSessionId || await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+    if (!sessionId || (!Number.isFinite(nativeKm) && !state.active)) return null;
+    const currentSessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+    if (currentSessionId !== sessionId) {
+      await AsyncStorage.multiSet([
+        [TRIP_SESSION_ID_KEY, String(sessionId)],
+        [TRIP_SESSION_STARTED_AT_KEY, new Date(Number(state.startedAt) || Date.now()).toISOString()],
+      ]);
+    }
+    const previous = await loadTripSessionLedger();
+    const next = mergeNativeLedgerSnapshot(previous, {
+      tripSessionId: String(sessionId),
+      startedAt: state.startedAt ?? null,
+      mode: state.mode,
+      distanceKm: Number.isFinite(nativeKm) ? nativeKm : 0,
+      checkpointKm: Number.isFinite(nativeCheckpointKm) ? nativeCheckpointKm : 0,
+      routePoints: Array.isArray(stats.routePoints)
+        ? stats.routePoints.filter((p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude))
+        : [],
+      speedSamples: Array.isArray(stats.speedSamples) ? stats.speedSamples : [],
+      maxSpeedKmh: stats.maxSpeedKmh,
+      movedAt: state.updatedAt ?? Date.now(),
+    });
+    if (shouldSnapshotLedger(previous, next)) {
+      await saveTripSessionLedger(next);
+    }
 
     if (Number.isFinite(nativeCheckpointKm) && nativeCheckpointKm > 0) {
-      const savedKm = await loadTripCheckpointSavedKm();
-      if (nativeCheckpointKm > savedKm) {
-        writes.push(persistTripCheckpointSavedKm(nativeCheckpointKm));
-      }
+      await persistTripCheckpointSavedKm(Math.max(await loadTripCheckpointSavedKm(), nativeCheckpointKm));
     }
+    return next;
+  } catch {
+    return null;
+  }
+}
 
-    const nativePendingKm = Number.isFinite(nativeCheckpointKm) && nativeCheckpointKm > 0
-      ? Math.max(0, nativeKm - nativeCheckpointKm)
-      : nativeKm;
+export type TripSessionFinalizationInput = {
+  reason: TripFinalizationReason;
+  mode?: 'navigation' | 'freeDrive';
+  distanceKm?: number;
+  maxSpeedKmh?: number;
+  avgSpeedKmh?: number;
+  durationSec?: number;
+  routePoints?: { latitude: number; longitude: number }[];
+};
 
-    if (Number.isFinite(nativePendingKm) && nativePendingKm > 0) {
-      const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
-      writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(pending + nativePendingKm)));
+type PendingTripFinalization = {
+  tripSessionId: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+};
+
+async function readPendingTripFinalization(): Promise<PendingTripFinalization | null> {
+  try {
+    const raw = await AsyncStorage.getItem(TRIP_FINALIZATION_OUTBOX_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (!value?.tripSessionId || !value?.payload) return null;
+    return value as PendingTripFinalization;
+  } catch {
+    return null;
+  }
+}
+
+export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
+  const pending = await readPendingTripFinalization();
+  if (!pending) return true;
+  const token = await getAuthToken();
+  if (!token) return false;
+  try {
+    let payload = pending.payload;
+    let res = await fetch(`${API_URL}/api/activity/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    // A malformed/overlong trace must not block the distance history. Retry the
+    // same idempotent session once without geometry, retaining all km/stats.
+    if (!res.ok && res.status === 400 && payload.routePoints) {
+      payload = { ...payload, routePoints: undefined, routePointsCount: 0 };
+      res = await fetch(`${API_URL}/api/activity/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
     }
+    if (!res.ok) return false;
+    await AsyncStorage.removeItem(TRIP_FINALIZATION_OUTBOX_KEY);
+    await Promise.all([
+      AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+      AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+      AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+      AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+      AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
+      clearEmergencyTripSave(),
+      clearTripCheckpointSavedKm(),
+      clearTripSession(),
+    ]);
+    await BackgroundDriveController.consumeNativeStats().catch(() => ({ distanceKm: 0 }));
+    await clearTripSessionLedger();
+    void syncProfileStatsFromServer();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
+export async function finalizeTripSession(input: TripSessionFinalizationInput): Promise<boolean> {
+  const nativeLedger = await syncNativeTripSessionLedger();
+  const session = await getTripSessionContext();
+  const effectiveSessionId = nativeLedger?.tripSessionId ?? session.tripSessionId;
+  const previous = nativeLedger ?? await loadTripSessionLedger();
+  const seed = previous?.tripSessionId === effectiveSessionId
+    ? previous
+    : createTripSessionLedger({ tripSessionId: effectiveSessionId, startedAt: session.startedAt, mode: input.mode });
+  const ledger = mergeForegroundLedgerSnapshot(seed, {
+    distanceKm: input.distanceKm ?? 0,
+    routePoints: input.routePoints,
+    maxSpeedKmh: input.maxSpeedKmh,
+    avgSpeedKmh: input.avgSpeedKmh,
+    mode: input.mode,
+  });
+  if (ledger.distanceKm < 0.05) return false;
+
+  const pendingLedger = markLedgerFinalizationPending(ledger, input.reason);
+  const routePoints = trimRoutePointsForActivitySave(pendingLedger.routePoints);
+  const payload = {
+    tripSessionId: pendingLedger.tripSessionId,
+    distance: Math.round(pendingLedger.distanceKm * 1000) / 1000,
+    maxSpeed: Math.round(Math.max(pendingLedger.maxSpeedKmh, input.maxSpeedKmh ?? 0) * 10) / 10,
+    avgSpeed: Math.round((input.avgSpeedKmh && input.avgSpeedKmh > 0
+      ? input.avgSpeedKmh
+      : averageLedgerSpeed(pendingLedger)) * 10) / 10,
+    duration: input.durationSec ?? Math.max(0, Math.round((Date.now() - Date.parse(pendingLedger.startedAt)) / 1000)),
+    routePoints: routePoints && routePoints.length >= 2 ? routePoints : undefined,
+    routePointsCount: routePoints?.length ?? 0,
+    source: pendingLedger.mode === 'navigation' ? 'navigation_final' : 'drive_final',
+    startedAt: pendingLedger.startedAt,
+    endedAt: new Date().toISOString(),
+  };
+  await saveTripSessionLedger(pendingLedger);
+  await AsyncStorage.setItem(TRIP_FINALIZATION_OUTBOX_KEY, JSON.stringify({
+    tripSessionId: pendingLedger.tripSessionId,
+    payload,
+    createdAt: Date.now(),
+  }));
+  return flushTripSessionFinalizationOutbox();
+}
+
+/* Legacy bridge kept for older callers. Native totals are no longer appended to
+ * bg_pending_km, which previously made repeated reads duplicate fragments. */
+export async function consumeNativeDriveStatsToLegacyStorage(): Promise<void> {
+  try {
+    const stats = await BackgroundDriveController.getNativeStats();
     const nativeRoute = Array.isArray(stats.routePoints)
       ? stats.routePoints.filter((p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude))
       : [];
     if (nativeRoute.length > 0) {
-      const routeRaw = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
-      const currentRoute = routeRaw ? JSON.parse(routeRaw) : [];
-      writes.push(AsyncStorage.setItem(
-        BG_ROUTE_POINTS_KEY,
-        JSON.stringify(compactBgRoutePoints([...currentRoute, ...nativeRoute])),
-      ));
+      await AsyncStorage.setItem(BG_ROUTE_POINTS_KEY, JSON.stringify(compactBgRoutePoints(nativeRoute)));
     }
-
-    const nativeSamples = Array.isArray(stats.speedSamples)
-      ? stats.speedSamples.map(Number).filter((v) => Number.isFinite(v) && v >= 1)
-      : [];
-    if (nativeSamples.length > 0) {
-      const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);
-      const currentSamples = samplesRaw ? JSON.parse(samplesRaw) : [];
-      const mergedSamples = [...currentSamples, ...nativeSamples].slice(-400);
-      const maxRaw = await AsyncStorage.getItem(BG_SPEED_MAX_KEY);
-      const currentMax = parseFloat(maxRaw ?? '0');
-      const nativeMax = Number(stats.maxSpeedKmh);
-      const mergedMax = Math.max(
-        Number.isFinite(currentMax) ? currentMax : 0,
-        Number.isFinite(nativeMax) ? nativeMax : 0,
-        ...nativeSamples,
-      );
-      writes.push(
-        AsyncStorage.setItem(BG_SPEED_SAMPLES_KEY, JSON.stringify(mergedSamples)),
-        AsyncStorage.setItem(BG_SPEED_MAX_KEY, String(mergedMax)),
-      );
-    }
-
-    if (writes.length > 0) await Promise.all(writes);
   } catch { /* ignore */ }
 }
 
@@ -495,8 +691,8 @@ export async function consumeNativeDriveStatsToStorage(): Promise<void> {
 export async function setNavigatingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, active ? 'true' : 'false');
   if (active) {
+    const tripSessionId = await prepareTripSessionForStart('navigation');
     if (await isBackgroundWorkAllowed()) {
-      const tripSessionId = await ensureTripSessionId();
       await BackgroundDriveController.start('navigation', tripSessionId);
     }
     return;
@@ -508,10 +704,11 @@ export async function setNavigatingFlag(active: boolean): Promise<void> {
 export async function setDrivingFlag(active: boolean): Promise<void> {
   await AsyncStorage.setItem(BG_IS_DRIVING_KEY, active ? 'true' : 'false');
   if (active) {
+    const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
+    const mode = navigating === 'true' ? 'navigation' : 'freeDrive';
+    const tripSessionId = await prepareTripSessionForStart(mode);
     if (await isBackgroundWorkAllowed()) {
-      const tripSessionId = await ensureTripSessionId();
-      const navigating = await AsyncStorage.getItem(BG_IS_NAVIGATING_KEY);
-      await BackgroundDriveController.start(navigating === 'true' ? 'navigation' : 'freeDrive', tripSessionId);
+      await BackgroundDriveController.start(mode, tripSessionId);
     }
     return;
   }
@@ -1178,17 +1375,22 @@ export function useBackgroundTracking(
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    void flushTripSessionFinalizationOutbox();
+    const id = setInterval(() => {
+      void flushTripSessionFinalizationOutbox();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   // ── Task management ───────────────────────────────────────────────────────
   const shouldPreserveNativeDrive = useCallback(async () => {
     if (!(await isBackgroundWorkAllowed())) return false;
-    if (Platform.OS !== 'android') return false;
     try {
-      const [state, navFlag, drivingFlag] = await Promise.all([
-        BackgroundDriveController.getState(),
-        AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
-        AsyncStorage.getItem(BG_IS_DRIVING_KEY),
-      ]);
-      return state?.active === true || navFlag === 'true' || drivingFlag === 'true';
+      const state = await BackgroundDriveController.getState();
+      // Both platforms own the background distance ledger natively.  Keep the
+      // Expo task off while that ledger is active or it would double-count km.
+      return state?.active === true;
     } catch {
       return false;
     }
@@ -1248,7 +1450,22 @@ export function useBackgroundTracking(
       const isDrivingBg = driveFlag === 'true';
       const isStationaryBg = stationaryFlag === 'true';
       const tripSessionId = await ensureTripSessionId();
-      await BackgroundDriveController.start(isNavigatingBg ? 'navigation' : 'freeDrive', tripSessionId);
+      const nativeDriveStarted = await BackgroundDriveController.start(
+        isNavigatingBg ? 'navigation' : 'freeDrive',
+        tripSessionId,
+      );
+
+      // The native ledger owns GPS and checkpointing on both Android and iOS.
+      // Retain Expo only as a fallback for an older binary without the module.
+      if (nativeDriveStarted) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        lastBgCadenceRef.current = null;
+        return;
+      }
 
       const appIsActive = AppState.currentState === 'active';
       // Foreground: native service stays alive for Android kill/recents survival;
@@ -1445,5 +1662,10 @@ export function useBackgroundTracking(
     return () => sub.remove();
   }, [flushPendingKm]);
 
-  return { startBackgroundTracking, stopBackgroundTracking, flushPendingKm };
+  return {
+    startBackgroundTracking,
+    stopBackgroundTracking,
+    flushPendingKm,
+    finalizeTripSession,
+  };
 }

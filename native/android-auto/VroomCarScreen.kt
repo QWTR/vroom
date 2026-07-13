@@ -22,6 +22,9 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     private var lastTemplateSignature = ""
     private var hostNightModeActive = false
     private var manualNightModeOverride: Boolean? = null
+    private var lastSurfaceWidth = 0
+    private var lastSurfaceHeight = 0
+    private var compactSurfaceLayout = false
     private val mapRenderer = VroomMapSurfaceRenderer(carContext)
 
     init {
@@ -38,7 +41,8 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         val payload = latestPayload
         val snapshot = runCatching { AutoNavStore.snapshot(carContext) }.getOrNull()
         val builder = NavigationTemplate.Builder()
-            .setActionStrip(carActionStrip(payload, snapshot))
+
+        builder.setActionStrip(carActionStrip(payload, snapshot))
 
         routingInfo(payload, snapshot)?.let { builder.setNavigationInfo(it) }
 
@@ -49,6 +53,28 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         val builder = ActionStrip.Builder()
         val isNavigating = payload?.isNavigating == true || snapshot?.isNavigating == true
         val isPreview = payload?.mapState?.routePreview == true && !isNavigating
+
+        if (isNavigating) {
+            // NavigationTemplate wymaga co najmniej jednej akcji. Theme stays
+            // available, while recenter lives in the map HUD to avoid overlap.
+            builder.addAction(themeAction())
+            return builder.build()
+        }
+
+        if (compactSurfaceLayout) {
+            if (isPreview) {
+                builder.addAction(
+                    Action.Builder()
+                        .setTitle("Rozpocznij")
+                        .setOnClickListener { VroomCarManager.startNativeRoutePreview() }
+                        .build()
+                )
+                builder.addAction(themeAction())
+                return builder.build()
+            }
+            builder.addAction(themeAction())
+            return builder.build()
+        }
 
         if (isPreview) {
             builder.addAction(
@@ -66,31 +92,24 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
                 .build()
         )
 
-        if (isNavigating) {
-            builder.addAction(
-                Action.Builder()
-                    .setTitle("Zakoncz")
-                    .setOnClickListener { VroomCarManager.stopClick() }
-                    .build()
-            )
-        }
+        builder.addAction(themeAction())
 
-        builder.addAction(
-            Action.Builder()
-                .setTitle(if (effectiveNightModeActive()) "Jasny" else "Ciemny")
-                .setOnClickListener { toggleNightModeOverride() }
-                .build()
-        )
-
-        builder.addAction(
-            Action.Builder()
-                .setTitle("Centruj")
-                .setOnClickListener { mapRenderer.recenterFromHost() }
-                .build()
-        )
+        builder.addAction(recenterAction())
 
         return builder.build()
     }
+
+    private fun recenterAction(): Action =
+        Action.Builder()
+            .setTitle("Centruj")
+            .setOnClickListener { mapRenderer.recenterFromHost() }
+            .build()
+
+    private fun themeAction(): Action =
+        Action.Builder()
+            .setTitle(if (effectiveNightModeActive()) "Jasny" else "Ciemny")
+            .setOnClickListener { toggleNightModeOverride() }
+            .build()
 
     private fun openSystemSearch() {
         runCatching {
@@ -276,10 +295,13 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     }
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
+        lastSurfaceWidth = surfaceContainer.width
+        lastSurfaceHeight = surfaceContainer.height
         mapRenderer.onSurfaceAvailable(surfaceContainer)
     }
 
     override fun onVisibleAreaChanged(visibleArea: android.graphics.Rect) {
+        updateCompactSurfaceLayout(visibleArea)
         mapRenderer.onVisibleAreaChanged(visibleArea)
     }
 
@@ -301,5 +323,20 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
 
     override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
         mapRenderer.onScale(focusX, focusY, scaleFactor)
+    }
+
+    private fun updateCompactSurfaceLayout(visibleArea: android.graphics.Rect) {
+        val visibleW = visibleArea.width()
+        val visibleH = visibleArea.height()
+        val nextCompact = if (lastSurfaceWidth > 0) {
+            visibleW < lastSurfaceWidth * 0.86f || visibleH < lastSurfaceHeight * 0.86f
+        } else {
+            visibleW < 780 && visibleH <= 560
+        }
+        if (compactSurfaceLayout != nextCompact) {
+            compactSurfaceLayout = nextCompact
+            lastTemplateSignature = ""
+            invalidate()
+        }
     }
 }

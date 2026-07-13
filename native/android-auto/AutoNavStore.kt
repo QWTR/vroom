@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 object AutoNavStore {
   private const val API_URL = "https://v-room.app"
@@ -46,6 +47,12 @@ object AutoNavStore {
   private const val KEY_LAST_TRACK_LNG = "last_track_lng"
   private const val KEY_LAST_TRACK_TS = "last_track_ts"
   private const val KEY_PENDING_DRIVE_KM = "pending_drive_km"
+  private const val KEY_NATIVE_TRIP_SESSION_ID = "native_trip_session_id"
+  private const val KEY_NATIVE_TRIP_STARTED_AT = "native_trip_started_at"
+  private const val KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM = "native_trip_last_checkpoint_km"
+  private const val KEY_NATIVE_TRIP_MAX_SPEED = "native_trip_max_speed"
+  private const val KEY_NATIVE_TRIP_SPEED_SUM = "native_trip_speed_sum"
+  private const val KEY_NATIVE_TRIP_SPEED_COUNT = "native_trip_speed_count"
   private const val KEY_LAST_LIVE_PUSH = "last_live_push"
   private const val CAMERAS_RADIUS_KM = 3
   private const val PROFILE_REFRESH_INTERVAL_MS = 60_000L
@@ -57,7 +64,10 @@ object AutoNavStore {
   private const val DRIVE_SEGMENT_MIN_DT_MS = 500L
   private const val DRIVE_PENDING_HARD_CAP_KM = 10.0
   private const val DRIVE_UPLOAD_MAX_CHUNK_KM = 1.5
+  private const val NATIVE_TRIP_IDLE_RESET_MS = 30 * 60 * 1000L
   private const val LIVE_PUSH_INTERVAL_MS = 4_000L
+  private const val LIVE_USERS_RADIUS_KM = 350
+  private const val LIVE_USERS_TAKE = 400
   private const val ROUTE_ORIGIN_MAX_AGE_MS = 15_000L
   private const val SEARCH_ORIGIN_MAX_AGE_MS = 60_000L
   @Volatile private var isRemoteRefreshInFlight = false
@@ -410,6 +420,7 @@ object AutoNavStore {
     }
 
     val p = prefs(context)
+    resetNativeTripIfStale(p, now)
     val prevLat = p.getFloat(KEY_LAST_TRACK_LAT, Float.NaN).toDouble()
     val prevLng = p.getFloat(KEY_LAST_TRACK_LNG, Float.NaN).toDouble()
     val prevTs = p.getLong(KEY_LAST_TRACK_TS, 0L)
@@ -438,6 +449,7 @@ object AutoNavStore {
     }
 
     val speedKmh = speedMs.coerceAtLeast(0.0) * 3.6
+    updateNativeTripSpeedStats(p, speedKmh)
     mergeNativeMapDrivingState(context, speedKmh >= DRIVE_SPEED_THRESHOLD_KMH, speedKmh)
     var oldLat = prevLat.toFloat()
     var oldLng = prevLng.toFloat()
@@ -467,15 +479,111 @@ object AutoNavStore {
     }
 
     if (token.isNotBlank() && pendingKm >= DRIVE_UPLOAD_STEP_KM) {
-      val uploadKm = pendingKm.coerceAtMost(DRIVE_UPLOAD_MAX_CHUNK_KM)
-      val payload = JSONObject().put("km", uploadKm)
-      val (code, _) = requestJson("POST", "/api/live/distance", token, payload.toString())
-      if (code in 200..299) {
-        val remainingKm = (pendingKm - uploadKm).coerceAtLeast(0.0)
-        p.edit().putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat()).apply()
-      }
+      uploadNativeTripCheckpoint(p, token, pendingKm)
     }
   }
+
+  private fun resetNativeTripIfStale(p: android.content.SharedPreferences, now: Long) {
+    val prevTs = p.getLong(KEY_LAST_TRACK_TS, 0L)
+    if (prevTs <= 0L || now - prevTs <= NATIVE_TRIP_IDLE_RESET_MS) return
+    p.edit()
+      .remove(KEY_NATIVE_TRIP_SESSION_ID)
+      .remove(KEY_NATIVE_TRIP_STARTED_AT)
+      .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM)
+      .remove(KEY_NATIVE_TRIP_MAX_SPEED)
+      .remove(KEY_NATIVE_TRIP_SPEED_SUM)
+      .remove(KEY_NATIVE_TRIP_SPEED_COUNT)
+      .apply()
+  }
+
+  fun endNativeTripSession(context: Context) {
+    val p = prefs(context)
+    val pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
+    val editor = p.edit()
+      .remove(KEY_NATIVE_TRIP_MAX_SPEED)
+      .remove(KEY_NATIVE_TRIP_SPEED_SUM)
+      .remove(KEY_NATIVE_TRIP_SPEED_COUNT)
+    if (pendingKm < 0.001) {
+      editor
+        .remove(KEY_NATIVE_TRIP_SESSION_ID)
+        .remove(KEY_NATIVE_TRIP_STARTED_AT)
+        .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM)
+    }
+    editor.apply()
+  }
+
+  private fun ensureNativeTripSessionId(p: android.content.SharedPreferences): String {
+    val existing = p.getString(KEY_NATIVE_TRIP_SESSION_ID, "") ?: ""
+    if (existing.isNotBlank()) return existing
+    val id = "auto_${System.currentTimeMillis()}_${UUID.randomUUID()}"
+    p.edit()
+      .putString(KEY_NATIVE_TRIP_SESSION_ID, id)
+      .putLong(KEY_NATIVE_TRIP_STARTED_AT, System.currentTimeMillis())
+      .putFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, 0f)
+      .apply()
+    return id
+  }
+
+  private fun updateNativeTripSpeedStats(p: android.content.SharedPreferences, speedKmh: Double) {
+    if (!speedKmh.isFinite() || speedKmh < 1.0) return
+    val currentMax = p.getFloat(KEY_NATIVE_TRIP_MAX_SPEED, 0f).toDouble()
+    val currentSum = p.getFloat(KEY_NATIVE_TRIP_SPEED_SUM, 0f).toDouble()
+    val currentCount = p.getLong(KEY_NATIVE_TRIP_SPEED_COUNT, 0L)
+    p.edit()
+      .putFloat(KEY_NATIVE_TRIP_MAX_SPEED, kotlin.math.max(currentMax, speedKmh).toFloat())
+      .putFloat(KEY_NATIVE_TRIP_SPEED_SUM, (currentSum + speedKmh).toFloat())
+      .putLong(KEY_NATIVE_TRIP_SPEED_COUNT, currentCount + 1L)
+      .apply()
+  }
+
+  private fun uploadNativeTripCheckpoint(
+    p: android.content.SharedPreferences,
+    token: String,
+    pendingKm: Double,
+  ) {
+    val sessionId = ensureNativeTripSessionId(p)
+    val lastCheckpointKm = p.getFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, 0f).toDouble().coerceAtLeast(0.0)
+    val uploadDeltaKm = pendingKm.coerceAtMost(DRIVE_UPLOAD_MAX_CHUNK_KM)
+    val checkpointTotalKm = (lastCheckpointKm + uploadDeltaKm).coerceAtLeast(0.0)
+    val speedCount = p.getLong(KEY_NATIVE_TRIP_SPEED_COUNT, 0L).coerceAtLeast(0L)
+    val speedSum = p.getFloat(KEY_NATIVE_TRIP_SPEED_SUM, 0f).toDouble().coerceAtLeast(0.0)
+    val maxSpeed = p.getFloat(KEY_NATIVE_TRIP_MAX_SPEED, 0f).toDouble().coerceAtLeast(0.0)
+    val avgSpeed = if (speedCount > 0L) speedSum / speedCount.toDouble() else 0.0
+    val source = if (memIsNavigating || p.getBoolean(KEY_IS_NAVIGATING, false)) "navigation" else "driving"
+    val checkpointPayload = JSONObject()
+      .put("distanceTotal", roundKm(checkpointTotalKm))
+      .put("maxSpeed", kotlin.math.round(maxSpeed * 10.0) / 10.0)
+      .put("avgSpeed", kotlin.math.round(avgSpeed * 10.0) / 10.0)
+      .put("source", source)
+      .put("tripSessionId", sessionId)
+
+    val (code, body) = requestJson("POST", "/api/activity/session/checkpoint", token, checkpointPayload.toString())
+    if (code in 200..299) {
+      val response = runCatching { JSONObject(body) }.getOrNull()
+      val savedCheckpoint = response?.optDouble("checkpointDistanceKm", checkpointTotalKm)
+        ?.takeIf { it.isFinite() }
+        ?: checkpointTotalKm
+      val creditedDelta = response?.optDouble("creditedDeltaKm", uploadDeltaKm)
+        ?.takeIf { it.isFinite() && it >= 0.0 }
+        ?: uploadDeltaKm
+      val remainingKm = (pendingKm - creditedDelta).coerceAtLeast(0.0)
+      p.edit()
+        .putFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, savedCheckpoint.toFloat())
+        .putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat())
+        .apply()
+      return
+    }
+
+    val fallbackPayload = JSONObject().put("km", uploadDeltaKm)
+    val (fallbackCode, _) = requestJson("POST", "/api/live/distance", token, fallbackPayload.toString())
+    if (fallbackCode in 200..299) {
+      val remainingKm = (pendingKm - uploadDeltaKm).coerceAtLeast(0.0)
+      p.edit().putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat()).apply()
+    }
+  }
+
+  private fun roundKm(value: Double): Double =
+    kotlin.math.round(value * 1000.0) / 1000.0
 
   fun refreshFromBackendIfNeeded(context: Context) {
     val p = prefs(context)
@@ -1154,9 +1262,18 @@ object AutoNavStore {
     val lat = origin?.first ?: 0.0
     val lng = origin?.second ?: 0.0
 
-    val (_, usersBody) = requestJson("GET", "/api/live/users", token)
+    val usersPath = buildString {
+      append("/api/live/users?take=").append(LIVE_USERS_TAKE)
+      if (isValidOrigin(lat, lng)) {
+        append("&lat=").append(formatCoord(lat))
+        append("&lng=").append(formatCoord(lng))
+        append("&radiusKm=").append(LIVE_USERS_RADIUS_KM)
+      }
+    }
+    val (_, usersBody) = requestJson("GET", usersPath, token)
     if (usersBody.isNotBlank()) {
       val users = runCatching { JSONArray(usersBody) }.getOrNull()
+        ?: runCatching { JSONObject(usersBody).optJSONArray("users") }.getOrNull()
       if (users != null) {
         val mapped = JSONArray()
         for (i in 0 until users.length()) {
@@ -1171,6 +1288,7 @@ object AutoNavStore {
               put("lng", u.optDouble("lng", Double.NaN))
               put("isPremium", u.optBoolean("isPremium", false))
               put("isFriend", u.optBoolean("isFriend", false))
+              put("distanceLabel", u.optString("distanceLabel", ""))
               put("avatarUrl", u.optString("avatar", u.optString("avatarUrl", "")))
               put("avatarFrameUrl", u.optString("avatarFrameUrl", ""))
               put("markerSpriteUri", u.optString("markerSpriteUri", u.optString("spriteUri", "")))
@@ -1179,7 +1297,14 @@ object AutoNavStore {
             },
           )
         }
-        p.edit().putString(KEY_USERS, mapped.toString()).apply()
+        val serializedUsers = mapped.toString()
+        val usersChanged = serializedUsers != memUsersRaw
+        saveUsers(context, serializedUsers)
+        if (usersChanged) {
+          android.os.Handler(android.os.Looper.getMainLooper()).post {
+            VroomCarManager.resyncNativeMapMarkers()
+          }
+        }
       }
     }
 
@@ -1636,6 +1761,13 @@ object AutoNavStore {
             count = item.optInt("count", item.optInt("confirmCount", 0)),
             isPremium = item.optBoolean("isPremium", false),
             isFriend = item.optBoolean("isFriend", false),
+            avatarUrl = item.optString("avatarUrl", item.optString("avatar", "")),
+            avatarFrameUrl = item.optString("avatarFrameUrl", ""),
+            distanceLabel = item.optString("distanceLabel", ""),
+            markerSpriteUri = item.optString("markerSpriteUri", item.optString("spriteUri", "")),
+            vehicleModelUrl = item.optString("vehicleModelUrl", ""),
+            vehicleModelMeta = item.optJSONObject("vehicleModelMeta")?.toString()
+              ?: item.optString("vehicleModelMeta", ""),
           ),
         )
       }
@@ -1670,6 +1802,12 @@ data class AutoMapMarker(
   val count: Int = 0,
   val isPremium: Boolean = false,
   val isFriend: Boolean = false,
+  val avatarUrl: String = "",
+  val avatarFrameUrl: String = "",
+  val distanceLabel: String = "",
+  val markerSpriteUri: String = "",
+  val vehicleModelUrl: String = "",
+  val vehicleModelMeta: String = "",
 )
 data class AutoSearchPlace(
   val id: String,

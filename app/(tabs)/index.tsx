@@ -150,8 +150,8 @@ export default function HomeScreen() {
 	const [streakFxVisible, setStreakFxVisible] = useState(false);
 	const prevStreakRef = useRef(0);
 	const { unseenCount: announcementsUnseenCount, load: loadAnnouncements } = useAnnouncements();
-	const { unseenCount: systemNewsUnseenCount, loadPage: loadSystemNews } = useSystemNews();
-	const announcementsBadgeCount = announcementsUnseenCount + systemNewsUnseenCount;
+	const { loadPage: loadSystemNews } = useSystemNews();
+	const announcementsBadgeCount = announcementsUnseenCount;
 	const [showAnnouncements, setShowAnnouncements] = useState(false);
 	const [showSystemNews, setShowSystemNews] = useState(false);
 

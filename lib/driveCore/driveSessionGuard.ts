@@ -1,6 +1,6 @@
 /** Auto-stop only after sustained crawl — never on a single bad GPS frame. */
 export const AUTO_STOP_MAX_SPEED_KMH = 3;
-export const AUTO_STOP_STATIONARY_MS = 3 * 60_000;
+export const AUTO_STOP_STATIONARY_MS = 10 * 60_000;
 export const AUTO_STOP_HIGH_SPEED_KMH = 20;
 export const AUTO_STOP_HIGH_SPEED_LOCK_MS = 5 * 60_000;
 /** Hold last trusted speed when Doppler is null (ms). */
