@@ -1,6 +1,6 @@
 const { createRunOncePlugin, withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
 const { createBuildSourceFile } = require('@expo/config-plugins/build/ios/XcodeProjectFile');
-const { getProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
+const { getHackyProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,10 +28,18 @@ const withAndroidFollower = (config) => withDangerousMod(config, ['android', asy
   return cfg;
 }]);
 
+const resolveIosProjectName = (cfg) =>
+  getHackyProjectName(cfg.modRequest.platformProjectRoot, cfg);
+
 const withIosFollower = (config) => withXcodeProject(config, (cfg) => {
   const root = cfg.modRequest.projectRoot;
-  const projectName = getProjectName(cfg.modRequest.platformProjectRoot);
-  const sourceDir = path.join(root, 'native', 'map-camera-follower', 'ios');
+  // `withXcodeProject` also runs during a fresh prebuild, before AppDelegate
+  // exists. Expo's fallback resolves the sanitized app name in that case.
+  const projectName = resolveIosProjectName(cfg);
+  // Keep iOS sources beside this plugin. EAS can omit arbitrary `native/`
+  // folders from an uploaded workspace, while the loaded config plugin is
+  // always part of the build context.
+  const sourceDir = path.join(__dirname, 'map-camera-follower', 'ios');
   ['VroomMapCameraFollower.swift', 'VroomMapCameraFollowerBridge.m'].forEach((file) => {
     cfg.modResults = createBuildSourceFile({
       project: cfg.modResults,
@@ -46,4 +54,8 @@ const withIosFollower = (config) => withXcodeProject(config, (cfg) => {
 });
 
 const withVroomMapCameraFollower = (config) => withIosFollower(withAndroidFollower(config));
-module.exports = createRunOncePlugin(withVroomMapCameraFollower, 'with-vroom-map-camera-follower', '1.2.0');
+const plugin = createRunOncePlugin(withVroomMapCameraFollower, 'with-vroom-map-camera-follower', '1.2.2');
+
+plugin.__internal = { resolveIosProjectName };
+
+module.exports = plugin;

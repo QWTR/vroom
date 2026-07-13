@@ -1,6 +1,6 @@
 const { createRunOncePlugin, withInfoPlist, withXcodeProject } = require('@expo/config-plugins');
 const { createBuildSourceFile } = require('@expo/config-plugins/build/ios/XcodeProjectFile');
-const { getProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
+const { getHackyProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
 
 const SWIFT_MODULE = `import CoreLocation
 import Foundation
@@ -508,6 +508,10 @@ RCT_EXTERN_METHOD(consumeNativeStats:(RCTPromiseResolveBlock)resolve rejecter:(R
 @end
 `;
 
+const resolveIosProjectName = (cfg) =>
+  cfg.modRequest.projectName
+  || getHackyProjectName(cfg.modRequest.platformProjectRoot, cfg);
+
 const withWiroomBackgroundDrive = (config) => {
   config = withInfoPlist(config, (cfg) => {
     cfg.modResults.UIBackgroundModes = Array.from(new Set([
@@ -524,7 +528,9 @@ const withWiroomBackgroundDrive = (config) => {
   });
 
   config = withXcodeProject(config, (cfg) => {
-    const projectName = cfg.modRequest.projectName || getProjectName(cfg.modRequest.projectRoot);
+    // Fresh EAS prebuilds do not have AppDelegate yet. getHackyProjectName
+    // safely falls back to the sanitized Expo app name until Xcode exists.
+    const projectName = resolveIosProjectName(cfg);
     cfg.modResults = createBuildSourceFile({
       project: cfg.modResults,
       nativeProjectRoot: cfg.modRequest.platformProjectRoot,
@@ -546,9 +552,9 @@ const withWiroomBackgroundDrive = (config) => {
   return config;
 };
 
-const plugin = createRunOncePlugin(withWiroomBackgroundDrive, 'with-wiroom-background-drive', '1.0.0');
+const plugin = createRunOncePlugin(withWiroomBackgroundDrive, 'with-wiroom-background-drive', '1.0.1');
 
 // Exposed for contract tests; Expo still receives the function itself.
-plugin.__internal = { SWIFT_MODULE, OBJC_BRIDGE };
+plugin.__internal = { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName };
 
 module.exports = plugin;

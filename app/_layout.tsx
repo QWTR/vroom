@@ -849,7 +849,7 @@ function RootLayoutInner() {
                   <MaterialCommunityIcons name="shield-check-outline" size={11} color="rgba(227, 56, 53, 0.8)" />
                   <Text style={s.secureTxt}>SECURE BOOT</Text>
                 </View>
-                <Text style={s.versionTxt}>V1.0.21</Text>
+                <Text style={s.versionTxt}>V1.0.23</Text>
               </View>
             </Animated.View>
 

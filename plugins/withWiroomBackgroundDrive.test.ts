@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 const plugin = require('./withWiroomBackgroundDrive');
-const { SWIFT_MODULE, OBJC_BRIDGE } = plugin.__internal;
+const { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName } = plugin.__internal;
 
 describe('Wiroom native iOS drive contract', () => {
   it('keeps the native checkpoint ledger and secure token storage', () => {
@@ -28,5 +28,12 @@ describe('Wiroom native iOS drive contract', () => {
     expect(SWIFT_MODULE).toContain('defaults.removeObject(forKey: apiUrlKey)');
     expect(SWIFT_MODULE).toContain('clearAuthToken()');
     expect(SWIFT_MODULE).not.toContain('persistState(active: false, endedBy: reason, lastFix: currentState()["lastFix"] as? [String: Any])\n    clearAuthToken()');
+  });
+
+  it('resolves a fresh prebuild from Expo config before AppDelegate exists', () => {
+    expect(resolveIosProjectName({
+      name: 'Vroom App',
+      modRequest: { platformProjectRoot: 'C:/missing/ios' },
+    })).toBe('VroomApp');
   });
 });
