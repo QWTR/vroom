@@ -29,6 +29,13 @@ import {
   type TripFinalizationReason,
   type TripSessionLedger,
 } from '../lib/tripSessionLedger';
+import {
+  enqueueTripFinalization,
+  parseTripFinalizationOutbox,
+  removeTripFinalization,
+  serializeTripFinalizationOutbox,
+  type PendingTripFinalization,
+} from '../lib/tripFinalizationOutbox';
 import type { NavMode } from '../lib/navigationV3/types';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -570,30 +577,56 @@ export type TripSessionFinalizationInput = {
   routePoints?: { latitude: number; longitude: number }[];
 };
 
-type PendingTripFinalization = {
-  tripSessionId: string;
-  payload: Record<string, unknown>;
-  createdAt: number;
-};
-
-async function readPendingTripFinalization(): Promise<PendingTripFinalization | null> {
+async function readPendingTripFinalizations(): Promise<PendingTripFinalization[]> {
   try {
     const raw = await AsyncStorage.getItem(TRIP_FINALIZATION_OUTBOX_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw);
-    if (!value?.tripSessionId || !value?.payload) return null;
-    return value as PendingTripFinalization;
+    return parseTripFinalizationOutbox(raw);
   } catch {
-    return null;
+    return [];
+  }
+}
+
+async function writePendingTripFinalizations(items: PendingTripFinalization[]): Promise<void> {
+  if (!items.length) {
+    await AsyncStorage.removeItem(TRIP_FINALIZATION_OUTBOX_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(TRIP_FINALIZATION_OUTBOX_KEY, serializeTripFinalizationOutbox(items));
+}
+
+async function clearFinalizedActiveSession(tripSessionId: string): Promise<void> {
+  const activeSessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
+  if (activeSessionId !== tripSessionId) return;
+
+  await Promise.all([
+    AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
+    AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
+    AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
+    AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
+    AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
+    clearEmergencyTripSave(),
+    clearTripCheckpointSavedKm(),
+    clearTripSession(),
+  ]);
+
+  const nativeState = await BackgroundDriveController.getState().catch(() => null);
+  if (nativeState?.tripSessionId === tripSessionId && !nativeState.active) {
+    await BackgroundDriveController.consumeNativeStats().catch(() => ({ distanceKm: 0 }));
+  }
+  const ledger = await loadTripSessionLedger();
+  if (ledger?.tripSessionId === tripSessionId) {
+    await clearTripSessionLedger();
   }
 }
 
 export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
-  const pending = await readPendingTripFinalization();
-  if (!pending) return true;
+  let pendingItems = await readPendingTripFinalizations();
+  if (!pendingItems.length) return true;
   const token = await getAuthToken();
   if (!token) return false;
-  try {
+  let allSaved = true;
+  for (const pending of pendingItems) {
+    try {
     let payload = pending.payload;
     let res = await fetch(`${API_URL}/api/activity/save`, {
       method: 'POST',
@@ -610,25 +643,19 @@ export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
         body: JSON.stringify(payload),
       });
     }
-    if (!res.ok) return false;
-    await AsyncStorage.removeItem(TRIP_FINALIZATION_OUTBOX_KEY);
-    await Promise.all([
-      AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
-      AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
-      AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
-      AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
-      AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
-      clearEmergencyTripSave(),
-      clearTripCheckpointSavedKm(),
-      clearTripSession(),
-    ]);
-    await BackgroundDriveController.consumeNativeStats().catch(() => ({ distanceKm: 0 }));
-    await clearTripSessionLedger();
-    void syncProfileStatsFromServer();
-    return true;
-  } catch {
-    return false;
+      if (!res.ok) {
+        allSaved = false;
+        continue;
+      }
+      pendingItems = removeTripFinalization(pendingItems, pending.tripSessionId);
+      await writePendingTripFinalizations(pendingItems);
+      await clearFinalizedActiveSession(pending.tripSessionId);
+      void syncProfileStatsFromServer();
+    } catch {
+      allSaved = false;
+    }
   }
+  return allSaved && pendingItems.length === 0;
 }
 
 export async function finalizeTripSession(input: TripSessionFinalizationInput): Promise<boolean> {
@@ -665,7 +692,8 @@ export async function finalizeTripSession(input: TripSessionFinalizationInput): 
     endedAt: new Date().toISOString(),
   };
   await saveTripSessionLedger(pendingLedger);
-  await AsyncStorage.setItem(TRIP_FINALIZATION_OUTBOX_KEY, JSON.stringify({
+  const queued = await readPendingTripFinalizations();
+  await writePendingTripFinalizations(enqueueTripFinalization(queued, {
     tripSessionId: pendingLedger.tripSessionId,
     payload,
     createdAt: Date.now(),

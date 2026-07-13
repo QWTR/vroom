@@ -25,7 +25,6 @@ const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
 const ROAD_COAST_MAX_M = 16;
 const FREE_COAST_MAX_M = 5;
-const CAMERA_FOLLOW_INTERVAL_MAX_MS = 3200;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -37,6 +36,7 @@ export type DriveMarkerV3Values = {
   segmentDurationMs: SharedValue<number>;
   cameraTargetLat: SharedValue<number>;
   cameraTargetLng: SharedValue<number>;
+  cameraTargetHdg: SharedValue<number>;
   cameraSegmentDurationMs: SharedValue<number>;
   /** Zwiększany dokładnie raz po przygotowaniu kompletnego targetu GPS. */
   cameraTick: SharedValue<number>;
@@ -495,7 +495,10 @@ export function useDriveMarkerV3(
   const cameraTick = useSharedValue(0);
   const cameraTargetLat = useSharedValue(NaN);
   const cameraTargetLng = useSharedValue(NaN);
+  const cameraTargetHdg = useSharedValue(0);
   const cameraSegmentDurationMs = useSharedValue(900);
+  /** Timestamp targetu, dla ktorego wyslano juz osobny segment dead-reckoningu kamery. */
+  const cameraCoastStartedAtMs = useSharedValue(0);
   const lastTargetAtMs = useSharedValue(0);
   const coastDistanceM = useSharedValue(0);
 
@@ -577,8 +580,34 @@ export function useDriveMarkerV3(
         const maxAheadM = Math.min(ROAD_COAST_MAX_M, Math.max(5, speedMs.value * 0.8));
         const arcEndM = baseArcM.value + (roadCumM.value[roadCumM.value.length - 1] ?? 0);
         if (aheadM < maxAheadM && displayArcM.value < arcEndM) {
+          const coastEndArcM = Math.min(arcEndM, targetArcM.value + maxAheadM);
+          if (cameraCoastStartedAtMs.value !== lastTargetAtMs.value) {
+            const coastDistanceM = Math.max(0, coastEndArcM - displayArcM.value);
+            const coastLocalM = coastEndArcM - baseArcM.value;
+            const coastPose = pointAtWindowArcLocal(
+              roadPtsFlat.value,
+              roadCumM.value,
+              coastLocalM,
+            );
+            if (Number.isFinite(coastPose.lat) && Number.isFinite(coastPose.lng) && coastDistanceM > 0.05) {
+              const currentHdg = Number.isFinite(heading.value) ? heading.value : targetHdg.value;
+              cameraTargetLat.value = coastPose.lat;
+              cameraTargetLng.value = coastPose.lng;
+              cameraTargetHdg.value = bearingAheadFromDisplayWorklet(
+                roadPtsFlat.value,
+                roadCumM.value,
+                coastLocalM,
+                coastPose.lat,
+                coastPose.lng,
+                currentHdg,
+              );
+              cameraSegmentDurationMs.value = Math.max(80, Math.round(coastDistanceM / speedMs.value * 1000));
+              cameraTick.value += 1;
+            }
+            cameraCoastStartedAtMs.value = lastTargetAtMs.value;
+          }
           displayArcM.value = Math.min(
-            arcEndM,
+            coastEndArcM,
             displayArcM.value + Math.min(speedMs.value * dtSec, maxAheadM - aheadM),
           );
         }
@@ -616,6 +645,20 @@ export function useDriveMarkerV3(
       && Number.isFinite(lat.value)
       && Number.isFinite(lng.value)
     ) {
+      if (cameraCoastStartedAtMs.value !== lastTargetAtMs.value) {
+        const coastRemainingM = Math.max(0, FREE_COAST_MAX_M - coastDistanceM.value);
+        const headingRad = targetHdg.value * Math.PI / 180;
+        const earthRadiusM = 6_371_000;
+        const coastLat = lat.value + (coastRemainingM * Math.cos(headingRad) / earthRadiusM) * 180 / Math.PI;
+        const cosLat = Math.max(0.1, Math.cos(lat.value * Math.PI / 180));
+        const coastLng = lng.value + (coastRemainingM * Math.sin(headingRad) / (earthRadiusM * cosLat)) * 180 / Math.PI;
+        cameraTargetLat.value = coastLat;
+        cameraTargetLng.value = coastLng;
+        cameraTargetHdg.value = targetHdg.value;
+        cameraSegmentDurationMs.value = Math.max(80, Math.round(coastRemainingM / speedMs.value * 1000));
+        cameraTick.value += 1;
+        cameraCoastStartedAtMs.value = lastTargetAtMs.value;
+      }
       const stepM = Math.min(
         speedMs.value * dtSec,
         FREE_COAST_MAX_M - coastDistanceM.value,
@@ -750,34 +793,38 @@ export function useDriveMarkerV3(
       && target.targetArcM != null
       && Number.isFinite(target.targetArcM);
 
-    const cameraBridgeMs = resolvedSpeedMs >= MIN_CRUISE_MS ? 350 : 0;
-    const cameraLeadM = Math.min(6, resolvedSpeedMs * cameraBridgeMs / 1000);
-    let nextCameraLat = target.lat;
-    let nextCameraLng = target.lng;
+    // Give the native camera the same endpoint as the marker's road arc. It
+    // receives the same linear segment duration, but does not cross the JS
+    // bridge once per rendered marker frame.
+    let cameraLat = target.lat;
+    let cameraLng = target.lng;
+    let cameraHdg = tgtHdg;
     if (useArc && arcFeed && target.targetArcM != null) {
-      const cameraLocalM = target.targetArcM - arcFeed.baseArcM + cameraLeadM;
-      const cameraPose = pointAtWindowArcLocalJs(
+      const localM = target.targetArcM - arcFeed.baseArcM;
+      const roadPose = pointAtWindowArcLocalJs(arcFeed.ptsFlat, arcFeed.cumM, localM);
+      const blended = blendPositionJs(
+        Number.isFinite(roadPose.lat) ? roadPose.lat : target.lat,
+        Number.isFinite(roadPose.lng) ? roadPose.lng : target.lng,
+        target.rawLat,
+        target.rawLng,
+        visualBlend,
+      );
+      cameraLat = blended.lat;
+      cameraLng = blended.lng;
+      cameraHdg = lookAheadHeadingJs(
         arcFeed.ptsFlat,
         arcFeed.cumM,
-        cameraLocalM,
+        localM,
+        blended.lat,
+        blended.lng,
+        tgtHdg,
       );
-      if (Number.isFinite(cameraPose.lat) && Number.isFinite(cameraPose.lng)) {
-        nextCameraLat = cameraPose.lat;
-        nextCameraLng = cameraPose.lng;
-      }
-    } else if (cameraLeadM > 0) {
-      const headingRad = tgtHdg * Math.PI / 180;
-      const earthRadiusM = 6_371_000;
-      nextCameraLat += (cameraLeadM * Math.cos(headingRad) / earthRadiusM) * 180 / Math.PI;
-      const cosLat = Math.max(0.1, Math.cos(target.lat * Math.PI / 180));
-      nextCameraLng += (cameraLeadM * Math.sin(headingRad) / (earthRadiusM * cosLat)) * 180 / Math.PI;
     }
-    cameraTargetLat.value = nextCameraLat;
-    cameraTargetLng.value = nextCameraLng;
-    cameraSegmentDurationMs.value = Math.max(
-      markerSegmentMs + cameraBridgeMs,
-      Math.min(CAMERA_FOLLOW_INTERVAL_MAX_MS, rawGpsIntervalMs + cameraBridgeMs),
-    );
+    cameraTargetLat.value = cameraLat;
+    cameraTargetLng.value = cameraLng;
+    cameraTargetHdg.value = cameraHdg;
+    cameraSegmentDurationMs.value = markerSegmentMs;
+    cameraCoastStartedAtMs.value = 0;
     cameraTick.value += 1;
 
     const allowInstant = target.allowInstant === true;
@@ -880,7 +927,9 @@ export function useDriveMarkerV3(
     cameraTick,
     cameraTargetLat,
     cameraTargetLng,
+    cameraTargetHdg,
     cameraSegmentDurationMs,
+    cameraCoastStartedAtMs,
     lastTargetAtMs,
     coastDistanceM,
     targetArcM,
@@ -1078,8 +1127,9 @@ export function useDriveMarkerV3(
       targetHdg,
       segmentDurationMs,
       cameraTick,
-      cameraTargetLat,
-      cameraTargetLng,
+    cameraTargetLat,
+    cameraTargetLng,
+    cameraTargetHdg,
       cameraSegmentDurationMs,
       isBootstrapped,
       pushTarget,
@@ -1088,7 +1138,7 @@ export function useDriveMarkerV3(
       ensureFrameActive,
       resumeFromBackground,
     }),
-    [cameraSegmentDurationMs, cameraTargetLat, cameraTargetLng, cameraTick, ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, targetLat, targetLng, targetHdg],
+    [cameraCoastStartedAtMs, cameraSegmentDurationMs, cameraTargetHdg, cameraTargetLat, cameraTargetLng, cameraTick, ensureFrameActive, heading, isBootstrapped, lat, lng, pushTarget, reset, resetTo, resumeFromBackground, segmentDurationMs, targetLat, targetLng, targetHdg],
   );
 }
 

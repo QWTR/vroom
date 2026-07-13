@@ -1,0 +1,23 @@
+import { describe, expect, it } from 'vitest';
+import {
+  cameraFrameFromDisplayedMarker,
+  tripCameraSegmentDurationMs,
+} from './tripCameraFollow';
+
+describe('trip camera follow', () => {
+  it('uses the exact displayed marker pose rather than a delayed GPS target', () => {
+    const marker = { lat: 52.229734, lng: 21.012229, heading: 91.5 };
+
+    expect(cameraFrameFromDisplayedMarker(marker)).toEqual(marker);
+  });
+
+  it('rejects an uninitialized marker pose', () => {
+    expect(cameraFrameFromDisplayedMarker({ lat: 0, lng: 0, heading: 0 })).toBeNull();
+  });
+
+  it('keeps the camera on the marker segment duration', () => {
+    expect(tripCameraSegmentDurationMs(760)).toBe(760);
+    expect(tripCameraSegmentDurationMs(20)).toBe(80);
+    expect(tripCameraSegmentDurationMs(9_000)).toBe(5_000);
+  });
+});

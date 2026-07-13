@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { Platform } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import {
   runOnJS,
@@ -14,6 +13,7 @@ import {
 } from './useCameraAnimation';
 import type { DriveMarkerV3Values } from './useDriveMarkerV3';
 import { normalizeHeading } from '../lib/driveCore/travelHeading';
+import { tripCameraSegmentDurationMs } from '../lib/driveCore/tripCameraFollow';
 import { bearingBetween } from '../scripts/navigationUtils';
 
 export type RawGpsCourseRef = React.MutableRefObject<{
@@ -48,10 +48,8 @@ const MIN_COURSE_SPEED_KMH = NAV_V3.CAMERA_COG_MIN_SPEED_KMH;
 /** Po wstrzymaniu follow (reroute) — wymuś snap gdy marker uciekł poza kadr. */
 /** Jednorazowy recenter (wejście w trip) — krótki ease, nie 1s (kolejka Mapbox). */
 const RECENTER_ANIM_MS = 420;
-const CAMERA_MOVING_SKIP_KMH = 2;
-/** iOS: natywny FollowWithCourse + CustomLocationProvider nie obraca/nie centruje kamery — setCamera. */
-const IOS_PROGRAMMATIC_TRIP_CAMERA = Platform.OS === 'ios';
-const IOS_CAMERA_FRAME_MS = 33;
+/** Camera follows the rendered marker with programmatic setCamera on both platforms. */
+const PROGRAMMATIC_TRIP_CAMERA = true;
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -149,7 +147,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
     enabled,
     mode,
     speedKmhRef,
-    rawGpsRef,
     isUserExploring,
   } = opts;
 
@@ -162,7 +159,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const speedKmhSv = useSharedValue(0);
   const lastCameraPushMsSv = useSharedValue(0);
-  const lastIosFramePushMsSv = useSharedValue(0);
   const lastSentReadySv = useSharedValue(0);
   const lastSentLatSv = useSharedValue(0);
   const lastSentLngSv = useSharedValue(0);
@@ -185,11 +181,9 @@ export function useCameraV3(opts: UseCameraV3Options) {
   /** Bootstrap przed React enabled — nie czyść lastSent w useEffect. */
   const tripFollowPrearmedRef = useRef(false);
   const nativeFollowResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastIosCameraApplyMsRef = useRef(0);
 
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
-  const isFreeDrive = mode === 'freeDrive';
   const [nativeFollowEnabled, setNativeFollowEnabled] = useState(enabled && isTripMode);
 
   const resetHeadingSpringState = useCallback(() => {
@@ -373,33 +367,6 @@ export function useCameraV3(opts: UseCameraV3Options) {
   syncCourseHeadingTargetRef.current = syncCourseHeadingTarget;
 
   /** freeDrive: kamera używa COG z surowego GPS, nie kursu z geometrii drogi. */
-  const resolveTripKeyframeHeading = useCallback((markerHeading: number): number => {
-    if (!isFreeDrive) {
-      return Number.isFinite(markerHeading) && markerHeading >= 0
-        ? normalizeHeading(markerHeading)
-        : lockedCourseHeadingRef.current;
-    }
-    const raw = rawGpsRef?.current;
-    const speedKmh = Math.max(0, speedKmhRef?.current ?? 0);
-    if (!raw || !Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) {
-      return normalizeHeading(markerHeading);
-    }
-    const cog = resolveCameraCourseHeading(
-      lockedCourseHeadingRef.current,
-      prevRawGpsLatRef.current,
-      prevRawGpsLngRef.current,
-      raw.lat,
-      raw.lng,
-      speedKmh,
-    );
-    prevRawGpsLatRef.current = raw.lat;
-    prevRawGpsLngRef.current = raw.lng;
-    return cog;
-  }, [isFreeDrive, rawGpsRef, speedKmhRef]);
-
-  const resolveTripKeyframeHeadingRef = useRef(resolveTripKeyframeHeading);
-  resolveTripKeyframeHeadingRef.current = resolveTripKeyframeHeading;
-
   const markSentPose = useCallback((
     lat: number,
     lng: number,
@@ -418,13 +385,12 @@ export function useCameraV3(opts: UseCameraV3Options) {
     lat: number,
     lng: number,
     heading: number,
-    _segmentDurationMs: number,
-  ) => {
-    if (!isTripMode) return;
-    if (!enabled && !tripFollowPrearmedRef.current && followEnabledSv.value < 0.5) return;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return;
-    if (isPaused()) return;
+  ): { heading: number; zoom: number; hardSnap: boolean } | null => {
+    if (!isTripMode) return null;
+    if (!enabled && !tripFollowPrearmedRef.current && followEnabledSv.value < 0.5) return null;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return null;
+    if (isPaused()) return null;
 
     const prevSent = lastSentRef.current;
     const centerDeltaM = prevSent
@@ -450,27 +416,20 @@ export function useCameraV3(opts: UseCameraV3Options) {
       lastZoomTickRef.current = now;
     }
 
-    const displayHeading = resolveTripKeyframeHeadingRef.current(heading);
-    const prevZoom = prevSent?.zoom ?? zoom ?? BROWSE_ZOOM;
-    const zoomDelta = Math.abs((zoom ?? prevZoom) - prevZoom);
+    const displayHeading = normalizeHeading(heading);
     const hardSnap = coldStartFollowPendingRef.current || !prevSent;
-    const isMoving = speedKmh > CAMERA_MOVING_SKIP_KMH || hudKmh > CAMERA_MOVING_SKIP_KMH;
-    const shouldSkip =
-      !hardSnap
-      && !isMoving
-      && centerDeltaM < NAV_V3.CAMERA_DELTA_MIN_DIST_M
-      && zoomDelta < 0.005;
-    if (shouldSkip) {
-      return;
-    }
 
-    // iOS is driven by the marker-frame reaction below. Sending a second,
-    // long animation only on each GPS target made the camera wait and chase.
-
-    // Android: natywny follow przez CustomLocationProvider (bez setCamera center).
+    // Every marker segment, including its short dead-reckoning extension,
+    // needs a matching camera segment. Dropping a small movement here makes
+    // the marker continue while the camera waits for the next GPS fix.
     coldStartFollowPendingRef.current = false;
     markSentPose(lat, lng, displayHeading, zoom ?? BROWSE_ZOOM, now);
     lastCameraPushMsSv.value = now;
+    return {
+      heading: displayHeading,
+      zoom: zoom ?? BROWSE_ZOOM,
+      hardSnap,
+    };
   }, [
     cameraRef,
     enabled,
@@ -483,109 +442,56 @@ export function useCameraV3(opts: UseCameraV3Options) {
     speedKmhRef,
   ]);
 
-  const emitCameraKeyframeRef = useRef(emitCameraKeyframe);
-  emitCameraKeyframeRef.current = emitCameraKeyframe;
-
-  const applyCameraKeyframeFromMarker = useCallback((
+  const applyCameraSegment = useCallback((
     lat: number,
     lng: number,
-    markerHdg: number,
+    heading: number,
     segmentDurationMs: number,
   ) => {
-    const displayHdg = resolveTripKeyframeHeadingRef.current(markerHdg);
-    displayCameraHdgSv.value = displayHdg;
-    smoothedCameraHeadingSv.value = displayHdg;
-    displayCameraHdgReadySv.value = 1;
-    lastCameraPushMsSv.value = Date.now();
-    emitCameraKeyframeRef.current(lat, lng, displayHdg, segmentDurationMs);
-  }, [
-    displayCameraHdgReadySv,
-    displayCameraHdgSv,
-    lastCameraPushMsSv,
-    smoothedCameraHeadingSv,
-  ]);
+    if (!PROGRAMMATIC_TRIP_CAMERA || !isTripMode || !enabled || isPaused()) return;
+    const presentation = emitCameraKeyframe(lat, lng, heading);
+    if (!presentation) return;
 
-  const onApplyCameraKeyframeFromMarker = useCallback((
-    lat: number,
-    lng: number,
-    markerHdg: number,
-    segmentDurationMs: number,
-  ) => {
-    applyCameraKeyframeFromMarker(lat, lng, markerHdg, segmentDurationMs);
-  }, [applyCameraKeyframeFromMarker]);
-
-  const applyIosCameraFrame = useCallback((lat: number, lng: number, markerHeading: number) => {
-    if (!IOS_PROGRAMMATIC_TRIP_CAMERA || !isTripMode || !enabled || isPaused()) return;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const now = Date.now();
-    if (now - lastIosCameraApplyMsRef.current < IOS_CAMERA_FRAME_MS) return;
-
-    const heading = normalizeHeading(markerHeading);
-    syncCourseHeadingTargetRef.current(heading);
-    const speedKmh = Math.max(0, speedKmhRef?.current ?? 0);
-    const zoom = smoothedZoomRef.current ?? (zoomFromSpeed(speedKmh) - 0.3);
-    lastIosCameraApplyMsRef.current = now;
+    const duration = tripCameraSegmentDurationMs(segmentDurationMs);
     (cameraRef.current as { setCamera?: (cfg: object) => void } | null)?.setCamera?.({
       centerCoordinate: [lng, lat],
-      heading,
-      zoomLevel: zoom,
+      heading: presentation.heading,
+      zoomLevel: presentation.zoom,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
       padding: cachedPaddingRef.current ?? getTripCameraPadding(isNavigating),
-      // The marker is already interpolated at frame rate. A second easing
-      // animation here would queue behind it and make the camera lag.
-      animationDuration: 0,
+      animationDuration: presentation.hardSnap ? 0 : duration,
       animationMode: 'linearTo',
     });
-  }, [cameraRef, enabled, isNavigating, isPaused, isTripMode, speedKmhRef]);
+  }, [cameraRef, emitCameraKeyframe, enabled, isNavigating, isPaused, isTripMode]);
 
-  const onApplyIosCameraFrame = useCallback((lat: number, lng: number, heading: number) => {
-    applyIosCameraFrame(lat, lng, heading);
-  }, [applyIosCameraFrame]);
-
-  useAnimatedReaction(
-    () => ({
-      lat: marker.lat.value,
-      lng: marker.lng.value,
-      heading: marker.heading.value,
-      follow: followEnabledSv.value,
-    }),
-    (next) => {
-      if (!IOS_PROGRAMMATIC_TRIP_CAMERA || next.follow < 0.5) return;
-      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng) || !Number.isFinite(next.heading)) return;
-      const now = Date.now();
-      if (now - lastIosFramePushMsSv.value < IOS_CAMERA_FRAME_MS) return;
-      lastIosFramePushMsSv.value = now;
-      runOnJS(onApplyIosCameraFrame)(next.lat, next.lng, next.heading);
-    },
-    [followEnabledSv, lastIosFramePushMsSv, marker.heading, marker.lat, marker.lng, onApplyIosCameraFrame],
-  );
+  const onApplyCameraSegment = useCallback((lat: number, lng: number, heading: number, durationMs: number) => {
+    applyCameraSegment(lat, lng, heading, durationMs);
+  }, [applyCameraSegment]);
 
   useAnimatedReaction(
     () => ({
       tick: marker.cameraTick.value,
       lat: marker.cameraTargetLat.value,
       lng: marker.cameraTargetLng.value,
-      hdg: normalizeHeading(marker.targetHdg.value),
+      heading: marker.cameraTargetHdg.value,
       durationMs: marker.cameraSegmentDurationMs.value,
       follow: followEnabledSv.value,
     }),
     (next, previous) => {
-      if (next.follow < 0.5) return;
+      if (!PROGRAMMATIC_TRIP_CAMERA || next.follow < 0.5) return;
       if (next.tick <= 0 || next.tick === previous?.tick) return;
-      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
+      if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng) || !Number.isFinite(next.heading)) return;
       if (Math.abs(next.lat) < 1e-6 && Math.abs(next.lng) < 1e-6) return;
-      if (!Number.isFinite(next.hdg)) return;
-
-      runOnJS(onApplyCameraKeyframeFromMarker)(next.lat, next.lng, next.hdg, next.durationMs);
+      runOnJS(onApplyCameraSegment)(next.lat, next.lng, next.heading, next.durationMs);
     },
     [
       followEnabledSv,
       marker.cameraTick,
       marker.cameraTargetLat,
       marker.cameraTargetLng,
-      marker.targetHdg,
+      marker.cameraTargetHdg,
       marker.cameraSegmentDurationMs,
-      onApplyCameraKeyframeFromMarker,
+      onApplyCameraSegment,
     ],
   );
 
@@ -737,7 +643,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     smoothedCameraHeading: smoothedCameraHeadingSv,
     targetCameraHeading: targetCameraHeadingSv,
     nativeFollowEnabled,
-    useNativeTripFollow: !IOS_PROGRAMMATIC_TRIP_CAMERA && nativeFollowEnabled,
+    useNativeTripFollow: false,
   };
 }
 

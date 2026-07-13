@@ -110,6 +110,31 @@ describe('createDrivePipeline', () => {
     expect(out!.target.gpsIntervalMs).toBe(1000);
   });
 
+  it('uses the rendered marker as the continuity anchor for a refreshed route', () => {
+    const pipeline = createDrivePipeline();
+    pipeline.setMode('navigation');
+    pipeline.setRoutePolyline([
+      { lat: 52.2297, lng: 21.0122 },
+      { lat: 52.2307, lng: 21.0122 },
+      { lat: 52.2317, lng: 21.0122 },
+    ]);
+
+    pipeline.processGpsFix(gpsFix(52.2301, 21.0122, 0, { speedMs: 10, headingDeg: 0 }));
+    pipeline.setRoutePolyline([
+      { lat: 52.2300, lng: 21.0122 },
+      { lat: 52.2307, lng: 21.0122 },
+      { lat: 52.2317, lng: 21.0122 },
+    ], { lat: 52.23018, lng: 21.0122 });
+
+    const out = pipeline.processGpsFix(
+      gpsFix(52.2303, 21.0122, 1000, { speedMs: 10, headingDeg: 0 }),
+    );
+
+    expect(out!.rejected).toBe(false);
+    expect(out!.target.allowInstant).toBe(false);
+    expect(out!.target.arcWindow?.points.length).toBeGreaterThan(1);
+  });
+
   it('preserves a sparse navigation GPS cadence for the marker timeline', () => {
     const pipeline = createDrivePipeline();
     pipeline.setMode('navigation');

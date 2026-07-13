@@ -238,6 +238,67 @@ export async function fetchDirectionsViaProxy<T>(
   }, { timeoutMs, signal: opts?.signal });
 }
 
+export type DirectionsProxyFailure =
+  | 'auth'
+  | 'timeout'
+  | 'network'
+  | 'server'
+  | 'http'
+  | 'invalid_response';
+
+export type DirectionsProxyResult<T> =
+  | { ok: true; data: T; status: number }
+  | { ok: false; reason: DirectionsProxyFailure; status?: number };
+
+export function classifyDirectionsProxyHttpFailure(status: number): DirectionsProxyFailure {
+  if (status === 401 || status === 403) return 'auth';
+  if (status >= 500) return 'server';
+  return 'http';
+}
+
+/** Directions needs to distinguish a confirmed empty route list from a failed proxy call. */
+export async function fetchDirectionsViaProxyResult<T>(
+  payload: Record<string, unknown>,
+  opts?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<DirectionsProxyResult<T>> {
+  try {
+    throwIfAborted(opts?.signal);
+    let token = await getAuthToken();
+    if (!token) return { ok: false, reason: 'auth' };
+    const timeoutMs = Math.max(500, opts?.timeoutMs ?? 12_000);
+    const makeRequest = (authToken: string) => fetchWithTimeout(`${API_URL}/api/mapbox/directions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+    }, timeoutMs, opts?.signal);
+
+    let response = await makeRequest(token);
+    if (response.status === 401) {
+      const refreshed = await refreshAuthToken(token);
+      if (!refreshed) return { ok: false, reason: 'auth', status: 401 };
+      token = refreshed;
+      response = await makeRequest(token);
+    }
+    if (!response.ok) {
+      return { ok: false, reason: classifyDirectionsProxyHttpFailure(response.status), status: response.status };
+    }
+    try {
+      return { ok: true, data: await response.json() as T, status: response.status };
+    } catch {
+      return { ok: false, reason: 'invalid_response', status: response.status };
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      if (opts?.signal?.aborted) throw error;
+      return { ok: false, reason: 'timeout' };
+    }
+    return { ok: false, reason: 'network' };
+  }
+}
+
 export async function fetchMatchingViaProxy<T>(
   payload: Record<string, unknown>,
   _fallbackUrl: string,

@@ -99,8 +99,11 @@ export function useDriveNavigationV3(opts: UseDriveNavigationV3Options) {
     pipeline.setRoadPolylines(polylines);
   }, [pipeline]);
 
-  const setRoutePolyline = useCallback((points: { lat: number; lng: number }[] | null) => {
-    pipeline.setRoutePolyline(points);
+  const setRoutePolyline = useCallback((
+    points: { lat: number; lng: number }[] | null,
+    continuityAnchor?: { lat: number; lng: number } | null,
+  ) => {
+    pipeline.setRoutePolyline(points, continuityAnchor);
   }, [pipeline]);
 
   return {

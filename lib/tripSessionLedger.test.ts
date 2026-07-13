@@ -60,4 +60,20 @@ describe('trip session ledger', () => {
     });
     expect(shouldSnapshotLedger(open, pending)).toBe(true);
   });
+
+  it('keeps a cancelled navigation eligible for history even without geometry', () => {
+    const running = mergeForegroundLedgerSnapshot(
+      createTripSessionLedger({ tripSessionId: 'trip_cancelled_early', mode: 'navigation', now: 1_000 }),
+      { distanceKm: 0.2, mode: 'navigation', routePoints: [], now: 3_000 },
+    );
+    const pending = markLedgerFinalizationPending(running, 'manual', 4_000);
+
+    expect(pending).toMatchObject({
+      active: false,
+      mode: 'navigation',
+      distanceKm: 0.2,
+      routePoints: [],
+      finalization: { state: 'pending', reason: 'manual' },
+    });
+  });
 });

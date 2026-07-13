@@ -38,7 +38,6 @@ import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
-import { TripCameraLocationProvider } from '../../components/map/TripCameraLocationProvider';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import { VehicleModelMarker } from '../../components/map/VehicleModelMarker';
 import { MapVehicleModelsHost } from '../../components/map/MapVehicleModelsHost';
@@ -130,7 +129,7 @@ import type { PersistedNavSession, LoadedRouteContext } from '../../lib/mapScree
 
 import { coldStartNavigationTarget, useDriveMarkerV3 } from '../../hooks/useDriveMarkerV3';
 import { useDriveNavigationV3 } from '../../hooks/useDriveNavigationV3';
-import { getTripCameraPadding, useCameraV3 } from '../../hooks/useCameraV3';
+import { useCameraV3 } from '../../hooks/useCameraV3';
 import type { NavMode } from '../../lib/navigationV3/types';
 import { roadGeometryStore } from '../../lib/roadGeometry/RoadGeometryStore';
 import { getLocalRoadGeometry, pickNearestPolyline } from '../../lib/roadGeometry/localTileSnap';
@@ -901,7 +900,6 @@ function MapScreenInner() {
     }
     return resolveTripTravelHeading(snapLat, snapLng, pose.heading, speedKmh, rawLat, rawLng);
   }, [resolveTripTravelHeading]);
-  const lastSmoothFeedAtRef = useRef(0);
   const lastWorkletFeedAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastWorkletFeedAtRef = useRef(0);
   const lastFeedWorkletCallAtRef = useRef(0);
@@ -2100,12 +2098,6 @@ function MapScreenInner() {
     rawGpsRef: rawGpsCourseRef,
     isUserExploring: () => isUserExploringMapRef.current(),
   });
-  const nativeTripFollowPadding = useMemo(
-    () => getTripCameraPadding(isNavigating),
-    [isNavigating],
-  );
-  const useNativeTripFollow = cameraV3.useNativeTripFollow;
-
   const tripBootstrapPose = useCallback((
     lat: number,
     lng: number,
@@ -4633,20 +4625,33 @@ function MapScreenInner() {
     return null;
   }, [driveMarker]);
 
-  const exitDrivingMode = useCallback((opts?: { skipFlush?: boolean; reason?: string }) => {
+  const exitDrivingMode = useCallback((opts?: {
+    skipFlush?: boolean;
+    reason?: string;
+    skipProfileCredit?: boolean;
+    finalStatsOverride?: {
+      distanceKm: number;
+      maxSpeedKmh: number;
+      avgSpeedKmh: number;
+      elapsedSec: number;
+      trackedPoints: { latitude: number; longitude: number }[];
+    };
+  }) => {
     const handoffLat = drLatRef.current;
     const handoffLng = drLngRef.current;
 
     mapMatchCoord.invalidateCoordinatorRequests();
     passiveTripStartedRef.current = false;
-    const finalStats = finishTrip();
+    const finalStats = opts?.finalStatsOverride ?? finishTrip();
     tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
-    profileTotalDistanceKmRef.current += Math.max(
-      0,
-      Math.max(Number(finalStats.distanceKm || 0), tripCheckpointSavedKmRef.current) - tripCheckpointSavedKmRef.current,
-    );
-    void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
-    void deliverGamificationRewards();
+    if (!opts?.skipProfileCredit) {
+      profileTotalDistanceKmRef.current += Math.max(
+        0,
+        Math.max(Number(finalStats.distanceKm || 0), tripCheckpointSavedKmRef.current) - tripCheckpointSavedKmRef.current,
+      );
+      void checkLiveAchievements('trip_end', finalStats.maxSpeedKmh);
+      void deliverGamificationRewards();
+    }
 
     const finalPose = resolveFinalTripPose();
     const hasFinalPose = finalPose != null
@@ -8502,31 +8507,32 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     }, [feedPosition, startTrip, finishTrip, publishUserLocation, publishHeading, publishSpeed, setFollowMode, recenterTo, resetBrowseCamera, updateCameraFrame, addMatchPosition, getMatchedPoints, applyRoadMatchPoints, resetMapMatch, runMapMatchRecovery, mapMatchCoord, bumpMatchedFreshness, flushPendingKm, resolveDrivingAnchor, resyncSnapAfterRoadGeometry, bumpActiveMarker, bumpMapMarker, maybeClearDrivingManualDisable, syncDrivingRoadGeometry]),
   });
 
-  const flushNavigationStatsOnce = useCallback((finalStats: {
+  const flushNavigationStatsOnce = useCallback(async (finalStats: {
     distanceKm: number;
     maxSpeedKmh: number;
     avgSpeedKmh: number;
     elapsedSec: number;
     trackedPoints: { latitude: number; longitude: number }[];
-  }) => {
-    if (navStatsFlushedRef.current) return;
+  }, opts?: {
+    reason?: 'arrival' | 'manual' | 'idle';
+    mode?: 'navigation' | 'freeDrive';
+  }): Promise<boolean> => {
+    if (navStatsFlushedRef.current) return false;
     navStatsFlushedRef.current = true;
-    void (async () => {
-      await flushTripDistanceCheckpointRef.current({
-        minKm: 0.05,
-        forceAll: true,
-        reason: 'navigation_final',
-      });
-      await finalizeTripSession({
-        reason: 'arrival',
-        mode: 'navigation',
-        distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
-        maxSpeedKmh: finalStats.maxSpeedKmh,
-        avgSpeedKmh: finalStats.avgSpeedKmh,
-        durationSec: finalStats.elapsedSec,
-        routePoints: finalStats.trackedPoints,
-      });
-    })();
+    await flushTripDistanceCheckpointRef.current({
+      minKm: 0.05,
+      forceAll: true,
+      reason: 'navigation_final',
+    });
+    return finalizeTripSession({
+      reason: opts?.reason ?? 'arrival',
+      mode: opts?.mode ?? 'navigation',
+      distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+      maxSpeedKmh: finalStats.maxSpeedKmh,
+      avgSpeedKmh: finalStats.avgSpeedKmh,
+      durationSec: finalStats.elapsedSec,
+      routePoints: finalStats.trackedPoints,
+    });
   }, [finalizeTripSession]);
 
   useEffect(() => {
@@ -10711,18 +10717,18 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       offRouteRef.current = false;
       v3SnapToRouteSuppressedRef.current = false;
       setOffRoute(false);
+      const displayedLat = Number.isFinite(driveMarker.lat.value)
+        ? driveMarker.lat.value
+        : syncLat;
+      const displayedLng = Number.isFinite(driveMarker.lng.value)
+        ? driveMarker.lng.value
+        : syncLng;
       navV3.setRoutePolyline(
         trimmedReroute.points.map(p => ({ lat: p.latitude, lng: p.longitude })),
+        { lat: displayedLat, lng: displayedLng },
       );
-      // Preserve the live marker/camera timeline while the route geometry is
-      // swapped. A hard reset here caused the visible freeze + teleport.
-      driveMarker.pushTarget({
-        ...coldStartNavigationTarget(syncLat, syncLng, syncHdg),
-        speedMs: Math.max(0, speedKmhRef.current / 3.6),
-        pathMode: 'onRoad',
-        roadBlend: 1,
-        allowInstant: false,
-      });
+      // The next accepted V3 GPS fix supplies a complete arcWindow for the
+      // replacement route. Do not inject a geometry-less marker target here.
       driveMarker.ensureFrameActive?.();
       setFollowMode('navigationFollow');
       vroomGpsLog('NAV_REROUTE_GEOM_APPLY', {
@@ -11953,6 +11959,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   // ── beginNavigation ───────────────────────────────────────
   const beginNavigation = useCallback(() => {
+    const hadActiveTrip = isDrivingRef.current || isNavigatingRef.current;
     const livePose = readLiveTripPose();
     const fallbackLoc = userLocation
       ? { latitude: userLocation.latitude, longitude: userLocation.longitude, headingDeg: lastHeadingRef.current || 0 }
@@ -11966,7 +11973,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     drivingEntryAnchorRef.current = null;
     drivingEntryGraceUntilRef.current = 0;
     drivingManualModeRef.current = false;
-    lastTripMarkerPoseRef.current = null;
+    // Preserve live trip pose when switching freeDrive -> navigation.
+    // Clearing it here caused a visible pause/jump because downstream UI would
+    // temporarily lose the SSOT pose while the nav pipeline was bootstrapping.
+    if (!hadActiveTrip) {
+      lastTripMarkerPoseRef.current = null;
+    }
     setIsDriving(false);
 
     if (passiveTripStartedRef.current) {
@@ -11977,7 +11989,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     passiveTripStartedRef.current = true;
     navStatsFlushedRef.current = false;
 
-    resetDRRefs();
+    // Switching modes should not wipe DR/marker continuity when a trip is already running.
+    if (!hadActiveTrip) {
+      resetDRRefs();
+    }
     setFollowMode('navigationFollow');
     isNavigatingRef.current = true;
     setTripCameraActive(true);
@@ -11987,7 +12002,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     lastNavLocRef.current = null;
     resetSpeedStats();
     setNavigatingFlag(true).catch(() => {});
-    resetDRRefs();
+    if (!hadActiveTrip) {
+      resetDRRefs();
+    }
     navLatFilter.reset();
     navLngFilter.reset();
     startIsMyLocationRef.current = false;
@@ -12143,19 +12160,29 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async (opts?: { silent?: boolean; clearRoute?: boolean }) => {
     driveTraceSession('nav_end', { reason: 'user_stop' });
+    const wasApproaching = approachingRouteStartRef.current;
+    const hadActiveTrip = isNavigatingRef.current || isDrivingRef.current;
+    const finalStats = finishTrip();
+    tripPeakSpeedRef.current = Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0);
+
     isNavigatingRef.current = false;
-    isDrivingRef.current = true;
-    setNavigatingFlag(false).catch(() => {});
-    setDrivingFlag(true).catch(() => {});
+    isDrivingRef.current = false;
+    await Promise.all([
+      setNavigatingFlag(false).catch(() => {}),
+      setDrivingFlag(false).catch(() => {}),
+    ]);
+    if (hadActiveTrip) {
+      await flushNavigationStatsOnce(finalStats, {
+        reason: opts?.silent ? 'idle' : 'manual',
+        mode: wasApproaching ? 'freeDrive' : 'navigation',
+      });
+    }
 
     stopSimulation();
     setIsSimulating(false);
 
-    setFollowMode('drivingFollow');
     setIsNavigating(false);
-    setIsDriving(true);
-    setTripCameraActive(true);
-    cameraV3.resumeFollow();
+    setTripCameraActive(false);
     navV3.setRoutePolyline(null);
     routePointsRef.current = [];
     setOffRoute(false);
@@ -12177,11 +12204,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
     clearDropNavigationTarget();
-    // Navigation is only an overlay. Keep the trip, marker trajectory, speed
-    // estimator and camera alive while switching back to Free Drive.
-    passiveTripStartedRef.current = true;
-
-    const wasApproaching = approachingRouteStartRef.current;
     approachingRouteStartRef.current = false;
     autoStartRouteAfterApproachRef.current = false;
 
@@ -12225,10 +12247,20 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       startIsMyLocationRef.current = true;
       setStartLocation({ ...userLocation, name: 'Moja pozycja' });
     }
+
+    // Cancelling navigation ends the trip. Reuse shared cleanup without a
+    // second finalization request or a duplicate local profile credit.
+    exitDrivingMode({
+      skipFlush: true,
+      skipProfileCredit: true,
+      reason: opts?.silent ? 'idle_timeout' : 'navigation_cancel',
+      finalStatsOverride: finalStats,
+    });
+    setFollowMode('idleBrowse');
   }, [
     userLocation, setFollowMode, onNavigationCancel, flushNavigationStatsOnce,
     timerRunning, stopTimer, resetTimer, formatElapsed,
-    cameraV3, navV3, setTripCameraActive,
+    navV3, setTripCameraActive, finishTrip, exitDrivingMode,
     clearDropNavigationTarget,
   ]);
 
@@ -12256,12 +12288,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       navigationIdleSinceRef.current = 0;
       void (async () => {
         await stopNavigationRef.current({ silent: true, clearRoute: true });
-        exitDrivingMode({ reason: 'idle_timeout' });
-        setFollowMode('idleBrowse');
       })();
     }, 30_000);
     return () => clearInterval(id);
-  }, [exitDrivingMode, setFollowMode]);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -12279,10 +12309,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         if (isNavigatingRef.current) {
           await stopNavigationRef.current({ silent: true, clearRoute: true });
-          isDrivingRef.current = true;
-          setIsDriving(true);
-          setFollowMode('drivingFollow');
-          setTripCameraActive(true);
           vroomGpsLog('NAV_DROPPED_AFTER_TASK_REMOVED', {
             nativeMode: state.mode,
             hasLastFix: Boolean(state.lastFix),
@@ -12860,15 +12886,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             }
           }}
         >
-          <TripCameraLocationProvider enabled={isTripActiveMap && useNativeTripFollow} marker={driveMarker} />
           <Mapbox.Camera
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}
-            followUserLocation={isTripActiveMap && useNativeTripFollow}
-            followUserMode={Mapbox.UserTrackingMode.FollowWithCourse}
-            followZoomLevel={18.2}
-            followPitch={isNavigating ? 62 : 58}
-            followPadding={nativeTripFollowPadding}
           />
           <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers

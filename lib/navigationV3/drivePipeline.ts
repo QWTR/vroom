@@ -233,9 +233,12 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       geometry = { ...geometry, roadPolylines: polylines };
     },
 
-    setRoutePolyline(points: { lat: number; lng: number }[] | null): void {
+    setRoutePolyline(
+      points: { lat: number; lng: number }[] | null,
+      continuityAnchor?: { lat: number; lng: number } | null,
+    ): void {
       const prev = geometry.routePolyline;
-      const anchor = state.displayPrev;
+      const anchor = continuityAnchor ?? state.displayPrev;
       const continuesAtDisplayedPose = !!(
         points
         && anchor
@@ -245,6 +248,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       // currently being animated. Trimmed/renewed route windows stay smooth.
       const changed = !prev || !points || !continuesAtDisplayedPose;
       geometry = { ...geometry, routePolyline: points };
+      if (continuesAtDisplayedPose && anchor) {
+        state.displayPrev = { lat: anchor.lat, lng: anchor.lng };
+      }
       if (changed) {
         snapEngine.reset();
       }

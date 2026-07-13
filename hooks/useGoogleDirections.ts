@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { LocationState } from '../constants/types';
-import { fetchDirectionsViaProxy } from '../scripts/mapboxProxyClient';
+import {
+  fetchDirectionsViaProxyResult,
+  type DirectionsProxyFailure,
+  type DirectionsProxyResult,
+} from '../scripts/mapboxProxyClient';
 import { routeStartsWithUTurn } from '../lib/navigation/reroute';
 
 // ── Debug flag — set to true to log cache hits, misses, and in-flight dedup ──
@@ -104,6 +108,34 @@ export type DirectionsFetchOpts = {
   /** Prefer a forward-going alternative; accept a U-turn only as fallback. */
   preferForward?: boolean;
 };
+
+type DirectionsError = 'NO_ROUTE' | 'AUTH' | 'NETWORK' | 'SERVER' | 'INVALID_RESPONSE';
+
+export function directionsErrorFromProxyFailure(reason: DirectionsProxyFailure): Exclude<DirectionsError, 'NO_ROUTE'> {
+  if (reason === 'auth') return 'AUTH';
+  if (reason === 'server') return 'SERVER';
+  if (reason === 'invalid_response' || reason === 'http') return 'INVALID_RESPONSE';
+  return 'NETWORK';
+}
+
+export function isTransientDirectionsFailure(reason: DirectionsProxyFailure): boolean {
+  return reason === 'network' || reason === 'timeout' || reason === 'server';
+}
+
+async function requestDirections(
+  payload: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<DirectionsProxyResult<any>> {
+  let result = await fetchDirectionsViaProxyResult<any>(payload, { signal });
+  if (!result.ok && isTransientDirectionsFailure(result.reason)) {
+    result = await fetchDirectionsViaProxyResult<any>(payload, { signal });
+  }
+  return result;
+}
+
+function hasRoutes(payload: any): payload is { routes: any[] } {
+  return Array.isArray(payload?.routes);
+}
 
 function makeCacheKey(
   oLat: number, oLng: number,
@@ -272,7 +304,7 @@ export function useGoogleDirections(
     (async () => {
       try {
         const requestAlternatives = isReroute && preferForward;
-        let data = await fetchDirectionsViaProxy<any>(
+        let response = await requestDirections(
           {
             coordinates: [
               [originLng, originLat],
@@ -288,13 +320,20 @@ export function useGoogleDirections(
               ? [`${roundedHeading},${headingRangeDeg}`, '']
               : undefined,
           },
-          { signal: controller.signal },
+          controller.signal,
         );
+        if (controller.signal.aborted) return;
+        if (!response.ok) {
+          setError(directionsErrorFromProxyFailure(response.reason));
+          setRoute(null);
+          return;
+        }
+        let data = response.data;
 
         // A strict bearing may yield no route on unusual junction geometry.
         // Retry once without it, still evaluating all alternatives before a U-turn.
-        if (!data?.routes?.length && preferForward && roundedHeading != null) {
-          data = await fetchDirectionsViaProxy<any>(
+        if (hasRoutes(data) && !data.routes.length && preferForward && roundedHeading != null) {
+          response = await requestDirections(
             {
               coordinates: [[originLng, originLat], [destLng, destLat]],
               profile: 'driving',
@@ -304,11 +343,23 @@ export function useGoogleDirections(
               language: 'pl',
               continue_straight: continueStraight,
             },
-            { signal: controller.signal },
+            controller.signal,
           );
+          if (controller.signal.aborted) return;
+          if (!response.ok) {
+            setError(directionsErrorFromProxyFailure(response.reason));
+            setRoute(null);
+            return;
+          }
+          data = response.data;
         }
 
-        if (!data?.routes?.length) {
+        if (!hasRoutes(data)) {
+          setError('INVALID_RESPONSE');
+          setRoute(null);
+          return;
+        }
+        if (!data.routes.length) {
           setError('NO_ROUTE');
           setRoute(null);
           return;
@@ -323,7 +374,7 @@ export function useGoogleDirections(
       } catch (e: any) {
         if (e.name !== 'AbortError') setError('FETCH_ERROR');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     })();
 
@@ -382,7 +433,7 @@ export function useGoogleDirectionsAlternatives(
 
     (async () => {
       try {
-        const data = await fetchDirectionsViaProxy<any>(
+        const response = await requestDirections(
           {
             coordinates: [
               [originLng, originLat],
@@ -394,9 +445,22 @@ export function useGoogleDirectionsAlternatives(
             steps: true,
             language: 'pl',
           },
+          controller.signal,
         );
+        if (controller.signal.aborted) return;
+        if (!response.ok) {
+          setError(directionsErrorFromProxyFailure(response.reason));
+          setRoutes([]);
+          return;
+        }
+        const data = response.data;
 
-        if (!data?.routes?.length) {
+        if (!hasRoutes(data)) {
+          setError('INVALID_RESPONSE');
+          setRoutes([]);
+          return;
+        }
+        if (!data.routes.length) {
           setError('NO_ROUTE');
           setRoutes([]);
           return;
@@ -412,7 +476,7 @@ export function useGoogleDirectionsAlternatives(
       } catch (e: any) {
         if (e.name !== 'AbortError') setError('FETCH_ERROR');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     })();
 
