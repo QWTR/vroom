@@ -34,9 +34,7 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
     [remainingRoutePoints],
   );
 
-  const shadowShape = useMemo(() => lineFeature(coords), [coords]);
-  const mainShape = useMemo(() => lineFeature(coords), [coords]);
-  const glowShape = useMemo(() => lineFeature(coords), [coords]);
+  const routeShape = useMemo(() => lineFeature(coords), [coords]);
 
   if (coords.length < 2) return null;
 
@@ -48,8 +46,8 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
 
   return (
     <>
-      {navRoute ? (
-        <Mapbox.ShapeSource id="routeNavHaloSource" shape={shadowShape}>
+      <Mapbox.ShapeSource id="routeActiveSource" shape={routeShape}>
+        {navRoute ? (
           <Mapbox.LineLayer
             id="routeNavHaloLayer"
             style={{
@@ -59,16 +57,12 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
               ...lineCapJoin,
             }}
           />
-        </Mapbox.ShapeSource>
-      ) : (
-        <Mapbox.ShapeSource id="routeShadowSource" shape={shadowShape}>
+        ) : (
           <Mapbox.LineLayer
             id="routeShadowLayer"
             style={{ lineColor: '#00000055', lineWidth: 11, ...lineCapJoin }}
           />
-        </Mapbox.ShapeSource>
-      )}
-      <Mapbox.ShapeSource id="routeMainSource" shape={mainShape}>
+        )}
         <Mapbox.LineLayer
           id="routeMainLayer"
           style={{
@@ -77,19 +71,16 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
             ...lineCapJoin,
           }}
         />
+        <Mapbox.LineLayer
+          id="routeGlowLayer"
+          style={{
+            lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
+            lineWidth: navRoute ? 12 : 8,
+            lineOpacity: isNavigating || isDriving ? 1 : 0,
+            ...lineCapJoin,
+          }}
+        />
       </Mapbox.ShapeSource>
-      {(isNavigating || isDriving) ? (
-        <Mapbox.ShapeSource id="routeGlowSource" shape={glowShape}>
-          <Mapbox.LineLayer
-            id="routeGlowLayer"
-            style={{
-              lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
-              lineWidth: navRoute ? 12 : 8,
-              ...lineCapJoin,
-            }}
-          />
-        </Mapbox.ShapeSource>
-      ) : null}
     </>
   );
 });

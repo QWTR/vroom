@@ -38,6 +38,7 @@ import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
+import { VroomMapCameraFollower } from '../../components/map/VroomMapCameraFollower';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import { VehicleModelMarker } from '../../components/map/VehicleModelMarker';
 import { MapVehicleModelsHost } from '../../components/map/MapVehicleModelsHost';
@@ -1693,6 +1694,7 @@ function MapScreenInner() {
   const [isMapFocused, setIsMapFocused] = useState(true);
   const navProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runNavProgressRef = useRef<() => void>(() => {});
+  const navigationBootstrapTokenRef = useRef(0);
   const cameraSpeedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveSendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mapMatchApplySeqRef = useRef(0);
@@ -1722,6 +1724,7 @@ function MapScreenInner() {
   const [remainingRoutePoints, setRemainingRoutePoints] = useState<
     { latitude: number; longitude: number }[]
   >([]);
+  const [navigationUiReady, setNavigationUiReady] = useState(false);
   const [selectedRouteIndex,   setSelectedRouteIndex]   = useState(0);
   const [tripStatsVisible,     setTripStatsVisible]     = useState(false);
   const [addCameraVisible,     setAddCameraVisible]     = useState(false);
@@ -2303,6 +2306,7 @@ function MapScreenInner() {
 
   useMapTilePrefetch({
     isNavigating,
+    navigationReady: navigationUiReady,
     isDriving,
     mapStyleURL: mapStyle,
     routePoints: remainingRoutePoints,
@@ -3570,7 +3574,7 @@ function MapScreenInner() {
   const navPrevPtsRef = useRef<any[]>([]);
 
   useEffect(() => {
-    if (!isNavigating) return;
+    if (!isNavigating || !navigationUiReady) return;
     const pts = routePointsRef.current;
     if (pts.length >= 2) {
       if (navPrevPtsRef.current !== pts) {
@@ -10918,7 +10922,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       steps,
       index: buildStepArcIndex(pts, steps),
     };
-  }, [isNavigating, effectiveNavRoute]);
+  }, [isNavigating, navigationUiReady, effectiveNavRoute]);
 
   useEffect(() => {
     import('react-native').then(({ DeviceEventEmitter }) => {
@@ -11024,7 +11028,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   }, [activeRoute]);
 
   useEffect(() => {
-    if (!isNavigating || navRouteOverride) return;
+    if (!isNavigating || !navigationUiReady || navRouteOverride) return;
     if (navRoute?.points?.length) {
       routePointsRef.current = navRoute.points;
       // v10: prefetch geometrii calej trasy do SQLite cache (jednorazowo).
@@ -11033,7 +11037,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         void roadGeometryStore.prefetchAroundRoute(navRoute.points).catch(() => {});
       }
     }
-  }, [isNavigating, navRoute, navRouteOverride]);
+  }, [isNavigating, navigationUiReady, navRoute, navRouteOverride]);
 
   useEffect(() => {
     const points = activeRoute?.points;
@@ -11044,6 +11048,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       else setRemainingRoutePoints([]);
       return;
     }
+    if (!navigationUiReady) return;
     const mLat = driveMarker.lat.value;
     const mLng = driveMarker.lng.value;
     const hasSmoothedMarker = Number.isFinite(mLat) && Number.isFinite(mLng)
@@ -11068,7 +11073,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       { latitude: headLat, longitude: headLng },
       ...points.slice(idx + 1),
     ]);
-  }, [isNavigating, isDriving, activeRoute, driveMarker, userLocation]);
+  }, [isNavigating, isDriving, navigationUiReady, activeRoute, driveMarker, userLocation]);
 
   // ── Live location sharing ────────────────────────────────────────────────────
   // Single interval-based mechanism (replaces the previous dual send: event + interval).
@@ -11613,6 +11618,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     driveTraceSession('nav_end', { reason: 'arrived' });
     isNavigatingRef.current = false;
+    navigationBootstrapTokenRef.current += 1;
+    setNavigationUiReady(false);
     await setNavigatingFlag(false);
     void 0;
     const finalStats = finishTrip();
@@ -11675,7 +11682,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   ]);
 
   useEffect(() => {
-    if (!isNavigating || !effectiveNavRoute?.steps?.length) {
+    if (!isNavigating || !navigationUiReady || !effectiveNavRoute?.steps?.length) {
       navRouteIdxRef.current = -1;
       runNavProgressRef.current = () => {};
       return;
@@ -11950,10 +11957,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     runNavProgressRef.current = runNavProgress;
     runNavProgress();
-  }, [isNavigating, effectiveNavRoute, endLocation, handleArrived, showNavigationNotification, speak, driveMarker]);
+  }, [isNavigating, navigationUiReady, effectiveNavRoute, endLocation, handleArrived, showNavigationNotification, speak, driveMarker]);
 
   useMapNavigationSession({
-    enabled: isNavigating && !!effectiveNavRoute?.steps?.length,
+    enabled: isNavigating && navigationUiReady && !!effectiveNavRoute?.steps?.length,
     runNavProgress: () => runNavProgressRef.current(),
   });
 
@@ -11996,6 +12003,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setFollowMode('navigationFollow');
     isNavigatingRef.current = true;
     setTripCameraActive(true);
+    const navigationBootstrapToken = ++navigationBootstrapTokenRef.current;
+    setNavigationUiReady(false);
     tripSpeedWarmupUntilRef.current = Date.now() + 10_000;
     lastAppliedRerouteSigRef.current = '';
 
@@ -12014,17 +12023,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     const navStart = { latitude: pose.latitude, longitude: pose.longitude, name: 'Moja pozycja' };
     const seededRoute = previewRouteRef.current ?? navRouteRef.current;
 
-    if (seededRoute?.points?.length && seededRoute?.steps?.length) {
-      const trimmed = trimNavigationRouteFromVehicle(
-        seededRoute,
-        navStart.latitude,
-        navStart.longitude,
-        NAV_ROUTE_SNAP_M,
-      );
-      routePointsRef.current = trimmed.points;
-      setNavRouteOverride(trimmed);
-      stepArcIndexRef.current = { points: [], steps: [], index: [] };
-    } else if (seededRoute?.points?.length) {
+    if (seededRoute?.points?.length) {
       const routePts = trimRoutePointsFromVehicle(
         seededRoute.points,
         navStart.latitude,
@@ -12111,6 +12110,30 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     setFollowMode('navigationFollow');
 
+    requestAnimationFrame(() => {
+      InteractionManager.runAfterInteractions(() => {
+        if (
+          navigationBootstrapTokenRef.current !== navigationBootstrapToken
+          || !isNavigatingRef.current
+        ) return;
+        if (seededRoute?.points?.length && seededRoute.steps?.length) {
+          const preparedRoute = trimNavigationRouteFromVehicle(
+            seededRoute,
+            navStart.latitude,
+            navStart.longitude,
+            NAV_ROUTE_SNAP_M,
+          );
+          routePointsRef.current = preparedRoute.points;
+          setNavRouteOverride(preparedRoute);
+          navV3.setRoutePolyline(
+            preparedRoute.points.map(point => ({ lat: point.latitude, lng: point.longitude })),
+            { lat: bootLat, lng: bootLng },
+          );
+        }
+        setNavigationUiReady(true);
+      });
+    });
+
     driveTraceSession('nav_start', {
       routePts: routePointsRef.current.length,
       bootLat: Number(bootLat.toFixed(6)),
@@ -12167,6 +12190,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     isNavigatingRef.current = false;
     isDrivingRef.current = false;
+    navigationBootstrapTokenRef.current += 1;
+    setNavigationUiReady(false);
     await Promise.all([
       setNavigatingFlag(false).catch(() => {}),
       setDrivingFlag(false).catch(() => {}),
@@ -12890,6 +12915,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}
           />
+          <VroomMapCameraFollower {...cameraV3.nativeFollower} />
           <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers
             enabled={showTerrainLayers}
@@ -13019,7 +13045,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             onUserPress={handleLiveUserPress}
           />
 
-          {remainingRoutePoints.length > 1 && !arrived && isNavigating ? (
+          {navigationUiReady && remainingRoutePoints.length > 1 && !arrived && isNavigating ? (
             <MapActiveRouteLayers
               remainingRoutePoints={remainingRoutePoints}
               isNavigating={isNavigating}

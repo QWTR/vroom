@@ -18,6 +18,7 @@ import expo.modules.ReactNativeHostWrapper
 
 import com.lexuuw.vroom.app.auto.AutoBridgePackage
 import com.lexuuw.vroom.app.bg.BgTrackingPackage
+import com.lexuuw.vroom.app.mapcamera.VroomMapCameraFollowerPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -30,6 +31,7 @@ class MainApplication : Application(), ReactApplication {
               // add(MyReactNativePackage())
               add(AutoBridgePackage())
               add(BgTrackingPackage())
+              add(VroomMapCameraFollowerPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

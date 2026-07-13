@@ -75,6 +75,7 @@
       "./plugins/withAndroidAuto",
       "./plugins/withVroomBgLocationNotification",
       "./plugins/withWiroomBackgroundDrive",
+      "./plugins/withVroomMapCameraFollower",
       [
         "@rnmapbox/maps",
         {

@@ -9,6 +9,7 @@ import { haversineKm } from '../scripts/navigationUtils';
 
 type Options = {
   isNavigating: boolean;
+  navigationReady?: boolean;
   isDriving: boolean;
   mapStyleURL: string;
   routePoints: LatLng[];
@@ -20,6 +21,7 @@ const DRIVE_PREFETCH_MOVE_KM = 3;
 
 export function useMapTilePrefetch({
   isNavigating,
+  navigationReady = true,
   isDriving,
   mapStyleURL,
   routePoints,
@@ -31,12 +33,12 @@ export function useMapTilePrefetch({
   const bootstrapPrefetchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isNavigating || !routeKey || routePoints.length < 2) return;
+    if (!isNavigating || !navigationReady || !routeKey || routePoints.length < 2) return;
     if (navPrefetchedRef.current === routeKey) return;
     navPrefetchedRef.current = routeKey;
 
     prefetchNavigationPack(routeKey, mapStyleURL, routePoints).catch(() => {});
-  }, [isNavigating, routeKey, mapStyleURL, routePoints]);
+  }, [isNavigating, navigationReady, routeKey, mapStyleURL, routePoints]);
 
   useEffect(() => {
     if (isNavigating) return;

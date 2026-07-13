@@ -239,8 +239,11 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
     ): void {
       const prev = geometry.routePolyline;
       const anchor = continuityAnchor ?? state.displayPrev;
+      // First route assignment has no geometry to preserve, so avoid an
+      // O(n) continuity scan before the navigation UI gets its first frame.
       const continuesAtDisplayedPose = !!(
-        points
+        prev
+        && points
         && anchor
         && distanceToRouteM(anchor.lat, anchor.lng, points) <= 75
       );
