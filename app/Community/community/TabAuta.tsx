@@ -292,6 +292,20 @@ export function TabAuta({
     setPlaybackSuspended(true);
   }, []);
 
+  const resumePlayback = useCallback(() => {
+    if (feedActive) setPlaybackSuspended(false);
+  }, [feedActive]);
+
+  const openComments = useCallback((post: VroomkiPost) => {
+    suspendPlayback();
+    setCommentsPost(post);
+  }, [suspendPlayback]);
+
+  const openShare = useCallback((post: VroomkiPost) => {
+    suspendPlayback();
+    setSharePost(post);
+  }, [suspendPlayback]);
+
   const startCreateFlow = useCallback(async () => {
     suspendPlayback();
     const picked = await pickVroomkiMediaFromGallery();
@@ -415,8 +429,8 @@ export function TabAuta({
       myId={myId}
       onLike={onLike}
       onFollowAuthor={onFollowAuthor}
-      onOpenComments={setCommentsPost}
-      onShare={setSharePost}
+      onOpenComments={openComments}
+      onShare={openShare}
       onProfile={handleProfile}
       onCar={handleCar}
       onMore={openMore}
@@ -432,7 +446,9 @@ export function TabAuta({
     myId,
     onFollowAuthor,
     onLike,
+    openComments,
     openMore,
+    openShare,
     reelHeight,
     reelsPlaybackActive,
   ]);
@@ -527,14 +543,20 @@ export function TabAuta({
       <VroomkiCommentsModal
         post={commentsPost}
         myId={myId}
-        onClose={() => setCommentsPost(null)}
+        onClose={() => {
+          setCommentsPost(null);
+          resumePlayback();
+        }}
         onCommentAdded={onCommentAdded}
       />
       <ShareVroomkiModal
         visible={!!sharePost}
         post={sharePost}
         myId={myId}
-        onClose={() => setSharePost(null)}
+        onClose={() => {
+          setSharePost(null);
+          resumePlayback();
+        }}
       />
     </>
   );

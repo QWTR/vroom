@@ -173,6 +173,8 @@ export default function HomeScreen() {
 		"home_streak",
 		"home_premium_badge",
 		"home_announcement",
+		"home_system_news",
+		"home_buy_coffee",
 		"app_loading_logo",
 	]);
 	const giftAutoShownRef = useRef(false);
@@ -548,6 +550,8 @@ export default function HomeScreen() {
 	const streakAnimation = pickAppAnimationForValue(appAnimations, "home_streak", user?.streak ?? 0);
 	const premiumBadgeAnimation = pickAppAnimationForValue(appAnimations, "home_premium_badge");
 	const announcementAnimation = pickAppAnimationForValue(appAnimations, "home_announcement");
+	const systemNewsAnimation = pickAppAnimationForValue(appAnimations, "home_system_news");
+	const buyCoffeeAnimation = pickAppAnimationForValue(appAnimations, "home_buy_coffee");
 	const loadingAnimation = pickAppAnimationForValue(appAnimations, "app_loading_logo");
   const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
   const premiumEndLabel = premiumEndDateRaw
@@ -1230,8 +1234,16 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View style={{ ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }}>
-								<MaterialIcons name="newspaper" size={22} color={t.primary} />
+							<View style={systemNewsAnimation ? animatedIconGlowStyle : { ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }}>
+								{systemNewsAnimation ? (
+									<AppAnimationLayer
+										animation={systemNewsAnimation}
+										style={{ width: 32, height: 32 }}
+										fallbackIcon={<MaterialIcons name="newspaper" size={22} color={t.primary} />}
+									/>
+								) : (
+									<MaterialIcons name="newspaper" size={22} color={t.primary} />
+								)}
 							</View>
 
 							<View style={{ flex: 1 }}>
@@ -1677,8 +1689,16 @@ export default function HomeScreen() {
 								overflow: "hidden",
 								...glassShadow,
 							}}>
-							<View style={goldGlowStyle}>
-								<Text style={{ fontSize: 20 }}>☕</Text>
+							<View style={buyCoffeeAnimation ? animatedIconGlowStyle : goldGlowStyle}>
+								{buyCoffeeAnimation ? (
+									<AppAnimationLayer
+										animation={buyCoffeeAnimation}
+										style={{ width: 32, height: 32 }}
+										fallbackIcon={<Text style={{ fontSize: 20 }}>☕</Text>}
+									/>
+								) : (
+									<Text style={{ fontSize: 20 }}>☕</Text>
+								)}
 							</View>
 							<View style={{ flex: 1 }}>
 								<Text

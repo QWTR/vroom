@@ -37,6 +37,8 @@ function shouldPreferWebLottie(animation: AppAnimation | null | undefined) {
     'community_module_icon',
     'community_daily_duel_vs',
     'home_announcement',
+    'home_system_news',
+    'home_buy_coffee',
     'home_premium_badge',
     'tab_active_icon',
     'app_loading_logo',

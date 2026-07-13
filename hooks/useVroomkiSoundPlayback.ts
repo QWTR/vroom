@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
@@ -74,32 +74,97 @@ export function useVroomkiSoundPlayback({
   const canPlayRef = useRef(false);
   const soundStartMsRef = useRef(soundStartMs);
   const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string | null>(sound?.audioUrl ?? null);
+  const hasSound = !!sound;
+  const soundId = sound?.id;
+  const soundTitle = sound?.title;
+  const soundArtist = sound?.artist;
+  const soundCoverUrl = sound?.coverUrl;
+  const soundAudioUrl = sound?.audioUrl;
+  const soundSourceType = sound?.sourceType;
+  const soundSourceId = sound?.sourceId;
+  const soundDurationMs = sound?.durationMs;
+  const soundUsageCount = sound?.usageCount;
+  const soundSpotifyTrackId = sound?.spotifyTrackId;
+  const soundAudiusTrackId = sound?.audiusTrackId;
+  const soundDeezerTrackId = sound?.deezerTrackId;
+  const soundItunesTrackId = sound?.itunesTrackId;
+  const soundHasPreview = sound?.hasPreview;
+  const soundIsFullTrack = sound?.isFullTrack;
+  const soundIsPolish = sound?.isPolish;
+  const soundSnapshot = useMemo<VroomkiSound | null>(() => {
+    if (!hasSound) return null;
+    return {
+      id: soundId ?? null,
+      title: soundTitle ?? '',
+      artist: soundArtist ?? '',
+      coverUrl: soundCoverUrl ?? null,
+      audioUrl: soundAudioUrl ?? null,
+      sourceType: soundSourceType ?? '',
+      sourceId: soundSourceId ?? '',
+      durationMs: soundDurationMs ?? null,
+      usageCount: soundUsageCount,
+      spotifyTrackId: soundSpotifyTrackId,
+      audiusTrackId: soundAudiusTrackId,
+      deezerTrackId: soundDeezerTrackId,
+      itunesTrackId: soundItunesTrackId,
+      hasPreview: soundHasPreview,
+      isFullTrack: soundIsFullTrack,
+      isPolish: soundIsPolish,
+    };
+  }, [
+    soundId,
+    hasSound,
+    soundTitle,
+    soundArtist,
+    soundCoverUrl,
+    soundAudioUrl,
+    soundSourceType,
+    soundSourceId,
+    soundDurationMs,
+    soundUsageCount,
+    soundSpotifyTrackId,
+    soundAudiusTrackId,
+    soundDeezerTrackId,
+    soundItunesTrackId,
+    soundHasPreview,
+    soundIsFullTrack,
+    soundIsPolish,
+  ]);
+  const soundKey = useMemo(() => [
+    soundSnapshot?.id ?? '',
+    soundSnapshot?.sourceType ?? '',
+    soundSnapshot?.sourceId ?? '',
+    soundSnapshot?.spotifyTrackId ?? '',
+    soundSnapshot?.audiusTrackId ?? '',
+    soundSnapshot?.deezerTrackId ?? '',
+    soundSnapshot?.itunesTrackId ?? '',
+  ].join(':'), [soundSnapshot]);
 
   soundStartMsRef.current = soundStartMs;
 
   useEffect(() => {
     let cancelled = false;
 
-    if (sound?.audioUrl) {
-      setResolvedAudioUrl(sound.audioUrl);
+    if (soundSnapshot?.audioUrl) {
+      setResolvedAudioUrl(soundSnapshot.audioUrl);
       return () => {
         cancelled = true;
       };
     }
 
-    if (!sound) {
+    if (!soundSnapshot) {
       setResolvedAudioUrl(null);
       return undefined;
     }
 
-    void fetchFreshAudioUrl(sound).then((url) => {
+    void fetchFreshAudioUrl(soundSnapshot).then((url) => {
       if (!cancelled) setResolvedAudioUrl(url);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [sound?.audioUrl, sound?.id, sound?.sourceType, sound?.sourceId, restartKey]);
+  }, [soundSnapshot, soundKey, restartKey]);
 
   const canPlay = active && !!resolvedAudioUrl;
   canPlayRef.current = canPlay;
@@ -152,9 +217,10 @@ export function useVroomkiSoundPlayback({
     let cancelled = false;
     const gen = ++loadGenRef.current;
     const url = resolvedAudioUrl;
+    const shouldPlay = active && !!url;
 
     const load = async () => {
-      if (!url) {
+      if (!shouldPlay) {
         await unloadPlayer();
         return;
       }
@@ -195,8 +261,8 @@ export function useVroomkiSoundPlayback({
         }
       } catch (err) {
         console.warn('[vroomki] sound load failed:', url, err);
-        if (!sound || cancelled) return;
-        const freshUrl = await fetchFreshAudioUrl(sound);
+        if (!soundSnapshot || cancelled) return;
+        const freshUrl = await fetchFreshAudioUrl(soundSnapshot);
         if (freshUrl && freshUrl !== url && !cancelled && gen === loadGenRef.current) {
           setResolvedAudioUrl(freshUrl);
         }
@@ -207,7 +273,7 @@ export function useVroomkiSoundPlayback({
     return () => {
       cancelled = true;
     };
-  }, [resolvedAudioUrl, restartKey, sound]);
+  }, [active, resolvedAudioUrl, restartKey, soundKey, soundSnapshot]);
 
   useEffect(() => {
     const player = soundRef.current;

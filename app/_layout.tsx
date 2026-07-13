@@ -82,6 +82,8 @@ const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
   'home_streak',
   'home_premium_badge',
   'home_announcement',
+  'home_system_news',
+  'home_buy_coffee',
   'community_daily_duel_vs',
   'community_quick_access',
   'community_module_icon',
