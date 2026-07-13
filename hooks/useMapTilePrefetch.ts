@@ -18,6 +18,30 @@ type Options = {
 };
 
 const DRIVE_PREFETCH_MOVE_KM = 3;
+const NAVIGATION_PREFETCH_KM = 6;
+
+function navigationCorridor(points: LatLng[], location: LatLng | null): LatLng[] {
+  if (points.length < 2 || !location) return points.slice(0, 96);
+  let nearestIndex = 0;
+  let nearestKm = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    const distanceKm = haversineKm(location.latitude, location.longitude, point.latitude, point.longitude);
+    if (distanceKm < nearestKm) {
+      nearestKm = distanceKm;
+      nearestIndex = index;
+    }
+  }
+  const corridor = [points[nearestIndex]!];
+  let coveredKm = 0;
+  for (let index = nearestIndex + 1; index < points.length && coveredKm < NAVIGATION_PREFETCH_KM; index += 1) {
+    const previous = points[index - 1]!;
+    const point = points[index]!;
+    coveredKm += haversineKm(previous.latitude, previous.longitude, point.latitude, point.longitude);
+    corridor.push(point);
+  }
+  return corridor.length >= 2 ? corridor : points.slice(nearestIndex, nearestIndex + 2);
+}
 
 export function useMapTilePrefetch({
   isNavigating,
@@ -37,8 +61,9 @@ export function useMapTilePrefetch({
     if (navPrefetchedRef.current === routeKey) return;
     navPrefetchedRef.current = routeKey;
 
-    prefetchNavigationPack(routeKey, mapStyleURL, routePoints).catch(() => {});
-  }, [isNavigating, navigationReady, routeKey, mapStyleURL, routePoints]);
+    const corridor = navigationCorridor(routePoints, userLocation);
+    prefetchNavigationPack(routeKey, mapStyleURL, corridor).catch(() => {});
+  }, [isNavigating, navigationReady, routeKey, mapStyleURL, routePoints, userLocation]);
 
   useEffect(() => {
     if (isNavigating) return;

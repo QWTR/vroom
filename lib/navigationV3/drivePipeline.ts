@@ -141,14 +141,24 @@ function isMovingEvidence(
   return stepM >= NAV_V3.GPS_MOVING_MIN_STEP_M;
 }
 
+const routePolylineCache = new WeakMap<object, RoadPolyline | null>();
+
+function packedRoute(points: { lat: number; lng: number }[]): RoadPolyline | null {
+  const cached = routePolylineCache.get(points);
+  if (cached !== undefined) return cached;
+  const packed = makeRoadPolyline('route', points);
+  routePolylineCache.set(points, packed);
+  return packed;
+}
+
 function collectPolylines(geometry: DrivePipelineGeometry, mode: NavMode): RoadPolyline[] {
   if (mode === 'navigation') {
     const route = geometry.routePolyline;
     if (geometry.shouldSnapToRoute !== false && route && route.length >= 2) {
-      const packed = makeRoadPolyline('route', route);
-      return packed
-        ? [packed, ...geometry.roadPolylines.filter((p) => p.points.length >= 2)]
-        : geometry.roadPolylines.filter((p) => p.points.length >= 2);
+      // Navigation is route-led. Local road candidates are only used after a
+      // confirmed detach, not scanned alongside the full route on every fix.
+      const packed = packedRoute(route);
+      return packed ? [packed] : [];
     }
     return geometry.roadPolylines.filter((p) => p.points.length >= 2);
   }
@@ -256,6 +266,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
       }
       if (changed) {
         snapEngine.reset();
+        // Only a genuinely detached geometry may cold-start the marker again.
+        // A normal trimmed route refresh keeps the existing animated arc.
+        state.hardResetPending = true;
       }
     },
 
@@ -350,12 +363,9 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
           : undefined,
       }).result;
 
-      const expectedRouteHeading = routeHeadingNearFix(
-        geometry.routePolyline,
-        fix.lat,
-        fix.lng,
-        snap.headingDeg,
-      );
+      const expectedRouteHeading = snap.polylineKey === 'route'
+        ? snap.headingDeg
+        : routeHeadingNearFix(geometry.routePolyline, fix.lat, fix.lng, snap.headingDeg);
       const headingMismatch = fix.headingDeg != null
         ? Math.abs(((expectedRouteHeading - fix.headingDeg + 540) % 360) - 180)
         : 0;

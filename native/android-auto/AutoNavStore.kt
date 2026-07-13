@@ -47,9 +47,13 @@ object AutoNavStore {
   private const val KEY_LAST_TRACK_LNG = "last_track_lng"
   private const val KEY_LAST_TRACK_TS = "last_track_ts"
   private const val KEY_PENDING_DRIVE_KM = "pending_drive_km"
+  private const val KEY_AUTO_DISTANCE_OWNER = "auto_distance_owner"
+  private const val KEY_AUTO_DISTANCE_OWNER_AT = "auto_distance_owner_at"
+  private const val KEY_AUTO_DISTANCE_OWNER_GENERATION = "auto_distance_owner_generation"
   private const val KEY_NATIVE_TRIP_SESSION_ID = "native_trip_session_id"
   private const val KEY_NATIVE_TRIP_STARTED_AT = "native_trip_started_at"
   private const val KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM = "native_trip_last_checkpoint_km"
+  private const val KEY_NATIVE_TRIP_LAST_CHECKPOINT_ATTEMPT = "native_trip_last_checkpoint_attempt"
   private const val KEY_NATIVE_TRIP_MAX_SPEED = "native_trip_max_speed"
   private const val KEY_NATIVE_TRIP_SPEED_SUM = "native_trip_speed_sum"
   private const val KEY_NATIVE_TRIP_SPEED_COUNT = "native_trip_speed_count"
@@ -58,12 +62,13 @@ object AutoNavStore {
   private const val PROFILE_REFRESH_INTERVAL_MS = 60_000L
   private const val DRIVE_SPEED_THRESHOLD_KMH = 8.0
   private const val DRIVE_UPLOAD_STEP_KM = 0.2
-  private const val DRIVE_SEGMENT_MAX_KM = 0.35
+  private const val DRIVE_SEGMENT_MAX_KM = 2.0
   private const val DRIVE_SEGMENT_MAX_KMH = 220.0
-  private const val DRIVE_SEGMENT_MAX_DT_MS = 20_000L
+  private const val DRIVE_SEGMENT_MAX_DT_MS = 420_000L
   private const val DRIVE_SEGMENT_MIN_DT_MS = 500L
-  private const val DRIVE_PENDING_HARD_CAP_KM = 10.0
   private const val DRIVE_UPLOAD_MAX_CHUNK_KM = 1.5
+  private const val DRIVE_UPLOAD_FORCE_MIN_KM = 0.05
+  private const val DRIVE_UPLOAD_FORCE_INTERVAL_MS = 30_000L
   private const val NATIVE_TRIP_IDLE_RESET_MS = 30 * 60 * 1000L
   private const val LIVE_PUSH_INTERVAL_MS = 4_000L
   private const val LIVE_USERS_RADIUS_KM = 350
@@ -71,6 +76,8 @@ object AutoNavStore {
   private const val ROUTE_ORIGIN_MAX_AGE_MS = 15_000L
   private const val SEARCH_ORIGIN_MAX_AGE_MS = 60_000L
   @Volatile private var isRemoteRefreshInFlight = false
+  private val nativeTripCheckpointLock = Any()
+  @Volatile private var isNativeTripCheckpointInFlight = false
 
   // IN-MEMORY HIGH FREQUENCY STATE
   @Volatile var liveLat: Double = Double.NaN
@@ -134,6 +141,16 @@ object AutoNavStore {
   private var cacheKeyRoute: String? = null
 
   private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  /** Android Auto is the only distance owner while its car session is visible. */
+  fun setNativeDistanceOwner(context: Context, active: Boolean) {
+    val p = prefs(context)
+    p.edit()
+      .putBoolean(KEY_AUTO_DISTANCE_OWNER, active)
+      .putLong(KEY_AUTO_DISTANCE_OWNER_AT, if (active) System.currentTimeMillis() else 0L)
+      .putLong(KEY_AUTO_DISTANCE_OWNER_GENERATION, p.getLong(KEY_AUTO_DISTANCE_OWNER_GENERATION, 0L) + 1L)
+      .apply()
+  }
 
   fun setNavigating(context: Context, value: Boolean) { 
     ensureMem(context)
@@ -420,12 +437,14 @@ object AutoNavStore {
     }
 
     val p = prefs(context)
+    if (p.getBoolean(KEY_AUTO_DISTANCE_OWNER, false)) {
+      p.edit().putLong(KEY_AUTO_DISTANCE_OWNER_AT, now).apply()
+    }
     resetNativeTripIfStale(p, now)
     val prevLat = p.getFloat(KEY_LAST_TRACK_LAT, Float.NaN).toDouble()
     val prevLng = p.getFloat(KEY_LAST_TRACK_LNG, Float.NaN).toDouble()
     val prevTs = p.getLong(KEY_LAST_TRACK_TS, 0L)
     var pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
-      .coerceAtMost(DRIVE_PENDING_HARD_CAP_KM)
     val nowTs = System.currentTimeMillis()
 
     if (
@@ -478,9 +497,7 @@ object AutoNavStore {
       }
     }
 
-    if (token.isNotBlank() && pendingKm >= DRIVE_UPLOAD_STEP_KM) {
-      uploadNativeTripCheckpoint(p, token, pendingKm)
-    }
+    maybeUploadNativeTripCheckpoint(p, token, force = false)
   }
 
   private fun resetNativeTripIfStale(p: android.content.SharedPreferences, now: Long) {
@@ -490,6 +507,7 @@ object AutoNavStore {
       .remove(KEY_NATIVE_TRIP_SESSION_ID)
       .remove(KEY_NATIVE_TRIP_STARTED_AT)
       .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM)
+      .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_ATTEMPT)
       .remove(KEY_NATIVE_TRIP_MAX_SPEED)
       .remove(KEY_NATIVE_TRIP_SPEED_SUM)
       .remove(KEY_NATIVE_TRIP_SPEED_COUNT)
@@ -499,17 +517,32 @@ object AutoNavStore {
   fun endNativeTripSession(context: Context) {
     val p = prefs(context)
     val pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
-    val editor = p.edit()
-      .remove(KEY_NATIVE_TRIP_MAX_SPEED)
-      .remove(KEY_NATIVE_TRIP_SPEED_SUM)
-      .remove(KEY_NATIVE_TRIP_SPEED_COUNT)
-    if (pendingKm < 0.001) {
-      editor
-        .remove(KEY_NATIVE_TRIP_SESSION_ID)
-        .remove(KEY_NATIVE_TRIP_STARTED_AT)
-        .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM)
+    maybeUploadNativeTripCheckpoint(p, p.getString(KEY_AUTH_TOKEN, "") ?: "", force = true)
+    // AA may be reopened after the phone tracker has carried on. Never bridge
+    // a new AA session back to the old AA fix or the intervening segment could
+    // be credited by both trackers.
+    p.edit()
+      .remove(KEY_LAST_TRACK_LAT)
+      .remove(KEY_LAST_TRACK_LNG)
+      .remove(KEY_LAST_TRACK_TS)
+      .apply()
+    // Keep the full native session while its final checkpoint is in flight.
+    // Clearing speed/session state here would not lose the raw km, but would
+    // make a recovered checkpoint incomplete after Android Auto closes.
+    if (pendingKm < DRIVE_UPLOAD_FORCE_MIN_KM) {
+      val editor = p.edit()
+        .remove(KEY_NATIVE_TRIP_MAX_SPEED)
+        .remove(KEY_NATIVE_TRIP_SPEED_SUM)
+        .remove(KEY_NATIVE_TRIP_SPEED_COUNT)
+      if (pendingKm < 0.001) {
+        editor
+          .remove(KEY_NATIVE_TRIP_SESSION_ID)
+          .remove(KEY_NATIVE_TRIP_STARTED_AT)
+          .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM)
+          .remove(KEY_NATIVE_TRIP_LAST_CHECKPOINT_ATTEMPT)
+      }
+      editor.apply()
     }
-    editor.apply()
   }
 
   private fun ensureNativeTripSessionId(p: android.content.SharedPreferences): String {
@@ -536,11 +569,49 @@ object AutoNavStore {
       .apply()
   }
 
+  private fun maybeUploadNativeTripCheckpoint(
+    p: android.content.SharedPreferences,
+    token: String,
+    force: Boolean,
+  ) {
+    if (token.isBlank()) return
+    val pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
+    val now = System.currentTimeMillis()
+    val lastAttempt = p.getLong(KEY_NATIVE_TRIP_LAST_CHECKPOINT_ATTEMPT, 0L)
+    val dueByDistance = pendingKm >= DRIVE_UPLOAD_STEP_KM
+    val dueByTime = pendingKm >= DRIVE_UPLOAD_FORCE_MIN_KM && now - lastAttempt >= DRIVE_UPLOAD_FORCE_INTERVAL_MS
+    if (!force && !dueByDistance && !dueByTime) return
+    if (pendingKm < DRIVE_UPLOAD_FORCE_MIN_KM) return
+
+    if (!tryStartNativeTripCheckpoint()) return
+    p.edit().putLong(KEY_NATIVE_TRIP_LAST_CHECKPOINT_ATTEMPT, now).apply()
+    Thread {
+      try {
+        uploadNativeTripCheckpoint(p, token)
+      } finally {
+        finishNativeTripCheckpoint()
+      }
+    }.start()
+  }
+
+  private fun tryStartNativeTripCheckpoint(): Boolean = synchronized(nativeTripCheckpointLock) {
+    if (isNativeTripCheckpointInFlight) return@synchronized false
+    isNativeTripCheckpointInFlight = true
+    true
+  }
+
+  private fun finishNativeTripCheckpoint() {
+    synchronized(nativeTripCheckpointLock) {
+      isNativeTripCheckpointInFlight = false
+    }
+  }
+
   private fun uploadNativeTripCheckpoint(
     p: android.content.SharedPreferences,
     token: String,
-    pendingKm: Double,
   ) {
+    val pendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
+    if (pendingKm < DRIVE_UPLOAD_FORCE_MIN_KM) return
     val sessionId = ensureNativeTripSessionId(p)
     val lastCheckpointKm = p.getFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, 0f).toDouble().coerceAtLeast(0.0)
     val uploadDeltaKm = pendingKm.coerceAtMost(DRIVE_UPLOAD_MAX_CHUNK_KM)
@@ -566,19 +637,22 @@ object AutoNavStore {
       val creditedDelta = response?.optDouble("creditedDeltaKm", uploadDeltaKm)
         ?.takeIf { it.isFinite() && it >= 0.0 }
         ?: uploadDeltaKm
-      val remainingKm = (pendingKm - creditedDelta).coerceAtLeast(0.0)
+      // A response retried after a lost acknowledgement may report zero new
+      // credit while still confirming a newer session total. Treat that total
+      // as the acknowledgement, otherwise the same pending chunk retries
+      // forever.
+      val confirmedDelta = kotlin.math.min(
+        uploadDeltaKm,
+        kotlin.math.max(creditedDelta, savedCheckpoint - lastCheckpointKm),
+      )
+      // New GPS fixes may have been persisted while the request was in flight.
+      // Subtract only the acknowledged chunk from the latest durable pending value.
+      val latestPendingKm = p.getFloat(KEY_PENDING_DRIVE_KM, 0f).toDouble().coerceAtLeast(0.0)
+      val remainingKm = (latestPendingKm - confirmedDelta).coerceAtLeast(0.0)
       p.edit()
-        .putFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, savedCheckpoint.toFloat())
+        .putFloat(KEY_NATIVE_TRIP_LAST_CHECKPOINT_KM, kotlin.math.max(lastCheckpointKm, savedCheckpoint).toFloat())
         .putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat())
         .apply()
-      return
-    }
-
-    val fallbackPayload = JSONObject().put("km", uploadDeltaKm)
-    val (fallbackCode, _) = requestJson("POST", "/api/live/distance", token, fallbackPayload.toString())
-    if (fallbackCode in 200..299) {
-      val remainingKm = (pendingKm - uploadDeltaKm).coerceAtLeast(0.0)
-      p.edit().putFloat(KEY_PENDING_DRIVE_KM, remainingKm.toFloat()).apply()
     }
   }
 
@@ -604,6 +678,9 @@ object AutoNavStore {
         } else if (code == 404) {
           clearNavigationState(context)
         }
+        // A successful refresh proves the connection is back even if the car
+        // is stationary and therefore no fresh GPS fix arrives to trigger retry.
+        maybeUploadNativeTripCheckpoint(prefs(context), token, force = true)
         syncLiveLayers(context, token)
       } catch (_: Throwable) {
       } finally {

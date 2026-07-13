@@ -146,7 +146,6 @@ const BG_TRACE_MIN_WRITE_MS     = 1500;
 const BG_TRACE_MIN_MOVE_M       = 8;
 const BG_TRACE_MIN_FLUSH_KM     = 0.03;
 const BG_TRACE_MAX_JUMP_M       = 220;
-const BG_PENDING_KM_HARD_CAP    = 1200;
 const BG_TRIP_CHECKPOINT_KM     = 0.2;
 const BG_TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
 const BG_TRIP_CHECKPOINT_FORCE_MS = 30_000;
@@ -807,9 +806,7 @@ export async function recordDrivingTracePoint(
     if (_tracePendingKm > 0) {
       const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
       const nextPending = pending + _tracePendingKm;
-      if (nextPending > BG_PENDING_KM_HARD_CAP) {
-        writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'));
-      } else {
+      if (Number.isFinite(nextPending)) {
         writes.push(AsyncStorage.setItem(BG_PENDING_KM_KEY, String(nextPending)));
       }
     }
@@ -1007,11 +1004,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       ) {
         const pending = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const newPending = pending + segment.distanceKm;
-        if (!Number.isFinite(newPending) || newPending > BG_PENDING_KM_HARD_CAP) {
-          await Promise.all([
-            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
-            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
-          ]);
+        if (!Number.isFinite(newPending)) {
           await AsyncStorage.setItem(BG_LAST_LOC_KEY, JSON.stringify({
             latitude,
             longitude,
@@ -1204,7 +1197,7 @@ export function useBackgroundTracking(
         });
         telemetryRef.current.navMergedFlushes += 1;
         telemetryRef.current.navMergedBgKm += bgPending;
-        const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0 && distanceToSaveRaw <= BG_PENDING_KM_HARD_CAP
+        const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0
           ? distanceToSaveRaw
           : 0;
         const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, 0);
@@ -1324,15 +1317,6 @@ export function useBackgroundTracking(
         const bgPending    = safePendingKm(await AsyncStorage.getItem(BG_PENDING_KM_KEY));
         const bgRouteRaw   = await AsyncStorage.getItem(BG_ROUTE_POINTS_KEY);
         const bgRoutePoints: { latitude: number; longitude: number }[] = bgRouteRaw ? JSON.parse(bgRouteRaw) : [];
-        if (bgPending > BG_PENDING_KM_HARD_CAP) {
-          await Promise.all([
-            AsyncStorage.setItem(BG_PENDING_KM_KEY, '0'),
-            AsyncStorage.removeItem(BG_ROUTE_POINTS_KEY),
-            AsyncStorage.removeItem(BG_SPEED_SAMPLES_KEY),
-            AsyncStorage.removeItem(BG_SPEED_MAX_KEY),
-          ]);
-          return;
-        }
         if (bgPending < 0.05) return;
 
         const samplesRaw = await AsyncStorage.getItem(BG_SPEED_SAMPLES_KEY);

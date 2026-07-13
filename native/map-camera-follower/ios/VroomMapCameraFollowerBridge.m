@@ -3,6 +3,7 @@
 @interface RCT_EXTERN_MODULE(VroomMapCameraFollower, RCTViewManager)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(positionValid, NSNumber)
+RCT_EXPORT_VIEW_PROPERTY(markerVisible, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(latitude, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(longitude, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(heading, NSNumber)

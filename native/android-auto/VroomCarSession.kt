@@ -13,9 +13,11 @@ class VroomCarSession : Session() {
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
+                AutoLocationTracker.stop()
+                AutoNavStore.endNativeTripSession(carContext)
+                AutoNavStore.setNativeDistanceOwner(carContext, false)
                 VroomCarManager.clearCarContext()
                 AutoNavigationCoordinator.detach()
-                AutoLocationTracker.stop()
                 VroomCarManager.clearScreen()
                 carScreen = null
             }
@@ -30,6 +32,7 @@ class VroomCarSession : Session() {
         screen.setNightModeActive(carContext.resources.configuration.isNightModeActive())
         carScreen = screen
         VroomCarManager.setScreen(screen)
+        AutoNavStore.setNativeDistanceOwner(carContext, true)
         AutoLocationTracker.start(carContext)
         AutoNavStore.refreshFromBackendIfNeeded(carContext)
         val pendingIntent = AutoPendingNavigation.consumeIntent(carContext)

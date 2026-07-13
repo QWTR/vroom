@@ -13,7 +13,6 @@ export type NativeCameraFollowerFrame = {
   latitude: number;
   longitude: number;
   heading: number;
-  zoom: number;
 };
 
 /** The camera must consume the already-interpolated marker, never a GPS target. */
@@ -41,22 +40,21 @@ export function zoomFromMarkerSpeed(speedMs: number): number {
   return 15.75 - Math.min(1, (speedKmh - 160) / 45) * 0.5;
 }
 
-/** Native props are always derived from the displayed, interpolated marker. */
+/** Native motion props are always derived from the displayed marker. Framing is static. */
 export function nativeFollowerFrameFromMarker(
   pose: DisplayedMarkerPose,
-  speedMs: number,
+  _speedMs: number,
 ): NativeCameraFollowerFrame {
   'worklet';
   const frame = cameraFrameFromDisplayedMarker(pose);
   if (!frame) {
-    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0, zoom: zoomFromMarkerSpeed(speedMs) };
+    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0 };
   }
   return {
     positionValid: 1,
     latitude: frame.lat,
     longitude: frame.lng,
     heading: frame.heading,
-    zoom: zoomFromMarkerSpeed(speedMs),
   };
 }
 

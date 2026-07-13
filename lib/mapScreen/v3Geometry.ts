@@ -7,6 +7,16 @@ export type V3GeometryResult = {
   shouldSnapToRoute: boolean;
 };
 
+const navigationRouteCache = new WeakMap<object, { lat: number; lng: number }[]>();
+
+function getStableRoutePolyline(points: { latitude: number; longitude: number }[]) {
+  const cached = navigationRouteCache.get(points);
+  if (cached) return cached;
+  const mapped = points.map((p) => ({ lat: p.latitude, lng: p.longitude }));
+  navigationRouteCache.set(points, mapped);
+  return mapped;
+}
+
 export function buildV3GeometryFromRefs(input: {
   matchedGeometry: { latitude: number; longitude: number }[];
   routePoints: { latitude: number; longitude: number }[];
@@ -43,7 +53,7 @@ export function buildV3GeometryFromRefs(input: {
   if (!input.isNavigating) addPolyline('road_match', input.matchedGeometry);
 
   const routePolyline = input.isNavigating && input.routePoints.length >= 2
-    ? input.routePoints.map((p) => ({ lat: p.latitude, lng: p.longitude }))
+    ? getStableRoutePolyline(input.routePoints)
     : null;
 
   return {

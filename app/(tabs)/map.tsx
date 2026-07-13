@@ -1174,7 +1174,7 @@ function MapScreenInner() {
   const previewRouteRef       = useRef<DirectionsResult | null>(null);
   const lastDistToTurnUiRef   = useRef<number | null>(null);
   const lastRemainingKmUiRef  = useRef<number | null>(null);
-  const lastRemainingRouteHeadRef = useRef<{ lat: number; lng: number; idx: number } | null>(null);
+  const lastRemainingRouteHeadRef = useRef<{ lat: number; lng: number; idx: number; atMs: number } | null>(null);
   const lastManeuverDistanceRef = useRef<{ stepIndex: number; distanceM: number } | null>(null);
   const reroutePendingRef     = useRef(false);
   const reroutePendingSinceRef = useRef<number>(0);
@@ -11031,10 +11031,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (!isNavigating || !navigationUiReady || navRouteOverride) return;
     if (navRoute?.points?.length) {
       routePointsRef.current = navRoute.points;
-      // v10: prefetch geometrii calej trasy do SQLite cache (jednorazowo).
-      // W trakcie jazdy L2 (findNearest) trafia od razu w cache zamiast wolac API.
-      if (true && navRoute.points.length >= 4) {
-        void roadGeometryStore.prefetchAroundRoute(navRoute.points).catch(() => {});
+      // Warm only the departure corridor after the first navigation frame.
+      // Downloading/indexing the full route competes with GPS snapping.
+      if (navRoute.points.length >= 4) {
+        const initialCorridor = navRoute.points.slice(0, 96);
+        InteractionManager.runAfterInteractions(() => {
+          void roadGeometryStore.prefetchAroundRoute(initialCorridor).catch(() => {});
+        });
       }
     }
   }, [isNavigating, navigationUiReady, navRoute, navRouteOverride]);
@@ -11898,11 +11901,16 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               headLng,
             ) * 1000
           : Number.POSITIVE_INFINITY;
-        if (!previousHead || previousHead.idx !== idx || headMovedM >= 1) {
+        const routeLineNowMs = Date.now();
+        const shouldRefreshRouteLine = !previousHead
+          || previousHead.idx !== idx
+          || (headMovedM >= 8 && routeLineNowMs - previousHead.atMs >= 1_000);
+        if (shouldRefreshRouteLine) {
           lastRemainingRouteHeadRef.current = {
             lat: headLat,
             lng: headLng,
             idx,
+            atMs: routeLineNowMs,
           };
           setRemainingRoutePoints([
             { latitude: headLat, longitude: headLng },
@@ -12915,7 +12923,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             ref={cameraRef}
             defaultSettings={cameraDefaultSettingsRef.current}
           />
-          <VroomMapCameraFollower {...cameraV3.nativeFollower} />
+          <VroomMapCameraFollower
+            {...cameraV3.nativeFollower}
+            markerVisible={isTripActive && (showSelf2DMarker || showTripArrowUnderlay)}
+          />
           <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers
             enabled={showTerrainLayers}

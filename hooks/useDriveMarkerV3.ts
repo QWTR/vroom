@@ -210,6 +210,9 @@ function smoothTargetArcMJs(
 ): number {
   if (!Number.isFinite(incomingArcM)) return prevArcM;
   if (!Number.isFinite(prevArcM)) return incomingArcM;
+  // A GPS projection may move a few metres backwards on the same route even
+  // while the car is moving forward. Never make the rendered vehicle reverse.
+  if (incomingArcM <= prevArcM) return prevArcM;
   return incomingArcM;
 }
 
@@ -697,7 +700,7 @@ export function useDriveMarkerV3(
     // when the next iOS/Android fix finally arrived.
     const markerSegmentMs = Math.max(
       320,
-      Math.min(5_000, rawGpsIntervalMs * 0.96),
+      Math.min(5_000, rawGpsIntervalMs),
     );
     segmentDurationMs.value = markerSegmentMs;
     lastTargetAtMs.value = Date.now();
@@ -798,7 +801,10 @@ export function useDriveMarkerV3(
       baseArcM.value = arcFeed.baseArcM;
       polylineKeySv.value = key;
       onRoadSv.value = 1;
-      const arcM = target.targetArcM as number;
+      const incomingArcM = target.targetArcM as number;
+      const arcM = keyChanged
+        ? incomingArcM
+        : smoothTargetArcMJs(targetArcM.value, incomingArcM);
       if (keyChanged) {
         // Arc windows are refreshed while navigating. Reproject the *current*
         // animated pose into the replacement window; never assign its lat/lng

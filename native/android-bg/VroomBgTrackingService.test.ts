@@ -17,4 +17,11 @@ describe('Android native trip checkpoint contract', () => {
   it('marks Free Drive checkpoints as driving progress', () => {
     expect(source).toContain('val source = if (mode == "navigation") "navigation" else "driving"');
   });
+
+  it('does not bridge or duplicate GPS segments owned by Android Auto', () => {
+    expect(source).toContain('AUTO_NAV_PREFS = "vroom_auto_nav"');
+    expect(source).toContain('ownershipBoundaryChanged');
+    expect(source).toContain('persistNativeStatsLastFix(prefs, location)');
+    expect(source).toContain('KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION');
+  });
 });

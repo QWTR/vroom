@@ -409,6 +409,13 @@ class VroomBgTrackingService : Service() {
     private const val KEY_NATIVE_CHECKPOINT_API_URL = "native_checkpoint_api_url"
     private const val KEY_NATIVE_CHECKPOINT_AUTH_TOKEN = "native_checkpoint_auth_token"
     private const val KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM = "native_last_server_checkpoint_km"
+    private const val AUTO_NAV_PREFS = "vroom_auto_nav"
+    private const val KEY_AUTO_DISTANCE_OWNER = "auto_distance_owner"
+    private const val KEY_AUTO_DISTANCE_OWNER_AT = "auto_distance_owner_at"
+    private const val KEY_AUTO_DISTANCE_OWNER_GENERATION = "auto_distance_owner_generation"
+    private const val KEY_LAST_AUTO_DISTANCE_OWNER = "last_auto_distance_owner"
+    private const val KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION = "last_auto_distance_owner_generation"
+    private const val AUTO_DISTANCE_OWNER_STALE_MS = 2 * 60_000L
     private const val MAX_BUFFERED_FIXES = 240
     private const val MAX_STATS_ROUTE_POINTS = 1500
     private const val MAX_STATS_SPEED_SAMPLES = 400
@@ -421,6 +428,8 @@ class VroomBgTrackingService : Service() {
     private const val NATIVE_CHECKPOINT_KM = 0.2
     private const val NATIVE_CHECKPOINT_FORCE_MIN_KM = 0.05
     private const val NATIVE_CHECKPOINT_FORCE_MS = 30_000L
+    private val nativeCheckpointLock = Any()
+    @Volatile private var nativeCheckpointInFlight = false
 
     fun start(context: Context) {
       val intent = Intent(context, VroomBgTrackingService::class.java)
@@ -517,7 +526,17 @@ class VroomBgTrackingService : Service() {
     fun consumeNativeStats(context: Context): JSONObject {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val raw = prefs.getString(KEY_NATIVE_STATS, null)
-      prefs.edit().remove(KEY_NATIVE_STATS).apply()
+      // This is called only after the final activity was accepted by the
+      // server. Until then stats and checkpoint credentials stay durable.
+      prefs.edit()
+        .remove(KEY_NATIVE_STATS)
+        .remove(KEY_NATIVE_STATS_LAST_FIX)
+        .remove(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM)
+        .remove(KEY_LAST_AUTO_DISTANCE_OWNER)
+        .remove(KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION)
+        .remove(KEY_NATIVE_CHECKPOINT_API_URL)
+        .remove(KEY_NATIVE_CHECKPOINT_AUTH_TOKEN)
+        .apply()
       return try {
         if (raw.isNullOrBlank()) emptyNativeStats() else JSONObject(raw)
       } catch (_: Exception) {
@@ -531,10 +550,20 @@ class VroomBgTrackingService : Service() {
         .remove(KEY_NATIVE_STATS)
         .remove(KEY_NATIVE_STATS_LAST_FIX)
         .remove(KEY_NATIVE_LAST_SERVER_CHECKPOINT_KM)
+        .remove(KEY_LAST_AUTO_DISTANCE_OWNER)
+        .remove(KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION)
         .apply()
     }
 
     fun readNativeStats(context: Context): JSONObject {
+      val stats = readNativeStatsSnapshot(context)
+      // Foreground recovery reads are also an offline-retry opportunity. This
+      // matters when connectivity returns after the vehicle has stopped.
+      maybeFlushNativeCheckpoint(context, stats, force = false)
+      return stats
+    }
+
+    private fun readNativeStatsSnapshot(context: Context): JSONObject {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       val raw = prefs.getString(KEY_NATIVE_STATS, null)
       return try {
@@ -596,6 +625,24 @@ class VroomBgTrackingService : Service() {
 
     fun accumulateNativeStats(context: Context, location: Location) {
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val autoPrefs = context.getSharedPreferences(AUTO_NAV_PREFS, Context.MODE_PRIVATE)
+      val ownerAt = autoPrefs.getLong(KEY_AUTO_DISTANCE_OWNER_AT, 0L)
+      val ownerGeneration = autoPrefs.getLong(KEY_AUTO_DISTANCE_OWNER_GENERATION, 0L)
+      val autoOwnsDistance = autoPrefs.getBoolean(KEY_AUTO_DISTANCE_OWNER, false) &&
+        ownerAt > 0L && System.currentTimeMillis() - ownerAt <= AUTO_DISTANCE_OWNER_STALE_MS
+      val previouslyOwnedByAuto = prefs.getBoolean(KEY_LAST_AUTO_DISTANCE_OWNER, false)
+      val ownershipBoundaryChanged = prefs.getLong(KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION, -1L) != ownerGeneration
+      if (autoOwnsDistance || previouslyOwnedByAuto || ownershipBoundaryChanged) {
+        // Preserve only the boundary fix. While AA owns distance this service
+        // must not add the same physical segment, and the first fix after AA
+        // must not bridge back across the entire AA drive.
+        persistNativeStatsLastFix(prefs, location)
+        prefs.edit()
+          .putBoolean(KEY_LAST_AUTO_DISTANCE_OWNER, autoOwnsDistance)
+          .putLong(KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION, ownerGeneration)
+          .apply()
+        return
+      }
       val now = if (location.time > 0) location.time else System.currentTimeMillis()
       val lat = location.latitude
       val lon = location.longitude
@@ -667,19 +714,28 @@ class VroomBgTrackingService : Service() {
         stats.put("maxSpeedKmh", maxOf(stats.optDouble("maxSpeedKmh", 0.0), speedKmh))
       }
 
-      val lastFix = JSONObject()
-        .put("latitude", lat)
-        .put("longitude", lon)
-        .put("time", now)
-        .put("accuracy", accuracy)
-
       prefs.edit()
         .putString(KEY_NATIVE_STATS, stats.toString())
-        .putString(KEY_NATIVE_STATS_LAST_FIX, lastFix.toString())
+        .putString(KEY_NATIVE_STATS_LAST_FIX, statsFixJson(location).toString())
+        .putBoolean(KEY_LAST_AUTO_DISTANCE_OWNER, false)
+        .putLong(KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION, ownerGeneration)
         .apply()
 
       maybeFlushNativeCheckpoint(context, stats, force = false)
     }
+
+    private fun persistNativeStatsLastFix(
+      prefs: android.content.SharedPreferences,
+      location: Location,
+    ) {
+      prefs.edit().putString(KEY_NATIVE_STATS_LAST_FIX, statsFixJson(location).toString()).apply()
+    }
+
+    private fun statsFixJson(location: Location): JSONObject = JSONObject()
+      .put("latitude", location.latitude)
+      .put("longitude", location.longitude)
+      .put("time", if (location.time > 0) location.time else System.currentTimeMillis())
+      .put("accuracy", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
 
     private fun emptyNativeStats(): JSONObject =
       JSONObject()
@@ -692,11 +748,16 @@ class VroomBgTrackingService : Service() {
         .put("tripSessionId", JSONObject.NULL)
 
     fun flushNativeCheckpointBlocking(context: Context, force: Boolean = false) {
-      val stats = readNativeStats(context)
+      val stats = readNativeStatsSnapshot(context)
       val distance = stats.optDouble("distanceKm", 0.0)
       if (!distance.isFinite() || distance < 0.05) return
+      if (!tryStartNativeCheckpoint()) return
       val worker = thread(start = true) {
-        postNativeCheckpoint(context, stats, force)
+        try {
+          postNativeCheckpoint(context, stats, force)
+        } finally {
+          finishNativeCheckpoint()
+        }
       }
       try {
         worker.join(4_500L)
@@ -715,6 +776,7 @@ class VroomBgTrackingService : Service() {
       val dueByDistance = delta >= NATIVE_CHECKPOINT_KM
       val dueByForce = delta >= NATIVE_CHECKPOINT_FORCE_MIN_KM && now - lastAttempt >= NATIVE_CHECKPOINT_FORCE_MS
       if (!force && !dueByDistance && !dueByForce) return
+      if (!tryStartNativeCheckpoint()) return
 
       val updatedStats = JSONObject(stats.toString()).put("lastCheckpointAttemptAt", now)
       context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -723,7 +785,23 @@ class VroomBgTrackingService : Service() {
         .apply()
 
       thread(start = true) {
-        postNativeCheckpoint(context, updatedStats, force)
+        try {
+          postNativeCheckpoint(context, updatedStats, force)
+        } finally {
+          finishNativeCheckpoint()
+        }
+      }
+    }
+
+    private fun tryStartNativeCheckpoint(): Boolean = synchronized(nativeCheckpointLock) {
+      if (nativeCheckpointInFlight) return@synchronized false
+      nativeCheckpointInFlight = true
+      true
+    }
+
+    private fun finishNativeCheckpoint() {
+      synchronized(nativeCheckpointLock) {
+        nativeCheckpointInFlight = false
       }
     }
 

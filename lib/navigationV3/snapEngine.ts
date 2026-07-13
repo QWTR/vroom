@@ -7,6 +7,7 @@ import {
 import {
   buildArcWindow,
   buildPolylineArc,
+  type PolylineArc,
   arcLengthAtPoint,
   headingDeltaAbs,
   pointAtArcLength,
@@ -292,6 +293,33 @@ function packRoadPolyline(key: string, points: { lat: number; lng: number }[]): 
   return { key, points, cumM: buildCumM(points) };
 }
 
+type PreparedPolyline = {
+  dense: RoadPoint[];
+  arc: PolylineArc;
+};
+
+/**
+ * Route objects stay stable for an entire navigation revision. Preparing the
+ * dense geometry once prevents a long route from blocking every GPS callback.
+ */
+const preparedPolylineCache = new WeakMap<RoadPolyline, PreparedPolyline>();
+
+function preparePolyline(polyline: RoadPolyline): PreparedPolyline | null {
+  const cached = preparedPolylineCache.get(polyline);
+  if (cached) return cached;
+
+  const dense = densifyPolyline(
+    toRoadPoints(polyline.points),
+    polyline.points.length <= 4 ? 4 : 5,
+  );
+  const arc = dense.length >= 2 ? buildPolylineArc(dense) : null;
+  if (!arc) return null;
+
+  const prepared = { dense, arc };
+  preparedPolylineCache.set(polyline, prepared);
+  return prepared;
+}
+
 type PolylineProjection = {
   polylineKey: string;
   lat: number;
@@ -312,11 +340,9 @@ function projectOnPolyline(
   cfg: SnapEngineConfig,
   isNavigating: boolean,
 ): PolylineProjection | null {
-  const dense = densifyPolyline(
-    toRoadPoints(polyline.points),
-    polyline.points.length <= 4 ? 4 : 5,
-  );
-  if (dense.length < 2) return null;
+  const prepared = preparePolyline(polyline);
+  if (!prepared) return null;
+  const { dense, arc } = prepared;
 
   const minSeg = Math.max(0, Math.min(minSegmentIndex, dense.length - 2));
   const speedKmh = Math.max(0, speedMs) * 3.6;
@@ -335,9 +361,6 @@ function projectOnPolyline(
     },
   );
   if (!proj) return null;
-
-  const arc = buildPolylineArc(dense);
-  if (!arc) return null;
 
   const arcInfo = arcLengthAtPoint(dense, arc, proj.lat, proj.lng, proj.segmentIndex, 2500);
   const arcM = arcInfo?.arcM ?? 0;
@@ -372,11 +395,9 @@ function scoreGlobalProjection(
   speedMs: number,
   cfg: SnapEngineConfig,
 ): PolylineProjection | null {
-  const dense = densifyPolyline(
-    toRoadPoints(polyline.points),
-    polyline.points.length <= 4 ? 4 : 5,
-  );
-  if (dense.length < 2) return null;
+  const prepared = preparePolyline(polyline);
+  if (!prepared) return null;
+  const { dense, arc } = prepared;
 
   let bestScore = Infinity;
   let best: PolylineProjection | null = null;
@@ -415,8 +436,6 @@ function scoreGlobalProjection(
     );
     if (!proj) continue;
 
-    const arc = buildPolylineArc(dense);
-    if (!arc) continue;
     const arcInfo = arcLengthAtPoint(dense, arc, proj.lat, proj.lng, proj.segmentIndex, 2500);
     const arcM = arcInfo?.arcM ?? 0;
 
@@ -434,17 +453,14 @@ function scoreGlobalProjection(
   }
 
   if (best) {
-    const arc = buildPolylineArc(dense);
-    if (arc) {
-      const windowRaw = buildSnapArcWindow(dense, arc, best.arcM, Math.max(0, speedMs));
-      if (windowRaw) {
-        best.arcWindow = {
-          points: windowRaw.points,
-          cumM: windowRaw.cumM,
-          baseArcM: windowRaw.baseArcM,
-          totalM: windowRaw.totalM,
-        };
-      }
+    const windowRaw = buildSnapArcWindow(dense, arc, best.arcM, Math.max(0, speedMs));
+    if (windowRaw) {
+      best.arcWindow = {
+        points: windowRaw.points,
+        cumM: windowRaw.cumM,
+        baseArcM: windowRaw.baseArcM,
+        totalM: windowRaw.totalM,
+      };
     }
   }
 

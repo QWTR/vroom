@@ -81,8 +81,8 @@ export async function prefetchNavigationPack(
     name,
     styleURL,
     bounds,
-    minZoom: 10,
-    maxZoom: 16,
+    minZoom: 11,
+    maxZoom: 15,
     metadata: { kind: 'navigation' },
   });
   await pruneOldPacks(new Set([name, DRIVE_PACK_NAME]));

@@ -9,6 +9,7 @@ class VroomMapCameraFollowerManager : SimpleViewManager<VroomMapCameraFollower>(
   override fun createViewInstance(context: ThemedReactContext) = VroomMapCameraFollower(context)
   @ReactProp(name = "enabled", defaultBoolean = false) fun setEnabled(view: VroomMapCameraFollower, value: Boolean) = view.setFollowerEnabled(value)
   @ReactProp(name = "positionValid", defaultInt = 0) fun setPositionValid(view: VroomMapCameraFollower, value: Int) = view.setPositionValid(value)
+  @ReactProp(name = "markerVisible", defaultBoolean = true) fun setMarkerVisible(view: VroomMapCameraFollower, value: Boolean) = view.setMarkerVisible(value)
   @ReactProp(name = "latitude") fun setLatitude(view: VroomMapCameraFollower, value: Double) = view.setLatitude(value)
   @ReactProp(name = "longitude") fun setLongitude(view: VroomMapCameraFollower, value: Double) = view.setLongitude(value)
   @ReactProp(name = "heading") fun setHeading(view: VroomMapCameraFollower, value: Double) = view.setHeading(value)

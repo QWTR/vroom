@@ -24,6 +24,8 @@ const BROWSE_ZOOM = 15;
 const BROWSE_PITCH = 52;
 const DRIVE_PITCH = 58;
 const NAV_PITCH = 62;
+const DRIVE_ZOOM = 18.1;
+const NAV_ZOOM = 17.65;
 const RETURN_FROM_EXPLORE_MS = 4000;
 const MIN_COURSE_MOVE_M = 0.35;
 const MIN_COURSE_SPEED_KMH = 3;
@@ -187,6 +189,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     useNativeTripFollow: true,
     nativeFollower: {
       enabled: Boolean(enabled && isTripMode && nativeFollowEnabled),
+      zoom: isNavigating ? NAV_ZOOM : DRIVE_ZOOM,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
       padding: getTripCameraPadding(isNavigating),
       animatedProps,

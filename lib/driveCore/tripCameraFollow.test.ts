@@ -3,7 +3,6 @@ import {
   cameraFrameFromDisplayedMarker,
   nativeFollowerFrameFromMarker,
   tripCameraSegmentDurationMs,
-  zoomFromMarkerSpeed,
 } from './tripCameraFollow';
 
 describe('trip camera follow', () => {
@@ -23,13 +22,12 @@ describe('trip camera follow', () => {
     expect(tripCameraSegmentDurationMs(9_000)).toBe(5_000);
   });
 
-  it('creates native props directly from the displayed marker', () => {
+  it('creates native motion props directly from the displayed marker', () => {
     expect(nativeFollowerFrameFromMarker({ lat: 52.23, lng: 21.01, heading: -90 }, 20)).toEqual({
       positionValid: 1,
       latitude: 52.23,
       longitude: 21.01,
       heading: 270,
-      zoom: zoomFromMarkerSpeed(20),
     });
   });
 

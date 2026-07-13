@@ -22,4 +22,11 @@ describe('Wiroom native iOS drive contract', () => {
     expect(OBJC_BRIDGE).toContain('getNativeStats');
     expect(OBJC_BRIDGE).toContain('consumeNativeStats');
   });
+
+  it('keeps an offline checkpoint retryable until the final activity is saved', () => {
+    expect(SWIFT_MODULE).toContain('maybeFlushNativeCheckpoint(stats: stats, force: false)');
+    expect(SWIFT_MODULE).toContain('defaults.removeObject(forKey: apiUrlKey)');
+    expect(SWIFT_MODULE).toContain('clearAuthToken()');
+    expect(SWIFT_MODULE).not.toContain('persistState(active: false, endedBy: reason, lastFix: currentState()["lastFix"] as? [String: Any])\n    clearAuthToken()');
+  });
 });

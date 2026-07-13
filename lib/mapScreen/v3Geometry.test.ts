@@ -46,4 +46,21 @@ describe('buildV3GeometryFromRefs', () => {
     expect(geometry.roadPolylines[0]?.key).toBe('mirror_0');
     expect(geometry.roadPolylines[1]?.key).toBe('road_match');
   });
+
+  it('keeps one packed route input across ordinary GPS geometry reads', () => {
+    const first = buildV3GeometryFromRefs({
+      matchedGeometry: route,
+      routePoints: route,
+      isNavigating: true,
+      mirrorPolylines: [],
+    });
+    const second = buildV3GeometryFromRefs({
+      matchedGeometry: route,
+      routePoints: route,
+      isNavigating: true,
+      mirrorPolylines: [],
+    });
+
+    expect(second.routePolyline).toBe(first.routePolyline);
+  });
 });

@@ -103,7 +103,9 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     maybeFlushNativeCheckpoint(stats: currentStats(), force: true)
     manager.stopUpdatingLocation()
     persistState(active: false, endedBy: reason, lastFix: currentState()["lastFix"] as? [String: Any])
-    clearAuthToken()
+    // Keep the Keychain token until the final activity is acknowledged. A
+    // forced checkpoint can fail while offline and must remain retryable after
+    // the user opens the app again.
     if reason != "app" && hasListenersFlag {
       sendEvent(withName: "VROOM_BG_TRACKING_END", body: ["reason": reason])
     }
@@ -124,13 +126,21 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   @objc(getNativeStats:rejecter:)
   func getNativeStats(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    resolve(currentStats())
+    let stats = currentStats()
+    // Reading a durable session after returning online is a retry opportunity
+    // even when the vehicle is already stationary and emits no fresh fixes.
+    maybeFlushNativeCheckpoint(stats: stats, force: false)
+    resolve(stats)
   }
 
   @objc(consumeNativeStats:rejecter:)
   func consumeNativeStats(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     let stats = currentStats()
     defaults.removeObject(forKey: statsKey)
+    defaults.removeObject(forKey: statsLastFixKey)
+    defaults.removeObject(forKey: checkpointKmKey)
+    defaults.removeObject(forKey: apiUrlKey)
+    clearAuthToken()
     resolve(stats)
   }
 

@@ -1,7 +1,6 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import { View, PixelRatio } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
-import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
 import {
   DRIVE_MARKER_IMAGE_KEY,
@@ -12,8 +11,6 @@ import {
   type DriveMarkerSpriteData,
 } from './DriveMarkerSpriteVisual';
 
-const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
-
 /** Tekstura capture: DRIVE_MARKER_SPRITE_SIZE × PixelRatio (px urządzenia). */
 const MARKER_TEXTURE_PX = DRIVE_MARKER_SPRITE_SIZE * PixelRatio.get();
 /** Docelowy rozmiar markera na ekranie [pt] — ~40 pt. */
@@ -22,15 +19,12 @@ const MARKER_SCREEN_PT = DRIVE_MARKER_SPRITE_SIZE;
 const ICON_SIZE_NORMAL = MARKER_SCREEN_PT / MARKER_TEXTURE_PX;
 const TRIP_MARKER_ICON_SIZE = ICON_SIZE_NORMAL;
 
-const EMPTY_SHAPE = JSON.stringify({
-  type: 'FeatureCollection',
+const EMPTY_SHAPE = {
+  type: 'FeatureCollection' as const,
   features: [],
-});
+};
 
 /** Min. zmiana pozycji (~2 cm) zanim odświeżamy GeoJSON — płynny slide bez ~1 m skoków. */
-const COORD_QUANT = 2e-7;
-const COORD_EPS = 3e-7;
-
 function spriteCacheKey(data: DriveMarkerSpriteData): string {
   return [
     data.avatarUrl ?? '',
@@ -56,7 +50,6 @@ type Props = {
  */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
-  marker,
   imageUri,
   avatarUrl,
   cursorSkin,
@@ -77,66 +70,6 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     lastSpriteCache = { key: cacheKey, uri };
     setCapturedUri(uri);
   }, [cacheKey]);
-
-  const lastShape = useSharedValue(EMPTY_SHAPE);
-  const lastLat = useSharedValue(NaN);
-  const lastLng = useSharedValue(NaN);
-  const lastHdg = useSharedValue(NaN);
-
-  const animatedShapeProps = useAnimatedProps(() => {
-    'worklet';
-    let la = marker.lat.value;
-    let ln = marker.lng.value;
-    let hdg = marker.heading.value;
-
-    const hasValidCoords = Number.isFinite(la) && Number.isFinite(ln)
-      && !(Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6);
-    const hasLastCoords = Number.isFinite(lastLat.value) && Number.isFinite(lastLng.value)
-      && !(Math.abs(lastLat.value) < 1e-6 && Math.abs(lastLng.value) < 1e-6);
-
-    if (!hasValidCoords) {
-      if (hasLastCoords) {
-        la = lastLat.value;
-        ln = lastLng.value;
-      } else {
-        if (lastShape.value !== EMPTY_SHAPE) {
-          lastShape.value = EMPTY_SHAPE;
-        }
-        return { shape: EMPTY_SHAPE };
-      }
-    }
-
-    la = Math.round(la / COORD_QUANT) * COORD_QUANT;
-    ln = Math.round(ln / COORD_QUANT) * COORD_QUANT;
-    hdg = Number.isFinite(hdg) ? Math.round(hdg * 10) / 10 : 0;
-
-    const prevLa = lastLat.value;
-    const prevLn = lastLng.value;
-    const prevHdg = lastHdg.value;
-    if (
-      Number.isFinite(prevLa)
-      && Number.isFinite(prevLn)
-      && Number.isFinite(prevHdg)
-      && Math.abs(la - prevLa) <= COORD_EPS
-      && Math.abs(ln - prevLn) <= COORD_EPS
-      && Math.abs(hdg - prevHdg) <= 0.1
-    ) {
-      return { shape: lastShape.value };
-    }
-    lastLat.value = la;
-    lastLng.value = ln;
-    lastHdg.value = hdg;
-    const nextShape = JSON.stringify({
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [ln, la] },
-        properties: { heading: hdg },
-      }],
-    });
-    lastShape.value = nextShape;
-    return { shape: nextShape };
-  });
 
   const textureUri = capturedUri ?? imageUri ?? null;
 
@@ -162,9 +95,9 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
         />
       ) : null}
 
-      <ReanimatedShapeSource
+      <Mapbox.ShapeSource
         id="tripDriveMarkerSource"
-        animatedProps={animatedShapeProps}
+        shape={EMPTY_SHAPE}
       >
         {textureUri ? (
           <Mapbox.SymbolLayer
@@ -194,7 +127,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
             }}
           />
         )}
-      </ReanimatedShapeSource>
+      </Mapbox.ShapeSource>
     </>
   );
 });

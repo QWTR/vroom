@@ -2,6 +2,7 @@ package __PACKAGE__.mapcamera
 
 import android.content.Context
 import android.view.Choreographer
+import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.EdgeInsets
@@ -17,6 +18,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   override var requiresStyleLoad: Boolean = false
 
   private var enabled = false
+  private var markerVisible = true
   private var positionValid = false
   private var latitude = 0.0
   private var longitude = 0.0
@@ -37,6 +39,9 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   private var displayedPaddingLeft = 0.0
   private var displayedPaddingRight = 0.0
   private var lastFrameNanos = 0L
+  private var lastMarkerLatitude = Double.NaN
+  private var lastMarkerLongitude = Double.NaN
+  private var lastMarkerHeading = Double.NaN
 
   fun setFollowerEnabled(value: Boolean) {
     if (value && !enabled) {
@@ -45,11 +50,22 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       dirty = true
     }
     enabled = value
-    if (value) scheduleFrame() else cancelFrame()
+    if (isMotionActive()) scheduleFrame() else cancelFrame()
   }
 
   fun setPositionValid(value: Int) {
     positionValid = value != 0
+    dirty = true
+    scheduleFrame()
+  }
+
+  fun setMarkerVisible(value: Boolean) {
+    if (value && !markerVisible) {
+      lastMarkerLatitude = Double.NaN
+      lastMarkerLongitude = Double.NaN
+      lastMarkerHeading = Double.NaN
+    }
+    markerVisible = value
     dirty = true
     scheduleFrame()
   }
@@ -71,7 +87,7 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   }
 
   private fun scheduleFrame() {
-    if (!enabled || framePosted) return
+    if (!isMotionActive() || framePosted) return
     framePosted = true
     Choreographer.getInstance().postFrameCallback(this)
   }
@@ -90,12 +106,14 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
 
   override fun doFrame(frameTimeNanos: Long) {
     framePosted = false
-    if (!enabled) return
+    if (!isMotionActive()) return
     if (dirty || hasPendingFraming()) applyLatestPose(frameTimeNanos)
-    scheduleFrame()
+    if (dirty || hasPendingFraming()) scheduleFrame()
   }
 
-  private fun hasPendingFraming(): Boolean = framingInitialized && (
+  private fun isMotionActive(): Boolean = enabled || markerVisible
+
+  private fun hasPendingFraming(): Boolean = enabled && framingInitialized && (
     kotlin.math.abs(displayedZoom - zoom) > 0.002
       || kotlin.math.abs(displayedPitch - pitch) > 0.03
       || kotlin.math.abs(displayedPaddingTop - paddingTop) > 0.25
@@ -105,11 +123,17 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   )
 
   private fun applyLatestPose(frameTimeNanos: Long) {
-    if (!positionValid || !latitude.isFinite() || !longitude.isFinite() || !heading.isFinite() || !zoom.isFinite()) return
-    if (kotlin.math.abs(latitude) < 1e-6 && kotlin.math.abs(longitude) < 1e-6) return
+    if (!positionValid || !latitude.isFinite() || !longitude.isFinite() || !heading.isFinite() || !zoom.isFinite()) {
+      dirty = false
+      return
+    }
+    if (kotlin.math.abs(latitude) < 1e-6 && kotlin.math.abs(longitude) < 1e-6) {
+      dirty = false
+      return
+    }
     val mapboxMap = mMapView?.getMapboxMap() ?: return
 
-    if (!framingInitialized) {
+    if (enabled && !framingInitialized) {
       val camera = mapboxMap.cameraState
       displayedZoom = camera.zoom
       displayedPitch = camera.pitch
@@ -120,29 +144,55 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
       framingInitialized = true
     }
 
-    val dtMs = if (lastFrameNanos > 0L) {
-      ((frameTimeNanos - lastFrameNanos).coerceIn(1_000_000L, 50_000_000L) / 1_000_000.0)
-    } else 16.0
-    lastFrameNanos = frameTimeNanos
-    // 120 ms tau gives a visually complete entry transition in about 400 ms.
-    val alpha = 1.0 - kotlin.math.exp(-dtMs / 120.0)
-    displayedZoom += (zoom - displayedZoom) * alpha
-    displayedPitch += (pitch - displayedPitch) * alpha
-    displayedPaddingTop += (paddingTop - displayedPaddingTop) * alpha
-    displayedPaddingBottom += (paddingBottom - displayedPaddingBottom) * alpha
-    displayedPaddingLeft += (paddingLeft - displayedPaddingLeft) * alpha
-    displayedPaddingRight += (paddingRight - displayedPaddingRight) * alpha
-
     dirty = false
-    mapboxMap.setCamera(
-      CameraOptions.Builder()
-        .center(Point.fromLngLat(longitude, latitude))
-        .bearing((heading % 360.0 + 360.0) % 360.0)
-        .zoom(displayedZoom)
-        .pitch(displayedPitch)
-        .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
-        .build(),
-    )
+    val normalizedHeading = (heading % 360.0 + 360.0) % 360.0
+    if (enabled) {
+      val dtMs = if (lastFrameNanos > 0L) {
+        ((frameTimeNanos - lastFrameNanos).coerceIn(1_000_000L, 50_000_000L) / 1_000_000.0)
+      } else 16.0
+      lastFrameNanos = frameTimeNanos
+      val alpha = 1.0 - kotlin.math.exp(-dtMs / 120.0)
+      displayedZoom += (zoom - displayedZoom) * alpha
+      displayedPitch += (pitch - displayedPitch) * alpha
+      displayedPaddingTop += (paddingTop - displayedPaddingTop) * alpha
+      displayedPaddingBottom += (paddingBottom - displayedPaddingBottom) * alpha
+      displayedPaddingLeft += (paddingLeft - displayedPaddingLeft) * alpha
+      displayedPaddingRight += (paddingRight - displayedPaddingRight) * alpha
+      mapboxMap.setCamera(
+        CameraOptions.Builder()
+          .center(Point.fromLngLat(longitude, latitude))
+          .bearing(normalizedHeading)
+          .zoom(displayedZoom)
+          .pitch(displayedPitch)
+          .padding(EdgeInsets(displayedPaddingTop, displayedPaddingLeft, displayedPaddingBottom, displayedPaddingRight))
+          .build(),
+      )
+    }
+    updateMarkerSource(mapboxMap, normalizedHeading)
+  }
+
+  private fun updateMarkerSource(mapboxMap: com.mapbox.maps.MapboxMap, normalizedHeading: Double) {
+    if (!markerVisible) return
+    val moved = !lastMarkerLatitude.isFinite()
+      || kotlin.math.abs(lastMarkerLatitude - latitude) > 0.0000001
+      || kotlin.math.abs(lastMarkerLongitude - longitude) > 0.0000001
+      || kotlin.math.abs(lastMarkerHeading - normalizedHeading) > 0.1
+    if (!moved) return
+    val style = mapboxMap.getStyle() ?: return
+    val geoJson = "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[$longitude,$latitude]},\"properties\":{\"heading\":$normalizedHeading}}]}"
+    try {
+      style.setStyleSourceProperty(
+        "tripDriveMarkerSource",
+        "data",
+        Value.valueOf(geoJson),
+      )
+      lastMarkerLatitude = latitude
+      lastMarkerLongitude = longitude
+      lastMarkerHeading = normalizedHeading
+    } catch (_: Throwable) {
+      // The marker source may be mounted a frame after the follower.
+      dirty = true
+    }
   }
 
   override fun removeFromMap(mapView: RNMBXMapView, reason: RemovalReason): Boolean {
