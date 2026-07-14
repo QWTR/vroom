@@ -1,12 +1,13 @@
 import type { MutableRefObject } from 'react';
 import { useEffect } from 'react';
-import { LIVE_ACHIEVEMENT_PERIODIC_MS, MAP_PERF } from '../../constants/mapPerformance';
+import { LIVE_ACHIEVEMENT_PERIODIC_MS } from '../../constants/mapPerformance';
 import { useMapTick, MAP_TICK } from '../useMapTick';
 import { flushTracePendingKmToStorage } from '../useBackgroundTracking';
 
 export type UseMapTripCheckpointsParams = {
   enabled: boolean;
   checkpointEnabled: boolean;
+  tripActiveRef: MutableRefObject<boolean>;
   liveDistanceKm: number;
   flushTripDistanceCheckpoint: (opts?: {
     reason?: string;
@@ -15,16 +16,27 @@ export type UseMapTripCheckpointsParams = {
   }) => Promise<boolean>;
   flushTripDistanceCheckpointRef: MutableRefObject<UseMapTripCheckpointsParams['flushTripDistanceCheckpoint']>;
   tripCheckpointSavedKmRef: MutableRefObject<number>;
-  checkLiveAchievements: (reason: string) => Promise<void>;
+  checkLiveAchievements: (
+    reason: 'speed' | 'distance' | 'periodic' | 'trip_end',
+    extraPeakKmh?: number,
+  ) => Promise<void>;
   appStateRef: MutableRefObject<string>;
   isMapFocusedRef: MutableRefObject<boolean>;
 };
+
+function isTripActiveNow(
+  enabled: boolean,
+  tripActiveRef: MutableRefObject<boolean>,
+): boolean {
+  return enabled || tripActiveRef.current;
+}
 
 /** Trip distance checkpoints + periodic achievement checks during active trip. */
 export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
   const {
     enabled,
     checkpointEnabled,
+    tripActiveRef,
     liveDistanceKm,
     flushTripDistanceCheckpoint,
     flushTripDistanceCheckpointRef,
@@ -39,15 +51,16 @@ export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
       tripCheckpointSavedKmRef.current = 0;
       return;
     }
-    if (!enabled) return;
+    if (!isTripActiveNow(enabled, tripActiveRef)) return;
     void flushTripDistanceCheckpoint({ reason: 'live_distance' });
-  }, [liveDistanceKm, enabled, checkpointEnabled, flushTripDistanceCheckpoint, tripCheckpointSavedKmRef]);
+  }, [liveDistanceKm, enabled, checkpointEnabled, flushTripDistanceCheckpoint, tripCheckpointSavedKmRef, tripActiveRef]);
 
   useMapTick(
     MAP_TICK.tripCheckpoint,
     [
       () => { void flushTracePendingKmToStorage(); },
       () => {
+        if (!checkpointEnabled || !tripActiveRef.current) return;
         void flushTripDistanceCheckpointRef.current({
           minKm: 0.05,
           forceAll: true,
@@ -55,7 +68,7 @@ export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
         });
       },
     ],
-    enabled && checkpointEnabled,
+    checkpointEnabled,
   );
 
   useMapTick(
@@ -64,9 +77,10 @@ export function useMapTripCheckpoints(params: UseMapTripCheckpointsParams) {
       () => {
         if (appStateRef.current !== 'active') return;
         if (!isMapFocusedRef.current) return;
+        if (!isTripActiveNow(enabled, tripActiveRef)) return;
         void checkLiveAchievements('periodic');
       },
     ],
-    enabled,
+    enabled || checkpointEnabled,
   );
 }

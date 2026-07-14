@@ -6,7 +6,7 @@ import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_URL }        from '../constants/mapConfig';
 import { evaluateDistanceSegment } from '../scripts/distanceEngine';
 import { haversineKm } from '../scripts/navigationUtils';
-import { syncProfileStatsFromServer } from '../lib/profileStatsSync';
+import { syncProfileStatsFromServer, applyOptimisticProfileDistanceKm } from '../lib/profileStatsSync';
 import { hasAcceptedBackgroundLocationDisclosure } from '../lib/backgroundLocationConsent';
 import {
   startVroomBgForegroundNotification,
@@ -22,11 +22,13 @@ import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
 import {
   averageLedgerSpeed,
   clearTripSessionLedger,
+  compactTripRoute,
   createTripSessionLedger,
   loadTripSessionLedger,
   markLedgerFinalizationPending,
   mergeForegroundLedgerSnapshot,
   mergeNativeLedgerSnapshot,
+  resolveTripSessionIdentity,
   saveTripSessionLedger,
   shouldSnapshotLedger,
   TRIP_FINALIZATION_OUTBOX_KEY,
@@ -40,6 +42,13 @@ import {
   serializeTripFinalizationOutbox,
   type PendingTripFinalization,
 } from '../lib/tripFinalizationOutbox';
+import {
+  acknowledgePendingTripCheckpoint,
+  queuePendingTripCheckpoint,
+  readPendingTripCheckpoint,
+  recordTripPersistenceEvent,
+  type PendingTripCheckpoint,
+} from '../lib/tripPersistenceCoordinator';
 import type { NavMode } from '../lib/navigationV3/types';
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
@@ -155,6 +164,11 @@ const BG_TRIP_CHECKPOINT_FORCE_MIN_KM = 0.05;
 const BG_TRIP_CHECKPOINT_FORCE_MS = 30_000;
 let _bgCheckpointInFlight       = false;
 let _bgLastCheckpointAttemptAt  = 0;
+const TRIP_NETWORK_TIMEOUT_MS = 10_000;
+let _checkpointFlushPromise: Promise<CheckpointSaveResult | null> | null = null;
+let _tripSessionStartPromise: Promise<string> | null = null;
+let _finalizationFlushPromise: Promise<boolean> | null = null;
+let _finalizationOperationLock: Promise<void> = Promise.resolve();
 
 export async function stopBackgroundLocationTaskIfRunning(): Promise<void> {
   try {
@@ -234,6 +248,7 @@ export async function flushTracePendingKmToStorage(): Promise<void> {
 }
 
 export type EmergencyTripSavePayload = {
+  tripSessionId: string;
   distanceKm: number;
   trackedPoints: { latitude: number; longitude: number }[];
   speedSamples: number[];
@@ -243,9 +258,13 @@ export type EmergencyTripSavePayload = {
   savedAt: number;
 };
 
-export async function writeEmergencyTripSave(payload: EmergencyTripSavePayload): Promise<void> {
+export async function writeEmergencyTripSave(
+  payload: Omit<EmergencyTripSavePayload, 'tripSessionId'> & { tripSessionId?: string },
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(EMERGENCY_TRIP_SAVE_KEY, JSON.stringify(payload));
+    if (_tripSessionStartPromise) await _tripSessionStartPromise;
+    const tripSessionId = payload.tripSessionId ?? await ensureTripSessionId();
+    await AsyncStorage.setItem(EMERGENCY_TRIP_SAVE_KEY, JSON.stringify({ ...payload, tripSessionId }));
   } catch { /* ignore */ }
 }
 
@@ -277,8 +296,7 @@ export async function persistTripCheckpointSavedKm(km: number): Promise<void> {
       ]);
       return;
     }
-    const sessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
-    if (!sessionId) return;
+    const sessionId = await ensureTripSessionId();
     await AsyncStorage.multiSet([
       [TRIP_CHECKPOINT_SAVED_KM_KEY, String(n)],
       [TRIP_CHECKPOINT_SESSION_ID_KEY, sessionId],
@@ -352,47 +370,62 @@ export async function clearTripSession(): Promise<void> {
   } catch { /* ignore */ }
 }
 
-export async function saveIncrementalTripKm(payload: {
-  distanceKm: number;
-  maxSpeedKmh?: number;
-  avgSpeedKmh?: number;
-  source?: 'navigation' | 'driving' | 'trip-checkpoint' | 'background-passive';
-}): Promise<{
+type CheckpointSaveResult = {
   tripSessionId: string;
   creditedDeltaKm: number;
   checkpointDistanceKm: number;
   userTotalDistance?: number;
   dailyDistance?: number;
-} | null> {
-  const dist = Number(payload.distanceKm);
-  if (!Number.isFinite(dist) || dist < 0.05) return null;
+};
+
+async function fetchWithTripTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TRIP_NETWORK_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function postPendingTripCheckpoint(
+  pending: PendingTripCheckpoint,
+): Promise<CheckpointSaveResult | null> {
   const token = await getAuthToken();
   if (!token) return null;
+  const body = JSON.stringify({
+    tripSessionId: pending.tripSessionId,
+    distanceTotal: Math.round(pending.distanceKm * 1000) / 1000,
+    maxSpeed: Math.round(pending.maxSpeedKmh * 10) / 10,
+    avgSpeed: Math.round(pending.avgSpeedKmh * 10) / 10,
+    source: pending.source,
+    visibleInHistory: false,
+  });
+  const postCheckpoint = () => fetchWithTripTimeout(`${API_URL}/api/activity/session/checkpoint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body,
+  });
   try {
-    const tripSessionId = await ensureTripSessionId();
-    const res = await fetch(`${API_URL}/api/activity/session/checkpoint`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        tripSessionId,
-        distanceTotal: Math.round(dist * 1000) / 1000,
-        maxSpeed: Math.round((payload.maxSpeedKmh ?? 0) * 10) / 10,
-        avgSpeed: Math.round((payload.avgSpeedKmh ?? 0) * 10) / 10,
-        source: payload.source ?? 'trip-checkpoint',
-        visibleInHistory: false,
-      }),
-    });
-    if (!res.ok) return null;
+    let res = await postCheckpoint();
+    if (!res.ok && res.status >= 500) res = await postCheckpoint();
+    if (!res.ok) {
+      void recordTripPersistenceEvent('checkpoint_fail', {
+        tripSessionId: pending.tripSessionId,
+        distanceKm: pending.distanceKm,
+        status: res.status,
+      });
+      return null;
+    }
     const data = await res.json().catch(() => ({}));
     const checkpointDistanceKm = Number(data?.checkpointDistanceKm);
     const creditedDeltaKm = Number(data?.creditedDeltaKm);
-    void syncProfileStatsFromServer();
-    return {
-      tripSessionId: String(data?.tripSessionId ?? tripSessionId),
+    const result: CheckpointSaveResult = {
+      tripSessionId: String(data?.tripSessionId ?? pending.tripSessionId),
       creditedDeltaKm: Number.isFinite(creditedDeltaKm) ? creditedDeltaKm : 0,
       checkpointDistanceKm: Number.isFinite(checkpointDistanceKm)
         ? checkpointDistanceKm
-        : Math.round(dist * 1000) / 1000,
+        : Math.round(pending.distanceKm * 1000) / 1000,
       userTotalDistance: Number.isFinite(Number(data?.userTotalDistance))
         ? Number(data.userTotalDistance)
         : undefined,
@@ -400,7 +433,75 @@ export async function saveIncrementalTripKm(payload: {
         ? Number(data.dailyDistance)
         : undefined,
     };
-  } catch {
+    await acknowledgePendingTripCheckpoint(pending.tripSessionId, result.checkpointDistanceKm);
+    await applyOptimisticProfileDistanceKm(result.userTotalDistance, result.creditedDeltaKm);
+    void syncProfileStatsFromServer();
+    void recordTripPersistenceEvent('checkpoint_ok', {
+      tripSessionId: pending.tripSessionId,
+      distanceKm: result.checkpointDistanceKm,
+      status: res.status,
+    });
+    return result;
+  } catch (error) {
+    void recordTripPersistenceEvent('checkpoint_fail', {
+      tripSessionId: pending.tripSessionId,
+      distanceKm: pending.distanceKm,
+      reason: error instanceof Error ? error.name : 'network',
+    });
+    return null;
+  }
+}
+
+export async function flushPendingTripCheckpoint(): Promise<CheckpointSaveResult | null> {
+  if (_checkpointFlushPromise) return _checkpointFlushPromise;
+  _checkpointFlushPromise = (async () => {
+    let lastResult: CheckpointSaveResult | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const pending = await readPendingTripCheckpoint();
+      if (!pending) return lastResult;
+      const result = await postPendingTripCheckpoint(pending);
+      if (!result) return lastResult;
+      lastResult = result;
+      const remaining = await readPendingTripCheckpoint();
+      if (!remaining || remaining.tripSessionId !== pending.tripSessionId) return lastResult;
+      if (remaining.distanceKm <= result.checkpointDistanceKm + 0.0005) return lastResult;
+    }
+    return lastResult;
+  })().finally(() => {
+    _checkpointFlushPromise = null;
+  });
+  return _checkpointFlushPromise;
+}
+
+export async function saveIncrementalTripKm(payload: {
+  distanceKm: number;
+  maxSpeedKmh?: number;
+  avgSpeedKmh?: number;
+  source?: 'navigation' | 'driving' | 'trip-checkpoint' | 'background-passive';
+}): Promise<CheckpointSaveResult | null> {
+  const dist = Number(payload.distanceKm);
+  if (!Number.isFinite(dist) || dist < 0.05) return null;
+  try {
+    if (_tripSessionStartPromise) await _tripSessionStartPromise;
+    const tripSessionId = await ensureTripSessionId();
+    const pending = await queuePendingTripCheckpoint({
+      tripSessionId,
+      distanceKm: Math.round(dist * 1000) / 1000,
+      maxSpeedKmh: Math.max(0, payload.maxSpeedKmh ?? 0),
+      avgSpeedKmh: Math.max(0, payload.avgSpeedKmh ?? 0),
+      source: payload.source ?? 'trip-checkpoint',
+      updatedAt: Date.now(),
+    });
+    void recordTripPersistenceEvent('checkpoint_queued', {
+      tripSessionId,
+      distanceKm: pending.distanceKm,
+    });
+    return flushPendingTripCheckpoint();
+  } catch (error) {
+    void recordTripPersistenceEvent('checkpoint_fail', {
+      distanceKm: dist,
+      reason: error instanceof Error ? error.name : 'storage',
+    });
     return null;
   }
 }
@@ -490,15 +591,20 @@ async function prepareTripSessionForStart(mode: 'navigation' | 'freeDrive'): Pro
     AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
   ]);
   const nativeSessionId = typeof nativeState.tripSessionId === 'string' ? nativeState.tripSessionId : null;
-  const nativeOwnsSession = nativeState.active && !!nativeSessionId;
+  const nativeOwnsSession = nativeState.active && !!nativeSessionId && !existingSessionId;
   const ledgerIsRecoverable = !!(
     ledger?.active
     && ledger.tripSessionId === existingSessionId
     && ledger.finalization.state === 'open'
   );
 
-  if (nativeOwnsSession || ledgerIsRecoverable) {
-    return nativeSessionId || ledger?.tripSessionId || ensureTripSessionId();
+  if (ledgerIsRecoverable) return ledger.tripSessionId;
+  if (nativeOwnsSession && nativeSessionId) {
+    await AsyncStorage.multiSet([
+      [TRIP_SESSION_ID_KEY, nativeSessionId],
+      [TRIP_SESSION_STARTED_AT_KEY, new Date(Number(nativeState.startedAt) || Date.now()).toISOString()],
+    ]);
+    return nativeSessionId;
   }
 
   await Promise.all([
@@ -518,6 +624,37 @@ async function prepareTripSessionForStart(mode: 'navigation' | 'freeDrive'): Pro
     startedAt: startedAt ?? undefined,
     mode,
   }));
+  void recordTripPersistenceEvent('session_started', { tripSessionId });
+  return tripSessionId;
+}
+
+/** Bootstrap a fresh or recovered trip session before distance accumulation. */
+export async function startDriveSession(mode: 'navigation' | 'freeDrive'): Promise<string> {
+  if (_tripSessionStartPromise) return _tripSessionStartPromise;
+  _tripSessionStartPromise = (async () => {
+    const tripSessionId = await prepareTripSessionForStart(mode);
+    await AsyncStorage.setItem(BG_IS_DRIVING_KEY, 'true');
+    if (mode === 'navigation') {
+      await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'true');
+    }
+    if (await isBackgroundWorkAllowed()) {
+      await BackgroundDriveController.start(mode, tripSessionId);
+    }
+    return tripSessionId;
+  })().finally(() => {
+    _tripSessionStartPromise = null;
+  });
+  return _tripSessionStartPromise;
+}
+
+/** Switch an in-progress free-drive session into navigation without resetting km. */
+export async function continueDriveSessionAsNavigation(): Promise<string> {
+  await AsyncStorage.setItem(BG_IS_NAVIGATING_KEY, 'true');
+  await AsyncStorage.setItem(BG_IS_DRIVING_KEY, 'true');
+  const tripSessionId = await ensureTripSessionId();
+  if (await isBackgroundWorkAllowed()) {
+    await BackgroundDriveController.start('navigation', tripSessionId);
+  }
   return tripSessionId;
 }
 
@@ -527,17 +664,32 @@ async function prepareTripSessionForStart(mode: 'navigation' | 'freeDrive'): Pro
  */
 export async function syncNativeTripSessionLedger(): Promise<TripSessionLedger | null> {
   try {
-    const [state, stats] = await Promise.all([
+    const [state, stats, currentSessionId] = await Promise.all([
       BackgroundDriveController.getState(),
       BackgroundDriveController.getNativeStats(),
+      AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
     ]);
     const nativeSessionId = typeof stats.tripSessionId === 'string' ? stats.tripSessionId : null;
     const nativeKm = Number(stats.distanceKm);
     const nativeCheckpointKm = Number(stats.lastServerCheckpointKm);
-    const sessionId = nativeSessionId || state.tripSessionId || await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
-    if (!sessionId || (!Number.isFinite(nativeKm) && !state.active)) return null;
-    const currentSessionId = await AsyncStorage.getItem(TRIP_SESSION_ID_KEY);
-    if (currentSessionId !== sessionId) {
+    const identity = resolveTripSessionIdentity({
+      jsSessionId: currentSessionId,
+      nativeStateActive: state.active,
+      nativeStateSessionId: typeof state.tripSessionId === 'string' ? state.tripSessionId : null,
+      nativeStatsSessionId: nativeSessionId,
+    });
+    if (identity.conflict) {
+      void recordTripPersistenceEvent('session_id_conflict', {
+        tripSessionId: currentSessionId,
+        reason: state.active ? 'active_native_mismatch' : 'stale_native_mismatch',
+      });
+    }
+    const sessionId = identity.sessionId;
+    if (!sessionId || !identity.acceptNativeStats || !Number.isFinite(nativeKm)) {
+      const ledger = await loadTripSessionLedger();
+      return ledger?.tripSessionId === sessionId ? ledger : null;
+    }
+    if (!currentSessionId) {
       await AsyncStorage.multiSet([
         [TRIP_SESSION_ID_KEY, String(sessionId)],
         [TRIP_SESSION_STARTED_AT_KEY, new Date(Number(state.startedAt) || Date.now()).toISOString()],
@@ -609,6 +761,7 @@ async function clearFinalizedActiveSession(tripSessionId: string): Promise<void>
     AsyncStorage.removeItem(BG_PENDING_ACTIVITY_SAVE_KEY),
     clearEmergencyTripSave(),
     clearTripCheckpointSavedKm(),
+    acknowledgePendingTripCheckpoint(tripSessionId, Number.POSITIVE_INFINITY),
     clearTripSession(),
   ]);
 
@@ -622,7 +775,7 @@ async function clearFinalizedActiveSession(tripSessionId: string): Promise<void>
   }
 }
 
-export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
+async function flushTripSessionFinalizationOutboxOnce(): Promise<boolean> {
   let pendingItems = await readPendingTripFinalizations();
   if (!pendingItems.length) return true;
   const token = await getAuthToken();
@@ -631,7 +784,7 @@ export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
   for (const pending of pendingItems) {
     try {
     let payload = pending.payload;
-    let res = await fetch(`${API_URL}/api/activity/save`, {
+    let res = await fetchWithTripTimeout(`${API_URL}/api/activity/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
@@ -640,7 +793,7 @@ export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
     // same idempotent session once without geometry, retaining all km/stats.
     if (!res.ok && res.status === 400 && payload.routePoints) {
       payload = { ...payload, routePoints: undefined, routePointsCount: 0 };
-      res = await fetch(`${API_URL}/api/activity/save`, {
+      res = await fetchWithTripTimeout(`${API_URL}/api/activity/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -648,30 +801,86 @@ export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
     }
       if (!res.ok) {
         allSaved = false;
+        void recordTripPersistenceEvent('finalization_fail', {
+          tripSessionId: pending.tripSessionId,
+          distanceKm: Number(payload.distance),
+          routePointsCount: Number(payload.routePointsCount),
+          status: res.status,
+        });
         continue;
       }
       pendingItems = removeTripFinalization(pendingItems, pending.tripSessionId);
       await writePendingTripFinalizations(pendingItems);
       await clearFinalizedActiveSession(pending.tripSessionId);
       void syncProfileStatsFromServer();
-    } catch {
+      void recordTripPersistenceEvent('finalization_ok', {
+        tripSessionId: pending.tripSessionId,
+        distanceKm: Number(payload.distance),
+        routePointsCount: Number(payload.routePointsCount),
+      });
+    } catch (error) {
       allSaved = false;
+      void recordTripPersistenceEvent('finalization_fail', {
+        tripSessionId: pending.tripSessionId,
+        distanceKm: Number(pending.payload.distance),
+        routePointsCount: Number(pending.payload.routePointsCount),
+        reason: error instanceof Error ? error.name : 'network',
+      });
     }
   }
   return allSaved && pendingItems.length === 0;
 }
 
-export async function finalizeTripSession(input: TripSessionFinalizationInput): Promise<boolean> {
+export async function flushTripSessionFinalizationOutbox(): Promise<boolean> {
+  if (_finalizationFlushPromise) return _finalizationFlushPromise;
+  _finalizationFlushPromise = flushTripSessionFinalizationOutboxOnce().finally(() => {
+    _finalizationFlushPromise = null;
+  });
+  return _finalizationFlushPromise;
+}
+
+async function finalizeTripSessionOnce(
+  input: TripSessionFinalizationInput,
+  options?: { deferFlush?: boolean },
+): Promise<boolean> {
   const nativeLedger = await syncNativeTripSessionLedger();
   const session = await getTripSessionContext();
-  const effectiveSessionId = nativeLedger?.tripSessionId ?? session.tripSessionId;
-  const previous = nativeLedger ?? await loadTripSessionLedger();
+  const effectiveSessionId = session.tripSessionId;
+  const storedLedger = await loadTripSessionLedger();
+  const previous = nativeLedger?.tripSessionId === effectiveSessionId
+    ? nativeLedger
+    : storedLedger?.tripSessionId === effectiveSessionId
+      ? storedLedger
+      : null;
+  const [checkpointKm, emergency] = await Promise.all([
+    loadTripCheckpointSavedKm(),
+    readEmergencyTripSave(),
+  ]);
+  const matchingEmergency = emergency?.tripSessionId === effectiveSessionId ? emergency : null;
+  const foregroundRoute = compactTripRoute(input.routePoints ?? []);
+  const nativeRoute = nativeLedger?.tripSessionId === effectiveSessionId
+    ? compactTripRoute(nativeLedger.routePoints)
+    : [];
+  const emergencyRoute = matchingEmergency
+    ? compactTripRoute(matchingEmergency.trackedPoints ?? [])
+    : [];
+  const selectedRoute = foregroundRoute.length >= 2
+    ? foregroundRoute
+    : nativeRoute.length >= 2
+      ? nativeRoute
+      : emergencyRoute;
   const seed = previous?.tripSessionId === effectiveSessionId
-    ? previous
+    ? { ...previous, routePoints: [] }
     : createTripSessionLedger({ tripSessionId: effectiveSessionId, startedAt: session.startedAt, mode: input.mode });
   const ledger = mergeForegroundLedgerSnapshot(seed, {
-    distanceKm: input.distanceKm ?? 0,
-    routePoints: input.routePoints,
+    distanceKm: Math.max(
+      input.distanceKm ?? 0,
+      previous?.distanceKm ?? 0,
+      previous?.checkpointKm ?? 0,
+      checkpointKm,
+      matchingEmergency?.distanceKm ?? 0,
+    ),
+    routePoints: selectedRoute,
     maxSpeedKmh: input.maxSpeedKmh,
     avgSpeedKmh: input.avgSpeedKmh,
     mode: input.mode,
@@ -695,19 +904,38 @@ export async function finalizeTripSession(input: TripSessionFinalizationInput): 
     endedAt: new Date().toISOString(),
   };
   await saveTripSessionLedger(pendingLedger);
-  await queueGamificationRouteCoverage({
-    tripSessionId: pendingLedger.tripSessionId,
-    mode: pendingLedger.mode,
-    routePoints: pendingLedger.routePoints,
-  });
-  void flushGamificationPingOutbox();
   const queued = await readPendingTripFinalizations();
   await writePendingTripFinalizations(enqueueTripFinalization(queued, {
     tripSessionId: pendingLedger.tripSessionId,
     payload,
     createdAt: Date.now(),
   }));
+  void recordTripPersistenceEvent('finalization_queued', {
+    tripSessionId: pendingLedger.tripSessionId,
+    distanceKm: pendingLedger.distanceKm,
+    routePointsCount: payload.routePointsCount,
+    reason: input.reason,
+  });
+  await queueGamificationRouteCoverage({
+    tripSessionId: pendingLedger.tripSessionId,
+    mode: pendingLedger.mode,
+    routePoints: pendingLedger.routePoints,
+  });
+  void flushGamificationPingOutbox();
+  if (options?.deferFlush) return true;
   return flushTripSessionFinalizationOutbox();
+}
+
+export function finalizeTripSession(
+  input: TripSessionFinalizationInput,
+  options?: { deferFlush?: boolean },
+): Promise<boolean> {
+  const operation = _finalizationOperationLock.then(
+    () => finalizeTripSessionOnce(input, options),
+    () => finalizeTripSessionOnce(input, options),
+  );
+  _finalizationOperationLock = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 /* Legacy bridge kept for older callers. Native totals are no longer appended to
@@ -1398,8 +1626,10 @@ export function useBackgroundTracking(
   }, []);
 
   useEffect(() => {
+    void flushPendingTripCheckpoint();
     void flushTripSessionFinalizationOutbox();
     const id = setInterval(() => {
+      void flushPendingTripCheckpoint();
       void flushTripSessionFinalizationOutbox();
     }, 30_000);
     return () => clearInterval(id);
@@ -1626,6 +1856,8 @@ export function useBackgroundTracking(
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
       persistAppActive(s === 'active');
       if (s === 'active') {
+        void flushPendingTripCheckpoint();
+        void flushTripSessionFinalizationOutbox();
         if (!activeHeartbeat) {
           activeHeartbeat = setInterval(() => {
             persistAppActive(true);

@@ -4,6 +4,8 @@ import {
   markLedgerFinalizationPending,
   mergeForegroundLedgerSnapshot,
   mergeNativeLedgerSnapshot,
+  compactTripRoute,
+  resolveTripSessionIdentity,
   shouldSnapshotLedger,
 } from './tripSessionLedger';
 
@@ -75,5 +77,40 @@ describe('trip session ledger', () => {
       routePoints: [],
       finalization: { state: 'pending', reason: 'manual' },
     });
+  });
+
+  it('ignores a stale inactive native session id and keeps the JS session authoritative', () => {
+    expect(resolveTripSessionIdentity({
+      jsSessionId: 'trip_current',
+      nativeStateActive: false,
+      nativeStateSessionId: 'trip_old',
+      nativeStatsSessionId: 'trip_old',
+    })).toEqual({
+      sessionId: 'trip_current',
+      acceptNativeStats: false,
+      conflict: true,
+    });
+  });
+
+  it('accepts the final native snapshot only when it belongs to the JS session', () => {
+    expect(resolveTripSessionIdentity({
+      jsSessionId: 'trip_current',
+      nativeStateActive: false,
+      nativeStateSessionId: 'trip_current',
+      nativeStatsSessionId: 'trip_current',
+    })).toMatchObject({ sessionId: 'trip_current', acceptNativeStats: true, conflict: false });
+  });
+
+  it('deduplicates and compacts geometry while preserving both ends', () => {
+    const route = Array.from({ length: 2_100 }, (_, index) => ({
+      latitude: 50 + index / 100_000,
+      longitude: 19 + index / 100_000,
+    }));
+    route.splice(10, 0, route[9]);
+    const compacted = compactTripRoute(route);
+
+    expect(compacted.length).toBeLessThanOrEqual(1_500);
+    expect(compacted[0]).toEqual(route[0]);
+    expect(compacted.at(-1)).toEqual(route.at(-1));
   });
 });

@@ -24,6 +24,8 @@ import {
   uploadProfileBanner,
   deleteProfileBanner,
 } from '../../lib/profileBanner';
+import { flushActiveTripCheckpointForProfile } from '../../lib/tripPersistenceCoordinator';
+import { flushPendingTripCheckpoint } from '../../hooks/useBackgroundTracking';
 
 const FREE_CAR_LIMIT = 3;
 
@@ -164,11 +166,17 @@ export default function ProfileScreen() {
     useCallback(() => {
       if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);
       focusRefreshTimer.current = setTimeout(() => {
+        void (async () => {
+          await flushActiveTripCheckpointForProfile();
+          await flushPendingTripCheckpoint();
+          await fetchProfile();
+          await Promise.all([
+            fetchActivityHistory({ includeRoute: true }),
+            fetchMonthlyStats(),
+          ]);
+        })();
         void refreshPremiumAccess();
         void fetchSettings();
-        void fetchProfile();
-        void fetchActivityHistory({ includeRoute: true });
-        void fetchMonthlyStats();
       }, 300);
       return () => {
         if (focusRefreshTimer.current) clearTimeout(focusRefreshTimer.current);

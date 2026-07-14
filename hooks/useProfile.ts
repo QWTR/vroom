@@ -12,6 +12,7 @@ import {
   withAvatarCacheBust,
 } from '../lib/avatarUri';
 import { filterVisibleRideHistory } from '../lib/activityHistoryFilter';
+import { fetchOwnGamificationProfileSummary } from '../lib/gamificationClient';
 
 const getToken = async (): Promise<string | null> => {
   return (
@@ -61,6 +62,7 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     followingCount: u.followingCount ?? 0,
     nitroBalance: u.nitroBalance ?? 0,
     shopCosmetics: u.shopCosmetics ?? null,
+    gamificationSummary: u.gamificationSummary ?? null,
   };
 }
 
@@ -148,12 +150,19 @@ export function useProfile() {
       const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
 
       // 2. Odśwież z serwera — tu będzie club
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
       const res = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
         headers: { Authorization: `Bearer ${token}` },
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
 
       if (res.ok) {
-        const data   = await res.json();
+        const data = await res.json();
+        const userId = Number(data?.userId ?? data?.id);
+        if (Number.isFinite(userId) && userId > 0) {
+          data.gamificationSummary = await fetchOwnGamificationProfileSummary(userId);
+        }
         const mapped = mapToProfile(data, {
           includeClub: true,
           avatarCacheBust: Number.isFinite(avatarCacheBust) ? avatarCacheBust : null,

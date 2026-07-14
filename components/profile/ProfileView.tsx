@@ -9,6 +9,7 @@ import Ionicons                     from '@expo/vector-icons/Ionicons';
 import { MaterialCommunityIcons }   from '@expo/vector-icons';
 import { useRouter }                from 'expo-router';
 import { useTheme }                 from '../../contexts/ThemeContext';
+import { formatExplorationPercent } from '../../lib/explorationPercent';
 
 import { UserBadges }               from '../user/UserBadges';
 import { ProvinceBadge }            from '../user/ProvinceBadge';
@@ -571,9 +572,7 @@ export default function ProfileView({
   const passport = exploration?.passport;
   const explorationCells = Number(explorationStats?.totalCells ?? explorationStats?.totalRevealedCells ?? explorationStats?.country?.cellsRevealed ?? 0);
   const explorationPercent = Number(explorationStats?.averagePercent ?? explorationStats?.country?.percentComplete ?? 0);
-  const explorationPercentText = explorationCells > 0 && explorationPercent < 1
-    ? '<1%'
-    : `${Math.round(explorationPercent)}%`;
+  const explorationPercentText = formatExplorationPercent(explorationCells, explorationPercent);
 
   // 30-day activity filter for non-premium owners
   const FREE_ACTIVITY_HISTORY_DAYS = 30;

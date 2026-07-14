@@ -228,7 +228,11 @@ import {
   recordDrivingTracePoint,
   resetSpeedStats,
   saveIncrementalTripKm,
+  flushTripSessionFinalizationOutbox,
   flushTracePendingKmToStorage,
+  startDriveSession,
+  continueDriveSessionAsNavigation,
+  ensureTripSessionId,
   setDrivingFlag,
   setNavigatingFlag,
   readEmergencyTripSave,
@@ -240,8 +244,13 @@ import {
   consumeNativeDriveStatsToStorage,
   BG_IS_DRIVING_KEY,
   BG_IS_NAVIGATING_KEY,
+  TRIP_SESSION_ID_KEY,
   useBackgroundTracking,
 } from '../../hooks/useBackgroundTracking';
+import {
+  flushActiveTripCheckpointForProfile,
+  registerActiveTripCheckpointFlusher,
+} from '../../lib/tripPersistenceCoordinator';
 import {
   BackgroundDriveController,
   type BackgroundDriveFix,
@@ -910,6 +919,7 @@ function MapScreenInner() {
 
   // ── Ref – isNavigating synchronicznie ────────────────────
   const isNavigatingRef = useRef(false);
+  const tripCheckpointActiveRef = useRef(false);
 
   // ── Ref – punkty trasy ───────────────────────────────────
   const routePointsRef = useRef<{ latitude: number; longitude: number }[]>([]);
@@ -957,7 +967,7 @@ function MapScreenInner() {
   const resumeFollowUpOneShotRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bgMarkerTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tripCheckpointSavedKmRef = useRef(0);
-  const tripCheckpointInFlightRef = useRef(false);
+  const tripCheckpointInFlightRef = useRef<Promise<boolean> | null>(null);
   const liveDistanceKmRef = useRef(0);
 
   // ── Cost-optimisation refs ────────────────────────────────
@@ -2706,9 +2716,9 @@ function MapScreenInner() {
     reason?: string;
   }) => {
     if (!ENABLE_TRIP_DISTANCE_CHECKPOINT) return false;
-    if (tripCheckpointInFlightRef.current) return false;
-    tripCheckpointInFlightRef.current = true;
-    try {
+    if (tripCheckpointInFlightRef.current) return tripCheckpointInFlightRef.current;
+    const operation = (async () => {
+      const activeSessionId = await ensureTripSessionId();
       const minKm = opts?.minKm ?? TRIP_CHECKPOINT_KM;
       const foregroundKm = parseFloat(
         (liveDistanceKmRef.current > 0
@@ -2727,15 +2737,23 @@ function MapScreenInner() {
       const nativeKm = Number(nativeStats?.distanceKm);
       const nativeOwnsCurrentSession = nativeState.active
         && nativeState.tripSessionId
+        && nativeState.tripSessionId === activeSessionId
         && nativeStats?.tripSessionId === nativeState.tripSessionId
         && Number.isFinite(nativeKm);
       const currentKm = nativeOwnsCurrentSession
         ? Math.max(foregroundKm, nativeKm)
         : foregroundKm;
-      // The ref is process-local. A persisted watermark is trusted only when it
-      // belongs to the active session; legacy/orphaned values are zero by design.
-      const savedKm = Math.max(0, Math.min(currentKm, persistedCheckpointKm));
-      tripCheckpointSavedKmRef.current = savedKm;
+      let savedKm = Math.max(
+        tripCheckpointSavedKmRef.current,
+        persistedCheckpointKm,
+        0,
+      );
+      if (savedKm > currentKm + 0.001) {
+        savedKm = 0;
+        tripCheckpointSavedKmRef.current = 0;
+        await clearTripCheckpointSavedKm();
+      }
+      tripCheckpointSavedKmRef.current = Math.max(tripCheckpointSavedKmRef.current, savedKm);
       const unsavedKm = currentKm - savedKm;
       if (unsavedKm < minKm) return false;
 
@@ -2766,16 +2784,30 @@ function MapScreenInner() {
             totalSavedKm: Number(tripCheckpointSavedKmRef.current.toFixed(3)),
           });
         }
+      } else if (__DEV__) {
+        console.warn('[TripCheckpoint] flush failed', {
+          reason: opts?.reason ?? 'periodic',
+          currentKm: Number(currentKm.toFixed(3)),
+          savedKm: Number(savedKm.toFixed(3)),
+        });
       }
       return !!ok;
+    })();
+    tripCheckpointInFlightRef.current = operation;
+    try {
+      return await operation;
     } finally {
-      tripCheckpointInFlightRef.current = false;
+      if (tripCheckpointInFlightRef.current === operation) {
+        tripCheckpointInFlightRef.current = null;
+      }
     }
   }, [finishTrip]);
 
   useEffect(() => {
     flushTripDistanceCheckpointRef.current = flushTripDistanceCheckpoint;
   }, [flushTripDistanceCheckpoint]);
+
+  useEffect(() => registerActiveTripCheckpointFlusher(flushTripDistanceCheckpoint), [flushTripDistanceCheckpoint]);
 
   const publishSpeed = useCallback((
     gpsSpeedMs: number | null,
@@ -3249,6 +3281,7 @@ function MapScreenInner() {
   useMapTripCheckpoints({
     enabled: isDriving || isNavigating,
     checkpointEnabled: ENABLE_TRIP_DISTANCE_CHECKPOINT,
+    tripActiveRef: tripCheckpointActiveRef,
     liveDistanceKm,
     flushTripDistanceCheckpoint,
     flushTripDistanceCheckpointRef,
@@ -3257,6 +3290,12 @@ function MapScreenInner() {
     appStateRef,
     isMapFocusedRef,
   });
+
+  useEffect(() => {
+    tripCheckpointActiveRef.current = isDriving || isNavigating
+      || isDrivingRef.current
+      || isNavigatingRef.current;
+  }, [isDriving, isNavigating]);
 
   useMapTripLifecycle({
     isDriving,
@@ -4739,36 +4778,26 @@ function MapScreenInner() {
     }
     resetDRRefs();
     setIsDriving(false);
+    tripCheckpointActiveRef.current = false;
     if (!opts?.skipFlush) {
-      // End the native ledger before acknowledging its final snapshot. A route
-      // cancel does not call exitDrivingMode, so navigation -> Free Drive stays
-      // continuous while manual/idle exits become true session boundaries.
-      void setDrivingFlag(false);
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
       // so top speed and km don't get lost when provider reports sparse/zero speed.
       void (async () => {
-        // Start finalization first. It writes the complete session to the durable
-        // history outbox before doing network work, while a checkpoint can be slow
-        // or fail entirely when the user finishes a drive offline.
-        const finalization = finalizeTripSession({
-          reason: opts?.reason === 'auto_stop_guard' || opts?.reason === 'idle_timeout' ? 'idle' : 'manual',
-          mode: 'freeDrive',
-          distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
-          maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
-          avgSpeedKmh: finalStats.avgSpeedKmh,
-          durationSec: finalStats.elapsedSec,
-          routePoints: finalStats.trackedPoints,
-        });
         try {
-          await flushTripDistanceCheckpointRef.current({
-            minKm: 0.05,
-            forceAll: true,
-            reason: 'driving_final',
-          });
+          await finalizeTripSession({
+            reason: opts?.reason === 'auto_stop_guard' || opts?.reason === 'idle_timeout' ? 'idle' : 'manual',
+            mode: 'freeDrive',
+            distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+            maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
+            avgSpeedKmh: finalStats.avgSpeedKmh,
+            durationSec: finalStats.elapsedSec,
+            routePoints: finalStats.trackedPoints,
+          }, { deferFlush: true });
         } catch (error) {
-          console.warn('[DrivingMode] Final distance checkpoint deferred', error);
+          console.warn('[DrivingMode] Trip finalization deferred', error);
         }
-        await finalization;
+        await setDrivingFlag(false);
+        await flushTripSessionFinalizationOutbox();
       })();
       if (DRIVE_TEST_DIAGNOSTICS) {
         console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({
@@ -4974,7 +5003,8 @@ function MapScreenInner() {
       });
 
       isDrivingRef.current = true;
-      setDrivingFlag(true).catch(() => {});
+      tripCheckpointActiveRef.current = true;
+      await startDriveSession('freeDrive');
       setTripCameraActive(true);
       drivingSinceRef.current = Date.now();
       drivingEntryJustStartedRef.current = true;
@@ -4984,6 +5014,7 @@ function MapScreenInner() {
       }, 800);
       tripSpeedWarmupUntilRef.current = Date.now() + 10_000;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
+      setIsDriving(true);
       startTrip(Number(routeInfoRef.current?.duration) || 0);
       drivingLastLocRef.current = null;
       lastDrivingPosRef.current = { lat: entryLat, lng: entryLng };
@@ -4994,7 +5025,6 @@ function MapScreenInner() {
         drivLngFilter.reset();
       }
 
-      setIsDriving(true);
       resetTravelHeadingState(startLat, startLng, entryHeading);
       getTripHeadingFilter().reset(entryHeading);
       tripMarkerV2BootstrappedRef.current = true;
@@ -8438,11 +8468,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               return;
             }
             isDrivingRef.current      = true;
-            setDrivingFlag(true).catch(() => {});
+            tripCheckpointActiveRef.current = true;
             drivingManualModeRef.current = false;
             driveSessionGuardRef.current.reset();
-            startTrip(Number(routeInfoRef.current?.duration) || 0);
-            passiveTripStartedRef.current = true;
+            setIsDriving(true);
+            if (!passiveTripStartedRef.current) {
+              startTrip(Number(routeInfoRef.current?.duration) || 0);
+              passiveTripStartedRef.current = true;
+            }
+            void startDriveSession('freeDrive').catch(() => {});
             drivingLastLocRef.current = null;
             lastDrivingPosRef.current = null;
             // Reset nav-quality Kalman filters to start fresh in driving mode
@@ -8470,7 +8504,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             }
 
             isDrivingRef.current = true;
-            setDrivingFlag(true).catch(() => {});
             setTripCameraActive(true);
             drLatRef.current = entryLat;
             drLngRef.current = entryLng;
@@ -8483,7 +8516,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             tripBootstrapPose(entryLat, entryLng, drivingHeading, { animateCamera: true });
             cameraV3.setUserExploring(false);
             cameraV3.armTripFollow(drivingHeading);
-            setIsDriving(true);
             recordDrivingTracePoint(entryLat, entryLng, { speedKmh: kmh }).catch(() => {});
             setFollowMode('drivingFollow');
             publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta });
@@ -8530,11 +8562,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   }): Promise<boolean> => {
     if (navStatsFlushedRef.current) return false;
     navStatsFlushedRef.current = true;
-    await flushTripDistanceCheckpointRef.current({
-      minKm: 0.05,
-      forceAll: true,
-      reason: 'navigation_final',
-    });
     return finalizeTripSession({
       reason: opts?.reason ?? 'arrival',
       mode: opts?.mode ?? 'navigation',
@@ -8572,17 +8599,22 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     void (async () => {
       try {
         await consumeNativeDriveStatsToStorage();
-        const [drivingFlag, navFlag, emergency, savedKm, nativeState] = await Promise.all([
+        const [drivingFlag, navFlag, emergency, savedKm, nativeState, activeSessionId] = await Promise.all([
           AsyncStorage.getItem(BG_IS_DRIVING_KEY),
           AsyncStorage.getItem(BG_IS_NAVIGATING_KEY),
           readEmergencyTripSave(),
           loadTripCheckpointSavedKm(),
           BackgroundDriveController.getState(),
+          AsyncStorage.getItem(TRIP_SESSION_ID_KEY),
         ]);
         tripCheckpointSavedKmRef.current = savedKm;
         const hadActiveFlag = drivingFlag === 'true' || navFlag === 'true';
 
-        if (emergency && emergency.distanceKm >= TRIP_CHECKPOINT_FORCE_MIN_KM) {
+        if (
+          emergency
+          && emergency.tripSessionId === activeSessionId
+          && emergency.distanceKm >= TRIP_CHECKPOINT_FORCE_MIN_KM
+        ) {
           const unsavedKm = Math.max(0, emergency.distanceKm - savedKm);
           if (unsavedKm >= TRIP_CHECKPOINT_FORCE_MIN_KM) {
             const peakFromEmergency = (emergency.speedSamples ?? [])
@@ -8672,8 +8704,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                 text: 'Wznów jazdę',
                 onPress: () => {
                   void (async () => {
-                    await setDrivingFlag(true);
-                    if (ledger.mode === 'navigation') await setNavigatingFlag(true);
+                    tripCheckpointActiveRef.current = true;
+                    if (ledger.mode === 'navigation') {
+                      await startDriveSession('navigation');
+                    } else {
+                      await startDriveSession('freeDrive');
+                    }
                   })();
                 },
               },
@@ -9877,9 +9913,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         isDrivingRef.current = true;
         isNavigatingRef.current = false;
+        tripCheckpointActiveRef.current = true;
         setIsNavigating(false);
         setIsDriving(true);
-        await setDrivingFlag(true);
+        await startDriveSession('freeDrive');
         await setNavigatingFlag(false);
         drivingManualModeRef.current = false;
         drivingManuallyDisabledRef.current = false;
@@ -9897,6 +9934,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         if (Number(nativeStats.distanceKm) > 0) {
           restoreTripSnapshot({
+            tripSessionId: String(nativeStats.tripSessionId ?? state?.tripSessionId ?? await ensureTripSessionId()),
             distanceKm: Math.max(0, Number(nativeStats.distanceKm) || 0),
             trackedPoints: Array.isArray(nativeStats.routePoints)
               ? nativeStats.routePoints.filter((p) => (
@@ -10572,6 +10610,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       isMapFocusedRef.current = false;
       setIsMapFocused(false);
       const keepTripOnMapBlur = isDrivingRef.current || isNavigatingRef.current;
+      if (keepTripOnMapBlur) {
+        void flushActiveTripCheckpointForProfile();
+      }
       if (!keepTripOnMapBlur) {
         void 0;
         stopGPSRef.current();
@@ -12025,7 +12066,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     lastNavLocRef.current = null;
     resetSpeedStats();
-    setNavigatingFlag(true).catch(() => {});
+    tripCheckpointActiveRef.current = true;
+    void (hadActiveTrip
+      ? continueDriveSessionAsNavigation()
+      : startDriveSession('navigation')
+    ).catch(() => {});
     if (!hadActiveTrip) {
       resetDRRefs();
     }
@@ -12207,10 +12252,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     isDrivingRef.current = false;
     navigationBootstrapTokenRef.current += 1;
     setNavigationUiReady(false);
-    await Promise.all([
-      setNavigatingFlag(false).catch(() => {}),
-      setDrivingFlag(false).catch(() => {}),
-    ]);
+    await setNavigatingFlag(false).catch(() => {});
+    await setDrivingFlag(false).catch(() => {});
     if (hadActiveTrip) {
       await flushNavigationStatsOnce(finalStats, {
         reason: opts?.silent ? 'idle' : 'manual',

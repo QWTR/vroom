@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import type { GamificationProfileSummary } from '../constants/profile';
 import type { NavMode } from './navigationV3/types';
 
 async function getToken(): Promise<string | null> {
@@ -15,9 +16,12 @@ async function gamificationFetch<T>(
 ): Promise<T | null> {
   const token = await getToken();
   if (!token) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(`${API_URL}${path}`, {
       ...init,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -28,6 +32,8 @@ async function gamificationFetch<T>(
     return (await res.json()) as T;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -420,6 +426,7 @@ export async function fetchCoverageCells(options: {
 
 export async function fetchTurfCrowns(): Promise<
   {
+    userId?: number;
     regionSlug: string;
     regionName: string;
     regionType?: string;
@@ -431,6 +438,7 @@ export async function fetchTurfCrowns(): Promise<
 > {
   const data = await gamificationFetch<{
     crowns?: {
+      userId?: number;
       regionSlug: string;
       regionName: string;
       regionType?: string;
@@ -450,6 +458,92 @@ export async function fetchPassport(): Promise<{
   stamps: { slug: string; name: string; type: string; firstSeenAt: string }[];
 } | null> {
   return gamificationFetch('/api/gamification/passport');
+}
+
+type PassportResponse = NonNullable<Awaited<ReturnType<typeof fetchPassport>>>;
+type TurfCrown = Awaited<ReturnType<typeof fetchTurfCrowns>>[number];
+
+export function buildOwnGamificationProfileSummary(
+  userId: number,
+  districts: AsphaltDistrict[],
+  passport: PassportResponse | null,
+  crowns: TurfCrown[],
+): GamificationProfileSummary {
+  const countryDistrict = districts.find((district) => (
+    district.type === 'country' || district.slug === 'poland' || district.slug === 'polska'
+  )) ?? null;
+  const regions = districts.filter((district) => district !== countryDistrict);
+  const country = countryDistrict ? {
+    slug: countryDistrict.slug,
+    name: countryDistrict.name,
+    percentComplete: Number(countryDistrict.percentComplete) || 0,
+    cellsRevealed: Number(countryDistrict.cellsRevealed) || 0,
+    totalCells: Number(countryDistrict.totalCells) || 0,
+  } : null;
+  const totalRevealedCells = country?.cellsRevealed
+    ?? regions.reduce((sum, district) => sum + (Number(district.cellsRevealed) || 0), 0);
+  const averagePercent = country?.percentComplete
+    ?? (regions.length
+      ? regions.reduce((sum, district) => sum + (Number(district.percentComplete) || 0), 0) / regions.length
+      : 0);
+  const topRegions = [...regions]
+    .sort((a, b) => b.percentComplete - a.percentComplete)
+    .slice(0, 5)
+    .map((district) => ({
+      slug: district.slug,
+      name: district.name,
+      type: district.type ?? 'region',
+      cellsRevealed: Number(district.cellsRevealed) || 0,
+      totalCells: Number(district.totalCells) || 0,
+      percentComplete: Number(district.percentComplete) || 0,
+      lastDrivenAt: district.lastDrivenAt ?? null,
+    }));
+  const fogOfWar = {
+    averagePercent,
+    country,
+    startedRegions: regions.filter((district) => district.cellsRevealed > 0).length,
+    completedRegions: regions.filter((district) => district.percentComplete >= 100).length,
+    totalRevealedCells,
+    totalCells: country?.totalCells ?? regions.reduce((sum, district) => sum + (Number(district.totalCells) || 0), 0),
+    topRegions,
+  };
+  const ownCrowns = crowns.filter((crown) => Number(crown.userId) === Number(userId));
+  const latestStamps = [...(passport?.stamps ?? [])]
+    .sort((a, b) => Date.parse(b.firstSeenAt) - Date.parse(a.firstSeenAt))
+    .slice(0, 5);
+  return {
+    explorationMap: fogOfWar,
+    fogOfWar,
+    turf: {
+      crownCount: ownCrowns.length,
+      crowns: ownCrowns.map((crown) => ({
+        regionSlug: crown.regionSlug,
+        regionName: crown.regionName,
+        regionType: crown.regionType,
+        distanceKm: Number(crown.distanceKm) || 0,
+        year: crown.year,
+        month: crown.month,
+      })),
+    },
+    passport: {
+      totalStamps: Number(passport?.totalStamps) || 0,
+      cityCount: Number(passport?.cityCount) || 0,
+      voivodeshipCount: Number(passport?.voivodeshipCount) || 0,
+      latest: latestStamps,
+      latestStamps,
+    },
+  };
+}
+
+export async function fetchOwnGamificationProfileSummary(
+  userId: number,
+): Promise<GamificationProfileSummary> {
+  const [districts, passport, crowns] = await Promise.all([
+    fetchAsphaltSummary(),
+    fetchPassport(),
+    fetchTurfCrowns(),
+  ]);
+  return buildOwnGamificationProfileSummary(userId, districts, passport, crowns);
 }
 
 export async function fetchGamificationStatus(): Promise<{

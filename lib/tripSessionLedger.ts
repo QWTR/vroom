@@ -54,11 +54,16 @@ function validPoint(point: any): point is { latitude: number; longitude: number 
     && point.longitude >= -180 && point.longitude <= 180;
 }
 
-function compactRoute(points: Array<{ latitude: number; longitude: number }>) {
-  const clean = points.filter(validPoint);
+export function compactTripRoute(points: Array<{ latitude: number; longitude: number }>) {
+  const clean = points.filter(validPoint).filter((point, index, all) => {
+    if (index === 0) return true;
+    const previous = all[index - 1];
+    return Math.abs(previous.latitude - point.latitude) >= 1e-7
+      || Math.abs(previous.longitude - point.longitude) >= 1e-7;
+  });
   if (clean.length <= MAX_ROUTE_POINTS) return clean;
-  const step = Math.ceil(clean.length / MAX_ROUTE_POINTS);
-  const compact = clean.filter((_, index) => index % step === 0);
+  const slots = MAX_ROUTE_POINTS - 1;
+  const compact = clean.filter((_, index) => index < clean.length - 1 && index % Math.ceil((clean.length - 1) / slots) === 0);
   const last = clean[clean.length - 1];
   if (last && compact[compact.length - 1] !== last) compact.push(last);
   return compact.slice(0, MAX_ROUTE_POINTS);
@@ -68,15 +73,41 @@ function mergeRoute(
   current: Array<{ latitude: number; longitude: number }>,
   next: Array<{ latitude: number; longitude: number }>,
 ) {
-  if (!next.length) return compactRoute(current);
-  if (!current.length) return compactRoute(next);
+  if (!next.length) return compactTripRoute(current);
+  if (!current.length) return compactTripRoute(next);
   const currentLast = current[current.length - 1];
   const nextFirst = next[0];
   const duplicateBoundary = currentLast
     && nextFirst
     && Math.abs(currentLast.latitude - nextFirst.latitude) < 1e-7
     && Math.abs(currentLast.longitude - nextFirst.longitude) < 1e-7;
-  return compactRoute([...current, ...(duplicateBoundary ? next.slice(1) : next)]);
+  return compactTripRoute([...current, ...(duplicateBoundary ? next.slice(1) : next)]);
+}
+
+export function resolveTripSessionIdentity(input: {
+  jsSessionId: string | null;
+  nativeStateActive: boolean;
+  nativeStateSessionId: string | null;
+  nativeStatsSessionId: string | null;
+}): { sessionId: string | null; acceptNativeStats: boolean; conflict: boolean } {
+  const nativeSessionId = input.nativeStatsSessionId || input.nativeStateSessionId;
+  if (input.jsSessionId) {
+    const acceptNativeStats = !!input.nativeStatsSessionId
+      && input.nativeStatsSessionId === input.jsSessionId;
+    return {
+      sessionId: input.jsSessionId,
+      acceptNativeStats,
+      conflict: !!nativeSessionId && nativeSessionId !== input.jsSessionId,
+    };
+  }
+  if (input.nativeStateActive && nativeSessionId) {
+    return {
+      sessionId: nativeSessionId,
+      acceptNativeStats: !input.nativeStatsSessionId || input.nativeStatsSessionId === nativeSessionId,
+      conflict: false,
+    };
+  }
+  return { sessionId: null, acceptNativeStats: false, conflict: false };
 }
 
 function parseLedger(raw: string | null): TripSessionLedger | null {
@@ -94,7 +125,7 @@ function parseLedger(raw: string | null): TripSessionLedger | null {
       mode: value.mode === 'navigation' ? 'navigation' : 'freeDrive',
       distanceKm: safeNumber(value.distanceKm),
       checkpointKm: safeNumber(value.checkpointKm),
-      routePoints: compactRoute(Array.isArray(value.routePoints) ? value.routePoints : []),
+      routePoints: compactTripRoute(Array.isArray(value.routePoints) ? value.routePoints : []),
       speedSamples: (Array.isArray(value.speedSamples) ? value.speedSamples : [])
         .map(Number).filter((n: number) => Number.isFinite(n) && n >= 1).slice(-MAX_SPEED_SAMPLES),
       maxSpeedKmh: safeNumber(value.maxSpeedKmh),
