@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 const plugin = require('./withVroomMapCameraFollower');
-const { resolveIosProjectName } = plugin.__internal;
+const { IOS_SOURCE_FILES, resolveIosProjectName } = plugin.__internal;
 
 describe('Vroom iOS map camera follower plugin', () => {
   it('resolves a fresh prebuild from Expo config before AppDelegate exists', () => {
@@ -11,10 +11,11 @@ describe('Vroom iOS map camera follower plugin', () => {
     })).toBe('VroomApp');
   });
 
-  it('keeps its Swift sources beside the plugin for EAS uploads', () => {
-    const fs = require('fs');
-    const path = require('path');
-    expect(fs.existsSync(path.join(__dirname, 'map-camera-follower', 'ios', 'VroomMapCameraFollower.swift'))).toBe(true);
-    expect(fs.existsSync(path.join(__dirname, 'map-camera-follower', 'ios', 'VroomMapCameraFollowerBridge.m'))).toBe(true);
+  it('embeds its iOS sources so EAS needs no auxiliary folder', () => {
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('VroomMapCameraFollowerView');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('UIView, RNMBXMapAndMapViewComponent');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func addToMap');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func removeFromMap');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('RCT_EXTERN_MODULE');
   });
 });

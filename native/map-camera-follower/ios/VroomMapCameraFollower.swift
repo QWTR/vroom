@@ -4,7 +4,7 @@ import React
 import rnmapbox_maps
 
 @objc(VroomMapCameraFollowerView)
-final class VroomMapCameraFollowerView: RNMBXMapAndMapViewComponentBase {
+final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
   @objc var enabled = false {
     didSet {
       if enabled && !oldValue {
@@ -51,19 +51,17 @@ final class VroomMapCameraFollowerView: RNMBXMapAndMapViewComponentBase {
   private var lastMarkerLongitude = Double.nan
   private var lastMarkerHeading = Double.nan
 
-  override func addToMap(_ map: RNMBXMapView, mapView: MapView, style: Style) -> Bool {
-    let added = super.addToMap(map, mapView: mapView, style: style)
+  public func addToMap(_ map: RNMBXMapView, mapView: MapView, style: Style) {
     nativeMapView = mapView
     dirty = true
     updateDisplayLink()
-    return added
   }
 
-  override func removeFromMap(_ map: RNMBXMapView, mapView: MapView, reason: RemovalReason) -> Bool {
+  public func removeFromMap(_ map: RNMBXMapView, mapView: MapView, reason: RemovalReason) -> Bool {
     displayLink?.invalidate()
     displayLink = nil
     nativeMapView = nil
-    return super.removeFromMap(map, mapView: mapView, reason: reason)
+    return true
   }
 
   private func updateDisplayLink() {
