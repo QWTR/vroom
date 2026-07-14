@@ -19,7 +19,6 @@ import {
   buildOwnGamificationProfileSummary,
   flushGamificationPingOutbox,
   ingestGamificationPing,
-  queueGamificationRouteCoverage,
 } from './gamificationClient';
 
 const OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
@@ -64,26 +63,22 @@ describe('gamification discovery ping outbox', () => {
     expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(1);
   });
 
-  it('uses a saved trip trace as a one-time discovery fallback', async () => {
-    await queueGamificationRouteCoverage({
-      tripSessionId: 'trip-history-fallback',
+  it('flushes a bounded live batch instead of blocking on the whole backlog', async () => {
+    mocks.storage.set(OUTBOX_KEY, JSON.stringify(Array.from({ length: 20 }, (_, index) => ({
+      lat: 51.2 + index * 0.0001,
+      lng: 19.5,
       mode: 'freeDrive',
-      routePoints: [
-        { latitude: 51.1, longitude: 19.4 },
-        { latitude: 51.2, longitude: 19.5 },
-      ],
-    });
-    await queueGamificationRouteCoverage({
-      tripSessionId: 'trip-history-fallback',
-      mode: 'freeDrive',
-      routePoints: [
-        { latitude: 51.1, longitude: 19.4 },
-        { latitude: 51.2, longitude: 19.5 },
-      ],
-    });
+      ts: Date.now() + index,
+    }))));
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
 
-    expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(2);
+    await flushGamificationPingOutbox();
+
+    expect(fetchMock).toHaveBeenCalledTimes(12);
+    expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(8);
   });
+
 });
 
 describe('own profile gamification summary', () => {

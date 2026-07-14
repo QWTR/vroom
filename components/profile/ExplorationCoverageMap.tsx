@@ -73,7 +73,10 @@ export function ExplorationCoverageMap({
       .then((next) => {
         if (!cancelled) {
           setCells(next[0]);
-          setSyncing(Number(next[1]?.bufferedPings ?? 0) > 0);
+          setSyncing(
+            Number(next[1]?.bufferedPings ?? 0) > 0
+            || Number(next[1]?.activityCoverageSync?.pending ?? 0) > 0,
+          );
         }
       })
       .finally(() => {

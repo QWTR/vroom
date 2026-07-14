@@ -99,9 +99,8 @@ type GamificationPing = {
 };
 
 const GAMIFICATION_PING_OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
-const GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY = '@vroom/gamification-route-backfill-sessions/v1';
 const MAX_GAMIFICATION_QUEUED_PINGS = 720;
-const MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS = 480;
+const GAMIFICATION_OUTBOX_FLUSH_BATCH = 12;
 let gamificationOutboxLock: Promise<void> = Promise.resolve();
 
 function serializeGamificationOutbox<T>(operation: () => Promise<T>): Promise<T> {
@@ -143,67 +142,6 @@ async function writeGamificationPingOutbox(pings: GamificationPing[]): Promise<b
   }
 }
 
-async function readGamificationBackfilledSessions(): Promise<string[]> {
-  try {
-    const raw = await AsyncStorage.getItem(GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === 'string' && value.length > 0).slice(-100)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function sampleRouteForGamification(
-  routePoints: { latitude: number; longitude: number }[],
-): { latitude: number; longitude: number }[] {
-  const valid = routePoints.filter((point) => (
-    Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)
-  ));
-  if (valid.length <= MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS) return valid;
-  const stride = Math.ceil(valid.length / MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS);
-  return valid.filter((_, index) => index % stride === 0 || index === valid.length - 1);
-}
-
-/**
- * A saved trip is the final recovery path for discovery cells. The same trace
- * is queued once per session, so a transient ingest failure cannot create a
- * permanent blank stretch on the exploration map.
- */
-export async function queueGamificationRouteCoverage(input: {
-  tripSessionId: string;
-  mode: Extract<NavMode, 'freeDrive' | 'navigation'>;
-  routePoints: { latitude: number; longitude: number }[];
-}): Promise<void> {
-  if (!input.tripSessionId || input.routePoints.length < 2) return;
-  const sampled = sampleRouteForGamification(input.routePoints);
-  if (!sampled.length) return;
-
-  await serializeGamificationOutbox(async () => {
-    const completed = await readGamificationBackfilledSessions();
-    if (completed.includes(input.tripSessionId)) return;
-
-    const queued = await readGamificationPingOutbox();
-    const timestamp = Date.now();
-    for (let index = 0; index < sampled.length; index += 1) {
-      queued.push({
-        lat: sampled[index].latitude,
-        lng: sampled[index].longitude,
-        mode: input.mode,
-        ts: timestamp + index,
-        force: true,
-      });
-    }
-    const persisted = await writeGamificationPingOutbox(queued);
-    if (!persisted) return;
-    await AsyncStorage.setItem(
-      GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY,
-      JSON.stringify([...completed, input.tripSessionId].slice(-100)),
-    );
-  });
-}
-
 async function postGamificationPing(ping: GamificationPing): Promise<'sent' | 'retry' | 'discard'> {
   const token = await getToken();
   if (!token) return 'discard';
@@ -232,14 +170,15 @@ async function flushGamificationPingOutboxLocked(): Promise<void> {
   const queued = await readGamificationPingOutbox();
   if (!queued.length) return;
 
-  for (let index = 0; index < queued.length; index += 1) {
+  const batchSize = Math.min(GAMIFICATION_OUTBOX_FLUSH_BATCH, queued.length);
+  for (let index = 0; index < batchSize; index += 1) {
     const outcome = await postGamificationPing(queued[index]);
     if (outcome === 'retry') {
       await writeGamificationPingOutbox(queued.slice(index));
       return;
     }
   }
-  await writeGamificationPingOutbox([]);
+  await writeGamificationPingOutbox(queued.slice(batchSize));
 }
 
 export async function flushGamificationPingOutbox(): Promise<void> {
@@ -411,8 +350,9 @@ export async function fetchCoverageCells(options: {
   bbox?: string;
   limit?: number;
 } = {}): Promise<CoverageCell[]> {
-  // Opening the discovery map is also a retry point after an offline drive.
-  await flushGamificationPingOutbox();
+  // The server repairs coverage from saved activities. Live ping retries stay
+  // best-effort and must never block opening the discovery map.
+  void flushGamificationPingOutbox().catch(() => undefined);
   const params = new URLSearchParams();
   if (options.userId != null) params.set('userId', String(options.userId));
   if (options.bbox) params.set('bbox', options.bbox);
@@ -555,6 +495,14 @@ export async function fetchGamificationStatus(): Promise<{
   lastFlushAt: number;
   lastFlushUserId: number | null;
   lastFlushPingCount: number;
+  activityCoverageSync?: {
+    pending: number;
+    lastRunAt?: string | null;
+    lastActivityId?: number | null;
+    lastProcessed?: number;
+    lastFailed?: number;
+    lastError?: string | null;
+  };
   geoCache: {
     loadedAt: number;
     ageMs: number | null;

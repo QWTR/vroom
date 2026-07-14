@@ -14,9 +14,7 @@ import {
 } from '../lib/vroomBgForegroundService';
 import { BackgroundDriveController, resolveNativeDistanceOwnership } from '../lib/backgroundDriveController';
 import {
-  flushGamificationPingOutbox,
   ingestGamificationPing,
-  queueGamificationRouteCoverage,
 } from '../lib/gamificationClient';
 import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
 import {
@@ -918,12 +916,6 @@ async function finalizeTripSessionOnce(
     routePointsCount: payload.routePointsCount,
     reason: input.reason,
   });
-  await queueGamificationRouteCoverage({
-    tripSessionId: pendingLedger.tripSessionId,
-    mode: pendingLedger.mode,
-    routePoints: pendingLedger.routePoints,
-  });
-  void flushGamificationPingOutbox();
   if (options?.deferFlush) return true;
   return flushTripSessionFinalizationOutbox();
 }
