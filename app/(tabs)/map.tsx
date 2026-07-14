@@ -2707,44 +2707,43 @@ function MapScreenInner() {
   }) => {
     if (!ENABLE_TRIP_DISTANCE_CHECKPOINT) return false;
     if (tripCheckpointInFlightRef.current) return false;
-
-    const minKm = opts?.minKm ?? TRIP_CHECKPOINT_KM;
-    const foregroundKm = parseFloat(
-      (liveDistanceKmRef.current > 0
-        ? liveDistanceKmRef.current
-        : finishTrip().distanceKm
-      ).toFixed(3),
-    );
-    // Prefer the native session total when it is running. The foreground HUD
-    // resets on a screen restart, while the native ledger correctly continues
-    // the same trip across that restart.
-    const [nativeState, nativeStats, persistedCheckpointKm] = await Promise.all([
-      BackgroundDriveController.getState(),
-      BackgroundDriveController.getNativeStats(),
-      loadTripCheckpointSavedKm(),
-    ]);
-    const nativeKm = Number(nativeStats?.distanceKm);
-    const nativeOwnsCurrentSession = nativeState.active
-      && nativeState.tripSessionId
-      && nativeStats?.tripSessionId === nativeState.tripSessionId
-      && Number.isFinite(nativeKm);
-    const currentKm = nativeOwnsCurrentSession
-      ? Math.max(foregroundKm, nativeKm)
-      : foregroundKm;
-    // The ref is process-local. A persisted watermark is trusted only when it
-    // belongs to the active session; legacy/orphaned values are zero by design.
-    const savedKm = Math.max(0, Math.min(currentKm, persistedCheckpointKm));
-    tripCheckpointSavedKmRef.current = savedKm;
-    const unsavedKm = currentKm - savedKm;
-    if (unsavedKm < minKm) return false;
-
-    const checkpointTotalKm = opts?.forceAll
-      ? currentKm
-      : savedKm + Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
-    if (checkpointTotalKm - savedKm < minKm) return false;
-
     tripCheckpointInFlightRef.current = true;
     try {
+      const minKm = opts?.minKm ?? TRIP_CHECKPOINT_KM;
+      const foregroundKm = parseFloat(
+        (liveDistanceKmRef.current > 0
+          ? liveDistanceKmRef.current
+          : finishTrip().distanceKm
+        ).toFixed(3),
+      );
+      // Prefer the native session total when it is running. The foreground HUD
+      // resets on a screen restart, while the native ledger correctly continues
+      // the same trip across that restart.
+      const [nativeState, nativeStats, persistedCheckpointKm] = await Promise.all([
+        BackgroundDriveController.getState(),
+        BackgroundDriveController.getNativeStats(),
+        loadTripCheckpointSavedKm(),
+      ]);
+      const nativeKm = Number(nativeStats?.distanceKm);
+      const nativeOwnsCurrentSession = nativeState.active
+        && nativeState.tripSessionId
+        && nativeStats?.tripSessionId === nativeState.tripSessionId
+        && Number.isFinite(nativeKm);
+      const currentKm = nativeOwnsCurrentSession
+        ? Math.max(foregroundKm, nativeKm)
+        : foregroundKm;
+      // The ref is process-local. A persisted watermark is trusted only when it
+      // belongs to the active session; legacy/orphaned values are zero by design.
+      const savedKm = Math.max(0, Math.min(currentKm, persistedCheckpointKm));
+      tripCheckpointSavedKmRef.current = savedKm;
+      const unsavedKm = currentKm - savedKm;
+      if (unsavedKm < minKm) return false;
+
+      const checkpointTotalKm = opts?.forceAll
+        ? currentKm
+        : savedKm + Math.floor(unsavedKm / TRIP_CHECKPOINT_KM) * TRIP_CHECKPOINT_KM;
+      if (checkpointTotalKm - savedKm < minKm) return false;
+
       const ok = await saveIncrementalTripKm({
         distanceKm: checkpointTotalKm,
         maxSpeedKmh: tripPeakSpeedRef.current,
@@ -4748,12 +4747,10 @@ function MapScreenInner() {
       // Persist driving sessions with full fg+bg merge (same strategy as navigation),
       // so top speed and km don't get lost when provider reports sparse/zero speed.
       void (async () => {
-        await flushTripDistanceCheckpointRef.current({
-          minKm: 0.05,
-          forceAll: true,
-          reason: 'driving_final',
-        });
-        await finalizeTripSession({
+        // Start finalization first. It writes the complete session to the durable
+        // history outbox before doing network work, while a checkpoint can be slow
+        // or fail entirely when the user finishes a drive offline.
+        const finalization = finalizeTripSession({
           reason: opts?.reason === 'auto_stop_guard' || opts?.reason === 'idle_timeout' ? 'idle' : 'manual',
           mode: 'freeDrive',
           distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
@@ -4762,6 +4759,16 @@ function MapScreenInner() {
           durationSec: finalStats.elapsedSec,
           routePoints: finalStats.trackedPoints,
         });
+        try {
+          await flushTripDistanceCheckpointRef.current({
+            minKm: 0.05,
+            forceAll: true,
+            reason: 'driving_final',
+          });
+        } catch (error) {
+          console.warn('[DrivingMode] Final distance checkpoint deferred', error);
+        }
+        await finalization;
       })();
       if (DRIVE_TEST_DIAGNOSTICS) {
         console.log('[RUNDIAG] DRIVING_FLUSH', JSON.stringify({

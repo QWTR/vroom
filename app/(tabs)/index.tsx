@@ -109,7 +109,7 @@ async function fetchFreshUser(): Promise<User | null> {
 	try {
 		const token = await getToken();
 		if (!token) return null;
-		const meRes = await fetch(`${API_URL}/api/profile/me`, {
+		const meRes = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		if (!meRes.ok) return null;

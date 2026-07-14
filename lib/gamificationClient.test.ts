@@ -15,7 +15,11 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 
 vi.mock('../constants/config', () => ({ API_URL: 'https://api.test' }));
 
-import { flushGamificationPingOutbox, ingestGamificationPing } from './gamificationClient';
+import {
+  flushGamificationPingOutbox,
+  ingestGamificationPing,
+  queueGamificationRouteCoverage,
+} from './gamificationClient';
 
 const OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
 
@@ -44,5 +48,39 @@ describe('gamification discovery ping outbox', () => {
     await flushGamificationPingOutbox();
 
     expect(mocks.storage.has(OUTBOX_KEY)).toBe(false);
+  });
+
+  it('does not lose discovery when the server is temporarily unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
+
+    await expect(ingestGamificationPing({
+      lat: 51.2,
+      lng: 19.5,
+      mode: 'navigation',
+      ts: 456,
+    })).resolves.toBe('queued');
+
+    expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(1);
+  });
+
+  it('uses a saved trip trace as a one-time discovery fallback', async () => {
+    await queueGamificationRouteCoverage({
+      tripSessionId: 'trip-history-fallback',
+      mode: 'freeDrive',
+      routePoints: [
+        { latitude: 51.1, longitude: 19.4 },
+        { latitude: 51.2, longitude: 19.5 },
+      ],
+    });
+    await queueGamificationRouteCoverage({
+      tripSessionId: 'trip-history-fallback',
+      mode: 'freeDrive',
+      routePoints: [
+        { latitude: 51.1, longitude: 19.4 },
+        { latitude: 51.2, longitude: 19.5 },
+      ],
+    });
+
+    expect(JSON.parse(mocks.storage.get(OUTBOX_KEY) ?? '[]')).toHaveLength(2);
   });
 });

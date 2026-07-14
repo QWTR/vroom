@@ -93,7 +93,9 @@ type GamificationPing = {
 };
 
 const GAMIFICATION_PING_OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
+const GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY = '@vroom/gamification-route-backfill-sessions/v1';
 const MAX_GAMIFICATION_QUEUED_PINGS = 720;
+const MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS = 480;
 let gamificationOutboxLock: Promise<void> = Promise.resolve();
 
 function serializeGamificationOutbox<T>(operation: () => Promise<T>): Promise<T> {
@@ -118,19 +120,82 @@ async function readGamificationPingOutbox(): Promise<GamificationPing[]> {
   }
 }
 
-async function writeGamificationPingOutbox(pings: GamificationPing[]): Promise<void> {
+async function writeGamificationPingOutbox(pings: GamificationPing[]): Promise<boolean> {
   try {
     if (!pings.length) {
       await AsyncStorage.removeItem(GAMIFICATION_PING_OUTBOX_KEY);
-      return;
+      return true;
     }
     await AsyncStorage.setItem(
       GAMIFICATION_PING_OUTBOX_KEY,
       JSON.stringify(pings.slice(-MAX_GAMIFICATION_QUEUED_PINGS)),
     );
+    return true;
   } catch {
     // The regular drive ledger remains independent when storage is unavailable.
+    return false;
   }
+}
+
+async function readGamificationBackfilledSessions(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === 'string' && value.length > 0).slice(-100)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function sampleRouteForGamification(
+  routePoints: { latitude: number; longitude: number }[],
+): { latitude: number; longitude: number }[] {
+  const valid = routePoints.filter((point) => (
+    Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude)
+  ));
+  if (valid.length <= MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS) return valid;
+  const stride = Math.ceil(valid.length / MAX_GAMIFICATION_ROUTE_BACKFILL_POINTS);
+  return valid.filter((_, index) => index % stride === 0 || index === valid.length - 1);
+}
+
+/**
+ * A saved trip is the final recovery path for discovery cells. The same trace
+ * is queued once per session, so a transient ingest failure cannot create a
+ * permanent blank stretch on the exploration map.
+ */
+export async function queueGamificationRouteCoverage(input: {
+  tripSessionId: string;
+  mode: Extract<NavMode, 'freeDrive' | 'navigation'>;
+  routePoints: { latitude: number; longitude: number }[];
+}): Promise<void> {
+  if (!input.tripSessionId || input.routePoints.length < 2) return;
+  const sampled = sampleRouteForGamification(input.routePoints);
+  if (!sampled.length) return;
+
+  await serializeGamificationOutbox(async () => {
+    const completed = await readGamificationBackfilledSessions();
+    if (completed.includes(input.tripSessionId)) return;
+
+    const queued = await readGamificationPingOutbox();
+    const timestamp = Date.now();
+    for (let index = 0; index < sampled.length; index += 1) {
+      queued.push({
+        lat: sampled[index].latitude,
+        lng: sampled[index].longitude,
+        mode: input.mode,
+        ts: timestamp + index,
+        force: true,
+      });
+    }
+    const persisted = await writeGamificationPingOutbox(queued);
+    if (!persisted) return;
+    await AsyncStorage.setItem(
+      GAMIFICATION_ROUTE_BACKFILL_SESSIONS_KEY,
+      JSON.stringify([...completed, input.tripSessionId].slice(-100)),
+    );
+  });
 }
 
 async function postGamificationPing(ping: GamificationPing): Promise<'sent' | 'retry' | 'discard'> {
@@ -146,7 +211,12 @@ async function postGamificationPing(ping: GamificationPing): Promise<'sent' | 'r
       body: JSON.stringify(ping),
     });
     if (res.ok) return 'sent';
-    return res.status === 408 || res.status === 429 || res.status >= 500 ? 'retry' : 'discard';
+    // A temporary authorization/backend rollout problem must not erase map
+    // discovery. Only payloads the server explicitly marks as invalid are
+    // discarded; every other non-2xx response stays durable for a retry.
+    return res.status === 400 || res.status === 409 || res.status === 422
+      ? 'discard'
+      : 'retry';
   } catch {
     return 'retry';
   }

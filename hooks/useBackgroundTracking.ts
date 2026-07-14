@@ -13,7 +13,11 @@ import {
   stopVroomBgForegroundNotification,
 } from '../lib/vroomBgForegroundService';
 import { BackgroundDriveController } from '../lib/backgroundDriveController';
-import { ingestGamificationPing } from '../lib/gamificationClient';
+import {
+  flushGamificationPingOutbox,
+  ingestGamificationPing,
+  queueGamificationRouteCoverage,
+} from '../lib/gamificationClient';
 import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
 import {
   averageLedgerSpeed,
@@ -691,6 +695,12 @@ export async function finalizeTripSession(input: TripSessionFinalizationInput): 
     endedAt: new Date().toISOString(),
   };
   await saveTripSessionLedger(pendingLedger);
+  await queueGamificationRouteCoverage({
+    tripSessionId: pendingLedger.tripSessionId,
+    mode: pendingLedger.mode,
+    routePoints: pendingLedger.routePoints,
+  });
+  void flushGamificationPingOutbox();
   const queued = await readPendingTripFinalizations();
   await writePendingTripFinalizations(enqueueTripFinalization(queued, {
     tripSessionId: pendingLedger.tripSessionId,

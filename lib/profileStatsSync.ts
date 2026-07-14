@@ -24,7 +24,7 @@ export async function syncProfileStatsFromServer(): Promise<boolean> {
       ?? (await AsyncStorage.getItem('token'));
     if (!token) return false;
 
-    const res = await fetch(`${API_URL}/api/profile/me`, {
+    const res = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return false;
