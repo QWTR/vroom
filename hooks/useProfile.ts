@@ -148,7 +148,7 @@ export function useProfile() {
       const avatarCacheBust = avatarBustRaw ? Number(avatarBustRaw) : null;
 
       // 2. Odśwież z serwera — tu będzie club
-      const res = await fetch(`${API_URL}/api/profile/me`, {
+      const res = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -213,7 +213,7 @@ export function useProfile() {
     setError(null);
     try {
       const token = await getToken();
-      const res   = await fetch(`${API_URL}/api/profile/me`, {
+      const res   = await fetch(`${API_URL}/api/profile/me?fresh=1`, {
         method:  'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body:    JSON.stringify(fields),

@@ -18,7 +18,9 @@ export function isVisibleRideHistoryItem(item: any): boolean {
   const hasRoute = routePointsCount > 1;
 
   if (TECHNICAL_ACTIVITY_SOURCES.has(source)) return false;
-  if (FINAL_ACTIVITY_SOURCES.has(source)) return hasRoute;
+  if (FINAL_ACTIVITY_SOURCES.has(source)) {
+    return Number.isFinite(distance) && distance >= 0.05;
+  }
 
   return Number.isFinite(distance) && distance >= 1 && hasRoute;
 }
