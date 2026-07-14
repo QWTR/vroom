@@ -26,6 +26,11 @@ function isAbsurdCoordinate(lat: number, lng: number): boolean {
     || isNullIsland(lat, lng);
 }
 
+/** DEV / mock-location apps (Lockito) bypass strict GPS rejection gates. */
+export function shouldBypassGpsFilters(fix?: Pick<RawGpsFix, 'isMocked'>): boolean {
+  return __DEV__ === true || fix?.isMocked === true;
+}
+
 /**
  * Odrzuca absurdalne / nierealne skoki GPS. Nie modyfikuje współrzędnych —
  * clampowanie zostawiamy pipeline'owi (opcjonalnie w przyszłości).
@@ -37,6 +42,10 @@ export function filterGpsFix(
 ): GpsFilterResult {
   if (isAbsurdCoordinate(fix.lat, fix.lng)) {
     return { verdict: 'reject', reason: 'absurd_coordinate', fix };
+  }
+
+  if (shouldBypassGpsFilters(fix)) {
+    return { verdict: 'accept', fix };
   }
 
   if (Number.isFinite(fix.accuracyM) && fix.accuracyM > cfg.maxAccuracyRejectM) {

@@ -2741,7 +2741,7 @@ function MapScreenInner() {
         && nativeStats?.tripSessionId === nativeState.tripSessionId
         && Number.isFinite(nativeKm);
       const currentKm = nativeOwnsCurrentSession
-        ? Math.max(foregroundKm, nativeKm)
+        ? nativeKm
         : foregroundKm;
       let savedKm = Math.max(
         tripCheckpointSavedKmRef.current,

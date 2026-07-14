@@ -24,6 +24,8 @@ export interface SpotifyProfileTrack {
 export interface GamificationProfileSummary {
   explorationMap?: {
     averagePercent: number;
+    totalRevealedCells?: number;
+    totalCells?: number;
     country?: {
       slug: string;
       name: string;

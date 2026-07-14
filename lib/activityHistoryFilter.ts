@@ -10,19 +10,18 @@ const FINAL_ACTIVITY_SOURCES = new Set([
 
 export function isVisibleRideHistoryItem(item: any): boolean {
   if (!item || item.visibleInHistory === false) return false;
+
   const source = typeof item.source === 'string' ? item.source : '';
   const distance = Number(item.distance ?? 0);
-  const routePointsCount = Array.isArray(item.routePoints)
-    ? item.routePoints.length
-    : Number(item.routePointsCount ?? 0);
-  const hasRoute = routePointsCount > 1;
 
   if (TECHNICAL_ACTIVITY_SOURCES.has(source)) return false;
+
   if (FINAL_ACTIVITY_SOURCES.has(source)) {
     return Number.isFinite(distance) && distance >= 0.05;
   }
 
-  return Number.isFinite(distance) && distance >= 1 && hasRoute;
+  // Match server: distance >= 1 km is enough even without route geometry.
+  return Number.isFinite(distance) && distance >= 1;
 }
 
 export function filterVisibleRideHistory(items: any[]): any[] {

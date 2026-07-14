@@ -9,6 +9,8 @@ export type RawGpsFix = {
   timestampMs: number;
   speedMs: number | null;
   headingDeg: number | null;
+  /** True when the OS marks the fix as simulated (mock location apps). */
+  isMocked?: boolean;
 };
 
 export type RoadPolyline = {
@@ -101,4 +103,5 @@ export type DrivePipelineInput = {
   timestampMs: number;
   speedMs: number | null;
   headingDeg: number | null;
+  isMocked?: boolean;
 };

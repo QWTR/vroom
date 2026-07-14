@@ -277,7 +277,7 @@ class VroomBgTrackingService : Service() {
             Log.d(logTag, "seedLastKnown empty mode=$mode")
             return@addOnSuccessListener
           }
-          if (!isReliableLocation(location)) {
+          if (!isReliableLocation(applicationContext, location)) {
             Log.d(
               logTag,
               "seedLastKnown rejected mode=$mode acc=${location.accuracy} time=${location.time}"
@@ -350,7 +350,7 @@ class VroomBgTrackingService : Service() {
    * never enters this path, so tunnels and temporary signal loss stay active. */
   private fun observeIdle(location: Location): Boolean {
     val speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null
-    val reliable = isReliableLocation(location)
+    val reliable = isReliableLocation(applicationContext, location)
     val stopped = reliable && speedKmh != null && speedKmh < 3.0
     if (!stopped) {
       idleSinceMs = 0L
@@ -419,11 +419,11 @@ class VroomBgTrackingService : Service() {
     private const val MAX_BUFFERED_FIXES = 240
     private const val MAX_STATS_ROUTE_POINTS = 1500
     private const val MAX_STATS_SPEED_SAMPLES = 400
-    private const val MAX_ACCURACY_M = 65.0
-    private const val MIN_SEGMENT_KM = 0.003
-    private const val MAX_SEGMENT_KM = 2.0
+    private const val MAX_ACCURACY_M = 120.0
+    private const val MIN_SEGMENT_KM = 0.002
+    private const val MAX_SEGMENT_KM = 12.0
     private const val MAX_FIX_GAP_MS = 420_000L
-    private const val MIN_SPEED_KMH = 3.0
+    private const val MIN_SPEED_KMH = 2.0
     // vmax bez limitu — tylko dolny próg próbki
     private const val NATIVE_CHECKPOINT_KM = 0.2
     private const val NATIVE_CHECKPOINT_FORCE_MIN_KM = 0.05
@@ -573,7 +573,23 @@ class VroomBgTrackingService : Service() {
       }
     }
 
-    private fun isReliableLocation(location: Location): Boolean {
+    private fun shouldBypassStrictLocationFilters(context: Context, location: Location): Boolean {
+      val debuggable = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+      val mocked = Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && location.isFromMockProvider
+      return debuggable || mocked
+    }
+
+    private fun effectiveMaxAccuracyM(context: Context, location: Location): Double =
+      if (shouldBypassStrictLocationFilters(context, location)) 200.0 else MAX_ACCURACY_M
+
+    private fun effectiveMinSpeedKmh(context: Context, location: Location): Double =
+      if (shouldBypassStrictLocationFilters(context, location)) 0.0 else MIN_SPEED_KMH
+
+    private fun effectiveMaxSegmentKm(context: Context, location: Location): Double =
+      if (shouldBypassStrictLocationFilters(context, location)) 25.0 else MAX_SEGMENT_KM
+
+    private fun isReliableLocation(context: Context, location: Location): Boolean {
+      if (shouldBypassStrictLocationFilters(context, location)) return true
       return !location.hasAccuracy() || location.accuracy.toDouble() <= MAX_ACCURACY_M
     }
 
@@ -603,7 +619,7 @@ class VroomBgTrackingService : Service() {
       }
 
       val previous = readState(context)
-      val lastReliableFix = if (isReliableLocation(location)) {
+      val lastReliableFix = if (isReliableLocation(context, location)) {
         fix
       } else {
         previous.opt("lastFix") ?: JSONObject.NULL
@@ -678,31 +694,38 @@ class VroomBgTrackingService : Service() {
       val lastAcc = last.optDouble("accuracy", Double.NaN)
       val currentAcc = if (location.hasAccuracy()) location.accuracy.toDouble() else Double.NaN
       val hasLast = lastTime > 0L && lastLat.isFinite() && lastLon.isFinite()
+      val maxAccuracy = effectiveMaxAccuracyM(context, location)
+      val minSpeed = effectiveMinSpeedKmh(context, location)
+      val maxSegment = effectiveMaxSegmentKm(context, location)
       val accurateEnough =
-        (!currentAcc.isFinite() || currentAcc <= MAX_ACCURACY_M) &&
-          (!lastAcc.isFinite() || lastAcc <= MAX_ACCURACY_M)
+        (!currentAcc.isFinite() || currentAcc <= maxAccuracy) &&
+          (!lastAcc.isFinite() || lastAcc <= maxAccuracy)
 
       var acceptedMovement = false
       if (hasLast && accurateEnough) {
         val dt = now - lastTime
         val segmentKm = haversineKm(lastLat, lastLon, lat, lon)
-        val speedOk = speedKmh == null || speedKmh >= MIN_SPEED_KMH
-        if (
-          dt > 0L &&
-          dt <= MAX_FIX_GAP_MS &&
-          segmentKm >= MIN_SEGMENT_KM &&
-          segmentKm <= MAX_SEGMENT_KM &&
-          speedOk
-        ) {
-          acceptedMovement = true
-          stats.put("distanceKm", stats.optDouble("distanceKm", 0.0) + segmentKm)
-          val route = stats.optJSONArray("routePoints") ?: JSONArray()
-          if (route.length() == 0) {
-            route.put(JSONObject().put("latitude", lastLat).put("longitude", lastLon))
+        val speedOk = speedKmh == null || speedKmh >= minSpeed
+        if (dt > 0L && dt <= MAX_FIX_GAP_MS && segmentKm >= MIN_SEGMENT_KM && speedOk) {
+          if (segmentKm <= maxSegment) {
+            acceptedMovement = true
+            stats.put("distanceKm", stats.optDouble("distanceKm", 0.0) + segmentKm)
+            val route = stats.optJSONArray("routePoints") ?: JSONArray()
+            if (route.length() == 0) {
+              route.put(JSONObject().put("latitude", lastLat).put("longitude", lastLon))
+            }
+            route.put(JSONObject().put("latitude", lat).put("longitude", lon))
+            while (route.length() > MAX_STATS_ROUTE_POINTS) route.remove(0)
+            stats.put("routePoints", route)
+          } else {
+            // GPS gap / mock jump — preserve post-gap point as a new segment anchor.
+            persistNativeStatsLastFix(prefs, location)
+            prefs.edit()
+              .putString(KEY_NATIVE_STATS, stats.toString())
+              .apply()
+            maybeFlushNativeCheckpoint(context, stats, force = false)
+            return
           }
-          route.put(JSONObject().put("latitude", lat).put("longitude", lon))
-          while (route.length() > MAX_STATS_ROUTE_POINTS) route.remove(0)
-          stats.put("routePoints", route)
         }
       }
 

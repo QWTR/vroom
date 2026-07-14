@@ -288,6 +288,7 @@ export function createDrivePipeline(config?: DrivePipelineConfig) {
         headingDeg: input.headingDeg != null && Number.isFinite(input.headingDeg)
           ? normalizeHeading(input.headingDeg)
           : null,
+        isMocked: input.isMocked === true,
       };
 
       const filtered = filterGpsFix(raw, state.prevAccepted);

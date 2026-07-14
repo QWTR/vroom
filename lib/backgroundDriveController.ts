@@ -341,4 +341,34 @@ export const BackgroundDriveController = {
   },
 };
 
+export type NativeDistanceOwnership = {
+  nativeOwnsSession: boolean;
+  nativeDistanceKm: number;
+  tripSessionId: string | null;
+};
+
+/** Returns whether the native BG module owns distance for the current (or expected) session. */
+export async function resolveNativeDistanceOwnership(
+  expectedSessionId?: string | null,
+): Promise<NativeDistanceOwnership> {
+  const [state, stats] = await Promise.all([
+    BackgroundDriveController.getState(),
+    BackgroundDriveController.getNativeStats(),
+  ]);
+  const sessionId = typeof state.tripSessionId === 'string' ? state.tripSessionId : null;
+  const nativeKm = Number(stats.distanceKm);
+  const sessionMatches = !expectedSessionId || sessionId === expectedSessionId;
+  const statsMatch = !stats.tripSessionId || stats.tripSessionId === sessionId;
+  const nativeOwnsSession = state.active
+    && !!sessionId
+    && sessionMatches
+    && statsMatch
+    && Number.isFinite(nativeKm);
+  return {
+    nativeOwnsSession,
+    nativeDistanceKm: nativeOwnsSession ? nativeKm : 0,
+    tripSessionId: sessionId,
+  };
+}
+
 export { EVENT_LOCATION as BACKGROUND_DRIVE_LOCATION_EVENT, EVENT_STOP as BACKGROUND_DRIVE_STOP_EVENT };

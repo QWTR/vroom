@@ -22,11 +22,11 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private let maxBufferedFixes = 240
   private let maxRoutePoints = 1500
   private let maxSpeedSamples = 400
-  private let maxAccuracyM = 65.0
-  private let minSegmentKm = 0.003
-  private let maxSegmentKm = 2.0
+  private let maxAccuracyM = 120.0
+  private let minSegmentKm = 0.002
+  private let maxSegmentKm = 12.0
   private let maxFixGapMs = 420_000.0
-  private let minSpeedKmh = 3.0
+  private let minSpeedKmh = 2.0
   private let checkpointKm = 0.2
   private let checkpointForceMinKm = 0.05
   private let checkpointForceMs = 30_000.0
@@ -194,28 +194,45 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     let currentAccuracy = location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : Double.nan
     let speedKmh = location.speed >= 0 ? location.speed * 3.6 : nil
     let hasPrevious = previousTime > 0 && previousLat.isFinite && previousLng.isFinite
+    #if DEBUG
+    let bypassStrictFilters = true
+    #else
+    let bypassStrictFilters = false
+    #endif
+    let accuracyLimit = bypassStrictFilters ? 200.0 : maxAccuracyM
+    let minSpeed = bypassStrictFilters ? 0.0 : minSpeedKmh
+    let maxSegment = bypassStrictFilters ? 25.0 : maxSegmentKm
     let accurateEnough =
-      (!currentAccuracy.isFinite || currentAccuracy <= maxAccuracyM) &&
-      (!previousAccuracy.isFinite || previousAccuracy <= maxAccuracyM)
+      bypassStrictFilters ||
+      ((!currentAccuracy.isFinite || currentAccuracy <= accuracyLimit) &&
+      (!previousAccuracy.isFinite || previousAccuracy <= accuracyLimit))
 
     var acceptedMovement = false
     if hasPrevious && accurateEnough {
       let elapsedMs = nowMs - previousTime
       let segmentKm = haversineKm(previousLat, previousLng, location.coordinate.latitude, location.coordinate.longitude)
-      let speedOk = speedKmh == nil || speedKmh! >= minSpeedKmh
-      if elapsedMs > 0 && elapsedMs <= maxFixGapMs &&
-        segmentKm >= minSegmentKm && segmentKm <= maxSegmentKm && speedOk {
-        acceptedMovement = true
-        stats["distanceKm"] = number(stats["distanceKm"]) + segmentKm
-        var route = stats["routePoints"] as? [[String: Any]] ?? []
-        if route.isEmpty {
-          route.append(["latitude": previousLat, "longitude": previousLng])
+      let speedOk = speedKmh == nil || speedKmh! >= minSpeed
+      if elapsedMs > 0 && elapsedMs <= maxFixGapMs && segmentKm >= minSegmentKm && speedOk {
+        if segmentKm <= maxSegment {
+          acceptedMovement = true
+          stats["distanceKm"] = number(stats["distanceKm"]) + segmentKm
+          var route = stats["routePoints"] as? [[String: Any]] ?? []
+          if route.isEmpty {
+            route.append(["latitude": previousLat, "longitude": previousLng])
+          }
+          route.append(["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude])
+          if route.count > maxRoutePoints {
+            route = Array(route.suffix(maxRoutePoints))
+          }
+          stats["routePoints"] = route
+        } else {
+          // Batched / mock jump — anchor next segment at this fix without bridging.
+          stats["tripSessionId"] = tripSessionId
+          persistStats(stats)
+          defaults.set(currentFix, forKey: statsLastFixKey)
+          maybeFlushNativeCheckpoint(stats: stats, force: false)
+          return
         }
-        route.append(["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude])
-        if route.count > maxRoutePoints {
-          route = Array(route.suffix(maxRoutePoints))
-        }
-        stats["routePoints"] = route
       }
     }
 

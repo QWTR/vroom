@@ -570,9 +570,17 @@ export default function ProfileView({
   const explorationStats = fogOfWar as any;
   const turf = exploration?.turf;
   const passport = exploration?.passport;
-  const explorationCells = Number(explorationStats?.totalCells ?? explorationStats?.totalRevealedCells ?? explorationStats?.country?.cellsRevealed ?? 0);
-  const explorationPercent = Number(explorationStats?.averagePercent ?? explorationStats?.country?.percentComplete ?? 0);
-  const explorationPercentText = formatExplorationPercent(explorationCells, explorationPercent);
+  const explorationCellsRevealed = Number(
+    explorationStats?.totalRevealedCells
+    ?? explorationStats?.country?.cellsRevealed
+    ?? 0,
+  );
+  const explorationPercent = Number(
+    explorationStats?.averagePercent
+    ?? explorationStats?.country?.percentComplete
+    ?? 0,
+  );
+  const explorationPercentText = formatExplorationPercent(explorationCellsRevealed, explorationPercent);
 
   // 30-day activity filter for non-premium owners
   const FREE_ACTIVITY_HISTORY_DAYS = 30;

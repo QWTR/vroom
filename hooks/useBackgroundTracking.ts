@@ -12,7 +12,7 @@ import {
   startVroomBgForegroundNotification,
   stopVroomBgForegroundNotification,
 } from '../lib/vroomBgForegroundService';
-import { BackgroundDriveController } from '../lib/backgroundDriveController';
+import { BackgroundDriveController, resolveNativeDistanceOwnership } from '../lib/backgroundDriveController';
 import {
   flushGamificationPingOutbox,
   ingestGamificationPing,
@@ -873,13 +873,15 @@ async function finalizeTripSessionOnce(
     ? { ...previous, routePoints: [] }
     : createTripSessionLedger({ tripSessionId: effectiveSessionId, startedAt: session.startedAt, mode: input.mode });
   const ledger = mergeForegroundLedgerSnapshot(seed, {
-    distanceKm: Math.max(
-      input.distanceKm ?? 0,
-      previous?.distanceKm ?? 0,
-      previous?.checkpointKm ?? 0,
+    distanceKm: resolveFinalTripDistanceKm({
+      nativeOwnsSession: nativeLedger?.tripSessionId === effectiveSessionId
+        && Number(nativeLedger?.distanceKm ?? 0) > 0,
+      nativeDistanceKm: nativeLedger?.distanceKm,
+      foregroundTripKm: input.distanceKm ?? 0,
+      backgroundPendingKm: 0,
       checkpointKm,
-      matchingEmergency?.distanceKm ?? 0,
-    ),
+      emergencySnapshotKm: matchingEmergency?.distanceKm ?? 0,
+    }),
     routePoints: selectedRoute,
     maxSpeedKmh: input.maxSpeedKmh,
     avgSpeedKmh: input.avgSpeedKmh,
@@ -1422,12 +1424,14 @@ export function useBackgroundTracking(
           await loadTripCheckpointSavedKm(),
         );
         const emergencySnapshot = await readEmergencyTripSave();
-        // Merge foreground route-matched distance with any pending passive/background distance.
-        // This prevents km loss when switching driving -> navigation.
+        const session = await getTripSessionContext();
         const navDistance = Number.isFinite(navPayload?.distanceKm) ? Number(navPayload?.distanceKm) : 0;
-        // FG, BG, checkpoint and emergency snapshots can overlap. Take the best
-        // surviving total, never sum streams that may represent the same drive.
+        const nativeOwnership = await resolveNativeDistanceOwnership(session.tripSessionId);
+        const nativeStats = await BackgroundDriveController.getNativeStats();
         const distanceToSaveRaw = resolveFinalTripDistanceKm({
+          nativeOwnsSession: nativeOwnership.nativeOwnsSession
+            || (nativeStats.tripSessionId === session.tripSessionId && Number(nativeStats.distanceKm) > 0),
+          nativeDistanceKm: Number(nativeStats.distanceKm),
           foregroundTripKm: navDistance,
           backgroundPendingKm: bgPending,
           checkpointKm: savedCheckpointKm,
@@ -1453,7 +1457,6 @@ export function useBackgroundTracking(
 
         if (distanceToSave < 0.05) return;
 
-        const session = await getTripSessionContext();
         const payload = {
           tripSessionId: session.tripSessionId,
           distance: distanceToSave,

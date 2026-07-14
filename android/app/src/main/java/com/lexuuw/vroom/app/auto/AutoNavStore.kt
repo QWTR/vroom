@@ -1,4 +1,4 @@
-package com.lexuuw.vroom.app.auto
+package __PACKAGE__.auto
 
 import android.content.Context
 import android.location.Geocoder
@@ -62,8 +62,8 @@ object AutoNavStore {
   private const val PROFILE_REFRESH_INTERVAL_MS = 60_000L
   private const val DRIVE_SPEED_THRESHOLD_KMH = 8.0
   private const val DRIVE_UPLOAD_STEP_KM = 0.2
-  private const val DRIVE_SEGMENT_MAX_KM = 2.0
-  private const val DRIVE_SEGMENT_MAX_KMH = 220.0
+  private const val DRIVE_SEGMENT_MAX_KM = 12.0
+  private const val DRIVE_SEGMENT_MAX_KMH = 320.0
   private const val DRIVE_SEGMENT_MAX_DT_MS = 420_000L
   private const val DRIVE_SEGMENT_MIN_DT_MS = 500L
   private const val DRIVE_UPLOAD_MAX_CHUNK_KM = 1.5
@@ -458,12 +458,17 @@ object AutoNavStore {
       val segKmh = if (dtMs > 0) segmentKm * 3600_000.0 / dtMs.toDouble() else Double.POSITIVE_INFINITY
       if (
         segmentKm.isFinite()
-        && segmentKm in 0.0..DRIVE_SEGMENT_MAX_KM
+        && segmentKm >= 0.0
         && dtMs in DRIVE_SEGMENT_MIN_DT_MS..DRIVE_SEGMENT_MAX_DT_MS
         && segKmh.isFinite()
-        && segKmh <= DRIVE_SEGMENT_MAX_KMH
       ) {
-        pendingKm += segmentKm
+        if (segmentKm <= DRIVE_SEGMENT_MAX_KM && segKmh <= DRIVE_SEGMENT_MAX_KMH) {
+          pendingKm += segmentKm
+        } else if (segmentKm > DRIVE_SEGMENT_MAX_KM) {
+          // GPS gap / mock jump — start a new segment from this fix without bridging.
+        } else {
+          // Speed spike only — skip segment but keep tracking.
+        }
       }
     }
 

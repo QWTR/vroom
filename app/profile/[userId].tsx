@@ -25,6 +25,7 @@ import { mergeProfilePremiumExtras } from '../../constants/profilePremiumExtras'
 import ProfileHeroBannerFrame from '../../components/profile/ProfileHeroBannerFrame';
 import { GLASS_BORDER, GLASS_SHADOW, glassSurface } from '../../components/profile/profileCardTheme';
 import { getHeroBannerHeight } from '../../lib/profileBanner';
+import { formatExplorationPercent } from '../../lib/explorationPercent';
 import type { ProfileBannerFocusPoint } from '../../constants/profilePremiumExtras';
 import VisitEntranceFx from '../../components/profile/VisitEntranceFx';
 import { ShopAvatarDecoration } from '../../components/shop/ShopAvatarDecoration';
@@ -606,6 +607,17 @@ export default function PublicProfileScreen() {
   const fogOfWar = exploration?.explorationMap ?? exploration?.fogOfWar;
   const turf = exploration?.turf;
   const passport = exploration?.passport;
+  const explorationCellsRevealed = Number(
+    fogOfWar?.totalRevealedCells
+    ?? fogOfWar?.country?.cellsRevealed
+    ?? 0,
+  );
+  const explorationPercent = Number(
+    fogOfWar?.averagePercent
+    ?? fogOfWar?.country?.percentComplete
+    ?? 0,
+  );
+  const explorationPercentText = formatExplorationPercent(explorationCellsRevealed, explorationPercent);
 
   const renderFriendPillAction = () => {
     if (friendLoading) {
@@ -1011,10 +1023,10 @@ export default function PublicProfileScreen() {
 
             {/* ══ OSIĄGNIĘCIA ══ */}
             <View style={glassSection()}>
-              <SectionHeader title="EKSPLORACJA MAPY" count={fogOfWar?.averagePercent ?? 0} icon="map" palette={palette} />
+              <SectionHeader title="EKSPLORACJA MAPY" count={explorationPercentText} icon="map" palette={palette} />
               <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
                 {[
-                  { label: 'Mapa', value: `${fogOfWar?.averagePercent ?? 0}%`, icon: 'map-search-outline' as const, color: RED },
+                  { label: 'Mapa', value: explorationPercentText, icon: 'map-search-outline' as const, color: RED },
                   { label: 'Rewiry', value: `${turf?.crownCount ?? 0}`, icon: 'crown-outline' as const, color: '#f5c518' },
                   { label: 'Pieczątki', value: `${passport?.totalStamps ?? 0}`, icon: 'passport' as const, color: palette.textDim },
                 ].map(item => (

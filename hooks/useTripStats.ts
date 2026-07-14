@@ -2,6 +2,10 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 import {
+  BackgroundDriveController,
+  resolveNativeDistanceOwnership,
+} from '../lib/backgroundDriveController';
+import {
   clearEmergencyTripSave,
   writeEmergencyTripSave,
   type EmergencyTripSavePayload,
@@ -95,6 +99,8 @@ export function useTripStats() {
   const [stats, setStats] = useState<TripStats | null>(null);
   /** Current trip distance from the same engine used for trip saving/navigation HUD. */
   const [liveDistanceKm, setLiveDistanceKm] = useState(0);
+  const [tripActive, setTripActive] = useState(false);
+  const nativeOwnsRef = useRef(false);
 
   const maybeEmergencyCheckpoint = useCallback(() => {
     const dist = distanceRef.current;
@@ -111,6 +117,48 @@ export function useTripStats() {
       savedAt: Date.now(),
     });
   }, []);
+
+  const applyNativeDistance = useCallback((nativeKm: number) => {
+    if (!Number.isFinite(nativeKm) || nativeKm < 0) return;
+    distanceRef.current = nativeKm;
+    const rounded = parseFloat(nativeKm.toFixed(2));
+    const emitNow = Date.now();
+    if (
+      emitNow - lastLiveKmEmitRef.current >= 450
+      || Math.abs(rounded - lastLiveKmValueRef.current) >= 0.02
+    ) {
+      lastLiveKmEmitRef.current = emitNow;
+      lastLiveKmValueRef.current = rounded;
+      setLiveDistanceKm(rounded);
+    }
+    maybeEmergencyCheckpoint();
+  }, [maybeEmergencyCheckpoint]);
+
+  useEffect(() => {
+    if (!tripActive) return undefined;
+
+    let cancelled = false;
+    const syncNativeDistance = async () => {
+      const ownership = await resolveNativeDistanceOwnership();
+      if (cancelled) return;
+      nativeOwnsRef.current = ownership.nativeOwnsSession;
+      if (ownership.nativeOwnsSession) {
+        applyNativeDistance(ownership.nativeDistanceKm);
+      }
+    };
+
+    void syncNativeDistance();
+    const pollId = setInterval(() => { void syncNativeDistance(); }, 1500);
+    const removeLocationListener = BackgroundDriveController.addLocationListener(() => {
+      void syncNativeDistance();
+    });
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+      removeLocationListener();
+    };
+  }, [tripActive, applyNativeDistance]);
 
   const restoreTripSnapshot = useCallback((snapshot: EmergencyTripSavePayload) => {
     const dist = Number(snapshot.distanceKm);
@@ -168,6 +216,8 @@ export function useTripStats() {
     lastEmergencyKmRef.current = 0;
     setStats(null);
     setLiveDistanceKm(0);
+    nativeOwnsRef.current = false;
+    setTripActive(true);
     resetSegmentDiag();
     void clearEmergencyTripSave();
   }, [resetSegmentDiag]);
@@ -193,12 +243,26 @@ export function useTripStats() {
 
   const feedPosition = useCallback((lat: number, lng: number, speedMs?: number): number => {
     const now = Date.now();
-    // Some Android devices often report 0 m/s while actually moving.
-    // Treat non-positive speed as "unknown" instead of "stationary" to avoid
-    // dropping valid distance segments during active navigation.
     const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
+
+    if (nativeOwnsRef.current) {
+      if (!lastMeta) {
+        pts.push({ latitude: lat, longitude: lng });
+      } else {
+        pts.push({ latitude: lat, longitude: lng });
+        if (pts.length > TRIP_MAX_TRACKED_POINTS) {
+          trackedPts.current = compactTrackPoints(pts);
+        }
+      }
+      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+      return 0;
+    }
+
+    // Some Android devices often report 0 m/s while actually moving.
+    // Treat non-positive speed as "unknown" instead of "stationary" to avoid
+    // dropping valid distance segments during active navigation.
     // Android often reports 0 m/s while moving, so do not reject only by speed.
     if (speedKmh != null && speedKmh < 2 && lastMeta) {
       const movedKm = haversineKm(lastMeta.latitude, lastMeta.longitude, lat, lng);
@@ -419,6 +483,8 @@ export function useTripStats() {
     startTimeRef.current = null;
     lastPointRef.current = null;
     lastEmergencyKmRef.current = 0;
+    nativeOwnsRef.current = false;
+    setTripActive(false);
     setLiveDistanceKm(0);
     if (!opts?.preserveEmergency) {
       void clearEmergencyTripSave();
