@@ -82,6 +82,94 @@ export type CoverageCell = {
   firstSeenAt: string;
 };
 
+type GamificationPing = {
+  lat: number;
+  lng: number;
+  mode: NavMode;
+  headingDeg?: number | null;
+  speedKmh?: number | null;
+  ts: number;
+  force?: boolean;
+};
+
+const GAMIFICATION_PING_OUTBOX_KEY = '@vroom/gamification-ping-outbox/v1';
+const MAX_GAMIFICATION_QUEUED_PINGS = 720;
+let gamificationOutboxLock: Promise<void> = Promise.resolve();
+
+function serializeGamificationOutbox<T>(operation: () => Promise<T>): Promise<T> {
+  const next = gamificationOutboxLock.then(operation, operation);
+  gamificationOutboxLock = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+async function readGamificationPingOutbox(): Promise<GamificationPing[]> {
+  try {
+    const raw = await AsyncStorage.getItem(GAMIFICATION_PING_OUTBOX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((ping): ping is GamificationPing => (
+      Number.isFinite(Number(ping?.lat))
+      && Number.isFinite(Number(ping?.lng))
+      && (ping?.mode === 'freeDrive' || ping?.mode === 'navigation')
+      && Number.isFinite(Number(ping?.ts))
+    ));
+  } catch {
+    return [];
+  }
+}
+
+async function writeGamificationPingOutbox(pings: GamificationPing[]): Promise<void> {
+  try {
+    if (!pings.length) {
+      await AsyncStorage.removeItem(GAMIFICATION_PING_OUTBOX_KEY);
+      return;
+    }
+    await AsyncStorage.setItem(
+      GAMIFICATION_PING_OUTBOX_KEY,
+      JSON.stringify(pings.slice(-MAX_GAMIFICATION_QUEUED_PINGS)),
+    );
+  } catch {
+    // The regular drive ledger remains independent when storage is unavailable.
+  }
+}
+
+async function postGamificationPing(ping: GamificationPing): Promise<'sent' | 'retry' | 'discard'> {
+  const token = await getToken();
+  if (!token) return 'discard';
+  try {
+    const res = await fetch(`${API_URL}/api/gamification/ingest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(ping),
+    });
+    if (res.ok) return 'sent';
+    return res.status === 408 || res.status === 429 || res.status >= 500 ? 'retry' : 'discard';
+  } catch {
+    return 'retry';
+  }
+}
+
+async function flushGamificationPingOutboxLocked(): Promise<void> {
+  const queued = await readGamificationPingOutbox();
+  if (!queued.length) return;
+
+  for (let index = 0; index < queued.length; index += 1) {
+    const outcome = await postGamificationPing(queued[index]);
+    if (outcome === 'retry') {
+      await writeGamificationPingOutbox(queued.slice(index));
+      return;
+    }
+  }
+  await writeGamificationPingOutbox([]);
+}
+
+export async function flushGamificationPingOutbox(): Promise<void> {
+  await serializeGamificationOutbox(flushGamificationPingOutboxLocked);
+}
+
 export async function syncGamificationDriveMode(mode: NavMode): Promise<void> {
   await gamificationFetch('/api/gamification/drive-mode', {
     method: 'PATCH',
@@ -97,20 +185,30 @@ export async function ingestGamificationPing(input: {
   speedKmh?: number | null;
   ts?: number;
   force?: boolean;
-}): Promise<void> {
-  if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng)) return;
-  if (input.mode !== 'freeDrive' && input.mode !== 'navigation') return;
-  await gamificationFetch('/api/gamification/ingest', {
-    method: 'POST',
-    body: JSON.stringify({
-      lat: input.lat,
-      lng: input.lng,
-      mode: input.mode,
-      headingDeg: input.headingDeg,
-      speedKmh: input.speedKmh,
-      ts: input.ts ?? Date.now(),
-      force: input.force === true,
-    }),
+}): Promise<'sent' | 'queued' | 'discarded'> {
+  if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng)) return 'discarded';
+  if (input.mode !== 'freeDrive' && input.mode !== 'navigation') return 'discarded';
+  const ping: GamificationPing = {
+    lat: input.lat,
+    lng: input.lng,
+    mode: input.mode,
+    headingDeg: input.headingDeg,
+    speedKmh: input.speedKmh,
+    ts: input.ts ?? Date.now(),
+    force: input.force === true,
+  };
+
+  return serializeGamificationOutbox(async () => {
+    await flushGamificationPingOutboxLocked();
+    const outcome = await postGamificationPing(ping);
+    if (outcome === 'sent') return 'sent';
+    if (outcome === 'retry') {
+      const queued = await readGamificationPingOutbox();
+      queued.push(ping);
+      await writeGamificationPingOutbox(queued);
+      return 'queued';
+    }
+    return 'discarded';
   });
 }
 
@@ -237,6 +335,8 @@ export async function fetchCoverageCells(options: {
   bbox?: string;
   limit?: number;
 } = {}): Promise<CoverageCell[]> {
+  // Opening the discovery map is also a retry point after an offline drive.
+  await flushGamificationPingOutbox();
   const params = new URLSearchParams();
   if (options.userId != null) params.set('userId', String(options.userId));
   if (options.bbox) params.set('bbox', options.bbox);
