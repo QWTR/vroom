@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -9,29 +8,24 @@ import {
   View,
   type ListRenderItem,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { API_URL } from '../../../constants/config';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { CommunityScreenHeader, CommunitySegmentTabs } from '../../../components/community';
+import {
+  CommunityScreenHeader,
+  CommunitySegmentTabs,
+  RankingListRow,
+  RankingPodium,
+  RankingPodiumSkeleton,
+  type RankingUser,
+} from '../../../components/community';
 
 type RankCategory = 'points' | 'distance' | 'referrals';
 type RankPeriod = 'day' | 'week' | 'month' | 'all';
-
-interface RankUser {
-  id: number;
-  username: string;
-  avatar: string | null;
-  position: number;
-  score: number;
-  sub: string;
-  streak?: number;
-  isPremium?: boolean;
-  isWinner?: boolean;
-}
 
 interface ReferralCompetition {
   id: number;
@@ -40,18 +34,25 @@ interface ReferralCompetition {
   winnerPlaces: number;
   endsAt: string;
   status: 'scheduled' | 'active' | 'ended' | 'archived';
-  winners?: Array<{
+  winners?: {
     userId: number;
     username: string;
     avatar: string | null;
     invitedCount: number;
     position: number;
-  }>;
+  }[];
   winnersUntil?: string;
   finalizedAt?: string;
 }
 
-const PERIODS: Array<{ key: RankPeriod; label: string }> = [
+interface RankingRange {
+  period: RankPeriod;
+  startsAt: string | null;
+  endsAt: string | null;
+  timeZone: string;
+}
+
+const PERIODS: { key: RankPeriod; label: string }[] = [
   { key: 'day', label: 'DZIŚ' },
   { key: 'week', label: 'TYDZIEŃ' },
   { key: 'month', label: 'MIESIĄC' },
@@ -77,10 +78,6 @@ function normalizePeriod(raw?: string): RankPeriod | null {
   return PERIOD_ALIASES[String(raw).trim().toLowerCase()] ?? null;
 }
 
-function formatScore(value: number): string {
-  return Number(value || 0).toLocaleString('pl-PL');
-}
-
 function formatCountdown(endsAt: string): string {
   const diff = new Date(endsAt).getTime() - Date.now();
   if (diff <= 0) return 'Koniec konkursu';
@@ -92,113 +89,29 @@ function formatCountdown(endsAt: string): string {
   return `Zostało ${mins} min`;
 }
 
-function RankAvatar({ user, size }: { user: RankUser; size: number }) {
-  const { theme } = useTheme();
-  return (
-    <View
-      style={[
-        styles.avatar,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: theme.surface2,
-          borderColor: theme.border2,
-        },
-      ]}
-    >
-      {user.avatar ? (
-        <Image source={{ uri: user.avatar }} style={{ width: size, height: size }} contentFit="cover" recyclingKey={String(user.id)} />
-      ) : (
-        <Text style={[styles.initials, { color: theme.text }]}>
-          {user.username.slice(0, 2).toUpperCase()}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-function RankListRow({
-  user,
-  isMe,
-  scoreLabel,
-  onPress,
-}: {
-  user: RankUser;
-  isMe: boolean;
-  scoreLabel: string;
-  onPress: () => void;
-}) {
-  const { theme } = useTheme();
-  return (
-    <TouchableOpacity
-      activeOpacity={0.86}
-      onPress={onPress}
-      style={[
-        styles.row,
-        { backgroundColor: theme.surface, borderColor: isMe ? '#e33835' : theme.border2 },
-        isMe && { backgroundColor: '#e3383512' },
-      ]}
-    >
-      <Text style={[styles.rowPosition, { color: user.position <= 10 ? theme.primary : theme.textDim }]}>
-        #{user.position}
-      </Text>
-      <RankAvatar user={user} size={44} />
-      <View style={styles.rowMain}>
-        <View style={styles.nameLine}>
-          <Text style={[styles.username, { color: theme.text }]} numberOfLines={1}>
-            {user.username}{isMe ? ' (Ty)' : ''}
-          </Text>
-          {user.isPremium ? (
-            <View style={styles.premiumPill}>
-              <Text style={styles.premiumText}>PREMIUM</Text>
-            </View>
-          ) : null}
-        </View>
-        <Text style={[styles.sub, { color: theme.textDim }]} numberOfLines={1}>
-          {user.sub}
-        </Text>
-      </View>
-      <View style={styles.scoreBox}>
-        <Text style={[styles.score, { color: isMe ? theme.primary : theme.text }]}>
-          {formatScore(user.score)}
-        </Text>
-        <Text style={[styles.scoreUnit, { color: theme.textDim }]}>{scoreLabel}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-function TopRankCard({
-  user,
-  scoreLabel,
-  onPress,
-}: {
-  user: RankUser;
-  scoreLabel: string;
-  onPress: () => void;
-}) {
-  const { theme } = useTheme();
-  const accent = user.position === 1 ? '#FFD700' : user.position === 2 ? '#cbd5e1' : '#d97706';
-  return (
-    <TouchableOpacity
-      activeOpacity={0.86}
-      onPress={onPress}
-      style={[styles.topCard, { backgroundColor: theme.surface, borderColor: `${accent}66` }]}
-    >
-      <View style={[styles.medal, { backgroundColor: `${accent}22`, borderColor: `${accent}66` }]}>
-        <MaterialCommunityIcons name={user.position === 1 ? 'crown' : 'podium'} size={16} color={accent} />
-        <Text style={[styles.medalText, { color: accent }]}>#{user.position}</Text>
-      </View>
-      <RankAvatar user={user} size={54} />
-      <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>
-        {user.username}
-      </Text>
-      <Text style={[styles.topScore, { color: theme.primary }]} numberOfLines={1}>
-        {formatScore(user.score)} {scoreLabel}
-      </Text>
-    </TouchableOpacity>
-  );
+function formatRangeLabel(period: RankPeriod, range: RankingRange | null): string {
+  if (period === 'all') return 'RANKING OGÓLNY';
+  if (!range?.startsAt || !range.endsAt) {
+    return period === 'day' ? 'DZISIAJ' : period === 'week' ? 'TEN TYDZIEŃ' : 'TEN MIESIĄC';
+  }
+  const timeZone = range.timeZone || 'Europe/Warsaw';
+  const start = new Date(range.startsAt);
+  const inclusiveEnd = new Date(new Date(range.endsAt).getTime() - 1);
+  if (period === 'day') {
+    return `DZISIAJ · ${new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'long', timeZone }).format(start).toUpperCase()}`;
+  }
+  if (period === 'month') {
+    return new Intl.DateTimeFormat('pl-PL', { month: 'long', year: 'numeric', timeZone }).format(start).toUpperCase();
+  }
+  const sameMonth = new Intl.DateTimeFormat('pl-PL', { month: 'numeric', timeZone }).format(start)
+    === new Intl.DateTimeFormat('pl-PL', { month: 'numeric', timeZone }).format(inclusiveEnd);
+  const startLabel = new Intl.DateTimeFormat('pl-PL', {
+    day: 'numeric',
+    ...(sameMonth ? {} : { month: 'short' as const }),
+    timeZone,
+  }).format(start);
+  const endLabel = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'long', timeZone }).format(inclusiveEnd);
+  return `${startLabel}–${endLabel}`.toUpperCase();
 }
 
 function CompetitionBanner({
@@ -236,8 +149,9 @@ export default function StatsScreen() {
 
   const [category, setCategory] = useState<RankCategory>('points');
   const [period, setPeriod] = useState<RankPeriod>('all');
-  const [users, setUsers] = useState<RankUser[]>([]);
+  const [users, setUsers] = useState<RankingUser[]>([]);
   const [myPosition, setMyPosition] = useState<number | null>(null);
+  const [range, setRange] = useState<RankingRange | null>(null);
   const [competition, setCompetition] = useState<ReferralCompetition | null>(null);
   const [myId, setMyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -286,10 +200,12 @@ export default function StatsScreen() {
       setUsers(Array.isArray(data?.users) ? data.users : []);
       setMyPosition(data?.myPosition ?? null);
       setCompetition(nextCategory === 'referrals' ? (data?.competition ?? null) : null);
+      setRange(nextCategory === 'referrals' ? null : (data?.range ?? null));
     } catch (e) {
       setUsers([]);
       setMyPosition(null);
       setCompetition(null);
+      setRange(null);
       setError(e instanceof Error ? e.message : 'Nie udało się pobrać rankingu');
     } finally {
       setLoading(false);
@@ -312,6 +228,7 @@ export default function StatsScreen() {
 
   const topThree = users.slice(0, 3);
   const restUsers = users.slice(3);
+  const rangeLabel = category === 'referrals' ? 'RYWALIZACJA SPOŁECZNOŚCI' : formatRangeLabel(period, range);
 
   const ListHeader = useMemo(() => (
     <View style={styles.headerContent}>
@@ -356,6 +273,32 @@ export default function StatsScreen() {
         </View>
       ) : null}
 
+      <LinearGradient
+        colors={['#E3383522', '#E3383508', '#FFD44710']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.rangeBanner, { borderColor: theme.border2 }]}
+      >
+        <View style={styles.rangeIcon}>
+          <MaterialCommunityIcons
+            name={category === 'referrals' ? 'flag-checkered' : 'calendar-range'}
+            size={16}
+            color={theme.primary}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.rangeEyebrow, { color: theme.textDim }]}>AKTYWNY ZAKRES</Text>
+          <Text style={[styles.rangeTitle, { color: theme.text }]}>{rangeLabel}</Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-double-up" size={18} color="#FFD447" />
+      </LinearGradient>
+
+      {loading && users.length === 0 ? (
+        <RankingPodiumSkeleton />
+      ) : (
+        <RankingPodium users={topThree} myId={myId} scoreLabel={scoreLabel} onPressUser={openProfile} />
+      )}
+
       {competition?.status === 'ended' ? (
         <View style={[styles.myPosition, { backgroundColor: '#FFD70018', borderColor: '#FFD70040' }]}>
           <MaterialCommunityIcons name="trophy" size={16} color="#FFD700" />
@@ -364,20 +307,7 @@ export default function StatsScreen() {
       ) : myPosition ? (
         <View style={[styles.myPosition, { backgroundColor: '#e3383512', borderColor: '#e3383535' }]}>
           <MaterialIcons name="leaderboard" size={16} color={theme.primary} />
-          <Text style={[styles.myPositionText, { color: theme.primary }]}>Twoja pozycja: #{myPosition}</Text>
-        </View>
-      ) : null}
-
-      {topThree.length > 0 ? (
-        <View style={styles.topGrid}>
-          {topThree.map((u) => (
-            <TopRankCard
-              key={u.id}
-              user={u}
-              scoreLabel={scoreLabel}
-              onPress={() => openProfile(u.id)}
-            />
-          ))}
+          <Text style={[styles.myPositionText, { color: theme.primary }]}>TWOJA POZYCJA · #{myPosition}</Text>
         </View>
       ) : null}
 
@@ -387,10 +317,10 @@ export default function StatsScreen() {
         </Text>
       ) : null}
     </View>
-  ), [category, competition, myPosition, openProfile, period, restUsers.length, scoreLabel, theme]);
+  ), [category, competition, loading, myId, myPosition, openProfile, period, rangeLabel, restUsers.length, scoreLabel, theme, topThree, users.length]);
 
-  const renderItem: ListRenderItem<RankUser> = useCallback(({ item }) => (
-    <RankListRow
+  const renderItem: ListRenderItem<RankingUser> = useCallback(({ item }) => (
+    <RankingListRow
       user={item}
       isMe={item.id === myId}
       scoreLabel={scoreLabel}
@@ -401,41 +331,43 @@ export default function StatsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       <CommunityScreenHeader title="RANKING" subtitle="NAJLEPSI KIEROWCY" />
-      {loading && !refreshing ? (
-        <View style={styles.loadingPage}>
-          {ListHeader}
-          <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 32 }} />
-        </View>
-      ) : (
-        <FlatList
-          data={restUsers}
-          keyExtractor={(u) => String(u.id)}
-          renderItem={renderItem}
-          ListHeaderComponent={ListHeader}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
-          ListEmptyComponent={users.length === 0 ? (
-            <View style={styles.empty}>
-              <MaterialIcons name={error ? 'sync-problem' : 'leaderboard'} size={34} color={theme.textDim} />
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                {error ? 'Nie udało się wczytać' : 'Brak danych'}
-              </Text>
-              <Text style={[styles.emptySub, { color: theme.textDim }]}>
-                {error
-                  ?? (category === 'referrals' && !competition && users.length === 0
-                    ? 'Nikt jeszcze nikogo nie zaprosił.'
-                    : category === 'referrals' && !competition
-                      ? 'Brak aktywnego eventu — pełny ranking zaproszeń.'
-                      : 'Zmień zakres czasu albo wróć później.')}
-              </Text>
-            </View>
-          ) : null}
-          initialNumToRender={12}
-          maxToRenderPerBatch={12}
-          windowSize={7}
-          removeClippedSubviews
-        />
-      )}
+      <FlatList
+        data={restUsers}
+        keyExtractor={(u) => String(u.id)}
+        renderItem={renderItem}
+        ListHeaderComponent={ListHeader}
+        contentContainerStyle={styles.listContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
+        ListEmptyComponent={!loading && users.length === 0 ? (
+          <View style={styles.empty}>
+            <MaterialIcons name={error ? 'sync-problem' : 'leaderboard'} size={34} color={theme.textDim} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>
+              {error ? 'Nie udało się wczytać' : 'Brak danych'}
+            </Text>
+            <Text style={[styles.emptySub, { color: theme.textDim }]}>
+              {error
+                ?? (category === 'referrals' && !competition
+                  ? 'Nikt jeszcze nikogo nie zaprosił.'
+                  : 'Zmień zakres czasu albo wróć później.')}
+            </Text>
+            {error ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                activeOpacity={0.84}
+                onPress={() => void fetchRanking(category, period)}
+                style={[styles.retryButton, { backgroundColor: theme.primary }]}
+              >
+                <MaterialIcons name="refresh" size={16} color="#fff" />
+                <Text style={styles.retryText}>SPRÓBUJ PONOWNIE</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        removeClippedSubviews
+      />
     </View>
   );
 }
@@ -444,10 +376,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   listContent: {
     paddingBottom: 90,
-    paddingHorizontal: 16,
-  },
-  loadingPage: {
-    flex: 1,
     paddingHorizontal: 16,
   },
   headerContent: {
@@ -500,9 +428,43 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '800',
   },
+  rangeBanner: {
+    marginHorizontal: 16,
+    marginBottom: 13,
+    minHeight: 62,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    overflow: 'hidden',
+  },
+  rangeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#E3383518',
+    borderWidth: 1,
+    borderColor: '#E3383533',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rangeEyebrow: {
+    fontFamily: 'Orbitron',
+    fontSize: 6,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  rangeTitle: {
+    fontFamily: 'Orbitron',
+    fontSize: 10,
+    fontWeight: '900',
+    marginTop: 4,
+  },
   myPosition: {
     marginHorizontal: 16,
-    marginBottom: 14,
+    marginTop: 12,
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 10,
@@ -517,129 +479,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
-  topGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 16,
-    marginBottom: 18,
-  },
-  topCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    minHeight: 158,
-  },
-  medal: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    marginBottom: 10,
-  },
-  medalText: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
-    fontWeight: '900',
-  },
-  topName: {
-    fontFamily: 'Orbitron',
-    fontSize: 10,
-    fontWeight: '900',
-    marginTop: 9,
-    maxWidth: '100%',
-  },
-  topScore: {
-    fontFamily: 'Orbitron',
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 5,
-  },
   sectionLabel: {
     fontFamily: 'Orbitron',
     fontSize: 8,
     fontWeight: '800',
     marginHorizontal: 16,
+    marginTop: 18,
     marginBottom: 10,
-  },
-  row: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-  rowPosition: {
-    width: 34,
-    textAlign: 'center',
-    fontFamily: 'Orbitron',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  avatar: {
-    overflow: 'hidden',
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  initials: {
-    fontFamily: 'Orbitron',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  rowMain: {
-    flex: 1,
-    minWidth: 0,
-  },
-  nameLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  username: {
-    flexShrink: 1,
-    fontFamily: 'Orbitron',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  premiumPill: {
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#FFD70040',
-    backgroundColor: '#FFD70018',
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-  },
-  premiumText: {
-    fontFamily: 'Orbitron',
-    fontSize: 7,
-    color: '#FFD700',
-    fontWeight: '800',
-  },
-  sub: {
-    fontSize: 11,
-    marginTop: 4,
-  },
-  scoreBox: {
-    alignItems: 'flex-end',
-    minWidth: 58,
-  },
-  score: {
-    fontFamily: 'Orbitron',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  scoreUnit: {
-    fontSize: 10,
-    marginTop: 2,
   },
   empty: {
     alignItems: 'center',
@@ -657,5 +503,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginTop: 6,
+  },
+  retryButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  retryText: {
+    color: '#fff',
+    fontFamily: 'Orbitron',
+    fontSize: 8,
+    fontWeight: '900',
   },
 });
