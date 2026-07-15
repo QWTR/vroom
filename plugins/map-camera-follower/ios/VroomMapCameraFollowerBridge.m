@@ -13,4 +13,5 @@ RCT_EXPORT_VIEW_PROPERTY(paddingTop, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(paddingBottom, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(paddingLeft, NSNumber)
 RCT_EXPORT_VIEW_PROPERTY(paddingRight, NSNumber)
+RCT_EXPORT_VIEW_PROPERTY(segmentDurationMs, NSNumber)
 @end

@@ -13,6 +13,7 @@ export type NativeCameraFollowerFrame = {
   latitude: number;
   longitude: number;
   heading: number;
+  segmentDurationMs: number;
 };
 
 /** The camera must consume the already-interpolated marker, never a GPS target. */
@@ -48,13 +49,14 @@ export function nativeFollowerFrameFromMarker(
   'worklet';
   const frame = cameraFrameFromDisplayedMarker(pose);
   if (!frame) {
-    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0 };
+    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0, segmentDurationMs: 900 };
   }
   return {
     positionValid: 1,
     latitude: frame.lat,
     longitude: frame.lng,
     heading: frame.heading,
+    segmentDurationMs: 900,
   };
 }
 

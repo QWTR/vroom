@@ -165,11 +165,15 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const animatedProps = useAnimatedProps(() => {
     'worklet';
-    return nativeFollowerFrameFromMarker({
+    const frame = nativeFollowerFrameFromMarker({
       lat: marker.lat.value,
       lng: marker.lng.value,
       heading: marker.heading.value,
     }, marker.speedMs.value);
+    return {
+      ...frame,
+      segmentDurationMs: marker.segmentDurationMs.value,
+    };
   });
 
   return {

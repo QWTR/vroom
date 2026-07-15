@@ -28,6 +28,7 @@ describe('trip camera follow', () => {
       latitude: 52.23,
       longitude: 21.01,
       heading: 270,
+      segmentDurationMs: 900,
     });
   });
 

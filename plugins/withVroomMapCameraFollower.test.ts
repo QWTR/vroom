@@ -14,9 +14,12 @@ describe('Vroom iOS map camera follower plugin', () => {
   it('embeds its iOS sources so EAS needs no auxiliary folder', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('VroomMapCameraFollowerView');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('UIView, RNMBXMapAndMapViewComponent');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('segmentDurationMs');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('interpolateDisplayPose');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func addToMap');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func removeFromMap');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('RCT_EXTERN_MODULE');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollowerBridge.m']).toContain('segmentDurationMs');
   });
 
   it('embeds Android sources and retains the package placeholder for prebuild', () => {

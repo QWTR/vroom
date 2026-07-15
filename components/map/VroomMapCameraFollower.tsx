@@ -8,6 +8,7 @@ export type VroomMapCameraFollowerProps = ViewProps & {
   latitude?: number;
   longitude?: number;
   heading?: number;
+  segmentDurationMs?: number;
   zoom: number;
   pitch: number;
   paddingTop: number;
