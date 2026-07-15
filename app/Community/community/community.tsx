@@ -631,11 +631,6 @@ export default function CommunityScreen() {
 
   const pickCommentPhoto = async () => {
     if (commentPhotos.length >= 2) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Toast.show({ type: 'info', text1: 'Brak dostępu do galerii' });
-      return;
-    }
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.82,

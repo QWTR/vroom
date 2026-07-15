@@ -101,8 +101,6 @@ export default function EditCarScreen() {
   const photoBtnStyle = { width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center' as const, alignItems: 'center' as const };
 
   const pickPhotos = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 5 - totalPhotos, quality: 0.8 });
     if (!result.canceled) {
       const picked: CarPhotoItem[] = result.assets.map((a, i) => {

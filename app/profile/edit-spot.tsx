@@ -35,8 +35,6 @@ export default function EditSpotScreen() {
 
   const pickPhoto = async () => {
     if (totalPhotos >= 5) { Toast.show({ type: 'error', text1: 'LIMIT', text2: 'Maksymalnie 5 zdjęć.' }); return; }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ', text2: 'Zezwól na dostęp do galerii.' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 5 - totalPhotos, quality: 0.8 });
     if (!result.canceled) {
       const picked = result.assets.map(a => ({ uri: a.uri, name: a.fileName ?? `spot_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' }));

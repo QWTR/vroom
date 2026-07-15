@@ -132,11 +132,6 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     if (pickingAvatar) return;
     setPickingAvatar(true);
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Toast.show({ type: 'error', text1: 'Brak uprawnień', text2: 'Zezwól na dostęp do galerii.' });
-        return;
-      }
       const r = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,

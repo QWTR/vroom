@@ -25,8 +25,6 @@ export default function AvatarCircle({ initials, avatarUrl, uploading = false, o
         if (!perm.granted) { Alert.alert('Brak uprawnień', 'Zezwól na dostęp do aparatu.'); return; }
         result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       } else {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) { Alert.alert('Brak uprawnień', 'Zezwól na dostęp do galerii.'); return; }
         result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       }
       if (!result.canceled && result.assets?.[0]?.uri) onCameraPress?.(result.assets[0].uri);

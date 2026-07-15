@@ -1,17 +1,10 @@
 import * as ImagePicker from 'expo-image-picker';
-import Toast from 'react-native-toast-message';
 
 export type PickedVroomkiMedia =
   | { kind: 'video'; video: string }
   | { kind: 'photos'; photos: string[] };
 
 export async function pickVroomkiMediaFromGallery(): Promise<PickedVroomkiMedia | null> {
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) {
-    Toast.show({ type: 'info', text1: 'Brak dostępu do galerii' });
-    return null;
-  }
-
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.All,
     quality: 0.86,

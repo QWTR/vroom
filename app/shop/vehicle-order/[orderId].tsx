@@ -76,11 +76,6 @@ export default function VehicleOrderDetailScreen() {
   useEffect(() => { void load(); }, [load]);
 
   const pickPhotos = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Toast.show({ type: 'error', text1: 'Brak dostępu do galerii' });
-      return;
-    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,

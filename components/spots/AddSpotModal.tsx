@@ -34,11 +34,6 @@ export const AddSpotModal = ({ visible, onClose, onAdd }: AddSpotModalProps) => 
   }, [loading, picking, onClose]);
 
   const pickPhotos = useCallback(async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Toast.show({ type: 'error', text1: 'BRAK DOSTĘPU', text2: 'Zezwól na dostęp do zdjęć' });
-      return;
-    }
     setPicking(true);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'] as any,

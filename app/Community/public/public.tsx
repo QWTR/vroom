@@ -363,8 +363,6 @@ export default function PublicChatScreen() {
 
   const pickPhotos = async () => {
     if (video) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { showToast({ type: 'error', text1: 'Brak uprawnień' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
@@ -378,8 +376,6 @@ export default function PublicChatScreen() {
 
   const pickVideo = async () => {
     if (photos.length > 0) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { showToast({ type: 'error', text1: 'Brak uprawnień' }); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsMultipleSelection: false,

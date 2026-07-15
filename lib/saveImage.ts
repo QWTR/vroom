@@ -4,8 +4,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 async function tryMediaLibrarySave(uri: string): Promise<boolean> {
   try {
     const MediaLibrary = require('expo-media-library') as typeof import('expo-media-library');
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== 'granted') return false;
+    if (Platform.OS === 'ios') {
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      if (status !== 'granted') return false;
+    }
     await MediaLibrary.saveToLibraryAsync(uri);
     return true;
   } catch {

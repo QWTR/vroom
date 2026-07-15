@@ -62,8 +62,6 @@ export default function CreateMeet() {
 
   // ── Picker zdjęcia ────────────────────────────────────
   const pickCover = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return Toast.show({ type: 'error', text1: 'Brak uprawnień do galerii' });
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true, aspect: [16, 9], quality: 0.85,
