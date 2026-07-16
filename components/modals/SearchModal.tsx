@@ -4,7 +4,7 @@ import {
   FlatList, ActivityIndicator, StyleSheet, Platform,
   StatusBar, ScrollView, BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import debounce from 'lodash.debounce';
@@ -852,6 +852,7 @@ export const SearchModal = memo(({
       animationType="fade" 
       transparent={false} 
       statusBarTranslucent
+      presentationStyle="fullScreen"
       onRequestClose={() => {           // ← DODAJ TO
         if (searchMode !== 'initial') {
           resetToInitial();
@@ -861,7 +862,11 @@ export const SearchModal = memo(({
       }}
       >
       <StatusBar barStyle="light-content" backgroundColor={t.bg} />
-      <SafeAreaView style={[ss.root, { backgroundColor: t.bg }]}>
+      <SafeAreaProvider>
+      <SafeAreaView
+        edges={['top', 'right', 'bottom', 'left']}
+        style={[ss.root, { backgroundColor: t.bg }]}
+      >
 
         {/* ── HEADER ────────────────────────────────────── */}
         <View style={[ss.header, { borderBottomColor: t.border2 }]}>
@@ -1353,9 +1358,12 @@ export const SearchModal = memo(({
         )}
 
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 });
+
+SearchModal.displayName = 'SearchModal';
 
 // ── Statyczne style ───────────────────────────────────────
 const ss = StyleSheet.create({
@@ -1364,7 +1372,7 @@ const ss = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    paddingTop:        Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 8 : 8,
+    paddingTop:        8,
     paddingBottom:     10,
     borderBottomWidth: 1,
   },
