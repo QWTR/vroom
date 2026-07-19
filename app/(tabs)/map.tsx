@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { showGpsLocationErrorToast } from '../../lib/gpsErrorToast';
 import { fetchProfileMeCached } from '../../lib/cachedProfileMe';
+import { track } from '../../lib/analytics/client';
 import { API_URL } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
@@ -11668,6 +11669,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     }
 
     driveTraceSession('nav_end', { reason: 'arrived' });
+    track({
+      eventName: 'navigation_completed',
+      screenName: 'map',
+      surface: 'route_navigation',
+      entityType: 'map',
+      entityId: String(loadedRouteRef.current?.routeId ?? 'ad_hoc'),
+      priority: 'high',
+      properties: { offroad: isOffroadRef.current },
+    });
     isNavigatingRef.current = false;
     navigationBootstrapTokenRef.current += 1;
     setNavigationUiReady(false);
@@ -12127,6 +12137,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     lastGoodLocRef.current = { lat: bootLat, lng: bootLng };
 
     setIsNavigating(true);
+    track({
+      eventName: 'navigation_started',
+      screenName: 'map',
+      surface: 'route_navigation',
+      entityType: 'map',
+      entityId: String(loadedRouteRef.current?.routeId ?? 'ad_hoc'),
+      priority: 'high',
+      properties: { offroad: isOffroadRef.current, switched_from_drive: hadActiveTrip },
+    });
     resetTravelHeadingState(bootLat, bootLng, bootHdg);
     getTripHeadingFilter().reset(bootHdg);
     tripMarkerV2BootstrappedRef.current = true;
@@ -12242,6 +12261,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   // ── stopNavigation ────────────────────────────────────────
   const stopNavigation = useCallback(async (opts?: { silent?: boolean; clearRoute?: boolean }) => {
+    track({ eventName: 'ui_action', screenName: 'map', surface: 'route_navigation', priority: 'medium', properties: { action: 'navigation_stopped', silent: !!opts?.silent } });
     driveTraceSession('nav_end', { reason: 'user_stop' });
     const wasApproaching = approachingRouteStartRef.current;
     const hadActiveTrip = isNavigatingRef.current || isDrivingRef.current;

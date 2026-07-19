@@ -56,6 +56,7 @@ import type { AppAnimationSlot } from '../constants/appAnimations';
 import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 import { AppTutorialOverlay } from '../components/onboarding';
 import { shouldAutoShowTutorial } from '../hooks/useAppTutorial';
+import { AnalyticsBootstrap } from '../components/analytics/AnalyticsBootstrap';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -721,6 +722,7 @@ function RootLayoutInner() {
         <Stack.Screen name="notifications" />
       </Stack>
       <AppPresenceHeartbeat />
+      <AnalyticsBootstrap />
       <AdsConsentBootstrap />
       <StatusBar style={isDark ? 'light' : 'dark'} translucent={false} backgroundColor={theme.bg} />
       <Toast config={toastConfig} topOffset={insets.top + 8} visibilityTime={4000} />

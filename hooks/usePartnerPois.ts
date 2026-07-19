@@ -17,6 +17,7 @@ export interface PartnerPoi {
   businessLocationId?: number | null;
   priorityRank: number;
   source: 'partner';
+  hasActiveOffer?: boolean;
 }
 
 interface LocationState {

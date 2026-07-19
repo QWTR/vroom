@@ -22,6 +22,7 @@ import type { PartnerPoi } from '../../hooks/usePartnerPois';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL } from '../../constants/config';
+import { useRouter } from 'expo-router';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -57,6 +58,7 @@ interface Review {
   comment: string | null;
   createdAt: string;
   user: ReviewUser;
+  reply?: { body: string; updatedAt: string } | null;
 }
 
 interface GalleryImage {
@@ -175,6 +177,7 @@ function InfoRow({
 }
 
 export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
+  const router = useRouter();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [detail, setDetail] = useState<BusinessDetail | null>(null);
@@ -396,6 +399,28 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                 </Text>
               )}
 
+              <TouchableOpacity
+                onPress={() => {
+                  onClose();
+                  router.push(`/partner/${poi.id}` as any);
+                }}
+                style={{
+                  marginBottom: 16,
+                  paddingVertical: 14,
+                  borderRadius: 14,
+                  backgroundColor: '#e33835',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  gap: 8,
+                }}
+              >
+                <MaterialCommunityIcons name="ticket-percent-outline" size={18} color="#fff" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>
+                  OFERTY · WYDARZENIA · KONTAKT
+                </Text>
+              </TouchableOpacity>
+
               {/* Galeria — osobna sekcja, bez rozciągania logo na hero */}
               {gallery.length > 0 && (
                 <View style={{ marginBottom: 18 }}>
@@ -428,7 +453,7 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                         }}
                       >
                         <Image
-                          source={{ uri: normalizeMediaUri(img.imageUrl) }}
+                          source={normalizeMediaUri(img.imageUrl) || undefined}
                           style={{ width: '100%', height: '100%' }}
                           contentFit="contain"
                           transition={200}
@@ -580,6 +605,12 @@ export function PartnerPoiModal({ poi, visible, onClose, onNavigate }: Props) {
                       </View>
                       {!!r.comment && (
                         <Text style={{ color: theme.textDim, fontSize: 13, marginTop: 6, lineHeight: 20 }}>{r.comment}</Text>
+                      )}
+                      {!!r.reply && (
+                        <View style={{ marginTop: 9, padding: 10, borderLeftWidth: 2, borderLeftColor: accent, backgroundColor: `${accent}10` }}>
+                          <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: accent }}>ODPOWIEDŹ FIRMY</Text>
+                          <Text style={{ color: theme.textDim, fontSize: 12, marginTop: 5, lineHeight: 18 }}>{r.reply.body}</Text>
+                        </View>
                       )}
                     </View>
                   ))}

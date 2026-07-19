@@ -21,6 +21,7 @@ import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
+import { track, trackContentImpression } from '../../../lib/analytics/client';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -29,6 +30,7 @@ const VIEW_THRESHOLD_MS = 1600;
 const ReelCard = React.memo(function ReelCard({
   post,
   active,
+  width,
   height,
   myId,
   onLike,
@@ -43,6 +45,7 @@ const ReelCard = React.memo(function ReelCard({
 }: {
   post: VroomkiPost;
   active: boolean;
+  width: number;
   height: number;
   myId: number | null;
   onLike: (id: number) => void;
@@ -109,7 +112,7 @@ const ReelCard = React.memo(function ReelCard({
   }, [post.isLiked]);
 
   return (
-    <View style={{ height, backgroundColor: '#050505', overflow: 'hidden' }}>
+    <View style={{ width, height, backgroundColor: '#050505', overflow: 'hidden' }}>
       {hasVideo ? (
         <ReelVideo
           uri={post.videos[0]}
@@ -121,7 +124,7 @@ const ReelCard = React.memo(function ReelCard({
       ) : coverPhoto ? (
         <VroomkiPhotoCarousel
           photos={photos}
-          width={SCREEN_W}
+          width={width}
           height={height}
           active={active}
           photoDurationMs={photoDurationMs}
@@ -136,7 +139,7 @@ const ReelCard = React.memo(function ReelCard({
         </View>
       )}
 
-      <VroomkiOverlays overlays={overlays} width={SCREEN_W} height={height} />
+      <VroomkiOverlays overlays={overlays} width={width} height={height} />
 
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.18)' }]} pointerEvents="none" />
       {heartVisible && (
@@ -272,6 +275,7 @@ export function TabAuta({
   const [commentsPost, setCommentsPost] = useState<VroomkiPost | null>(null);
   const [sharePost, setSharePost] = useState<VroomkiPost | null>(null);
   const [activeId, setActiveId] = useState<number | null>(posts[0]?.id ?? null);
+  const [reelWidth, setReelWidth] = useState(SCREEN_W);
   const [reelHeight, setReelHeight] = useState(FALLBACK_REEL_H);
   const listRef = useRef<FlatList<VroomkiPost> | null>(null);
   const dragStartIndexRef = useRef(0);
@@ -297,11 +301,13 @@ export function TabAuta({
   }, [feedActive]);
 
   const openComments = useCallback((post: VroomkiPost) => {
+    track({ eventName: 'content_opened', screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: post.id, priority: 'medium', properties: { target: 'comments' } });
     suspendPlayback();
     setCommentsPost(post);
   }, [suspendPlayback]);
 
   const openShare = useCallback((post: VroomkiPost) => {
+    track({ eventName: 'share_started', screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: post.id, priority: 'medium' });
     suspendPlayback();
     setSharePost(post);
   }, [suspendPlayback]);
@@ -365,6 +371,7 @@ export function TabAuta({
     if (viewedRef.current.has(post.id)) return;
     viewedRef.current.add(post.id);
     if (post.id < 0) return;
+    trackContentImpression({ screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: post.id });
     onView(post.id, VIEW_THRESHOLD_MS, false);
   }, [onView]);
 
@@ -418,6 +425,7 @@ export function TabAuta({
   const handleCompletedView = useCallback((postId: number, watchMs: number) => {
     viewedRef.current.add(postId);
     if (postId < 0) return;
+    track({ eventName: 'content_watch', screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: postId, durationMs: watchMs, priority: 'low', properties: { completed: true } });
     onView(postId, watchMs, true);
   }, [onView]);
 
@@ -425,6 +433,7 @@ export function TabAuta({
     <ReelCard
       post={item}
       active={reelsPlaybackActive && activeId === item.id}
+      width={reelWidth}
       height={reelHeight}
       myId={myId}
       onLike={onLike}
@@ -450,6 +459,7 @@ export function TabAuta({
     openMore,
     openShare,
     reelHeight,
+    reelWidth,
     reelsPlaybackActive,
   ]);
 
@@ -478,8 +488,10 @@ export function TabAuta({
         initialNumToRender={2}
         updateCellsBatchingPeriod={40}
         onLayout={(event) => {
-          const next = Math.round(event.nativeEvent.layout.height);
-          if (next > 0 && Math.abs(next - reelHeight) > 2) setReelHeight(next);
+          const nextWidth = Math.round(event.nativeEvent.layout.width);
+          const nextHeight = Math.round(event.nativeEvent.layout.height);
+          if (nextWidth > 0 && Math.abs(nextWidth - reelWidth) > 1) setReelWidth(nextWidth);
+          if (nextHeight > 0 && Math.abs(nextHeight - reelHeight) > 2) setReelHeight(nextHeight);
         }}
         data={posts}
         keyExtractor={(item) => String(item.id)}
@@ -494,11 +506,16 @@ export function TabAuta({
           dragStartIndexRef.current = idx;
         }}
         onMomentumScrollEnd={(event) => {
-          const rawIndex = Math.round(event.nativeEvent.contentOffset.y / reelHeight);
+          const offsetY = event.nativeEvent.contentOffset.y;
+          const rawIndex = Math.round(offsetY / reelHeight);
           const startIndex = dragStartIndexRef.current;
           const targetIndex = Math.max(0, Math.min(posts.length - 1, Math.max(startIndex - 1, Math.min(startIndex + 1, rawIndex))));
-          if (targetIndex !== rawIndex) {
-            listRef.current?.scrollToIndex({ index: targetIndex, animated: true });
+          const targetOffset = targetIndex * reelHeight;
+          if (Math.abs(offsetY - targetOffset) > 0.5) {
+            listRef.current?.scrollToOffset({
+              offset: targetOffset,
+              animated: targetIndex !== rawIndex,
+            });
           }
           const nextPost = posts[targetIndex];
           if (nextPost) setActiveId(nextPost.id);

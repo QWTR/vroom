@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
   Image,
   FlatList,
   Pressable,
@@ -46,7 +45,14 @@ export function VroomkiPhotoCarousel({
     photoIndexRef.current = 0;
     onIndexChange?.(0);
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, [photos, restartKey]);
+  }, [photos, restartKey, onIndexChange]);
+
+  useEffect(() => {
+    listRef.current?.scrollToOffset({
+      offset: photoIndexRef.current * width,
+      animated: false,
+    });
+  }, [width]);
 
   useEffect(() => {
     if (photos.length <= 1 || !active || userDragging) return undefined;
@@ -61,8 +67,8 @@ export function VroomkiPhotoCarousel({
   }, [photos.length, photoDurationMs, active, userDragging, restartKey, onIndexChange, onLoopComplete]);
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const w = e.nativeEvent.layoutMeasurement.width || width;
-    const idx = Math.round(e.nativeEvent.contentOffset.x / w);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / width);
+    setUserDragging(false);
     updateIndex(idx);
   };
 
@@ -93,6 +99,10 @@ export function VroomkiPhotoCarousel({
       data={photos}
       horizontal
       pagingEnabled
+      snapToInterval={width}
+      snapToAlignment="start"
+      disableIntervalMomentum
+      decelerationRate="fast"
       nestedScrollEnabled
       showsHorizontalScrollIndicator={false}
       keyExtractor={(item, i) => `${item}-${i}`}
@@ -101,7 +111,7 @@ export function VroomkiPhotoCarousel({
       onScrollEndDrag={onScrollEnd}
       onMomentumScrollEnd={onScrollEnd}
       onScrollToIndexFailed={(info) => {
-        listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+        listRef.current?.scrollToOffset({ offset: width * info.index, animated: true });
       }}
       style={{ width, height }}
       renderItem={({ item }) => (

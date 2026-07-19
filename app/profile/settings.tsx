@@ -2523,6 +2523,13 @@ export default function SettingsScreen() {
 							label='Zmień e-mail'
 							sublabel='Zaktualizuj adres e-mail'
 							onPress={() => router.push("/profile/change-email")}
+						/>
+						<SettingsRow {...settingsRowProps}
+							icon='card-giftcard'
+							iconBg='#f5b942'
+							label='Moje korzyści'
+							sublabel='Kupony i wydarzenia partnerów VROOM'
+							onPress={() => router.push('/profile/benefits' as any)}
 							last
 						/>
 					</SettingsCard>

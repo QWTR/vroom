@@ -15,6 +15,7 @@ import {
   CommunitySegmentTabs,
   CommunityEmptyState,
 } from '../../../components/community';
+import { track, trackContentImpression } from '../../../lib/analytics/client';
 
 const PAGE = 20;
 
@@ -83,6 +84,13 @@ export default function EventsScreen() {
 
   const fetchingRef  = useRef(false);
   const searchTimer  = useRef<any>(null);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 800 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    for (const entry of viewableItems || []) {
+      const meet = entry.item as Meet;
+      trackContentImpression({ screenName: 'community_meets', surface: 'meet_list', entityType: 'meet', entityId: meet.id, position: entry.index ?? undefined });
+    }
+  }).current;
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -124,7 +132,10 @@ export default function EventsScreen() {
   const handleSearch = (q: string) => {
     setSearch(q);
     clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => fetchMeets(true, q, category), 400);
+    searchTimer.current = setTimeout(() => {
+      if (q.trim()) track({ eventName: 'search_submitted', screenName: 'community_meets', surface: 'meet_search', priority: 'medium', properties: { query_length: q.trim().length, category } });
+      fetchMeets(true, q, category);
+    }, 400);
   };
 
   const loadMore = useCallback(async () => {
@@ -174,7 +185,10 @@ export default function EventsScreen() {
 
     return (
       <TouchableOpacity
-        onPress={() => router.push({ pathname: '/Community/meets/meet', params: { id: String(item.id) } })}
+        onPress={() => {
+          track({ eventName: 'content_opened', screenName: 'community_meets', surface: 'meet_list', entityType: 'meet', entityId: item.id, priority: 'medium' });
+          router.push({ pathname: '/Community/meets/meet', params: { id: String(item.id) } });
+        }}
         activeOpacity={0.88}
         style={{
           backgroundColor: theme.surface,
@@ -363,6 +377,8 @@ export default function EventsScreen() {
         data={meets}
         keyExtractor={m => String(m.id)}
         renderItem={renderMeet}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}
         refreshControl={

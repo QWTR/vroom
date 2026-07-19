@@ -49,6 +49,11 @@ export const PartnerPoiMarker = memo(({ poi, onPress, compact = false }: Props) 
             shadowOffset: { width: 0, height: 2 },
             elevation: 4,
           }}>
+            {poi.hasActiveOffer && (
+              <View style={{ position: 'absolute', top: -8, right: -8, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 4, backgroundColor: '#e33835', borderWidth: 2, borderColor: '#121820', alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+                <MaterialCommunityIcons name="ticket-percent" size={11} color="#fff" />
+              </View>
+            )}
             <View style={{
               width: compact ? 18 : 24,
               height: compact ? 18 : 24,
@@ -104,3 +109,5 @@ export const PartnerPoiMarker = memo(({ poi, onPress, compact = false }: Props) 
     </Mapbox.MarkerView>
   );
 });
+
+PartnerPoiMarker.displayName = 'PartnerPoiMarker';

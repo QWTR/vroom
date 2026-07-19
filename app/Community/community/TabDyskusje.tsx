@@ -18,6 +18,7 @@ import { RoutePreviewCard, parseRoutePostContent, type RoutePreviewData } from '
 import MaterialIcons           from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons  from '@expo/vector-icons/MaterialCommunityIcons';
 import { UserBadges } from '../../../components/user/UserBadges';
+import { track, trackContentImpression } from '../../../lib/analytics/client';
 import {
   type Post,
   type DiscussionCategoryFilter,
@@ -550,6 +551,24 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         : [post]
     ),
   [posts]);
+  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 800 }).current;
+  const onViewableItemsChanged = React.useRef(({ viewableItems }: any) => {
+    for (const entry of viewableItems || []) {
+      const item = entry.item as FeedItem;
+      if (!item || '_adType' in item) continue;
+      trackContentImpression({
+        screenName: 'community_discussions',
+        surface: 'discussion_feed',
+        entityType: 'post',
+        entityId: item.id,
+        position: entry.index ?? undefined,
+      });
+    }
+  }).current;
+  const handleOpenPostComments = useCallback((post: Post) => {
+    track({ eventName: 'content_opened', screenName: 'community_discussions', surface: 'discussion_feed', entityType: 'post', entityId: post.id, priority: 'medium', properties: { target: 'comments' } });
+    onComment(post);
+  }, [onComment]);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -579,6 +598,8 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
         windowSize={7}
         removeClippedSubviews
         keyExtractor={item => ('_adType' in item) ? item._adKey : String(item.id)}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
         onScroll={(e) => {
           DISCUSSIONS_SCROLL_STATE.offset = e.nativeEvent.contentOffset.y;
         }}
@@ -589,7 +610,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={onComment} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
+            onComment={handleOpenPostComments} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
             onReact={onReact} onOpenReactionPicker={onOpenReactionPicker} onNavigateRoute={onNavigateRoute} onHashtagPress={onHashtagPress} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}

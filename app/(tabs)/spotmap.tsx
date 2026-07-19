@@ -23,6 +23,7 @@ import { DistanceModal }   from '../../components/spots/DistanceModal';
 import { SpotMapLayers } from '../../components/spots/SpotMapLayers';
 import { SpotCategorySpriteGenerator } from '../../components/spots/SpotCategorySpriteGenerator';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
+import { track } from '../../lib/analytics/client';
 
 type PickingState = 'idle' | 'picking';
 
@@ -63,6 +64,7 @@ export default function SpotMap() {
   // NOTE: Używamy ref na Mapbox.Camera (nie MapView) — tylko komponent Camera
   //       udostępnia setCamera/flyTo. Wywołanie tych metod na MapView nie działa.
   const handleLocateMe = useCallback(async () => {
+    track({ eventName: 'ui_action', screenName: 'spotmap', surface: 'spot_map', priority: 'medium', properties: { action: 'locate_me' } });
     if (userLocation) {
       cameraRef.current?.setCamera({
         centerCoordinate: [userLocation.longitude, userLocation.latitude],
@@ -93,7 +95,11 @@ export default function SpotMap() {
 
   const handleStartPicking = useCallback(() => setPicking('picking'), []);
   const handleAddCancel    = useCallback(() => { setAddVisible(false); setPickedCoord(null); }, []);
-  const handleSelectSpot   = useCallback((spot: Spot) => { setSelectedSpot(spot); setDetailVisible(true); }, []);
+  const handleSelectSpot   = useCallback((spot: Spot) => {
+    track({ eventName: 'content_opened', screenName: 'spotmap', surface: 'spot_map', entityType: 'spot', entityId: spot.id, priority: 'medium' });
+    setSelectedSpot(spot);
+    setDetailVisible(true);
+  }, []);
 
   const handleRefresh = useCallback(() => {
     refetch();
@@ -296,7 +302,7 @@ export default function SpotMap() {
                       paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10,
                       backgroundColor: panelBg, borderWidth: 1, borderColor: panelBorder,
                     }, active && { borderColor: color, backgroundColor: color + '22' }]}
-                    onPress={() => toggleCategory(cat)} activeOpacity={0.8}
+                    onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
                   >
                     <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
                     <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{cat}</Text>
@@ -320,7 +326,7 @@ export default function SpotMap() {
                       paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10,
                       backgroundColor: panelBg, borderWidth: 1, borderColor: panelBorder,
                     }, active && { borderColor: color, backgroundColor: color + '22' }]}
-                    onPress={() => toggleCategory(cat)} activeOpacity={0.8}
+                    onPress={() => { track({ eventName: 'filter_applied', screenName: 'spotmap', surface: 'spot_filters', priority: 'medium', properties: { category: cat } }); toggleCategory(cat); }} activeOpacity={0.8}
                   >
                     <MaterialIcons name={CATEGORY_ICONS[cat] as any} size={13} color={active ? color : theme.textDim} />
                     <Text style={{ color: active ? color : theme.textDim, fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>{cat}</Text>

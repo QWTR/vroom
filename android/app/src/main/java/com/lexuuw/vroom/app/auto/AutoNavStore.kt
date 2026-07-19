@@ -1,4 +1,4 @@
-package __PACKAGE__.auto
+package com.lexuuw.vroom.app.auto
 
 import android.content.Context
 import android.location.Geocoder
