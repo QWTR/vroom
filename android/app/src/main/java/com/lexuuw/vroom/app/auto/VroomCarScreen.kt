@@ -9,22 +9,23 @@ import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarIcon
 import androidx.car.app.model.Distance
+import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.Maneuver
+import androidx.car.app.navigation.model.MessageInfo
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
+import androidx.core.graphics.drawable.IconCompat
+import com.lexuuw.vroom.app.R
 
 class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallback {
 
     private var latestPayload: VroomPayload? = null
     private var lastTemplateSignature = ""
     private var hostNightModeActive = false
-    private var manualNightModeOverride: Boolean? = null
-    private var lastSurfaceWidth = 0
-    private var lastSurfaceHeight = 0
-    private var compactSurfaceLayout = false
     private val mapRenderer = VroomMapSurfaceRenderer(carContext)
 
     init {
@@ -33,9 +34,13 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         lifecycle.addObserver(mapRenderer)
     }
 
-    override fun onGetTemplate(): Template {
-        return buildNavigationTemplate()
-    }
+    override fun onGetTemplate(): Template = runCatching { buildNavigationTemplate() }
+        .getOrElse { error ->
+            Log.e("VroomCarScreen", "Nie udało się zbudować NavigationTemplate", error)
+            MessageTemplate.Builder("Nie udało się otworzyć mapy. Spróbuj ponownie.")
+                .setTitle("VROOM")
+                .build()
+        }
 
     private fun buildNavigationTemplate(): Template {
         val payload = latestPayload
@@ -43,9 +48,18 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         val builder = NavigationTemplate.Builder()
 
         builder.setActionStrip(carActionStrip(payload, snapshot))
+        builder.setMapActionStrip(
+            ActionStrip.Builder()
+                .addAction(Action.PAN)
+                .addAction(recenterAction())
+                .addAction(themeAction())
+                .build(),
+        )
+        builder.setPanModeListener { isInPanMode ->
+            if (!isInPanMode) mapRenderer.recenterFromHost()
+        }
 
         routingInfo(payload, snapshot)?.let { builder.setNavigationInfo(it) }
-
         return builder.build()
     }
 
@@ -55,24 +69,22 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         val isPreview = payload?.mapState?.routePreview == true && !isNavigating
 
         if (isNavigating) {
-            // NavigationTemplate wymaga co najmniej jednej akcji. Theme stays
-            // available, while recenter lives in the map HUD to avoid overlap.
-            builder.addAction(themeAction())
-            return builder.build()
-        }
-
-        if (compactSurfaceLayout) {
-            if (isPreview) {
-                builder.addAction(
-                    Action.Builder()
-                        .setTitle("Rozpocznij")
-                        .setOnClickListener { VroomCarManager.startNativeRoutePreview() }
-                        .build()
-                )
-                builder.addAction(themeAction())
-                return builder.build()
-            }
-            builder.addAction(themeAction())
+            builder.addAction(iconAction(R.drawable.ic_auto_stop) { VroomCarManager.stopClick() })
+            val voiceEnabled = AutoNavStore.navigationVoiceEnabled(carContext) ||
+                AutoNavStore.voiceAlertsEnabled(carContext)
+            builder.addAction(iconAction(
+                if (voiceEnabled) R.drawable.ic_auto_voice else R.drawable.ic_auto_voice_muted,
+                if (voiceEnabled) "Wycisz" else "Odcisz",
+            ) {
+                AutoNavStore.setNavigationVoiceEnabled(carContext, !voiceEnabled)
+                AutoNavStore.setVoiceAlertsEnabled(carContext, !voiceEnabled)
+                if (voiceEnabled) AutoDriverAlertController.stopVoice()
+                lastTemplateSignature = ""
+                invalidate()
+            })
+            builder.addAction(iconAction(R.drawable.ic_auto_report) {
+                carContext.getCarService(ScreenManager::class.java).push(VroomReportScreen(carContext))
+            })
             return builder.build()
         }
 
@@ -92,24 +104,67 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
                 .build()
         )
 
-        builder.addAction(themeAction())
-
-        builder.addAction(recenterAction())
+        builder.addAction(reportAction())
+        builder.addAction(
+            Action.Builder()
+                .setTitle("Menu")
+                .setOnClickListener { openMenu() }
+                .build(),
+        )
 
         return builder.build()
     }
 
     private fun recenterAction(): Action =
-        Action.Builder()
-            .setTitle("Centruj")
+        persistentActionBuilder()
+            .setIcon(
+                CarIcon.Builder(
+                    IconCompat.createWithResource(carContext, R.drawable.ic_auto_recenter),
+                ).build(),
+            )
             .setOnClickListener { mapRenderer.recenterFromHost() }
             .build()
 
     private fun themeAction(): Action =
-        Action.Builder()
-            .setTitle(if (effectiveNightModeActive()) "Jasny" else "Ciemny")
-            .setOnClickListener { toggleNightModeOverride() }
+        persistentActionBuilder()
+            .setIcon(
+                CarIcon.Builder(
+                    IconCompat.createWithResource(carContext, R.drawable.ic_auto_theme),
+                ).build(),
+            )
+            .setOnClickListener {
+                AutoNavStore.toggleQuickTheme(carContext, hostNightModeActive)
+                mapRenderer.setNightModeActive(effectiveNightModeActive())
+                lastTemplateSignature = ""
+                invalidate()
+            }
             .build()
+
+    private fun persistentActionBuilder(): Action.Builder =
+        Action.Builder().apply {
+            if (carContext.carAppApiLevel >= 5) setFlags(Action.FLAG_IS_PERSISTENT)
+        }
+
+    private fun iconAction(drawableRes: Int, title: String? = null, onClick: () -> Unit): Action =
+        Action.Builder().apply {
+            setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, drawableRes)).build())
+            title?.let(::setTitle)
+            setOnClickListener { onClick() }
+        }.build()
+
+    private fun reportAction(): Action =
+        Action.Builder()
+            .setTitle("Zgłoś")
+            .setOnClickListener {
+                carContext.getCarService(ScreenManager::class.java)
+                    .push(VroomReportScreen(carContext))
+            }
+            .build()
+
+    private fun openMenu() {
+        carContext.getCarService(ScreenManager::class.java)
+            .push(VroomMenuScreen(carContext))
+    }
 
     private fun openSystemSearch() {
         runCatching {
@@ -120,34 +175,30 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         }
     }
 
-    private fun routingInfo(payload: VroomPayload?, snapshot: AutoNavSnapshot?): RoutingInfo? {
+    private fun routingInfo(payload: VroomPayload?, snapshot: AutoNavSnapshot?): NavigationTemplate.NavigationInfo? {
+        if (payload?.mapState?.arrived == true || snapshot?.arrived == true) {
+            val destination = payload?.destinationName ?: snapshot?.destinationName ?: "celu"
+            return MessageInfo.Builder("Jesteś na miejscu")
+                .setText("Dotarłeś do $destination")
+                .build()
+        }
+        if (payload?.mapState?.isBuilding == true || payload?.mapState?.offRoute == true || snapshot?.isBuilding == true || snapshot?.offRoute == true) {
+            return MessageInfo.Builder("Przeliczam trasę")
+                .setText("Za chwilę pokażę dalsze prowadzenie")
+                .build()
+        }
+        if (payload?.isNavigating == true && (payload.userLat == null || payload.userLng == null)) {
+            return MessageInfo.Builder("Szukam sygnału GPS")
+                .setText("Jedź ostrożnie — pozycja wróci automatycznie")
+                .build()
+        }
         if (payload?.isNavigating == true) {
             val meters = (payload.turnDistanceMeters ?: payload.remainingDistanceMeters ?: 1)
                 .coerceAtLeast(1)
                 .toDouble()
-            val cue = normalizedCue(
-                payload.instruction,
-                payload.destinationName,
-                payload.maneuver,
-                payload.maneuverModifier
-            )
+            val cue = AutoInstructionFormatter.cue(payload.instruction, payload.destinationName, payload.maneuver, payload.maneuverModifier, payload.maneuverExit)
             return RoutingInfo.Builder()
-                .setCurrentStep(
-                    Step.Builder().apply {
-                        setCue(cue)
-                        setManeuver(
-                            Maneuver.Builder(
-                                AutoManeuverResolver.maneuverType(
-                                    maneuver = payload.maneuver,
-                                    modifier = payload.maneuverModifier,
-                                    instruction = payload.instruction,
-                                    cue = cue,
-                                ),
-                            ).build(),
-                        )
-                    }.build(),
-                    Distance.create(meters, Distance.UNIT_METERS)
-                )
+                .setCurrentStep(systemStep(cue, payload.maneuver, payload.maneuverModifier, payload.instruction), Distance.create(meters, Distance.UNIT_METERS))
                 .build()
         }
 
@@ -155,81 +206,24 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
             val meters = (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
                 .coerceAtLeast(1)
                 .toDouble()
-            val cue = normalizedCue(
-                snapshot.instruction,
-                snapshot.destinationName,
-                snapshot.maneuver,
-                snapshot.maneuverModifier
-            )
+            val cue = AutoInstructionFormatter.cue(snapshot.instruction, snapshot.destinationName, snapshot.maneuver, snapshot.maneuverModifier, snapshot.maneuverExit)
             return RoutingInfo.Builder()
-                .setCurrentStep(
-                    Step.Builder().apply {
-                        setCue(cue)
-                        setManeuver(
-                            Maneuver.Builder(
-                                AutoManeuverResolver.maneuverType(
-                                    maneuver = snapshot.maneuver,
-                                    modifier = snapshot.maneuverModifier,
-                                    instruction = snapshot.instruction,
-                                    cue = cue,
-                                ),
-                            ).build(),
-                        )
-                    }.build(),
-                    Distance.create(meters, Distance.UNIT_METERS)
-                )
+                .setCurrentStep(systemStep(cue, snapshot.maneuver, snapshot.maneuverModifier, snapshot.instruction), Distance.create(meters, Distance.UNIT_METERS))
                 .build()
         }
 
         return null
     }
 
-    private fun normalizedCue(
-        instruction: String?,
-        destinationName: String?,
-        maneuver: String?,
-        modifier: String?
-    ): String {
-        val clean = instruction?.trim().orEmpty()
-        if (clean.equals("rusz", ignoreCase = true) || clean.equals("depart", ignoreCase = true)) {
-            return "Jedz prosto"
-        }
-        if (clean.isNotBlank() && !looksEnglishInstruction(clean)) return clean
-
-        val type = maneuver?.lowercase(java.util.Locale.US).orEmpty()
-        val mod = modifier?.lowercase(java.util.Locale.US).orEmpty()
-        return when {
-            type == "arrive" -> "Dojezdzasz do celu"
-            (type == "roundabout" || type == "rotary") && mod.contains("exit") -> {
-                val exit = mod.substringAfter("exit", "").trim().substringBefore(" ").toIntOrNull()
-                if (exit != null && exit > 0) "Na rondzie zjedz ${roundaboutExitLabel(exit)} zjazdem" else "Wjedz na rondo"
-            }
-            type == "roundabout" || type == "rotary" -> "Wjedz na rondo"
-            type == "merge" -> "Wlacz sie do ruchu"
-            type == "fork" && mod.contains("left") -> "Trzymaj sie lewej strony"
-            type == "fork" && mod.contains("right") -> "Trzymaj sie prawej strony"
-            type == "fork" -> "Trzymaj sie rozwidlenia"
-            mod.contains("uturn") -> "Zawroc"
-            mod.contains("left") -> "Skrec w lewo"
-            mod.contains("right") -> "Skrec w prawo"
-            type == "depart" || mod.contains("straight") -> "Jedz prosto"
-            else -> destinationName?.takeIf { it.isNotBlank() }?.let { "Jedz do $it" } ?: "Jedz prosto"
-        }
-    }
-
-    private fun roundaboutExitLabel(exit: Int): String = when (exit) {
-        1 -> "pierwszym"
-        2 -> "drugim"
-        3 -> "trzecim"
-        4 -> "czwartym"
-        5 -> "piatym"
-        else -> "${exit}."
-    }
-
-    private fun looksEnglishInstruction(value: String): Boolean {
-        val lower = value.lowercase(java.util.Locale.US)
-        return listOf("turn ", "continue", "merge", "arrive", "depart", "roundabout", "keep ", "head ").any { lower.contains(it) }
-    }
+    private fun systemStep(cue: String, maneuver: String?, modifier: String?, instruction: String?): Step =
+        Step.Builder()
+            .setCue(cue)
+            .setManeuver(
+                Maneuver.Builder(
+                    AutoManeuverResolver.maneuverType(maneuver, modifier, instruction, cue),
+                ).build(),
+            )
+            .build()
 
     private fun templateSignature(payload: VroomPayload?): String {
         val snapshot = runCatching { AutoNavStore.snapshot(carContext) }.getOrNull()
@@ -247,7 +241,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
             ?: 0
         val maneuver = payload?.maneuver.orEmpty()
         val modifier = payload?.maneuverModifier ?: snapshot?.maneuverModifier ?: ""
-        return "$isNavigating:$isPreview:$cue:$maneuver:$modifier:$distance:${effectiveNightModeActive()}"
+        val following = payload?.followingInstruction ?: snapshot?.followingInstruction ?: ""
+        val voice = AutoNavStore.navigationVoiceEnabled(carContext) ||
+            AutoNavStore.voiceAlertsEnabled(carContext)
+        return "$isNavigating:$isPreview:$cue:$maneuver:$modifier:$following:$distance:$voice:${effectiveNightModeActive()}"
     }
 
     fun setNightModeActive(isNightModeActive: Boolean) {
@@ -256,14 +253,18 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         invalidate()
     }
 
-    private fun toggleNightModeOverride() {
-        manualNightModeOverride = !effectiveNightModeActive()
-        mapRenderer.setNightModeActive(effectiveNightModeActive())
-        invalidate()
+    private fun effectiveNightModeActive(): Boolean {
+        return when (AutoNavStore.themeMode(carContext)) {
+            AutoThemeMode.AUTO -> hostNightModeActive
+            AutoThemeMode.DAY -> false
+            AutoThemeMode.NIGHT -> true
+        }
     }
 
-    private fun effectiveNightModeActive(): Boolean {
-        return manualNightModeOverride ?: hostNightModeActive
+    fun refreshTheme() {
+        mapRenderer.setNightModeActive(effectiveNightModeActive())
+        lastTemplateSignature = ""
+        invalidate()
     }
 
     fun updateNativeLocation(lat: Double, lng: Double, speedMs: Double, heading: Double) {
@@ -278,11 +279,16 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         mapRenderer.resyncMapMarkers()
     }
 
+    fun showDriverAlert(text: String) {
+        mapRenderer.showDriverAlert(text)
+    }
+
     fun updateData(jsonPayload: String) {
         val parsed = VroomPayloadParser.parse(jsonPayload)
         if (parsed != null) {
             latestPayload = parsed
             mapRenderer.updateMapWithPayload(parsed)
+            AutoDriverAlertController.update(parsed)
             val nextTemplateSignature = templateSignature(parsed)
             AutoNavigationCoordinator.syncFromPayload(parsed)
             if (nextTemplateSignature != lastTemplateSignature) {
@@ -295,13 +301,10 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
     }
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-        lastSurfaceWidth = surfaceContainer.width
-        lastSurfaceHeight = surfaceContainer.height
         mapRenderer.onSurfaceAvailable(surfaceContainer)
     }
 
     override fun onVisibleAreaChanged(visibleArea: android.graphics.Rect) {
-        updateCompactSurfaceLayout(visibleArea)
         mapRenderer.onVisibleAreaChanged(visibleArea)
     }
 
@@ -325,18 +328,4 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         mapRenderer.onScale(focusX, focusY, scaleFactor)
     }
 
-    private fun updateCompactSurfaceLayout(visibleArea: android.graphics.Rect) {
-        val visibleW = visibleArea.width()
-        val visibleH = visibleArea.height()
-        val nextCompact = if (lastSurfaceWidth > 0) {
-            visibleW < lastSurfaceWidth * 0.86f || visibleH < lastSurfaceHeight * 0.86f
-        } else {
-            visibleW < 780 && visibleH <= 560
-        }
-        if (compactSurfaceLayout != nextCompact) {
-            compactSurfaceLayout = nextCompact
-            lastTemplateSignature = ""
-            invalidate()
-        }
-    }
 }

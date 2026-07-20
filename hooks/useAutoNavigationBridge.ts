@@ -59,6 +59,8 @@ interface UseAutoNavigationBridgeParams {
   offRoute?: boolean;
   currentStep: number;
   navStep: Step | null;
+  followingNavStep?: Step | null;
+  upcomingNavSteps?: Step[] | null;
   routeInfo: (RouteInfo & { durationText?: string | null }) | null;
   remainingDistKm: number | null;
   distToTurnM: number | null;
@@ -190,6 +192,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     offRoute,
     currentStep,
     navStep,
+    followingNavStep,
+    upcomingNavSteps,
     routeInfo,
     remainingDistKm,
     distToTurnM,
@@ -265,6 +269,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       isNavigating,
       currentStepIndex: currentStep,
       step: navStep,
+      followingStep: followingNavStep,
+      followingSteps: upcomingNavSteps,
       remainingDistKm,
       distToTurnM,
       routeInfo,
@@ -274,6 +280,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     isNavigating,
     currentStep,
     navStep,
+    followingNavStep,
+    upcomingNavSteps,
     remainingDistKm,
     distToTurnM,
     routeInfo,

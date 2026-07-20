@@ -79,14 +79,28 @@ object AutoManeuverResolver {
         maneuver: String?,
         modifier: String?,
         instruction: String? = null,
-    ): String = when {
-        isStraightManeuver(maneuver, modifier, instruction, instruction) -> "straight"
-        maneuver?.lowercase(java.util.Locale.US).orEmpty() in setOf("roundabout", "rotary") -> "roundabout"
-        maneuver?.lowercase(java.util.Locale.US).orEmpty() == "arrive" -> "arrive"
-        modifier?.lowercase(java.util.Locale.US)?.contains("left") == true -> "left"
-        modifier?.lowercase(java.util.Locale.US)?.contains("right") == true -> "right"
-        modifier?.lowercase(java.util.Locale.US)?.contains("uturn") == true -> "uturn"
-        maneuver?.lowercase(java.util.Locale.US).orEmpty() == "merge" -> "merge"
-        else -> "straight"
+    ): String {
+        val type = maneuver?.lowercase(java.util.Locale.US).orEmpty()
+        val mod = modifier?.lowercase(java.util.Locale.US).orEmpty()
+        return when {
+            type in setOf("roundabout", "rotary") || mod.contains("roundabout") -> "roundabout"
+            type == "arrive" -> "arrive"
+            mod.contains("uturn") -> if (mod.contains("right")) "uturn-right" else "uturn-left"
+            type == "fork" && mod.contains("left") -> "fork-left"
+            type == "fork" && mod.contains("right") -> "fork-right"
+            type == "merge" && mod.contains("left") -> "merge-left"
+            type == "merge" && mod.contains("right") -> "merge-right"
+            type == "merge" -> "merge"
+            type in setOf("off ramp", "on ramp") && mod.contains("left") -> "ramp-left"
+            type in setOf("off ramp", "on ramp") && mod.contains("right") -> "ramp-right"
+            mod.contains("sharp left") -> "sharp-left"
+            mod.contains("sharp right") -> "sharp-right"
+            mod.contains("slight left") -> "slight-left"
+            mod.contains("slight right") -> "slight-right"
+            mod.contains("left") -> "left"
+            mod.contains("right") -> "right"
+            isStraightManeuver(maneuver, modifier, instruction, instruction) -> "straight"
+            else -> "straight"
+        }
     }
 }

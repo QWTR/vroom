@@ -171,8 +171,9 @@ dependencies {
     implementation("com.facebook.react:react-android")
 
     // Android Auto dependencies
-    implementation "androidx.car.app:app:1.4.0"
-    implementation "androidx.car.app:app-projected:1.4.0"
+    implementation "androidx.car.app:app:1.7.0"
+    implementation "androidx.car.app:app-projected:1.7.0"
+    testImplementation "junit:junit:4.13.2"
     implementation "com.google.android.gms:play-services-location:21.0.1"
     
     // Mapbox SDK (ndk27 variants for 16KB alignment and Android 15 support)

@@ -18,6 +18,7 @@ class VroomCarSession : Session() {
                 AutoNavStore.setNativeDistanceOwner(carContext, false)
                 VroomCarManager.clearCarContext()
                 AutoNavigationCoordinator.detach()
+                AutoDriverAlertController.detach()
                 VroomCarManager.clearScreen()
                 carScreen = null
             }
@@ -26,6 +27,7 @@ class VroomCarSession : Session() {
 
     override fun onCreateScreen(intent: Intent): Screen {
         AutoNavigationCoordinator.attach(carContext)
+        AutoDriverAlertController.attach(carContext)
         VroomCarManager.setCarContext(carContext)
         VroomCarManager.setAppContext(carContext)
         val screen = VroomCarScreen(carContext)

@@ -138,6 +138,7 @@ object AutoNavigationCoordinator {
 
     fun stopNavigation() {
         AutoDriveSimulator.stop()
+        AutoTurnNotificationManager.cancel(carContext)
         if (navigationActive) {
             runCatching { navigationManager?.navigationEnded() }
             navigationActive = false
@@ -147,11 +148,15 @@ object AutoNavigationCoordinator {
 
     private fun publishTrip(payload: VroomPayload?, snapshot: AutoNavSnapshot?) {
         val manager = navigationManager ?: return
-        val cue = payload?.instruction?.takeIf { it.isNotBlank() }
-            ?: snapshot?.instruction?.takeIf { it.isNotBlank() }
-            ?: "Jedz prosto"
         val maneuver = payload?.maneuver ?: snapshot?.maneuver
         val modifier = payload?.maneuverModifier ?: snapshot?.maneuverModifier
+        val cue = AutoInstructionFormatter.cue(
+            instruction = payload?.instruction ?: snapshot?.instruction,
+            destinationName = payload?.destinationName ?: snapshot?.destinationName,
+            maneuver = maneuver,
+            modifier = modifier,
+            exit = payload?.maneuverExit ?: snapshot?.maneuverExit,
+        )
         val turnMeters = (payload?.turnDistanceMeters ?: snapshot?.turnDistanceMeters ?: 1)
             .coerceAtLeast(1)
             .toDouble()
@@ -197,10 +202,42 @@ object AutoNavigationCoordinator {
                 TimeZone.getDefault(),
             ),
         ).build()
-        val trip = Trip.Builder()
-            .addStep(step, stepEstimate)
+        val tripBuilder = Trip.Builder().addStep(step, stepEstimate)
+        val followingInstruction = payload?.followingInstruction?.takeIf { it.isNotBlank() }
+            ?: snapshot?.followingInstruction?.takeIf { it.isNotBlank() }
+        if (followingInstruction != null) {
+            val followingManeuver = payload?.followingManeuver ?: snapshot?.followingManeuver
+            val followingModifier = payload?.followingManeuverModifier ?: snapshot?.followingManeuverModifier
+            val followingCue = AutoInstructionFormatter.cue(
+                followingInstruction,
+                destinationName,
+                followingManeuver,
+                followingModifier,
+                payload?.followingManeuverExit ?: snapshot?.followingManeuverExit,
+            )
+            val followingStep = Step.Builder()
+                .setCue(followingCue)
+                .setManeuver(
+                    Maneuver.Builder(
+                        AutoManeuverResolver.maneuverType(followingManeuver, followingModifier, followingInstruction, followingCue),
+                    ).build(),
+                )
+                .build()
+            val followingMeters = (payload?.followingTurnDistanceMeters ?: snapshot?.followingTurnDistanceMeters ?: turnMeters.toInt())
+                .coerceAtLeast(1)
+                .toDouble()
+            tripBuilder.addStep(
+                followingStep,
+                TravelEstimate.Builder(
+                    Distance.create(followingMeters, Distance.UNIT_METERS),
+                    DateTimeWithZone.create(System.currentTimeMillis() + remainingSec * 1_000L, TimeZone.getDefault()),
+                ).build(),
+            )
+        }
+        val trip = tripBuilder
             .addDestination(destination, destinationEstimate)
             .build()
         runCatching { manager.updateTrip(trip) }
+        carContext?.let { AutoTurnNotificationManager.update(it, cue, turnMeters, destinationName) }
     }
 }

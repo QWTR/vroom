@@ -41,8 +41,11 @@ object AutoNavStore {
   private const val KEY_SHOW_WARNINGS = "show_warnings"
   private const val KEY_SHOW_CAMERAS = "show_cameras"
   private const val KEY_SHOW_FUEL = "show_fuel"
+  private const val KEY_SHOW_PARTNERS = "show_partners"
+  private const val KEY_VOICE_GUIDANCE = "voice_guidance"
   private const val KEY_VOICE_ALERTS = "voice_alerts"
   private const val KEY_SPEED_ALERTS = "speed_alerts"
+  private const val KEY_THEME_MODE = "theme_mode"
   private const val KEY_LAST_TRACK_LAT = "last_track_lat"
   private const val KEY_LAST_TRACK_LNG = "last_track_lng"
   private const val KEY_LAST_TRACK_TS = "last_track_ts"
@@ -268,12 +271,44 @@ object AutoNavStore {
     clearNavigationState(context)
   }
   fun requestReport(context: Context, type: String = "menu") { prefs(context).edit().putString(KEY_REPORT_REQUESTED, type).apply() }
-  fun setMapOption(context: Context, key: String, enabled: Boolean) { prefs(context).edit().putBoolean(key, enabled).apply() }
+  fun setMapOption(context: Context, key: String, enabled: Boolean) {
+    prefs(context).edit().putBoolean(key, enabled).apply()
+    cachedSnapshot = null
+  }
   fun getMapOption(context: Context, key: String, default: Boolean): Boolean = prefs(context).getBoolean(key, default)
   fun showUsersLayer(context: Context): Boolean = getMapOption(context, KEY_SHOW_USERS, true)
   fun showWarningsLayer(context: Context): Boolean = getMapOption(context, KEY_SHOW_WARNINGS, true)
   fun showSpeedCamerasLayer(context: Context): Boolean = getMapOption(context, KEY_SHOW_CAMERAS, true)
   fun showFuelLayer(context: Context): Boolean = getMapOption(context, KEY_SHOW_FUEL, true)
+  fun showPartnersLayer(context: Context): Boolean = getMapOption(context, KEY_SHOW_PARTNERS, true)
+  fun navigationVoiceEnabled(context: Context): Boolean = getMapOption(context, KEY_VOICE_GUIDANCE, true)
+  fun setNavigationVoiceEnabled(context: Context, enabled: Boolean) = setMapOption(context, KEY_VOICE_GUIDANCE, enabled)
+  fun voiceAlertsEnabled(context: Context): Boolean = getMapOption(context, KEY_VOICE_ALERTS, true)
+  fun setVoiceAlertsEnabled(context: Context, enabled: Boolean) = setMapOption(context, KEY_VOICE_ALERTS, enabled)
+  fun themeMode(context: Context): AutoThemeMode =
+    AutoThemeMode.fromStored(prefs(context).getString(KEY_THEME_MODE, AutoThemeMode.AUTO.name))
+  fun setThemeMode(context: Context, mode: AutoThemeMode) {
+    prefs(context).edit().putString(KEY_THEME_MODE, mode.name).apply()
+  }
+  fun cycleThemeMode(context: Context): AutoThemeMode {
+    val next = when (themeMode(context)) {
+      AutoThemeMode.AUTO -> AutoThemeMode.DAY
+      AutoThemeMode.DAY -> AutoThemeMode.NIGHT
+      AutoThemeMode.NIGHT -> AutoThemeMode.AUTO
+    }
+    setThemeMode(context, next)
+    return next
+  }
+  fun toggleQuickTheme(context: Context, hostNightMode: Boolean): AutoThemeMode {
+    val effectiveNight = when (themeMode(context)) {
+      AutoThemeMode.AUTO -> hostNightMode
+      AutoThemeMode.DAY -> false
+      AutoThemeMode.NIGHT -> true
+    }
+    val next = if (effectiveNight) AutoThemeMode.DAY else AutoThemeMode.NIGHT
+    setThemeMode(context, next)
+    return next
+  }
   fun recentSearches(context: Context, limit: Int = 4): List<AutoSearchPlace> {
     val raw = prefs(context).getString(KEY_SEARCH_HISTORY, "[]") ?: "[]"
     val arr = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
@@ -339,7 +374,15 @@ object AutoNavStore {
         currentLat = currentLat,
         currentLng = currentLng,
         heading = heading,
-        speedKmh = speedKmh
+        speedKmh = speedKmh,
+        showUsers = getMapOption(context, KEY_SHOW_USERS, true),
+        showWarnings = getMapOption(context, KEY_SHOW_WARNINGS, true),
+        showSpeedCameras = getMapOption(context, KEY_SHOW_CAMERAS, true),
+        showFuelStations = getMapOption(context, KEY_SHOW_FUEL, true),
+        showPartnerPois = getMapOption(context, KEY_SHOW_PARTNERS, true),
+        voiceGuidance = getMapOption(context, KEY_VOICE_GUIDANCE, true),
+        voiceAlerts = getMapOption(context, KEY_VOICE_ALERTS, true),
+        speedAlerts = getMapOption(context, KEY_SPEED_ALERTS, true),
       )
     }
 
@@ -356,6 +399,7 @@ object AutoNavStore {
     val builderPins = parseMarkers(mapState?.optJSONArray("builderPins"), "pin")
     val speedCameras = parseMarkers(mapState?.optJSONArray("speedCameras"), "camera")
     val fuelStations = parseMarkers(mapState?.optJSONArray("fuelStations"), "fuel")
+    val partnerPois = parseMarkers(mapState?.optJSONArray("partnerPois"), "partner")
     val users = parseMarkers(usersRaw, "user")
     val warnings = parseMarkers(warningsRaw, "warning")
     val start = mapState?.optJSONObject("start")
@@ -377,6 +421,13 @@ object AutoNavStore {
       instruction = dto?.optString("nextInstruction", fallbackInstruction) ?: fallbackInstruction,
       maneuver = dto?.optString("maneuver", "navigation") ?: "navigation",
       maneuverModifier = dto?.optString("maneuverModifier", "") ?: "",
+      maneuverExit = dto?.nullableInt("maneuverExit"),
+      followingInstruction = dto?.optString("followingInstruction", "") ?: "",
+      followingManeuver = dto?.optString("followingManeuver", "") ?: "",
+      followingManeuverModifier = dto?.optString("followingManeuverModifier", "") ?: "",
+      followingManeuverExit = dto?.nullableInt("followingManeuverExit"),
+      followingTurnDistanceMeters = dto?.nullableInt("followingTurnDistanceMeters"),
+      upcomingSteps = parseUpcomingSteps(dto),
       remainingDistanceMeters = if (effectiveNavigating && dto?.has("remainingDistanceMeters") == true) dto.optInt("remainingDistanceMeters") else null,
       remainingDurationSec = if (effectiveNavigating && dto?.has("remainingDurationSec") == true) dto.optInt("remainingDurationSec") else null,
       turnDistanceMeters = if (effectiveNavigating && dto?.has("turnDistanceMeters") == true) dto.optInt("turnDistanceMeters") else null,
@@ -392,6 +443,8 @@ object AutoNavStore {
       showWarnings = getMapOption(context, KEY_SHOW_WARNINGS, true),
       showSpeedCameras = getMapOption(context, KEY_SHOW_CAMERAS, true),
       showFuelStations = getMapOption(context, KEY_SHOW_FUEL, true),
+      showPartnerPois = getMapOption(context, KEY_SHOW_PARTNERS, true),
+      voiceGuidance = getMapOption(context, KEY_VOICE_GUIDANCE, true),
       voiceAlerts = getMapOption(context, KEY_VOICE_ALERTS, true),
       speedAlerts = getMapOption(context, KEY_SPEED_ALERTS, true),
       currentLat = currentLat,
@@ -414,6 +467,7 @@ object AutoNavStore {
       warnings = warnings,
       speedCameras = speedCameras,
       fuelStations = fuelStations,
+      partnerPois = partnerPois,
     )
 
     return cachedSnapshot!!
@@ -915,6 +969,13 @@ object AutoNavStore {
     val durationS = selected.optInt("durationS", 0).coerceAtLeast(0)
     val maneuverType = selected.optString("maneuver", "straight")
     val maneuverModifier = selected.optString("maneuverModifier", "")
+    val firstRouteStep = routeSteps.optJSONObject(0)
+    val followingRouteStep = routeSteps.optJSONObject(1)
+    val upcomingSteps = JSONArray().apply {
+      for (index in 1 until minOf(routeSteps.length(), 4)) {
+        routeSteps.optJSONObject(index)?.let { put(JSONObject(it.toString())) }
+      }
+    }
     val turnDistanceM = distanceM
 
     val dto = JSONObject().apply {
@@ -923,6 +984,13 @@ object AutoNavStore {
       put("nextInstruction", instruction)
       put("maneuver", maneuverType)
       put("maneuverModifier", maneuverModifier)
+      put("maneuverExit", firstRouteStep?.optInt("maneuverExit", 0) ?: 0)
+      put("followingInstruction", followingRouteStep?.optString("instruction", "") ?: "")
+      put("followingManeuver", followingRouteStep?.optString("maneuver", "") ?: "")
+      put("followingManeuverModifier", followingRouteStep?.optString("maneuverModifier", "") ?: "")
+      put("followingManeuverExit", followingRouteStep?.optInt("maneuverExit", 0) ?: 0)
+      put("followingTurnDistanceMeters", followingRouteStep?.optInt("distanceMeters", 0) ?: 0)
+      put("upcomingSteps", upcomingSteps)
       put("remainingDistanceMeters", distanceM)
       put("remainingDurationSec", durationS)
       put("turnDistanceMeters", turnDistanceM)
@@ -1095,6 +1163,7 @@ object AutoNavStore {
           put("instruction", polishInstruction(step, maneuver))
           put("maneuver", maneuver?.optString("type", "straight") ?: "straight")
           put("maneuverModifier", maneuverModifierForStep(maneuver))
+          put("maneuverExit", maneuver?.optInt("exit", 0) ?: 0)
           put("distanceMeters", step.optDouble("distance", 0.0).toInt().coerceAtLeast(1))
           put("durationSec", step.optDouble("duration", 0.0).toInt().coerceAtLeast(0))
         })
@@ -1712,12 +1781,27 @@ object AutoNavStore {
     val distanceM = route.optDouble("distance", 0.0).toInt().coerceAtLeast(1)
     val durationS = route.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
     val maneuverType = maneuver?.optString("type", "straight") ?: "straight"
+    val routeSteps = routeStepsJson(leg?.optJSONArray("steps") ?: JSONArray(), points)
+    val followingRouteStep = routeSteps.optJSONObject(1)
+    val upcomingSteps = JSONArray().apply {
+      for (index in 1 until minOf(routeSteps.length(), 4)) {
+        routeSteps.optJSONObject(index)?.let { put(JSONObject(it.toString())) }
+      }
+    }
 
     val dto = JSONObject().apply {
       put("isNavigating", true)
       put("currentStepIndex", 0)
       put("nextInstruction", instruction)
       put("maneuver", maneuverType)
+      put("maneuverModifier", maneuverModifierForStep(maneuver))
+      put("maneuverExit", maneuver?.optInt("exit", 0) ?: 0)
+      put("followingInstruction", followingRouteStep?.optString("instruction", "") ?: "")
+      put("followingManeuver", followingRouteStep?.optString("maneuver", "") ?: "")
+      put("followingManeuverModifier", followingRouteStep?.optString("maneuverModifier", "") ?: "")
+      put("followingManeuverExit", followingRouteStep?.optInt("maneuverExit", 0) ?: 0)
+      put("followingTurnDistanceMeters", followingRouteStep?.optInt("distanceMeters", 0) ?: 0)
+      put("upcomingSteps", upcomingSteps)
       put("remainingDistanceMeters", distanceM)
       put("remainingDurationSec", durationS)
       put("turnDistanceMeters", distanceM)
@@ -1869,6 +1953,40 @@ object AutoNavStore {
     }
   }.getOrElse { emptyList() }
 
+  private fun parseUpcomingSteps(dto: JSONObject?): List<AutoUpcomingStep> {
+    val array = dto?.optJSONArray("upcomingSteps")
+    if (array != null) {
+      val items = buildList {
+        for (index in 0 until minOf(array.length(), 3)) {
+          val item = array.optJSONObject(index) ?: continue
+          val instruction = item.optString("instruction", "").trim()
+          if (instruction.isBlank()) continue
+          add(
+            AutoUpcomingStep(
+              instruction = instruction,
+              maneuver = item.optString("maneuver", ""),
+              maneuverModifier = item.optString("maneuverModifier", ""),
+              maneuverExit = item.nullableInt("maneuverExit"),
+              distanceMeters = item.nullableInt("distanceMeters"),
+            )
+          )
+        }
+      }
+      if (items.isNotEmpty()) return items
+    }
+    val instruction = dto?.optString("followingInstruction", "")?.trim().orEmpty()
+    if (instruction.isBlank()) return emptyList()
+    return listOf(
+      AutoUpcomingStep(
+        instruction = instruction,
+        maneuver = dto?.optString("followingManeuver", "").orEmpty(),
+        maneuverModifier = dto?.optString("followingManeuverModifier", "").orEmpty(),
+        maneuverExit = dto?.nullableInt("followingManeuverExit"),
+        distanceMeters = dto?.nullableInt("followingTurnDistanceMeters"),
+      )
+    )
+  }
+
   private fun JSONObject.nullableInt(key: String): Int? =
     if (has(key) && !isNull(key)) optInt(key) else null
 }
@@ -1903,6 +2021,13 @@ data class AutoNavSnapshot(
   val instruction: String,
   val maneuver: String,
   val maneuverModifier: String,
+  val maneuverExit: Int?,
+  val followingInstruction: String,
+  val followingManeuver: String,
+  val followingManeuverModifier: String,
+  val followingManeuverExit: Int?,
+  val followingTurnDistanceMeters: Int?,
+  val upcomingSteps: List<AutoUpcomingStep>,
   val remainingDistanceMeters: Int?,
   val remainingDurationSec: Int?,
   val turnDistanceMeters: Int?,
@@ -1918,6 +2043,8 @@ data class AutoNavSnapshot(
   val showWarnings: Boolean,
   val showSpeedCameras: Boolean,
   val showFuelStations: Boolean,
+  val showPartnerPois: Boolean,
+  val voiceGuidance: Boolean,
   val voiceAlerts: Boolean,
   val speedAlerts: Boolean,
   val currentLat: Double,
@@ -1940,4 +2067,5 @@ data class AutoNavSnapshot(
   val warnings: List<AutoMapMarker>,
   val speedCameras: List<AutoMapMarker>,
   val fuelStations: List<AutoMapMarker>,
+  val partnerPois: List<AutoMapMarker>,
 )

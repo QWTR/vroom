@@ -649,18 +649,38 @@ class VroomSearchResultsScreen(
 class VroomMapSettingsScreen(carContext: CarContext) : Screen(carContext) {
   override fun onGetTemplate(): Template {
     val list = ItemList.Builder()
+      .addItem(themeRow())
       .addItem(toggleRow("Widocznosc live", KEY_SHOW_USERS, true, "Uzytkownicy i znajomi na mapie"))
       .addItem(toggleRow("Ostrzezenia", KEY_SHOW_WARNINGS, true, "Wypadki, korki, policja i zagrozenia"))
       .addItem(toggleRow("Fotoradary", KEY_SHOW_CAMERAS, true, "Kamery, progi i kontrole predkosci"))
       .addItem(toggleRow("Stacje paliw", KEY_SHOW_FUEL, true, "Wszystkie dostepne stacje w okolicy"))
-      .addItem(toggleRow("Alerty glosowe", KEY_VOICE_ALERTS, true, "Komunikaty ostrzezen podczas jazdy"))
-      .addItem(toggleRow("Limit predkosci", KEY_SPEED_ALERTS, true, "Powiadomienia o przekroczeniu limitu"))
+      .addItem(toggleRow("Partnerzy VROOM", KEY_SHOW_PARTNERS, true, "Firmy, oferty i miejsca partnerskie"))
+      .addItem(toggleRow("Głos nawigacji", KEY_VOICE_GUIDANCE, true, "Komunikaty manewrów i prowadzenia"))
+      .addItem(toggleRow("Głos ostrzeżeń", KEY_VOICE_ALERTS, true, "Komunikaty zagrożeń podczas jazdy"))
       .build()
 
     return ListTemplate.Builder()
       .setSingleList(list)
       .setTitle("Ustawienia mapy")
       .setHeaderAction(Action.BACK)
+      .build()
+  }
+
+  private fun themeRow(): Row {
+    val mode = AutoNavStore.themeMode(carContext)
+    val label = when (mode) {
+      AutoThemeMode.AUTO -> "AUTOMATYCZNY"
+      AutoThemeMode.DAY -> "JASNY"
+      AutoThemeMode.NIGHT -> "CIEMNY"
+    }
+    return Row.Builder()
+      .setTitle("Motyw mapy")
+      .addText("$label - dotknij, aby zmienić")
+      .setOnClickListener {
+        AutoNavStore.cycleThemeMode(carContext)
+        VroomCarManager.refreshTheme()
+        invalidate()
+      }
       .build()
   }
 
@@ -681,7 +701,8 @@ class VroomMapSettingsScreen(carContext: CarContext) : Screen(carContext) {
     private const val KEY_SHOW_WARNINGS = "show_warnings"
     private const val KEY_SHOW_CAMERAS = "show_cameras"
     private const val KEY_SHOW_FUEL = "show_fuel"
+    private const val KEY_SHOW_PARTNERS = "show_partners"
+    private const val KEY_VOICE_GUIDANCE = "voice_guidance"
     private const val KEY_VOICE_ALERTS = "voice_alerts"
-    private const val KEY_SPEED_ALERTS = "speed_alerts"
   }
 }

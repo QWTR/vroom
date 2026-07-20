@@ -45,16 +45,50 @@ class AutoHudMetrics private constructor(
     fun contentTop(): Float = safeTop + s(if (compact) 10f else 14f)
     fun contentBottom(): Float = safeBottom - s(if (compact) 10f else 14f)
 
-    fun speedPanelRect(bottom: Float): RectF {
-        val h = s(if (compact) 112f else 132f)
-        val w = s(if (compact) 88f else 104f)
+    fun speedClusterRect(bottom: Float): RectF {
+        val h = s(if (compact) 82f else 94f)
+        val w = s(if (compact) 176f else 214f)
         val left = safeLeft + s(if (compact) 16f else 24f)
-        return RectF(left, bottom - h, left + w, bottom - s(4f))
+        return RectF(left, bottom - h, left + w, bottom)
     }
 
-    fun speedValueBaseline(rect: RectF): Float = rect.top + s(if (compact) 76f else 88f)
-    fun speedUnitBaseline(rect: RectF): Float = rect.top + s(if (compact) 101f else 116f)
-    fun speedLimitCenterY(rect: RectF): Float = rect.top + s(if (compact) 27f else 30f)
+    fun speedPanelRect(bottom: Float): RectF = speedClusterRect(bottom)
+    fun speedLimitCenterX(rect: RectF): Float = rect.left + s(if (compact) 43f else 50f)
+    fun speedLimitCenterY(rect: RectF): Float = rect.centerY()
+    fun speedValueCenterX(rect: RectF): Float = rect.left + s(if (compact) 127f else 153f)
+    fun speedValueBaseline(rect: RectF): Float = rect.top + s(if (compact) 52f else 60f)
+    fun speedUnitBaseline(rect: RectF): Float = rect.bottom - s(if (compact) 9f else 11f)
+
+    fun navigationCockpitRect(top: Float): RectF {
+        val margin = s(if (compact) 14f else 22f)
+        val maxW = s(if (compact) 380f else 470f)
+        val preferred = safeW * if (compact) 0.48f else 0.43f
+        val minW = s(if (compact) 278f else 340f)
+        val availableW = (safeW - margin * 2f).coerceAtLeast(1f)
+        val lower = minW.coerceAtMost(availableW)
+        val upper = maxW.coerceAtMost(availableW).coerceAtLeast(lower)
+        val width = preferred.coerceIn(lower, upper)
+        val height = s(if (compact) 164f else 188f)
+        val left = safeLeft + margin
+        return RectF(left, top, left + width, (top + height).coerceAtMost(safeBottom - margin))
+    }
+
+    fun navigationAlertRect(navigationRect: RectF): RectF {
+        val gap = s(8f)
+        val height = s(if (compact) 48f else 54f)
+        return RectF(
+            navigationRect.left,
+            navigationRect.bottom + gap,
+            navigationRect.right,
+            (navigationRect.bottom + gap + height).coerceAtMost(safeBottom - s(12f)),
+        )
+    }
+
+    fun cockpitRecenterRect(bottom: Float): RectF {
+        val size = max(touchMin(), s(if (compact) 52f else 58f))
+        val right = safeRight - s(if (compact) 16f else 24f)
+        return RectF(right - size, bottom - size, right, bottom)
+    }
 
     fun searchBarRect(top: Float): RectF {
         val left = safeLeft + s(if (compact) 18f else 24f)
@@ -83,11 +117,7 @@ class AutoHudMetrics private constructor(
     fun rightControlWidth(): Float = max(s(if (compact) 94f else 112f), touchMin() * if (compact) 1.75f else 2.1f)
 
     fun recenterRect(bottom: Float): RectF {
-        val w = rightControlWidth()
-        val h = max(s(if (compact) 50f else 54f), touchMin())
-        val right = safeRight - s(if (compact) 18f else 26f)
-        val topOffset = if (compact) 132f else 150f
-        return RectF(right - w, bottom - s(topOffset), right, bottom - s(topOffset) + h)
+        return cockpitRecenterRect(bottom)
     }
 
     fun reportRect(bottom: Float): RectF {
@@ -153,29 +183,45 @@ class AutoHudMetrics private constructor(
         topPanelBottom: Float,
         speedRect: RectF,
         rightControlLeft: Float,
+        leftPanelRight: Float? = null,
     ): AutoHudInsets {
         val margin = s(12f).toDouble()
         val rawTop = when (mode) {
             AutoHudLayoutMode.SEARCH, AutoHudLayoutMode.REPORT, AutoHudLayoutMode.LOADING ->
                 (safeH * 0.28).toDouble().coerceAtLeast(s(160f).toDouble())
-            AutoHudLayoutMode.NAVIGATING ->
-                (topPanelBottom - safeTop + margin + s(145f)).coerceAtLeast(s(205f).toDouble())
+            AutoHudLayoutMode.NAVIGATING -> s(24f).toDouble()
             else -> (topPanelBottom - safeTop + margin).coerceAtLeast(s(72f).toDouble())
         }
         val maxTop = when (mode) {
             AutoHudLayoutMode.NAVIGATING -> safeH * 0.48
             else -> safeH * 0.18
         }.toDouble()
-        val rawLeft = (speedRect.right - safeLeft + margin).coerceAtLeast(s(if (compact) 18f else 24f).toDouble())
+        val defaultLeft = (speedRect.right - safeLeft + margin)
+            .coerceAtLeast(s(if (compact) 18f else 24f).toDouble())
+        val rawLeft = when {
+            mode == AutoHudLayoutMode.ROUTE_PREVIEW ->
+                (safeW * if (compact) 0.48 else 0.46).toDouble()
+            mode == AutoHudLayoutMode.NAVIGATING && leftPanelRight != null ->
+                max(defaultLeft, leftPanelRight - safeLeft + margin)
+            else -> defaultLeft
+        }
         val rawBottom = (safeBottom - speedRect.top + margin).coerceAtLeast(s(36f).toDouble())
         val rawRight = (safeRight - rightControlLeft + margin).coerceAtLeast(s(if (compact) 18f else 24f).toDouble())
-        val sideLimit = if (compact) 0.18 else 0.16
+        val leftLimit = when (mode) {
+            AutoHudLayoutMode.ROUTE_PREVIEW -> 0.50
+            AutoHudLayoutMode.NAVIGATING -> if (compact) 0.32 else 0.34
+            else -> if (compact) 0.20 else 0.18
+        }
+        val rightLimit = when (mode) {
+            AutoHudLayoutMode.ROUTE_PREVIEW -> 0.18
+            else -> if (compact) 0.20 else 0.18
+        }
         val bottomLimit = if (compact) 0.24 else 0.22
         return AutoHudInsets(
             top = min(rawTop, maxTop),
-            left = min(rawLeft, (safeW * sideLimit).toDouble()),
+            left = min(rawLeft, (safeW * leftLimit).toDouble()),
             bottom = min(rawBottom, (safeH * bottomLimit).toDouble()),
-            right = min(rawRight, (safeW * sideLimit).toDouble()),
+            right = min(rawRight, (safeW * rightLimit).toDouble()),
         )
     }
 

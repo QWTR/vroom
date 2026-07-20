@@ -12626,6 +12626,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     offRoute,
     currentStep: announceStepIndex,
     navStep: effectiveNavRoute?.steps?.[announceStepIndex] ?? null,
+    followingNavStep: effectiveNavRoute?.steps?.[announceStepIndex + 1] ?? null,
+    upcomingNavSteps: effectiveNavRoute?.steps?.slice(announceStepIndex + 1, announceStepIndex + 4) ?? [],
     routeInfo: routeInfo as (RouteInfo & { durationText?: string | null }) | null,
     remainingDistKm,
     distToTurnM,

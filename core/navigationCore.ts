@@ -4,6 +4,14 @@ import { formatNavigationInstruction } from '../scripts/navigationUtils';
 
 export type NavRoutePoint = { lat: number; lng: number };
 
+export interface CarSafeUpcomingStep {
+  instruction: string;
+  maneuver: string;
+  maneuverModifier: string;
+  maneuverExit: number | null;
+  distanceMeters: number | null;
+}
+
 export interface CarSafeNavigationDto {
   isNavigating: boolean;
   currentStepIndex: number;
@@ -13,6 +21,14 @@ export interface CarSafeNavigationDto {
   remainingDurationSec: number | null;
   etaEpochSec: number | null;
   maneuver: string;
+  maneuverModifier: string;
+  maneuverExit: number | null;
+  followingInstruction: string;
+  followingManeuver: string;
+  followingManeuverModifier: string;
+  followingManeuverExit: number | null;
+  followingTurnDistanceMeters: number | null;
+  upcomingSteps: CarSafeUpcomingStep[];
   destinationName: string | null;
   destination: NavRoutePoint | null;
 }
@@ -21,6 +37,8 @@ export interface NavigationCoreSnapshotInput {
   isNavigating: boolean;
   currentStepIndex: number;
   step?: Step | null;
+  followingStep?: Step | null;
+  followingSteps?: Step[] | null;
   remainingDistKm?: number | null;
   distToTurnM?: number | null;
   routeInfo?: (RouteInfo & { durationText?: string | null }) | null;
@@ -105,6 +123,8 @@ export function toCarSafeNavigationDto(input: NavigationCoreSnapshotInput): CarS
     isNavigating,
     currentStepIndex,
     step,
+    followingStep,
+    followingSteps,
     remainingDistKm = null,
     distToTurnM = null,
     routeInfo = null,
@@ -119,6 +139,19 @@ export function toCarSafeNavigationDto(input: NavigationCoreSnapshotInput): CarS
     ? Math.floor(Date.now() / 1000) + remainingDurationSec
     : null;
 
+  const upcomingSource = (followingSteps?.length ? followingSteps : followingStep ? [followingStep] : [])
+    .slice(0, 3);
+  const upcomingSteps = upcomingSource.map((upcoming) => ({
+    instruction: formatNavigationInstruction(upcoming),
+    maneuver: upcoming.maneuver ?? '',
+    maneuverModifier: upcoming.maneuverModifier ?? '',
+    maneuverExit: upcoming.maneuverExit ?? null,
+    distanceMeters: upcoming.distance?.value != null
+      ? Math.max(0, Math.round(upcoming.distance.value))
+      : null,
+  }));
+  const firstUpcoming = upcomingSteps[0];
+
   return {
     isNavigating,
     currentStepIndex: Math.max(0, currentStepIndex || 0),
@@ -128,6 +161,14 @@ export function toCarSafeNavigationDto(input: NavigationCoreSnapshotInput): CarS
     remainingDurationSec,
     etaEpochSec,
     maneuver: step?.maneuver ?? 'navigation',
+    maneuverModifier: step?.maneuverModifier ?? '',
+    maneuverExit: step?.maneuverExit ?? null,
+    followingInstruction: firstUpcoming?.instruction ?? '',
+    followingManeuver: firstUpcoming?.maneuver ?? '',
+    followingManeuverModifier: firstUpcoming?.maneuverModifier ?? '',
+    followingManeuverExit: firstUpcoming?.maneuverExit ?? null,
+    followingTurnDistanceMeters: firstUpcoming?.distanceMeters ?? null,
+    upcomingSteps,
     destinationName: destination?.name ?? null,
     destination: destination
       ? { lat: destination.latitude, lng: destination.longitude }
