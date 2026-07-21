@@ -10,6 +10,7 @@ import {
 import { logicalScreenName } from '../../lib/analytics/routes';
 
 const NEW_SESSION_AFTER_MS = 30 * 60 * 1000;
+const SCREEN_CHECKPOINT_MS = 30 * 1000;
 
 export function AnalyticsBootstrap() {
   const pathname = usePathname();
@@ -35,6 +36,26 @@ export function AnalyticsBootstrap() {
     activeScreen.current = { name, startedAt: now };
     track({ eventName: 'screen_viewed', screenName: name, priority: 'medium' });
   }, [pathname]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      const current = activeScreen.current;
+      if (!current) return;
+      const now = Date.now();
+      const durationMs = now - current.startedAt;
+      if (durationMs < 1000) return;
+      track({
+        eventName: 'screen_engagement',
+        screenName: current.name,
+        durationMs,
+        priority: 'medium',
+      });
+      current.startedAt = now;
+      void flushAnalytics();
+    }, SCREEN_CHECKPOINT_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const onChange = (state: AppStateStatus) => {

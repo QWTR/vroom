@@ -39,7 +39,11 @@ import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
-import { VroomMapCameraFollower } from '../../components/map/VroomMapCameraFollower';
+import {
+  VroomMapCameraFollower,
+  nativeNavigationSampleFromTarget,
+  type VroomMapCameraFollowerHandle,
+} from '../../components/map/VroomMapCameraFollower';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import { VehicleModelMarker } from '../../components/map/VehicleModelMarker';
 import { MapVehicleModelsHost } from '../../components/map/MapVehicleModelsHost';
@@ -735,6 +739,8 @@ function MapScreenInner() {
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
   const cameraRef            = useRef<Mapbox.Camera>(null);
+  const nativeFollowerRef    = useRef<VroomMapCameraFollowerHandle>(null);
+  const nativeSampleSequenceRef = useRef(0);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
   /** v10: Snap Lock Guard — blokuj pojedyncze odchyły snapu na boczne uliczki. */
@@ -1977,6 +1983,12 @@ function MapScreenInner() {
       let markerTarget = out.target;
       // V3 SSOT — nie nadpisuj lat/lng snapToRoute (inna geometria niż arcWindow → lateral jitter).
       driveMarker.pushTarget(markerTarget);
+      if (Platform.OS === 'ios' && !out.rejected) {
+        nativeSampleSequenceRef.current += 1;
+        nativeFollowerRef.current?.pushNavigationSample(
+          nativeNavigationSampleFromTarget(markerTarget, nativeSampleSequenceRef.current),
+        );
+      }
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
         rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
       }
@@ -2191,7 +2203,14 @@ function MapScreenInner() {
           : 'idle',
     );
     driveMarker.resetTo(lat, lng, hdg);
-    driveMarker.pushTarget(coldStartNavigationTarget(lat, lng, hdg));
+    const coldTarget = coldStartNavigationTarget(lat, lng, hdg);
+    driveMarker.pushTarget(coldTarget);
+    if (Platform.OS === 'ios') {
+      nativeSampleSequenceRef.current += 1;
+      nativeFollowerRef.current?.pushNavigationSample(
+        nativeNavigationSampleFromTarget(coldTarget, nativeSampleSequenceRef.current),
+      );
+    }
     driveMarker.ensureFrameActive?.();
     lastTripMarkerPoseRef.current = { lat, lng };
     drLatRef.current = lat;
@@ -12996,8 +13015,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             defaultSettings={cameraDefaultSettingsRef.current}
           />
           <VroomMapCameraFollower
+            ref={nativeFollowerRef}
             {...cameraV3.nativeFollower}
-            markerVisible={isTripActive && (showSelf2DMarker || showTripArrowUnderlay)}
+            markerVisible={isTripActive && (Platform.OS === 'ios' || showSelf2DMarker || showTripArrowUnderlay)}
+            bottomOcclusion={0}
           />
           <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers

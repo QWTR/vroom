@@ -5,6 +5,17 @@ import { API_URL } from '../constants/mapConfig';
 
 export type BackgroundDriveMode = 'freeDrive' | 'navigation';
 export type BackgroundDriveStopReason = 'app' | 'notification' | 'permission' | 'system';
+export type BackgroundDriveRuntimeState = {
+  state?: 'inactive' | 'starting' | 'active' | 'recovering' | 'idle' | 'blockedPermission' | 'blockedPremium' | string;
+  reason?: string;
+  errorCode?: number;
+  recoverable?: boolean;
+  authorizationStatus?: string;
+  timestampMs?: number;
+  lastFixTimestampMs?: number;
+  lastFixAgeMs?: number;
+  retryAttempt?: number;
+};
 
 export type BackgroundDriveFix = {
   latitude: number;
@@ -43,6 +54,7 @@ const STATE_KEY = 'wiroom_background_drive_state';
 const BUFFER_KEY = 'wiroom_background_drive_buffer';
 const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
 const EVENT_STOP = 'VROOM_BG_TRACKING_END';
+const EVENT_STATE = 'VROOM_BG_TRACKING_STATE';
 const EVENT_LOCATION = 'VROOM_BG_LOCATION';
 export const IOS_DRIVE_NOTIFICATION_CATEGORY = 'wiroom_drive_tracking';
 export const IOS_DRIVE_STOP_ACTION = 'WIROOM_DRIVE_STOP';
@@ -61,6 +73,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
     getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+    getDiagnostics?: () => Promise<BackgroundDriveRuntimeState[]>;
   };
   WiroomLocationService?: {
     startDriveTracking?: (
@@ -74,6 +87,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
     getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+    getDiagnostics?: () => Promise<BackgroundDriveRuntimeState[]>;
   };
 };
 
@@ -327,6 +341,24 @@ export const BackgroundDriveController = {
       : DeviceEventEmitter;
     const sub = emitter.addListener(EVENT_STOP, listener);
     return () => sub.remove();
+  },
+
+  addStateListener(listener: (payload: BackgroundDriveRuntimeState) => void): () => void {
+    if (Platform.OS !== 'ios' || !WiroomLocationService) return () => {};
+    const emitter = new NativeEventEmitter(WiroomLocationService as any);
+    const sub = emitter.addListener(EVENT_STATE, listener);
+    return () => sub.remove();
+  },
+
+  async getDiagnostics(): Promise<BackgroundDriveRuntimeState[]> {
+    const mod = nativeModule();
+    if (!mod?.getDiagnostics) return [];
+    try {
+      const value = await mod.getDiagnostics();
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
   },
 
   addLocationListener(listener: (fix: BackgroundDriveFix) => void): () => void {

@@ -21,7 +21,7 @@ import { pickVroomkiMediaFromGallery } from '../../../lib/pickVroomkiMedia';
 import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
-import { track, trackContentImpression } from '../../../lib/analytics/client';
+import { track } from '../../../lib/analytics/client';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -40,7 +40,7 @@ const ReelCard = React.memo(function ReelCard({
   onProfile,
   onCar,
   onMore,
-  onCompletedView,
+  onWatchView,
   onOpenSound,
 }: {
   post: VroomkiPost;
@@ -55,7 +55,7 @@ const ReelCard = React.memo(function ReelCard({
   onProfile: (id: number) => void;
   onCar: (id: number) => void;
   onMore: (post: VroomkiPost) => void;
-  onCompletedView: (postId: number, watchMs: number) => void;
+  onWatchView: (postId: number, watchMs: number, completed: boolean) => void;
   onOpenSound?: (soundId: number) => void;
 }) {
   const time = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
@@ -118,7 +118,7 @@ const ReelCard = React.memo(function ReelCard({
           uri={post.videos[0]}
           posterUri={posterUri}
           active={active}
-          onCompleted={(ms) => onCompletedView(post.id, ms)}
+          onWatch={(ms, completed) => onWatchView(post.id, ms, completed)}
           onDoubleTap={likeFromDoubleTap}
         />
       ) : coverPhoto ? (
@@ -371,8 +371,7 @@ export function TabAuta({
     if (viewedRef.current.has(post.id)) return;
     viewedRef.current.add(post.id);
     if (post.id < 0) return;
-    trackContentImpression({ screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: post.id });
-    onView(post.id, VIEW_THRESHOLD_MS, false);
+    onView(post.id, 0, false);
   }, [onView]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -422,11 +421,10 @@ export function TabAuta({
     router.push(`/Community/vroomki/sound/${soundId}`);
   }, [router, suspendPlayback]);
 
-  const handleCompletedView = useCallback((postId: number, watchMs: number) => {
-    viewedRef.current.add(postId);
+  const handleWatchView = useCallback((postId: number, watchMs: number, completed: boolean) => {
+    if (completed) viewedRef.current.add(postId);
     if (postId < 0) return;
-    track({ eventName: 'content_watch', screenName: 'community_vroomki', surface: 'vroomki_feed', entityType: 'vroomki', entityId: postId, durationMs: watchMs, priority: 'low', properties: { completed: true } });
-    onView(postId, watchMs, true);
+    onView(postId, watchMs, completed);
   }, [onView]);
 
   const renderReel = useCallback(({ item }: { item: VroomkiPost }) => (
@@ -444,12 +442,12 @@ export function TabAuta({
       onCar={handleCar}
       onMore={openMore}
       onOpenSound={handleOpenSound}
-      onCompletedView={handleCompletedView}
+      onWatchView={handleWatchView}
     />
   ), [
     activeId,
     handleCar,
-    handleCompletedView,
+    handleWatchView,
     handleOpenSound,
     handleProfile,
     myId,

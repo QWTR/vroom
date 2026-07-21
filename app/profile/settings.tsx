@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
@@ -42,7 +42,7 @@ import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
-import { BACKGROUND_LOCATION_TASK, stopBackgroundLocationTaskIfRunning, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
+import { BACKGROUND_LOCATION_TASK, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
 import { BackgroundDriveController } from '../../lib/backgroundDriveController';
 import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
 import {
@@ -210,6 +210,7 @@ export default function SettingsScreen() {
       : 'Wyłączone';
 
   const [bgDisclosureVisible, setBgDisclosureVisible] = useState(false);
+  const [backgroundPermissionBlocked, setBackgroundPermissionBlocked] = useState(false);
   const [themeEditorVisible, setThemeEditorVisible] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabKey>('appearance');
   const [deleteConfirm,      setDeleteConfirm]      = useState('');
@@ -450,27 +451,16 @@ export default function SettingsScreen() {
     useCallback(() => {
       void refreshPremiumAccess();
       void fetchProfile();
+      void Location.getBackgroundPermissionsAsync()
+        .then((permission) => setBackgroundPermissionBlocked(permission.status !== 'granted'))
+        .catch(() => {});
     }, [refreshPremiumAccess, fetchProfile]),
   );
 
-  const prevEffectivePremiumRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (settingsLoading) return;
-    if (effectivePremium) {
-      prevEffectivePremiumRef.current = true;
-      return;
-    }
-    if (prevEffectivePremiumRef.current === true && settings.backgroundTracking) {
-      void (async () => {
-        await updateSetting('backgroundTracking', false);
-        await stopBackgroundLocationTaskIfRunning();
-        await mirrorBackgroundTrackingSetting(false);
-      })();
-    }
-    if (prevEffectivePremiumRef.current === null) {
-      prevEffectivePremiumRef.current = false;
-    }
-  }, [effectivePremium, settings.backgroundTracking, settingsLoading, updateSetting]);
+  useEffect(() => BackgroundDriveController.addStateListener((event) => {
+    if (event.state === 'blockedPermission') setBackgroundPermissionBlocked(true);
+    if (event.state === 'active') setBackgroundPermissionBlocked(false);
+  }), []);
 
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
@@ -2908,13 +2898,17 @@ export default function SettingsScreen() {
 							iconBg='#4CAF50'
 							label='Praca w tle'
 							sublabel={effectivePremium
-								? 'Zlicza km i statystyki jazdy po zminimalizowaniu aplikacji'
-								: 'Premium — statystyki km w tle podczas jazdy'}
+								? settings.backgroundTracking && backgroundPermissionBlocked
+									? 'Wymaga Lokalizacji: Zawsze — ustawienie pozostaje zapisane'
+									: 'Zlicza km i statystyki jazdy po zminimalizowaniu aplikacji'
+								: settings.backgroundTracking
+									? 'Wymaga Premium — ustawienie pozostaje zapisane'
+									: 'Premium — statystyki km w tle podczas jazdy'}
 							right={
 								<Switch
-									value={settings.backgroundTracking && effectivePremium}
+									value={settings.backgroundTracking}
 									onValueChange={toggleBgTracking}
-									disabled={!effectivePremium}
+									disabled={!effectivePremium && !settings.backgroundTracking}
 									{...swProps}
 								/>
 							}

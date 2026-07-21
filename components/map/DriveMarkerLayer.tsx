@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import { View, PixelRatio } from 'react-native';
+import { View, PixelRatio, Platform } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
 import {
@@ -95,13 +95,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
         />
       ) : null}
 
-      <Mapbox.ShapeSource
-        id="tripDriveMarkerSource"
-        shape={EMPTY_SHAPE}
-      >
-        {textureUri ? (
+      {Platform.OS === 'ios' ? (
+        textureUri ? (
           <Mapbox.SymbolLayer
             id="tripDriveMarkerSymbol"
+            sourceID="tripDriveMarkerSource"
             style={{
               iconImage: DRIVE_MARKER_IMAGE_KEY,
               iconSize: TRIP_MARKER_ICON_SIZE,
@@ -115,7 +113,28 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
               iconOptional: false,
             }}
           />
-        ) : (
+        ) : null
+      ) : (
+        <Mapbox.ShapeSource
+          id="tripDriveMarkerSource"
+          shape={EMPTY_SHAPE}
+        >
+          {textureUri ? (
+            <Mapbox.SymbolLayer
+              id="tripDriveMarkerSymbol"
+              style={{
+                iconImage: DRIVE_MARKER_IMAGE_KEY,
+                iconSize: TRIP_MARKER_ICON_SIZE,
+                iconRotate: ['get', 'heading'],
+                iconPitchAlignment: 'map',
+                iconRotationAlignment: 'map',
+                iconAllowOverlap: true,
+                iconIgnorePlacement: true,
+                iconAnchor: 'center',
+                iconOptional: false,
+              }}
+            />
+          ) : (
           <Mapbox.CircleLayer
             id="tripDriveMarkerFallback"
             style={{
@@ -126,8 +145,9 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
               circlePitchAlignment: 'map',
             }}
           />
-        )}
-      </Mapbox.ShapeSource>
+          )}
+        </Mapbox.ShapeSource>
+      )}
     </>
   );
 });

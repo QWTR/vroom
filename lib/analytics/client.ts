@@ -119,7 +119,7 @@ async function rolloutEnabled(): Promise<boolean> {
   const forced = await AsyncStorage.getItem('@vroom/analytics/force_enabled');
   if (forced === 'true') return true;
   if (forced === 'false') return false;
-  const percent = Math.max(0, Math.min(100, Number(process.env.EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT || 0)));
+  const percent = Math.max(0, Math.min(100, Number(process.env.EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT ?? 100)));
   if (percent >= 100) return true;
   if (percent <= 0) return false;
   const actor = await anonymousActor();

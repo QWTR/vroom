@@ -26,9 +26,9 @@ function isAbsurdCoordinate(lat: number, lng: number): boolean {
     || isNullIsland(lat, lng);
 }
 
-/** DEV / mock-location apps (Lockito) bypass strict GPS rejection gates. */
+/** Explicit mock-location samples (for example Lockito) bypass strict gates. */
 export function shouldBypassGpsFilters(fix?: Pick<RawGpsFix, 'isMocked'>): boolean {
-  return __DEV__ === true || fix?.isMocked === true;
+  return fix?.isMocked === true;
 }
 
 /**

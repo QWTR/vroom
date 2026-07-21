@@ -114,7 +114,11 @@ export function wireBgTrackingNotificationControl(): () => void {
   void consumeNativePendingStop();
 
   const removeStopListener = BackgroundDriveController.addStopListener(
-    () => { void handleBgTrackingEndFromNotification(); },
+    (payload) => {
+      if (payload?.reason === 'notification' || payload?.reason === 'manual' || payload?.reason === 'user') {
+        void handleBgTrackingEndFromNotification();
+      }
+    },
   );
 
   const appSub = AppState.addEventListener('change', (state) => {

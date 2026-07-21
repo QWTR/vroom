@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const plugin = require('./withWiroomBackgroundDrive');
 const { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName } = plugin.__internal;
@@ -21,6 +23,16 @@ describe('Wiroom native iOS drive contract', () => {
     expect(OBJC_BRIDGE).toContain('authToken:(NSString *)authToken');
     expect(OBJC_BRIDGE).toContain('getNativeStats');
     expect(OBJC_BRIDGE).toContain('consumeNativeStats');
+    expect(OBJC_BRIDGE).toContain('getDiagnostics');
+  });
+
+  it('keeps transient Core Location failures separate from user preference', () => {
+    expect(SWIFT_MODULE).toContain('code == .locationUnknown');
+    expect(SWIFT_MODULE).toContain('VROOM_BG_TRACKING_STATE');
+    expect(SWIFT_MODULE).toContain('scheduleLocationRetry');
+    expect(SWIFT_MODULE).toContain('blockedPermission');
+    expect(SWIFT_MODULE).not.toContain('sendEvent(withName: "VROOM_BG_TRACKING_END", body: ["reason": "system"]');
+    expect(SWIFT_MODULE).not.toContain('sendEvent(withName: "VROOM_BG_TRACKING_END", body: ["reason": "permission"]');
   });
 
   it('keeps an offline checkpoint retryable until the final activity is saved', () => {
@@ -35,5 +47,11 @@ describe('Wiroom native iOS drive contract', () => {
       name: 'Vroom App',
       modRequest: { platformProjectRoot: 'C:/missing/ios' },
     })).toBe('VroomApp');
+  });
+
+  it('keeps the embedded module identical to its canonical native source', () => {
+    const normalize = (value: string) => value.replace(/\r\n/g, '\n');
+    expect(normalize(SWIFT_MODULE)).toBe(normalize(readFileSync(resolve('native/background-drive/ios/WiroomLocationService.swift'), 'utf8')));
+    expect(normalize(OBJC_BRIDGE)).toBe(normalize(readFileSync(resolve('native/background-drive/ios/WiroomLocationServiceBridge.m'), 'utf8')));
   });
 });

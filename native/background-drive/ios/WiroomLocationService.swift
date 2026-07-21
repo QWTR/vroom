@@ -1,8 +1,4 @@
-const { createRunOncePlugin, withInfoPlist, withXcodeProject } = require('@expo/config-plugins');
-const { createBuildSourceFile } = require('@expo/config-plugins/build/ios/XcodeProjectFile');
-const { getHackyProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
-
-const SWIFT_MODULE = `import CoreLocation
+import CoreLocation
 import Foundation
 import React
 import Security
@@ -593,69 +589,3 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     return earthKm * 2 * atan2(sqrt(a), sqrt(1 - a))
   }
 }
-`;
-
-const OBJC_BRIDGE = `#import <React/RCTBridgeModule.h>
-#import <React/RCTEventEmitter.h>
-
-@interface RCT_EXTERN_MODULE(WiroomLocationService, RCTEventEmitter)
-RCT_EXTERN_METHOD(startDriveTracking:(NSString *)mode tripSessionId:(NSString *)tripSessionId apiUrl:(NSString *)apiUrl authToken:(NSString *)authToken resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(stopDriveTracking:(NSString *)reason resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(getState:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(getDiagnostics:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(consumeBufferedLocations:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(getNativeStats:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(consumeNativeStats:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-@end
-`;
-
-const resolveIosProjectName = (cfg) =>
-  cfg.modRequest.projectName
-  || getHackyProjectName(cfg.modRequest.platformProjectRoot, cfg);
-
-const withWiroomBackgroundDrive = (config) => {
-  config = withInfoPlist(config, (cfg) => {
-    cfg.modResults.UIBackgroundModes = Array.from(new Set([
-      ...(cfg.modResults.UIBackgroundModes || []),
-      'location',
-    ]));
-    cfg.modResults.NSLocationWhenInUseUsageDescription =
-      cfg.modResults.NSLocationWhenInUseUsageDescription
-      || 'Wiroom uses location for map, navigation and road alerts.';
-    cfg.modResults.NSLocationAlwaysAndWhenInUseUsageDescription =
-      cfg.modResults.NSLocationAlwaysAndWhenInUseUsageDescription
-      || 'Wiroom uses location in the background during active navigation and free drive.';
-    return cfg;
-  });
-
-  config = withXcodeProject(config, (cfg) => {
-    // Fresh EAS prebuilds do not have AppDelegate yet. getHackyProjectName
-    // safely falls back to the sanitized Expo app name until Xcode exists.
-    const projectName = resolveIosProjectName(cfg);
-    cfg.modResults = createBuildSourceFile({
-      project: cfg.modResults,
-      nativeProjectRoot: cfg.modRequest.platformProjectRoot,
-      filePath: `${projectName}/WiroomLocationService.swift`,
-      fileContents: SWIFT_MODULE,
-      overwrite: true,
-    });
-    cfg.modResults = createBuildSourceFile({
-      project: cfg.modResults,
-      nativeProjectRoot: cfg.modRequest.platformProjectRoot,
-      filePath: `${projectName}/WiroomLocationServiceBridge.m`,
-      fileContents: OBJC_BRIDGE,
-      overwrite: true,
-    });
-    cfg.modResults.addBuildProperty('SWIFT_VERSION', '5.0');
-    return cfg;
-  });
-
-  return config;
-};
-
-const plugin = createRunOncePlugin(withWiroomBackgroundDrive, 'with-wiroom-background-drive', '1.1.0');
-
-// Exposed for contract tests; Expo still receives the function itself.
-plugin.__internal = { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName };
-
-module.exports = plugin;

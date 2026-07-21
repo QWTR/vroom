@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { filterGpsFix, shouldBypassGpsFilters } from './gpsFilter';
 
 describe('gpsFilter mock bypass', () => {
-  it('accepts poor accuracy in DEV mode', () => {
+  it('keeps safety gates enabled in DEV for non-mocked fixes', () => {
     const result = filterGpsFix(
       {
         lat: 52.1,
@@ -14,7 +14,8 @@ describe('gpsFilter mock bypass', () => {
       },
       null,
     );
-    expect(result.verdict).toBe('accept');
+    expect(result.verdict).toBe('reject');
+    expect(result.reason).toBe('accuracy_too_poor');
   });
 
   it('accepts mocked fixes when isMocked is set', () => {

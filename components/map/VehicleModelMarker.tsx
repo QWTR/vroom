@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import Animated, {
   runOnJS,
@@ -21,7 +22,8 @@ import { SELF_VEHICLE_MODEL_KEY } from '../../lib/vehicleModelRegistry';
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
-const SOURCE_ID = 'vehicle-model-src';
+const MODEL_SOURCE_ID = 'vehicle-model-src';
+const NATIVE_TRIP_SOURCE_ID = 'tripDriveMarkerSource';
 
 const EMPTY_SHAPE = JSON.stringify({
   type: 'FeatureCollection',
@@ -71,6 +73,7 @@ const SelfModelLayer = memo(function SelfModelLayer({
   minZoom,
   layerKey,
   initialYaw,
+  sourceId,
 }: {
   modelYawSv: SharedValue<number>;
   pitch: number;
@@ -79,6 +82,7 @@ const SelfModelLayer = memo(function SelfModelLayer({
   minZoom: number;
   layerKey: string;
   initialYaw: number;
+  sourceId: string;
 }) {
   const [yaw, setYaw] = useState(initialYaw);
   const lastPushedSv = useSharedValue(NaN);
@@ -113,7 +117,7 @@ const SelfModelLayer = memo(function SelfModelLayer({
     <Mapbox.ModelLayer
       key={`vehicle-model-layer-${layerKey}`}
       id="vehicle-model-layer"
-      sourceID={SOURCE_ID}
+      sourceID={sourceId}
       minZoomLevel={minZoom}
       style={style}
     />
@@ -258,21 +262,27 @@ function VehicleModelMarkerInner({
   if (!enabled || !modelReady) return null;
 
   const minZoom = Math.min(MODEL_MIN_ZOOM, meta.minZoom ?? MODEL_MIN_ZOOM);
+  const sourceId = Platform.OS === 'ios' && isTripActive
+    ? NATIVE_TRIP_SOURCE_ID
+    : MODEL_SOURCE_ID;
 
   return (
     <>
-      <ReanimatedShapeSource
-        id={SOURCE_ID}
-        animatedProps={animatedShapeProps as never}
-      />
+      {sourceId === MODEL_SOURCE_ID ? (
+        <ReanimatedShapeSource
+          id={MODEL_SOURCE_ID}
+          animatedProps={animatedShapeProps as never}
+        />
+      ) : null}
       <SelfModelLayer
         modelYawSv={modelYawSv}
         pitch={pitch}
         roll={roll}
         layerBase={layerBase}
         minZoom={minZoom}
-        layerKey={metaKey}
+        layerKey={`${metaKey}-${sourceId}`}
         initialYaw={initialYaw}
+        sourceId={sourceId}
       />
     </>
   );

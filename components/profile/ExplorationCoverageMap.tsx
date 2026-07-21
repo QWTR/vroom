@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -59,9 +59,9 @@ export function ExplorationCoverageMap({
   const [cells, setCells] = useState<CoverageCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [mapControlEnabled, setMapControlEnabled] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [manualCamera, setManualCamera] = useState<{ center: [number, number]; zoom: number } | null>(null);
+  const fullscreenCameraRef = useRef<Mapbox.Camera>(null);
+  const cameraStateRef = useRef<{ center: [number, number]; zoom: number }>(getCameraForCells([]));
 
   const loadCells = useCallback((silent = false) => {
     let cancelled = false;
@@ -115,36 +115,48 @@ export function ExplorationCoverageMap({
   }), [cells]);
 
   const camera = useMemo(() => getCameraForCells(cells), [cells]);
-  const visibleCamera = manualCamera ?? camera;
-  const cameraKey = `${camera.center[0]}:${camera.center[1]}:${camera.zoom}`;
+  useEffect(() => {
+    if (!fullscreen) cameraStateRef.current = camera;
+  }, [camera, fullscreen]);
 
   useEffect(() => {
-    if (!mapControlEnabled) setManualCamera(null);
-  }, [cameraKey, mapControlEnabled]);
+    if (!fullscreen) return;
+    const timer = setTimeout(() => {
+      fullscreenCameraRef.current?.setCamera({
+        centerCoordinate: cameraStateRef.current.center,
+        zoomLevel: cameraStateRef.current.zoom,
+        animationDuration: 0,
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fullscreen]);
 
   const setZoom = useCallback((direction: 1 | -1) => {
-    setManualCamera((current) => {
-      const base = current ?? camera;
-      const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, base.zoom + direction * 1.1));
-      return { ...base, zoom: nextZoom };
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraStateRef.current.zoom + direction * 1.1));
+    cameraStateRef.current = { ...cameraStateRef.current, zoom: nextZoom };
+    fullscreenCameraRef.current?.zoomTo(nextZoom, 180);
+  }, []);
+
+  const resetView = useCallback(() => {
+    cameraStateRef.current = camera;
+    fullscreenCameraRef.current?.setCamera({
+      centerCoordinate: camera.center,
+      zoomLevel: camera.zoom,
+      animationMode: 'easeTo',
+      animationDuration: 250,
     });
   }, [camera]);
 
-  const resetView = useCallback(() => {
-    setManualCamera({ center: camera.center, zoom: camera.zoom });
-  }, [camera]);
-
-  const handleCameraChanged = useCallback((event: any) => {
-    if (!mapControlEnabled && !fullscreen) return;
+  const handleMapIdle = useCallback((event: any) => {
     const center = event?.properties?.center;
     const zoom = Number(event?.properties?.zoom);
     if (Array.isArray(center) && center.length >= 2 && Number.isFinite(zoom)) {
-      setManualCamera({
+      cameraStateRef.current = {
         center: [Number(center[0]), Number(center[1])],
         zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)),
-      });
+      };
     }
-  }, [fullscreen, mapControlEnabled]);
+  }, []);
 
   const progressLabel = cells.length > 0
     ? `${cells.length} kafelkow`
@@ -169,15 +181,14 @@ export function ExplorationCoverageMap({
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
-        scrollEnabled={interactive && mapControlEnabled}
-        zoomEnabled={interactive && mapControlEnabled}
+        scrollEnabled={false}
+        zoomEnabled={false}
         pitchEnabled={false}
         rotateEnabled={false}
-        onCameraChanged={handleCameraChanged}
       >
         <Mapbox.Camera
-          zoomLevel={visibleCamera.zoom}
-          centerCoordinate={visibleCamera.center}
+          zoomLevel={camera.zoom}
+          centerCoordinate={camera.center}
           animationMode="flyTo"
           animationDuration={450}
         />
@@ -204,82 +215,29 @@ export function ExplorationCoverageMap({
       </Mapbox.MapView>
 
       {interactive && shape.features.length > 0 ? (
-        <>
-          {!mapControlEnabled ? (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => {
-                setFullscreen(true);
-              }}
-              style={{
-                position: 'absolute',
-                right: 10,
-                top: 10,
-                borderRadius: 999,
-                paddingHorizontal: 11,
-                paddingVertical: 8,
-                backgroundColor: '#000000cc',
-                borderWidth: 1,
-                borderColor: theme.primaryBorder,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <MaterialCommunityIcons name="gesture-tap" size={16} color={theme.primary} />
-              <Text style={{ color: theme.text, fontSize: 10, fontWeight: '900' }}>STERUJ</Text>
-            </TouchableOpacity>
-          ) : (
-            <View
-              style={{
-                position: 'absolute',
-                right: 10,
-                top: 10,
-                gap: 8,
-                alignItems: 'flex-end',
-              }}
-              pointerEvents="box-none"
-            >
-              <TouchableOpacity
-                onPress={() => setMapControlEnabled(false)}
-                style={{
-                  borderRadius: 999,
-                  paddingHorizontal: 11,
-                  paddingVertical: 8,
-                  backgroundColor: '#000000d9',
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              >
-                <Text style={{ color: theme.text, fontSize: 10, fontWeight: '900' }}>GOTOWE</Text>
-              </TouchableOpacity>
-              <View style={{ borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, backgroundColor: '#000000d9' }}>
-                <TouchableOpacity onPress={() => setZoom(1)} style={{ width: 42, height: 38, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: theme.text, fontSize: 22, fontWeight: '900', lineHeight: 24 }}>+</Text>
-                </TouchableOpacity>
-                <View style={{ height: 1, backgroundColor: theme.border }} />
-                <TouchableOpacity onPress={() => setZoom(-1)} style={{ width: 42, height: 38, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: theme.text, fontSize: 24, fontWeight: '900', lineHeight: 24 }}>-</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                onPress={resetView}
-                style={{
-                  width: 42,
-                  height: 38,
-                  borderRadius: 14,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#000000d9',
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                }}
-              >
-                <MaterialCommunityIcons name="crosshairs-gps" size={18} color={theme.primary} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => {
+            setFullscreen(true);
+          }}
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: 10,
+            borderRadius: 999,
+            paddingHorizontal: 11,
+            paddingVertical: 8,
+            backgroundColor: '#000000cc',
+            borderWidth: 1,
+            borderColor: theme.primaryBorder,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <MaterialCommunityIcons name="gesture-tap" size={16} color={theme.primary} />
+          <Text style={{ color: theme.text, fontSize: 10, fontWeight: '900' }}>STERUJ</Text>
+        </TouchableOpacity>
       ) : null}
 
       {loading ? (
@@ -331,13 +289,14 @@ export function ExplorationCoverageMap({
             zoomEnabled
             pitchEnabled={false}
             rotateEnabled={false}
-            onCameraChanged={handleCameraChanged}
+            onMapIdle={handleMapIdle}
           >
             <Mapbox.Camera
-              zoomLevel={visibleCamera.zoom}
-              centerCoordinate={visibleCamera.center}
-              animationMode="flyTo"
-              animationDuration={250}
+              ref={fullscreenCameraRef}
+              defaultSettings={{
+                zoomLevel: cameraStateRef.current.zoom,
+                centerCoordinate: cameraStateRef.current.center,
+              }}
             />
             {shape.features.length > 0 ? (
               <Mapbox.ShapeSource id={`exploration-coverage-full-${userId ?? 'me'}`} shape={shape as any}>

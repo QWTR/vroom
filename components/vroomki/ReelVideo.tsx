@@ -14,13 +14,13 @@ export function ReelVideo({
   uri,
   posterUri = null,
   active,
-  onCompleted,
+  onWatch,
   onDoubleTap,
 }: {
   uri: string;
   posterUri?: string | null;
   active: boolean;
-  onCompleted: (watchMs: number) => void;
+  onWatch: (watchMs: number, completed: boolean) => void;
   onDoubleTap: () => void;
 }) {
   const videoRef = useRef<Video>(null);
@@ -32,6 +32,8 @@ export function ReelVideo({
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(false);
   const bufferingRef = useRef(false);
+  const pendingWatchMsRef = useRef(0);
+  const lastSampleAtRef = useRef<number | null>(null);
 
   const [pausedByUser, setPausedByUser] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -83,8 +85,27 @@ export function ReelVideo({
     videoRef.current?.playAsync().catch(() => {});
   }, [active, playbackUri]);
 
+  const flushPendingWatch = useCallback((completed: boolean) => {
+    const watchMs = Math.round(pendingWatchMsRef.current);
+    pendingWatchMsRef.current = 0;
+    if (watchMs >= 1000 || completed) onWatch(watchMs, completed);
+  }, [onWatch]);
+
+  useEffect(() => {
+    if (active) return;
+    flushPendingWatch(false);
+    lastSampleAtRef.current = null;
+  }, [active, flushPendingWatch]);
+
   const onStatus = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
+
+    const sampledAt = Date.now();
+    const previousSampleAt = lastSampleAtRef.current;
+    if (active && playingRef.current && previousSampleAt != null) {
+      pendingWatchMsRef.current += Math.min(2000, Math.max(0, sampledAt - previousSampleAt));
+    }
+    lastSampleAtRef.current = sampledAt;
 
     const position = status.positionMillis ?? 0;
     if (status.isPlaying || position > 0) {
@@ -109,11 +130,13 @@ export function ReelVideo({
 
     const duration = status.durationMillis ?? 0;
 
+    if (pendingWatchMsRef.current >= 5000) flushPendingWatch(false);
+
     if (!completedRef.current && duration > 0 && position / duration >= 0.85) {
       completedRef.current = true;
-      onCompleted(position);
+      flushPendingWatch(true);
     }
-  }, [onCompleted]);
+  }, [active, flushPendingWatch]);
 
   const toggle = async () => {
     const nextPaused = !pausedByUser;

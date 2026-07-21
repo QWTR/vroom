@@ -18,6 +18,7 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
         "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
+        "EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT": "100",
         "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     },
@@ -33,6 +34,7 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
         "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
+        "EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT": "100",
         "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     },
@@ -51,6 +53,7 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
         "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
+        "EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT": "100",
         "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     },
@@ -69,6 +72,7 @@
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": "sk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMXNtY3I2MDZ4MDJycXBlNjE2N3I2NiJ9.Pph6zSTeZtY9IuGaRyHUlg",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_lSSJchcEaJJBGvAnDUuyFoxLvfR",
         "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_NzyiMtNIvOhxrHMNUNkBaKynuDU",
+        "EXPO_PUBLIC_ANALYTICS_ROLLOUT_PERCENT": "100",
         "GRADLE_OPTS": "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     }

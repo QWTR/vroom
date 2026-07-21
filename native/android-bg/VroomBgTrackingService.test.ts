@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(
   resolve(process.cwd(), 'native/android-bg/VroomBgTrackingService.kt'),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 
 describe('Android native trip checkpoint contract', () => {
   it('resets native totals when a new trip session starts', () => {
