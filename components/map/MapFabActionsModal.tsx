@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
+  InteractionManager,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -52,6 +54,28 @@ export function MapFabActionsModal({
 }: Props) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const pendingActionRef = useRef<(() => void) | null>(null);
+
+  const flushPendingAction = useCallback(() => {
+    const action = pendingActionRef.current;
+    if (!action) return;
+    pendingActionRef.current = null;
+    InteractionManager.runAfterInteractions(action);
+  }, []);
+
+  useEffect(() => {
+    if (!visible && Platform.OS !== 'ios') flushPendingAction();
+  }, [visible, flushPendingAction]);
+
+  const closeWithoutAction = useCallback(() => {
+    pendingActionRef.current = null;
+    onClose();
+  }, [onClose]);
+
+  const closeThenRun = useCallback((action: () => void) => {
+    pendingActionRef.current = action;
+    onClose();
+  }, [onClose]);
 
   const actions: FabAction[] = [
     { key: 'route', label: 'Trasa', icon: 'alt-route', lib: 'mi', onPress: onRoute },
@@ -78,10 +102,11 @@ export function MapFabActionsModal({
       animationType="slide"
       transparent
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={closeWithoutAction}
+      onDismiss={Platform.OS === 'ios' ? flushPendingAction : undefined}
     >
       <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={closeWithoutAction} />
         <View style={{
           backgroundColor: isDark ? '#141416' : '#f4f4f5',
           borderTopLeftRadius: 20,
@@ -127,7 +152,7 @@ export function MapFabActionsModal({
                   justifyContent: 'center',
                   padding: 6,
                 }}
-                onPress={() => { onClose(); tile.onPress(); }}
+                onPress={() => closeThenRun(tile.onPress)}
                 activeOpacity={0.85}
               >
                 {tile.lib === 'mi' ? (
@@ -157,7 +182,7 @@ export function MapFabActionsModal({
           </View>
           <TouchableOpacity
             style={{ marginTop: 18, alignItems: 'center', paddingVertical: 12 }}
-            onPress={onClose}
+            onPress={closeWithoutAction}
           >
             <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: theme.textDim }}>ZAMKNIJ</Text>
           </TouchableOpacity>

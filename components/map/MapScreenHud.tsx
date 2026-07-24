@@ -3,7 +3,6 @@ import React, { memo } from 'react';
 import {
   ActivityIndicator,
   Platform,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -13,6 +12,8 @@ import {
   DriveSpeedTile,
   HudQuickReportButton,
 } from './SpeedometerHUD';
+import { LiveWarningHudCard } from './LiveWarningHudCard';
+import type { UpcomingWarning } from '../../lib/warnings/warningAhead';
 
 export type MapScreenHudTheme = {
   bg: string;
@@ -51,6 +52,9 @@ export type MapScreenHudProps = {
   showSideControls: boolean;
   sideControlsBottom: number;
   effectiveSpeedLimit: number | null;
+  speedLimitStatus?: 'known' | 'pending' | 'queued' | 'unknown';
+  canReportSpeedLimit?: boolean;
+  onPressSpeedLimit?: () => void;
   speedLimitTolerance: number;
   liveDistanceKm: number;
   isTripActiveMap: boolean;
@@ -65,6 +69,8 @@ export type MapScreenHudProps = {
   connected: boolean;
   onOpenFabModal: () => void;
   onOpenReport: () => void;
+  upcomingWarning?: UpcomingWarning | null;
+  onOpenUpcomingWarning?: () => void;
   /** top = GPS banner + route timer; bottom = speed tile + side controls */
   section: 'top' | 'bottom';
 };
@@ -85,6 +91,9 @@ export const MapScreenHud = memo(function MapScreenHud({
   showSideControls,
   sideControlsBottom,
   effectiveSpeedLimit,
+  speedLimitStatus,
+  canReportSpeedLimit,
+  onPressSpeedLimit,
   speedLimitTolerance,
   liveDistanceKm,
   isTripActiveMap,
@@ -99,6 +108,8 @@ export const MapScreenHud = memo(function MapScreenHud({
   connected,
   onOpenFabModal,
   onOpenReport,
+  upcomingWarning,
+  onOpenUpcomingWarning,
 }: MapScreenHudProps) {
   if (section === 'top') {
     return (
@@ -179,12 +190,20 @@ export const MapScreenHud = memo(function MapScreenHud({
             tripDistanceKm={liveDistanceKm}
             showTripMeter={isTripActiveMap}
             onLongPress={isTripActiveMap ? onExportNavTrace : undefined}
+            speedLimitStatus={speedLimitStatus}
+            canReportSpeedLimit={canReportSpeedLimit}
+            onPressSpeedLimit={onPressSpeedLimit}
           />
         </View>
       )}
 
       {showSideControls && !isBuilding && (
-        <View style={[styles.rightBottomControls, { bottom: sideControlsBottom }]}>
+        <View pointerEvents="box-none" style={[styles.rightBottomControls, { bottom: sideControlsBottom }]}>
+          {upcomingWarning && onOpenUpcomingWarning ? (
+            <View pointerEvents="box-none" style={{ position: 'absolute', right: 0, top: -94, zIndex: 250, elevation: 24 }}>
+              <LiveWarningHudCard upcoming={upcomingWarning} onPress={onOpenUpcomingWarning} />
+            </View>
+          ) : null}
           {(isDriving || isNavigating) && (
             <HudQuickReportButton onPress={onOpenReport} />
           )}

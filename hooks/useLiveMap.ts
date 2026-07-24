@@ -17,6 +17,14 @@ import type { VehicleModelMeta } from '../constants/shopCosmetics';
 import { normalizeVehicleLiveFields } from '../lib/vehicleModelContract';
 import { FLEET_FULL_ANIMATION_RADIUS_KM, FLEET_SLOT_MAX_POINTS, shouldAcceptFleetMotionUpdate } from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
+import {
+  WARNING_CATALOG,
+  type CreateWarningInput,
+  type LiveWarning,
+  type WarningType,
+} from '../lib/warnings/warningCatalog';
+
+export type { CreateWarningInput, LiveWarning, WarningType } from '../lib/warnings/warningCatalog';
 
 export interface LiveUser {
   id:        number;
@@ -45,18 +53,6 @@ export type LiveLocationMotion = {
   /** idle | freeDrive | navigation — gamification server gate */
   mode?: string;
 };
-
-export interface LiveWarning {
-  id:           number;
-  type:         'traffic' | 'weather' | 'accident' | 'car_breakdown' | 'speed_control' | 'kosmici' | 'Animal';
-  lat:          number;
-  lng:          number;
-  message:      string;
-  createdAt:    string;
-  expiresAt:    string;
-  confirmCount: number;
-  user:         { id: number; username: string; avatarUrl: string | null };
-}
 
 function parseIncomingMotion(u: Partial<LiveUser>): {
   heading: number | null;
@@ -803,10 +799,21 @@ export function useLiveMap(
         checkSingleWarningProximityRef.current?.(warning);
       });
 
-      socket.on('warning:confirmed', ({ id, confirmCount, expiresAt }: any) => {
+      socket.on('warning:confirmed', ({ id, confirmCount, expiresAt, subtype, direction, message }: any) => {
         setWarnings(prev =>
-          (prev ?? []).map(w => w.id === id ? { ...w, confirmCount, expiresAt } : w),
+          (prev ?? []).map(w => w.id === id ? {
+            ...w,
+            confirmCount,
+            expiresAt,
+            subtype: subtype ?? w.subtype,
+            direction: direction ?? w.direction,
+            message: message ?? w.message,
+          } : w),
         );
+      });
+
+      socket.on('warning:dismissed', ({ id, dismissCount }: any) => {
+        setWarnings(prev => (prev ?? []).map(w => w.id === id ? { ...w, dismissCount } : w));
       });
 
       socket.on('warning:removed', ({ id }: any) => {
@@ -1140,10 +1147,9 @@ export function useLiveMap(
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (
-    type:         LiveWarning['type'],
+    input:        CreateWarningInput,
     lat:          number,
     lng:          number,
-    message?:     string,
     routePoints?: { latitude: number; longitude: number }[],
   ): Promise<void> => {
     if (!tokenRef.current) return;
@@ -1175,7 +1181,12 @@ export function useLiveMap(
             'Content-Type': 'application/json',
             Authorization:  `Bearer ${tokenRef.current}`,
           },
-          body: JSON.stringify({ type, lat: snappedLat, lng: snappedLng, message: message ?? '' }),
+          body: JSON.stringify({
+            ...input,
+            lat: snappedLat,
+            lng: snappedLng,
+            message: input.message ?? '',
+          }),
         },
         10000,
       );
@@ -1263,6 +1274,30 @@ export function useLiveMap(
     }
   }, []);
 
+  const dismissWarning = useCallback(async (warningId: number): Promise<void> => {
+    const token = tokenRef.current;
+    const location = userLocationRef.current;
+    if (!token || !location) return;
+    try {
+      const response = await fetchWithTimeout(
+        `${API_URL}/api/live/warnings/${warningId}/dismiss`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: location.latitude, lng: location.longitude }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        Toast.show({ type: 'info', text1: data.error ?? 'Nie można oznaczyć ostrzeżenia' });
+        return;
+      }
+      Toast.show({ type: 'success', text1: 'OZNACZONO JAKO NIEAKTUALNE' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+    }
+  }, []);
+
   /** Po powrocie z tła / starcie — socket, lista użytkowników, opcjonalnie share na serwerze. */
   const resumeLiveSession = useCallback(async () => {
     if (!mapSessionActiveRef.current) return;
@@ -1318,6 +1353,7 @@ export function useLiveMap(
     addWarning,
     confirmWarning,
     cancelWarning,
+    dismissWarning,
   };
 }
 
@@ -1329,7 +1365,15 @@ export function clusterWarnings(warnings: LiveWarning[]): LiveWarning[] {
   const result: LiveWarning[] = [];
   for (const warning of warnings) {
     const existing = result.find(r =>
-      r.type === warning.type &&
+      r.type === warning.type
+      && (r.subtype ?? null) === (warning.subtype ?? null)
+      && (
+        r.direction === 'unknown'
+        || warning.direction === 'unknown'
+        || r.direction === 'both'
+        || warning.direction === 'both'
+        || r.direction === warning.direction
+      ) &&
       distanceKm(
         Number(r.lat), Number(r.lng),
         Number(warning.lat), Number(warning.lng),
@@ -1352,6 +1396,8 @@ export function clusterWarnings(warnings: LiveWarning[]): LiveWarning[] {
 }
 
 export function getWarningLabel(type: string): string {
+  const catalogLabel = WARNING_CATALOG[type as WarningType]?.label;
+  if (catalogLabel) return catalogLabel;
   switch (type) {
     case 'traffic':       return 'Korek';
     case 'weather':       return 'Zła pogoda';
@@ -1365,6 +1411,8 @@ export function getWarningLabel(type: string): string {
 }
 
 export function getWarningColor(type: string): string {
+  const catalogColor = WARNING_CATALOG[type as WarningType]?.color;
+  if (catalogColor) return catalogColor;
   switch (type) {
     case 'traffic':       return '#FF9500';
     case 'weather':       return '#ffd43b';
@@ -1377,6 +1425,8 @@ export function getWarningColor(type: string): string {
 }
 
 export function getWarningIcon(type: string): string {
+  const catalogIcon = WARNING_CATALOG[type as WarningType]?.icon;
+  if (catalogIcon) return catalogIcon;
   switch (type) {
     case 'traffic':       return 'car-multiple';
     case 'weather':       return 'weather-lightning-rainy';

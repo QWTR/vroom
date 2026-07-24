@@ -10,12 +10,16 @@ import com.rnmapbox.rnmbx.components.AbstractMapFeature
 import com.rnmapbox.rnmbx.components.RemovalReason
 import com.rnmapbox.rnmbx.components.mapview.RNMBXMapView
 
+internal fun mapCameraDpToPx(dp: Double, density: Double): Double =
+  dp.coerceAtLeast(0.0) * density.coerceAtLeast(0.0)
+
 /**
  * A non-visual Mapbox feature. React/Reanimated writes props on the UI thread;
  * the display loop consumes only the newest complete pose once per frame.
  */
 class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Choreographer.FrameCallback {
   override var requiresStyleLoad: Boolean = false
+  private val displayDensity = context.resources.displayMetrics.density.toDouble()
 
   private var enabled = false
   private var markerVisible = true
@@ -75,10 +79,10 @@ class VroomMapCameraFollower(context: Context) : AbstractMapFeature(context), Ch
   fun setHeading(value: Double) = update { heading = value }
   fun setZoom(value: Double) = update { zoom = value }
   fun setPitch(value: Double) = update { pitch = value }
-  fun setPaddingTop(value: Double) = update { paddingTop = value }
-  fun setPaddingBottom(value: Double) = update { paddingBottom = value }
-  fun setPaddingLeft(value: Double) = update { paddingLeft = value }
-  fun setPaddingRight(value: Double) = update { paddingRight = value }
+  fun setPaddingTop(value: Double) = update { paddingTop = mapCameraDpToPx(value, displayDensity) }
+  fun setPaddingBottom(value: Double) = update { paddingBottom = mapCameraDpToPx(value, displayDensity) }
+  fun setPaddingLeft(value: Double) = update { paddingLeft = mapCameraDpToPx(value, displayDensity) }
+  fun setPaddingRight(value: Double) = update { paddingRight = mapCameraDpToPx(value, displayDensity) }
 
   private inline fun update(block: () -> Unit) {
     block()

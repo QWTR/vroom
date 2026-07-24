@@ -6,6 +6,7 @@ import { makeMapStyles } from '../../styles/mapstyle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { LiveWarning, getWarningColor, getWarningIcon, getWarningLabel } from '../../hooks/useLiveMap';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
+import { warningSubtypeLabel } from '../../lib/warnings/warningCatalog';
 
 interface Props {
   visible:        boolean;
@@ -13,15 +14,17 @@ interface Props {
   onClose:        () => void;
   onConfirm:      (id: number) => void;
   onCancel?:      (id: number) => Promise<void>;
+  onDismiss?:     (id: number) => Promise<void>;
   currentUserId?: number;
 }
 
-export const WarningDetailModal = memo(({
-  visible, warning, onClose, onConfirm, onCancel, currentUserId,
-}: Props) => {
+export const WarningDetailModal = memo(function WarningDetailModal({
+  visible, warning, onClose, onConfirm, onCancel, onDismiss, currentUserId,
+}: Props) {
   const { theme, isDark } = useTheme();
   const styles = makeMapStyles(theme, isDark);
   const [cancelling, setCancelling] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   useModalBackHandler(visible, onClose);
 
@@ -30,6 +33,7 @@ export const WarningDetailModal = memo(({
   const color    = getWarningColor(warning.type);
   const icon     = getWarningIcon(warning.type);
   const label    = getWarningLabel(warning.type);
+  const subtypeLabel = warningSubtypeLabel(warning.type, warning.subtype);
   const timeLeft = Math.max(0, Math.round((new Date(warning.expiresAt).getTime() - Date.now()) / 60000));
   const isOwn    = warning.user?.id === currentUserId;
 
@@ -41,6 +45,17 @@ export const WarningDetailModal = memo(({
       onClose();
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleDismiss = async () => {
+    if (!onDismiss) return;
+    setDismissing(true);
+    try {
+      await onDismiss(warning.id);
+      onClose();
+    } finally {
+      setDismissing(false);
     }
   };
 
@@ -62,6 +77,9 @@ export const WarningDetailModal = memo(({
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.drawerTitle, { marginBottom: 4 }]}>{label.toUpperCase()}</Text>
+              {subtypeLabel ? (
+                <Text style={{ color, fontSize: 12, fontWeight: '800', marginBottom: 3 }}>{subtypeLabel}</Text>
+              ) : null}
               <Text style={styles.drawerSectionLabel}>
                 Zgłoszone przez {warning.user?.username ?? 'Nieznany'}
               </Text>
@@ -121,6 +139,7 @@ export const WarningDetailModal = memo(({
 
           {/* Inny użytkownik — potwierdź */}
           {!isOwn && (
+            <View style={{ gap: 9 }}>
             <TouchableOpacity
               style={{
                 flexDirection: 'row', alignItems: 'center',
@@ -136,6 +155,25 @@ export const WarningDetailModal = memo(({
                 POTWIERDŹ OSTRZEŻENIE
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                paddingVertical: 12, borderRadius: 13, borderWidth: 1.5,
+                borderColor: theme.border2, backgroundColor: theme.border,
+                opacity: dismissing ? 0.6 : 1,
+              }}
+              activeOpacity={0.8}
+              onPress={() => void handleDismiss()}
+              disabled={dismissing}
+            >
+              {dismissing
+                ? <ActivityIndicator size="small" color={theme.textMuted} />
+                : <MaterialIcons name="not-interested" size={18} color={theme.textMuted} />}
+              <Text style={{ color: theme.textMuted, fontFamily: 'Orbitron', fontWeight: '700', fontSize: 9, letterSpacing: 1 }}>
+                NIEAKTUALNE
+              </Text>
+            </TouchableOpacity>
+            </View>
           )}
 
           {/* Twórca — anuluj */}

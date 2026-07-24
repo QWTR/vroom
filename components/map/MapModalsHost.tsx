@@ -21,6 +21,7 @@ import type { SpeedCamera } from '../../hooks/useSpeedCameras';
 import type { PartnerPoi } from '../../hooks/usePartnerPois';
 import type { OfficialMapMeet } from '../../hooks/useOfficialMapMeets';
 import type { LiveWarning } from '../../hooks/useLiveMap';
+import type { CreateWarningInput } from '../../lib/warnings/warningCatalog';
 import { API_URL } from '../../constants/mapConfig';
 
 export type MapModalsHostProps = {
@@ -79,10 +80,11 @@ export type MapModalsHostProps = {
   onChangeMapType: (type: string) => void;
   onCloseSettings: () => void;
   onCloseReport: () => void;
-  onReport: (type: LiveWarning['type'], message?: string) => Promise<void>;
+  onReport: (input: CreateWarningInput) => Promise<void>;
   onCloseWarning: () => void;
-  onConfirmWarning: (id: string) => void;
-  onCancelWarning: (id: string) => void;
+  onConfirmWarning: (id: number) => void | Promise<void>;
+  onCancelWarning: (id: number) => Promise<void>;
+  onDismissWarning: (id: number) => Promise<void>;
   onCancelSaveRoute: () => void;
   onSnapToRoad: () => void;
   onSaveRoute: (name: string, desc: string, isPublic: boolean, isOffroad: boolean) => Promise<void>;
@@ -168,6 +170,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
     onCloseWarning,
     onConfirmWarning,
     onCancelWarning,
+    onDismissWarning,
     onCancelSaveRoute,
     onSnapToRoad,
     onSaveRoute,
@@ -235,6 +238,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         onClose={onCloseWarning}
         onConfirm={onConfirmWarning}
         onCancel={onCancelWarning}
+        onDismiss={onDismissWarning}
         currentUserId={currentUserId ?? undefined}
       />
       <SaveRouteModal

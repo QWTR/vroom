@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import Mapbox from '@rnmapbox/maps';
 import { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import type { NavMode } from '../lib/navigationV3/types';
-import { getTripCameraPadding } from './useCameraAnimation';
+import { deriveTripCameraPadding } from '../lib/mapScreen/tripCameraPadding';
 import type { DriveMarkerV3Values } from './useDriveMarkerV3';
 import { normalizeHeading } from '../lib/driveCore/travelHeading';
 import { nativeFollowerFrameFromMarker } from '../lib/driveCore/tripCameraFollow';
@@ -18,6 +18,8 @@ export type UseCameraV3Options = {
   speedKmhRef?: React.MutableRefObject<number>;
   rawGpsRef?: RawGpsCourseRef;
   isUserExploring?: () => boolean;
+  mapHeight: number;
+  bottomOcclusion?: number;
 };
 
 const BROWSE_ZOOM = 15;
@@ -61,7 +63,7 @@ export function resolveCameraCourseHeading(
  * applied by VroomMapCameraFollower from the marker's rendered SharedValues.
  */
 export function useCameraV3(opts: UseCameraV3Options) {
-  const { cameraRef, marker, enabled, mode, speedKmhRef, isUserExploring } = opts;
+  const { cameraRef, marker, enabled, mode, speedKmhRef, isUserExploring, mapHeight, bottomOcclusion = 0 } = opts;
   const isTripMode = mode === 'freeDrive' || mode === 'navigation';
   const isNavigating = mode === 'navigation';
   const [nativeFollowEnabled, setNativeFollowEnabled] = useState(enabled && isTripMode);
@@ -69,6 +71,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const targetCameraHeading = useSharedValue(0);
   const smoothedCameraHeading = useSharedValue(0);
+  const tripPadding = deriveTripCameraPadding(mapHeight, bottomOcclusion);
 
   const stopResumeTimer = useCallback(() => {
     if (resumeTimerRef.current) {
@@ -138,12 +141,12 @@ export function useCameraV3(opts: UseCameraV3Options) {
         heading,
         zoomLevel: Math.max(15.5, 18.75 - Math.min(speed, 120) / 120 * 2.2),
         pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
-        padding: getTripCameraPadding(isNavigating),
+        padding: tripPadding,
         animationDuration: options?.animate ? 280 : 0,
         animationMode: options?.animate ? 'easeTo' : 'linearTo',
       });
     }
-  }, [armTripFollow, cameraRef, enabled, isNavigating, isTripMode, marker.heading, speedKmhRef]);
+  }, [armTripFollow, cameraRef, enabled, isNavigating, isTripMode, marker.heading, speedKmhRef, tripPadding]);
 
   const resetBrowseCamera = useCallback((center: { latitude: number; longitude: number }, options?: { animate?: boolean }) => {
     release();
@@ -195,10 +198,10 @@ export function useCameraV3(opts: UseCameraV3Options) {
       enabled: Boolean(enabled && isTripMode && nativeFollowEnabled),
       zoom: isNavigating ? NAV_ZOOM : DRIVE_ZOOM,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
-      padding: getTripCameraPadding(isNavigating),
+      padding: tripPadding,
       animatedProps,
     },
   };
 }
 
-export { getTripCameraPadding };
+export { deriveTripCameraPadding as getTripCameraPadding };

@@ -23,6 +23,24 @@ const ANDROID_SOURCE_FILES = {
   'VroomMapCameraFollowerPackage.kt': decodeEmbeddedSource('H4sIAAAAAAAACpWQwWrDMAyG734KHZNS/AClK4Sw9bClLTv0GlRHCaZ2ZGyn3Rh795E0B8O2sl2EQPr0/78cqjN2BHV9KMrnYvtY19KiU2jJoxDaOvYRFFvZoqIT81l6QhXl61gPN/rO2snrpiO5w6gvVHEzmD9sT7cL54xWGDX3JfeR3uIdcNAWe+zIy6Oma3XrhVAGQ4CjZ7YVunIK9cTG8JX87B1WkEaBDwHAF/JeNwTt0IPyhJHSACGbRGdXM//dbr6CFx3iOkU38ABkXXwfJ1kufhZLMvxTKyHXiyUsNqOg0SHu20wAwC+/mJEsXwqAXHyKL+9MJcoXAgAA='),
 };
 
+// Continuous motion is owned by the shared Reanimated engine. Fresh iOS
+// projects must not compile the retired parallel Swift predictor.
+delete IOS_SOURCE_FILES['VroomNativeMotionPredictor.swift'];
+
+// Canonical native sources are the single source of truth. Keeping this
+// override adjacent to the embedded fallback prevents a stale prebuild from
+// restoring old camera padding or interpolation constants.
+const canonicalSource = (platform, file) => fs.readFileSync(
+  path.join(__dirname, '..', 'native', 'map-camera-follower', platform, file),
+  'utf8',
+);
+Object.keys(IOS_SOURCE_FILES).forEach((file) => {
+  IOS_SOURCE_FILES[file] = canonicalSource('ios', file);
+});
+Object.keys(ANDROID_SOURCE_FILES).forEach((file) => {
+  ANDROID_SOURCE_FILES[file] = canonicalSource('android', file);
+});
+
 const withAndroidFollower = (config) => withDangerousMod(config, ['android', async (cfg) => {
   const root = cfg.modRequest.projectRoot;
   const packageName = cfg.android?.package || 'com.lexuuw.vroom.app';

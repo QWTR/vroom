@@ -203,6 +203,14 @@ function makeHudStyles(theme: AppTheme, isDark: boolean) {
       fontWeight: '700',
       color: '#666666',
     },
+    pendingBadge: {
+      marginTop: 3,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+    },
+    pendingDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#f59f00' },
+    pendingText: { color: '#f59f00', fontSize: 7, fontWeight: '900' },
     quickReportBtn: {
       width: 58,
       height: 58,
@@ -355,6 +363,9 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
   tolerance,
   tripDistanceKm,
   showTripMeter = false,
+  speedLimitStatus = 'known',
+  canReportSpeedLimit = false,
+  onPressSpeedLimit,
 }: {
   initialKmh?: number;
   kmh?: number;
@@ -362,6 +373,9 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
   tolerance: number;
   tripDistanceKm?: number | null;
   showTripMeter?: boolean;
+  speedLimitStatus?: 'known' | 'pending' | 'queued' | 'unknown';
+  canReportSpeedLimit?: boolean;
+  onPressSpeedLimit?: () => void;
 }) {
   const { theme, isDark } = useTheme();
   const hud = makeHudStyles(theme, isDark);
@@ -373,7 +387,13 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
 
   return (
     <View style={hud.speedTileCol}>
-      <View style={[hud.limitRing, overLimit && hud.limitRingOver]}>
+      <Pressable
+        accessibilityRole={canReportSpeedLimit ? 'button' : undefined}
+        accessibilityLabel={canReportSpeedLimit ? 'Dodaj ograniczenie prędkości' : undefined}
+        disabled={!canReportSpeedLimit || !onPressSpeedLimit}
+        onPress={onPressSpeedLimit}
+        style={({ pressed }) => [hud.limitRing, overLimit && hud.limitRingOver, pressed && { opacity: 0.72 }]}
+      >
         <Text
           style={[
             limitSmall ? { fontSize: 11, fontFamily: 'Orbitron', fontWeight: '900' } : hud.limitText,
@@ -383,9 +403,15 @@ export const DriveSpeedCluster = memo(function DriveSpeedCluster({
           adjustsFontSizeToFit
           minimumFontScale={0.75}
         >
-          {displayLimit ?? '—'}
+          {displayLimit ?? (canReportSpeedLimit ? '+' : '—')}
         </Text>
-      </View>
+      </Pressable>
+      {speedLimitStatus === 'pending' || speedLimitStatus === 'queued' ? (
+        <View pointerEvents="none" style={hud.pendingBadge}>
+          <View style={hud.pendingDot} />
+          <Text style={hud.pendingText}>{speedLimitStatus === 'queued' ? 'WYSYŁANIE' : 'OCZEKUJE'}</Text>
+        </View>
+      ) : null}
       <View style={hud.speedValueWrap}>
         <Text
           style={[hud.speedNumber, overLimit && hud.speedNumberOver]}
@@ -414,6 +440,9 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
   showTripMeter = false,
   style,
   onLongPress,
+  speedLimitStatus = 'known',
+  canReportSpeedLimit = false,
+  onPressSpeedLimit,
 }: {
   initialKmh?: number;
   kmh?: number;
@@ -423,6 +452,9 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
   showTripMeter?: boolean;
   style?: StyleProp<ViewStyle>;
   onLongPress?: () => void;
+  speedLimitStatus?: 'known' | 'pending' | 'queued' | 'unknown';
+  canReportSpeedLimit?: boolean;
+  onPressSpeedLimit?: () => void;
 }) {
   const { theme, isDark } = useTheme();
   const hud = makeHudStyles(theme, isDark);
@@ -433,8 +465,10 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
         tint={isDark ? 'dark' : 'light'}
         intensity={Platform.OS === 'ios' ? 24 : 16}
         style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
       />
       <View
+        pointerEvents="none"
         style={[
           StyleSheet.absoluteFillObject,
           { backgroundColor: theme.surface },
@@ -447,6 +481,9 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
         tolerance={tolerance}
         tripDistanceKm={tripDistanceKm}
         showTripMeter={showTripMeter}
+        speedLimitStatus={speedLimitStatus}
+        canReportSpeedLimit={canReportSpeedLimit}
+        onPressSpeedLimit={onPressSpeedLimit}
       />
     </View>
   );

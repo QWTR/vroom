@@ -41,8 +41,6 @@ import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import {
   VroomMapCameraFollower,
-  nativeNavigationSampleFromTarget,
-  type VroomMapCameraFollowerHandle,
 } from '../../components/map/VroomMapCameraFollower';
 import { DrPositionMarker } from '../../components/map/DrPositionMarker';
 import { VehicleModelMarker } from '../../components/map/VehicleModelMarker';
@@ -263,7 +261,7 @@ import {
 import { useSettings } from '../../hooks/useSettings';
 import { useMapMaintenanceGate } from '../../hooks/useMapMaintenanceGate';
 import { MapMaintenanceScreen } from '../../components/maintenance/MapMaintenanceScreen';
-import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS, setDynamicHudPadding } from '../../hooks/useCameraAnimation';
+import { useCameraAnimation, PROGRAMMATIC_CAMERA_GESTURE_GUARD_MS } from '../../hooks/useCameraAnimation';
 import { TripHeadingFilter } from '../../lib/driveCore/headingFilter';
 import { DriveSessionGuard } from '../../lib/driveCore/driveSessionGuard';
 import {
@@ -303,8 +301,6 @@ import {
 } from '../../hooks/useGoogleDirections';
 import {
   clusterWarnings,
-  getWarningColor,
-  getWarningIcon,
   getWarningLabel,
   LiveWarning,
   useLiveMap,
@@ -374,6 +370,7 @@ import { SpeedCameraDetailModal } from '../../components/modals/SpeedCameraDetai
 import { TripStatsModal } from '../../components/modals/TripStatsModal';
 import { UserInfoModal } from '../../components/modals/UserInfoModal';
 import { WarningDetailModal } from '../../components/modals/WarningDetailModal';
+import { SpeedLimitReportModal } from '../../components/modals/SpeedLimitReportModal';
 import { AdSlot }               from '../../components/ads/AdSlot';
 import { useFuelStations }      from '../../hooks/useFuelStations';
 import { FuelStationMarker }    from '../../components/markers/FuelStationMarker';
@@ -391,6 +388,7 @@ import { MapFabActionsModal } from '../../components/map/MapFabActionsModal';
 import { CameraPickOverlay } from '../../components/map/CameraPickOverlay';
 import { ManualTargetPickOverlay } from '../../components/map/ManualTargetPickOverlay';
 import { MapScreenHud } from '../../components/map/MapScreenHud';
+import { WarningMapLayers } from '../../components/map/WarningMapLayers';
 import { MapModalsHost } from '../../components/map/MapModalsHost';
 import { useMapGeoDrops } from '../../hooks/map/useMapGeoDrops';
 import { useMapTripCheckpoints } from '../../hooks/map/useMapTripCheckpoints';
@@ -401,6 +399,9 @@ import { useMapNavigationSession } from '../../hooks/map/useMapNavigationSession
 import { useMapCameraSpeedPoll } from '../../hooks/map/useMapCameraSpeedPoll';
 import { useMapGpsWatchdog } from '../../hooks/map/useMapGpsLifecycle';
 import { useMapLiveSendTick } from '../../hooks/map/useMapLiveSendTick';
+import { selectUpcomingWarning } from '../../lib/warnings/warningAhead';
+import type { CreateWarningInput, WarningType } from '../../lib/warnings/warningCatalog';
+import { canReportCommunitySpeedLimit } from '../../lib/speedLimits/types';
 
 
 // Geoprzestrzenna detekcja on-route (Turf Haversine) — margines GPS 30–40 m.
@@ -729,18 +730,12 @@ const TRIP_SMOOTH_MAX_MS = 220;
 
 
 function MapScreenInner() {
-  const [hudTopHeight, setHudTopHeight] = useState(0);
-  const [hudBottomHeight, setHudBottomHeight] = useState(0);
-
-  useEffect(() => {
-    setDynamicHudPadding(hudTopHeight, hudBottomHeight);
-  }, [hudTopHeight, hudBottomHeight]);
+  const [mapViewHeight, setMapViewHeight] = useState(0);
+  const ignoreHudLayout = useCallback((_height: number) => {}, []);
 
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
   const cameraRef            = useRef<Mapbox.Camera>(null);
-  const nativeFollowerRef    = useRef<VroomMapCameraFollowerHandle>(null);
-  const nativeSampleSequenceRef = useRef(0);
   const locationSubRef       = useRef<any>(null);
   const lastHeadingRef       = useRef(0);
   /** v10: Snap Lock Guard — blokuj pojedyncze odchyły snapu na boczne uliczki. */
@@ -1653,6 +1648,7 @@ function MapScreenInner() {
   });
   const [heading,       setHeading]       = useState(0);
   const [speed,         setSpeed]         = useState<number | null>(null);
+  const lastGpsAccuracyRef = useRef<number | null>(null);
   const [locationReady, setLocationReady] = useState(() => peekMapLastLocation() != null);
   /** true tylko gdy nie mamy żadnej pozycji do pokazania — nie blokuje live GPS przy słabszym sygnale. */
   const [gpsAcquiring, setGpsAcquiring] = useState(() => peekMapLastLocation() == null);
@@ -1783,6 +1779,8 @@ function MapScreenInner() {
   const [sharingHydrated,    setSharingHydrated]    = useState(false);
   const [isSubmittingWarning, setIsSubmittingWarning] = useState(false);
   const [selectedWarning,     setSelectedWarning]     = useState<LiveWarning | null>(null);
+  const handleReportRef = useRef<((report: WarningType | CreateWarningInput) => Promise<void>) | null>(null);
+  const [speedLimitReportVisible, setSpeedLimitReportVisible] = useState(false);
   const [currentUserId,       setCurrentUserId]       = useState<number | null>(null);
 
   // ── State – demo users ────────────────────────────────────
@@ -1983,12 +1981,6 @@ function MapScreenInner() {
       let markerTarget = out.target;
       // V3 SSOT — nie nadpisuj lat/lng snapToRoute (inna geometria niż arcWindow → lateral jitter).
       driveMarker.pushTarget(markerTarget);
-      if (Platform.OS === 'ios' && !out.rejected) {
-        nativeSampleSequenceRef.current += 1;
-        nativeFollowerRef.current?.pushNavigationSample(
-          nativeNavigationSampleFromTarget(markerTarget, nativeSampleSequenceRef.current),
-        );
-      }
       if (Number.isFinite(out.snap.rawLat) && Number.isFinite(out.snap.rawLng)) {
         rawGpsCourseRef.current = { lat: out.snap.rawLat, lng: out.snap.rawLng };
       }
@@ -2114,6 +2106,7 @@ function MapScreenInner() {
       }
     },
   });
+  const processMotionFix = navV3.processGpsFix;
 
   const cameraV3 = useCameraV3({
     cameraRef,
@@ -2123,6 +2116,7 @@ function MapScreenInner() {
     speedKmhRef,
     rawGpsRef: rawGpsCourseRef,
     isUserExploring: () => isUserExploringMapRef.current(),
+    mapHeight: mapViewHeight,
   });
   const tripBootstrapPose = useCallback((
     lat: number,
@@ -2205,12 +2199,6 @@ function MapScreenInner() {
     driveMarker.resetTo(lat, lng, hdg);
     const coldTarget = coldStartNavigationTarget(lat, lng, hdg);
     driveMarker.pushTarget(coldTarget);
-    if (Platform.OS === 'ios') {
-      nativeSampleSequenceRef.current += 1;
-      nativeFollowerRef.current?.pushNavigationSample(
-        nativeNavigationSampleFromTarget(coldTarget, nativeSampleSequenceRef.current),
-      );
-    }
     driveMarker.ensureFrameActive?.();
     lastTripMarkerPoseRef.current = { lat, lng };
     drLatRef.current = lat;
@@ -2651,7 +2639,13 @@ function MapScreenInner() {
     checkAlert, markAlerted, invalidate, deleteCamera,
   } = useSpeedCameras();
 
-  const { speedLimit, updateSpeedLimit } = useSpeedLimit(true);
+  const {
+    speedLimit,
+    resolution: speedLimitResolution,
+    updateSpeedLimit,
+    submitSpeedLimit,
+    flushQueuedSpeedLimits,
+  } = useSpeedLimit(true);
   const updateSpeedLimitRef = useRef(updateSpeedLimit);
   useEffect(() => {
     updateSpeedLimitRef.current = updateSpeedLimit;
@@ -3340,7 +3334,7 @@ function MapScreenInner() {
 
   const {
     liveUserIds, liveMapStore, warnings, connected,
-    sendLocation, toggleSharing, resumeLiveSession, addWarning, confirmWarning, cancelWarning,
+    sendLocation, toggleSharing, resumeLiveSession, addWarning, confirmWarning, cancelWarning, dismissWarning,
   } = useLiveMap(
     isSharing,
     userLocation,
@@ -3349,6 +3343,10 @@ function MapScreenInner() {
     liveMapEnabled && sharingHydrated,
     isSharing && sharingHydrated,
   );
+
+  useEffect(() => {
+    if (connected) void flushQueuedSpeedLimits();
+  }, [connected, flushQueuedSpeedLimits]);
 
   const {
     drops: gamificationDrops,
@@ -3813,7 +3811,7 @@ function MapScreenInner() {
       headingDeg: lastHeadingRef.current,
       speedKmh: speedKmhRef.current,
     });
-    updateSpeedLimit(lat, lng, { nav: isNavigating || isDriving });
+    updateSpeedLimit(lat, lng, { nav: isNavigating || isDriving, heading: lastHeadingRef.current });
   }, [userLocation?.latitude, userLocation?.longitude, isNavigating, isDriving, updateCameras, updateSpeedLimit]);
 
   const canPollCameras = isMapFocused || isNavigating || isDriving;
@@ -4034,7 +4032,7 @@ function MapScreenInner() {
         lng = drLng;
       }
     }
-    return { lat, lng, heading };
+    return { lat, lng, heading, accuracy: lastGpsAccuracyRef.current };
   }, [userLocation, driveMarker]);
 
   const handleAddCamera = useCallback(async (
@@ -5208,6 +5206,7 @@ function MapScreenInner() {
       let rawLat = rawLat0;
       let rawLng = rawLng0;
       const acc    = loc.accuracy ?? 10;
+      lastGpsAccuracyRef.current = Number.isFinite(acc) ? acc : null;
       const now    = Date.now();
       const speedKmhRaw = driveSessionGuardRef.current.resolveSpeedKmh(
         loc.speed,
@@ -5497,7 +5496,7 @@ function MapScreenInner() {
           maybeAutoStopFromSessionGuard(speedKmhRaw, movingForDriving);
         }
         if (isDrivingRef.current || isNavigatingRef.current) {
-          updateSpeedLimitRef.current(rawLat, rawLng, { nav: true });
+          updateSpeedLimitRef.current(rawLat, rawLng, { nav: true, heading: lastHeadingRef.current });
         }
         return;
       }
@@ -10655,23 +10654,14 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   const { startSimulation, stopSimulation } = useNavigationSimulator({
     onFrame: useCallback((lat: number, lng: number, speedMs: number, hdg: number) => {
       isNavigatingRef.current = true;
-
-      drLatRef.current  = lat;
-      drLngRef.current  = lng;
-      drHdgRef.current  = hdg;
-      lastHeadingRef.current = hdg;
-
       currentLocRef.current = { latitude: lat, longitude: lng };
-      speedKmhRef.current = Math.max(0, speedMs * 3.6);
-      emitSpeedometerKmh(speedKmhRef.current);
-
-      updateCameraFrame({
-        center: { latitude: lat, longitude: lng },
-        heading: hdg,
-        speedKmh: speedMs * 3.6,
-        isNavigating: true,
-        isDriving: false,
+      processMotionFix({
+        latitude: lat,
+        longitude: lng,
+        accuracy: 2,
         timestamp: Date.now(),
+        speed: speedMs,
+        heading: hdg,
       });
 
       const points = routePointsRef.current.length > 0
@@ -10693,7 +10683,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
       feedSpeedSample(speedMs);
       lastNavLocRef.current = { latitude: lat, longitude: lng };
-    }, [updateCameraFrame]),
+    }, [processMotionFix]),
     speedKmh:   120,
     intervalMs: 100,
   });
@@ -10995,11 +10985,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   useEffect(() => {
     import('react-native').then(({ DeviceEventEmitter }) => {
       const sub = DeviceEventEmitter.addListener('CarPlayReportWarning', (type: string) => {
-        handleReport(type);
+        void handleReportRef.current?.(type as WarningType);
       });
       return () => sub.remove();
     });
-  }, [handleReport]);
+  }, []);
 
   useEffect(() => {
     if (!isNavigating) return;
@@ -11537,7 +11527,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (next) void resumeLiveSession();
   }, [toggleSharing, isSharing, settings.backgroundTracking, resumeLiveSession, isPremium]);
 
-  const handleReport = useCallback(async (type: any) => {
+  const handleReport = useCallback(async (report: WarningType | CreateWarningInput) => {
     const acc = getCurrentAccurateLocation();
     if (acc.lat == null || acc.lng == null) { 
       Toast.show({ type: 'error', text1: 'Brak lokalizacji GPS' }); 
@@ -11546,12 +11536,53 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setIsSubmittingWarning(true);
     try {
       const routePoints = activeRoute?.points ?? [];
-      await addWarning(type, acc.lat, acc.lng, undefined, routePoints);
-      Toast.show({ type: 'success', text1: '✅ ZGŁOSZONO', text2: getWarningLabel(type) });
+      const input: CreateWarningInput = typeof report === 'string'
+        ? { type: report }
+        : report;
+      const payload: CreateWarningInput = {
+        ...input,
+        direction: input.direction ?? 'same',
+        heading: input.heading ?? acc.heading ?? null,
+        source: input.source ?? 'phone',
+      };
+      await addWarning(payload, acc.lat, acc.lng, routePoints);
+      Toast.show({ type: 'success', text1: '✅ ZGŁOSZONO', text2: getWarningLabel(payload.type) });
     } finally {
       setIsSubmittingWarning(false);
     }
   }, [getCurrentAccurateLocation, addWarning, activeRoute]);
+  handleReportRef.current = handleReport;
+
+  const handleSubmitSpeedLimit = useCallback(async (limitKmh: number) => {
+    const current = getCurrentAccurateLocation();
+    if (current.lat == null || current.lng == null) {
+      throw new Error('Brak lokalizacji GPS.');
+    }
+    try {
+      const next = await submitSpeedLimit({
+        lat: current.lat,
+        lng: current.lng,
+        heading: current.heading,
+        accuracy: current.accuracy ?? Number.POSITIVE_INFINITY,
+        limitKmh,
+      });
+      Toast.show({
+        type: 'success',
+        text1: next.status === 'queued'
+          ? 'LIMIT ZAPISANY DO WYSŁANIA'
+          : next.status === 'pending'
+            ? 'LIMIT OCZEKUJE'
+            : 'LIMIT POTWIERDZONY',
+        text2: next.status === 'queued'
+          ? 'Brak odpowiedzi serwera — limit zapisano do wysłania'
+          : `${limitKmh} km/h`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nie udało się zapisać limitu.';
+      Toast.show({ type: 'error', text1: 'NIE ZAPISANO LIMITU', text2: message });
+      throw error;
+    }
+  }, [getCurrentAccurateLocation, submitSpeedLimit]);
 
   const handleCenterOnUser = useCallback(() => {
     if (isDrivingRef.current || isNavigatingRef.current) {
@@ -12540,6 +12571,22 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   const effectiveVisibleUsers = visibleUsers;
   const effectiveWarnings = clusteredWarnings;
+  const upcomingWarning = useMemo(() => {
+    const current = getCurrentAccurateLocation();
+    if (current.lat == null || current.lng == null) return null;
+    return selectUpcomingWarning({
+      warnings: effectiveWarnings,
+      pose: {
+        latitude: current.lat,
+        longitude: current.lng,
+        heading: current.heading ?? 0,
+        speedKmh,
+      },
+      isNavigating,
+      isDriving,
+      route: remainingRoutePoints,
+    });
+  }, [effectiveWarnings, getCurrentAccurateLocation, isNavigating, isDriving, remainingRoutePoints, speedKmh, userLocation]);
   const effectiveCameras = useMemo(() => {
     if (currentZoom < SPEED_CAMERA_MIN_ZOOM) return [];
     if (!Array.isArray(cameras) || cameras.length === 0) return [];
@@ -12678,7 +12725,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     activeDropPrompt: availableDropPrompt,
     onStopRequested: () => { stopNavigation(); },
     onReportRequested: () => { setReportVisible(true); },
-    onReportTypeRequested: (type) => { void handleReport(type); },
+    onReportTypeRequested: (type) => { void handleReport(type as WarningType); },
     onSearchRequested: () => { setSearchModalVisible(true); },
     onAutoNavigationStarted: handleAutoNavigationStarted,
     onAutoSearchQuery: () => { setSearchModalVisible(true); },
@@ -12795,9 +12842,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   // ── Prędkościomierz: mały kafelek (lewy dół) — jazda, nawigacja lub browsing ──
   const isRoutePreviewOpen = !isNavigating && !isBuilding && !!endLocation;
+  const canReportSpeedLimit = canReportCommunitySpeedLimit(speedLimitResolution);
   const showSpeedPanel =
     !isRoutePreviewOpen
-    && (isNavigating || isDriving || speedKmh > 5 || speedLimit !== null);
+    && (isNavigating || isDriving || speedKmh > 5 || speedLimit !== null || canReportSpeedLimit);
   const showSideControls = !isRoutePreviewOpen && !isBuilding;
   const sideControlsBottom = insets.bottom + 16;
   const isDropRouteActive = !!dropNavigationTargetId;
@@ -12843,7 +12891,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           liveDistanceKm={liveDistanceKm}
           isTripActiveMap={isTripActiveMap}
           onExportNavTrace={exportNavDriveTrace}
-          onHudBottomLayout={setHudBottomHeight}
+          onHudBottomLayout={ignoreHudLayout}
           isDriving={isDriving}
           onToggleDriving={handleToggleDrivingMode}
           onOpenSearch={() => { setSearchModalVisible(true); setMapFabModalVisible(false); }}
@@ -12853,6 +12901,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           connected={connected}
           onOpenFabModal={() => setMapFabModalVisible(true)}
           onOpenReport={() => setReportVisible(true)}
+          upcomingWarning={upcomingWarning}
+          onOpenUpcomingWarning={() => {
+            if (upcomingWarning) setSelectedWarning(upcomingWarning.warning);
+          }}
         />
 
         {/* ── Route endpoint renderers ─────────────────────── */}
@@ -12936,7 +12988,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         {/* ══════════════════════════════════════════════════ */}
         {/* MAPA                                              */}
         {/* ══════════════════════════════════════════════════ */}
-        <View style={{ flex: 1 }} collapsable={false}>
+        <View
+          style={{ flex: 1 }}
+          collapsable={false}
+          onLayout={(event) => setMapViewHeight(event.nativeEvent.layout.height)}
+        >
         <MapCanvas
           ref={mapRef}
           styleURL={mapStyle}
@@ -13015,10 +13071,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             defaultSettings={cameraDefaultSettingsRef.current}
           />
           <VroomMapCameraFollower
-            ref={nativeFollowerRef}
             {...cameraV3.nativeFollower}
-            markerVisible={isTripActive && (Platform.OS === 'ios' || showSelf2DMarker || showTripArrowUnderlay)}
-            bottomOcclusion={0}
+            markerVisible={isTripActive && (showSelf2DMarker || useVehicle3DMarker || showTripArrowUnderlay)}
           />
           <Mapbox.LocationPuck visible={false} />
           <MapTerrainLayers
@@ -13149,13 +13203,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             onUserPress={handleLiveUserPress}
           />
 
-          {navigationUiReady && remainingRoutePoints.length > 1 && !arrived && isNavigating ? (
-            <MapActiveRouteLayers
-              remainingRoutePoints={remainingRoutePoints}
-              isNavigating={isNavigating}
-              isDriving={isDriving}
-            />
-          ) : null}
+          <MapActiveRouteLayers
+            remainingRoutePoints={navigationUiReady && !arrived ? remainingRoutePoints : []}
+            isNavigating={isNavigating}
+            isDriving={isDriving}
+          />
 
           {startLocation && !isNavigating && !claimedDropReward && !isDropRouteActive && routeEndpointImages.start && (
             <Mapbox.MarkerView coordinate={[startLocation.longitude, startLocation.latitude]} anchor={{ x: 0.5, y: 1 }}>
@@ -13176,44 +13228,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             </Mapbox.MarkerView>
           )}
 
-          {effectiveWarnings
-            .filter(w => !isNaN(Number(w.lat)) && !isNaN(Number(w.lng)))
-            .map(w => {
-              const color = getWarningColor(w.type);
-              const icon  = getWarningIcon(w.type);
-              return (
-                <Mapbox.MarkerView
-                  key={`warning_${w.id}`}
-                  coordinate={[Number(w.lng), Number(w.lat)]}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  allowOverlapWithPuck
-                >
-                  <TouchableOpacity onPress={() => setSelectedWarning(w)} activeOpacity={0.8}>
-                    <View style={{ alignItems: 'center' }}>
-                      {w.confirmCount > 0 && (
-                        <View style={{
-                          backgroundColor: color, borderRadius: 10,
-                          paddingHorizontal: 6, paddingVertical: 2, marginBottom: 3,
-                          minWidth: 28, alignItems: 'center',
-                        }}>
-                          <Text style={{ color: '#000', fontSize: 8, fontWeight: '700' }}>
-                            +{w.confirmCount}
-                          </Text>
-                        </View>
-                      )}
-                      <View style={{
-                        width: 44, height: 44, borderRadius: 22,
-                        backgroundColor: `${color}22`, borderWidth: 2.5, borderColor: color,
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <MaterialCommunityIcons name={icon as any} size={22} color={color} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                </Mapbox.MarkerView>
-              );
-            })
-          }
+          <WarningMapLayers
+            warnings={effectiveWarnings}
+            onSelectWarning={setSelectedWarning}
+          />
 
           <VehicleModelMarker
             enabled={useVehicle3DMarker}
@@ -13266,7 +13284,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         {/* ── Panel nawigacji (góra) ───────────────────────── */}
         {isNavigating && (
-          <View pointerEvents="box-none" style={styles.navigationPanelTop} onLayout={(e) => setHudTopHeight(e.nativeEvent.layout.height)}>
+          <View pointerEvents="box-none" style={styles.navigationPanelTop}>
             <HudPanelShell>
               {isOffroadRef.current ? (
                 <View style={styles.instructionBox}>
@@ -13457,11 +13475,14 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           showSideControls={showSideControls}
           sideControlsBottom={sideControlsBottom}
           effectiveSpeedLimit={effectiveSpeedLimit}
+          speedLimitStatus={speedLimitResolution.status}
+          canReportSpeedLimit={canReportSpeedLimit}
+          onPressSpeedLimit={() => setSpeedLimitReportVisible(true)}
           speedLimitTolerance={SPEED_LIMIT_TOLERANCE}
           liveDistanceKm={liveDistanceKm}
           isTripActiveMap={isTripActiveMap}
           onExportNavTrace={exportNavDriveTrace}
-          onHudBottomLayout={setHudBottomHeight}
+          onHudBottomLayout={ignoreHudLayout}
           isDriving={isDriving}
           onToggleDriving={handleToggleDrivingMode}
           onOpenSearch={() => { setSearchModalVisible(true); setMapFabModalVisible(false); }}
@@ -13471,6 +13492,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           connected={connected}
           onOpenFabModal={() => setMapFabModalVisible(true)}
           onOpenReport={() => setReportVisible(true)}
+          upcomingWarning={upcomingWarning}
+          onOpenUpcomingWarning={() => {
+            if (upcomingWarning) setSelectedWarning(upcomingWarning.warning);
+          }}
         />
 
         <MapFabActionsModal
@@ -13741,6 +13766,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           onCloseWarning={() => setSelectedWarning(null)}
           onConfirmWarning={confirmWarning}
           onCancelWarning={cancelWarning}
+          onDismissWarning={dismissWarning}
           onCancelSaveRoute={() => setSaveRouteVisible(false)}
           onSnapToRoad={() => snapToRoad(pins)}
           onSaveRoute={async (name, desc, isPublic, isOffroad) => {
@@ -13805,6 +13831,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             setOfficialMeetModalVisible(false);
             Toast.show({ type: 'success', text1: '📍 CEL USTAWIONY', text2: name || 'Wydarzenie' });
           }}
+        />
+
+        <SpeedLimitReportModal
+          visible={speedLimitReportVisible}
+          resolution={speedLimitResolution}
+          onClose={() => setSpeedLimitReportVisible(false)}
+          onSubmit={handleSubmitSpeedLimit}
         />
 
         

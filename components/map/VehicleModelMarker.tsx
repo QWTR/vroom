@@ -1,5 +1,4 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import Animated, {
   runOnJS,
@@ -19,6 +18,7 @@ import {
   normalizeVehicleModelMeta,
 } from '../../lib/vehicleModelMeta';
 import { SELF_VEHICLE_MODEL_KEY } from '../../lib/vehicleModelRegistry';
+import { MAP_LAYER_IDS } from '../../lib/mapScreen/mapLayerContract';
 
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
@@ -34,8 +34,8 @@ const COORD_QUANT = 2e-7;
 const COORD_EPS = 3e-7;
 const MODEL_MIN_ZOOM = 5;
 /** Rotacja: literal modelRotation (data-driven renderuje inną konwencją → zły heading). */
-const ROT_PUSH_MIN_DEG = 1.5;   // kwantyzacja kąta — mniej relayoutów
-const ROT_PUSH_MIN_MS = 60;     // throttle
+const ROT_PUSH_MIN_DEG = 1.5;
+const ROT_PUSH_MIN_MS = 60;
 
 type Props = {
   enabled: boolean;
@@ -74,6 +74,8 @@ const SelfModelLayer = memo(function SelfModelLayer({
   layerKey,
   initialYaw,
   sourceId,
+  dataDrivenHeading,
+  yawOffset,
 }: {
   modelYawSv: SharedValue<number>;
   pitch: number;
@@ -83,6 +85,8 @@ const SelfModelLayer = memo(function SelfModelLayer({
   layerKey: string;
   initialYaw: number;
   sourceId: string;
+  dataDrivenHeading: boolean;
+  yawOffset: number;
 }) {
   const [yaw, setYaw] = useState(initialYaw);
   const lastPushedSv = useSharedValue(NaN);
@@ -96,6 +100,7 @@ const SelfModelLayer = memo(function SelfModelLayer({
     () => modelYawSv.value,
     (v) => {
       'worklet';
+      if (dataDrivenHeading) return;
       if (!Number.isFinite(v)) return;
       const now = Date.now();
       const prev = lastPushedSv.value;
@@ -108,16 +113,19 @@ const SelfModelLayer = memo(function SelfModelLayer({
     },
   );
 
-  const style = useMemo(
-    () => ({ ...layerBase, modelRotation: [pitch, roll, yaw] as [number, number, number] }),
-    [layerBase, pitch, roll, yaw],
-  );
+  const style = useMemo(() => ({
+    ...layerBase,
+    modelRotation: dataDrivenHeading
+      ? [pitch, roll, ['+', ['get', 'heading'], yawOffset]]
+      : [pitch, roll, yaw],
+  }) as any, [dataDrivenHeading, layerBase, pitch, roll, yaw, yawOffset]);
 
   return (
     <Mapbox.ModelLayer
       key={`vehicle-model-layer-${layerKey}`}
       id="vehicle-model-layer"
       sourceID={sourceId}
+      aboveLayerID={MAP_LAYER_IDS.warningCount}
       minZoomLevel={minZoom}
       style={style}
     />
@@ -150,7 +158,7 @@ function VehicleModelMarkerInner({
 
   const layerBase = useMemo(
     () => buildSelfVehicleModelLayerStyle(SELF_VEHICLE_MODEL_KEY, meta),
-    [meta, metaKey],
+    [meta],
   );
 
   const initialYaw = useMemo(
@@ -262,7 +270,7 @@ function VehicleModelMarkerInner({
   if (!enabled || !modelReady) return null;
 
   const minZoom = Math.min(MODEL_MIN_ZOOM, meta.minZoom ?? MODEL_MIN_ZOOM);
-  const sourceId = Platform.OS === 'ios' && isTripActive
+  const sourceId = isTripActive
     ? NATIVE_TRIP_SOURCE_ID
     : MODEL_SOURCE_ID;
 
@@ -283,6 +291,8 @@ function VehicleModelMarkerInner({
         layerKey={`${metaKey}-${sourceId}`}
         initialYaw={initialYaw}
         sourceId={sourceId}
+        dataDrivenHeading={isTripActive}
+        yawOffset={yawOffset}
       />
     </>
   );

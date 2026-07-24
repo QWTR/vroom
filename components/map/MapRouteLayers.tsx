@@ -1,5 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import Mapbox from '@rnmapbox/maps';
+import { MAP_LAYER_IDS } from '../../lib/mapScreen/mapLayerContract';
 
 type Coord = { latitude: number; longitude: number };
 
@@ -34,52 +35,60 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
     [remainingRoutePoints],
   );
 
-  const routeShape = useMemo(() => lineFeature(coords), [coords]);
-
-  if (coords.length < 2) return null;
+  const routeShape = useMemo(
+    () => coords.length >= 2
+      ? lineFeature(coords)
+      : ({ type: 'FeatureCollection' as const, features: [] }),
+    [coords],
+  );
 
   const navRoute = isNavigating;
   const routeCoreColor = navRoute ? ROUTE_LINE_COLOR : '#00bfff';
   const routeHaloColor = navRoute ? ROUTE_HALO_COLOR : '#ffffff55';
+  const routeVisible = coords.length >= 2 && (isNavigating || isDriving);
 
   const lineCapJoin = { lineCap: 'round' as const, lineJoin: 'round' as const };
 
   return (
     <>
       <Mapbox.ShapeSource id="routeActiveSource" shape={routeShape}>
+        <Mapbox.LineLayer
+          id={MAP_LAYER_IDS.routeMain}
+          style={{
+            lineColor: routeCoreColor,
+            lineWidth: navRoute ? 9 : 6,
+            lineOpacity: routeVisible ? 1 : 0,
+            ...lineCapJoin,
+          }}
+        />
+        <Mapbox.LineLayer
+          id={MAP_LAYER_IDS.routeGlow}
+          belowLayerID={MAP_LAYER_IDS.routeMain}
+          style={{
+            lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
+            lineWidth: navRoute ? 12 : 8,
+            lineOpacity: routeVisible ? 1 : 0,
+            ...lineCapJoin,
+          }}
+        />
         {navRoute ? (
           <Mapbox.LineLayer
-            id="routeNavHaloLayer"
+            id={MAP_LAYER_IDS.routeHalo}
+            belowLayerID={MAP_LAYER_IDS.routeGlow}
             style={{
               lineColor: routeHaloColor,
               lineWidth: 14,
-              lineOpacity: 0.92,
+              lineOpacity: routeVisible ? 0.92 : 0,
               ...lineCapJoin,
             }}
           />
         ) : (
           <Mapbox.LineLayer
-            id="routeShadowLayer"
-            style={{ lineColor: '#00000055', lineWidth: 11, ...lineCapJoin }}
+            id={MAP_LAYER_IDS.routeHalo}
+            belowLayerID={MAP_LAYER_IDS.routeGlow}
+            style={{ lineColor: '#00000055', lineWidth: 11, lineOpacity: routeVisible ? 1 : 0, ...lineCapJoin }}
           />
         )}
-        <Mapbox.LineLayer
-          id="routeMainLayer"
-          style={{
-            lineColor: routeCoreColor,
-            lineWidth: navRoute ? 9 : 6,
-            ...lineCapJoin,
-          }}
-        />
-        <Mapbox.LineLayer
-          id="routeGlowLayer"
-          style={{
-            lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
-            lineWidth: navRoute ? 12 : 8,
-            lineOpacity: isNavigating || isDriving ? 1 : 0,
-            ...lineCapJoin,
-          }}
-        />
       </Mapbox.ShapeSource>
     </>
   );

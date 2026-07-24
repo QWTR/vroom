@@ -3,10 +3,10 @@ import { View } from 'react-native';
 import { Image } from 'expo-image';
 import { normalizeMediaUri } from '../../lib/mediaUri';
 
-export const DRIVE_MARKER_SPRITE_SIZE = 40;
-const AVATAR_INNER = 34;
-const MARKER_BORDER = 2;
-const FALLBACK_DOT = 22;
+export const DRIVE_MARKER_SPRITE_SIZE = 64;
+const AVATAR_INNER = 54;
+const MARKER_BORDER = 3;
+const FALLBACK_DOT = 58;
 
 export type DriveMarkerSpriteData = {
   avatarUrl?: string | null;
@@ -111,7 +111,7 @@ export const DriveMarkerSpriteVisual = memo(function DriveMarkerSpriteVisual({
             borderRadius: box / 2,
             backgroundColor: '#111',
             borderWidth: MARKER_BORDER,
-            borderColor: '#e33835',
+            borderColor: '#ffffff',
             overflow: 'hidden',
             alignItems: 'center',
             justifyContent: 'center',
@@ -177,7 +177,7 @@ export const DriveMarkerSpriteVisual = memo(function DriveMarkerSpriteVisual({
           height: FALLBACK_DOT,
           borderRadius: FALLBACK_DOT / 2,
           backgroundColor: '#e33835',
-          borderWidth: 2,
+          borderWidth: 3,
           borderColor: '#fff',
         }}
       />

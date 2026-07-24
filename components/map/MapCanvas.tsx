@@ -10,6 +10,7 @@ export type MapCanvasProps = {
   onMapIdle?: (e: any) => void;
   onCameraChanged?: (e: any) => void;
   onDidFinishLoadingStyle?: () => void;
+  onLayout?: ViewProps['onLayout'];
   children?: ReactNode;
 };
 
@@ -27,6 +28,7 @@ export const MapCanvas = memo(
       onMapIdle,
       onCameraChanged,
       onDidFinishLoadingStyle,
+      onLayout,
       children,
     },
     ref,
@@ -50,6 +52,7 @@ export const MapCanvas = memo(
         onMapIdle={onMapIdle}
         onCameraChanged={onCameraChanged}
         onDidFinishLoadingStyle={onDidFinishLoadingStyle}
+        onLayout={onLayout}
       >
         {children}
       </Mapbox.MapView>

@@ -1,30 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   cancelAnimation,
-  Easing,
-  useAnimatedReaction,
   useFrameCallback,
   useSharedValue,
-  withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 import { NAV_V3 } from '../lib/navigationV3/config';
 import type { ArcWindowSlice, NavigationTarget, PathMode } from '../lib/navigationV3/types';
+import { TRIP_MOTION } from '../lib/navigationV3/motionContract';
 
 const MIN_CRUISE_MS = NAV_V3.MARKER_MIN_CRUISE_MS;
-const MAX_HEADING_RATE_DPS = NAV_V3.MARKER_MAX_HEADING_DPS;
-const MARKER_HEADING_EMA = NAV_V3.MARKER_HEADING_EMA;
 const ON_ROAD_BLEND_EPS = NAV_V3.ON_ROAD_BLEND_EPS;
-const POLYLINE_KEY_HARD_SNAP_M = 12;
-const MAX_FRAME_DT_MS = NAV_V3.MARKER_MAX_FRAME_DT_MS;
-const STALE_FRAME_MS = NAV_V3.MARKER_STALE_FRAME_MS;
-const HEADING_LOOKAHEAD_M = NAV_V3.SNAP_HEADING_LOOKAHEAD_M;
-const MARKER_HEADING_TIMING_MS = NAV_V3.MARKER_HEADING_TIMING_MS;
-const MARKER_HEADING_TAU_SEC = NAV_V3.MARKER_HEADING_TIMING_MS / 1000;
-const MARKER_HEADING_MAX_DPS = NAV_V3.MARKER_HEADING_MAX_DPS;
+const POLYLINE_KEY_HARD_SNAP_M = TRIP_MOTION.hardSnapDistanceM;
 const ON_ROAD_FULL_BLEND = NAV_V3.MARKER_ON_ROAD_FULL_BLEND;
-const ROAD_COAST_MAX_M = 16;
-const FREE_COAST_MAX_M = 5;
+const BOOTSTRAP_HEADING_LOOKAHEAD_M = 3;
 
 export type DriveMarkerV3Values = {
   lat: SharedValue<number>;
@@ -184,36 +173,34 @@ function lookAheadHeadingJs(
   ptsFlat: number[],
   cumM: number[],
   localM: number,
-  fromLat: number,
-  fromLng: number,
+  direction: number,
   fallbackHdg: number,
 ): number {
   const total = cumM.length > 0 ? cumM[cumM.length - 1] : 0;
-  const aheadLocalM = Math.min(total, localM + HEADING_LOOKAHEAD_M);
+  const dir = direction < 0 ? -1 : 1;
+  const behindLocalM = Math.max(0, Math.min(total, localM - dir * BOOTSTRAP_HEADING_LOOKAHEAD_M));
+  const aheadLocalM = Math.max(0, Math.min(total, localM + dir * BOOTSTRAP_HEADING_LOOKAHEAD_M));
+  const behind = pointAtWindowArcLocalJs(ptsFlat, cumM, behindLocalM);
   const ahead = pointAtWindowArcLocalJs(ptsFlat, cumM, aheadLocalM);
-  if (!Number.isFinite(fromLat) || !Number.isFinite(fromLng) || !Number.isFinite(ahead.lat)) {
+  if (![behind.lat, behind.lng, ahead.lat, ahead.lng].every(Number.isFinite)) {
     return safeHeadingJs(fallbackHdg, 0);
   }
-  const spanM = haversineMJs(fromLat, fromLng, ahead.lat, ahead.lng);
-  if (spanM < 3) return safeHeadingJs(fallbackHdg, 0);
-  const raw = bearingBetweenJs(fromLat, fromLng, ahead.lat, ahead.lng);
-  const reversed = (raw + 180) % 360;
-  const fwdDiff = Math.abs(((raw - fallbackHdg + 540) % 360) - 180);
-  const revDiff = Math.abs(((reversed - fallbackHdg + 540) % 360) - 180);
-  const aligned = revDiff < fwdDiff ? reversed : raw;
-  return safeHeadingJs(aligned, fallbackHdg);
+  if (haversineMJs(behind.lat, behind.lng, ahead.lat, ahead.lng) < 0.5) {
+    return safeHeadingJs(fallbackHdg, 0);
+  }
+  return safeHeadingJs(bearingBetweenJs(behind.lat, behind.lng, ahead.lat, ahead.lng), fallbackHdg);
 }
 
-function smoothTargetArcMJs(
-  prevArcM: number,
-  incomingArcM: number,
+function travelDirectionForArcJs(
+  ptsFlat: number[],
+  cumM: number[],
+  baseArcM: number,
+  arcM: number,
+  targetHeading: number,
 ): number {
-  if (!Number.isFinite(incomingArcM)) return prevArcM;
-  if (!Number.isFinite(prevArcM)) return incomingArcM;
-  // A GPS projection may move a few metres backwards on the same route even
-  // while the car is moving forward. Never make the rendered vehicle reverse.
-  if (incomingArcM <= prevArcM) return prevArcM;
-  return incomingArcM;
+  const pose = pointAtWindowArcLocalJs(ptsFlat, cumM, arcM - baseArcM);
+  const delta = Math.abs(((pose.heading - targetHeading + 540) % 360) - 180);
+  return delta > 90 ? -1 : 1;
 }
 
 function blendPositionJs(
@@ -241,15 +228,6 @@ function normalizeHeadingW(h: number): number {
 function headingDeltaW(from: number, to: number): number {
   'worklet';
   return ((to - from + 540) % 360) - 180;
-}
-
-function lerpHeadingCappedWorklet(from: number, to: number, maxDeltaDeg: number): number {
-  'worklet';
-  const f = Number.isFinite(from) ? from : 0;
-  const t = Number.isFinite(to) ? to : f;
-  const diff = headingDeltaW(f, t);
-  const clamped = Math.max(-maxDeltaDeg, Math.min(maxDeltaDeg, diff));
-  return normalizeHeadingW(f + clamped);
 }
 
 function safeHeadingWorklet(h: unknown, fallback: number): number {
@@ -302,25 +280,6 @@ function bearingBetweenWorklet(
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-function stepTowardWorklet(
-  fromLat: number,
-  fromLng: number,
-  toLat: number,
-  toLng: number,
-  maxStepM: number,
-): { lat: number; lng: number } {
-  'worklet';
-  const distM = haversineMWorklet(fromLat, fromLng, toLat, toLng);
-  if (distM < 0.008 || maxStepM < 0.008) {
-    return { lat: fromLat, lng: fromLng };
-  }
-  const t = Math.min(1, maxStepM / distM);
-  return {
-    lat: fromLat + (toLat - fromLat) * t,
-    lng: fromLng + (toLng - fromLng) * t,
-  };
-}
-
 function pointAtWindowArcLocal(
   ptsFlat: number[],
   cumM: number[],
@@ -353,49 +312,49 @@ function pointAtWindowArcLocal(
   return { lat, lng, heading };
 }
 
-function alignBearingWorklet(segmentBearing: number, referenceBearing: number): number {
-  'worklet';
-  const seg = normalizeHeadingW(segmentBearing);
-  const ref = normalizeHeadingW(referenceBearing);
-  const reversed = normalizeHeadingW(seg + 180);
-  const fwdDiff = Math.abs(headingDeltaW(seg, ref));
-  const revDiff = Math.abs(headingDeltaW(reversed, ref));
-  return revDiff < fwdDiff ? reversed : seg;
-}
-
-function bearingAheadFromDisplayWorklet(
+function tangentHeadingFromDisplayWorklet(
   ptsFlat: number[],
   cum: number[],
   localM: number,
-  fromLat: number,
-  fromLng: number,
-  referenceHdg: number,
+  speedMs: number,
+  travelDirection: number,
+  fallbackHdg: number,
 ): number {
   'worklet';
   const total = cum.length > 0 ? cum[cum.length - 1] : 0;
-  const aheadLocalM = Math.min(total, localM + HEADING_LOOKAHEAD_M);
-  const ahead = pointAtWindowArcLocal(ptsFlat, cum, aheadLocalM);
-  if (!Number.isFinite(fromLat) || !Number.isFinite(fromLng) || !Number.isFinite(ahead.lat)) {
-    return safeHeadingWorklet(referenceHdg, 0);
+  const windowM = clampWorklet(speedMs * 0.15, 2, 6);
+  const direction = travelDirection < 0 ? -1 : 1;
+  const behind = pointAtWindowArcLocal(
+    ptsFlat,
+    cum,
+    clampWorklet(localM - direction * windowM, 0, total),
+  );
+  const ahead = pointAtWindowArcLocal(
+    ptsFlat,
+    cum,
+    clampWorklet(localM + direction * windowM, 0, total),
+  );
+  if (![behind.lat, behind.lng, ahead.lat, ahead.lng].every(Number.isFinite)) {
+    return safeHeadingWorklet(fallbackHdg, 0);
   }
-  const spanM = haversineMWorklet(fromLat, fromLng, ahead.lat, ahead.lng);
-  if (spanM < 3) {
-    return safeHeadingWorklet(referenceHdg, 0);
+  if (haversineMWorklet(behind.lat, behind.lng, ahead.lat, ahead.lng) < 0.5) {
+    return safeHeadingWorklet(fallbackHdg, 0);
   }
-  const raw = bearingBetweenWorklet(fromLat, fromLng, ahead.lat, ahead.lng);
-  return alignBearingWorklet(raw, referenceHdg);
+  return bearingBetweenWorklet(behind.lat, behind.lng, ahead.lat, ahead.lng);
 }
 
 function stepHeadingSmoothWorklet(
   cur: number,
   target: number,
   dtSec: number,
-  tauSec: number,
+  halfLifeMs: number,
   maxDps: number,
 ): number {
   'worklet';
   const delta = headingDeltaW(cur, target);
-  const tauStep = delta * Math.min(1, dtSec / Math.max(0.05, tauSec));
+  const halfLifeSec = Math.max(0.001, halfLifeMs / 1000);
+  const alpha = 1 - Math.pow(0.5, dtSec / halfLifeSec);
+  const tauStep = delta * alpha;
   const maxStep = maxDps * dtSec;
   let step = tauStep;
   if (Math.abs(step) > maxStep) {
@@ -404,21 +363,64 @@ function stepHeadingSmoothWorklet(
   return normalizeHeadingW(cur + step);
 }
 
-function blendPositionWorklet(
-  roadLat: number,
-  roadLng: number,
-  rawLat: number,
-  rawLng: number,
-  roadBlend: number,
+function projectCoordinateWorklet(
+  latitude: number,
+  longitude: number,
+  headingDeg: number,
+  distanceM: number,
 ): { lat: number; lng: number } {
   'worklet';
-  const blend = clampWorklet(roadBlend, 0, 1);
-  if (blend > 0.001) return { lat: roadLat, lng: roadLng };
-  if (blend <= 0.001) return { lat: rawLat, lng: rawLng };
-  const inv = 1 - blend;
+  if (distanceM <= 0) return { lat: latitude, lng: longitude };
+  const radiusM = 6_371_000;
+  const angular = distanceM / radiusM;
+  const bearing = headingDeg * Math.PI / 180;
+  const lat1 = latitude * Math.PI / 180;
+  const lng1 = longitude * Math.PI / 180;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angular)
+      + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing),
+  );
+  const lng2 = lng1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+    Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+  );
+  return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI };
+}
+
+/** Kept local to this module so Reanimated serializes the full UI-thread path. */
+function predictMotionAtAgeWorklet(
+  sampleSpeedMs: number,
+  accelerationMs2: number,
+  sourceAgeMs: number,
+  predictionHorizonMs: number,
+  maxDistanceM: number,
+): { distanceM: number; speedMs: number } {
+  'worklet';
+  const speed0 = Math.max(0, sampleSpeedMs);
+  const acceleration = clampWorklet(
+    accelerationMs2,
+    TRIP_MOTION.accelerationMinMs2,
+    TRIP_MOTION.accelerationMaxMs2,
+  );
+  const horizonSec = Math.max(0, predictionHorizonMs) / 1000;
+  const requestedAgeSec = Math.max(0, sourceAgeMs) / 1000;
+  const activeSec = Math.min(requestedAgeSec, horizonSec);
+  const stopSec = acceleration < 0 ? speed0 / -acceleration : Number.POSITIVE_INFINITY;
+  const integratedSec = Math.min(activeSec, stopSec);
+  const activeDistance = Math.max(
+    0,
+    speed0 * integratedSec + 0.5 * acceleration * integratedSec * integratedSec,
+  );
+  const horizonSpeed = Math.max(0, speed0 + acceleration * integratedSec);
+  const fadeSec = TRIP_MOTION.predictionFadeMs / 1000;
+  const fadeElapsedSec = Math.min(fadeSec, Math.max(0, requestedAgeSec - horizonSec));
+  const fadeRatio = fadeSec > 0 ? fadeElapsedSec / fadeSec : 1;
+  const fadeDistance = horizonSpeed * fadeElapsedSec * (1 - 0.5 * fadeRatio);
   return {
-    lat: roadLat * blend + rawLat * inv,
-    lng: roadLng * blend + rawLng * inv,
+    distanceM: Math.min(maxDistanceM, activeDistance + fadeDistance),
+    speedMs: requestedAgeSec <= horizonSec
+      ? horizonSpeed
+      : horizonSpeed * Math.max(0, 1 - fadeRatio),
   };
 }
 
@@ -463,7 +465,8 @@ function projectPointToWindowArcJs(
 }
 
 /**
- * V3 marker — withTiming @ GPS cadence + 60 FPS projekcja arc → lat/lng.
+ * One UI-thread motion engine for Android and iOS. GPS fixes only update the
+ * measured state; every rendered pose is predicted and corrected per frame.
  */
 export function useDriveMarkerV3(
   enabled = true,
@@ -489,21 +492,24 @@ export function useDriveMarkerV3(
   const polylineKeySv = useSharedValue('');
   const onRoadSv = useSharedValue(0);
   const roadBlendSv = useSharedValue(0);
+  /** Rendered velocity consumed by camera/HUD. */
   const speedMs = useSharedValue(0);
-  const segmentDurationMs = useSharedValue(900);
-  /** Timestamp targetu, dla ktorego wyslano juz osobny segment dead-reckoningu kamery. */
+  const sampleSpeedMs = useSharedValue(0);
+  const accelerationMs2 = useSharedValue(0);
+  const predictionHorizonMs = useSharedValue<number>(TRIP_MOTION.minimumFuturePredictionMs);
+  const travelDirectionSv = useSharedValue(1);
+  const segmentDurationMs = useSharedValue<number>(TRIP_MOTION.largeErrorHalfLifeMs);
+  /** Wall-clock times stay on the UI thread and compensate delivery latency. */
   const lastTargetAtMs = useSharedValue(0);
-  const coastDistanceM = useSharedValue(0);
+  const sourceTimestampMs = useSharedValue(0);
+  const cadenceEwmaMs = useSharedValue(500);
+  const jitterEwmaMs = useSharedValue(0);
 
   const targetLat = useSharedValue(NaN);
   const targetLng = useSharedValue(NaN);
   const targetHdg = useSharedValue(0);
-  const segmentHdgTargetSv = useSharedValue(0);
   const rawTargetLat = useSharedValue(NaN);
   const rawTargetLng = useSharedValue(NaN);
-
-  const lastFrameTimestamp = useSharedValue(0);
-  const skipCatchUpSv = useSharedValue(0);
 
   const applyInstantPose = useCallback((
     poseLat: number,
@@ -531,7 +537,6 @@ export function useDriveMarkerV3(
     targetLat.value = safeLat;
     targetLng.value = safeLng;
     targetHdg.value = safeHdg;
-    segmentHdgTargetSv.value = safeHdg;
     rawTargetLat.value = safeCoordJs(rawLat, safeLat);
     rawTargetLng.value = safeCoordJs(rawLng, safeLng);
     onRoadSv.value = onRoad ? 1 : 0;
@@ -540,7 +545,6 @@ export function useDriveMarkerV3(
     bootstrappedJsRef.current = true;
     setIsBootstrapped(true);
   }, [
-    baseArcM,
     bootstrapped,
     displayArcM,
     heading,
@@ -550,7 +554,6 @@ export function useDriveMarkerV3(
     rawTargetLat,
     rawTargetLng,
     roadBlendSv,
-    segmentHdgTargetSv,
     targetArcM,
     targetHdg,
     targetLat,
@@ -564,159 +567,186 @@ export function useDriveMarkerV3(
     const blend = clampWorklet(roadBlendSv.value, 0, 1);
     const onRoad = onRoadSv.value >= 0.5 && blend > ON_ROAD_BLEND_EPS;
     const dtSec = clampWorklet((frame.timeSincePreviousFrame ?? 16.67) / 1000, 0.008, 0.05);
-    const segmentFinished = lastTargetAtMs.value > 0
-      && Date.now() - lastTargetAtMs.value >= segmentDurationMs.value;
+    const nowMs = Date.now();
+    const targetAgeMs = lastTargetAtMs.value > 0
+      ? Math.max(0, nowMs - lastTargetAtMs.value)
+      : Number.POSITIVE_INFINITY;
+    const sourceAgeMs = sourceTimestampMs.value > 0
+      ? Math.max(0, nowMs - sourceTimestampMs.value)
+      : targetAgeMs;
+    // A stale sample freezes at the last predicted pose. It must never reset the
+    // desired pose back to the historical GPS coordinate, which would make the
+    // vehicle visibly travel backwards after signal loss.
+    const boundedPredictionAgeMs = Math.min(
+      sourceAgeMs,
+      predictionHorizonMs.value + TRIP_MOTION.predictionFadeMs,
+    );
+    const predictedMotion = predictMotionAtAgeWorklet(
+      sampleSpeedMs.value,
+      accelerationMs2.value,
+      boundedPredictionAgeMs,
+      predictionHorizonMs.value,
+      onRoad ? TRIP_MOTION.roadPredictionMaxM : TRIP_MOTION.freePredictionMaxM,
+    );
+    const motion = sourceAgeMs >= TRIP_MOTION.staleSampleMs
+      ? { distanceM: predictedMotion.distanceM, speedMs: 0 }
+      : predictedMotion;
+    speedMs.value = motion.speedMs;
 
     if (onRoad && roadPtsFlat.value.length >= 4 && Number.isFinite(displayArcM.value)) {
-      if (segmentFinished && speedMs.value >= MIN_CRUISE_MS) {
-        const aheadM = Math.max(0, displayArcM.value - targetArcM.value);
-        const maxAheadM = Math.min(ROAD_COAST_MAX_M, Math.max(5, speedMs.value * 0.8));
-        const arcEndM = baseArcM.value + (roadCumM.value[roadCumM.value.length - 1] ?? 0);
-        if (aheadM < maxAheadM && displayArcM.value < arcEndM) {
-          const coastEndArcM = Math.min(arcEndM, targetArcM.value + maxAheadM);
-          displayArcM.value = Math.min(
-            coastEndArcM,
-            displayArcM.value + Math.min(speedMs.value * dtSec, maxAheadM - aheadM),
-          );
-        }
-      }
+      const arcStartM = baseArcM.value;
+      const arcEndM = baseArcM.value + (roadCumM.value[roadCumM.value.length - 1] ?? 0);
+      const direction = travelDirectionSv.value < 0 ? -1 : 1;
+      const desiredArcM = clampWorklet(
+        targetArcM.value + direction * motion.distanceM,
+        arcStartM,
+        arcEndM,
+      );
+      const advancedArcM = clampWorklet(
+        displayArcM.value + direction * Math.max(0, motion.speedMs) * dtSec,
+        arcStartM,
+        arcEndM,
+      );
+      const errorM = desiredArcM - advancedArcM;
+      const correctionHalfLifeMs = Math.abs(errorM) >= 8
+        ? TRIP_MOTION.largeErrorHalfLifeMs
+        : TRIP_MOTION.smallErrorHalfLifeMs;
+      const correctionAlpha = 1 - Math.pow(
+        0.5,
+        dtSec / Math.max(0.001, correctionHalfLifeMs / 1000),
+      );
+      displayArcM.value = clampWorklet(
+        advancedArcM + errorM * correctionAlpha,
+        arcStartM,
+        arcEndM,
+      );
+
       const localM = displayArcM.value - baseArcM.value;
       const roadPose = pointAtWindowArcLocal(roadPtsFlat.value, roadCumM.value, localM);
-
       if (Number.isFinite(roadPose.lat) && Number.isFinite(roadPose.lng)) {
         lat.value = roadPose.lat;
         lng.value = roadPose.lng;
+        if (motion.speedMs >= TRIP_MOTION.stoppedSpeedMs) {
+          const refHdg = Number.isFinite(heading.value) ? heading.value : targetHdg.value;
+          const tangentHdg = tangentHeadingFromDisplayWorklet(
+            roadPtsFlat.value,
+            roadCumM.value,
+            localM,
+            motion.speedMs,
+            direction,
+            refHdg,
+          );
+          heading.value = stepHeadingSmoothWorklet(
+            refHdg,
+            tangentHdg,
+            dtSec,
+            TRIP_MOTION.headingHalfLifeMs,
+            TRIP_MOTION.headingMaxDps,
+          );
+        }
+      }
+      return;
+    }
 
-        const refHdg = Number.isFinite(heading.value) ? heading.value : targetHdg.value;
-        const aheadHdg = bearingAheadFromDisplayWorklet(
-          roadPtsFlat.value,
-          roadCumM.value,
-          localM,
-          roadPose.lat,
-          roadPose.lng,
-          refHdg,
+    if (Number.isFinite(targetLat.value) && Number.isFinite(targetLng.value)) {
+      const desired = projectCoordinateWorklet(
+        targetLat.value,
+        targetLng.value,
+        targetHdg.value,
+        motion.distanceM,
+      );
+      if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value)) {
+        lat.value = desired.lat;
+        lng.value = desired.lng;
+      } else {
+        const advanced = projectCoordinateWorklet(
+          lat.value,
+          lng.value,
+          heading.value,
+          Math.max(0, motion.speedMs) * dtSec,
         );
-        const roadTangentHdg = Number.isFinite(roadPose.heading) ? roadPose.heading : refHdg;
-        const tgtHdg = Number.isFinite(aheadHdg) ? aheadHdg : roadTangentHdg;
+        const errorM = haversineMWorklet(advanced.lat, advanced.lng, desired.lat, desired.lng);
+        const correctionHalfLifeMs = errorM >= 8
+          ? TRIP_MOTION.largeErrorHalfLifeMs
+          : TRIP_MOTION.smallErrorHalfLifeMs;
+        const alpha = 1 - Math.pow(
+          0.5,
+          dtSec / Math.max(0.001, correctionHalfLifeMs / 1000),
+        );
+        lat.value = advanced.lat + (desired.lat - advanced.lat) * alpha;
+        lng.value = advanced.lng + (desired.lng - advanced.lng) * alpha;
+      }
+      if (motion.speedMs >= TRIP_MOTION.stoppedSpeedMs) {
         heading.value = stepHeadingSmoothWorklet(
-          refHdg,
-          tgtHdg,
+          heading.value,
+          targetHdg.value,
           dtSec,
-          MARKER_HEADING_TAU_SEC,
-          MARKER_HEADING_MAX_DPS,
+          TRIP_MOTION.headingHalfLifeMs,
+          TRIP_MOTION.headingMaxDps,
         );
       }
-    } else if (
-      segmentFinished
-      && speedMs.value >= MIN_CRUISE_MS
-      && coastDistanceM.value < FREE_COAST_MAX_M
-      && Number.isFinite(lat.value)
-      && Number.isFinite(lng.value)
-    ) {
-      const stepM = Math.min(
-        speedMs.value * dtSec,
-        FREE_COAST_MAX_M - coastDistanceM.value,
-      );
-      const headingRad = targetHdg.value * Math.PI / 180;
-      const earthRadiusM = 6_371_000;
-      const dLat = (stepM * Math.cos(headingRad)) / earthRadiusM;
-      const cosLat = Math.max(0.1, Math.cos(lat.value * Math.PI / 180));
-      const dLng = (stepM * Math.sin(headingRad)) / (earthRadiusM * cosLat);
-      lat.value += dLat * 180 / Math.PI;
-      lng.value += dLng * 180 / Math.PI;
-      coastDistanceM.value += stepM;
     }
   }, false);
 
   // Płynne podążanie za polilinią (Nawigacja)
-  useAnimatedReaction(
-    () => targetArcM.value,
-    (newTarget, prevTarget) => {
-      if (newTarget !== null && Number.isFinite(newTarget) && newTarget !== prevTarget) {
-        const isJump = prevTarget === null || Math.abs(newTarget - prevTarget) > 150;
-        displayArcM.value = isJump
-          ? newTarget
-          : withTiming(newTarget, { duration: segmentDurationMs.value, easing: Easing.linear });
-      }
-    },
-  );
 
   // Płynne podążanie w trybie OFF-ROAD
-  useAnimatedReaction(
-    () => targetLat.value,
-    (newLat, prevLat) => {
-      if (onRoadSv.value < 0.5 && newLat !== null && Number.isFinite(newLat)) {
-        if (prevLat == null || !Number.isFinite(prevLat)) {
-          lat.value = newLat;
-        } else {
-          lat.value = withTiming(newLat, { duration: segmentDurationMs.value, easing: Easing.linear });
-        }
-      }
-    },
-  );
-  useAnimatedReaction(
-    () => targetLng.value,
-    (newLng, prevLng) => {
-      if (onRoadSv.value < 0.5 && newLng !== null && Number.isFinite(newLng)) {
-        if (prevLng == null || !Number.isFinite(prevLng)) {
-          lng.value = newLng;
-        } else {
-          lng.value = withTiming(newLng, { duration: segmentDurationMs.value, easing: Easing.linear });
-        }
-      }
-    },
-  );
 
   // Interpolacja Kąta (Shortest Path)
-  useAnimatedReaction(
-    () => targetHdg.value,
-    (newHdg, prevHdg) => {
-      if (newHdg !== null && Number.isFinite(newHdg) && newHdg !== prevHdg) {
-        if (prevHdg == null || !Number.isFinite(prevHdg)) {
-          heading.value = newHdg;
-        } else {
-          const current = heading.value;
-          const diff = ((newHdg - current + 540) % 360) - 180;
-          heading.value = withTiming(current + diff, { duration: MARKER_HEADING_TIMING_MS, easing: Easing.out(Easing.quad) });
-        }
-      }
-    },
-  );
 
   const pushTarget = useCallback((target: NavigationTarget) => {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
-    lastTargetJsRef.current = target;
+    const nowMs = Date.now();
+    const sourceMs = Number.isFinite(target.sourceTimestampMs) ? Number(target.sourceTimestampMs) : nowMs;
+    const sourceAgeMs = Math.max(0, nowMs - sourceMs);
+    if (bootstrappedJsRef.current && sourceAgeMs > TRIP_MOTION.staleSampleMs && !target.allowInstant) {
+      sampleSpeedMs.value = 0;
+      speedMs.value = 0;
+      return;
+    }
+    const previousTarget = lastTargetJsRef.current;
 
     const tgtHdg = safeHeadingJs(target.headingDeg, safeHeadingJs(heading.value, 0));
 
     const onRoad = pathModeOnRoad(target.pathMode) && target.roadBlend > ON_ROAD_BLEND_EPS;
     const blend = Math.max(0, Math.min(1, target.roadBlend));
-    const feedSpeed = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
-    const rawGpsIntervalMs = Number.isFinite(target.gpsIntervalMs) && target.gpsIntervalMs! > 0
-      ? target.gpsIntervalMs!
-      : 900;
-    // The target must span the real GPS cadence. Capping it at 1.2 seconds
-    // made navigation reach the snapped point early, wait there, then jump
-    // when the next iOS/Android fix finally arrived.
-    const markerSegmentMs = Math.max(
-      320,
-      Math.min(5_000, rawGpsIntervalMs),
+    const gpsIntervalMs = Number.isFinite(target.gpsIntervalMs) && Number(target.gpsIntervalMs) > 0
+      ? Math.max(200, Math.min(5_000, Number(target.gpsIntervalMs)))
+      : cadenceEwmaMs.value;
+    const previousCadenceMs = cadenceEwmaMs.value;
+    const intervalJitterMs = Math.abs(gpsIntervalMs - previousCadenceMs);
+    cadenceEwmaMs.value = previousCadenceMs * 0.65 + gpsIntervalMs * 0.35;
+    jitterEwmaMs.value = jitterEwmaMs.value * 0.7 + intervalJitterMs * 0.3;
+    const futurePredictionMs = Math.max(
+      TRIP_MOTION.minimumFuturePredictionMs,
+      cadenceEwmaMs.value * TRIP_MOTION.predictionCadenceMultiplier
+        + jitterEwmaMs.value * TRIP_MOTION.predictionJitterMultiplier,
     );
-    segmentDurationMs.value = markerSegmentMs;
-    lastTargetAtMs.value = Date.now();
-    coastDistanceM.value = 0;
-    let resolvedSpeedMs = feedSpeed;
-    if (target.gpsIntervalMs && target.gpsIntervalMs > 0) {
-      const fromLat = Number.isFinite(lat.value) ? lat.value : target.lat;
-      const fromLng = Number.isFinite(lng.value) ? lng.value : target.lng;
-      const distM = haversineMJs(fromLat, fromLng, target.lat, target.lng);
-      if (distM > 0.4) {
-        const intervalSec = target.gpsIntervalMs / 1000;
-        resolvedSpeedMs = Math.max(resolvedSpeedMs, distM / intervalSec);
+    predictionHorizonMs.value = Math.min(
+      TRIP_MOTION.maximumPredictionMs,
+      sourceAgeMs + futurePredictionMs,
+    );
+    segmentDurationMs.value = TRIP_MOTION.largeErrorHalfLifeMs;
+    lastTargetAtMs.value = nowMs;
+    sourceTimestampMs.value = sourceMs;
+    let resolvedSpeedMs = Number.isFinite(target.speedMs) && target.speedMs > 0 ? target.speedMs : 0;
+    if (previousTarget && gpsIntervalMs > 0) {
+      const distM = haversineMJs(previousTarget.lat, previousTarget.lng, target.lat, target.lng);
+      if (distM > 0.4 && resolvedSpeedMs < MIN_CRUISE_MS) {
+        resolvedSpeedMs = distM / (gpsIntervalMs / 1000);
       }
     }
-
-    speedMs.value = resolvedSpeedMs;
+    const previousSampleSpeed = Math.max(0, sampleSpeedMs.value);
+    const rawAcceleration = (resolvedSpeedMs - previousSampleSpeed) / Math.max(0.2, gpsIntervalMs / 1000);
+    const clampedAcceleration = Math.max(
+      TRIP_MOTION.accelerationMinMs2,
+      Math.min(TRIP_MOTION.accelerationMaxMs2, rawAcceleration),
+    );
+    accelerationMs2.value = accelerationMs2.value * (1 - TRIP_MOTION.accelerationEma)
+      + clampedAcceleration * TRIP_MOTION.accelerationEma;
+    sampleSpeedMs.value = resolvedSpeedMs;
+    if (!bootstrappedJsRef.current) speedMs.value = resolvedSpeedMs;
+    lastTargetJsRef.current = target;
     targetLat.value = target.lat;
     targetLng.value = target.lng;
     targetHdg.value = tgtHdg;
@@ -747,7 +777,12 @@ export function useDriveMarkerV3(
       && target.targetArcM != null
       && Number.isFinite(target.targetArcM);
 
-    const allowInstant = target.allowInstant === true;
+    const currentPositionValid = Number.isFinite(lat.value) && Number.isFinite(lng.value);
+    const positionErrorM = currentPositionValid
+      ? haversineMJs(lat.value, lng.value, target.lat, target.lng)
+      : Number.POSITIVE_INFINITY;
+    const allowInstant = target.allowInstant === true
+      || (currentPositionValid && positionErrorM > TRIP_MOTION.hardSnapDistanceM);
 
     if (!Number.isFinite(lat.value) || !Number.isFinite(lng.value) || allowInstant) {
       if (useArc && arcFeed) {
@@ -756,6 +791,13 @@ export function useDriveMarkerV3(
         baseArcM.value = arcFeed.baseArcM;
         polylineKeySv.value = arcFeed.polylineKey;
         const arcM = target.targetArcM as number;
+        travelDirectionSv.value = travelDirectionForArcJs(
+          arcFeed.ptsFlat,
+          arcFeed.cumM,
+          arcFeed.baseArcM,
+          arcM,
+          tgtHdg,
+        );
         const localM = arcM - arcFeed.baseArcM;
         const pose = pointAtWindowArcLocalJs(arcFeed.ptsFlat, arcFeed.cumM, localM);
         const rawLat = target.rawLat;
@@ -771,8 +813,7 @@ export function useDriveMarkerV3(
           arcFeed.ptsFlat,
           arcFeed.cumM,
           localM,
-          blended.lat,
-          blended.lng,
+          travelDirectionSv.value,
           tgtHdg,
         );
         const instantHdg = onRoad && visualBlend > ON_ROAD_BLEND_EPS ? poseHdg : tgtHdg;
@@ -796,15 +837,31 @@ export function useDriveMarkerV3(
     if (useArc && arcFeed) {
       const key = arcFeed.polylineKey;
       const keyChanged = key.length > 0 && key !== polylineKeySv.value;
+      const directionUninitialized = polylineKeySv.value.length === 0;
       roadPtsFlat.value = arcFeed.ptsFlat;
       roadCumM.value = arcFeed.cumM;
       baseArcM.value = arcFeed.baseArcM;
       polylineKeySv.value = key;
       onRoadSv.value = 1;
       const incomingArcM = target.targetArcM as number;
-      const arcM = keyChanged
+      // Resolve polyline orientation once. Refreshed arc windows keep the same
+      // travel direction, preventing a noisy heading from producing a 180° flip.
+      const nextDirection = directionUninitialized
+        ? travelDirectionForArcJs(
+          arcFeed.ptsFlat,
+          arcFeed.cumM,
+          arcFeed.baseArcM,
+          incomingArcM,
+          tgtHdg,
+        )
+        : travelDirectionSv.value < 0 ? -1 : 1;
+      travelDirectionSv.value = nextDirection;
+      const previousArcM = targetArcM.value;
+      const arcM = keyChanged || !Number.isFinite(previousArcM)
         ? incomingArcM
-        : smoothTargetArcMJs(targetArcM.value, incomingArcM);
+        : nextDirection > 0
+          ? Math.max(incomingArcM, previousArcM - 2)
+          : Math.min(incomingArcM, previousArcM + 2);
       if (keyChanged) {
         // Arc windows are refreshed while navigating. Reproject the *current*
         // animated pose into the replacement window; never assign its lat/lng
@@ -824,6 +881,7 @@ export function useDriveMarkerV3(
       targetArcM.value = arcM;
     } else {
       onRoadSv.value = 0;
+      travelDirectionSv.value = 1;
       roadPtsFlat.value = [];
       roadCumM.value = [];
       polylineKeySv.value = '';
@@ -845,14 +903,20 @@ export function useDriveMarkerV3(
     roadBlendSv,
     roadCumM,
     roadPtsFlat,
+    accelerationMs2,
+    cadenceEwmaMs,
+    jitterEwmaMs,
+    predictionHorizonMs,
+    sampleSpeedMs,
     speedMs,
     segmentDurationMs,
     lastTargetAtMs,
-    coastDistanceM,
+    sourceTimestampMs,
     targetArcM,
     targetHdg,
     targetLat,
     targetLng,
+    travelDirectionSv,
   ]);
 
   const reset = useCallback((anchor?: { lat: number; lng: number; headingDeg?: number }) => {
@@ -868,9 +932,14 @@ export function useDriveMarkerV3(
     targetArcM.value = 0;
     baseArcM.value = 0;
     speedMs.value = 0;
+    sampleSpeedMs.value = 0;
+    accelerationMs2.value = 0;
+    cadenceEwmaMs.value = 500;
+    jitterEwmaMs.value = 0;
+    predictionHorizonMs.value = TRIP_MOTION.minimumFuturePredictionMs;
+    travelDirectionSv.value = 1;
     lastTargetAtMs.value = 0;
-    coastDistanceM.value = 0;
-    lastFrameTimestamp.value = 0;
+    sourceTimestampMs.value = 0;
 
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng)) {
       const hdg = safeHeadingJs(anchor.headingDeg, 0);
@@ -880,7 +949,6 @@ export function useDriveMarkerV3(
       targetLat.value = anchor.lat;
       targetLng.value = anchor.lng;
       targetHdg.value = hdg;
-      segmentHdgTargetSv.value = hdg;
       rawTargetLat.value = anchor.lat;
       rawTargetLng.value = anchor.lng;
       bootstrapped.value = 1;
@@ -893,7 +961,6 @@ export function useDriveMarkerV3(
       targetLat.value = NaN;
       targetLng.value = NaN;
       targetHdg.value = 0;
-      segmentHdgTargetSv.value = 0;
       rawTargetLat.value = NaN;
       rawTargetLng.value = NaN;
     }
@@ -903,7 +970,6 @@ export function useDriveMarkerV3(
     displayArcM,
     heading,
     lat,
-    lastFrameTimestamp,
     lng,
     onRoadSv,
     polylineKeySv,
@@ -912,14 +978,19 @@ export function useDriveMarkerV3(
     roadBlendSv,
     roadCumM,
     roadPtsFlat,
-    segmentHdgTargetSv,
+    accelerationMs2,
+    cadenceEwmaMs,
+    jitterEwmaMs,
+    predictionHorizonMs,
+    sampleSpeedMs,
     speedMs,
     lastTargetAtMs,
-    coastDistanceM,
+    sourceTimestampMs,
     targetArcM,
     targetHdg,
     targetLat,
     targetLng,
+    travelDirectionSv,
   ]);
 
   const resetTo = useCallback((targetLatVal: number, targetLngVal: number, hdg: number) => {
@@ -942,12 +1013,10 @@ export function useDriveMarkerV3(
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
-    lastFrameTimestamp.value = 0;
   }, [
     applyInstantPose,
     baseArcM,
     displayArcM,
-    lastFrameTimestamp,
     onRoadSv,
     polylineKeySv,
     roadCumM,
@@ -956,8 +1025,6 @@ export function useDriveMarkerV3(
   ]);
 
   const resumeFromBackground = useCallback(() => {
-    lastFrameTimestamp.value = 0;
-    skipCatchUpSv.value = 1;
     const t = lastTargetJsRef.current;
     if (t && Number.isFinite(t.lat) && Number.isFinite(t.lng)) {
       pushTarget({ ...t, allowInstant: true });
@@ -982,12 +1049,10 @@ export function useDriveMarkerV3(
     rawTargetLat,
     rawTargetLng,
     roadBlendSv,
-    skipCatchUpSv,
     targetArcM,
     targetHdg,
     targetLat,
     targetLng,
-    lastFrameTimestamp,
   ]);
 
   const ensureFrameActive = useCallback(() => {
@@ -1030,9 +1095,8 @@ export function useDriveMarkerV3(
     displayArcM.value = 0;
     targetArcM.value = 0;
     baseArcM.value = 0;
-    lastFrameTimestamp.value = 0;
     frameCallback.setActive(true);
-  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, lastFrameTimestamp, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
+  }, [enabled, applyInstantPose, baseArcM, displayArcM, frameCallback, onRoadSv, polylineKeySv, roadCumM, roadPtsFlat, targetArcM]);
 
   return useMemo(
     () => ({
