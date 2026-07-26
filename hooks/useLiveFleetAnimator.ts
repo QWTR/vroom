@@ -17,8 +17,11 @@ import {
 } from '../lib/vehicleModelMeta';
 import {
   FLEET_EXTRAPOLATE_MAX_MS,
+  FLEET_EXTRAPOLATE_DECAY_START_MS,
   FLEET_FULL_ANIMATION_RADIUS_KM,
   FLEET_FULL_ANIMATION_EXIT_KM,
+  FLEET_PUBLISH_INTERVAL_MS,
+  shouldPublishFleetFrame,
 } from './liveFleetMotion';
 import {
   isImplausibleJump,
@@ -37,6 +40,7 @@ import {
   type ViewportBounds,
 } from './liveFleetSpatialIndex';
 import type { LiveMapStore } from './liveMapStore';
+import { buildLiveVehicleIdentityProperties } from '../lib/liveVehicleLabel';
 
 const VIEWPORT_ENTER_MARGIN_M = 1_000;
 const VIEWPORT_EXIT_MARGIN_M = 1_500;
@@ -129,6 +133,8 @@ export type LiveFleetFeature = {
   properties: {
     id: number;
     heading: number;
+    username?: string;
+    pinColor?: string;
     modelKey?: string;
     modelRot0?: number;
     modelRot1?: number;
@@ -163,6 +169,22 @@ const EMPTY_FC: LiveFleetGeoJson = {
   type: 'FeatureCollection',
   features: [],
 };
+
+function fleetGeoJsonKey(...collections: LiveFleetGeoJson[]): string {
+  return collections
+    .flatMap((collection) => collection.features)
+    .map((feature) => {
+      const [lng, lat] = feature.geometry.coordinates;
+      return [
+        feature.id,
+        lat.toFixed(6),
+        lng.toFixed(6),
+        Number(feature.properties.heading || 0).toFixed(1),
+        feature.properties.modelKey ?? '',
+      ].join(':');
+    })
+    .join('|');
+}
 
 function pinColorFor(meta: { isPremium?: boolean; isFriend?: boolean }): string {
   if (meta.isPremium) return '#FFD700';
@@ -247,7 +269,17 @@ function extrapolateFleetPositionWorklet(
     return { lat, lng, heading };
   }
   const cappedMs = Math.min(ageMs, FLEET_EXTRAPOLATE_MAX_MS);
-  const distM = speedMps * (cappedMs / 1000);
+  const decayWindowMs = Math.max(
+    1,
+    FLEET_EXTRAPOLATE_MAX_MS - FLEET_EXTRAPOLATE_DECAY_START_MS,
+  );
+  const tailMs = Math.max(0, cappedMs - FLEET_EXTRAPOLATE_DECAY_START_MS);
+  const effectiveMs = cappedMs <= FLEET_EXTRAPOLATE_DECAY_START_MS
+    ? cappedMs
+    : FLEET_EXTRAPOLATE_DECAY_START_MS
+      + tailMs
+      - (tailMs * tailMs) / (2 * decayWindowMs);
+  const distM = speedMps * (effectiveMs / 1000);
   const moved = moveAlongBearing(lat, lng, heading, distM);
   return { lat: moved.lat, lng: moved.lng, heading };
 }
@@ -375,11 +407,13 @@ function buildGeoJsonLive(
   slots: FleetSlot[],
   nowMs: number,
   exitBounds: ViewportBounds,
+  animationTier: AnimationTier,
 ): LiveFleetGeoJson {
   'worklet';
   const features: LiveFleetFeature[] = [];
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
+    if (s.animationTier !== animationTier || s.vehicleModelKey) continue;
     const resolved = resolveMotionWorklet(s, nowMs);
     let lat = resolved.lat;
     let lng = resolved.lng;
@@ -407,12 +441,13 @@ function buildVehicleGeoJson(
   nowMs: number,
   exitBounds: ViewportBounds,
   currentZoom: number,
+  animationTier: AnimationTier,
 ): LiveFleetGeoJson {
   'worklet';
   const features: LiveFleetFeature[] = [];
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
-    if (!s.vehicleModelKey) continue;
+    if (s.animationTier !== animationTier || !s.vehicleModelKey) continue;
     const resolved = resolveMotionWorklet(s, nowMs);
     let lat = resolved.lat;
     let lng = resolved.lng;
@@ -433,7 +468,7 @@ function buildVehicleGeoJson(
       id: s.id,
       geometry: { type: 'Point', coordinates: [lng, lat] },
       properties: {
-        id: s.id,
+        ...buildLiveVehicleIdentityProperties(s.id, s.username, s.pinColor),
         heading: yaw,
         modelKey: s.vehicleModelKey,
         modelRot0: Number(s.vehiclePitch) || 0,
@@ -458,7 +493,14 @@ function buildMetaPinRequests(
   anchor: { latitude: number; longitude: number } | null,
 ): FleetMetaPinRequest[] {
   const out: FleetMetaPinRequest[] = [];
-  for (const id of visibleUserIds) {
+  const prioritizedIds = [...visibleUserIds].sort((a, b) => {
+    const aMeta = store.getMeta(a);
+    const bMeta = store.getMeta(b);
+    const aPriority = aMeta?.isFriend || aMeta?.motionTier === 'full' ? 0 : 1;
+    const bPriority = bMeta?.isFriend || bMeta?.motionTier === 'full' ? 0 : 1;
+    return aPriority - bPriority;
+  });
+  for (const id of prioritizedIds) {
     const meta = store.getMeta(id);
     const pos = store.getPosition(id);
     if (!meta) continue;
@@ -541,13 +583,17 @@ function mergeSlotFromStore(
     ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
     : 0;
   const wasFull = prev?.animationTier === 1;
-  const tier = resolveFleetAnimationTierWithHysteresis(
-    !!meta.isFriend,
-    distKm,
-    wasFull,
-    FLEET_FULL_ANIMATION_RADIUS_KM,
-    FLEET_FULL_ANIMATION_EXIT_KM,
-  );
+  const tier = meta.motionTier === 'full'
+    ? 'full'
+    : meta.motionTier === 'reduced' && !anchor
+      ? 'static'
+      : resolveFleetAnimationTierWithHysteresis(
+      !!meta.isFriend,
+      distKm,
+      wasFull,
+      FLEET_FULL_ANIMATION_RADIUS_KM,
+      FLEET_FULL_ANIMATION_EXIT_KM,
+      );
   const animationTier: AnimationTier = tier === 'full' ? 1 : 0;
   const roadTrail = animationTier === 1 && pos.trail && pos.trail.length >= 2
     ? pos.trail.slice()
@@ -688,6 +734,7 @@ export function useLiveFleetAnimator(
   const [metaRevision, setMetaRevision] = useState(0);
   const [metaPinRequests, setMetaPinRequests] = useState<FleetMetaPinRequest[]>([]);
   const metaPinsKeyRef = useRef('');
+  const coldShapesKeyRef = useRef('');
 
   const visibleKey = useMemo(
     () => visibleUserIds.slice().sort((a, b) => a - b).join(','),
@@ -703,8 +750,10 @@ export function useLiveFleetAnimator(
     : 'invalid';
 
   const fleetSv = useSharedValue<FleetSlot[]>([]);
-  const shapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_FC);
-  const vehicleShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_VEHICLE_FC);
+  const hotShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_FC);
+  const coldShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_FC);
+  const hotVehicleShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_VEHICLE_FC);
+  const coldVehicleShapeSv = useSharedValue<LiveFleetGeoJson>(EMPTY_VEHICLE_FC);
   const enterViewportSv = useSharedValue<ViewportBounds>(EMPTY_VIEWPORT);
   const exitViewportSv = useSharedValue<ViewportBounds>(EMPTY_VIEWPORT);
   const lastPublishAtSv = useSharedValue(0);
@@ -725,11 +774,7 @@ export function useLiveFleetAnimator(
     enterViewportSv.value = expandBoundsByMeters(viewportBounds, VIEWPORT_ENTER_MARGIN_M);
     exitViewportSv.value = expandBoundsByMeters(viewportBounds, VIEWPORT_EXIT_MARGIN_M);
   }, [
-    viewportBounds.north,
-    viewportBounds.south,
-    viewportBounds.east,
-    viewportBounds.west,
-    viewportBounds.valid,
+    viewportBounds,
     enterViewportSv,
     exitViewportSv,
   ]);
@@ -749,9 +794,32 @@ export function useLiveFleetAnimator(
     setMetaPinRequests(buildMetaPinRequests(store, ids, anchor));
   }, [store, anchor, anchorKey]);
 
+  const publishColdShapes = useCallback((
+    slots: FleetSlot[],
+    now: number,
+    bounds: ViewportBounds,
+  ) => {
+    const coldPins = buildGeoJsonLive(slots, now, bounds, 0);
+    const coldVehicles = buildVehicleGeoJson(
+      slots,
+      now,
+      bounds,
+      currentZoomSv.value,
+      0,
+    );
+    const key = fleetGeoJsonKey(coldPins, coldVehicles);
+    if (key === coldShapesKeyRef.current) return;
+    coldShapesKeyRef.current = key;
+    coldShapeSv.value = coldPins;
+    coldVehicleShapeSv.value = coldVehicles;
+  }, [coldShapeSv, coldVehicleShapeSv, currentZoomSv]);
+
   const clearFleet = useCallback(() => {
     fleetSv.value = [];
-    shapeSv.value = EMPTY_FC;
+    hotShapeSv.value = EMPTY_FC;
+    coldShapeSv.value = EMPTY_FC;
+    hotVehicleShapeSv.value = EMPTY_VEHICLE_FC;
+    coldVehicleShapeSv.value = EMPTY_VEHICLE_FC;
     lastPublishAtSv.value = -1;
     fleetStatsSv.value = {
       candidates: 0,
@@ -760,8 +828,17 @@ export function useLiveFleetAnimator(
       published: fleetStatsSv.value.published,
     };
     metaPinsKeyRef.current = '';
+    coldShapesKeyRef.current = '';
     setMetaPinRequests([]);
-  }, [fleetSv, shapeSv, lastPublishAtSv, fleetStatsSv]);
+  }, [
+    fleetSv,
+    hotShapeSv,
+    coldShapeSv,
+    hotVehicleShapeSv,
+    coldVehicleShapeSv,
+    lastPublishAtSv,
+    fleetStatsSv,
+  ]);
 
   const isStorePositionInBounds = useCallback((id: number, bounds: ViewportBounds) => {
     const pos = store.getPosition(id);
@@ -790,9 +867,13 @@ export function useLiveFleetAnimator(
     }
 
     fleetSv.value = next;
-    shapeSv.value = next.length > 0
-      ? buildGeoJsonLive(next, now, exitViewportSv.value)
+    hotShapeSv.value = next.length > 0
+      ? buildGeoJsonLive(next, now, exitViewportSv.value, 1)
       : EMPTY_FC;
+    hotVehicleShapeSv.value = next.length > 0
+      ? buildVehicleGeoJson(next, now, exitViewportSv.value, currentZoomSv.value, 1)
+      : EMPTY_VEHICLE_FC;
+    publishColdShapes(next, now, exitViewportSv.value);
     lastPublishAtSv.value = next.length > 0 ? 0 : -1;
     fleetStatsSv.value = {
       candidates: visibleUserIds.length,
@@ -807,7 +888,9 @@ export function useLiveFleetAnimator(
     enabled,
     anchor,
     fleetSv,
-    shapeSv,
+    hotShapeSv,
+    hotVehicleShapeSv,
+    currentZoomSv,
     enterViewportSv,
     exitViewportSv,
     lastPublishAtSv,
@@ -815,47 +898,49 @@ export function useLiveFleetAnimator(
     clearFleet,
     isStorePositionInBounds,
     publishMetaPins,
+    publishColdShapes,
     viewportBounds.valid,
   ]);
 
   useEffect(() => {
     rebuildFleetFromStore();
-  }, [rebuildFleetFromStore, visibleKey, metaRevision, anchorKey, viewportKey]);
+  }, [rebuildFleetFromStore, visibleKey, metaRevision, anchorKey, viewportKey, currentZoom]);
 
   useEffect(() => {
     if (!enabled || visibleUserIds.length === 0) return;
 
     const visibleSet = new Set(visibleUserIds);
 
-    const onPosition = (id: number) => {
+    const onPositions = (ids: number[]) => {
       if (enterViewportSv.value.valid !== 1) return;
-      const pos = store.getPosition(id);
-      if (!pos) return;
       const slots = fleetSv.value;
-      let idx = -1;
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i].id === id) {
-          idx = i;
-          break;
-        }
-      }
-
-      const prev = idx >= 0 ? slots[idx] : undefined;
-      if (!prev && !isInViewport(pos.lat, pos.lng, enterViewportSv.value)) return;
       const now = Date.now();
-      const merged = mergeSlotFromStore(id, store, prev, anchor, now);
-      if (!merged) return;
-
       const next = slots.slice();
-      if (idx >= 0) {
-        if (isInViewport(merged.renderLat, merged.renderLng, exitViewportSv.value)) {
-          next[idx] = merged;
+      let changed = false;
+
+      for (const id of ids) {
+        if (!visibleSet.has(id)) continue;
+        const pos = store.getPosition(id);
+        if (!pos) continue;
+        const idx = next.findIndex((slot) => slot.id === id);
+        const prev = idx >= 0 ? next[idx] : undefined;
+        if (!prev && !isInViewport(pos.lat, pos.lng, enterViewportSv.value)) continue;
+        const merged = mergeSlotFromStore(id, store, prev, anchor, now);
+        if (!merged) continue;
+
+        if (idx >= 0) {
+          if (isInViewport(merged.renderLat, merged.renderLng, exitViewportSv.value)) {
+            next[idx] = merged;
+          } else {
+            next.splice(idx, 1);
+          }
         } else {
-          next.splice(idx, 1);
+          next.push(merged);
         }
-      } else {
-        next.push(merged);
+        changed = true;
       }
+
+      if (!changed) return;
       fleetSv.value = next;
       fleetStatsSv.value = {
         candidates: visibleUserIds.length,
@@ -864,8 +949,21 @@ export function useLiveFleetAnimator(
         published: fleetStatsSv.value.published,
       };
       if (next.length > 0) {
-        shapeSv.value = buildGeoJsonLive(next, now, exitViewportSv.value);
+        hotShapeSv.value = buildGeoJsonLive(next, now, exitViewportSv.value, 1);
+        hotVehicleShapeSv.value = buildVehicleGeoJson(
+          next,
+          now,
+          exitViewportSv.value,
+          currentZoomSv.value,
+          1,
+        );
+        publishColdShapes(next, now, exitViewportSv.value);
         lastPublishAtSv.value = now;
+      } else {
+        hotShapeSv.value = EMPTY_FC;
+        coldShapeSv.value = EMPTY_FC;
+        hotVehicleShapeSv.value = EMPTY_VEHICLE_FC;
+        coldVehicleShapeSv.value = EMPTY_VEHICLE_FC;
       }
       const prevKey = slots.map((s) => s.id).join(',');
       const nextKey = next.map((s) => s.id).join(',');
@@ -874,11 +972,7 @@ export function useLiveFleetAnimator(
       }
     };
 
-    const unsubscribe = store.subscribeFleetDeltas((ids) => {
-      for (const id of ids) {
-        if (visibleSet.has(id)) onPosition(id);
-      }
-    });
+    const unsubscribe = store.subscribeFleetDeltas(onPositions);
     return () => {
       unsubscribe();
     };
@@ -893,11 +987,16 @@ export function useLiveFleetAnimator(
     exitViewportSv,
     fleetStatsSv,
     lastPublishAtSv,
-    shapeSv,
+    hotShapeSv,
+    coldShapeSv,
+    hotVehicleShapeSv,
+    coldVehicleShapeSv,
+    currentZoomSv,
     publishMetaPins,
+    publishColdShapes,
   ]);
 
-  const frameCallback = useFrameCallback(() => {
+  const frameWorklet = useCallback(() => {
     'worklet';
     const exitBounds = exitViewportSv.value;
     if (exitBounds.valid !== 1) return;
@@ -905,29 +1004,56 @@ export function useLiveFleetAnimator(
     const slots = fleetSv.value;
     if (!slots.length) {
       if (lastPublishAtSv.value !== -1) {
-        shapeSv.value = EMPTY_FC;
-        vehicleShapeSv.value = EMPTY_VEHICLE_FC;
+        hotShapeSv.value = EMPTY_FC;
+        coldShapeSv.value = EMPTY_FC;
+        hotVehicleShapeSv.value = EMPTY_VEHICLE_FC;
+        coldVehicleShapeSv.value = EMPTY_VEHICLE_FC;
         lastPublishAtSv.value = -1;
       }
       return;
     }
 
-    // KLUCZOWE: ten sam zegar co przy merge (Date.now()), nie frame.timestamp.
     const nowMs = Date.now();
-    const geo = buildGeoJsonLive(slots, nowMs, exitBounds);
-    shapeSv.value = geo;
-    vehicleShapeSv.value = buildVehicleGeoJson(slots, nowMs, exitBounds, currentZoomSv.value);
+    if (!shouldPublishFleetFrame(nowMs, lastPublishAtSv.value, FLEET_PUBLISH_INTERVAL_MS)) return;
+    const hotPins = buildGeoJsonLive(slots, nowMs, exitBounds, 1);
+    const hotVehicles = buildVehicleGeoJson(
+      slots,
+      nowMs,
+      exitBounds,
+      currentZoomSv.value,
+      1,
+    );
+    hotShapeSv.value = hotPins;
+    hotVehicleShapeSv.value = hotVehicles;
     lastPublishAtSv.value = nowMs;
     if (lastStatsAtSv.value <= 0 || nowMs - lastStatsAtSv.value >= FLEET_STATS_THROTTLE_MS) {
       lastStatsAtSv.value = nowMs;
+      const visible =
+        hotPins.features.length
+        + hotVehicles.features.length
+        + coldShapeSv.value.features.length
+        + coldVehicleShapeSv.value.features.length;
       fleetStatsSv.value = {
         candidates: fleetStatsSv.value.candidates,
-        visible: geo.features.length,
-        culled: Math.max(0, fleetStatsSv.value.candidates - geo.features.length),
+        visible,
+        culled: Math.max(0, fleetStatsSv.value.candidates - visible),
         published: fleetStatsSv.value.published + 1,
       };
     }
-  }, false);
+  }, [
+    coldShapeSv,
+    coldVehicleShapeSv,
+    currentZoomSv,
+    exitViewportSv,
+    fleetStatsSv,
+    fleetSv,
+    hotShapeSv,
+    hotVehicleShapeSv,
+    lastPublishAtSv,
+    lastStatsAtSv,
+  ]);
+
+  const frameCallback = useFrameCallback(frameWorklet, false);
 
   useEffect(() => {
     frameCallback.setActive(enabled && visibleUserIds.length > 0);
@@ -935,25 +1061,41 @@ export function useLiveFleetAnimator(
   }, [enabled, visibleUserIds.length, frameCallback]);
 
   // RNMBXShapeSource.setShape wymaga GeoJSON string (nie obiektu) przy animatedProps.
-  const animatedShapeProps = useAnimatedProps(() => {
+  const hotAnimatedShapeProps = useAnimatedProps(() => {
     'worklet';
     return {
-      shape: JSON.stringify(shapeSv.value),
+      shape: JSON.stringify(hotShapeSv.value),
     };
   });
 
-  const vehicleAnimatedShapeProps = useAnimatedProps(() => {
+  const coldAnimatedShapeProps = useAnimatedProps(() => {
     'worklet';
     return {
-      shape: JSON.stringify(vehicleShapeSv.value),
+      shape: JSON.stringify(coldShapeSv.value),
+    };
+  });
+
+  const hotVehicleAnimatedShapeProps = useAnimatedProps(() => {
+    'worklet';
+    return {
+      shape: JSON.stringify(hotVehicleShapeSv.value),
+    };
+  });
+
+  const coldVehicleAnimatedShapeProps = useAnimatedProps(() => {
+    'worklet';
+    return {
+      shape: JSON.stringify(coldVehicleShapeSv.value),
     };
   });
 
   const hasFleet = metaPinRequests.length > 0;
 
   return {
-    animatedShapeProps,
-    vehicleAnimatedShapeProps,
+    hotAnimatedShapeProps,
+    coldAnimatedShapeProps,
+    hotVehicleAnimatedShapeProps,
+    coldVehicleAnimatedShapeProps,
     metaPinRequests,
     hasFleet,
     fleetStats: fleetStatsSv,

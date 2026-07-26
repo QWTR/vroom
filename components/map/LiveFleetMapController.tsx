@@ -144,12 +144,15 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   return (
     <>
       <FleetVehicleModelsLayer
-        animatedShapeProps={animator.vehicleAnimatedShapeProps}
+        hotAnimatedShapeProps={animator.hotVehicleAnimatedShapeProps}
+        coldAnimatedShapeProps={animator.coldVehicleAnimatedShapeProps}
         visible={enabled && viewportReady}
         minZoomLevel={0}
+        onUserPress={onUserPress}
       />
       <LiveUsersFleetLayer
-        animatedShapeProps={animator.animatedShapeProps}
+        hotAnimatedShapeProps={animator.hotAnimatedShapeProps}
+        coldAnimatedShapeProps={animator.coldAnimatedShapeProps}
         metaPinRequests={animator.metaPinRequests}
         visible={enabled && viewportReady && animator.hasFleet}
         onUserPress={onUserPress}

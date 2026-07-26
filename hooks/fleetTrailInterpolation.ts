@@ -1,5 +1,6 @@
 import {
   FLEET_EXTRAPOLATE_MAX_MS,
+  FLEET_EXTRAPOLATE_DECAY_START_MS,
   FLEET_MIN_SEGMENT_MS,
   FLEET_PUSH_DEFAULT_MS,
   FLEET_PUSH_MAX_MS,
@@ -356,7 +357,13 @@ export function extrapolateFleetPosition(
     return { lat, lng, heading };
   }
   const cappedMs = Math.min(ageMs, maxExtrapMs);
-  const distM = speedMps * (cappedMs / 1000);
+  const decayStartMs = Math.min(FLEET_EXTRAPOLATE_DECAY_START_MS, maxExtrapMs);
+  const decayWindowMs = Math.max(1, maxExtrapMs - decayStartMs);
+  const tailMs = Math.max(0, cappedMs - decayStartMs);
+  const effectiveMs = cappedMs <= decayStartMs
+    ? cappedMs
+    : decayStartMs + tailMs - (tailMs * tailMs) / (2 * decayWindowMs);
+  const distM = speedMps * (effectiveMs / 1000);
   const moved = moveAlongBearingJs(lat, lng, heading, distM);
   return { lat: moved.lat, lng: moved.lng, heading };
 }

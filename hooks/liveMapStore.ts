@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { FleetLatLng, FleetTrailPoint } from './fleetTrailInterpolation';
-import { FLEET_SLOT_MAX_POINTS } from './liveFleetMotion';
+import { FLEET_SLOT_MAX_POINTS, type FleetMotionTier } from './liveFleetMotion';
 
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
 
@@ -19,6 +19,7 @@ export type LiveUserMeta = {
   heading?: number | null;
   speedKmh?: number | null;
   speedMps?: number | null;
+  motionTier?: FleetMotionTier;
 };
 
 export type LiveUserPosition = {

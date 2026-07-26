@@ -13,14 +13,16 @@ import { LiveUserPinSpriteCapture } from './LiveUserPinSpriteCapture';
 const ReanimatedShapeSource = Animated.createAnimatedComponent(Mapbox.ShapeSource);
 
 type Props = {
-  animatedShapeProps: { shape?: string };
+  hotAnimatedShapeProps: { shape?: string };
+  coldAnimatedShapeProps: { shape?: string };
   metaPinRequests: FleetMetaPinRequest[];
   visible: boolean;
   onUserPress: (userId: number) => void;
 };
 
 function LiveUsersFleetLayerInner({
-  animatedShapeProps,
+  hotAnimatedShapeProps,
+  coldAnimatedShapeProps,
   metaPinRequests,
   visible,
   onUserPress,
@@ -68,13 +70,33 @@ function LiveUsersFleetLayerInner({
         <>
           <Mapbox.Images images={images} />
           <ReanimatedShapeSource
-            id="liveFleetSource"
-            animatedProps={animatedShapeProps}
+            id="liveFleetHotSource"
+            animatedProps={hotAnimatedShapeProps as never}
             onPress={handlePress}
             hitbox={{ width: 72, height: 72 }}
           >
             <Mapbox.SymbolLayer
-              id="liveFleetPins"
+              id="liveFleetHotPins"
+              style={{
+                iconImage: ['concat', 'avatar_', ['to-string', ['get', 'id']]],
+                iconSize,
+                iconAllowOverlap: true,
+                iconIgnorePlacement: true,
+                iconAnchor: 'bottom',
+                iconOptional: true,
+                iconPitchAlignment: 'viewport',
+                iconRotationAlignment: 'viewport',
+              }}
+            />
+          </ReanimatedShapeSource>
+          <ReanimatedShapeSource
+            id="liveFleetColdSource"
+            animatedProps={coldAnimatedShapeProps as never}
+            onPress={handlePress}
+            hitbox={{ width: 72, height: 72 }}
+          >
+            <Mapbox.SymbolLayer
+              id="liveFleetColdPins"
               style={{
                 iconImage: ['concat', 'avatar_', ['to-string', ['get', 'id']]],
                 iconSize,

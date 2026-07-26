@@ -1,4 +1,5 @@
-const FLEET_PUBLISH_INTERVAL_MS = 66;
+/** Gorąca flota publikuje GeoJSON maksymalnie 30 razy na sekundę. */
+export const FLEET_PUBLISH_INTERVAL_MS = 33;
 const SOFT_CORRECTION_MIN_MS = 450;
 const SOFT_CORRECTION_MAX_MS = 1_200;
 const SMALL_CORRECTION_M = 3;
@@ -10,7 +11,10 @@ export const FLEET_FULL_ANIMATION_EXIT_KM = 11;
 /** Maks. punktów drogi/trailu w slocie animacji. */
 export const FLEET_SLOT_MAX_POINTS = 8;
 /** Dead reckoning po ostatnim fixie — wypełnia luki między pakietami socket (np. snapshot 12 s). */
-export const FLEET_EXTRAPOLATE_MAX_MS = 15_000;
+export const FLEET_EXTRAPOLATE_DECAY_START_MS = 1_000;
+export const FLEET_EXTRAPOLATE_MAX_MS = 2_500;
+/** Dalecy nieznajomi przyjmują wyłącznie najnowszy fix w tym interwale. */
+export const FLEET_REDUCED_UPDATE_MS = 10_000;
 /** V3-Lite pushTarget: min/max czas segmentu lerp origin→target. */
 export const FLEET_PUSH_MIN_MS = 400;
 export const FLEET_PUSH_MAX_MS = 5_000;
@@ -85,4 +89,46 @@ export function shouldAcceptFleetMotionUpdate(input: {
     input.incomingLng,
   );
   return Number.isFinite(distKm) && distKm <= radiusKm;
+}
+
+export type FleetMotionTier = 'full' | 'reduced';
+
+export function resolveFleetMotionTier(input: {
+  serverTier?: string | null;
+  isFriend?: boolean;
+  viewerLat?: number | null;
+  viewerLng?: number | null;
+  incomingLat: number;
+  incomingLng: number;
+  fullRadiusKm?: number;
+}): FleetMotionTier {
+  if (input.isFriend === true) return 'full';
+  if (input.serverTier === 'full') return 'full';
+  if (input.serverTier === 'reduced') return 'reduced';
+  if (
+    !Number.isFinite(input.viewerLat)
+    || !Number.isFinite(input.viewerLng)
+    || !Number.isFinite(input.incomingLat)
+    || !Number.isFinite(input.incomingLng)
+  ) {
+    return 'reduced';
+  }
+  const radiusKm = Number.isFinite(input.fullRadiusKm)
+    ? Number(input.fullRadiusKm)
+    : FLEET_FULL_ANIMATION_RADIUS_KM;
+  const distKm = haversineKm(
+    Number(input.viewerLat),
+    Number(input.viewerLng),
+    input.incomingLat,
+    input.incomingLng,
+  );
+  return Number.isFinite(distKm) && distKm <= radiusKm ? 'full' : 'reduced';
+}
+
+export function shouldApplyReducedFleetUpdate(
+  nowMs: number,
+  lastAppliedAtMs: number,
+  intervalMs = FLEET_REDUCED_UPDATE_MS,
+): boolean {
+  return lastAppliedAtMs <= 0 || nowMs - lastAppliedAtMs >= intervalMs;
 }

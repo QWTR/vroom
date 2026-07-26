@@ -15,8 +15,16 @@ import {
 } from './liveMapStore';
 import type { VehicleModelMeta } from '../constants/shopCosmetics';
 import { normalizeVehicleLiveFields } from '../lib/vehicleModelContract';
-import { FLEET_FULL_ANIMATION_RADIUS_KM, FLEET_SLOT_MAX_POINTS, shouldAcceptFleetMotionUpdate } from './liveFleetMotion';
+import {
+  FLEET_FULL_ANIMATION_RADIUS_KM,
+  FLEET_REDUCED_UPDATE_MS,
+  FLEET_SLOT_MAX_POINTS,
+  resolveFleetMotionTier,
+  shouldApplyReducedFleetUpdate,
+  type FleetMotionTier,
+} from './liveFleetMotion';
 import { parseIncomingTrail, type FleetTrailPoint } from './fleetTrailInterpolation';
+import { isLiveUpdateNewer } from './liveUpdateOrder';
 import {
   WARNING_CATALOG,
   type CreateWarningInput,
@@ -44,6 +52,7 @@ export interface LiveUser {
   speedKmh?: number | null;
   speedMps?: number | null;
   trail?: FleetTrailPoint[];
+  motionTier?: FleetMotionTier;
 }
 
 export type LiveLocationMotion = {
@@ -171,6 +180,9 @@ export function useLiveMap(
   const pendingOfflineRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const liveUserLastSeqRef = useRef<Map<number, number>>(new Map());
   const liveUserLastServerAtRef = useRef<Map<number, number>>(new Map());
+  const reducedLastAppliedAtRef = useRef<Map<number, number>>(new Map());
+  const reducedPendingRef = useRef<Map<number, { dueAt: number; apply: () => void }>>(new Map());
+  const reducedFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const checkSingleWarningProximityRef = useRef<((w: LiveWarning) => void) | null>(null);
 
@@ -189,42 +201,26 @@ export function useLiveMap(
     serverAt?: number | null,
     seq?: number | null,
   ): boolean => {
-    const prevSeq = liveUserLastSeqRef.current.get(id);
-    const prevAt = liveUserLastServerAtRef.current.get(id);
-    if (Number.isFinite(seq) && prevSeq != null) {
-      return Number(seq) >= prevSeq;
-    }
-    if (Number.isFinite(serverAt) && prevAt != null) {
-      return Number(serverAt) >= prevAt;
-    }
-    return prevSeq == null && prevAt == null;
+    return isLiveUpdateNewer({
+      previousSeq: liveUserLastSeqRef.current.get(id),
+      previousServerAt: liveUserLastServerAtRef.current.get(id),
+      incomingSeq: seq,
+      incomingServerAt: serverAt,
+    });
   }, []);
 
-  const pickCoords = useCallback((
-    id: number,
-    incoming: { lat: number; lng: number; serverAt?: number | null; seq?: number | null },
-    prevLat?: number,
-    prevLng?: number,
-  ) => {
-    const pos = store.getPosition(id);
-    const baseLat = prevLat ?? pos?.lat ?? incoming.lat;
-    const baseLng = prevLng ?? pos?.lng ?? incoming.lng;
-    if (isIncomingNewer(id, incoming.serverAt, incoming.seq)) {
-      return { lat: incoming.lat, lng: incoming.lng };
-    }
-    return { lat: baseLat, lng: baseLng };
-  }, [isIncomingNewer, store]);
-
-  const shouldAcceptLiveUserMotion = useCallback((
-    incoming: { lat: number; lng: number; isFriend?: boolean },
-    prevPos?: { lat: number; lng: number } | null,
-  ): boolean => {
-    if (!prevPos) return true;
-    if (incoming.isFriend === true) return true;
+  const resolveIncomingMotionTier = useCallback((
+    incoming: {
+      lat: number;
+      lng: number;
+      isFriend?: boolean;
+      motionTier?: string | null;
+    },
+  ): FleetMotionTier => {
     const loc = userLocationRef.current;
-    return shouldAcceptFleetMotionUpdate({
+    return resolveFleetMotionTier({
+      serverTier: incoming.motionTier,
       isFriend: incoming.isFriend,
-      hasPreviousPosition: true,
       viewerLat: loc?.latitude,
       viewerLng: loc?.longitude,
       incomingLat: incoming.lat,
@@ -233,11 +229,28 @@ export function useLiveMap(
     });
   }, []);
 
+  const enqueueReducedMotionUpdate = useCallback((id: number, apply: () => void) => {
+    const now = Date.now();
+    const lastAppliedAt = reducedLastAppliedAtRef.current.get(id) ?? 0;
+    if (shouldApplyReducedFleetUpdate(now, lastAppliedAt, FLEET_REDUCED_UPDATE_MS)) {
+      reducedPendingRef.current.delete(id);
+      reducedLastAppliedAtRef.current.set(id, now);
+      apply();
+      return;
+    }
+    reducedPendingRef.current.set(id, {
+      dueAt: lastAppliedAt + FLEET_REDUCED_UPDATE_MS,
+      apply,
+    });
+  }, []);
+
   const removeLiveUser = useCallback((id: number) => {
     if (!Number.isFinite(id)) return;
     liveUserLastSeenRef.current.delete(id);
     liveUserLastSeqRef.current.delete(id);
     liveUserLastServerAtRef.current.delete(id);
+    reducedLastAppliedAtRef.current.delete(id);
+    reducedPendingRef.current.delete(id);
     const pending = pendingOfflineRef.current.get(id);
     if (pending) {
       clearTimeout(pending);
@@ -290,28 +303,41 @@ export function useLiveMap(
 
       const prevMeta = store.getMeta(u.id);
       const prevPos = store.getPosition(u.id);
-      const incomingCoords = pickCoords(u.id, u, prevPos?.lat, prevPos?.lng);
-      const acceptsMotion = shouldAcceptLiveUserMotion(
-        { lat: u.lat, lng: u.lng, isFriend: u.isFriend ?? prevMeta?.isFriend },
-        prevPos,
-      );
-      const coords = acceptsMotion || !prevPos
-        ? incomingCoords
+      const incomingNewer = isIncomingNewer(u.id, u.serverAt, u.seq);
+      const coords = incomingNewer || !prevPos
+        ? { lat: u.lat, lng: u.lng }
         : { lat: prevPos.lat, lng: prevPos.lng };
       const motion = parseIncomingMotion(u);
       const trail = parseIncomingTrail(u?.trail);
       const liveVehicle = normalizeVehicleLiveFields(u, prevMeta);
-      const displayHeading = acceptsMotion ? motion.heading : (prevPos?.heading ?? prevMeta?.heading ?? null);
-      const displaySpeedMps = acceptsMotion ? motion.speedMps : (prevPos?.speedMps ?? prevMeta?.speedMps ?? null);
+      const isFriend = u.isFriend ?? prevMeta?.isFriend;
+      const motionTier = resolveIncomingMotionTier({
+        lat: u.lat,
+        lng: u.lng,
+        isFriend,
+        motionTier: u.motionTier,
+      });
+      if (incomingNewer) {
+        reducedPendingRef.current.delete(u.id);
+        if (motionTier === 'reduced') {
+          reducedLastAppliedAtRef.current.set(u.id, Date.now());
+        }
+      }
+      const displayHeading = incomingNewer || !prevPos
+        ? motion.heading
+        : (prevPos?.heading ?? prevMeta?.heading ?? null);
+      const displaySpeedMps = incomingNewer || !prevPos
+        ? motion.speedMps
+        : (prevPos?.speedMps ?? prevMeta?.speedMps ?? null);
 
-      if (Number.isFinite(Number(u?.seq))) {
+      if (incomingNewer && Number.isFinite(Number(u?.seq))) {
         const seq = Number(u.seq);
         const prevSeq = liveUserLastSeqRef.current.get(u.id);
         if (prevSeq == null || seq >= prevSeq) {
           liveUserLastSeqRef.current.set(u.id, seq);
         }
       }
-      if (Number.isFinite(Number(u?.serverAt))) {
+      if (incomingNewer && Number.isFinite(Number(u?.serverAt))) {
         const at = Number(u.serverAt);
         const prevAt = liveUserLastServerAtRef.current.get(u.id);
         if (prevAt == null || at >= prevAt) {
@@ -326,21 +352,22 @@ export function useLiveMap(
           avatarUrl: u.avatarUrl ?? prevMeta?.avatarUrl ?? null,
           avatarFrameUrl: u.avatarFrameUrl ?? prevMeta?.avatarFrameUrl ?? null,
           online: u.online,
-          isFriend: u.isFriend ?? prevMeta?.isFriend,
+          isFriend,
           isPremium: u.isPremium ?? prevMeta?.isPremium,
           vehicleModelUrl: liveVehicle.vehicleModelUrl,
           vehicleModelMeta: liveVehicle.vehicleModelMeta,
-          serverAt: u.serverAt ?? prevMeta?.serverAt ?? null,
-          seq: u.seq ?? prevMeta?.seq ?? null,
+          serverAt: incomingNewer ? (u.serverAt ?? prevMeta?.serverAt ?? null) : (prevMeta?.serverAt ?? null),
+          seq: incomingNewer ? (u.seq ?? prevMeta?.seq ?? null) : (prevMeta?.seq ?? null),
           heading: displayHeading ?? prevMeta?.heading ?? null,
           speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (prevMeta?.speedKmh ?? null),
           speedMps: displaySpeedMps ?? prevMeta?.speedMps ?? null,
+          motionTier,
         },
         lat: coords.lat,
         lng: coords.lng,
         heading: displayHeading,
         speedMps: displaySpeedMps,
-        trail: acceptsMotion && trail.length > 0 ? trail : undefined,
+        trail: (incomingNewer || !prevPos) && trail.length > 0 ? trail : undefined,
       });
     }
 
@@ -382,7 +409,7 @@ export function useLiveMap(
     }
 
     return true;
-  }, [touchLiveUser, store, pickCoords, shouldAcceptLiveUserMotion]);
+  }, [touchLiveUser, store, isIncomingNewer, resolveIncomingMotionTier]);
 
   const mergeLiveUsersFromApi = useCallback((incoming: LiveUser[]) => {
     applyLiveUsersMerge(incoming, mergeGenerationRef.current);
@@ -536,11 +563,32 @@ export function useLiveMap(
     liveUserLastSeenRef.current.clear();
     liveUserLastSeqRef.current.clear();
     liveUserLastServerAtRef.current.clear();
+    reducedLastAppliedAtRef.current.clear();
+    reducedPendingRef.current.clear();
     hasUsersFromSocketRef.current = false;
     lastSnapshotAtRef.current = 0;
     lastUsersGeoRefreshRef.current = null;
     store.clear();
   }, [store, clearUsersFallbackTimer]);
+
+  useEffect(() => {
+    if (!liveUsersEnabled) return;
+    reducedFlushTimerRef.current = setInterval(() => {
+      const now = Date.now();
+      for (const [id, pending] of reducedPendingRef.current.entries()) {
+        if (pending.dueAt > now) continue;
+        reducedPendingRef.current.delete(id);
+        reducedLastAppliedAtRef.current.set(id, now);
+        pending.apply();
+      }
+    }, 500);
+    return () => {
+      if (reducedFlushTimerRef.current) {
+        clearInterval(reducedFlushTimerRef.current);
+        reducedFlushTimerRef.current = null;
+      }
+    };
+  }, [liveUsersEnabled]);
 
   // Ghost Mode — wyłącz flotę, socket zostaje dla ostrzeżeń.
   useEffect(() => {
@@ -676,56 +724,69 @@ export function useLiveMap(
         if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
         if (Date.now() - serverAt > LIVE_USER_EVENT_STALE_MS) return;
         const prevSeq = liveUserLastSeqRef.current.get(id);
-        if (Number.isFinite(seq) && prevSeq != null && seq < prevSeq) return;
+        if (Number.isFinite(seq) && prevSeq != null && seq <= prevSeq) return;
         const prevServerAt = liveUserLastServerAtRef.current.get(id);
-        if (prevServerAt != null && serverAt < prevServerAt) return;
+        if (!Number.isFinite(seq) && prevServerAt != null && serverAt <= prevServerAt) return;
         if (Number.isFinite(seq)) liveUserLastSeqRef.current.set(id, seq);
         liveUserLastServerAtRef.current.set(id, serverAt);
         touchLiveUser(id);
 
-        const existingMeta = store.getMeta(id);
-        const existingPos = store.getPosition(id);
-        const motion = parseIncomingMotion(data);
-        const trail = parseIncomingTrail(data?.trail);
-        const liveVehicle = normalizeVehicleLiveFields(data, existingMeta);
-        const acceptsMotion = shouldAcceptLiveUserMotion(
-          { lat: rawLat, lng: rawLng, isFriend: data?.isFriend ?? existingMeta?.isFriend },
-          existingPos,
-        );
-        const displayHeading = acceptsMotion ? motion.heading : (existingPos?.heading ?? existingMeta?.heading ?? null);
-        const displaySpeedMps = acceptsMotion ? motion.speedMps : (existingPos?.speedMps ?? existingMeta?.speedMps ?? null);
-        const meta: LiveUserMeta = {
-          id,
-          username: typeof data?.username === 'string'
-            ? data.username
-            : (existingMeta?.username ?? ''),
-          avatarUrl: data?.avatarUrl !== undefined
-            ? data.avatarUrl
-            : (existingMeta?.avatarUrl ?? null),
-          avatarFrameUrl: data?.avatarFrameUrl !== undefined
-            ? data.avatarFrameUrl
-            : (existingMeta?.avatarFrameUrl ?? null),
-          online: data?.online ?? existingMeta?.online ?? true,
-          isFriend: data?.isFriend ?? existingMeta?.isFriend,
-          isPremium: data?.isPremium ?? existingMeta?.isPremium,
-          vehicleModelUrl: liveVehicle.vehicleModelUrl,
-          vehicleModelMeta: liveVehicle.vehicleModelMeta,
-          serverAt,
-          seq: Number.isFinite(seq) ? seq : null,
-          heading: displayHeading ?? existingMeta?.heading ?? null,
-          speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
-          speedMps: displaySpeedMps ?? existingMeta?.speedMps ?? null,
-        };
-        store.setMeta(meta);
-        if (acceptsMotion) {
+        const existingMetaForTier = store.getMeta(id);
+        const existingPosForTier = store.getPosition(id);
+        const isFriend = data?.isFriend ?? existingMetaForTier?.isFriend;
+        const motionTier = resolveIncomingMotionTier({
+          lat: rawLat,
+          lng: rawLng,
+          isFriend,
+          motionTier: data?.motionTier,
+        });
+
+        const applyIncomingLocation = () => {
+          const existingMeta = store.getMeta(id);
+          const motion = parseIncomingMotion(data);
+          const trail = parseIncomingTrail(data?.trail);
+          const liveVehicle = normalizeVehicleLiveFields(data, existingMeta);
+          const displaySpeedMps = motion.speedMps;
+          const meta: LiveUserMeta = {
+            id,
+            username: typeof data?.username === 'string'
+              ? data.username
+              : (existingMeta?.username ?? ''),
+            avatarUrl: data?.avatarUrl !== undefined
+              ? data.avatarUrl
+              : (existingMeta?.avatarUrl ?? null),
+            avatarFrameUrl: data?.avatarFrameUrl !== undefined
+              ? data.avatarFrameUrl
+              : (existingMeta?.avatarFrameUrl ?? null),
+            online: data?.online ?? existingMeta?.online ?? true,
+            isFriend: data?.isFriend ?? existingMeta?.isFriend,
+            isPremium: data?.isPremium ?? existingMeta?.isPremium,
+            vehicleModelUrl: liveVehicle.vehicleModelUrl,
+            vehicleModelMeta: liveVehicle.vehicleModelMeta,
+            serverAt,
+            seq: Number.isFinite(seq) ? seq : null,
+            heading: motion.heading ?? existingMeta?.heading ?? null,
+            speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
+            speedMps: displaySpeedMps ?? existingMeta?.speedMps ?? null,
+            motionTier,
+          };
+          store.setMeta(meta);
           store.setPosition(id, rawLat, rawLng, true, {
             heading: motion.heading,
             speedMps: motion.speedMps,
             trail: trail.length > 0 ? trail : undefined,
             serverAt,
           });
+          if (!existingMeta) store.registerUserId(id);
+          lastSnapshotAtRef.current = Date.now();
+        };
+
+        if (motionTier === 'reduced' && existingPosForTier) {
+          enqueueReducedMotionUpdate(id, applyIncomingLocation);
+        } else {
+          reducedPendingRef.current.delete(id);
+          applyIncomingLocation();
         }
-        if (!existingMeta) store.registerUserId(id);
         lastSnapshotAtRef.current = Date.now();
       });
 
@@ -762,6 +823,9 @@ export function useLiveMap(
             speedKmh: Number.isFinite(Number(u?.speedKmh)) ? Number(u.speedKmh) : null,
             speedMps: Number.isFinite(Number(u?.speedMps)) ? Number(u.speedMps) : null,
             trail: parseIncomingTrail(u?.trail),
+            motionTier: u?.motionTier === 'full' || u?.motionTier === 'reduced'
+              ? u.motionTier
+              : undefined,
           }))
           .filter((u) =>
             Number.isFinite(u.id)
@@ -853,9 +917,9 @@ export function useLiveMap(
     joinLiveMapRoom,
     mergeLiveUsersFromApi,
     store,
-    pickCoords,
     isIncomingNewer,
-    shouldAcceptLiveUserMotion,
+    resolveIncomingMotionTier,
+    enqueueReducedMotionUpdate,
   ]);
 
   // Pause socket when app is backgrounded without background permission
