@@ -1,6 +1,7 @@
 export const TRIP_CAMERA_FRAME_MS = 33;
-export const MIN_TRIP_CAMERA_SEGMENT_MS = 80;
-export const MAX_TRIP_CAMERA_SEGMENT_MS = 5_000;
+export const MIN_TRIP_CAMERA_SEGMENT_MS = 200;
+export const MAX_TRIP_CAMERA_SEGMENT_MS = 2_000;
+export const DEFAULT_TRIP_CAMERA_SEGMENT_MS = 1_000;
 
 export type DisplayedMarkerPose = {
   lat: number;
@@ -18,7 +19,6 @@ export type NativeCameraFollowerFrame = {
 
 /** The camera must consume the already-interpolated marker, never a GPS target. */
 export function cameraFrameFromDisplayedMarker(pose: DisplayedMarkerPose): DisplayedMarkerPose | null {
-  'worklet';
   if (!Number.isFinite(pose.lat) || !Number.isFinite(pose.lng) || !Number.isFinite(pose.heading)) return null;
   if (Math.abs(pose.lat) < 1e-6 && Math.abs(pose.lng) < 1e-6) return null;
   return {
@@ -30,7 +30,6 @@ export function cameraFrameFromDisplayedMarker(pose: DisplayedMarkerPose): Displ
 
 /** Maps the marker's rendered speed to the trip zoom on the UI thread. */
 export function zoomFromMarkerSpeed(speedMs: number): number {
-  'worklet';
   const speedKmh = Math.max(0, Number.isFinite(speedMs) ? speedMs * 3.6 : 0);
   if (speedKmh <= 12) return 18.75;
   if (speedKmh <= 35) return 18.75 - ((speedKmh - 12) / 23) * 0.6;
@@ -45,24 +44,25 @@ export function zoomFromMarkerSpeed(speedMs: number): number {
 export function nativeFollowerFrameFromMarker(
   pose: DisplayedMarkerPose,
   _speedMs: number,
+  segmentDurationMs = DEFAULT_TRIP_CAMERA_SEGMENT_MS,
 ): NativeCameraFollowerFrame {
-  'worklet';
   const frame = cameraFrameFromDisplayedMarker(pose);
+  const duration = tripCameraSegmentDurationMs(segmentDurationMs);
   if (!frame) {
-    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0, segmentDurationMs: 900 };
+    return { positionValid: 0, latitude: 0, longitude: 0, heading: 0, segmentDurationMs: duration };
   }
   return {
     positionValid: 1,
     latitude: frame.lat,
     longitude: frame.lng,
     heading: frame.heading,
-    segmentDurationMs: 900,
+    segmentDurationMs: duration,
   };
 }
 
-/** Keeps the native camera segment bounded while preserving the marker's segment rhythm. */
+/** Keeps the shared display segment bounded to the observed GPS cadence (200–2000 ms). */
 export function tripCameraSegmentDurationMs(value: number): number {
-  const fallback = 900;
+  const fallback = DEFAULT_TRIP_CAMERA_SEGMENT_MS;
   const duration = Number.isFinite(value) && value > 0 ? value : fallback;
   return Math.max(MIN_TRIP_CAMERA_SEGMENT_MS, Math.min(MAX_TRIP_CAMERA_SEGMENT_MS, Math.round(duration)));
 }

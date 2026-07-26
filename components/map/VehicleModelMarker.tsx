@@ -116,7 +116,7 @@ const SelfModelLayer = memo(function SelfModelLayer({
   const style = useMemo(() => ({
     ...layerBase,
     modelRotation: dataDrivenHeading
-      ? [pitch, roll, ['+', ['get', 'heading'], yawOffset]]
+      ? [pitch, roll, ['+', ['get', 'worldHeading'], yawOffset]]
       : [pitch, roll, yaw],
   }) as any, [dataDrivenHeading, layerBase, pitch, roll, yaw, yawOffset]);
 
@@ -258,9 +258,10 @@ function VehicleModelMarkerInner({
   }, false);
 
   useEffect(() => {
-    frameCallback.setActive(enabled && modelReady);
+    // The native trip source already publishes position + world heading.
+    frameCallback.setActive(enabled && modelReady && !isTripActive);
     return () => frameCallback.setActive(false);
-  }, [enabled, modelReady, frameCallback]);
+  }, [enabled, isTripActive, modelReady, frameCallback]);
 
   const animatedShapeProps = useAnimatedProps(() => {
     'worklet';

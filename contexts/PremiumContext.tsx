@@ -59,6 +59,53 @@ function hasPremiumEntitlement(info: any): boolean {
   return !!(active?.premium || active?.['vroom Premium'] || active?.['Vroom Premium']);
 }
 
+/** Play Billing / RC: subskrypcja już aktywna — traktuj jak restore, nie jako twardy błąd. */
+function isAlreadyOwnedPurchaseError(error: unknown): boolean {
+  const msg = String((error as Error)?.message ?? error ?? '').toLowerCase();
+  const code = String((error as any)?.code ?? (error as any)?.userInfo?.code ?? '').toLowerCase();
+  return (
+    msg.includes('already')
+    || msg.includes('item_already_owned')
+    || msg.includes('itemalreadyowned')
+    || msg.includes('product_already_purchased')
+    || msg.includes('product already')
+    || msg.includes('already active')
+    || msg.includes('already owned')
+    || code.includes('already')
+    || code.includes('item_already_owned')
+    || code.includes('product_already_purchased')
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function syncPremiumWithBackendRetries(
+  token: string,
+  opts: { customerInfo?: CustomerInfo | null; productId?: string | null; expiresAtMs?: number | null } = {},
+  attempts = 3,
+): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const ok = await syncPremiumWithBackend(token, opts);
+    if (ok) return true;
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  return false;
+}
+
 /** Najpóźniejsza data wygaśnięcia entitlementu (ms) — do /api/premium/sync gdy webhook nie dotarł. */
 function getPremiumExpirationMs(info: any): number | null {
   const active = info?.entitlements?.active ?? {};
@@ -303,7 +350,8 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     error: null,
   });
 
-  // Sprawdź premium z RevenueCat ORAZ backendu
+  // Sprawdź premium z RevenueCat ORAZ backendu.
+  // Gdy RC ma entitlement, a sync backendu opóźnia się — uznaj premium w UI (reklamy znikają od razu).
   const refreshPremiumStatus = useCallback(async (): Promise<boolean> => {
     const token =
       (await AsyncStorage.getItem('userToken')) ??
@@ -314,13 +362,17 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
 
     const useRevenueCatClient = Purchases && isRevenueCatSdkReady();
     const rcPromise = useRevenueCatClient
-      ? Purchases.getCustomerInfo()
-          .then((info: CustomerInfo) => {
-            customerInfoSnapshot = info;
-            setCustomerInfo(info);
-            return hasPremiumEntitlement(info);
-          })
-          .catch(() => false)
+      ? withTimeout(
+          Purchases.getCustomerInfo()
+            .then((info: CustomerInfo) => {
+              customerInfoSnapshot = info;
+              setCustomerInfo(info);
+              return hasPremiumEntitlement(info);
+            })
+            .catch(() => false),
+          8_000,
+          false,
+        )
       : Promise.resolve(false);
 
     const backendPromise = token
@@ -332,28 +384,31 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       [rcPremium, backendPremium] = await Promise.all([rcPromise, backendPromise]);
 
       if (token && rcPremium && !backendPremium) {
-        backendPremium = await syncPremiumWithBackend(token, { customerInfo: customerInfoSnapshot });
+        backendPremium = await syncPremiumWithBackendRetries(token, { customerInfo: customerInfoSnapshot });
         if (!backendPremium) {
           backendPremium = await resolveBackendPremium(token);
         }
       }
 
       if (token) {
-        const res = await fetch(`${API_URL}/api/premium/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.isPremium) backendPremium = true;
+        const res = await withTimeout(
+          fetch(`${API_URL}/api/premium/status`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then(async (r) => (r.ok ? r.json() : null)).catch(() => null),
+          8_000,
+          null,
+        );
+        if (res) {
+          if (res?.isPremium) backendPremium = true;
           setPremiumStatus({
-            plan: data?.plan ?? null,
-            status: data?.status ?? (backendPremium ? 'active' : 'inactive'),
-            currentPeriodEnd: data?.currentPeriodEnd ? String(data.currentPeriodEnd) : null,
-            premiumExpiresAt: data?.premiumExpiresAt ? String(data.premiumExpiresAt) : null,
+            plan: res?.plan ?? null,
+            status: res?.status ?? (backendPremium || rcPremium ? 'active' : 'inactive'),
+            currentPeriodEnd: res?.currentPeriodEnd ? String(res.currentPeriodEnd) : null,
+            premiumExpiresAt: res?.premiumExpiresAt ? String(res.premiumExpiresAt) : null,
             source: rcPremium ? 'backend+rc' : 'backend',
             error: null,
           });
-        } else if (backendPremium) {
+        } else if (backendPremium || rcPremium) {
           setPremiumStatus(prev => ({
             ...prev,
             status: 'active',
@@ -370,8 +425,9 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       }));
     }
 
-    setIsPremium(backendPremium);
-    return backendPremium;
+    const effective = !!(backendPremium || rcPremium);
+    setIsPremium(effective);
+    return effective;
   }, []);
 
   // Inicjalizacja SDK + logowanie usera
@@ -418,6 +474,54 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const restorePurchases = useCallback(async (): Promise<boolean> => {
+    const token =
+      (await AsyncStorage.getItem('userToken')) ??
+      (await AsyncStorage.getItem('token'));
+
+    // iOS: najpierw Apple, potem RC.
+    if (isIosStoreKitAvailable()) {
+      const purchase = await restoreIosPremiumPurchase();
+      if (purchase) {
+        if (token) {
+          await syncPremiumWithBackendRetries(token, {
+            productId: purchase.productId,
+            expiresAtMs: purchaseExpirationMs(purchase),
+          });
+        }
+        await syncRevenueCatAfterAppleIap();
+        const active = await refreshPremiumStatus();
+        if (active) setIsPremium(true);
+        return active;
+      }
+    }
+
+    if (Purchases) ensureRevenueCatConfigured();
+    const canUseRevenueCat = !!Purchases && isRevenueCatSdkReady();
+    if (canUseRevenueCat) {
+      try {
+        const info: CustomerInfo = await Purchases.restorePurchases();
+        setCustomerInfo(info);
+        if (token && hasPremiumEntitlement(info)) {
+          await syncPremiumWithBackendRetries(token, { customerInfo: info });
+        }
+        const active = await refreshPremiumStatus();
+        const ok = active || hasPremiumEntitlement(info);
+        if (ok) setIsPremium(true);
+        return ok;
+      } catch {
+        /* RC restore failed */
+      }
+    }
+
+    if (!Purchases) return refreshPremiumStatus();
+    try {
+      return await refreshPremiumStatus();
+    } catch {
+      return refreshPremiumStatus();
+    }
+  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap]);
+
   const purchasePremium = useCallback(async (product: PremiumProduct): Promise<PremiumPurchaseResult> => {
     const token =
       (await AsyncStorage.getItem('userToken')) ??
@@ -431,7 +535,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
           return { ok: false, error: result.error, cancelled: result.cancelled };
         }
         if (token && result.purchase) {
-          await syncPremiumWithBackend(token, {
+          await syncPremiumWithBackendRetries(token, {
             productId: result.purchase.productId,
             expiresAtMs: purchaseExpirationMs(result.purchase),
           });
@@ -454,7 +558,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
           const info = rcResult?.customerInfo;
           setCustomerInfo(info);
           if (token && hasPremiumEntitlement(info)) {
-            await syncPremiumWithBackend(token, { customerInfo: info });
+            await syncPremiumWithBackendRetries(token, { customerInfo: info });
           }
           void refreshPremiumStatus();
           return { ok: true };
@@ -464,7 +568,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
             const sk = await purchaseIosPremium(product.identifier);
             if (sk.ok) {
               if (token && sk.purchase) {
-                await syncPremiumWithBackend(token, {
+                await syncPremiumWithBackendRetries(token, {
                   productId: sk.purchase.productId,
                   expiresAtMs: purchaseExpirationMs(sk.purchase),
                 });
@@ -485,7 +589,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
           return { ok: false, error: result.error, cancelled: result.cancelled };
         }
         if (token && result.purchase) {
-          await syncPremiumWithBackend(token, {
+          await syncPremiumWithBackendRetries(token, {
             productId: result.purchase.productId,
             expiresAtMs: purchaseExpirationMs(result.purchase),
           });
@@ -513,59 +617,37 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
       const info = result?.customerInfo;
       setCustomerInfo(info);
       if (token && hasPremiumEntitlement(info)) {
-        await syncPremiumWithBackend(token, { customerInfo: info });
+        await syncPremiumWithBackendRetries(token, { customerInfo: info });
       }
       const active = await refreshPremiumStatus();
       const ok = active || hasPremiumEntitlement(info);
+      if (ok) setIsPremium(true);
       return ok ? { ok: true } : { ok: false, error: 'Zakup bez aktywnego premium — sprawdź konto' };
     } catch (e: unknown) {
+      // Android: produkt już aktywny w Play — restore + sync zamiast błędu sklepu.
+      if (isAlreadyOwnedPurchaseError(e)) {
+        try {
+          const restored = await restorePurchases();
+          if (restored) {
+            setIsPremium(true);
+            return { ok: true };
+          }
+          const active = await refreshPremiumStatus();
+          if (active) {
+            setIsPremium(true);
+            return { ok: true };
+          }
+          return {
+            ok: false,
+            error: 'Subskrypcja jest aktywna w sklepie, ale nie zsynchronizowała się z kontem. Spróbuj „Przywróć zakupy”.',
+          };
+        } catch (restoreErr: unknown) {
+          return { ok: false, error: String((restoreErr as Error)?.message ?? restoreErr) };
+        }
+      }
       return { ok: false, error: String((e as Error)?.message ?? e) };
     }
-  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap]);
-
-  const restorePurchases = useCallback(async (): Promise<boolean> => {
-    const token =
-      (await AsyncStorage.getItem('userToken')) ??
-      (await AsyncStorage.getItem('token'));
-
-    // iOS: najpierw Apple, potem RC.
-    if (isIosStoreKitAvailable()) {
-      const purchase = await restoreIosPremiumPurchase();
-      if (purchase) {
-        if (token) {
-          await syncPremiumWithBackend(token, {
-            productId: purchase.productId,
-            expiresAtMs: purchaseExpirationMs(purchase),
-          });
-        }
-        await syncRevenueCatAfterAppleIap();
-        return refreshPremiumStatus();
-      }
-    }
-
-    if (Purchases) ensureRevenueCatConfigured();
-    const canUseRevenueCat = !!Purchases && isRevenueCatSdkReady();
-    if (canUseRevenueCat) {
-      try {
-        const info: CustomerInfo = await Purchases.restorePurchases();
-        setCustomerInfo(info);
-        if (token && hasPremiumEntitlement(info)) {
-          await syncPremiumWithBackend(token, { customerInfo: info });
-        }
-        const active = await refreshPremiumStatus();
-        return active || hasPremiumEntitlement(info);
-      } catch {
-        /* RC restore failed */
-      }
-    }
-
-    if (!Purchases) return refreshPremiumStatus();
-    try {
-      return await refreshPremiumStatus();
-    } catch {
-      return refreshPremiumStatus();
-    }
-  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap]);
+  }, [refreshPremiumStatus, syncRevenueCatAfterAppleIap, restorePurchases]);
 
   const getPremiumProducts = useCallback(async (): Promise<PremiumProduct[]> => {
     // iOS: najpierw Apple; jeśli brak ceny — zapas z RC getProducts (bez offerings).

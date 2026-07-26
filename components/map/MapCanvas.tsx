@@ -41,7 +41,8 @@ export const MapCanvas = memo(
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
-        surfaceView={Platform.OS === 'android' ? true : undefined}
+        // TextureView na Androidzie unika czarnego ekranu po przełączeniu zakładek (SurfaceView).
+        surfaceView={Platform.OS === 'android' ? false : undefined}
         preferredFramesPerSecond={60}
         scrollEnabled
         zoomEnabled

@@ -261,7 +261,7 @@ class VroomItemsScreen(
     if (marker.value.isNotBlank()) "Limit ${marker.value} km/h" else "Bez limitu"
 
   private fun fuelSubtitle(marker: AutoMapMarker): String =
-    if (marker.value.isNotBlank()) "PB95 ${marker.value}" else "Cena niedostepna"
+    if (marker.value.isNotBlank()) marker.value else "Cena niedostepna"
 
   private fun statusMode(snapshot: AutoNavSnapshot): String =
     when {

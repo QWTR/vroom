@@ -1,9 +1,11 @@
 import React, { useRef, useEffect } from 'react';
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import Svg, { Path } from 'react-native-svg';
 
+/** Logical size; capture is multiplied by PixelRatio for sharp browse MarkerView. */
 export const ARROW_MARKER_SIZE = 64;
+const CAPTURE_SIZE = Math.round(ARROW_MARKER_SIZE * Math.max(2, PixelRatio.get()));
 
 interface ArrowMarkerRendererProps {
   onCapture: (uri: string) => void;
@@ -32,7 +34,7 @@ export const ArrowMarkerRenderer = ({ onCapture }: ArrowMarkerRendererProps) => 
     }}>
       <ViewShot
         ref={shotRef}
-        options={{ format: 'png', quality: 1, width: ARROW_MARKER_SIZE, height: ARROW_MARKER_SIZE }}
+        options={{ format: 'png', quality: 1, width: CAPTURE_SIZE, height: CAPTURE_SIZE }}
       >
         <View style={{
           width: ARROW_MARKER_SIZE,

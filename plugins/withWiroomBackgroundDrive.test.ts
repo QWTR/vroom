@@ -22,6 +22,7 @@ describe('Wiroom native iOS drive contract', () => {
     expect(OBJC_BRIDGE).toContain('apiUrl:(NSString *)apiUrl');
     expect(OBJC_BRIDGE).toContain('authToken:(NSString *)authToken');
     expect(OBJC_BRIDGE).toContain('getNativeStats');
+    expect(OBJC_BRIDGE).toContain('getNativeProgress');
     expect(OBJC_BRIDGE).toContain('consumeNativeStats');
     expect(OBJC_BRIDGE).toContain('getDiagnostics');
   });
@@ -33,6 +34,13 @@ describe('Wiroom native iOS drive contract', () => {
     expect(SWIFT_MODULE).toContain('blockedPermission');
     expect(SWIFT_MODULE).not.toContain('sendEvent(withName: "VROOM_BG_TRACKING_END", body: ["reason": "system"]');
     expect(SWIFT_MODULE).not.toContain('sendEvent(withName: "VROOM_BG_TRACKING_END", body: ["reason": "permission"]');
+  });
+
+  it('keeps long drives active and exposes progress without transferring the full route', () => {
+    expect(SWIFT_MODULE).toContain('func getNativeProgress');
+    expect(SWIFT_MODULE).toContain('routePointSpacingKm');
+    expect(SWIFT_MODULE).not.toContain('manager.stopUpdatingLocation()\n        persistState(active: false, endedBy: "idle"');
+    expect(SWIFT_MODULE).not.toContain('private func observeIdle');
   });
 
   it('keeps an offline checkpoint retryable until the final activity is saved', () => {

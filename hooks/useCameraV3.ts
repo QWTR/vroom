@@ -5,7 +5,6 @@ import type { NavMode } from '../lib/navigationV3/types';
 import { deriveTripCameraPadding } from '../lib/mapScreen/tripCameraPadding';
 import type { DriveMarkerV3Values } from './useDriveMarkerV3';
 import { normalizeHeading } from '../lib/driveCore/travelHeading';
-import { nativeFollowerFrameFromMarker } from '../lib/driveCore/tripCameraFollow';
 import { bearingBetween } from '../scripts/navigationUtils';
 
 export type RawGpsCourseRef = React.MutableRefObject<{ lat: number; lng: number } | null>;
@@ -168,14 +167,23 @@ export function useCameraV3(opts: UseCameraV3Options) {
 
   const animatedProps = useAnimatedProps(() => {
     'worklet';
-    const frame = nativeFollowerFrameFromMarker({
-      lat: marker.lat.value,
-      lng: marker.lng.value,
-      heading: marker.heading.value,
-    }, marker.speedMs.value);
+    const latitude = marker.lat.value;
+    const longitude = marker.lng.value;
+    const heading = marker.heading.value;
+    const durationValue = marker.segmentDurationMs.value;
+    const segmentDurationMs = Number.isFinite(durationValue) && durationValue > 0
+      ? Math.max(200, Math.min(2_000, Math.round(durationValue)))
+      : 1_000;
+    const positionValid = Number.isFinite(latitude)
+      && Number.isFinite(longitude)
+      && Number.isFinite(heading)
+      && (Math.abs(latitude) >= 1e-6 || Math.abs(longitude) >= 1e-6);
     return {
-      ...frame,
-      segmentDurationMs: marker.segmentDurationMs.value,
+      positionValid: positionValid ? 1 : 0,
+      latitude: positionValid ? latitude : 0,
+      longitude: positionValid ? longitude : 0,
+      heading: positionValid ? ((heading % 360) + 360) % 360 : 0,
+      segmentDurationMs,
     };
   });
 
@@ -196,6 +204,7 @@ export function useCameraV3(opts: UseCameraV3Options) {
     useNativeTripFollow: true,
     nativeFollower: {
       enabled: Boolean(enabled && isTripMode && nativeFollowEnabled),
+      cameraMode: enabled && isTripMode && nativeFollowEnabled ? 'courseUp' as const : 'free' as const,
       zoom: isNavigating ? NAV_ZOOM : DRIVE_ZOOM,
       pitch: isNavigating ? NAV_PITCH : DRIVE_PITCH,
       padding: tripPadding,

@@ -11,6 +11,7 @@ import Toast                 from 'react-native-toast-message';
 import AsyncStorage          from '@react-native-async-storage/async-storage';
 import { API_URL }           from '../../constants/config';
 import { useTheme }          from '../../contexts/ThemeContext';
+import { PREFERRED_FUEL_OPTIONS, type PreferredFuelKey } from '../../lib/fuelDisplayPrice';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -35,6 +36,7 @@ export default function AddCarScreen() {
   const [engine,      setEngine]      = useState('');
   const [color,       setColor]       = useState('');
   const [mods,        setMods]        = useState('');
+  const [preferredFuel, setPreferredFuel] = useState<PreferredFuelKey>('pb95');
   const [isMain,      setIsMain]      = useState(false);
   const [photos,      setPhotos]      = useState<PhotoAsset[]>([]);
   const [loading,     setLoading]     = useState(false);
@@ -83,6 +85,7 @@ export default function AddCarScreen() {
       if (engine.trim()) form.append('engine', engine.trim());
       if (color.trim())  form.append('color',  color.trim());
       if (mods.trim())   form.append('mods',   mods.trim());
+      form.append('preferredFuel', preferredFuel);
       photos.forEach(p => form.append('photos', { uri: p.uri, name: p.name, type: p.type } as any));
       const res = await fetch(`${API_URL}/api/cars`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Błąd serwera');
@@ -164,6 +167,31 @@ export default function AddCarScreen() {
 
       <Text style={labelStyle}>MODYFIKACJE</Text>
       <TextInput style={[inputStyle, { height: 90, textAlignVertical: 'top' }]} value={mods} onChangeText={setMods} placeholder="Np. Stage 2 tune, exhaust, coilovers..." placeholderTextColor={theme.textDim} multiline />
+
+      <Text style={labelStyle}>TYP PALIWA (PINY NA MAPIE)</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+        {PREFERRED_FUEL_OPTIONS.map((opt) => {
+          const active = preferredFuel === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              onPress={() => setPreferredFuel(opt.key)}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: active ? theme.primary : theme.border2,
+                backgroundColor: active ? theme.primaryBg : theme.surface3,
+              }}
+            >
+              <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: active ? theme.primary : theme.textDim }}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {/* GŁÓWNE AUTO */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, backgroundColor: theme.surface3, padding: 16, borderRadius: 10, borderWidth: 1, borderColor: theme.border2 }}>

@@ -9,7 +9,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKeyboardInset } from '../../hooks/useKeyboardInset';
 import type { FuelStation } from '../../hooks/useFuelStations';
+import { PRICE_UPDATE_RADIUS_M } from '../../hooks/useFuelStations';
 
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 interface Props {
   visible:          boolean;
@@ -17,6 +29,7 @@ interface Props {
   onClose:          () => void;
   onNavigate?:      (lat: number, lng: number, name: string) => void;
   onPricesUpdated?: () => void;
+  userLocation?:    { latitude: number; longitude: number } | null;
   updatePrices:     (station: FuelStation, prices: { pb95?: number; pb98?: number; diesel?: number; lpg?: number }) => Promise<boolean>;
 }
 
@@ -49,7 +62,9 @@ function parsePriceInput(value: string): number | null {
   return parsed;
 }
 
-export function FuelStationModal({ visible, station, onClose, onNavigate, onPricesUpdated, updatePrices }: Props) {
+export function FuelStationModal({
+  visible, station, onClose, onNavigate, onPricesUpdated, updatePrices, userLocation = null,
+}: Props) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -76,7 +91,47 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
 
   const latestPrice = station.prices?.[0];
 
+  const ensureWithinPriceUpdateRadius = (): boolean => {
+    if (!userLocation) {
+      Toast.show({
+        type: 'error',
+        text1: 'Brak lokalizacji GPS',
+        text2: 'Włącz lokalizację, aby zaktualizować ceny.',
+      });
+      return false;
+    }
+    const distM = haversineM(
+      userLocation.latitude,
+      userLocation.longitude,
+      station.lat,
+      station.lng,
+    );
+    if (distM > PRICE_UPDATE_RADIUS_M) {
+      Toast.show({
+        type: 'error',
+        text1: 'Za daleko od stacji',
+        text2: `Jesteś ${Math.round(distM)} m dalej. Max ${PRICE_UPDATE_RADIUS_M} m (zdjęcie ze szosy OK).`,
+      });
+      return false;
+    }
+    return true;
+  };
+
+  const handleEnterEdit = () => {
+    if (!ensureWithinPriceUpdateRadius()) return;
+    setEditMode(true);
+  };
+
+  const handleOcrStub = () => {
+    Toast.show({
+      type: 'info',
+      text1: 'Skanowanie cen',
+      text2: 'Wkrótce — OCR z Google Cloud Vision.',
+    });
+  };
+
   const handleSave = async () => {
+    if (!ensureWithinPriceUpdateRadius()) return;
     setSaving(true);
     try {
       const payload: { pb95?: number; pb98?: number; diesel?: number; lpg?: number } = {};
@@ -106,13 +161,21 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
         return;
       }
 
-      const ok = await updatePrices(station, payload);
-      if (ok) {
-        Toast.show({ type: 'success', text1: '✅ Ceny zaktualizowane', text2: station.name });
-        setEditMode(false);
-        onPricesUpdated?.();
-      } else {
-        Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się zaktualizować cen.' });
+      try {
+        const ok = await updatePrices(station, payload);
+        if (ok) {
+          Toast.show({ type: 'success', text1: '✅ Ceny zaktualizowane', text2: station.name });
+          setEditMode(false);
+          onPricesUpdated?.();
+        } else {
+          Toast.show({ type: 'error', text1: 'Błąd', text2: 'Nie udało się zaktualizować cen.' });
+        }
+      } catch (e: any) {
+        Toast.show({
+          type: 'error',
+          text1: 'Błąd',
+          text2: e?.message ? String(e.message) : 'Nie udało się zaktualizować cen.',
+        });
       }
     } finally {
       setSaving(false);
@@ -224,24 +287,46 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
 
           {/* Edit mode form */}
           {editMode && (
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+            <View style={{ gap: 10, marginBottom: 14 }}>
               <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 13, borderRadius: 14, borderWidth: 1, borderColor: isDark ? '#333' : '#ddd', alignItems: 'center' }}
-                onPress={() => setEditMode(false)}
+                style={{
+                  paddingVertical: 12,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: '#00bfff40',
+                  backgroundColor: '#00bfff12',
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onPress={handleOcrStub}
                 disabled={saving}
               >
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isDark ? '#555' : '#aaa', fontWeight: '700' }}>ANULUJ</Text>
+                <MaterialCommunityIcons name="line-scan" size={16} color="#00bfff" />
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#00bfff', fontWeight: '700' }}>
+                  SKANUJ CENY ZE ZDJĘCIA
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 2, paddingVertical: 13, borderRadius: 14, backgroundColor: '#00bfff', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                onPress={handleSave}
-                disabled={saving}
-              >
-                {saving
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <><MaterialCommunityIcons name="check" size={16} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>
-                }
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 13, borderRadius: 14, borderWidth: 1, borderColor: isDark ? '#333' : '#ddd', alignItems: 'center' }}
+                  onPress={() => setEditMode(false)}
+                  disabled={saving}
+                >
+                  <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: isDark ? '#555' : '#aaa', fontWeight: '700' }}>ANULUJ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 2, paddingVertical: 13, borderRadius: 14, backgroundColor: '#00bfff', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                  onPress={handleSave}
+                  disabled={saving}
+                >
+                  {saving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <><MaterialCommunityIcons name="check" size={16} color="#fff" /><Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#fff', fontWeight: '700' }}>ZAPISZ</Text></>
+                  }
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -250,7 +335,7 @@ export function FuelStationModal({ visible, station, onClose, onNavigate, onPric
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity
                 style={{ flex: 1, paddingVertical: 13, borderRadius: 14, backgroundColor: '#00bfff18', borderWidth: 1, borderColor: '#00bfff40', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-                onPress={() => setEditMode(true)}
+                onPress={handleEnterEdit}
               >
                 <MaterialCommunityIcons name="pencil-outline" size={16} color="#00bfff" />
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#00bfff', fontWeight: '700' }}>AKTUALIZUJ CENY</Text>

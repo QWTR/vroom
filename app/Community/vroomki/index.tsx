@@ -15,6 +15,7 @@ import { CommunityScreenHeader } from '../../../components/community';
 import { TabAuta } from '../community/TabAuta';
 import { useVroomkiFeed } from '../../../hooks/useVroomkiFeed';
 import { consumeVroomkiFocusPostId } from '../../../lib/vroomkiTypes';
+import { ErrorBoundary } from '../../../components/ErrorBoundary';
 
 const LAST_PUBLISHED_POST_KEY = 'vroomki_last_published_post_id';
 
@@ -131,28 +132,34 @@ export default function VroomkiScreen() {
         }
       />
       <View style={{ flex: 1 }}>
-        <TabAuta
-          posts={posts}
-          focusPostId={focusPostId}
-          myId={myId}
-          loadingC={loadingC}
-          loadingMoreC={loadingMoreC}
-          refreshingC={refreshingC}
-          hasMoreC={hasMoreC}
-          onLike={like}
-          onCreate={create}
-          onDelete={remove}
-          onReport={report}
-          onBlock={blockAuthor}
-          onView={trackView}
-          onCommentAdded={markCommentAdded}
-          onFollowAuthor={followAuthor}
-          onRefresh={refresh}
-          onLoadMore={loadMore}
-          bottomInset={insets.bottom}
-          router={router}
-          feedActive={isFocused}
-        />
+        <ErrorBoundary
+          vroomkiOnly
+          fallbackTitle="Nie udało się otworzyć Rolek"
+          onRecovered={() => { void refresh(); }}
+        >
+          <TabAuta
+            posts={posts}
+            focusPostId={focusPostId}
+            myId={myId}
+            loadingC={loadingC}
+            loadingMoreC={loadingMoreC}
+            refreshingC={refreshingC}
+            hasMoreC={hasMoreC}
+            onLike={like}
+            onCreate={create}
+            onDelete={remove}
+            onReport={report}
+            onBlock={blockAuthor}
+            onView={trackView}
+            onCommentAdded={markCommentAdded}
+            onFollowAuthor={followAuthor}
+            onRefresh={refresh}
+            onLoadMore={loadMore}
+            bottomInset={insets.bottom}
+            router={router}
+            feedActive={isFocused}
+          />
+        </ErrorBoundary>
       </View>
     </SafeAreaView>
   );

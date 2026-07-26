@@ -13,7 +13,7 @@ import {
 } from 'react-native-google-mobile-ads';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../contexts/ThemeContext';
-import { usePremium } from '../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { bootstrapAdsWithConsent, getAdMobRequestOptions } from '../../lib/adsConsentBootstrap';
 
 /** Dyskusje — native advanced */
@@ -25,7 +25,7 @@ interface AdNativePostProps {
 
 export function AdNativePost({ onFailedToLoad }: AdNativePostProps) {
   const { theme } = useTheme();
-  const { isPremium, isLoading: premiumLoading } = usePremium();
+  const { isPremium, isLoading: premiumLoading } = useEffectivePremium();
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
   const [failed,   setFailed]   = useState(false);
   const [retryTick, setRetryTick] = useState(0);

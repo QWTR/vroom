@@ -158,6 +158,7 @@ export interface Car {
   isMain: boolean;
   photos: string[];  // tablica URL-i zdjęć
   ownerId: number;
+  preferredFuel?: 'pb95' | 'pb98' | 'diesel' | 'lpg' | null;
 }
 
 export interface SpotPreview {

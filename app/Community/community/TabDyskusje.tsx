@@ -37,7 +37,7 @@ import {
 // POST CARD
 // ─────────────────────────────────────────────────────────
 const PostCard = React.memo(({
-  post, myId, onLike, onRepost, onComment, onDelete, onProfile, onReport, onBlock, onPollVote,
+  post, myId, onLike, onRepost, onComment, onDelete, onEdit, onProfile, onReport, onBlock, onPollVote,
   onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress,
 }: {
   post: Post; myId: number | null;
@@ -45,6 +45,7 @@ const PostCard = React.memo(({
   onRepost: (id: number) => void;
   onComment: (post: Post) => void;
   onDelete: (id: number) => void;
+  onEdit?: (post: Post) => void;
   onProfile: (id: number) => void;
   onReport: (post: Post, reason: string) => void;
   onBlock: (post: Post) => void;
@@ -61,6 +62,7 @@ const PostCard = React.memo(({
   const [followLoading, setFollowLoading] = useState(false);
   const isOwn = post.author.id === myId;
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
+  const editedSuffix = post.editedAt ? ' · edytowano' : '';
   const getToken = () => AsyncStorage.getItem('token');
 
   function parseClubInviteMessage(content: string) {
@@ -244,7 +246,7 @@ const PostCard = React.memo(({
             </View>
 
             <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8, marginTop: 6, letterSpacing: 1 }}>
-              {time}
+              {time}{editedSuffix}
             </Text>
 
             <View style={{ flexDirection: 'row', marginTop: 5 }}>
@@ -298,7 +300,15 @@ const PostCard = React.memo(({
             )}
             {isOwn ? (
               <TouchableOpacity
-                onPress={() => setShowDelete(true)}
+                onPress={() => {
+                  Alert.alert('Twój post', undefined, [
+                    { text: 'Anuluj', style: 'cancel' },
+                    ...(onEdit && !post.isSystem && post.postType !== 'system_news'
+                      ? [{ text: 'Edytuj', onPress: () => onEdit(post) }]
+                      : []),
+                    { text: 'Usuń', style: 'destructive' as const, onPress: () => setShowDelete(true) },
+                  ]);
+                }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }}
               >
@@ -512,7 +522,7 @@ export function restoreDiscussionsScroll() {
 // TAB DYSKUSJE
 // ─────────────────────────────────────────────────────────
 export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
-  onLike, onRepost, onComment, onDelete, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress, selectedCategory, onSelectCategory, bottomInset, isPremium, isAdmin, onUpgradePremium }: {
+  onLike, onRepost, onComment, onDelete, onEdit, onProfile, onRefresh, onLoadMore, onPost, onReport, onBlock, onPollVote, onReact, onOpenReactionPicker, onNavigateRoute, onHashtagPress, selectedCategory, onSelectCategory, bottomInset, isPremium, isAdmin, onUpgradePremium }: {
   posts: Post[];
   myId: number | null;
   loadingMoreP: boolean;
@@ -522,6 +532,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
   onRepost: (id: number) => void;
   onComment: (post: Post) => void;
   onDelete: (id: number) => void;
+  onEdit?: (post: Post) => void;
   onProfile: (id: number) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
@@ -610,7 +621,7 @@ export function TabDyskusje({ posts, myId, loadingMoreP, refreshingP, hasMoreP,
           </AdPostBoundary>
         ) : (
           <PostCard post={item} myId={myId} onLike={onLike} onRepost={onRepost}
-            onComment={handleOpenPostComments} onDelete={onDelete} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
+            onComment={handleOpenPostComments} onDelete={onDelete} onEdit={onEdit} onProfile={onProfile} onReport={onReport} onBlock={onBlock} onPollVote={onPollVote}
             onReact={onReact} onOpenReactionPicker={onOpenReactionPicker} onNavigateRoute={onNavigateRoute} onHashtagPress={onHashtagPress} />
         )}
         refreshControl={<RefreshControl refreshing={refreshingP} onRefresh={onRefresh} tintColor="#e33835" />}

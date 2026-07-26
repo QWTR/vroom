@@ -50,7 +50,7 @@ export function getDiscussionCategoryMeta(category?: string | null) {
 
 export interface Author       { id: number; username: string; avatarUrl: string | null; points: number; isPremium?: boolean; isAdmin?: boolean; nickColor?: string | null; }
 export interface Comment      {
-  id: number; content: string; photos: string[]; createdAt: string; author: Author;
+  id: number; content: string; photos: string[]; createdAt: string; editedAt?: string | null; author: Author;
   replyTo?: { id: number; username: string } | null;
   likesCount?: number; isLiked?: boolean;
   reactions?: DiscussionReaction[];
@@ -61,7 +61,7 @@ export interface PostPollData {
 }
 export interface PostPollInput { question: string; options: string[]; }
 export interface Post         {
-  id: number; title?: string | null; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; author: Author;
+  id: number; title?: string | null; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; editedAt?: string | null; author: Author;
   postType?: 'user' | 'system_news' | string; sourceUrl?: string | null; sourceName?: string | null; excerpt?: string | null; isSystem?: boolean; metadata?: any;
   likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean;
   reactions?: DiscussionReaction[];

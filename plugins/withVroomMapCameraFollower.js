@@ -85,7 +85,7 @@ const withIosFollower = (config) => withXcodeProject(config, (cfg) => {
 });
 
 const withVroomMapCameraFollower = (config) => withIosFollower(withAndroidFollower(config));
-const plugin = createRunOncePlugin(withVroomMapCameraFollower, 'with-vroom-map-camera-follower', '1.3.0');
+const plugin = createRunOncePlugin(withVroomMapCameraFollower, 'with-vroom-map-camera-follower', '1.4.0');
 
 plugin.__internal = { resolveIosProjectName, IOS_SOURCE_FILES, ANDROID_SOURCE_FILES };
 

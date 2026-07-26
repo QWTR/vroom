@@ -50,6 +50,11 @@ export type BackgroundDriveNativeStats = {
   lastServerCheckpointKm?: number;
 };
 
+export type BackgroundDriveNativeProgress = Pick<
+  BackgroundDriveNativeStats,
+  'distanceKm' | 'tripSessionId' | 'maxSpeedKmh' | 'lastServerCheckpointKm'
+>;
+
 const STATE_KEY = 'wiroom_background_drive_state';
 const BUFFER_KEY = 'wiroom_background_drive_buffer';
 const BG_TRACKING_SETTING_KEY = 'bg_tracking_setting_enabled';
@@ -72,6 +77,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
     getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+    getNativeProgress?: () => Promise<BackgroundDriveNativeProgress>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     getDiagnostics?: () => Promise<BackgroundDriveRuntimeState[]>;
   };
@@ -86,6 +92,7 @@ const { VroomBgTracking, WiroomLocationService } = NativeModules as {
     getState?: () => Promise<BackgroundDriveState>;
     consumeBufferedLocations?: () => Promise<BackgroundDriveFix[]>;
     getNativeStats?: () => Promise<BackgroundDriveNativeStats>;
+    getNativeProgress?: () => Promise<BackgroundDriveNativeProgress>;
     consumeNativeStats?: () => Promise<BackgroundDriveNativeStats>;
     getDiagnostics?: () => Promise<BackgroundDriveRuntimeState[]>;
   };
@@ -116,17 +123,6 @@ function normalizeState(value: Partial<BackgroundDriveState> | null | undefined)
 
 async function persistState(state: BackgroundDriveState): Promise<void> {
   await AsyncStorage.setItem(STATE_KEY, JSON.stringify(normalizeState(state)));
-}
-
-async function appendBufferedLocation(fix: BackgroundDriveFix): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(BUFFER_KEY);
-    const current: BackgroundDriveFix[] = raw ? JSON.parse(raw) : [];
-    current.push(fix);
-    await AsyncStorage.setItem(BUFFER_KEY, JSON.stringify(current.slice(-240)));
-  } catch {
-    // best effort mirror only
-  }
 }
 
 async function showIosDriveNotification(mode: BackgroundDriveMode): Promise<void> {
@@ -343,6 +339,35 @@ export const BackgroundDriveController = {
     return () => sub.remove();
   },
 
+  async getNativeProgress(): Promise<BackgroundDriveNativeProgress> {
+    const mod = nativeModule();
+    if (mod?.getNativeProgress) {
+      try {
+        const progress = await mod.getNativeProgress();
+        const distanceKm = Number(progress?.distanceKm);
+        const maxSpeedKmh = Number(progress?.maxSpeedKmh);
+        const lastServerCheckpointKm = Number(progress?.lastServerCheckpointKm);
+        return {
+          distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
+          tripSessionId: typeof progress?.tripSessionId === 'string' ? progress.tripSessionId : null,
+          maxSpeedKmh: Number.isFinite(maxSpeedKmh) ? maxSpeedKmh : 0,
+          lastServerCheckpointKm: Number.isFinite(lastServerCheckpointKm)
+            ? lastServerCheckpointKm
+            : undefined,
+        };
+      } catch {
+        // Older binaries do not expose the lightweight method.
+      }
+    }
+    const stats = await this.getNativeStats();
+    return {
+      distanceKm: stats.distanceKm,
+      tripSessionId: stats.tripSessionId,
+      maxSpeedKmh: stats.maxSpeedKmh,
+      lastServerCheckpointKm: stats.lastServerCheckpointKm,
+    };
+  },
+
   addStateListener(listener: (payload: BackgroundDriveRuntimeState) => void): () => void {
     if (Platform.OS !== 'ios' || !WiroomLocationService) return () => {};
     const emitter = new NativeEventEmitter(WiroomLocationService as any);
@@ -366,7 +391,6 @@ export const BackgroundDriveController = {
       ? new NativeEventEmitter(WiroomLocationService as any)
       : DeviceEventEmitter;
     const sub = emitter.addListener(EVENT_LOCATION, (fix: BackgroundDriveFix) => {
-      void appendBufferedLocation(fix);
       listener(fix);
     });
     return () => sub.remove();

@@ -23,6 +23,9 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var latitude');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var longitude');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var heading');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var cameraMode');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"worldHeading"');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"screenHeading"');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('predictor.ingest');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func addToMap');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func removeFromMap');
@@ -45,7 +48,26 @@ describe('Vroom iOS map camera follower plugin', () => {
   it('embeds Android sources and retains the package placeholder for prebuild', () => {
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('__PACKAGE__');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('displayMetrics.density');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('mapCameraArrowPixelSize');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('worldHeading');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollower.kt']).toContain('screenHeading');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('VroomMapCameraFollowerManager');
+    expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerManager.kt']).toContain('@ReactProp(name = "cameraMode")');
     expect(ANDROID_SOURCE_FILES['VroomMapCameraFollowerPackage.kt']).toContain('ReactPackage');
+  });
+
+  it('keeps canonical and generated Android follower sources identical', () => {
+    const base = resolve('android/app/src/main/java/com/lexuuw/vroom/app/mapcamera');
+    for (const file of [
+      'VroomMapCameraFollower.kt',
+      'VroomMapCameraFollowerManager.kt',
+      'VroomMapCameraFollowerPackage.kt',
+    ]) {
+      const canonical = ANDROID_SOURCE_FILES[file]
+        .replace(/__PACKAGE__/g, 'com.lexuuw.vroom.app')
+        .replace(/\r\n/g, '\n');
+      const generated = readFileSync(resolve(base, file), 'utf8').replace(/\r\n/g, '\n');
+      expect(canonical).toBe(generated);
+    }
   });
 });

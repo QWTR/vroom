@@ -4,6 +4,7 @@ import Animated from 'react-native-reanimated';
 
 export type VroomMapCameraFollowerProps = ViewProps & {
   enabled: boolean;
+  cameraMode?: 'courseUp' | 'northUp' | 'free';
   markerVisible: boolean;
   positionValid?: number;
   latitude?: number;
@@ -20,6 +21,7 @@ export type VroomMapCameraFollowerProps = ViewProps & {
 
 type FollowerHostProps = {
   enabled: boolean;
+  cameraMode?: 'courseUp' | 'northUp' | 'free';
   markerVisible?: boolean;
   zoom: number;
   pitch: number;
@@ -40,6 +42,7 @@ const AnimatedNativeVroomMapCameraFollower = Animated.createAnimatedComponent(Na
 /** Invisible Mapbox feature. Native code applies the latest marker pose once per display frame. */
 export function VroomMapCameraFollower({
   enabled,
+  cameraMode = enabled ? 'courseUp' : 'free',
   markerVisible = true,
   zoom,
   pitch,
@@ -49,6 +52,7 @@ export function VroomMapCameraFollower({
   return (
     <AnimatedNativeVroomMapCameraFollower
       enabled={enabled}
+      cameraMode={cameraMode}
       markerVisible={markerVisible}
       zoom={zoom}
       pitch={pitch}

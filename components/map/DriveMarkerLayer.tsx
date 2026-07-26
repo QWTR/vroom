@@ -1,10 +1,11 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import type { DriveMarkerV3Values } from '../../hooks/useDriveMarkerV3';
 import { MAP_LAYER_IDS } from '../../lib/mapScreen/mapLayerContract';
 import {
   DRIVE_MARKER_IMAGE_KEY,
+  NATIVE_ARROW_IMAGE_KEY,
   DriveMarkerSpriteCapture,
 } from './DriveMarkerSpriteCapture';
 import {
@@ -13,6 +14,11 @@ import {
 } from './DriveMarkerSpriteVisual';
 
 const EMPTY_SHAPE = { type: 'FeatureCollection' as const, features: [] };
+/** Logical sprite is captured at PixelRatio× size; Mapbox scales by iconSize. */
+const SPRITE_PIXEL_SIZE = Math.round(DRIVE_MARKER_SPRITE_SIZE * Math.max(2, PixelRatio.get()));
+const SPRITE_ICON_SIZE = DRIVE_MARKER_SPRITE_SIZE / SPRITE_PIXEL_SIZE;
+/** Native VectorDrawable/CG arrow already carries the correct device scale metadata. */
+const NATIVE_ARROW_ICON_SIZE = 1;
 
 function spriteCacheKey(data: DriveMarkerSpriteData): string {
   return [
@@ -31,28 +37,32 @@ type Props = {
   imageUri?: string | null;
   avatarUrl?: string | null;
   cursorSkin?: { imageUrl?: string; borderColor?: string } | null;
+  /** Use native hi-DPI arrow registered by VroomMapCameraFollower (no ViewShot). */
+  useNativeArrow?: boolean;
 };
 
 type VisualLayersProps = {
-  textureUri: string | null;
+  iconImage: string | null;
+  iconSize: number;
   sourceID?: string;
 };
 
-function MarkerVisualLayers({ textureUri, sourceID }: VisualLayersProps) {
+function MarkerVisualLayers({ iconImage, iconSize, sourceID }: VisualLayersProps) {
   const sourceProps = sourceID ? { sourceID } : {};
   return (
     <>
-      {textureUri ? (
+      {iconImage ? (
         <Mapbox.SymbolLayer
           id={MAP_LAYER_IDS.vehicleSymbol}
           {...sourceProps}
           aboveLayerID={MAP_LAYER_IDS.warningCount}
           style={{
-            iconImage: DRIVE_MARKER_IMAGE_KEY,
-            iconSize: 1,
-            iconRotate: ['get', 'heading'],
+            iconImage,
+            iconSize,
+            // Native writes screen-space heading (Course Up → 0).
+            iconRotate: ['get', 'screenHeading'],
             iconPitchAlignment: 'viewport',
-            iconRotationAlignment: 'map',
+            iconRotationAlignment: 'viewport',
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconAnchor: 'center',
@@ -83,12 +93,16 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   imageUri,
   avatarUrl,
   cursorSkin,
+  useNativeArrow = false,
 }: Props) {
+  const hasCustomVisual = Boolean(avatarUrl || cursorSkin?.imageUrl);
+  const preferNativeArrow = useNativeArrow && !hasCustomVisual;
+
   const spriteData = useMemo<DriveMarkerSpriteData>(() => ({
     avatarUrl,
-    imageUri,
+    imageUri: preferNativeArrow ? null : imageUri,
     cursorSkin,
-  }), [avatarUrl, imageUri, cursorSkin]);
+  }), [avatarUrl, imageUri, cursorSkin, preferNativeArrow]);
 
   const cacheKey = spriteCacheKey(spriteData);
   const [capturedUri, setCapturedUri] = useState<string | null>(() => (
@@ -98,23 +112,29 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
     lastSpriteCache = { key: cacheKey, uri };
     setCapturedUri(uri);
   }, [cacheKey]);
-  const textureUri = capturedUri ?? imageUri ?? null;
+  const textureUri = preferNativeArrow ? null : (capturedUri ?? imageUri ?? null);
+  const iconImage = preferNativeArrow
+    ? NATIVE_ARROW_IMAGE_KEY
+    : (textureUri ? DRIVE_MARKER_IMAGE_KEY : null);
+  const iconSize = preferNativeArrow ? NATIVE_ARROW_ICON_SIZE : SPRITE_ICON_SIZE;
 
   if (!enabled) return null;
 
   return (
     <>
-      <View
-        pointerEvents="none"
-        style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden' }}
-      >
-        <DriveMarkerSpriteCapture data={spriteData} onCapture={handleCapture} />
-      </View>
+      {!preferNativeArrow ? (
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden' }}
+        >
+          <DriveMarkerSpriteCapture data={spriteData} onCapture={handleCapture} />
+        </View>
+      ) : null}
       {textureUri ? (
         <Mapbox.Images images={{ [DRIVE_MARKER_IMAGE_KEY]: { uri: textureUri } }} />
       ) : null}
       <Mapbox.ShapeSource id="tripDriveMarkerSource" shape={EMPTY_SHAPE}>
-        <MarkerVisualLayers textureUri={textureUri} />
+        <MarkerVisualLayers iconImage={iconImage} iconSize={iconSize} />
       </Mapbox.ShapeSource>
     </>
   );

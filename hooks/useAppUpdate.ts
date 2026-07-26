@@ -34,6 +34,7 @@ export function getUpdateDiagnostics(): UpdateDiagnostics {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const FETCH_TIMEOUT_MS = 90_000;
+const CHECK_TIMEOUT_MS = 5_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -70,7 +71,11 @@ export function useAppUpdate() {
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        const result = await Updates.checkForUpdateAsync();
+        const result = await withTimeout(
+          Updates.checkForUpdateAsync(),
+          CHECK_TIMEOUT_MS,
+          'Sprawdzanie aktualizacji',
+        );
         const available = !!result.isAvailable;
         setUpdateAvailable(available);
         setError(null);
@@ -78,7 +83,7 @@ export function useAppUpdate() {
       } catch (e: unknown) {
         lastError = e instanceof Error ? e.message : String(e);
         console.warn(`[useAppUpdate] checkForUpdate attempt ${attempt}/${retries}:`, lastError);
-        if (attempt < retries) await sleep(2000);
+        if (attempt < retries) await sleep(800);
       }
     }
 

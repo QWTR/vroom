@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as ImageManipulator from 'expo-image-manipulator';
 import {
@@ -9,8 +9,11 @@ import {
 } from './DriveMarkerSpriteVisual';
 
 const READY_CAPTURE_DELAY_MS = 80;
+const CAPTURE_PIXEL_SIZE = Math.round(DRIVE_MARKER_SPRITE_SIZE * Math.max(2, PixelRatio.get()));
 
 export const DRIVE_MARKER_IMAGE_KEY = 'drive-marker-avatar';
+/** Registered natively by VroomMapCameraFollower from VectorDrawable / CG arrow. */
+export const NATIVE_ARROW_IMAGE_KEY = 'vroom-location-arrow';
 
 type Props = {
   data: DriveMarkerSpriteData;
@@ -18,10 +21,9 @@ type Props = {
 };
 
 async function normalizeSpriteUri(rawUri: string): Promise<string> {
-  const size = DRIVE_MARKER_SPRITE_SIZE;
   const out = await ImageManipulator.manipulateAsync(
     rawUri,
-    [{ resize: { width: size, height: size } }],
+    [{ resize: { width: CAPTURE_PIXEL_SIZE, height: CAPTURE_PIXEL_SIZE } }],
     { format: ImageManipulator.SaveFormat.PNG, compress: 1.0 },
   );
   return out.uri;
@@ -117,8 +119,8 @@ export const DriveMarkerSpriteCapture = memo(function DriveMarkerSpriteCapture({
         options={{
           format: 'png',
           quality: 1,
-          width: size,
-          height: size,
+          width: CAPTURE_PIXEL_SIZE,
+          height: CAPTURE_PIXEL_SIZE,
         }}
         style={{ backgroundColor: 'transparent' }}
       >

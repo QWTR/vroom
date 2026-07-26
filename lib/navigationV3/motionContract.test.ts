@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { predictMotionAtAge, smoothstep01, TRIP_MOTION } from './motionContract';
+import {
+  interpolateHeadingShortest,
+  interpolateLinearSegment,
+  linearSegmentProgress,
+  markerScreenHeading,
+  predictMotionAtAge,
+  shortestHeadingDelta,
+  smoothstep01,
+  TRIP_MOTION,
+} from './motionContract';
 
 describe('shared trip motion contract', () => {
   it('uses adaptive correction and prediction windows', () => {
@@ -13,7 +22,33 @@ describe('shared trip motion contract', () => {
     expect(TRIP_MOTION.roadPredictionMaxM).toBe(80);
     expect(TRIP_MOTION.freePredictionMaxM).toBe(35);
     expect(TRIP_MOTION.predictionFadeMs).toBe(700);
-    expect(TRIP_MOTION.headingMaxDps).toBe(180);
+    expect(TRIP_MOTION.headingMaxDps).toBe(360);
+    expect(TRIP_MOTION.onRoadHeadingMaxDps).toBe(720);
+  });
+
+  it.each([200, 500, 1_000, 2_000])('finishes a %d ms segment exactly on target', (durationMs) => {
+    expect(linearSegmentProgress(0, durationMs)).toBe(0);
+    expect(linearSegmentProgress(durationMs / 2, durationMs)).toBe(0.5);
+    expect(linearSegmentProgress(durationMs, durationMs)).toBe(1);
+    expect(interpolateLinearSegment(10, 20, linearSegmentProgress(durationMs, durationMs))).toBe(20);
+  });
+
+  it('retargets continuously from the currently rendered value', () => {
+    const rendered = interpolateLinearSegment(0, 10, 0.4);
+    expect(interpolateLinearSegment(rendered, 20, 0)).toBe(rendered);
+  });
+
+  it('always crosses north using the shortest heading path', () => {
+    expect(shortestHeadingDelta(359, 1)).toBe(2);
+    expect(shortestHeadingDelta(1, 359)).toBe(-2);
+    expect(interpolateHeadingShortest(359, 1, 0.5)).toBe(0);
+    expect(interpolateHeadingShortest(1, 359, 0.5)).toBe(0);
+  });
+
+  it('uses distinct marker rotation rules for Course Up, North Up and free camera', () => {
+    expect(markerScreenHeading(123, 123, 'courseUp', true)).toBe(0);
+    expect(markerScreenHeading(123, 0, 'northUp', true)).toBe(123);
+    expect(markerScreenHeading(10, 350, 'free', false)).toBe(20);
   });
 
   it('clamps smoothstep and keeps its midpoint stable', () => {

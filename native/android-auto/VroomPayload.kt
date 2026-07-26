@@ -30,6 +30,14 @@ data class AutoRoutePoint(
     val lng: Double
 )
 
+data class AutoUpcomingStep(
+    val instruction: String,
+    val maneuver: String,
+    val maneuverModifier: String,
+    val maneuverExit: Int?,
+    val distanceMeters: Int?
+)
+
 data class AutoPoiMarker(
     val id: String,
     val lat: Double,
@@ -115,6 +123,13 @@ data class VroomPayload(
     val instruction: String?,
     val maneuver: String?,
     val maneuverModifier: String?,
+    val maneuverExit: Int?,
+    val followingInstruction: String?,
+    val followingManeuver: String?,
+    val followingManeuverModifier: String?,
+    val followingManeuverExit: Int?,
+    val followingTurnDistanceMeters: Int?,
+    val upcomingSteps: List<AutoUpcomingStep>,
     val remainingDistanceMeters: Int?,
     val remainingDurationSec: Int?,
     val turnDistanceMeters: Int?,

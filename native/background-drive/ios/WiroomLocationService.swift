@@ -16,9 +16,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private let diagnosticsKey = "wiroom_background_drive_diagnostics"
   private let keychainService = "com.lexuuw.vroom.background-drive"
   private let keychainAccount = "checkpoint-auth-token"
-  private let maxBufferedFixes = 240
-  private let maxRoutePoints = 1500
-  private let maxSpeedSamples = 400
+  private let maxBufferedFixes = 120
+  private let maxRoutePoints = 800
+  private let maxSpeedSamples = 240
+  private let routePointSpacingKm = 0.008
   private let maxAccuracyM = 120.0
   private let minSegmentKm = 0.002
   private let maxSegmentKm = 12.0
@@ -27,12 +28,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private let checkpointKm = 0.2
   private let checkpointForceMinKm = 0.05
   private let checkpointForceMs = 30_000.0
-  private let idleStopMs = 10 * 60_000.0
   private var mode = "freeDrive"
   private var tripSessionId = ""
   private var hasListenersFlag = false
   private var checkpointInFlight = false
-  private var idleSinceMs = 0.0
   private var retryAttempt = 0
   private var retryWorkItem: DispatchWorkItem?
   private var lastFixTimestampMs = 0.0
@@ -145,6 +144,18 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     resolve(stats)
   }
 
+  @objc(getNativeProgress:rejecter:)
+  func getNativeProgress(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    let stats = currentStats()
+    maybeFlushNativeCheckpoint(stats: stats, force: false)
+    resolve([
+      "distanceKm": number(stats["distanceKm"]),
+      "tripSessionId": stats["tripSessionId"] as? String ?? tripSessionId,
+      "maxSpeedKmh": number(stats["maxSpeedKmh"]),
+      "lastServerCheckpointKm": number(stats["lastServerCheckpointKm"]),
+    ])
+  }
+
   @objc(consumeNativeStats:rejecter:)
   func consumeNativeStats(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     let stats = currentStats()
@@ -166,14 +177,6 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
       let stateFix = isReliable(location) ? fix : currentState()["lastFix"] as? [String: Any]
       persistState(active: true, endedBy: nil, lastFix: stateFix)
       accumulateNativeStats(location)
-      if observeIdle(location) {
-        maybeFlushNativeCheckpoint(stats: currentStats(), force: true)
-        manager.stopUpdatingLocation()
-        persistState(active: false, endedBy: "idle", lastFix: stateFix)
-        appendDiagnostic(state: "idle", reason: "idle", errorCode: nil, recoverable: true)
-        emitRuntimeState(state: "idle", reason: "idle", errorCode: nil, recoverable: true)
-        continue
-      }
       if hasListenersFlag {
         sendEvent(withName: "VROOM_BG_LOCATION", body: fix)
       }
@@ -299,9 +302,27 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
           if route.isEmpty {
             route.append(["latitude": previousLat, "longitude": previousLng])
           }
-          route.append(["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude])
+          let lastRoutePoint = route.last
+          let lastRouteLat = number(lastRoutePoint?["latitude"])
+          let lastRouteLng = number(lastRoutePoint?["longitude"])
+          let routeMovedKm = lastRouteLat.isFinite && lastRouteLng.isFinite
+            ? haversineKm(lastRouteLat, lastRouteLng, location.coordinate.latitude, location.coordinate.longitude)
+            : Double.infinity
+          if routeMovedKm >= routePointSpacingKm {
+            route.append(["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude])
+          }
           if route.count > maxRoutePoints {
-            route = Array(route.suffix(maxRoutePoints))
+            var compacted = route.enumerated().compactMap { index, point in
+              index.isMultiple(of: 2) ? point : nil
+            }
+            if let sourceLast = route.last {
+              let compactedLast = compacted.last
+              if number(compactedLast?["latitude"]) != number(sourceLast["latitude"])
+                || number(compactedLast?["longitude"]) != number(sourceLast["longitude"]) {
+                compacted.append(sourceLast)
+              }
+            }
+            route = compacted
           }
           stats["routePoints"] = route
         } else {
@@ -319,7 +340,9 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
       var samples = stats["speedSamples"] as? [Double] ?? []
       samples.append(speedKmh)
       if samples.count > maxSpeedSamples {
-        samples = Array(samples.suffix(maxSpeedSamples))
+        samples = samples.enumerated().compactMap { index, value in
+          index.isMultiple(of: 2) ? value : nil
+        }
       }
       stats["speedSamples"] = samples
       stats["maxSpeedKmh"] = max(number(stats["maxSpeedKmh"]), speedKmh)
@@ -542,21 +565,6 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   private func isReliable(_ location: CLLocation) -> Bool {
     return location.horizontalAccuracy < 0 || location.horizontalAccuracy <= maxAccuracyM
-  }
-
-  private func observeIdle(_ location: CLLocation) -> Bool {
-    let reliable = isReliable(location)
-    let stopped = reliable && location.speed >= 0 && location.speed * 3.6 < 3
-    if !stopped {
-      idleSinceMs = 0
-      return false
-    }
-    let nowMs = location.timestamp.timeIntervalSince1970 * 1000
-    if idleSinceMs == 0 {
-      idleSinceMs = nowMs
-      return false
-    }
-    return nowMs - idleSinceMs >= idleStopMs
   }
 
   private func number(_ value: Any?) -> Double {

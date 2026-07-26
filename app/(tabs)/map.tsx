@@ -36,7 +36,6 @@ import { track } from '../../lib/analytics/client';
 import { API_URL } from '../../constants/mapConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
-import { notifyBackgroundPremiumRequired } from '../../lib/backgroundPremiumGate';
 import { useChat } from '../../hooks/useChats';
 import { DriveMarkerLayer } from '../../components/map/DriveMarkerLayer';
 import {
@@ -1721,6 +1720,7 @@ function MapScreenInner() {
   const [arrowMarkerImage,    setArrowMarkerImage]    = useState<string | null>(null);
   const [myAvatarUrl,         setMyAvatarUrl]         = useState<string | null>(null);
   const [myUsername,          setMyUsername]          = useState('');
+  const [preferredFuel,       setPreferredFuel]       = useState<string | null>(null);
   const [pinImages,           setPinImages]           = useState<Record<string, string>>({});
   const [routeEndpointImages, setRouteEndpointImages] = useState<{ start?: string; end?: string }>({});
 
@@ -7601,7 +7601,7 @@ publishSpeed(0, {
             || browseMovedRawM >= 24
             || browseMovedFilteredM >= 20;
           if (likelyMotorMotion && appStateRef.current === 'active') {
-            const segKm = feedPosition(lat, lng, sanitizedSpeedMs ?? undefined);
+            const segKm = feedPosition(lat, lng, sanitizedSpeedMs ?? undefined, Number.isFinite(acc) ? acc : null);
             if (segKm > 0) {
               recordDrivingTracePoint(lat, lng, { speedKmh: kmh }).catch(() => {});
               maybeClearDrivingManualDisable(segKm, now);
@@ -8301,7 +8301,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             );
           const distLat = useRawForDistance ? rawLat : appliedSnap.latitude;
           const distLng = useRawForDistance ? rawLng : appliedSnap.longitude;
-          const segKm = feedPosition(distLat, distLng, sanitizedSpeedMs ?? undefined);
+          const segKm = feedPosition(distLat, distLng, sanitizedSpeedMs ?? undefined, Number.isFinite(acc) ? acc : null);
           if (segKm > 0) {
             const traceLat = appliedSnap.latitude;
             const traceLng = appliedSnap.longitude;
@@ -8961,7 +8961,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           lastNavLocRef.current = { latitude: navSnapped.latitude, longitude: navSnapped.longitude };
           lastSetLocRef.current = { lat: navSnapped.latitude, lng: navSnapped.longitude };
           if (appStateRef.current === 'active') {
-            feedPosition(rawLat, rawLng, speedMs);
+            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null);
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -8976,7 +8976,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           lastSetLocRef.current = { lat, lng };
           lastNavLocRef.current = { latitude: lat, longitude: lng };
           if (appStateRef.current === 'active') {
-            feedPosition(rawLat, rawLng, speedMs);
+            feedPosition(rawLat, rawLng, speedMs, Number.isFinite(acc) ? acc : null);
           }
           lastAcceptedFixWallClockRef.current = Date.now();
           setGpsAcquiring(false);
@@ -10483,9 +10483,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             reason: 'app_background',
           });
         }
-        if (!isPremiumRef.current && tripActive) {
-          void notifyBackgroundPremiumRequired();
-        }
+        // FGS / GPS w tle tylko dla Premium — darmowi nie dostają pusha przy minimize.
         if (!bgTrackingEnabled) {
           // Bez śledzenia w tle: zatrzymaj GPS po zminimalizowaniu (także podczas jazdy).
           stopGPSRef.current();
@@ -10610,6 +10608,20 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       if (data.username) setMyUsername(String(data.username));
       if (Number.isFinite(Number(data.totalDistance))) {
         profileTotalDistanceKmRef.current = Math.max(0, Number(data.totalDistance));
+      }
+
+      const uid = data.userId ?? data.id;
+      if (uid && token) {
+        const carsRes = await fetch(`${API_URL}/api/profile/${uid}/cars`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (carsRes.ok) {
+          const cars = await carsRes.json();
+          if (Array.isArray(cars)) {
+            const main = cars.find((c: any) => c?.isMain) ?? cars[0];
+            setPreferredFuel(main?.preferredFuel ?? null);
+          }
+        }
       }
     } catch {
       /* ignore */
@@ -12720,6 +12732,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     warnings: effectiveWarnings,
     speedCameras: effectiveCameras,
     fuelStations: fuelStations,
+    preferredFuel,
     partnerPois: partnerPois,
     geoDrops: gamificationDrops,
     activeDropPrompt: availableDropPrompt,
@@ -13156,6 +13169,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             <FuelStationMarker
               key={`fuel_${station.id}`}
               station={station}
+              preferredFuel={preferredFuel}
               compact={currentZoom < 15.2}
               onPress={() => { setSelectedFuelStation(station); setFuelStationModalVisible(true); }}
             />
@@ -13246,7 +13260,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           <DriveMarkerLayer
             enabled={isTripActive && (showSelf2DMarker || showTripArrowUnderlay)}
             marker={driveMarker}
-            imageUri={selfMarkerUsesArrow || showTripArrowUnderlay ? arrowMarkerImage : carMarkerImage}
+            useNativeArrow={selfMarkerUsesArrow || showTripArrowUnderlay}
+            imageUri={selfMarkerUsesArrow || showTripArrowUnderlay ? null : carMarkerImage}
             avatarUrl={selfMarkerUsesArrow || showTripArrowUnderlay ? null : myAvatarUrl}
             cursorSkin={cursorSkinOverlay}
           />

@@ -2,7 +2,7 @@
   "expo": {
     "name": "vroom",
     "slug": "vroom",
-    "version": "1.0.25",
+    "version": "1.0.26",
     "orientation": "portrait",
     "icon": "./assets/images/Frame1933.png",
     "scheme": "vroom",
@@ -14,7 +14,7 @@
       "checkAutomatically": "NEVER",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.25",
+    "runtimeVersion": "1.0.26",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lexuuw.vroom.app",
@@ -24,6 +24,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "VROOM używa lokalizacji do mapy, nawigacji i ostrzeżeń drogowych.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VROOM używa lokalizacji także w tle do liczenia kilometrów, aktywnej nawigacji i udostępniania pozycji live po włączeniu tej funkcji.",
+        "NSLocationAlwaysUsageDescription": "VROOM używa lokalizacji w tle podczas aktywnej nawigacji i trybu jazdy, aby niezawodnie naliczać kilometry.",
         "NSCameraUsageDescription": "VROOM używa aparatu do skanowania kodów QR biletów na wydarzeniach.",
         "NSPhotoLibraryAddUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
         "NSPhotoLibraryUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",

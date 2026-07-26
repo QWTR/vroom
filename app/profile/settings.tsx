@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
-  Dimensions, KeyboardAvoidingView, Keyboard, Platform,
+  Dimensions, KeyboardAvoidingView, Keyboard, Platform, Linking,
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,7 +47,9 @@ import { BackgroundDriveController } from '../../lib/backgroundDriveController';
 import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
 import {
   hasAcceptedBackgroundLocationDisclosure,
+  isBackgroundLocationEnablePending,
   requestBackgroundLocationPermissionAfterDisclosure,
+  setBackgroundLocationEnablePending,
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
 import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
@@ -451,10 +453,27 @@ export default function SettingsScreen() {
     useCallback(() => {
       void refreshPremiumAccess();
       void fetchProfile();
-      void Location.getBackgroundPermissionsAsync()
-        .then((permission) => setBackgroundPermissionBlocked(permission.status !== 'granted'))
-        .catch(() => {});
-    }, [refreshPremiumAccess, fetchProfile]),
+      void (async () => {
+        const permission = await Location.getBackgroundPermissionsAsync();
+        setBackgroundPermissionBlocked(permission.status !== 'granted');
+        if (
+          permission.status === 'granted'
+          && effectivePremium
+          && await isBackgroundLocationEnablePending()
+        ) {
+          const saved = await updateSetting('backgroundTracking', true);
+          if (saved) {
+            await mirrorBackgroundTrackingSetting(true);
+            await setBackgroundLocationEnablePending(false);
+            setBackgroundPermissionBlocked(false);
+            if (Platform.OS === 'android') {
+              await startVroomBgForegroundNotification();
+            }
+            Toast.show({ type: 'success', text1: 'Praca w tle włączona' });
+          }
+        }
+      })().catch(() => {});
+    }, [refreshPremiumAccess, fetchProfile, effectivePremium, updateSetting]),
   );
 
   useEffect(() => BackgroundDriveController.addStateListener((event) => {
@@ -465,6 +484,7 @@ export default function SettingsScreen() {
   // ── Helpers ────────────────────────────────────────────
   const toggleBgTracking = async (val: boolean) => {
     if (!val) {
+      await setBackgroundLocationEnablePending(false);
       await updateSetting('backgroundTracking', false);
       await mirrorBackgroundTrackingSetting(false);
       await stopVroomBgForegroundNotification();
@@ -495,6 +515,8 @@ export default function SettingsScreen() {
     if (!granted) {
       const bg = await Location.getBackgroundPermissionsAsync();
       if (bg.status !== 'granted') {
+        await setBackgroundLocationEnablePending(true);
+        void Linking.openSettings().catch(() => {});
         await updateSetting('backgroundTracking', false);
         await mirrorBackgroundTrackingSetting(false);
         Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację „Zawsze” w ustawieniach telefonu' });
@@ -512,6 +534,7 @@ export default function SettingsScreen() {
       });
       return;
     }
+    await setBackgroundLocationEnablePending(false);
     await mirrorBackgroundTrackingSetting(true);
     if (Platform.OS === 'android') {
       await startVroomBgForegroundNotification();
@@ -525,6 +548,8 @@ export default function SettingsScreen() {
     if (!granted) {
       const bg = await Location.getBackgroundPermissionsAsync();
       if (bg.status !== 'granted') {
+        await setBackgroundLocationEnablePending(true);
+        void Linking.openSettings().catch(() => {});
         await updateSetting('backgroundTracking', false);
         await mirrorBackgroundTrackingSetting(false);
         Toast.show({ type: 'error', text1: 'Brak zgody systemu', text2: 'Włącz lokalizację „Zawsze” w ustawieniach telefonu' });
@@ -541,6 +566,7 @@ export default function SettingsScreen() {
       });
       return;
     }
+    await setBackgroundLocationEnablePending(false);
     await mirrorBackgroundTrackingSetting(true);
     if (Platform.OS === 'android') {
       await startVroomBgForegroundNotification();
@@ -579,6 +605,7 @@ export default function SettingsScreen() {
   const handleLogout = async () => {
     setLogoutModal(false);
     await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+    await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
     await syncRevenueCatLoginFromStorage();
     Toast.show({ type: 'success', text1: '👋 DO ZOBACZENIA!' });
     router.replace('/login');
@@ -602,6 +629,7 @@ export default function SettingsScreen() {
         throw new Error(apiError || fallback);
       }
       await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
+      await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
       await syncRevenueCatLoginFromStorage();
       setDeleteModal(false);
       Toast.show({ type: 'success', text1: '🗑️ KONTO USUNIĘTE' });

@@ -329,6 +329,7 @@ export const MapModalsHost = memo(function MapModalsHost(props: MapModalsHostPro
         onNavigate={onNavigateToFuel}
         onPricesUpdated={onFuelPricesUpdated}
         updatePrices={updateFuelPrices}
+        userLocation={userLocation}
       />
       <PartnerPoiModal
         visible={partnerPoiModalVisible}

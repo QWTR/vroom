@@ -7,5 +7,8 @@ import com.facebook.react.uimanager.ViewManager
 
 class VroomMapCameraFollowerPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> = emptyList()
-  override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = listOf(VroomMapCameraFollowerManager())
+
+  override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = listOf(
+    VroomMapCameraFollowerManager(),
+  )
 }

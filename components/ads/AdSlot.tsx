@@ -6,7 +6,7 @@ import { SponsoredBanner } from './SponsoredBanner';
 import { SponsoredNativePost } from './SponsoredNativePost';
 import { useSponsoredAd, type AdPlacement } from '../../hooks/useSponsoredAd';
 import { useAdRotation } from '../../hooks/useAdRotation';
-import { usePremium } from '../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 
 const BANNER_IDS: Partial<Record<AdPlacement, string>> = {
   map_banner: 'ca-app-pub-1660420496578702/3363343740',
@@ -33,7 +33,7 @@ interface Props {
 }
 
 export function AdSlot({ placement, variant, enabled = true }: Props) {
-  const { isPremium, isLoading: premiumLoading } = usePremium();
+  const { isPremium, isLoading: premiumLoading } = useEffectivePremium();
   const { width: screenWidth } = useWindowDimensions();
   const adsEnabled = enabled && !premiumLoading && !isPremium;
 

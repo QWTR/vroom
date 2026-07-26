@@ -9,6 +9,7 @@ import {
   Image,
   Dimensions,
   AppState,
+  Linking,
   type AppStateStatus,
 } from 'react-native';
 import * as SplashScreen    from 'expo-splash-screen';
@@ -34,6 +35,7 @@ import { useAppUpdate } from '../hooks/useAppUpdate';
 import {
   hasAcceptedBackgroundLocationDisclosure,
   requestBackgroundLocationPermissionAfterDisclosure,
+  setBackgroundLocationEnablePending,
 } from '../lib/backgroundLocationConsent';
 import { initMapbox } from '../lib/mapboxInit';
 import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
@@ -50,6 +52,7 @@ import {
   IOS_DRIVE_STOP_ACTION,
 } from '../lib/backgroundDriveController';
 import { stopVroomBgForegroundNotification } from '../lib/vroomBgForegroundService';
+import { mirrorBackgroundTrackingSetting } from '../hooks/useBackgroundTracking';
 import { useAppAnimations } from '../hooks/useAppAnimations';
 import { preloadAppAnimations } from '../lib/appAnimationPreload';
 import type { AppAnimationSlot } from '../constants/appAnimations';
@@ -57,6 +60,11 @@ import { StaticHudGrid } from '../components/motion/vroomHudPrimitives';
 import { AppTutorialOverlay } from '../components/onboarding';
 import { shouldAutoShowTutorial } from '../hooks/useAppTutorial';
 import { AnalyticsBootstrap } from '../components/analytics/AnalyticsBootstrap';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import {
+  installAuthSessionExpiryInterceptor,
+  subscribeToSessionExpired,
+} from '../lib/authSessionExpiry';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -76,6 +84,8 @@ const SPLASH_LOGO_MS = 320;
 const SPLASH_CARD_DELAY_MS = 140;
 const SPLASH_CARD_MS = 280;
 const SPLASH_FADE_MS = 250;
+/** Hard deadline — nie wisimy na OTA / animacjach / maintenance. */
+const BOOT_HARD_DEADLINE_MS = 12_000;
 
 const SPLASH_BOOT_ANIMATION_SLOTS: AppAnimationSlot[] = ['app_loading_logo'];
 
@@ -154,6 +164,8 @@ async function refreshUserData() {
 
 // ─── ROOT ─────────────────────────────────────────────────
 export default function RootLayout() {
+  installAuthSessionExpiryInterceptor();
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
@@ -162,7 +174,9 @@ export default function RootLayout() {
           <PremiumProvider>
             <StartupGatesProvider>
               <AppTutorialProvider>
-                <RootLayoutInner />
+                <ErrorBoundary>
+                  <RootLayoutInner />
+                </ErrorBoundary>
               </AppTutorialProvider>
             </StartupGatesProvider>
           </PremiumProvider>
@@ -249,6 +263,26 @@ function RootLayoutInner() {
   const lastForegroundUpdateCheckRef = useRef(0);
   const [splashAssetsReady, setSplashAssetsReady] = useState(false);
 
+  useEffect(() => subscribeToSessionExpired(() => {
+    if (pathname === '/login') return;
+
+    setUgcTermsVisible(false);
+    setBgDisclosureVisible(false);
+    void BackgroundDriveController.stop('app');
+    router.replace('/login');
+
+    // Daj ekranowi, który dostał 401, zakończyć własną obsługę błędu,
+    // a następnie zastąp jego ogólny toast właściwym komunikatem o sesji.
+    setTimeout(() => {
+      Toast.hide();
+      (Toast as any).show({
+        type: 'error',
+        text1: 'SESJA WYGASŁA',
+        text2: 'Zaloguj się ponownie.',
+      });
+    }, 0);
+  }), [pathname, router]);
+
   const [loaded, error] = useFonts({
     Orbitron:     require('../assets/fonts/Orbitron/Orbitron-VariableFont_wght.ttf'),
     OrbitronBold: require('../assets/fonts/Orbitron/static/Orbitron-Bold.ttf'),
@@ -311,6 +345,16 @@ function RootLayoutInner() {
 
     return () => { cancelled = true; };
   }, [splashBootAnimationAssets, splashBootAnimationsLoading]);
+
+  /** Hard boot deadline — odblokuj UI nawet gdy OTA/animacje/RC wiszą. */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSplashAssetsReady(true);
+      setPhase((p) => (p === 'done' ? p : 'done'));
+      setGatesSettled(true);
+    }, BOOT_HARD_DEADLINE_MS);
+    return () => clearTimeout(t);
+  }, [setGatesSettled]);
 
   useEffect(() => {
     if (phase !== 'done') return;
@@ -579,7 +623,7 @@ function RootLayoutInner() {
 
     let cancelled = false;
     (async () => {
-      const available = await checkForUpdate({ retries: 3 });
+      const available = await checkForUpdate({ retries: 2 });
       if (cancelled) return;
       if (available) {
         setUpdatePromptVisible(true);
@@ -681,7 +725,9 @@ function RootLayoutInner() {
   const closeBgDisclosure = async () => {
     bgDisclosureDismissedRef.current = true;
     setBgDisclosureVisible(false);
+    await setBackgroundLocationEnablePending(false);
     await updateSetting('backgroundTracking', false);
+    await mirrorBackgroundTrackingSetting(false);
   };
 
   const acceptBgDisclosure = async () => {
@@ -690,12 +736,20 @@ function RootLayoutInner() {
     setTimeout(async () => {
       const granted = await requestBackgroundLocationPermissionAfterDisclosure();
       if (!granted) {
+        await setBackgroundLocationEnablePending(true);
+        await updateSetting('backgroundTracking', false);
+        await mirrorBackgroundTrackingSetting(false);
+        void Linking.openSettings().catch(() => {});
         (Toast as any).show({
           type: 'error',
           text1: 'Brak zgody systemu',
           text2: 'Włącz lokalizację w tle w ustawieniach telefonu',
         });
+        return;
       }
+      await setBackgroundLocationEnablePending(false);
+      await updateSetting('backgroundTracking', true);
+      await mirrorBackgroundTrackingSetting(true);
     }, 350);
   };
 

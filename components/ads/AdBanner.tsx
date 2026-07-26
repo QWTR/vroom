@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useTheme } from '../../contexts/ThemeContext';
-import { usePremium } from '../../contexts/PremiumContext';
+import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { bootstrapAdsWithConsent, getAdMobRequestOptions } from '../../lib/adsConsentBootstrap';
 
 /** BanerVroom — domyślna jednostka (strona główna). */
@@ -15,7 +15,7 @@ interface AdBannerProps {
 
 export function AdBanner({ BANNERID = BANNER_ID_VROOM, onFailedToLoad }: AdBannerProps) {
   const { theme } = useTheme();
-  const { isPremium, isLoading: premiumLoading } = usePremium();
+  const { isPremium, isLoading: premiumLoading } = useEffectivePremium();
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [retryTick, setRetryTick] = useState(0);

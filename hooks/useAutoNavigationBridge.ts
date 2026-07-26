@@ -8,6 +8,7 @@ import {
   compactRoutePolyline,
   toCarSafeNavigationDto,
 } from '../core/navigationCore';
+import { resolveStationDisplayPrice } from '../lib/fuelDisplayPrice';
 
 const { UsersModule, VroomBridgeModule } = NativeModules as {
   UsersModule?: {
@@ -130,8 +131,14 @@ interface UseAutoNavigationBridgeParams {
     lat: number;
     lng: number;
     distance?: number;
-    prices?: { pb95?: number | null }[];
+    prices?: {
+      pb95?: number | null;
+      pb98?: number | null;
+      diesel?: number | null;
+      lpg?: number | null;
+    }[];
   }[];
+  preferredFuel?: string | null;
   partnerPois?: {
     id: string | number;
     name?: string;
@@ -215,6 +222,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     warnings,
     speedCameras,
     fuelStations,
+    preferredFuel,
     partnerPois,
     geoDrops,
     activeDropPrompt,
@@ -370,22 +378,25 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
         Number.isFinite(station.lng)
       ))
       .slice(0, 250)
-      .map((station) => ({
-        id: String(station.id),
-        label: station.brand ?? station.name ?? 'Paliwo',
-        type: 'fuel',
-        lat: station.lat,
-        lng: station.lng,
-        logoUrl: station.brandLogoUrl ?? '',
-        spriteUri: station.spriteUri ?? '',
-        distanceLabel: station.distance != null
-          ? `${(station.distance / 1000).toFixed(1)} km`
-          : '',
-        value: station.prices?.[0]?.pb95 != null
-          ? station.prices[0].pb95.toFixed(2)
-          : '',
-      }))
-  ), [fuelStations]);
+      .map((station) => {
+        const display = resolveStationDisplayPrice(station.prices, preferredFuel);
+        return {
+          id: String(station.id),
+          label: station.brand ?? station.name ?? 'Paliwo',
+          type: 'fuel',
+          lat: station.lat,
+          lng: station.lng,
+          logoUrl: station.brandLogoUrl ?? '',
+          spriteUri: station.spriteUri ?? '',
+          distanceLabel: station.distance != null
+            ? `${(station.distance / 1000).toFixed(1)} km`
+            : '',
+          value: display
+            ? `${display.label} ${display.value.toFixed(2)}`
+            : '',
+        };
+      })
+  ), [fuelStations, preferredFuel]);
 
   const autoPartnerPois = useMemo(() => (
     (partnerPois ?? [])

@@ -1,8 +1,10 @@
 const { createRunOncePlugin, withInfoPlist, withXcodeProject } = require('@expo/config-plugins');
 const { createBuildSourceFile } = require('@expo/config-plugins/build/ios/XcodeProjectFile');
 const { getHackyProjectName } = require('@expo/config-plugins/build/ios/utils/Xcodeproj');
+const fs = require('fs');
+const path = require('path');
 
-const SWIFT_MODULE = `import CoreLocation
+const LEGACY_SWIFT_MODULE = `import CoreLocation
 import Foundation
 import React
 import Security
@@ -595,7 +597,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 }
 `;
 
-const OBJC_BRIDGE = `#import <React/RCTBridgeModule.h>
+const LEGACY_OBJC_BRIDGE = `#import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 
 @interface RCT_EXTERN_MODULE(WiroomLocationService, RCTEventEmitter)
@@ -608,6 +610,17 @@ RCT_EXTERN_METHOD(getNativeStats:(RCTPromiseResolveBlock)resolve rejecter:(RCTPr
 RCT_EXTERN_METHOD(consumeNativeStats:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 @end
 `;
+
+// Canonical native sources are read directly so Expo prebuild and the checked-in
+// iOS implementation can never drift apart.
+const SWIFT_MODULE = fs.readFileSync(
+  path.join(__dirname, '..', 'native', 'background-drive', 'ios', 'WiroomLocationService.swift'),
+  'utf8',
+);
+const OBJC_BRIDGE = fs.readFileSync(
+  path.join(__dirname, '..', 'native', 'background-drive', 'ios', 'WiroomLocationServiceBridge.m'),
+  'utf8',
+);
 
 const resolveIosProjectName = (cfg) =>
   cfg.modRequest.projectName
@@ -625,6 +638,9 @@ const withWiroomBackgroundDrive = (config) => {
     cfg.modResults.NSLocationAlwaysAndWhenInUseUsageDescription =
       cfg.modResults.NSLocationAlwaysAndWhenInUseUsageDescription
       || 'Wiroom uses location in the background during active navigation and free drive.';
+    cfg.modResults.NSLocationAlwaysUsageDescription =
+      cfg.modResults.NSLocationAlwaysUsageDescription
+      || cfg.modResults.NSLocationAlwaysAndWhenInUseUsageDescription;
     return cfg;
   });
 
@@ -653,7 +669,7 @@ const withWiroomBackgroundDrive = (config) => {
   return config;
 };
 
-const plugin = createRunOncePlugin(withWiroomBackgroundDrive, 'with-wiroom-background-drive', '1.1.0');
+const plugin = createRunOncePlugin(withWiroomBackgroundDrive, 'with-wiroom-background-drive', '1.2.0');
 
 // Exposed for contract tests; Expo still receives the function itself.
 plugin.__internal = { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName };

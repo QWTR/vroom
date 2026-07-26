@@ -97,6 +97,14 @@ object VroomCarManager {
 
     fun latestPayload(): VroomPayload? = VroomPayloadParser.parse(latestPayloadJson)
 
+    fun showDriverAlert(text: String) {
+        currentScreen?.showDriverAlert(text)
+    }
+
+    fun refreshTheme() {
+        currentScreen?.refreshTheme()
+    }
+
     fun hasActiveRouteSurface(): Boolean =
         nativeNavigationPayloadJson != null || nativeRoutePreviewPayloadJson != null
 
@@ -394,9 +402,18 @@ object VroomCarManager {
                 root.put("routeSteps", JSONArray(routeSteps.toString()))
             }
             root.optJSONObject("dto")?.apply {
+                val firstStep = routeSteps?.optJSONObject(0)
+                val followingStep = routeSteps?.optJSONObject(1)
                 put("nextInstruction", selected.optString("instruction", "Jedz do celu"))
                 put("maneuver", selected.optString("maneuver", "straight"))
                 put("maneuverModifier", selected.optString("maneuverModifier", ""))
+                put("maneuverExit", firstStep?.optInt("maneuverExit", 0) ?: 0)
+                put("followingInstruction", followingStep?.optString("instruction", "") ?: "")
+                put("followingManeuver", followingStep?.optString("maneuver", "") ?: "")
+                put("followingManeuverModifier", followingStep?.optString("maneuverModifier", "") ?: "")
+                put("followingManeuverExit", followingStep?.optInt("maneuverExit", 0) ?: 0)
+                put("followingTurnDistanceMeters", followingStep?.optInt("distanceMeters", 0) ?: 0)
+                put("upcomingSteps", routeStepSlice(routeSteps, 1))
                 put("remainingDistanceMeters", selected.optInt("distanceM", 1))
                 put("remainingDurationSec", selected.optInt("durationS", 0))
                 put("turnDistanceMeters", selected.optInt("distanceM", 1))
@@ -549,6 +566,7 @@ object VroomCarManager {
                 return
             }
             val safeActive = active ?: activeRouteStep(steps, projection.arcM)
+            val following = followingRouteStep(steps, safeActive.optDouble("arcM", projection.arcM))
             val turnM = (safeActive.optDouble("arcM", projection.arcM) - projection.arcM).toInt().coerceAtLeast(1)
             if (isDeadManeuver(safeActive, turnM, remainingM)) {
                 requestNativeReroute(currentLat, currentLng, nativeHeading)
@@ -558,6 +576,13 @@ object VroomCarManager {
             dto.put("nextInstruction", safeActive.optString("instruction", "Jedz prosto"))
             dto.put("maneuver", safeActive.optString("maneuver", "straight"))
             dto.put("maneuverModifier", safeActive.optString("maneuverModifier", ""))
+            dto.put("maneuverExit", safeActive.optInt("maneuverExit", 0).takeIf { it > 0 })
+            dto.put("followingInstruction", following?.optString("instruction", "") ?: "")
+            dto.put("followingManeuver", following?.optString("maneuver", "") ?: "")
+            dto.put("followingManeuverModifier", following?.optString("maneuverModifier", "") ?: "")
+            dto.put("followingManeuverExit", following?.optInt("maneuverExit", 0)?.takeIf { it > 0 })
+            dto.put("followingTurnDistanceMeters", following?.optInt("distanceMeters", 0)?.takeIf { it > 0 })
+            dto.put("upcomingSteps", upcomingRouteSteps(steps, safeActive.optDouble("arcM", projection.arcM)))
             dto.put("remainingDistanceMeters", remainingM)
             dto.put("turnDistanceMeters", turnM)
             root.put("dto", dto)
@@ -594,6 +619,36 @@ object VroomCarManager {
             if (stepArc >= arcM - 6.0) return step
         }
         return null
+    }
+
+    private fun followingRouteStep(steps: JSONArray, currentArcM: Double): JSONObject? {
+        for (i in 0 until steps.length()) {
+            val step = steps.optJSONObject(i) ?: continue
+            val stepArc = step.optDouble("arcM", Double.NaN)
+            if (stepArc.isFinite() && stepArc > currentArcM + 6.0) return step
+        }
+        return null
+    }
+
+    private fun upcomingRouteSteps(steps: JSONArray, currentArcM: Double): JSONArray {
+        val result = JSONArray()
+        for (index in 0 until steps.length()) {
+            val step = steps.optJSONObject(index) ?: continue
+            val stepArc = step.optDouble("arcM", Double.NaN)
+            if (!stepArc.isFinite() || stepArc <= currentArcM + 6.0) continue
+            result.put(JSONObject(step.toString()))
+            if (result.length() >= 3) break
+        }
+        return result
+    }
+
+    private fun routeStepSlice(steps: JSONArray?, startIndex: Int): JSONArray {
+        val result = JSONArray()
+        if (steps == null) return result
+        for (index in startIndex until minOf(steps.length(), startIndex + 3)) {
+            steps.optJSONObject(index)?.let { result.put(JSONObject(it.toString())) }
+        }
+        return result
     }
 
     private fun isDeadManeuver(step: JSONObject, turnM: Int, remainingM: Int): Boolean {
@@ -793,6 +848,7 @@ object VroomCarManager {
                     put("instruction", polishInstruction(step, maneuver))
                     put("maneuver", maneuver?.optString("type", "straight") ?: "straight")
                     put("maneuverModifier", maneuverModifierForStep(maneuver))
+                    put("maneuverExit", maneuver?.optInt("exit", 0) ?: 0)
                     put("distanceMeters", step.optDouble("distance", 0.0).toInt().coerceAtLeast(1))
                     put("durationSec", step.optDouble("duration", 0.0).toInt().coerceAtLeast(0))
                 })
@@ -968,9 +1024,11 @@ object VroomCarManager {
         val anchoredPoints = AutoRouteGeometry.anchorRoutePoints(points, fromLat, fromLng)
         val leg = route.optJSONArray("legs")?.optJSONObject(0)
         val step = leg?.optJSONArray("steps")?.optJSONObject(0)
+        val followingStep = leg?.optJSONArray("steps")?.optJSONObject(1)
         val steps = leg?.optJSONArray("steps") ?: JSONArray()
         val routeSteps = routeStepsJson(steps, anchoredPoints)
         val maneuver = step?.optJSONObject("maneuver")
+        val followingManeuver = followingStep?.optJSONObject("maneuver")
         val distance = route.optDouble("distance", 0.0).toInt().coerceAtLeast(1)
         val duration = route.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
         val instruction = polishInstruction(step, maneuver)
@@ -993,6 +1051,13 @@ object VroomCarManager {
             put("nextInstruction", instruction)
             put("maneuver", maneuver?.optString("type", "straight") ?: "straight")
             put("maneuverModifier", maneuver?.optString("modifier", "") ?: "")
+            put("maneuverExit", maneuver?.optInt("exit", 0) ?: 0)
+            put("followingInstruction", polishInstruction(followingStep, followingManeuver))
+            put("followingManeuver", followingManeuver?.optString("type", "") ?: "")
+            put("followingManeuverModifier", followingManeuver?.optString("modifier", "") ?: "")
+            put("followingManeuverExit", followingManeuver?.optInt("exit", 0) ?: 0)
+            put("followingTurnDistanceMeters", followingStep?.optDouble("distance", 0.0)?.toInt() ?: 0)
+            put("upcomingSteps", routeStepSlice(routeSteps, 1))
             put("destinationName", toName)
             put("remainingDistanceMeters", distance)
             put("remainingDurationSec", duration)

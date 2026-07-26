@@ -17,6 +17,7 @@ import {
   ingestGamificationPing,
 } from '../lib/gamificationClient';
 import { resolveFinalTripDistanceKm } from '../lib/tripDistanceMerge';
+import { syncQuestTrackAfterDistanceSave } from '../lib/questTrackSync';
 import {
   averageLedgerSpeed,
   clearTripSessionLedger,
@@ -61,6 +62,7 @@ async function getAuthToken(): Promise<string | null> {
 // ── In-memory speed tracking (foreground) ────────────────────────────────────
 let _speedSamples: number[] = [];
 let _speedMax     = 0;
+const FOREGROUND_SPEED_SAMPLE_LIMIT = 1200;
 
 /** trusted=true: ten sam gate co trip peak (ruch potwierdzony). */
 export function feedSpeedSample(speedMs: number | null, trusted = false) {
@@ -68,6 +70,9 @@ export function feedSpeedSample(speedMs: number | null, trusted = false) {
   const kmh = speedMs * 3.6;
   if (!Number.isFinite(kmh) || kmh < 1) return;
   _speedSamples.push(kmh);
+  if (_speedSamples.length > FOREGROUND_SPEED_SAMPLE_LIMIT) {
+    _speedSamples = _speedSamples.filter((_, index) => index % 2 === 0);
+  }
   if (kmh > _speedMax) _speedMax = kmh;
 }
 
@@ -494,7 +499,12 @@ export async function saveIncrementalTripKm(payload: {
       tripSessionId,
       distanceKm: pending.distanceKm,
     });
-    return flushPendingTripCheckpoint();
+    return flushPendingTripCheckpoint().then((result) => {
+      if (result && result.creditedDeltaKm > 0) {
+        void syncQuestTrackAfterDistanceSave();
+      }
+      return result;
+    });
   } catch (error) {
     void recordTripPersistenceEvent('checkpoint_fail', {
       distanceKm: dist,

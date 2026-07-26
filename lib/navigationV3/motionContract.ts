@@ -1,7 +1,13 @@
 export const TRIP_MOTION = {
   smallErrorHalfLifeMs: 120,
   largeErrorHalfLifeMs: 180,
-  headingHalfLifeMs: 80,
+  /** Off-road / GPS course — mild smoothing for noisy bearings. */
+  headingHalfLifeMs: 85,
+  headingMaxDps: 360,
+  /** On-road polyline tangent — snappy like a real car (roundabouts). */
+  onRoadHeadingHalfLifeMs: 42,
+  onRoadHeadingMaxDps: 720,
+  headingNoiseFloorDeg: 0.18,
   minimumFuturePredictionMs: 900,
   maximumPredictionMs: 4_000,
   predictionCadenceMultiplier: 1.8,
@@ -11,7 +17,11 @@ export const TRIP_MOTION = {
   freePredictionMaxM: 35,
   hardSnapDistanceM: 45,
   staleSampleMs: 10_000,
-  headingMaxDps: 180,
+  /** One time-based display segment per GPS fix. */
+  segmentDurationDefaultMs: 1_000,
+  segmentDurationMinMs: 200,
+  segmentDurationMaxMs: 2_000,
+  largeCorrectionDurationMs: 300,
   accelerationEma: 0.35,
   accelerationMinMs2: -7,
   accelerationMaxMs2: 4,
@@ -21,6 +31,41 @@ export const TRIP_MOTION = {
 export function smoothstep01(value: number): number {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
+}
+
+export function linearSegmentProgress(elapsedMs: number, durationMs: number): number {
+  const safeDuration = Math.max(
+    TRIP_MOTION.segmentDurationMinMs,
+    Math.min(
+      TRIP_MOTION.segmentDurationMaxMs,
+      Number.isFinite(durationMs) ? durationMs : TRIP_MOTION.segmentDurationDefaultMs,
+    ),
+  );
+  return Math.max(0, Math.min(1, elapsedMs / safeDuration));
+}
+
+export function interpolateLinearSegment(start: number, target: number, progress: number): number {
+  const t = Math.max(0, Math.min(1, progress));
+  return start + (target - start) * t;
+}
+
+export function shortestHeadingDelta(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180;
+}
+
+export function interpolateHeadingShortest(start: number, target: number, progress: number): number {
+  const result = start + shortestHeadingDelta(start, target) * Math.max(0, Math.min(1, progress));
+  return ((result % 360) + 360) % 360;
+}
+
+export function markerScreenHeading(
+  worldHeading: number,
+  cameraBearing: number,
+  cameraMode: 'courseUp' | 'northUp' | 'free',
+  following: boolean,
+): number {
+  if (following && cameraMode === 'courseUp') return 0;
+  return ((worldHeading - cameraBearing) % 360 + 360) % 360;
 }
 
 export function predictMotionAtAge(

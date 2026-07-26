@@ -148,6 +148,7 @@ export default function SpotMap() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
+        surfaceView={false}
         onPress={handleMapPress}
       >
         <Mapbox.Camera

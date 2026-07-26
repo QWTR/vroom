@@ -14,6 +14,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { registerPushToken } from '../hooks/usePushNotifications';
 import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
+import { markAuthSessionActive } from '../lib/authSessionExpiry';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
 
@@ -118,6 +119,7 @@ export default function LoginScreen() {
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
     await AsyncStorage.setItem('needsUgcTerms', meta?.needsUgcTerms ? '1' : '0');
+    markAuthSessionActive();
     await registerPushToken();
     await syncRevenueCatLoginFromStorage();
     router.replace('/(tabs)');

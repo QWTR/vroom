@@ -3,19 +3,21 @@ import { View, Text, TouchableOpacity, Image } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuelStation } from '../../hooks/useFuelStations';
+import { resolveStationDisplayPrice } from '../../lib/fuelDisplayPrice';
 
 interface Props {
   station:  FuelStation;
   onPress?: () => void;
   compact?: boolean;
+  preferredFuel?: string | null;
 }
 
-export const FuelStationMarker = memo(({ station, onPress, compact = false }: Props) => {
+export const FuelStationMarker = memo(({ station, onPress, compact = false, preferredFuel = null }: Props) => {
   const { lat, lng, prices, brandLogoUrl, brand } = station;
 
   if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return null;
 
-  const pb95 = prices?.[0]?.pb95;
+  const display = resolveStationDisplayPrice(prices, preferredFuel);
 
   return (
     <Mapbox.MarkerView coordinate={[lng, lat]} anchor={{ x: 0.5, y: 1 }} allowOverlap allowOverlapWithPuck>
@@ -64,9 +66,9 @@ export const FuelStationMarker = memo(({ station, onPress, compact = false }: Pr
                 >
                   {(brand || station.name || 'Stacja').toUpperCase()}
                 </Text>
-                {pb95 != null ? (
+                {display ? (
                   <Text style={{ color: '#7dd3fc', fontSize: 9, fontWeight: '900' }}>
-                    PB95 {pb95.toFixed(2)}
+                    {display.label} {display.value.toFixed(2)}
                   </Text>
                 ) : (
                   <Text style={{ color: '#6b7280', fontSize: 9, fontWeight: '700' }}>

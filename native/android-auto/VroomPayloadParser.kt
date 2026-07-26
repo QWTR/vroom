@@ -78,6 +78,13 @@ object VroomPayloadParser {
                 instruction = cleanString(dto?.optString("nextInstruction", "")),
                 maneuver = cleanString(dto?.optString("maneuver", "")),
                 maneuverModifier = cleanString(dto?.optString("maneuverModifier", "")),
+                maneuverExit = nullableInt(dto, "maneuverExit"),
+                followingInstruction = cleanString(dto?.optString("followingInstruction", "")),
+                followingManeuver = cleanString(dto?.optString("followingManeuver", "")),
+                followingManeuverModifier = cleanString(dto?.optString("followingManeuverModifier", "")),
+                followingManeuverExit = nullableInt(dto, "followingManeuverExit"),
+                followingTurnDistanceMeters = nullableInt(dto, "followingTurnDistanceMeters"),
+                upcomingSteps = parseUpcomingSteps(dto),
                 remainingDistanceMeters = nullableInt(dto, "remainingDistanceMeters"),
                 remainingDurationSec = nullableInt(dto, "remainingDurationSec"),
                 turnDistanceMeters = nullableInt(dto, "turnDistanceMeters"),
@@ -93,6 +100,34 @@ object VroomPayloadParser {
             e.printStackTrace()
             null
         }
+    }
+
+    private fun parseUpcomingSteps(dto: JSONObject?): List<AutoUpcomingStep> {
+        val parsed = mutableListOf<AutoUpcomingStep>()
+        val array = dto?.optJSONArray("upcomingSteps")
+        if (array != null) {
+            for (index in 0 until minOf(array.length(), 3)) {
+                val item = array.optJSONObject(index) ?: continue
+                parsed += AutoUpcomingStep(
+                    instruction = cleanString(item.optString("instruction", "")) ?: "Jedź dalej",
+                    maneuver = cleanString(item.optString("maneuver", "")) ?: "",
+                    maneuverModifier = cleanString(item.optString("maneuverModifier", "")) ?: "",
+                    maneuverExit = nullableInt(item, "maneuverExit"),
+                    distanceMeters = nullableInt(item, "distanceMeters"),
+                )
+            }
+        }
+        if (parsed.isNotEmpty()) return parsed
+        val instruction = cleanString(dto?.optString("followingInstruction", "")) ?: return emptyList()
+        return listOf(
+            AutoUpcomingStep(
+                instruction = instruction,
+                maneuver = cleanString(dto?.optString("followingManeuver", "")) ?: "",
+                maneuverModifier = cleanString(dto?.optString("followingManeuverModifier", "")) ?: "",
+                maneuverExit = nullableInt(dto, "followingManeuverExit"),
+                distanceMeters = nullableInt(dto, "followingTurnDistanceMeters"),
+            )
+        )
     }
 
     private fun parseUsers(usersArray: JSONArray?): List<UserMarker> {

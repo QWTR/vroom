@@ -62,6 +62,7 @@ type NearbyStationDto = {
 const THROTTLE_MS = 300_000;
 const THROTTLE_M = 2500;
 const NEARBY_RADIUS_M = 12_000;
+export const PRICE_UPDATE_RADIUS_M = 500;
 
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -180,13 +181,35 @@ export function useFuelStations(userLocation: LocationState | null) {
     try {
       const token = await getToken();
       const dbId = station.dbId;
+      if (!userLocation) {
+        throw new Error('Brak lokalizacji GPS — włącz lokalizację, aby zaktualizować ceny.');
+      }
+
+      const distM = haversineM(
+        userLocation.latitude,
+        userLocation.longitude,
+        station.lat,
+        station.lng,
+      );
+      if (distM > PRICE_UPDATE_RADIUS_M) {
+        throw new Error(
+          `Jesteś zbyt daleko od stacji (${Math.round(distM)} m). Podejdź bliżej (max ${PRICE_UPDATE_RADIUS_M} m).`,
+        );
+      }
 
       const r = await fetch(`${API_URL}/api/fuel-stations/${dbId}/prices`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(prices),
+        body: JSON.stringify({
+          ...prices,
+          lat: userLocation.latitude,
+          lng: userLocation.longitude,
+        }),
       });
-      if (!r.ok) throw new Error('Failed to update prices');
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        throw new Error(errBody?.error || 'Failed to update prices');
+      }
       const updated = await r.json();
 
       setStations((prev) =>
@@ -197,9 +220,9 @@ export function useFuelStations(userLocation: LocationState | null) {
       return true;
     } catch (e) {
       console.error('updatePrices:', e);
-      return false;
+      throw e;
     }
-  }, []);
+  }, [userLocation]);
 
   const createStation = useCallback(async (data: {
     name: string;

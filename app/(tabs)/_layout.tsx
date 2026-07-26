@@ -157,7 +157,7 @@ export default function TabLayout() {
           ),
         animation:           Platform.OS === 'ios' ? 'fade' : 'shift',
         lazy:                  true,
-        freezeOnBlur:          false,
+        freezeOnBlur:          true,
         tabBarHideOnKeyboard: true,
         sceneStyle:          { paddingBottom: tabBarHeight, backgroundColor: theme.bg },
       }}

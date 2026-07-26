@@ -229,6 +229,98 @@ export default function CommunityScreen() {
     await fetch(`${API_URL}/api/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
   }, []);
 
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [editPostText, setEditPostText] = useState('');
+  const [savingEditPost, setSavingEditPost] = useState(false);
+  const [editingComment, setEditingComment] = useState<Comment | null>(null);
+  const [editCommentText, setEditCommentText] = useState('');
+  const [savingEditComment, setSavingEditComment] = useState(false);
+
+  const handleStartEditPost = useCallback((post: Post) => {
+    setEditingPost(post);
+    setEditPostText(post.content ?? '');
+  }, []);
+
+  const handleSaveEditPost = useCallback(async () => {
+    if (!editingPost || savingEditPost) return;
+    const content = editPostText.trim();
+    if (!content && !(editingPost.photos?.length) && !(editingPost.videos?.length) && !editingPost.poll) {
+      Toast.show({ type: 'error', text1: 'Treść nie może być pusta' });
+      return;
+    }
+    setSavingEditPost(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/posts/${editingPost.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Nie udało się zapisać');
+      }
+      const updated = await res.json();
+      setPosts(prev => prev.map(p => (
+        p.id === editingPost.id
+          ? { ...p, content: updated.content ?? content, editedAt: updated.editedAt ?? new Date().toISOString() }
+          : p
+      )));
+      if (commentPost?.id === editingPost.id) {
+        setCommentPost(prev => prev ? {
+          ...prev,
+          content: updated.content ?? content,
+          editedAt: updated.editedAt ?? new Date().toISOString(),
+        } : prev);
+      }
+      setEditingPost(null);
+      Toast.show({ type: 'success', text1: 'Post zaktualizowany' });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e?.message ?? 'Edycja nieudana' });
+    } finally {
+      setSavingEditPost(false);
+    }
+  }, [editingPost, editPostText, savingEditPost, commentPost?.id]);
+
+  const handleStartEditComment = useCallback((comment: Comment) => {
+    setEditingComment(comment);
+    setEditCommentText(comment.content ?? '');
+  }, []);
+
+  const handleSaveEditComment = useCallback(async () => {
+    if (!editingComment || savingEditComment) return;
+    const content = editCommentText.trim();
+    if (!content && !(editingComment.photos?.length)) {
+      Toast.show({ type: 'error', text1: 'Treść nie może być pusta' });
+      return;
+    }
+    setSavingEditComment(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/posts/comments/${editingComment.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Nie udało się zapisać');
+      }
+      const updated = await res.json();
+      setComments(prev => prev.map(c => (
+        c.id === editingComment.id
+          ? { ...c, content: updated.content ?? content, editedAt: updated.editedAt ?? new Date().toISOString() }
+          : c
+      )));
+      setEditingComment(null);
+      Toast.show({ type: 'success', text1: 'Komentarz zaktualizowany' });
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e?.message ?? 'Edycja nieudana' });
+    } finally {
+      setSavingEditComment(false);
+    }
+  }, [editingComment, editCommentText, savingEditComment]);
+
   const handleReportPost = useCallback(async (post: Post, reason: string) => {
     await reportContent({
       targetType: 'post',
@@ -792,7 +884,7 @@ export default function CommunityScreen() {
               posts={filteredPosts} myId={myId} loadingMoreP={loadingMoreP}
               refreshingP={refreshingP} hasMoreP={hasMoreP}
               onLike={handleLikePost} onRepost={handleRepost} onComment={openComments}
-              onDelete={handleDeletePost} onPost={handlePost} onPollVote={handlePollVote}
+              onDelete={handleDeletePost} onEdit={handleStartEditPost} onPost={handlePost} onPollVote={handlePollVote}
               onReport={handleReportPost}
               onBlock={handleBlockPostAuthor}
               onReact={handlePostReact}
@@ -1038,8 +1130,21 @@ export default function CommunityScreen() {
                           </TouchableOpacity>
                           <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 8 }}>
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: pl })}
+                            {item.editedAt ? ' · edytowano' : ''}
                           </Text>
-                          {item.author.id !== myId && (
+                          {item.author.id === myId ? (
+                            <TouchableOpacity
+                              onPress={() => {
+                                Alert.alert('Twój komentarz', undefined, [
+                                  { text: 'Anuluj', style: 'cancel' },
+                                  { text: 'Edytuj', onPress: () => handleStartEditComment(item) },
+                                ]);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <MaterialIcons name="more-horiz" size={16} color={theme.textDim} />
+                            </TouchableOpacity>
+                          ) : item.author.id !== myId && (
                             <TouchableOpacity
                               onPress={() => {
                                 Alert.alert(`@${item.author.username}`, undefined, [
@@ -1381,6 +1486,102 @@ export default function CommunityScreen() {
                   <Text style={{ fontSize: 24 }}>{emoji}</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Edycja posta */}
+      <Modal visible={!!editingPost} transparent animationType="fade" onRequestClose={() => setEditingPost(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'center', padding: 20 }}
+          onPress={() => setEditingPost(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: theme.surface, borderRadius: 18, padding: 16,
+              borderWidth: 1, borderColor: theme.border2,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ POST</Text>
+            <TextInput
+              style={{
+                minHeight: 100, maxHeight: 180, textAlignVertical: 'top',
+                backgroundColor: theme.surface2, borderRadius: 12, padding: 12,
+                color: theme.text, borderWidth: 1, borderColor: theme.border,
+              }}
+              value={editPostText}
+              onChangeText={setEditPostText}
+              multiline
+              placeholder="Treść posta..."
+              placeholderTextColor={theme.textDim}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
+                onPress={() => setEditingPost(null)}
+                disabled={savingEditPost}
+              >
+                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 2, paddingVertical: 12, borderRadius: 12, backgroundColor: '#e33835', alignItems: 'center' }}
+                onPress={() => { void handleSaveEditPost(); }}
+                disabled={savingEditPost}
+              >
+                {savingEditPost
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>ZAPISZ</Text>}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Edycja komentarza */}
+      <Modal visible={!!editingComment} transparent animationType="fade" onRequestClose={() => setEditingComment(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'center', padding: 20 }}
+          onPress={() => setEditingComment(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: theme.surface, borderRadius: 18, padding: 16,
+              borderWidth: 1, borderColor: theme.border2,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ fontFamily: 'Orbitron', color: theme.text, fontSize: 12, marginBottom: 12 }}>EDYTUJ KOMENTARZ</Text>
+            <TextInput
+              style={{
+                minHeight: 80, maxHeight: 160, textAlignVertical: 'top',
+                backgroundColor: theme.surface2, borderRadius: 12, padding: 12,
+                color: theme.text, borderWidth: 1, borderColor: theme.border,
+              }}
+              value={editCommentText}
+              onChangeText={setEditCommentText}
+              multiline
+              placeholder="Treść komentarza..."
+              placeholderTextColor={theme.textDim}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}
+                onPress={() => setEditingComment(null)}
+                disabled={savingEditComment}
+              >
+                <Text style={{ fontFamily: 'Orbitron', color: theme.textDim, fontSize: 10 }}>ANULUJ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 2, paddingVertical: 12, borderRadius: 12, backgroundColor: '#e33835', alignItems: 'center' }}
+                onPress={() => { void handleSaveEditComment(); }}
+                disabled={savingEditComment}
+              >
+                {savingEditComment
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, fontWeight: '700' }}>ZAPISZ</Text>}
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>

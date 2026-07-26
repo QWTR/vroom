@@ -155,5 +155,5 @@ const withVroomBgLocationNotification = (config) => {
 module.exports = createRunOncePlugin(
   withVroomBgLocationNotification,
   'withVroomBgLocationNotification',
-  '1.1.0',
+  '1.2.0',
 );

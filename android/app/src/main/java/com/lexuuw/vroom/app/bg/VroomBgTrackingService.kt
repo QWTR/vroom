@@ -39,7 +39,6 @@ class VroomBgTrackingService : Service() {
   private var authToken: String? = null
   private var locationCallback: LocationCallback? = null
   private var wakeLock: PowerManager.WakeLock? = null
-  private var idleSinceMs = 0L
 
   override fun onCreate() {
     super.onCreate()
@@ -238,18 +237,9 @@ class VroomBgTrackingService : Service() {
     val callback = object : LocationCallback() {
       override fun onLocationResult(result: LocationResult) {
         result.locations.forEach { location ->
-          Log.d(
-            logTag,
-            "liveFix mode=$trackingMode lat=${location.latitude} lng=${location.longitude} " +
-              "acc=${location.accuracy} speed=${location.speed} time=${location.time}"
-          )
           persistLocation(applicationContext, location, trackingMode, "live", false)
           accumulateNativeStats(applicationContext, location)
           BgTrackingModule.emitLocation(location, trackingMode, "live", false)
-          if (observeIdle(location)) {
-            stopTracking("idle", notifyReact = false)
-            return
-          }
         }
       }
     }
@@ -346,24 +336,6 @@ class VroomBgTrackingService : Service() {
     stopSelfSafely()
   }
 
-  /** A real, reliable standstill ends the trip after ten minutes. GPS silence
-   * never enters this path, so tunnels and temporary signal loss stay active. */
-  private fun observeIdle(location: Location): Boolean {
-    val speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null
-    val reliable = isReliableLocation(applicationContext, location)
-    val stopped = reliable && speedKmh != null && speedKmh < 3.0
-    if (!stopped) {
-      idleSinceMs = 0L
-      return false
-    }
-    val now = if (location.time > 0L) location.time else System.currentTimeMillis()
-    if (idleSinceMs == 0L) {
-      idleSinceMs = now
-      return false
-    }
-    return now - idleSinceMs >= 10 * 60_000L
-  }
-
   private fun hasLocationPermission(): Boolean {
     val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -416,9 +388,10 @@ class VroomBgTrackingService : Service() {
     private const val KEY_LAST_AUTO_DISTANCE_OWNER = "last_auto_distance_owner"
     private const val KEY_LAST_AUTO_DISTANCE_OWNER_GENERATION = "last_auto_distance_owner_generation"
     private const val AUTO_DISTANCE_OWNER_STALE_MS = 2 * 60_000L
-    private const val MAX_BUFFERED_FIXES = 240
-    private const val MAX_STATS_ROUTE_POINTS = 1500
-    private const val MAX_STATS_SPEED_SAMPLES = 400
+    private const val MAX_BUFFERED_FIXES = 120
+    private const val MAX_STATS_ROUTE_POINTS = 800
+    private const val MAX_STATS_SPEED_SAMPLES = 240
+    private const val ROUTE_POINT_SPACING_KM = 0.008
     private const val MAX_ACCURACY_M = 120.0
     private const val MIN_SEGMENT_KM = 0.002
     private const val MAX_SEGMENT_KM = 12.0
@@ -561,6 +534,16 @@ class VroomBgTrackingService : Service() {
       // matters when connectivity returns after the vehicle has stopped.
       maybeFlushNativeCheckpoint(context, stats, force = false)
       return stats
+    }
+
+    fun readNativeProgress(context: Context): JSONObject {
+      val stats = readNativeStatsSnapshot(context)
+      maybeFlushNativeCheckpoint(context, stats, force = false)
+      return JSONObject()
+        .put("distanceKm", stats.optDouble("distanceKm", 0.0))
+        .put("tripSessionId", stats.optString("tripSessionId", ""))
+        .put("maxSpeedKmh", stats.optDouble("maxSpeedKmh", 0.0))
+        .put("lastServerCheckpointKm", stats.optDouble("lastServerCheckpointKm", 0.0))
     }
 
     private fun readNativeStatsSnapshot(context: Context): JSONObject {
@@ -714,9 +697,24 @@ class VroomBgTrackingService : Service() {
             if (route.length() == 0) {
               route.put(JSONObject().put("latitude", lastLat).put("longitude", lastLon))
             }
-            route.put(JSONObject().put("latitude", lat).put("longitude", lon))
-            while (route.length() > MAX_STATS_ROUTE_POINTS) route.remove(0)
-            stats.put("routePoints", route)
+            val lastRoute = route.optJSONObject(route.length() - 1)
+            val routeMovedKm = if (lastRoute != null) {
+              haversineKm(
+                lastRoute.optDouble("latitude", lat),
+                lastRoute.optDouble("longitude", lon),
+                lat,
+                lon,
+              )
+            } else {
+              Double.POSITIVE_INFINITY
+            }
+            if (routeMovedKm >= ROUTE_POINT_SPACING_KM) {
+              route.put(JSONObject().put("latitude", lat).put("longitude", lon))
+            }
+            stats.put(
+              "routePoints",
+              if (route.length() > MAX_STATS_ROUTE_POINTS) compactJsonArray(route) else route,
+            )
           } else {
             // GPS gap / mock jump — preserve post-gap point as a new segment anchor.
             persistNativeStatsLastFix(prefs, location)
@@ -732,8 +730,10 @@ class VroomBgTrackingService : Service() {
       if (acceptedMovement && speedKmh != null && speedKmh >= 1.0) {
         val samples = stats.optJSONArray("speedSamples") ?: JSONArray()
         samples.put(speedKmh)
-        while (samples.length() > MAX_STATS_SPEED_SAMPLES) samples.remove(0)
-        stats.put("speedSamples", samples)
+        stats.put(
+          "speedSamples",
+          if (samples.length() > MAX_STATS_SPEED_SAMPLES) compactJsonArray(samples) else samples,
+        )
         stats.put("maxSpeedKmh", maxOf(stats.optDouble("maxSpeedKmh", 0.0), speedKmh))
       }
 
@@ -912,6 +912,20 @@ class VroomBgTrackingService : Service() {
         }
       }
       return if (count > 0) sum / count else 0.0
+    }
+
+    private fun compactJsonArray(source: JSONArray): JSONArray {
+      val out = JSONArray()
+      var index = 0
+      while (index < source.length()) {
+        out.put(source.opt(index))
+        index += 2
+      }
+      val last = source.opt(source.length() - 1)
+      if (last != null && last !== JSONObject.NULL && out.opt(out.length() - 1) !== last) {
+        out.put(last)
+      }
+      return out
     }
 
     private fun roundKm(value: Double): Double = kotlin.math.round(value * 1000.0) / 1000.0

@@ -9,14 +9,17 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -30,6 +33,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.mapbox.bindgen.Value
 import com.mapbox.common.MapboxOptions
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
@@ -37,6 +41,7 @@ import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.MapInitOptions
 import com.mapbox.maps.MapView
 import com.mapbox.maps.ImageHolder
+import com.mapbox.maps.Style
 import com.mapbox.maps.plugin.LocationPuck2D
 import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.ScreenCoordinate
@@ -64,9 +69,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
+
+private fun Rect.toViewportBounds(): AutoViewportBounds =
+    AutoViewportBounds(left = left, top = top, right = right, bottom = bottom)
 
 private const val MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg"
 private const val MAPBOX_NAV_DAY_STYLE = "mapbox://styles/mapbox/navigation-day-v1"
@@ -75,6 +85,7 @@ private const val DEFAULT_LAT = 52.2297
 private const val DEFAULT_LNG = 21.0122
 private const val EARTH_RADIUS_M = 6_371_000.0
 private const val AUTO_OSRM_BASE = "https://v-room.app/osrm"
+private const val ROAD_MATCH_FRESH_MS = 8_000L
 
 private class SnappedLocationProvider : LocationProvider {
     private val consumers = CopyOnWriteArraySet<LocationConsumer>()
@@ -107,6 +118,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var mapView: MapView? = null
     private var overlay: VroomAutoOverlayView? = null
     private var visibleArea: Rect? = null
+    private var stableArea: Rect? = null
     private var lockedUiArea: Rect? = null
     private var latestPayload: VroomPayload? = null
     private var userBrowsing = false
@@ -194,12 +206,29 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         loadedMapStyleUri = targetStyle
         routeAnnotationSignature = ""
         mapMarkerSignature = ""
-        map.loadStyleUri(targetStyle)
-        mainHandler.postDelayed({
+        map.loadStyleUri(targetStyle) { style ->
+            emphasizeRoadNetwork(style)
             syncRouteAnnotation(latestPayload)
             syncMapAnnotations(latestPayload, force = true)
             updateMap(forceFollow = true)
-        }, 250L)
+        }
+    }
+
+    private fun emphasizeRoadNetwork(style: Style) {
+        style.styleLayers.forEach { layer ->
+            val width = AutoMapStylePolicy.emphasizedRoadWidth(layer.id, layer.type) ?: return@forEach
+            runCatching {
+                style.setStyleLayerProperty(layer.id, "line-width", Value.valueOf(width))
+                style.setStyleLayerProperty(layer.id, "line-opacity", Value.valueOf(1.0))
+                if (isNightModeActive) {
+                    AutoMapStylePolicy.nightRoadColor(layer.id, layer.type)?.let { color ->
+                        style.setStyleLayerProperty(layer.id, "line-color", Value.valueOf(color))
+                    }
+                }
+            }.onFailure { error ->
+                Log.d("VroomAutoMap", "Road layer ${layer.id} could not be emphasized", error)
+            }
+        }
     }
 
     private fun Configuration.isNightModeActive(): Boolean =
@@ -245,13 +274,22 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             lastHudInsets = null
             lastViewportKey = ""
             followViewportActive = false
-            mainHandler.post { activateFollowPuck(force = true) }
+            mainHandler.post {
+                if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+            }
         }
     }
 
     override fun onStableAreaChanged(stableArea: Rect) {
+        this.stableArea = Rect(stableArea)
         overlay?.visibleArea = this.visibleArea
+        overlay?.stableArea = this.stableArea
         overlay?.invalidate()
+        lastViewportKey = ""
+        followViewportActive = false
+        mainHandler.post {
+            if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+        }
     }
 
     fun updateMapWithPayload(payload: VroomPayload) {
@@ -404,7 +442,15 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         nextMapView.compass.updateSettings { enabled = false }
         nextMapView.scalebar.updateSettings { enabled = false }
         loadedMapStyleUri = currentMapStyleUri()
-        nextMapView.getMapboxMap().loadStyleUri(loadedMapStyleUri)
+        nextMapView.getMapboxMap().loadStyleUri(loadedMapStyleUri) { style ->
+            emphasizeRoadNetwork(style)
+            routeAnnotationSignature = ""
+            mapMarkerSignature = ""
+            mainHandler.post {
+                syncRouteAnnotation(latestPayload)
+                syncMapAnnotations(latestPayload, force = true)
+            }
+        }
         nextMapView.onStart()
         nextMapView.location.setLocationProvider(snappedLocationProvider)
         nextMapView.location.updateSettings {
@@ -412,7 +458,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             locationPuck = LocationPuck2D(
                 topImage = null,
                 bearingImage = ImageHolder.from(R.drawable.vroom_location_arrow),
-                shadowImage = null
+                shadowImage = null,
+                opacity = 0f,
             )
             puckBearingEnabled = true
             puckBearing = PuckBearing.COURSE
@@ -434,6 +481,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         val nextOverlay = VroomAutoOverlayView(nextPresentation.context).apply {
             mapView = nextMapView
             visibleArea = this@VroomMapSurfaceRenderer.visibleArea
+            stableArea = this@VroomMapSurfaceRenderer.stableArea
             setNightModeActive(isNightModeActive)
             renderedPoseListener = { lat, lng, heading, _ ->
                 snappedLocationProvider.update(lat, lng, heading)
@@ -515,57 +563,36 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         val viewport = mapView?.viewport ?: return
         val navigating = latestPayload?.isNavigating == true
         val mode = if (navigating) "navigation" else "free-drive"
-        val activeArea = visibleArea ?: Rect(0, 0, surfaceWidth, surfaceHeight)
-        val hostLeftInset = activeArea.left.coerceIn(0, surfaceWidth).toDouble()
-        val hostTopInset = activeArea.top.coerceIn(0, surfaceHeight).toDouble()
-        val hostRightInset = (surfaceWidth - activeArea.right).coerceAtLeast(0).toDouble()
-        val hostBottomInset = (surfaceHeight - activeArea.bottom).coerceAtLeast(0).toDouble()
-        val activeHeight = activeArea.height().coerceAtLeast(1).toDouble()
-        val baseInsets = lastHudInsets ?: AutoHudInsets(
-            if (navigating) activeHeight * 0.40 else activeHeight * 0.34,
-            24.0,
-            if (navigating) activeHeight * 0.09 else activeHeight * 0.07,
-            24.0,
-        )
-        val insets = if (navigating) {
-            AutoHudInsets(
-                top = hostTopInset + kotlin.math.max(baseInsets.top, activeHeight * 0.40),
-                left = hostLeftInset + baseInsets.left,
-                bottom = hostBottomInset + kotlin.math.min(baseInsets.bottom, activeHeight * 0.09),
-                right = hostRightInset + baseInsets.right,
-            )
-        } else {
-            AutoHudInsets(
-                top = hostTopInset + kotlin.math.max(baseInsets.top, activeHeight * 0.34),
-                left = hostLeftInset + baseInsets.left,
-                bottom = hostBottomInset + kotlin.math.min(baseInsets.bottom, activeHeight * 0.07),
-                right = hostRightInset + baseInsets.right,
-            )
-        }
         val speedKmh = latestPayload?.mapState?.speedKmh
             ?: ((latestPayload?.speed ?: 0.0) * 3.6)
-        var zoom = stableDynamicZoom(speedKmh, navigating)
+        val targetSpec = AutoViewportPolicy.resolve(
+            surfaceWidth = surfaceWidth,
+            surfaceHeight = surfaceHeight,
+            visibleArea = visibleArea?.toViewportBounds(),
+            stableArea = stableArea?.toViewportBounds(),
+            speedKmh = speedKmh,
+            navigating = navigating,
+            hudInsets = lastHudInsets,
+        )
+        var zoom = stableDynamicZoom(targetSpec.zoom)
         val mapWidth = (visibleArea?.width() ?: surfaceWidth).toDouble().coerceAtLeast(480.0)
         if (mapWidth > 900.0) {
             zoom += ((mapWidth - 900.0) / 900.0 * 0.5).coerceAtMost(0.75)
         }
-        if (!navigating) {
-            zoom = zoom.coerceAtLeast(17.55)
-        }
         val viewportKey = buildString {
             append(mode).append(':')
             append(String.format(java.util.Locale.US, "%.2f", zoom)).append(':')
-            append(insets.top.toInt()).append(':')
-            append(insets.left.toInt()).append(':')
-            append(insets.bottom.toInt()).append(':')
-            append(insets.right.toInt())
+            append(targetSpec.topPadding.toInt()).append(':')
+            append(targetSpec.leftPadding.toInt()).append(':')
+            append(targetSpec.bottomPadding.toInt()).append(':')
+            append(targetSpec.rightPadding.toInt())
         }
         if (followViewportActive && followViewportMode == mode && viewportKey == lastViewportKey && !force) return
         val options = FollowPuckViewportStateOptions.Builder()
             .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck)
             .zoom(zoom)
-            .pitch(if (navigating) 56.0 else 48.0)
-            .padding(EdgeInsets(insets.top, insets.left, insets.bottom, insets.right))
+            .pitch(targetSpec.pitch)
+            .padding(EdgeInsets(targetSpec.topPadding, targetSpec.leftPadding, targetSpec.bottomPadding, targetSpec.rightPadding))
             .build()
         followViewportMode = mode
         followViewportActive = true
@@ -586,7 +613,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             syncRouteAnnotation(latestPayload)
         }
         followViewportActive = false
-        mainHandler.post { activateFollowPuck(force = true) }
+        mainHandler.post {
+            if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+        }
     }
 
     private fun markerDim(base: Int): Int = (base * hudUiScale).toInt().coerceIn(base, (base * 1.55f).toInt())
@@ -637,7 +666,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         )
         val partnerPois = resolvedPoiMarkers(
             payload.partnerPois,
-            payload.mapState.showPartnerPois,
+            payload.mapState.showPartnerPois && AutoNavStore.showPartnersLayer(carContext),
             "partnerPois",
             "partner",
         )
@@ -709,19 +738,36 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             return
         }
         val signature = buildString {
-            append(effectivePayload.isNavigating).append(':').append(retainedRoutePreview).append(':')
+            append(effectivePayload.isNavigating).append(':')
+            append(retainedRoutePreview).append(':')
+            append(isNightModeActive).append(':')
+            append((hudUiScale * 100f).roundToInt()).append(':')
             effectivePayload.routePoints.forEach { append(it.lat).append(',').append(it.lng).append(';') }
         }
         if (signature == routeAnnotationSignature) return
         routeAnnotationSignature = signature
         manager.deleteAll()
+        val routeGeometry = points.map { Point.fromLngLat(it.lng, it.lat) }
+        val routeCasingColor = if (isNightModeActive) Color.rgb(0, 22, 40) else Color.rgb(12, 39, 58)
+        val routeCoreColor = when {
+            effectivePayload.isNavigating && isNightModeActive -> Color.rgb(105, 238, 255)
+            effectivePayload.isNavigating -> Color.rgb(0, 178, 242)
+            isNightModeActive -> Color.rgb(118, 240, 255)
+            else -> Color.rgb(0, 166, 218)
+        }
+        // Two separate lines are intentional. Mapbox's annotation border could visually
+        // swallow the cyan core on the night style; a casing plus a core stays legible.
         manager.create(
             PolylineAnnotationOptions()
-                .withPoints(points.map { Point.fromLngLat(it.lng, it.lat) })
-                .withLineColor(if (effectivePayload.isNavigating) Color.rgb(36, 202, 255) else Color.rgb(114, 225, 255))
-                .withLineWidth(9.0 * hudUiScale)
-                .withLineBorderColor(if (effectivePayload.isNavigating) Color.rgb(13, 25, 38) else Color.rgb(18, 24, 34))
-                .withLineBorderWidth(3.5 * hudUiScale)
+                .withPoints(routeGeometry)
+                .withLineColor(routeCasingColor)
+                .withLineWidth((if (isNightModeActive) 25.0 else 22.0) * hudUiScale)
+        )
+        manager.create(
+            PolylineAnnotationOptions()
+                .withPoints(routeGeometry)
+                .withLineColor(routeCoreColor)
+                .withLineWidth((if (isNightModeActive) 14.0 else 12.0) * hudUiScale)
         )
     }
 
@@ -943,7 +989,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (kind == PoiMarkerKind.PARTNER) accent else Color.rgb(216, 233, 255); textAlign = Paint.Align.CENTER; isFakeBoldText = true; textSize = 9f }
             canvas.drawText((if (kind == PoiMarkerKind.PARTNER) "PARTNER" else marker.label.uppercase()).take(13), 48f, 51f, text)
             text.color = if (kind == PoiMarkerKind.FUEL) Color.rgb(125, 211, 252) else Color.WHITE
-            val bottomLabel = when (kind) { PoiMarkerKind.FUEL -> marker.value.takeIf { it.isNotBlank() }?.let { "PB95 $it" } ?: "BRAK CENY"; PoiMarkerKind.CAMERA -> marker.label.take(12); PoiMarkerKind.PARTNER -> marker.label.take(13) }
+            val bottomLabel = when (kind) { PoiMarkerKind.FUEL -> marker.value.takeIf { it.isNotBlank() } ?: "BRAK CENY"; PoiMarkerKind.CAMERA -> marker.label.take(12); PoiMarkerKind.PARTNER -> marker.label.take(13) }
             canvas.drawText(bottomLabel, 48f, 66f, text)
             val tip = Path().apply { moveTo(41f, 78f); lineTo(55f, 78f); lineTo(48f, 90f); close() }
             stroke.style = Paint.Style.FILL; canvas.drawPath(tip, stroke)
@@ -1043,31 +1089,20 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         return null
     }
 
-    private fun dynamicDriveZoom(speedKmh: Double, navigating: Boolean): Double {
-        val speed = speedKmh.coerceIn(0.0, 140.0)
-        val base = when {
-            speed < 8.0 -> 17.85
-            speed < 25.0 -> 17.65 - ((speed - 8.0) / 17.0) * 0.28
-            speed < 55.0 -> 17.37 - ((speed - 25.0) / 30.0) * 0.42
-            speed < 95.0 -> 16.95 - ((speed - 55.0) / 40.0) * 0.55
-            else -> 16.40 - ((speed - 95.0) / 45.0) * 0.22
-        }
-        return (base + if (navigating) 0.08 else 0.0).coerceIn(16.05, 17.9)
-    }
-
-    private fun stableDynamicZoom(speedKmh: Double, navigating: Boolean): Double {
+    private fun stableDynamicZoom(desiredZoom: Double): Double {
         val now = System.currentTimeMillis()
         val dt = if (lastZoomUpdateAt > 0L) (now - lastZoomUpdateAt).coerceIn(1L, 900L).toDouble() else 180.0
         lastZoomUpdateAt = now
-        val speedAlpha = (1.0 - Math.exp(-dt / 1800.0)).coerceIn(0.02, 0.16)
-        stableCameraSpeedKmh += (speedKmh.coerceIn(0.0, 160.0) - stableCameraSpeedKmh) * speedAlpha
-        val desired = dynamicDriveZoom(stableCameraSpeedKmh, navigating)
-        if (!stableCameraZoom.isFinite()) stableCameraZoom = desired
-        val delta = desired - stableCameraZoom
+        if (!stableCameraZoom.isFinite()) stableCameraZoom = desiredZoom
+        val delta = desiredZoom - stableCameraZoom
         if (kotlin.math.abs(delta) < 0.045) return stableCameraZoom
         val maxStep = 0.22 * (dt / 1000.0)
-        stableCameraZoom = (stableCameraZoom + delta.coerceIn(-maxStep, maxStep)).coerceIn(16.05, 17.9)
+        stableCameraZoom = (stableCameraZoom + delta.coerceIn(-maxStep, maxStep)).coerceIn(15.80, 17.85)
         return stableCameraZoom
+    }
+
+    fun showDriverAlert(text: String) {
+        mainHandler.post { overlay?.showDriverAlert(text) }
     }
 
 
@@ -1174,6 +1209,8 @@ private class SurfaceLifecycleOwner : LifecycleOwner {
 }
 
 private class VroomAutoOverlayView(context: Context) : View(context) {
+    private val overlayContext = context.applicationContext
+
     private enum class AutoUiMode {
         FREE_DRIVE,
         SEARCH_RESULTS,
@@ -1206,6 +1243,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var payload: VroomPayload? = null
     var mapView: MapView? = null
     var visibleArea: Rect? = null
+    var stableArea: Rect? = null
     var hudInsetsListener: ((AutoHudInsets, Float) -> Unit)? = null
     var followMode: Boolean = true
     var renderedPoseListener: ((Double, Double, Double, Double) -> Unit)? = null
@@ -1228,13 +1266,17 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var targetHeading = 0.0
     private var displayedSpeedKmh = 0.0
     private var targetSpeedKmh = 0.0
-    private var lastTargetAt = 0L
     private var lastFrameAtNs = 0L
     private var frameLoopScheduled = false
     private var lastRerouteCheckAt = 0L
     private var routeCursorSignature = 0
     private var routeCursorArcM = Double.NaN
     private var routeTargetArcM = Double.NaN
+    private var segmentStartLat: Double? = null
+    private var segmentStartLng: Double? = null
+    private var segmentStartArcM = Double.NaN
+    private var segmentStartedAtMs = 0L
+    private var segmentDurationMs = 1_000L
     private var activeMotionPoints: List<AutoRoutePoint> = emptyList()
     private var activeMotionIsNavigating = false
     private var coldStartPose = true
@@ -1243,8 +1285,14 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var lastMeasuredLat: Double? = null
     private var lastMeasuredLng: Double? = null
     private var lastMeasuredAt = 0L
+    private var lastRoadFixLat: Double? = null
+    private var lastRoadFixLng: Double? = null
+    private var lastRoadFixAt = 0L
     private var lastReliableSpeedKmh = 0.0
     private var lastMotionEvidenceAt = 0L
+    private var lastPoseDiagnosticAt = 0L
+    private var lastManeuverSignature = ""
+    private var maneuverTransitionStartedAt = 0L
 
     private data class RoadProjection(
         val lat: Double,
@@ -1258,6 +1306,12 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         val lat: Double,
         val lng: Double,
         val heading: Double
+    )
+
+    private data class RoadFixDelta(
+        val elapsedSeconds: Double,
+        val distanceMeters: Double,
+        val isNewFix: Boolean,
     )
 
     private data class AutoHudTheme(
@@ -1305,7 +1359,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 textMuted = Color.rgb(92, 96, 104),
                 divider = Color.rgb(222, 226, 230),
                 border = Color.argb(95, 0, 0, 0),
-                accent = Color.rgb(12, 132, 126),
+                accent = Color.rgb(0, 112, 176),
                 positive = Color.rgb(42, 120, 74),
                 destructiveText = Color.rgb(166, 24, 45),
                 cancelIcon = Color.rgb(30, 34, 38)
@@ -1318,16 +1372,16 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         get() = if (isNightModeActive) AutoHudTheme.Night else AutoHudTheme.Day
 
     private val routeShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(13, 25, 38)
+        color = Color.rgb(4, 12, 22)
         style = Paint.Style.STROKE
-        strokeWidth = 16f
+        strokeWidth = 23f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val routePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(36, 202, 255)
+        color = Color.rgb(48, 218, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 9f
+        strokeWidth = 13f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
@@ -1366,7 +1420,20 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     }
 
     fun applyPayload(next: VroomPayload?) {
+        val wasNavigating = payload?.isNavigating == true
+        val maneuverSignature = next?.let {
+            "${it.maneuver}:${it.maneuverModifier}:${it.maneuverExit}:${it.instruction}"
+        }.orEmpty()
+        if (lastManeuverSignature.isNotEmpty() && maneuverSignature.isNotEmpty() && maneuverSignature != lastManeuverSignature) {
+            maneuverTransitionStartedAt = System.currentTimeMillis()
+        }
+        if (maneuverSignature.isNotEmpty()) lastManeuverSignature = maneuverSignature
         payload = next
+        if ((wasNavigating && next?.isNavigating != true) || next == null) {
+            resetRouteCursor()
+            activeMotionPoints = emptyList()
+            activeMotionIsNavigating = false
+        }
         next?.mapState?.speedLimitKmh?.toInt()?.takeIf { it > 0 }?.let { stickySpeedLimitKmh = it }
         next?.mapState?.searchQuery?.takeIf { it.isNotBlank() && uiMode != AutoUiMode.SEARCH_RESULTS }?.let {
             searchQuery = it.take(36)
@@ -1388,16 +1455,10 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 targetSpeedKmh = payloadSpeed
             }
             val now = System.currentTimeMillis()
-            val dtSec = if (lastTargetAt > 0L) {
-                ((now - lastTargetAt).coerceIn(40L, 1_200L)).toDouble() / 1000.0
-            } else {
-                0.25
-            }
-            lastTargetAt = now
 
             val nativeRoadFresh = (next.mapState.nativeRoadMatch || next.mapState.nativeRoadPose) &&
                 next.mapState.nativeRoadMatchedAt > 0L &&
-                now - next.mapState.nativeRoadMatchedAt <= 18_000L
+                now - next.mapState.nativeRoadMatchedAt <= ROAD_MATCH_FRESH_MS
             // Trasa nawigacji i road match free drive to dwie rozne geometrie.
             // Mieszanie ich powodowalo reset kursora po kazdej aktualizacji road matcha.
             val roadPoints = if (next.isNavigating) {
@@ -1406,14 +1467,18 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 liveFollowPoints(next)
             }
             val routeLocked = roadPoints != null && (next.isNavigating || nativeRoadFresh)
+            val liveFixFresh = lastMeasuredAt > 0L && now - lastMeasuredAt <= 2_500L
+            val authoritativeLat = if (liveFixFresh) lastMeasuredLat else next.userLat
+            val authoritativeLng = if (liveFixFresh) lastMeasuredLng else next.userLng
+            val authoritativeHeading = if (liveFixFresh) targetHeading else next.heading
 
-            if (routeLocked && next.userLat != null && next.userLng != null) {
+            if (routeLocked && authoritativeLat != null && authoritativeLng != null) {
                 updateRouteTarget(
                     roadPoints!!,
-                    next.userLat,
-                    next.userLng,
+                    authoritativeLat,
+                    authoritativeLng,
                     targetSpeedKmh,
-                    dtSec,
+                    authoritativeHeading,
                     next.mapState.autoTargetArcM.takeIf { nativeRoadFresh && !next.isNavigating },
                     if (next.isNavigating) 0 else next.mapState.nativeRoadVersion
                 )
@@ -1461,8 +1526,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             displayedLng = lng
             displayedHeading = cleanHeading
             displayedSpeedKmh = speedKmh
-            lastTargetAt = System.currentTimeMillis()
-            lastGpsAt = lastTargetAt
+            lastGpsAt = System.currentTimeMillis()
             coldStartPose = false
             ensureFrameLoop()
             return
@@ -1470,13 +1534,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
 
         val snap = payload
         val now = System.currentTimeMillis()
-        val dtSec = if (lastTargetAt > 0L) {
-            ((now - lastTargetAt).coerceIn(40L, 1_200L)).toDouble() / 1000.0
-        } else {
-            0.25
-        }
-        lastTargetAt = now
-        lastGpsAt = now
+        beginMotionSegment(now)
 
         val previousLat = lastMeasuredLat
         val previousLng = lastMeasuredLng
@@ -1524,14 +1582,14 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         if (snap?.isNavigating == true) {
             val navigationRoute = snap.routePoints.takeIf { it.size >= 2 }
             if (navigationRoute != null) {
-                val routeProjection = projectOnRoad(lat, lng, navigationRoute, 110.0)
+                val routeProjection = projectOnRoad(lat, lng, navigationRoute, 110.0, cleanHeading)
                 if (routeProjection != null && routeProjection.distanceM <= 85.0) {
                     updateRouteTarget(
                         navigationRoute,
                         lat,
                         lng,
                         targetSpeedKmh,
-                        dtSec,
+                        cleanHeading,
                         null,
                         0
                     )
@@ -1570,7 +1628,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 lat,
                 lng,
                 targetSpeedKmh,
-                dtSec,
+                cleanHeading,
                 snap.mapState.autoTargetArcM.takeIf { snap.mapState.nativeRoadMatch },
                 snap.mapState.nativeRoadVersion
             )
@@ -1615,12 +1673,16 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         measuredLat: Double,
         measuredLng: Double,
         speedKmh: Double,
-        dtSec: Double,
+        measuredHeading: Double?,
         preferredTargetArcM: Double?,
         roadVersion: Int = 0
     ) {
         activeMotionPoints = points
         activeMotionIsNavigating = payload?.isNavigating == true
+        val roadFix = consumeRoadFix(measuredLat, measuredLng)
+        val matchingHeading = measuredHeading
+            ?.takeIf { it.isFinite() && speedKmh >= 6.0 }
+            ?.let(::normalizedHeading)
         val signature = routeSignature(points, roadVersion)
         if (signature != routeCursorSignature) {
             routeCursorSignature = signature
@@ -1635,22 +1697,21 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                     preferredArc,
                     backwardM = 180.0,
                     forwardM = 18.0,
-                    maxDistanceM = 140.0
+                    maxDistanceM = 140.0,
+                    expectedHeading = matchingHeading,
                 )
             } else if (displayedLat != null && displayedLng != null) {
-                projectOnRoad(displayedLat!!, displayedLng!!, points, 140.0)
+                projectOnRoad(displayedLat!!, displayedLng!!, points, 140.0, matchingHeading)
             } else {
                 null
             }
-            val measuredProjection = projectOnRoad(measuredLat, measuredLng, points, 180.0)
-            // A navigation payload is commonly trimmed behind the car. Keep
-            // the rendered pose projected on the replacement route instead of
-            // restarting from the measured GPS point.
-            val initial = continuityProjection ?: measuredProjection
-            routeCursorArcM = initial?.arcM ?: 0.0
-            val measuredAhead = preferredArc
-                ?: measuredProjection?.arcM?.takeIf { it >= routeCursorArcM - 8.0 }
-            routeTargetArcM = kotlin.math.max(routeCursorArcM, measuredAhead ?: routeCursorArcM)
+            val measuredProjection = projectOnRoad(measuredLat, measuredLng, points, 180.0, matchingHeading)
+            // Fresh GPS is authoritative after a geometry refresh. Reusing the
+            // old rendered marker here was the main source of accumulated lag.
+            val initial = measuredProjection ?: continuityProjection
+            val authoritativeArc = preferredArc ?: initial?.arcM ?: 0.0
+            routeCursorArcM = authoritativeArc
+            routeTargetArcM = authoritativeArc
             val initialPoint = pointAtRoadArc(points, routeCursorArcM)
             val targetPoint = pointAtRoadArc(points, routeTargetArcM)
             if (targetPoint != null) {
@@ -1661,9 +1722,14 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 targetLng = initialPoint.lng
             }
             targetHeading = headingAtRoadArc(points, routeTargetArcM, speedKmh)
-            if (!hadDisplayedPose && initialPoint != null) {
-                displayedLat = initialPoint.lat
-                displayedLng = initialPoint.lng
+            val renderedErrorM = if (hadDisplayedPose && targetPoint != null) {
+                distanceMeters(displayedLat!!, displayedLng!!, targetPoint.lat, targetPoint.lng)
+            } else {
+                Double.POSITIVE_INFINITY
+            }
+            if ((!hadDisplayedPose || renderedErrorM >= 24.0) && targetPoint != null) {
+                displayedLat = targetPoint.lat
+                displayedLng = targetPoint.lng
                 displayedHeading = targetHeading
             }
             return
@@ -1681,7 +1747,8 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             anchor,
             backwardM = 22.0,
             forwardM = ((speedKmh / 3.6) * 8.0 + 90.0).coerceIn(100.0, 360.0),
-            maxDistanceM = 85.0
+            maxDistanceM = 85.0,
+            expectedHeading = matchingHeading,
         )
         val projection = preferredTargetArcM
             ?.takeIf { it.isFinite() && it >= anchor - 8.0 }
@@ -1691,10 +1758,13 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 }
             }
             ?: localProjection
-            ?: projectOnRoad(measuredLat, measuredLng, points, 65.0)
-        if (projection != null) {
-            val maxPlausibleAdvance = ((speedKmh.coerceAtLeast(8.0) / 3.6) * dtSec * 2.4 + 18.0)
-                .coerceIn(18.0, 75.0)
+            ?: projectOnRoad(measuredLat, measuredLng, points, 65.0, matchingHeading)
+        if (projection != null && (roadFix.isNewFix || preferredTargetArcM != null)) {
+            val maxPlausibleAdvance = AutoRoadPosePolicy.maximumForwardAdvanceMeters(
+                speedKmh = speedKmh,
+                fixElapsedSeconds = roadFix.elapsedSeconds,
+                measuredDistanceMeters = roadFix.distanceMeters,
+            )
             val candidate = projection.arcM.coerceAtMost(anchor + maxPlausibleAdvance)
             routeTargetArcM = kotlin.math.max(anchor, candidate)
         }
@@ -1703,13 +1773,73 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             targetLat = snapped.lat
             targetLng = snapped.lng
             targetHeading = headingAtRoadArc(points, routeTargetArcM, speedKmh)
+            val lagM = (routeTargetArcM - routeCursorArcM).coerceAtLeast(0.0)
+            val diagnosticNow = System.currentTimeMillis()
+            if (lagM >= 8.0 && diagnosticNow - lastPoseDiagnosticAt >= 1_000L) {
+                lastPoseDiagnosticAt = diagnosticNow
+                Log.d(
+                    "VroomAutoPose",
+                    "roadLag=${"%.1f".format(java.util.Locale.US, lagM)}m " +
+                        "fixAge=${"%.2f".format(java.util.Locale.US, roadFix.elapsedSeconds)}s " +
+                        "speed=${"%.1f".format(java.util.Locale.US, speedKmh)}kmh",
+                )
+            }
+            if (AutoRoadPosePolicy.shouldHardResync(lagM, speedKmh)) {
+                segmentDurationMs = 300L
+            }
         }
+    }
+
+    private fun consumeRoadFix(lat: Double, lng: Double): RoadFixDelta {
+        val now = SystemClock.elapsedRealtime()
+        val previousLat = lastRoadFixLat
+        val previousLng = lastRoadFixLng
+        val distance = if (previousLat != null && previousLng != null) {
+            distanceMeters(previousLat, previousLng, lat, lng)
+        } else {
+            0.0
+        }
+        if (previousLat != null && previousLng != null && distance < 0.4) {
+            return RoadFixDelta(0.0, 0.0, false)
+        }
+        val elapsed = if (lastRoadFixAt > 0L) {
+            ((now - lastRoadFixAt).coerceIn(40L, 15_000L)).toDouble() / 1_000.0
+        } else {
+            0.25
+        }
+        lastRoadFixLat = lat
+        lastRoadFixLng = lng
+        lastRoadFixAt = now
+        return RoadFixDelta(elapsed, distance, true)
     }
 
     private fun resetRouteCursor() {
         routeCursorSignature = 0
         routeCursorArcM = Double.NaN
         routeTargetArcM = Double.NaN
+        lastRoadFixLat = null
+        lastRoadFixLng = null
+        lastRoadFixAt = 0L
+        segmentStartArcM = Double.NaN
+    }
+
+    private fun beginMotionSegment(nowMs: Long) {
+        segmentStartLat = displayedLat
+        segmentStartLng = displayedLng
+        segmentStartArcM = routeCursorArcM
+        segmentStartedAtMs = nowMs
+        segmentDurationMs = if (lastGpsAt > 0L) {
+            (nowMs - lastGpsAt).coerceIn(200L, 2_000L)
+        } else {
+            1_000L
+        }
+        lastGpsAt = nowMs
+    }
+
+    private fun segmentProgress(nowMs: Long = System.currentTimeMillis()): Double {
+        if (segmentStartedAtMs <= 0L) return 1.0
+        return ((nowMs - segmentStartedAtMs).toDouble() / segmentDurationMs.toDouble())
+            .coerceIn(0.0, 1.0)
     }
 
     private fun ensureFrameLoop() {
@@ -1772,42 +1902,56 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         }
         val driveSpeedKmh = kotlin.math.max(displayedSpeedKmh, kotlin.math.max(targetSpeedKmh * 0.85, heldSpeedKmh))
         val speedMs = driveSpeedKmh.coerceIn(0.0, 180.0) / 3.6
-        val travelM = speedMs * dtSec
         val navigating = payload?.isNavigating == true
         val activeRoadPoints = activeMotionPoints.takeIf {
             it.size >= 2 && activeMotionIsNavigating == navigating
         } ?: payload?.takeIf { it.isNavigating }?.routePoints?.takeIf { it.size >= 2 }
             ?: payload?.let { liveFollowPoints(it) }
 
-        if (coldStartPose || signalLost) {
+        var renderedOnRoad = false
+        if (coldStartPose) {
             displayedLat = goalLat
             displayedLng = goalLng
             coldStartPose = false
-        } else if (travelM > 0.001) {
-            val roadStep = activeRoadPoints?.let { stepAlongActiveRoute(it, travelM, driveSpeedKmh) }
+        } else if (!signalLost) {
+            val roadStep = activeRoadPoints?.let { stepAlongActiveRoute(it, driveSpeedKmh) }
             if (roadStep != null) {
                 displayedLat = roadStep.lat
                 displayedLng = roadStep.lng
                 targetHeading = roadStep.heading
+                renderedOnRoad = true
             } else {
-                val (aheadLat, aheadLng) = advanceGeodesic(curLat, curLng, displayedHeading, travelM)
-                var nextLat = aheadLat
-                var nextLng = aheadLng
-                val anchorDist = distanceMeters(nextLat, nextLng, goalLat, goalLng)
-                if (anchorDist > 0.5) {
-                    val pull = (anchorDist.coerceAtMost(30.0) * 0.035 * dtSec * 60.0).coerceIn(0.0, 0.16)
-                    nextLat += (goalLat - nextLat) * pull
-                    nextLng += (goalLng - nextLng) * pull
+                val progress = segmentProgress()
+                val startLat = segmentStartLat?.takeIf { it.isFinite() } ?: curLat
+                val startLng = segmentStartLng?.takeIf { it.isFinite() } ?: curLng
+                val segmentLeadM = if (driveSpeedKmh >= 3.0) {
+                    speedMs * segmentDurationMs.toDouble() / 1_000.0
+                } else {
+                    0.0
                 }
-                displayedLat = nextLat
-                displayedLng = nextLng
+                val visualGoal = advanceGeodesic(goalLat, goalLng, targetHeading, segmentLeadM)
+                val baseLat = startLat + (visualGoal.first - startLat) * progress
+                val baseLng = startLng + (visualGoal.second - startLng) * progress
+                val predictionAgeMs = (
+                    System.currentTimeMillis() - segmentStartedAtMs - segmentDurationMs
+                ).coerceIn(0L, 1_200L)
+                val predictionM = speedMs * predictionAgeMs.toDouble() / 1_000.0
+                val predicted = advanceGeodesic(baseLat, baseLng, displayedHeading, predictionM)
+                displayedLat = predicted.first
+                displayedLng = predicted.second
             }
         }
 
-        val maxHeadingStep = (240.0 * dtSec).coerceAtLeast(4.0)
-        displayedHeading = normalizedHeading(
-            displayedHeading + headingDelta(displayedHeading, targetHeading).coerceIn(-maxHeadingStep, maxHeadingStep)
-        )
+        if (renderedOnRoad || driveSpeedKmh >= 3.0) {
+            val headingRate = if (renderedOnRoad) 720.0 else 360.0
+            val maxHeadingStep = (headingRate * dtSec).coerceAtLeast(4.0)
+            val delta = headingDelta(displayedHeading, targetHeading)
+            if (kotlin.math.abs(delta) > 0.18) {
+                displayedHeading = normalizedHeading(
+                    displayedHeading + delta.coerceIn(-maxHeadingStep, maxHeadingStep)
+                )
+            }
+        }
 
         postInvalidateOnAnimation()
 
@@ -1945,6 +2089,12 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private fun showToast(text: String) {
         toastText = text
         toastUntil = System.currentTimeMillis() + 2_600L
+        postInvalidateOnAnimation()
+    }
+
+    fun showDriverAlert(text: String) {
+        toastText = text
+        toastUntil = System.currentTimeMillis() + 10_000L
         postInvalidateOnAnimation()
     }
 
@@ -2428,6 +2578,10 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val snap = payload
+        if (snap != null) {
+            drawRouteChevrons(canvas, snap)
+            drawVehicleMarkerAboveRoute(canvas, snap)
+        }
         drawHud(canvas, snap)
     }
 
@@ -2443,10 +2597,122 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             val projected = project(point.lat, point.lng) ?: return@forEachIndexed
             if (index == 0) path.moveTo(projected.first, projected.second) else path.lineTo(projected.first, projected.second)
         }
-        routeShadow.color = if (snap.isNavigating) Color.rgb(13, 25, 38) else Color.argb(190, 18, 24, 34)
-        routePaint.color = if (snap.isNavigating) Color.rgb(36, 202, 255) else Color.argb(230, 114, 225, 255)
+        val metrics = AutoHudMetrics.fromVisibleArea(stableArea ?: visibleArea, canvas.width, canvas.height)
+        routeShadow.strokeWidth = metrics.s(if (snap.isNavigating) 25f else 22f)
+        routePaint.strokeWidth = metrics.s(if (snap.isNavigating) 14f else 12f)
+        routeShadow.color = if (snap.isNavigating) Color.rgb(0, 22, 40) else Color.argb(230, 5, 18, 30)
+        routePaint.color = if (snap.isNavigating) Color.rgb(105, 238, 255) else Color.rgb(118, 240, 255)
         canvas.drawPath(path, routeShadow)
         canvas.drawPath(path, routePaint)
+    }
+
+    private fun drawRouteChevrons(canvas: Canvas, snap: VroomPayload) {
+        if (!snap.isNavigating && !snap.mapState.routePreview) return
+        if (snap.routePoints.size < 2) return
+        val projected = chevronRoutePointsFromVehicle(snap)
+            .mapNotNull { point -> project(point.lat, point.lng) }
+        if (projected.size < 2) return
+        val metrics = AutoHudMetrics.fromVisibleArea(stableArea ?: visibleArea, canvas.width, canvas.height)
+        val spacing = metrics.s(if (metrics.compact) 116f else 138f)
+        val size = metrics.s(if (metrics.compact) 11f else 13f)
+        var untilNext = spacing * 1.25f
+        var drawnCount = 0
+        val maxCount = if (metrics.compact) 5 else 7
+        val topGuard = metrics.safeTop + metrics.safeH * 0.17f
+        val bottomGuard = metrics.safeBottom - metrics.s(20f)
+        val sideGuard = metrics.s(12f)
+        val color = if (isNightModeActive) Color.argb(245, 224, 250, 255) else Color.argb(245, 0, 91, 148)
+
+        chevronSegments@ for (index in 0 until projected.lastIndex) {
+            val start = projected[index]
+            val end = projected[index + 1]
+            val dx = end.first - start.first
+            val dy = end.second - start.second
+            val length = hypot(dx, dy)
+            if (length < 2f) continue
+            var travelled = untilNext
+            while (travelled <= length) {
+                val t = travelled / length
+                val x = start.first + dx * t
+                val y = start.second + dy * t
+                val insideChevronZone =
+                    y >= topGuard && y <= bottomGuard &&
+                        x >= metrics.safeLeft + sideGuard && x <= metrics.safeRight - sideGuard
+                if (insideChevronZone) {
+                    drawRouteChevron(canvas, x, y, Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble()).toFloat(), size, color)
+                    drawnCount += 1
+                    if (drawnCount >= maxCount) break@chevronSegments
+                }
+                travelled += spacing
+            }
+            untilNext = travelled - length
+        }
+    }
+
+    private fun chevronRoutePointsFromVehicle(snap: VroomPayload): List<AutoRoutePoint> {
+        val points = visibleRoutePointsFromVehicle(snap, snap.routePoints)
+        if (points.size < 2) return points
+
+        // Chevrony opisują wyłącznie najbliższy fragment drogi. Rysowanie ich na całej
+        // geometrii powodowało rząd strzałek na horyzoncie i przy górnej krawędzi ekranu.
+        val maxAheadM = when {
+            displayedSpeedKmh >= 90.0 -> 1_050.0
+            displayedSpeedKmh >= 60.0 -> 850.0
+            else -> 650.0
+        }
+        val limited = mutableListOf(points.first())
+        var accumulatedM = 0.0
+        for (index in 0 until points.lastIndex) {
+            val start = points[index]
+            val end = points[index + 1]
+            val segmentM = distanceMeters(start.lat, start.lng, end.lat, end.lng)
+            if (!segmentM.isFinite() || segmentM <= 0.01) continue
+            val remainingM = maxAheadM - accumulatedM
+            if (remainingM <= 0.0) break
+            if (segmentM > remainingM) {
+                val t = (remainingM / segmentM).coerceIn(0.0, 1.0)
+                limited += AutoRoutePoint(
+                    lat = start.lat + (end.lat - start.lat) * t,
+                    lng = start.lng + (end.lng - start.lng) * t,
+                )
+                break
+            }
+            limited += end
+            accumulatedM += segmentM
+        }
+        return limited
+    }
+
+    private fun drawVehicleMarkerAboveRoute(canvas: Canvas, snap: VroomPayload) {
+        val lat = displayedLat ?: snap.userLat ?: return
+        val lng = displayedLng ?: snap.userLng ?: return
+        val point = project(lat, lng) ?: return
+        if (!inside(point, canvas)) return
+        drawArrowMarker(
+            canvas = canvas,
+            x = point.first,
+            y = point.second,
+            heading = markerScreenHeading(displayedHeading),
+        )
+    }
+
+    private fun drawRouteChevron(canvas: Canvas, x: Float, y: Float, angle: Float, size: Float, color: Int) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            strokeWidth = size * 0.32f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        val checkpoint = canvas.save()
+        canvas.rotate(angle, x, y)
+        val path = Path().apply {
+            moveTo(x - size * 0.62f, y - size * 0.62f)
+            lineTo(x + size * 0.30f, y)
+            lineTo(x - size * 0.62f, y + size * 0.62f)
+        }
+        canvas.drawPath(path, paint)
+        canvas.restoreToCount(checkpoint)
     }
 
     private fun visibleRoutePointsFromVehicle(
@@ -2603,13 +2869,19 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
 
     private fun drawHud(canvas: Canvas, snap: VroomPayload?) {
         hitRects.clear()
-        val safe = visibleArea ?: Rect(0, 0, canvas.width, canvas.height)
+        val safe = stableArea ?: visibleArea ?: Rect(0, 0, canvas.width, canvas.height)
         val m = AutoHudMetrics.fromVisibleArea(safe, canvas.width, canvas.height)
         val top = m.contentTop()
+        // The host's stable area reserves the whole top row for its actions.
+        // Our navigation card sits on the free left side, so it can safely use
+        // the actual visible map edge instead of being pushed below that row.
+        val navigationTop = (visibleArea?.top?.toFloat() ?: m.safeTop) +
+            m.s(if (m.compact) 8f else 10f)
         val bottom = m.contentBottom()
         strokePaint.strokeWidth = m.s(2.4f)
         var topPanelBottom = top
         var layoutMode = AutoHudLayoutMode.FREE_DRIVE
+        var navigationPanel: RectF? = null
 
         when (uiMode) {
             AutoUiMode.SEARCH_RESULTS -> {
@@ -2642,57 +2914,274 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                     topPanelBottom = panel.bottom
                 } else if (snap?.isNavigating == true) {
                     layoutMode = AutoHudLayoutMode.NAVIGATING
-                    val panel = drawNavigationTopBar(canvas, m, snap, top)
-                    topPanelBottom = panel.bottom
+                    navigationPanel = drawPremiumNavigationHud(canvas, m, snap, navigationTop)
+                    topPanelBottom = navigationPanel.bottom
                 } else {
                     layoutMode = AutoHudLayoutMode.FREE_DRIVE
-                    val search = m.searchBarRect(top)
-                    hitRects["search"] = search
-                    val theme = hudTheme
-                    panelPaint.color = theme.panel
-                    strokePaint.color = if (isNightModeActive) Color.argb(190, 227, 56, 53) else Color.argb(140, 227, 56, 53)
-                    canvas.drawRoundRect(search, m.s(29f), m.s(29f), panelPaint)
-                    canvas.drawRoundRect(search, m.s(29f), m.s(29f), strokePaint)
-                    smallText.textAlign = Paint.Align.LEFT
-                    smallText.textSize = m.ts(22f)
-                    smallText.color = theme.textSecondary
-                    canvas.drawText("Wyszukaj adres lub miejsce...", search.left + m.s(62f), search.centerY() + m.s(8f), smallText)
-                    drawSearchIcon(canvas, search.left + m.s(32f), search.centerY(), m.uiScale)
-                    topPanelBottom = search.bottom
+                    topPanelBottom = top
                 }
             }
         }
 
-        val speedRect = m.speedPanelRect(bottom)
-        panelPaint.color = hudTheme.panel
-        canvas.drawRoundRect(speedRect, m.s(18f), m.s(18f), panelPaint)
-        textPaint.textSize = m.ts(46f)
-        textPaint.color = hudTheme.textPrimary
-        canvas.drawText(Math.round(displayedSpeedKmh.coerceAtLeast(0.0)).toString(), speedRect.centerX(), m.speedValueBaseline(speedRect), textPaint)
-        smallText.textAlign = Paint.Align.CENTER
-        smallText.textSize = m.ts(16f)
-        smallText.color = hudTheme.textMuted
-        canvas.drawText("km/h", speedRect.centerX(), m.speedUnitBaseline(speedRect), smallText)
+        val speedRect = m.speedClusterRect(bottom)
         snap?.mapState?.speedLimitKmh?.toInt()?.takeIf { it > 0 }?.let { stickySpeedLimitKmh = it }
         NativeSpeedLimitFetcher.currentLimit()?.takeIf { it > 0 }?.let { stickySpeedLimitKmh = it }
         val limitKmh = stickySpeedLimitKmh
-        if (limitKmh != null) {
-            val overLimit = displayedSpeedKmh > limitKmh + 5.0
-            drawSpeedLimitSign(canvas, speedRect.centerX(), m.speedLimitCenterY(speedRect), m.s(21f), limitKmh, overLimit)
-        }
+        drawPremiumSpeedCluster(canvas, m, speedRect, limitKmh)
 
-        val (liveLeft, liveTop) = m.liveBadgePosition(bottom)
-        drawLiveBadge(canvas, m, liveLeft, liveTop)
-        val recenterRect = m.recenterRect(bottom)
+        val recenterRect = m.cockpitRecenterRect(bottom)
         hitRects["recenter"] = recenterRect
         drawRecenterIconButton(canvas, recenterRect, m.uiScale)
-        val reportRect = m.reportRect(bottom)
-        hitRects["report"] = reportRect
-        drawReportButton(canvas, m, reportRect)
 
         snap?.mapState?.activeDropPrompt?.let { drawDropPrompt(canvas, m, it) }
-        drawToast(canvas, m)
-        reportHudInsets(m, layoutMode, topPanelBottom, speedRect, recenterRect.left)
+        if (navigationPanel != null) {
+            drawNavigationAlert(canvas, m, navigationPanel)
+        } else {
+            drawToast(canvas, m)
+        }
+        reportHudInsets(m, layoutMode, topPanelBottom, speedRect, recenterRect.left, navigationPanel?.right)
+    }
+
+    private fun drawPremiumSpeedCluster(canvas: Canvas, m: AutoHudMetrics, rect: RectF, limitKmh: Int?) {
+        val overLimit = limitKmh != null && displayedSpeedKmh > limitKmh + 7.0
+        val radius = m.s(if (m.compact) 19f else 22f)
+        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                if (isNightModeActive) Color.argb(248, 7, 10, 15) else Color.argb(248, 252, 253, 255),
+                if (isNightModeActive) Color.argb(242, 20, 25, 34) else Color.argb(244, 232, 238, 244),
+                Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRoundRect(rect, radius, radius, background)
+        strokePaint.color = if (overLimit) Color.rgb(255, 62, 65) else Color.argb(if (isNightModeActive) 165 else 105, 36, 202, 255)
+        canvas.drawRoundRect(rect, radius, radius, strokePaint)
+
+        val accent = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (overLimit) Color.rgb(255, 62, 65) else Color.rgb(227, 56, 53)
+            strokeWidth = m.s(3f)
+            strokeCap = Paint.Cap.ROUND
+        }
+        canvas.drawLine(rect.left + radius, rect.top + m.s(3f), rect.right - radius, rect.top + m.s(3f), accent)
+
+        val dividerX = rect.left + m.s(if (m.compact) 78f else 92f)
+        val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = hudTheme.divider
+            strokeWidth = m.s(1.2f)
+        }
+        canvas.drawLine(dividerX, rect.top + m.s(15f), dividerX, rect.bottom - m.s(15f), divider)
+
+        if (limitKmh != null) {
+            drawSpeedLimitSign(
+                canvas,
+                m.speedLimitCenterX(rect),
+                m.speedLimitCenterY(rect),
+                m.s(if (m.compact) 25f else 29f),
+                limitKmh,
+                overLimit,
+            )
+        } else {
+            smallText.textAlign = Paint.Align.CENTER
+            smallText.textSize = m.ts(14f)
+            smallText.color = hudTheme.textMuted
+            canvas.drawText("LIMIT", m.speedLimitCenterX(rect), rect.centerY() - m.s(6f), smallText)
+            textPaint.textAlign = Paint.Align.CENTER
+            textPaint.textSize = m.ts(24f)
+            textPaint.color = hudTheme.textPrimary
+            canvas.drawText("--", m.speedLimitCenterX(rect), rect.centerY() + m.s(20f), textPaint)
+        }
+
+        textPaint.textAlign = Paint.Align.CENTER
+        textPaint.textSize = m.ts(if (m.compact) 43f else 50f)
+        textPaint.color = if (overLimit) Color.rgb(255, 72, 75) else hudTheme.textPrimary
+        canvas.drawText(
+            Math.round(displayedSpeedKmh.coerceAtLeast(0.0)).coerceAtMost(299).toString(),
+            m.speedValueCenterX(rect),
+            m.speedValueBaseline(rect),
+            textPaint,
+        )
+        smallText.textAlign = Paint.Align.CENTER
+        smallText.textSize = m.ts(if (m.compact) 12f else 14f)
+        smallText.color = if (overLimit) Color.rgb(255, 144, 146) else hudTheme.textMuted
+        canvas.drawText("km/h", m.speedValueCenterX(rect), m.speedUnitBaseline(rect), smallText)
+    }
+
+    private fun drawPremiumNavigationHud(canvas: Canvas, m: AutoHudMetrics, snap: VroomPayload, top: Float): RectF {
+        val card = m.navigationCockpitRect(top)
+        val corner = m.s(if (m.compact) 20f else 24f)
+        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                card.left,
+                card.top,
+                card.right,
+                card.bottom,
+                if (isNightModeActive) Color.argb(250, 6, 9, 14) else Color.argb(250, 250, 252, 255),
+                if (isNightModeActive) Color.argb(244, 18, 25, 35) else Color.argb(246, 226, 235, 243),
+                Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRoundRect(card, corner, corner, background)
+        strokePaint.color = if (isNightModeActive) Color.argb(185, 36, 202, 255) else Color.argb(150, 0, 112, 176)
+        canvas.drawRoundRect(card, corner, corner, strokePaint)
+
+        val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(card.left, card.top, card.right, card.top, Color.rgb(227, 56, 53), Color.rgb(36, 202, 255), Shader.TileMode.CLAMP)
+            strokeWidth = m.s(3.5f)
+            strokeCap = Paint.Cap.ROUND
+        }
+        canvas.drawLine(card.left + corner, card.top + m.s(3f), card.right - corner, card.top + m.s(3f), accentPaint)
+
+        val mainHeight = m.s(if (m.compact) 104f else 122f)
+        val mainBottom = (card.top + mainHeight).coerceAtMost(card.bottom - m.s(42f))
+        val statsWidth = m.s(if (m.compact) 86f else 112f)
+        val iconSize = m.s(if (m.compact) 64f else 78f)
+        val iconRect = RectF(
+            card.left + m.s(12f),
+            card.top + m.s(17f),
+            card.left + m.s(12f) + iconSize,
+            card.top + m.s(17f) + iconSize,
+        )
+        val iconBackground = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isNightModeActive) Color.rgb(28, 192, 242) else Color.rgb(0, 137, 196)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(iconRect, m.s(18f), m.s(18f), iconBackground)
+
+        val transition = ((System.currentTimeMillis() - maneuverTransitionStartedAt).toFloat() / 220f).coerceIn(0f, 1f)
+        val eased = 1f - (1f - transition) * (1f - transition)
+        val alpha = (120 + 135 * eased).toInt().coerceIn(120, 255)
+        val mainLayer = canvas.saveLayerAlpha(card.left, card.top, card.right - statsWidth, mainBottom, alpha)
+        canvas.translate(0f, m.s(8f) * (1f - eased))
+        drawManeuverGlyph(
+            canvas,
+            iconRect.centerX(),
+            iconRect.centerY(),
+            m.s(if (m.compact) 20f else 25f),
+            AutoManeuverResolver.drawGlyphKind(snap.maneuver, snap.maneuverModifier, snap.instruction),
+            if (isNightModeActive) Color.rgb(3, 8, 13) else Color.WHITE,
+        )
+
+        val textLeft = iconRect.right + m.s(12f)
+        val textRight = card.right - statsWidth - m.s(16f)
+        val textWidth = (textRight - textLeft).coerceAtLeast(m.s(94f))
+        smallText.textAlign = Paint.Align.LEFT
+        smallText.textSize = m.ts(if (m.compact) 17f else 21f)
+        smallText.color = hudTheme.accent
+        canvas.drawText(formatMeters(snap.turnDistanceMeters ?: snap.remainingDistanceMeters), textLeft, card.top + m.s(34f), smallText)
+        smallText.textSize = m.ts(if (m.compact) 18f else 23f)
+        smallText.color = hudTheme.textPrimary
+        canvas.drawText(fitText(polishInstructionForHud(snap), smallText, textWidth), textLeft, card.top + m.s(if (m.compact) 62f else 70f), smallText)
+        smallText.textSize = m.ts(if (m.compact) 12f else 14f)
+        smallText.color = hudTheme.textMuted
+        canvas.drawText(
+            fitText(snap.destinationName?.takeIf { it.isNotBlank() } ?: "Prowadzenie aktywne", smallText, textWidth),
+            textLeft,
+            card.top + m.s(if (m.compact) 84f else 98f),
+            smallText,
+        )
+        canvas.restoreToCount(mainLayer)
+        if (transition < 1f) postInvalidateOnAnimation()
+
+        val statsLeft = card.right - statsWidth
+        val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = hudTheme.divider
+            strokeWidth = m.s(1.2f)
+        }
+        canvas.drawLine(statsLeft, card.top + m.s(14f), statsLeft, mainBottom - m.s(8f), divider)
+        smallText.textAlign = Paint.Align.CENTER
+        smallText.textSize = m.ts(if (m.compact) 11f else 12f)
+        smallText.color = hudTheme.textMuted
+        canvas.drawText("DO CELU", statsLeft + statsWidth / 2f, card.top + m.s(25f), smallText)
+        textPaint.textAlign = Paint.Align.CENTER
+        textPaint.textSize = m.ts(if (m.compact) 18f else 22f)
+        textPaint.color = hudTheme.textPrimary
+        canvas.drawText(formatKm(snap.remainingDistanceMeters), statsLeft + statsWidth / 2f, card.top + m.s(50f), textPaint)
+        textPaint.textSize = m.ts(if (m.compact) 17f else 20f)
+        textPaint.color = hudTheme.positive
+        canvas.drawText(formatDurationShort(snap.remainingDurationSec), statsLeft + statsWidth / 2f, card.top + m.s(if (m.compact) 75f else 81f), textPaint)
+        smallText.textSize = m.ts(if (m.compact) 11f else 12f)
+        smallText.color = hudTheme.textSecondary
+        canvas.drawText(formatEtaClock(snap.remainingDurationSec), statsLeft + statsWidth / 2f, card.top + m.s(if (m.compact) 95f else 105f), smallText)
+
+        canvas.drawLine(card.left + m.s(14f), mainBottom, card.right - m.s(14f), mainBottom, divider)
+        val upcoming = snap.upcomingSteps.take(3)
+        val queueTop = mainBottom + m.s(7f)
+        val queueBottom = card.bottom - m.s(8f)
+        if (upcoming.isEmpty()) {
+            smallText.textAlign = Paint.Align.LEFT
+            smallText.textSize = m.ts(13f)
+            smallText.color = hudTheme.textMuted
+            canvas.drawText("Dalej zgodnie z trasą", card.left + m.s(16f), queueTop + m.s(21f), smallText)
+        } else {
+            val gap = m.s(6f)
+            val available = card.width() - m.s(28f) - gap * (upcoming.size - 1)
+            val chipWidth = available / upcoming.size
+            upcoming.forEachIndexed { index, step ->
+                val left = card.left + m.s(14f) + index * (chipWidth + gap)
+                drawUpcomingStepChip(canvas, m, RectF(left, queueTop, left + chipWidth, queueBottom), step, index)
+            }
+        }
+        textPaint.textAlign = Paint.Align.CENTER
+        return card
+    }
+
+    private fun drawUpcomingStepChip(canvas: Canvas, m: AutoHudMetrics, rect: RectF, step: AutoUpcomingStep, index: Int) {
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isNightModeActive) Color.argb(190, 27, 34, 45) else Color.argb(205, 218, 228, 236)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(rect, m.s(11f), m.s(11f), fill)
+        drawManeuverGlyph(
+            canvas,
+            rect.left + m.s(18f),
+            rect.centerY(),
+            m.s(if (m.compact) 7f else 8f),
+            AutoManeuverResolver.drawGlyphKind(step.maneuver, step.maneuverModifier, step.instruction),
+            if (index == 0) hudTheme.accent else hudTheme.textSecondary,
+        )
+        smallText.textAlign = Paint.Align.LEFT
+        smallText.textSize = m.ts(if (m.compact) 11f else 12f)
+        smallText.color = if (index == 0) hudTheme.textPrimary else hudTheme.textSecondary
+        val distance = formatMeters(step.distanceMeters)
+        canvas.drawText(distance, rect.left + m.s(32f), rect.centerY() + m.s(4f), smallText)
+    }
+
+    private fun drawNavigationAlert(canvas: Canvas, m: AutoHudMetrics, navigationRect: RectF) {
+        val message = toastText ?: return
+        if (System.currentTimeMillis() > toastUntil) {
+            toastText = null
+            return
+        }
+        val rect = m.navigationAlertRect(navigationRect)
+        if (rect.height() < m.s(34f)) return
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isNightModeActive) Color.argb(248, 48, 14, 18) else Color.argb(250, 255, 238, 239)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(rect, m.s(15f), m.s(15f), fill)
+        strokePaint.color = Color.rgb(255, 72, 75)
+        canvas.drawRoundRect(rect, m.s(15f), m.s(15f), strokePaint)
+        val warningPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(255, 72, 75)
+            style = Paint.Style.FILL
+        }
+        val cx = rect.left + m.s(23f)
+        val cy = rect.centerY()
+        val triangle = Path().apply {
+            moveTo(cx, cy - m.s(10f))
+            lineTo(cx - m.s(10f), cy + m.s(9f))
+            lineTo(cx + m.s(10f), cy + m.s(9f))
+            close()
+        }
+        canvas.drawPath(triangle, warningPaint)
+        smallText.textAlign = Paint.Align.LEFT
+        smallText.textSize = m.ts(if (m.compact) 13f else 15f)
+        smallText.color = hudTheme.textPrimary
+        canvas.drawText(fitText(message, smallText, rect.width() - m.s(58f)), rect.left + m.s(43f), rect.centerY() + m.s(5f), smallText)
+        postInvalidateDelayed(250L)
     }
 
     private fun reportHudInsets(
@@ -2701,8 +3190,12 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         topPanelBottom: Float,
         speedRect: RectF,
         rightControlLeft: Float,
+        leftPanelRight: Float? = null,
     ) {
-        hudInsetsListener?.invoke(m.computeInsets(mode, topPanelBottom, speedRect, rightControlLeft), m.uiScale)
+        hudInsetsListener?.invoke(
+            m.computeInsets(mode, topPanelBottom, speedRect, rightControlLeft, leftPanelRight),
+            m.uiScale,
+        )
     }
 
     private fun drawDropPrompt(canvas: Canvas, m: AutoHudMetrics, drop: AutoGeoDrop) {
@@ -3156,30 +3649,13 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     }
 
     private fun polishInstructionForHud(snap: VroomPayload): String {
-        val clean = snap.instruction?.trim().orEmpty()
-        if (clean.equals("rusz", ignoreCase = true) || clean.equals("depart", ignoreCase = true)) {
-            return "Jedz prosto"
-        }
-        if (clean.isNotBlank() && !looksEnglishInstruction(clean)) return clean
-        val type = snap.maneuver?.lowercase(java.util.Locale.US).orEmpty()
-        val mod = snap.maneuverModifier?.lowercase(java.util.Locale.US).orEmpty()
-        return when {
-            type == "roundabout" || type == "rotary" -> "Rondo"
-            type == "arrive" -> "Dojezdzasz do celu"
-            type == "depart" -> "Jedz prosto"
-            type == "merge" -> "Wlacz sie do ruchu"
-            type == "fork" -> "Trzymaj sie rozwidlenia"
-            mod.contains("right") -> "Skrec w prawo"
-            mod.contains("left") -> "Skrec w lewo"
-            mod.contains("straight") -> "Jedz prosto"
-            mod.contains("uturn") -> "Zawroc"
-            else -> "Jedz do celu"
-        }
-    }
-
-    private fun looksEnglishInstruction(value: String): Boolean {
-        val lower = value.lowercase(java.util.Locale.US)
-        return listOf("turn ", "continue", "merge", "arrive", "depart", "roundabout", "keep ", "head ").any { lower.contains(it) }
+        return AutoInstructionFormatter.cue(
+            instruction = snap.instruction,
+            destinationName = snap.destinationName,
+            maneuver = snap.maneuver,
+            modifier = snap.maneuverModifier,
+            exit = snap.maneuverExit,
+        )
     }
 
     private fun drawSearchIcon(canvas: Canvas, cx: Float, cy: Float, scale: Float = 1f) {
@@ -3323,7 +3799,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         when (kind) {
             "roundabout" -> canvas.drawCircle(cx, cy, size * 0.7f, paint)
             "arrive" -> canvas.drawRect(cx - size * 0.55f, cy - size * 0.55f, cx + size * 0.55f, cy + size * 0.55f, fill)
-            "left" -> {
+            "left", "slight-left", "sharp-left", "ramp-left" -> {
                 val path = Path().apply {
                     moveTo(cx, cy - size)
                     lineTo(cx, cy + size * 0.2f)
@@ -3332,7 +3808,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 canvas.drawPath(path, paint)
                 drawArrowHead(canvas, cx - size * 0.9f, cy + size * 0.2f, -90f, size * 0.42f, color)
             }
-            "right" -> {
+            "right", "slight-right", "sharp-right", "ramp-right" -> {
                 val path = Path().apply {
                     moveTo(cx, cy - size)
                     lineTo(cx, cy + size * 0.2f)
@@ -3341,20 +3817,27 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 canvas.drawPath(path, paint)
                 drawArrowHead(canvas, cx + size * 0.9f, cy + size * 0.2f, 90f, size * 0.42f, color)
             }
-            "uturn" -> {
+            "uturn-left", "uturn-right" -> {
+                val rightTurn = kind == "uturn-right"
+                val direction = if (rightTurn) 1f else -1f
                 val path = Path().apply {
-                    moveTo(cx + size * 0.2f, cy - size)
-                    lineTo(cx + size * 0.2f, cy + size * 0.4f)
-                    quadTo(cx + size * 0.2f, cy + size, cx - size * 0.5f, cy + size)
+                    moveTo(cx - direction * size * 0.2f, cy - size)
+                    lineTo(cx - direction * size * 0.2f, cy + size * 0.35f)
+                    quadTo(cx - direction * size * 0.2f, cy + size, cx + direction * size * 0.55f, cy + size)
                 }
                 canvas.drawPath(path, paint)
-                drawArrowHead(canvas, cx - size * 0.5f, cy + size, -90f, size * 0.42f, color)
+                drawArrowHead(canvas, cx + direction * size * 0.55f, cy + size, direction * 90f, size * 0.42f, color)
             }
-            "merge" -> {
+            "merge", "merge-left", "merge-right", "fork-left", "fork-right" -> {
+                val direction = when {
+                    kind.endsWith("left") -> -1f
+                    kind.endsWith("right") -> 1f
+                    else -> 0f
+                }
                 val path = Path().apply {
-                    moveTo(cx - size, cy + size * 0.5f)
+                    moveTo(cx + direction * size, cy + size * 0.65f)
                     lineTo(cx, cy - size)
-                    lineTo(cx + size, cy + size * 0.5f)
+                    if (direction == 0f) lineTo(cx - size, cy + size * 0.65f)
                 }
                 canvas.drawPath(path, paint)
                 drawArrowHead(canvas, cx, cy - size, 0f, size * 0.42f, color)
@@ -3398,62 +3881,42 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         canvas.drawText(label, rect.centerX(), rect.centerY() + 12f, textPaint)
     }
 
+    private var cachedArrowMarkerBitmap: Bitmap? = null
+    private var cachedArrowMarkerPx = 0
+
+    private fun ensureArrowMarkerBitmap(targetPx: Int): Bitmap {
+        val px = targetPx.coerceAtLeast(48)
+        cachedArrowMarkerBitmap?.takeIf { cachedArrowMarkerPx == px }?.let { return it }
+        val drawable = androidx.core.content.ContextCompat.getDrawable(
+            overlayContext,
+            R.drawable.vroom_location_arrow,
+        )
+        val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        if (drawable != null) {
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, px, px)
+            drawable.draw(canvas)
+        }
+        cachedArrowMarkerBitmap = bitmap
+        cachedArrowMarkerPx = px
+        return bitmap
+    }
+
     private fun markerScreenHeading(heading: Double): Double {
+        if (followMode) return 0.0
         val bearing = mapView?.getMapboxMap()?.cameraState?.bearing ?: 0.0
         return ((heading - bearing) % 360.0 + 360.0) % 360.0
     }
 
     private fun drawArrowMarker(canvas: Canvas, x: Float, y: Float, heading: Double) {
-        val outerHalo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(72, 227, 56, 53)
-            style = Paint.Style.FILL
-        }
-        val innerHalo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(48, 255, 255, 255)
-            style = Paint.Style.STROKE
-            strokeWidth = 2.5f
-        }
-        canvas.drawCircle(x, y, 31f, outerHalo)
-        canvas.drawCircle(x, y, 22f, innerHalo)
-
+        val metrics = AutoHudMetrics.fromVisibleArea(stableArea ?: visibleArea, canvas.width, canvas.height)
+        val scale = metrics.uiScale.coerceIn(0.9f, 1.3f) * 1.18f
+        val markerPx = (56f * scale).toInt().coerceAtLeast(48)
+        val bitmap = ensureArrowMarkerBitmap(markerPx)
+        val half = bitmap.width / 2f
         val save = canvas.save()
         canvas.rotate(heading.toFloat(), x, y)
-        val path = Path().apply {
-            moveTo(x, y - 27f)
-            cubicTo(x + 6f, y - 13f, x + 13f, y + 3f, x + 18f, y + 18f)
-            cubicTo(x + 10f, y + 14f, x + 5f, y + 10f, x, y + 6f)
-            cubicTo(x - 5f, y + 10f, x - 10f, y + 14f, x - 18f, y + 18f)
-            cubicTo(x - 13f, y + 3f, x - 6f, y - 13f, x, y - 27f)
-            close()
-        }
-        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(95, 0, 0, 0)
-            style = Paint.Style.FILL
-        }
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(227, 56, 53)
-            style = Paint.Style.FILL
-        }
-        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = 3.2f
-            strokeJoin = Paint.Join.ROUND
-            strokeCap = Paint.Cap.ROUND
-        }
-        val shine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(88, 255, 255, 255)
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-            strokeCap = Paint.Cap.ROUND
-        }
-        canvas.save()
-        canvas.translate(0f, 3f)
-        canvas.drawPath(path, shadow)
-        canvas.restore()
-        canvas.drawPath(path, fill)
-        canvas.drawPath(path, stroke)
-        canvas.drawLine(x, y - 16f, x, y + 3f, shine)
+        canvas.drawBitmap(bitmap, x - half, y - half, Paint(Paint.ANTI_ALIAS_FLAG))
         canvas.restoreToCount(save)
     }
 
@@ -3516,7 +3979,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private fun liveFollowPoints(snap: VroomPayload): List<AutoRoutePoint>? {
         val nativeFresh = snap.mapState.nativeRoadMatch &&
             snap.mapState.nativeRoadMatchedAt > 0L &&
-            System.currentTimeMillis() - snap.mapState.nativeRoadMatchedAt <= 18_000L
+            System.currentTimeMillis() - snap.mapState.nativeRoadMatchedAt <= ROAD_MATCH_FRESH_MS
         if (!nativeFresh) return null
         val arcPoints = snap.mapState.autoArcWindow?.points
         if (arcPoints != null && arcPoints.size >= 2) return arcPoints
@@ -3525,27 +3988,23 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
 
     private fun stepAlongActiveRoute(
         points: List<AutoRoutePoint>,
-        travelM: Double,
-        speedKmh: Double
+        speedKmh: Double,
     ): RoadStep? {
         if (points.size < 2) return null
         if (!routeCursorArcM.isFinite()) routeCursorArcM = routeTargetArcM.takeIf { it.isFinite() } ?: 0.0
         if (!routeTargetArcM.isFinite()) routeTargetArcM = routeCursorArcM
-        val gapM = (routeTargetArcM - routeCursorArcM).coerceAtLeast(0.0)
         // Płynna interpolacja liniowa (LERP) bez twardych skokowych progów:
-        val catchupM = if (gapM > 0.05) {
-            val factor = (gapM / 40.0).coerceIn(0.05, 0.55)
-            (travelM * factor + (gapM * 0.05)).coerceAtMost(1.5)
-        } else {
-            0.0
-        }
-        val targetAgeSec = if (lastGpsAt > 0L) {
-            ((System.currentTimeMillis() - lastGpsAt).coerceIn(0L, 3_000L)).toDouble() / 1000.0
-        } else {
-            0.0
-        }
-        val maxExtrapolatedArc = routeTargetArcM + (speedKmh / 3.6) * targetAgeSec + 2.5
-        val proposedArc = (routeCursorArcM + travelM + catchupM).coerceAtMost(maxExtrapolatedArc)
+        val speedMs = speedKmh.coerceIn(0.0, 180.0) / 3.6
+        val nowMs = System.currentTimeMillis()
+        val progress = segmentProgress(nowMs)
+        val startArc = segmentStartArcM.takeIf { it.isFinite() } ?: routeCursorArcM
+        val segmentLeadM = speedMs * segmentDurationMs.toDouble() / 1_000.0
+        val segmentEndArc = kotlin.math.max(startArc, routeTargetArcM + segmentLeadM)
+        val interpolatedArc = startArc + (segmentEndArc - startArc) * progress
+        val predictionAgeMs = (nowMs - segmentStartedAtMs - segmentDurationMs).coerceIn(0L, 1_500L)
+        val predictedArc = interpolatedArc + speedMs * predictionAgeMs.toDouble() / 1_000.0
+        val maxExtrapolatedArc = routeTargetArcM + speedMs * 1.5 + 1.5
+        val proposedArc = predictedArc.coerceAtMost(maxExtrapolatedArc)
         val nextArc = kotlin.math.max(routeCursorArcM, proposedArc)
         routeCursorArcM = nextArc
         val point = pointAtRoadArc(points, nextArc) ?: return null
@@ -3560,12 +4019,13 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         lat: Double,
         lng: Double,
         points: List<AutoRoutePoint>,
-        maxDistanceM: Double
+        maxDistanceM: Double,
+        expectedHeading: Double? = null,
     ): RoadProjection? {
         if (points.size < 2) return null
         var cumM = 0.0
         var best: RoadProjection? = null
-        var bestDistance = Double.POSITIVE_INFINITY
+        var bestScore = Double.POSITIVE_INFINITY
         for (i in 0 until points.size - 1) {
             val a = points[i]
             val b = points[i + 1]
@@ -3585,8 +4045,13 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             val projLat = a.lat + (b.lat - a.lat) * t
             val projLng = a.lng + (b.lng - a.lng) * t
             val distM = distanceMeters(lat, lng, projLat, projLng)
-            if (distM < bestDistance) {
-                bestDistance = distM
+            val headingPenalty = expectedHeading?.let { heading ->
+                val segmentHeading = bearingDegrees(a.lat, a.lng, b.lat, b.lng)
+                AutoRoadPosePolicy.headingPenalty(kotlin.math.abs(headingDelta(heading, segmentHeading)))
+            } ?: 0.0
+            val score = distM + headingPenalty
+            if (score < bestScore) {
+                bestScore = score
                 best = RoadProjection(
                     lat = projLat,
                     lng = projLng,
@@ -3597,7 +4062,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             }
             cumM += segM
         }
-        return best?.takeIf { bestDistance <= maxDistanceM }
+        return best?.takeIf { it.distanceM <= maxDistanceM }
     }
 
     private fun projectOnRoadWindow(
@@ -3607,7 +4072,8 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         anchorArcM: Double,
         backwardM: Double,
         forwardM: Double,
-        maxDistanceM: Double
+        maxDistanceM: Double,
+        expectedHeading: Double? = null,
     ): RoadProjection? {
         if (points.size < 2) return null
         val minArc = (anchorArcM - backwardM).coerceAtLeast(0.0)
@@ -3643,7 +4109,11 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 val projLng = a.lng + (b.lng - a.lng) * t
                 val distM = distanceMeters(lat, lng, projLat, projLng)
                 val backwardPenalty = if (arcM < anchorArcM) (anchorArcM - arcM) * 0.35 else 0.0
-                val score = distM + backwardPenalty
+                val headingPenalty = expectedHeading?.let { heading ->
+                    val segmentHeading = bearingDegrees(a.lat, a.lng, b.lat, b.lng)
+                    AutoRoadPosePolicy.headingPenalty(kotlin.math.abs(headingDelta(heading, segmentHeading)))
+                } ?: 0.0
+                val score = distM + backwardPenalty + headingPenalty
                 if (score < bestScore) {
                     bestScore = score
                     best = RoadProjection(projLat, projLng, arcM, i, distM)

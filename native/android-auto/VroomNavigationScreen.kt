@@ -59,15 +59,42 @@ class VroomNavigationScreen(carContext: CarContext) : Screen(carContext) {
     val meters = (snapshot.turnDistanceMeters ?: snapshot.remainingDistanceMeters ?: 1)
       .coerceAtLeast(1)
       .toDouble()
-    val cue = snapshot.instruction.ifBlank { snapshot.destinationName.ifBlank { "Nawigacja" } }
+    val cue = AutoInstructionFormatter.cue(
+      snapshot.instruction,
+      snapshot.destinationName,
+      snapshot.maneuver,
+      snapshot.maneuverModifier,
+      snapshot.maneuverExit,
+    )
     return RoutingInfo.Builder()
       .setCurrentStep(
         Step.Builder()
           .setCue(cue)
-          .setManeuver(Maneuver.Builder(maneuverType(snapshot.maneuver, snapshot.maneuverModifier, cue)).build())
+          .setManeuver(Maneuver.Builder(AutoManeuverResolver.maneuverType(snapshot.maneuver, snapshot.maneuverModifier, snapshot.instruction, cue)).build())
           .build(),
         Distance.create(meters, Distance.UNIT_METERS),
       )
+      .apply {
+        snapshot.followingInstruction.takeIf { it.isNotBlank() }?.let { instruction ->
+          val nextCue = AutoInstructionFormatter.cue(
+            instruction,
+            snapshot.destinationName,
+            snapshot.followingManeuver,
+            snapshot.followingManeuverModifier,
+            snapshot.followingManeuverExit,
+          )
+          setNextStep(
+            Step.Builder()
+              .setCue(nextCue)
+              .setManeuver(
+                Maneuver.Builder(
+                  AutoManeuverResolver.maneuverType(snapshot.followingManeuver, snapshot.followingManeuverModifier, instruction, nextCue),
+                ).build(),
+              )
+              .build(),
+          )
+        }
+      }
       .build()
   }
 
