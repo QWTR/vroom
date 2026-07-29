@@ -175,6 +175,7 @@ dependencies {
     implementation "androidx.car.app:app-projected:1.7.0"
     testImplementation "junit:junit:4.13.2"
     implementation "com.google.android.gms:play-services-location:21.0.1"
+    implementation("io.socket:socket.io-client:2.1.2") { exclude group: "org.json", module: "json" }
     
     // Mapbox SDK (ndk27 variants for 16KB alignment and Android 15 support)
     implementation "com.mapbox.maps:android-ndk27:11.18.2"

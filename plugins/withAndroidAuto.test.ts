@@ -50,4 +50,40 @@ describe('Android Auto canonical renderer', () => {
     expect(plugin).toContain("file.endsWith('.xml')");
     expect(plugin).toContain("path.join(srcDir, 'drawable')");
   });
+
+  it('keeps Live motion buffered, ordered and bounded after packet loss', () => {
+    const source = readFileSync(resolve('native/android-auto/AutoLiveFleetStore.kt'), 'utf8');
+
+    expect(source).toContain('INTERPOLATION_BUFFER_MS = 350L');
+    expect(source).toContain('EXTRAPOLATION_DECAY_START_MS = 1_000L');
+    expect(source).toContain('EXTRAPOLATION_MAX_MS = 2_500L');
+    expect(source).toContain('seq <= previous.seq');
+    expect(source).toContain('rejectedOldSeq += 1');
+    expect(source).toContain('nowMs - INTERPOLATION_BUFFER_MS');
+  });
+
+  it('uses Socket.IO for Live and publishes snapped display pose with private raw validation data', () => {
+    const source = readFileSync(resolve('native/android-auto/AutoLiveFleetSocketClient.kt'), 'utf8');
+
+    expect(source).toContain('next.emit("live:join")');
+    expect(source).toContain('next.on("user:location")');
+    expect(source).toContain('next.on("live:users:snapshot")');
+    expect(source).toContain('.put("rawLat", rawLat)');
+    expect(source).toContain('.put("snapSource", snapSource)');
+    expect(source).toContain('.put("snapAgeMs", snapAgeMs.coerceAtLeast(0L))');
+    expect(source).toContain('.put("snapDistanceM"');
+    expect(source).toContain('fun restFallbackPayload(): String?');
+  });
+
+  it('updates Live annotations in place without clearing the fleet layer', () => {
+    const source = readFileSync(resolve('native/android-auto/VroomMapSurfaceRenderer.kt'), 'utf8');
+    const method = source.match(
+      /private fun syncLiveUserAnnotations[\s\S]*?\n    private fun createMapAnnotation/,
+    )?.[0];
+
+    expect(method).toBeTruthy();
+    expect(method).toContain('manager.update(changed)');
+    expect(method).toContain('liveUserAnnotations.remove(id)?.let(manager::delete)');
+    expect(method).not.toContain('deleteAll()');
+  });
 });

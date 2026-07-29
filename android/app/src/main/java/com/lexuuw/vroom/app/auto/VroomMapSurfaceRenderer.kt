@@ -47,6 +47,7 @@ import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.ScreenCoordinate
 import com.mapbox.maps.extension.style.layers.properties.generated.IconRotationAlignment
 import com.mapbox.maps.plugin.annotation.annotations
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotation
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
 import com.mapbox.maps.plugin.annotation.generated.PolylineAnnotationManager
@@ -136,6 +137,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var followViewportMode = ""
     private val snappedLocationProvider = SnappedLocationProvider()
     private var mapMarkerAnnotationManager: PointAnnotationManager? = null
+    private var liveUserAnnotationManager: PointAnnotationManager? = null
+    private val liveUserAnnotations = linkedMapOf<String, PointAnnotation>()
+    private val liveUserVisualSignatures = linkedMapOf<String, String>()
     private var mapMarkerSignature = ""
     private val markerBitmapCache = linkedMapOf<String, Bitmap>()
     private val remoteBitmapCache = linkedMapOf<String, Bitmap>()
@@ -146,6 +150,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var retainedRouteNavigating = false
     private var retainedRoutePreview = false
     private var lastDynamicRouteAnnotationAt = 0L
+    private var lastLiveFleetFrameAt = 0L
     private var poseTickActive = false
     @Volatile private var hudUiScale = 1f
     private var lastHudInsets: AutoHudInsets? = null
@@ -165,6 +170,10 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             }
             val snap = latestPayload
             val now = System.currentTimeMillis()
+            if (now - lastLiveFleetFrameAt >= 33L) {
+                lastLiveFleetFrameAt = now
+                syncLiveUserAnnotations(now)
+            }
             if ((snap?.isNavigating == true || snap?.mapState?.routePreview == true) &&
                 now - lastDynamicRouteAnnotationAt >= 250L
             ) {
@@ -301,6 +310,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         mainHandler.post {
             mapMarkerSignature = ""
             syncMapAnnotations(latestPayload, force = true)
+            syncLiveUserAnnotations(System.currentTimeMillis(), force = true)
         }
     }
 
@@ -449,6 +459,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             mainHandler.post {
                 syncRouteAnnotation(latestPayload)
                 syncMapAnnotations(latestPayload, force = true)
+                syncLiveUserAnnotations(System.currentTimeMillis(), force = true)
             }
         }
         nextMapView.onStart()
@@ -466,6 +477,11 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             pulsingEnabled = false
         }
         mapMarkerAnnotationManager = nextMapView.annotations.createPointAnnotationManager().apply {
+            iconRotationAlignment = IconRotationAlignment.VIEWPORT
+            iconAllowOverlap = true
+            iconIgnorePlacement = true
+        }
+        liveUserAnnotationManager = nextMapView.annotations.createPointAnnotationManager().apply {
             iconRotationAlignment = IconRotationAlignment.VIEWPORT
             iconAllowOverlap = true
             iconIgnorePlacement = true
@@ -510,6 +526,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         overlay?.applyPayload(payload)
         syncRouteAnnotation(payload)
         syncMapAnnotations(payload)
+        syncLiveUserAnnotations(System.currentTimeMillis(), force = true)
         val routePreviewActive = payload?.mapState?.routePreview == true && payload.routePoints.size > 1
         val enteringRoutePreview = routePreviewActive && !lastRoutePreviewActive
         lastRoutePreviewActive = routePreviewActive
@@ -610,6 +627,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             markerBitmapCache.clear()
             mapMarkerSignature = ""
             syncMapAnnotations(latestPayload, force = true)
+            syncLiveUserAnnotations(System.currentTimeMillis(), force = true)
             syncRouteAnnotation(latestPayload)
         }
         followViewportActive = false
@@ -628,30 +646,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             mapMarkerSignature = ""
             return
         }
-        // Dane live sa odswiezane natywnie miedzy kolejnymi payloadami z JS.
-        // Bez tego mapa rysowala tylko przestarzala liste z ostatniego payloadu.
-        val liveUsers = AutoNavStore.snapshot(carContext).users.map { marker ->
-            UserMarker(
-                id = marker.id,
-                lat = marker.lat,
-                lng = marker.lng,
-                label = marker.label,
-                type = marker.type,
-                avatarUrl = marker.avatarUrl,
-                avatarFrameUrl = marker.avatarFrameUrl,
-                distanceLabel = marker.distanceLabel,
-                isPremium = marker.isPremium,
-                isFriend = marker.isFriend,
-                markerSpriteUri = marker.markerSpriteUri,
-                vehicleModelUrl = marker.vehicleModelUrl,
-                vehicleModelMeta = marker.vehicleModelMeta,
-            )
-        }
-        val users = if (payload.mapState.showUsers && AutoNavStore.showUsersLayer(carContext)) {
-            liveUsers.take(40)
-        } else {
-            emptyList()
-        }
+        // Użytkownicy Live mają osobny manager i nigdy nie uczestniczą w
+        // kosztownym deleteAll() statycznych POI.
+        val users = emptyList<UserMarker>()
         val fuelStations = resolvedPoiMarkers(
             payload.fuelStations,
             payload.mapState.showFuelStations && AutoNavStore.showFuelLayer(carContext),
@@ -882,6 +879,77 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             }.getOrNull()
             ?: return emptyList()
         return VroomPayloadParser.parsePoiMarkersPublic(cached, fallbackType)
+    }
+
+    private fun syncLiveUserAnnotations(nowMs: Long, force: Boolean = false) {
+        val manager = liveUserAnnotationManager ?: return
+        val payload = latestPayload
+        val enabled = payload?.mapState?.showUsers == true && AutoNavStore.showUsersLayer(carContext)
+        if (!enabled) {
+            liveUserAnnotations.values.toList().forEach(manager::delete)
+            liveUserAnnotations.clear()
+            liveUserVisualSignatures.clear()
+            return
+        }
+
+        val viewerPose = overlay?.renderedPose()
+        val users = AutoLiveFleetStore.renderedUsers(
+            nowMs = nowMs,
+            viewerLat = viewerPose?.first,
+            viewerLng = viewerPose?.second,
+            limit = 40,
+        )
+        val activeIds = users.mapTo(linkedSetOf()) { it.id }
+        val removedIds = liveUserAnnotations.keys.filterNot(activeIds::contains)
+        removedIds.forEach { id ->
+            liveUserAnnotations.remove(id)?.let(manager::delete)
+            liveUserVisualSignatures.remove(id)
+        }
+
+        val changed = mutableListOf<PointAnnotation>()
+        var sourceMutationCount = removedIds.size
+        users.forEach { marker ->
+            val visualSignature = buildString {
+                append(marker.label).append('|')
+                append(marker.avatarUrl).append('|')
+                append(marker.avatarFrameUrl).append('|')
+                append(marker.markerSpriteUri).append('|')
+                append(marker.isPremium).append('|')
+                append(marker.isFriend).append('|')
+                append(marker.vehicleModelUrl).append('|')
+                append(markerScaleKey())
+            }
+            val existing = liveUserAnnotations[marker.id]
+            if (existing == null) {
+                val created = manager.create(
+                    PointAnnotationOptions()
+                        .withPoint(Point.fromLngLat(marker.lng, marker.lat))
+                        .withIconImage(userMarkerBitmap(marker))
+                        .withIconSize(1.0),
+                )
+                liveUserAnnotations[marker.id] = created
+                liveUserVisualSignatures[marker.id] = visualSignature
+                sourceMutationCount += 1
+            } else {
+                val nextPoint = Point.fromLngLat(marker.lng, marker.lat)
+                var annotationChanged = false
+                if (force || existing.point != nextPoint) {
+                    existing.point = nextPoint
+                    annotationChanged = true
+                }
+                if (force || liveUserVisualSignatures[marker.id] != visualSignature) {
+                    existing.iconImageBitmap = userMarkerBitmap(marker)
+                    liveUserVisualSignatures[marker.id] = visualSignature
+                    annotationChanged = true
+                }
+                if (annotationChanged) changed += existing
+            }
+        }
+        if (changed.isNotEmpty()) {
+            manager.update(changed)
+            sourceMutationCount += changed.size
+        }
+        if (sourceMutationCount > 0) AutoLiveFleetStore.recordSourceUpdate(sourceMutationCount)
     }
 
     private fun createMapAnnotation(manager: PointAnnotationManager, lat: Double, lng: Double, bitmap: Bitmap) {
@@ -1155,8 +1223,12 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         lifecycleOwner = null
         runCatching { mapView?.location?.updateSettings { enabled = false } }
         runCatching { mapMarkerAnnotationManager?.deleteAll() }
+        runCatching { liveUserAnnotationManager?.deleteAll() }
         runCatching { routeAnnotationManager?.deleteAll() }
         mapMarkerAnnotationManager = null
+        liveUserAnnotationManager = null
+        liveUserAnnotations.clear()
+        liveUserVisualSignatures.clear()
         routeAnnotationManager = null
         mapMarkerSignature = ""
         routeAnnotationSignature = ""

@@ -20,6 +20,7 @@ export type LiveUserMeta = {
   speedKmh?: number | null;
   speedMps?: number | null;
   motionTier?: FleetMotionTier;
+  positionSource?: 'snapped' | 'raw';
 };
 
 export type LiveUserPosition = {

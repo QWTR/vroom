@@ -53,11 +53,15 @@ object VroomCarManager {
 
     fun setCarContext(context: CarContext) {
         activeCarContext = context
+        AutoLiveFleetSocketClient.start(context)
     }
 
     fun clearCarContext() {
+        AutoLiveFleetSocketClient.stop()
         activeCarContext = null
     }
+
+    fun isCarSessionActive(): Boolean = activeCarContext != null
 
     fun dispatchPendingNavigation(context: Context) {
         val carContext = activeCarContext ?: return

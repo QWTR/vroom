@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, NativeModules, type AppStateStatus } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -53,6 +53,7 @@ export interface LiveUser {
   speedMps?: number | null;
   trail?: FleetTrailPoint[];
   motionTier?: FleetMotionTier;
+  positionSource?: 'snapped' | 'raw';
 }
 
 export type LiveLocationMotion = {
@@ -61,7 +62,21 @@ export type LiveLocationMotion = {
   trail?: FleetTrailPoint[];
   /** idle | freeDrive | navigation — gamification server gate */
   mode?: string;
+  rawLat?: number;
+  rawLng?: number;
+  accuracyM?: number;
+  snapSource?: string;
+  snapAgeMs?: number;
+  snapDistanceM?: number;
 };
+
+function isNativeAutoSessionActive(): boolean {
+  try {
+    return NativeModules.VroomBridgeModule?.isCarSessionActive?.() === true;
+  } catch {
+    return false;
+  }
+}
 
 function parseIncomingMotion(u: Partial<LiveUser>): {
   heading: number | null;
@@ -362,6 +377,9 @@ export function useLiveMap(
           speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (prevMeta?.speedKmh ?? null),
           speedMps: displaySpeedMps ?? prevMeta?.speedMps ?? null,
           motionTier,
+          positionSource: incomingNewer
+            ? (u.positionSource ?? prevMeta?.positionSource)
+            : prevMeta?.positionSource,
         },
         lat: coords.lat,
         lng: coords.lng,
@@ -769,6 +787,9 @@ export function useLiveMap(
             speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
             speedMps: displaySpeedMps ?? existingMeta?.speedMps ?? null,
             motionTier,
+            positionSource: data?.positionSource === 'snapped'
+              ? 'snapped'
+              : (data?.positionSource === 'raw' ? 'raw' : existingMeta?.positionSource),
           };
           store.setMeta(meta);
           store.setPosition(id, rawLat, rawLng, true, {
@@ -826,6 +847,7 @@ export function useLiveMap(
             motionTier: u?.motionTier === 'full' || u?.motionTier === 'reduced'
               ? u.motionTier
               : undefined,
+            positionSource: u?.positionSource === 'snapped' ? 'snapped' : 'raw',
           }))
           .filter((u) =>
             Number.isFinite(u.id)
@@ -1055,6 +1077,7 @@ export function useLiveMap(
     motion?:      LiveLocationMotion,
   ) => {
     if (!isSharing) return;
+    if (isNativeAutoSessionActive()) return;
     if (!allowBgRef.current && !isForegroundActive()) return;
     const socket = socketRef.current;
     if (!socket?.connected) return;
@@ -1073,6 +1096,13 @@ export function useLiveMap(
     }
     if (motion?.mode) {
       payload.mode = motion.mode;
+    }
+    for (const key of ['rawLat', 'rawLng', 'accuracyM', 'snapAgeMs', 'snapDistanceM'] as const) {
+      const value = motion?.[key];
+      if (value != null && Number.isFinite(value)) payload[key] = value;
+    }
+    if (motion?.snapSource) {
+      payload.snapSource = motion.snapSource;
     }
     socket.emit('location:update', payload);
   }, [isSharing]);

@@ -263,7 +263,13 @@ object AutoNavStore {
   fun saveAuthToken(context: Context, token: String) { 
     ensureMem(context)
     memAuthToken = token
-    prefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply() 
+    prefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply()
+    if (VroomCarManager.isCarSessionActive()) AutoLiveFleetSocketClient.start(context)
+  }
+  fun authToken(context: Context): String {
+    ensureMem(context)
+    return memAuthToken?.takeIf { it.isNotBlank() }
+      ?: prefs(context).getString(KEY_AUTH_TOKEN, "").orEmpty()
   }
   fun requestStop(context: Context) { prefs(context).edit().putBoolean(KEY_STOP_REQUESTED, true).apply() }
   fun stopNavigation(context: Context) {
@@ -475,17 +481,22 @@ object AutoNavStore {
 
   fun onNativeLocationUpdate(
     context: Context,
-    lat: Double,
-    lng: Double,
+    rawLat: Double,
+    rawLng: Double,
+    displayLat: Double,
+    displayLng: Double,
+    accuracyM: Double,
     speedMs: Double,
     headingDeg: Double,
+    snapSource: String,
+    snapAgeMs: Long,
   ) {
     val now = System.currentTimeMillis()
     // If JS is actively sending smooth snapped location, ignore raw GPS for the map pose!
     // This fixes massive jitter when raw 1Hz GPS fights with JS 60fps snapped location.
     run {
-      liveLat = lat
-      liveLng = lng
+      liveLat = displayLat
+      liveLng = displayLng
       liveSpeed = speedMs
       liveHeading = headingDeg
     }
@@ -507,7 +518,7 @@ object AutoNavStore {
       && prevLng.isFinite()
       && prevTs > 0L
     ) {
-      val segmentKm = haversineKm(prevLat, prevLng, lat, lng)
+      val segmentKm = haversineKm(prevLat, prevLng, rawLat, rawLng)
       val dtMs = nowTs - prevTs
       val segKmh = if (dtMs > 0) segmentKm * 3600_000.0 / dtMs.toDouble() else Double.POSITIVE_INFINITY
       if (
@@ -532,30 +543,31 @@ object AutoNavStore {
     var oldLat = prevLat.toFloat()
     var oldLng = prevLng.toFloat()
     
-    if (oldLat != lat.toFloat() || oldLng != lng.toFloat() || pendingKm > 0) {
-      p.edit().putFloat(KEY_LAST_TRACK_LAT, lat.toFloat())
-        .putFloat(KEY_LAST_TRACK_LNG, lng.toFloat())
+    if (oldLat != rawLat.toFloat() || oldLng != rawLng.toFloat() || pendingKm > 0) {
+      p.edit().putFloat(KEY_LAST_TRACK_LAT, rawLat.toFloat())
+        .putFloat(KEY_LAST_TRACK_LNG, rawLng.toFloat())
         .putLong(KEY_LAST_TRACK_TS, nowTs)
         .putFloat(KEY_PENDING_DRIVE_KM, pendingKm.toFloat())
         .apply()
     }
 
-    saveLocation(context, lat, lng)
+    saveLocation(context, displayLat, displayLng)
     saveSpeedHeading(context, speedMs, headingDeg)
 
-    val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
-    val lastLivePush = p.getLong(KEY_LAST_LIVE_PUSH, 0L)
-    if (token.isNotBlank() && now - lastLivePush >= LIVE_PUSH_INTERVAL_MS) {
-      val locationPayload = JSONObject()
-        .put("lat", lat)
-        .put("lng", lng)
-        .put("shareLocation", true)
-      val (liveCode, _) = requestJson("POST", "/api/live/location", token, locationPayload.toString())
-      if (liveCode in 200..299) {
-        p.edit().putLong(KEY_LAST_LIVE_PUSH, now).apply()
-      }
-    }
+    AutoLiveFleetSocketClient.publishLocation(
+      displayLat = displayLat,
+      displayLng = displayLng,
+      rawLat = rawLat,
+      rawLng = rawLng,
+      accuracyM = accuracyM,
+      speedMs = speedMs,
+      heading = headingDeg,
+      mode = if (snapshot(context).isNavigating) "navigation" else "freeDrive",
+      snapSource = snapSource,
+      snapAgeMs = snapAgeMs,
+    )
 
+    val token = p.getString(KEY_AUTH_TOKEN, "") ?: ""
     maybeUploadNativeTripCheckpoint(p, token, force = false)
   }
 
@@ -1413,6 +1425,10 @@ object AutoNavStore {
     val lat = origin?.first ?: 0.0
     val lng = origin?.second ?: 0.0
 
+    if (!AutoLiveFleetSocketClient.isConnected()) {
+    AutoLiveFleetSocketClient.restFallbackPayload()?.let { payload ->
+      requestJson("POST", "/api/live/location", token, payload)
+    }
     val usersPath = buildString {
       append("/api/live/users?take=").append(LIVE_USERS_TAKE)
       if (isValidOrigin(lat, lng)) {
@@ -1426,6 +1442,7 @@ object AutoNavStore {
       val users = runCatching { JSONArray(usersBody) }.getOrNull()
         ?: runCatching { JSONObject(usersBody).optJSONArray("users") }.getOrNull()
       if (users != null) {
+        AutoLiveFleetStore.ingestSnapshot(users)
         val mapped = JSONArray()
         for (i in 0 until users.length()) {
           val u = users.optJSONObject(i) ?: continue
@@ -1457,6 +1474,7 @@ object AutoNavStore {
           }
         }
       }
+    }
     }
 
     val (_, warningsBody) = requestJson("GET", "/api/live/warnings", token)

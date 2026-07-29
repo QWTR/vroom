@@ -34,4 +34,7 @@ class VroomBridgeModule(private val reactContext: ReactApplicationContext) : Rea
         VroomCarManager.sendDataToCar(jsonPayload)
     }
 
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun isCarSessionActive(): Boolean = VroomCarManager.isCarSessionActive()
+
 }

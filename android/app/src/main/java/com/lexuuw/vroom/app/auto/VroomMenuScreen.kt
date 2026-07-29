@@ -81,7 +81,10 @@ class VroomMenuScreen(carContext: CarContext) : Screen(carContext) {
       snapshot.isBuilding -> "budowanie trasy"
       else -> "mapa"
     }
-    return "$mode, ${snapshot.speedKmh.toInt()} km/h"
+    val socket = AutoLiveFleetSocketClient.stats()
+    val fleet = AutoLiveFleetStore.stats()
+    val liveState = if (socket["connected"] == true) "Live online" else "Live REST"
+    return "$mode, ${snapshot.speedKmh.toInt()} km/h, $liveState, ${fleet["users"] ?: 0} aut"
   }
 }
 

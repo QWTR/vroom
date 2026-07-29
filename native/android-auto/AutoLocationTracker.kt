@@ -131,20 +131,35 @@ object AutoLocationTracker {
         latestHeading = heading
         latestElapsedMs = SystemClock.elapsedRealtime()
 
-        AutoNavStore.onNativeLocationUpdate(context, lat, lng, speedMs, heading)
-        AutoNavStore.refreshFromBackendIfNeeded(context)
         NativeRoadMatcher.ingest(location, speedMs * 3.6)
         val roadPose = NativeRoadMatcher.snapToRoad(
             lat,
             lng,
             if (speedMs >= 12.5) 95.0 else 75.0
         )
+        val displayLat = roadPose?.lat ?: lat
+        val displayLng = roadPose?.lng ?: lng
+        val displayHeading = roadPose?.heading ?: heading
+
+        AutoNavStore.onNativeLocationUpdate(
+            context = context,
+            rawLat = lat,
+            rawLng = lng,
+            displayLat = displayLat,
+            displayLng = displayLng,
+            accuracyM = accuracy.toDouble(),
+            speedMs = speedMs,
+            headingDeg = displayHeading,
+            snapSource = if (roadPose != null) "native_osrm" else "raw",
+            snapAgeMs = 0L,
+        )
+        AutoNavStore.refreshFromBackendIfNeeded(context)
 
         VroomCarManager.updateNativePose(
-            lat = roadPose?.lat ?: lat,
-            lng = roadPose?.lng ?: lng,
+            lat = displayLat,
+            lng = displayLng,
             speedMs = speedMs,
-            heading = roadPose?.heading ?: heading,
+            heading = displayHeading,
             accuracyMeters = accuracy
         )
     }

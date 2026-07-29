@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FLEET_INTERPOLATION_BUFFER_MS,
   FLEET_REDUCED_UPDATE_MS,
   resolveFleetMotionTier,
   shouldApplyReducedFleetUpdate,
@@ -59,5 +60,9 @@ describe('liveFleetMotion tiers', () => {
     expect(shouldPublishFleetFrame(1_000, 0)).toBe(true);
     expect(shouldPublishFleetFrame(1_020, 1_000)).toBe(false);
     expect(shouldPublishFleetFrame(1_033, 1_000)).toBe(true);
+  });
+
+  it('uses the agreed 350ms interpolation buffer', () => {
+    expect(FLEET_INTERPOLATION_BUFFER_MS).toBe(350);
   });
 });

@@ -11164,6 +11164,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       speedKmh?: number;
       trail?: { lat: number; lng: number; t: number }[];
       mode?: 'navigation' | 'freeDrive' | 'idle';
+      rawLat?: number;
+      rawLng?: number;
+      accuracyM?: number;
+      snapSource?: string;
+      snapAgeMs?: number;
+      snapDistanceM?: number;
     } | undefined;
 
     if (tripActive) {
@@ -11218,6 +11224,18 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         speedKmh,
         trail: liveBroadcastTrailRef.current,
       };
+    }
+
+    const rawFix = lastRawTickRef.current;
+    if (motion && rawFix && Number.isFinite(rawFix.lat) && Number.isFinite(rawFix.lng)) {
+      motion.rawLat = rawFix.lat;
+      motion.rawLng = rawFix.lng;
+      motion.accuracyM = Number.isFinite(rawFix.acc) ? rawFix.acc : (lastGpsAccuracyRef.current ?? 25);
+      motion.snapAgeMs = Math.max(0, Date.now() - rawFix.at);
+      motion.snapDistanceM = haversineKm(rawFix.lat, rawFix.lng, lat, lng) * 1000;
+      motion.snapSource = tripActive
+        ? (isNavigatingRef.current ? 'route' : 'local_road')
+        : 'raw';
     }
 
     const now = Date.now();

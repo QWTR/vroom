@@ -195,6 +195,8 @@ const withAndroidAutoNative = (config) => {
         'AutoViewportPolicy.kt',
         'AutoBridgePackage.kt',
         'AutoLocationTracker.kt',
+        'AutoLiveFleetSocketClient.kt',
+        'AutoLiveFleetStore.kt',
         'AutoNavStore.kt',
         'AutoRouteGeometry.kt',
         'NativeRoadMatcher.kt',
@@ -294,6 +296,7 @@ const withAndroidAutoNative = (config) => {
           'implementation "com.mapbox.maps:android-ndk27:11.18.2"',
           'implementation "com.mapbox.common:common-ndk27:24.11.1"',
           'implementation "com.google.android.gms:play-services-location:21.0.1"',
+          'implementation("io.socket:socket.io-client:2.1.2") { exclude group: "org.json", module: "json" }',
         ];
         deps.forEach((dep) => {
           if (!gradle.includes(dep)) {

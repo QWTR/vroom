@@ -20,7 +20,9 @@ import {
   FLEET_EXTRAPOLATE_DECAY_START_MS,
   FLEET_FULL_ANIMATION_RADIUS_KM,
   FLEET_FULL_ANIMATION_EXIT_KM,
+  FLEET_INTERPOLATION_BUFFER_MS,
   FLEET_PUBLISH_INTERVAL_MS,
+  correctionDurationForDistance,
   shouldPublishFleetFrame,
 } from './liveFleetMotion';
 import {
@@ -347,19 +349,20 @@ function resolveMotionJs(
   s: FleetSlot,
   nowMs: number,
 ): { lat: number; lng: number; heading: number } {
+  const renderAtMs = nowMs - FLEET_INTERPOLATION_BUFFER_MS;
   if (s.animationTier === 0) {
     return { lat: s.serverLat, lng: s.serverLng, heading: s.motionHeading };
   }
   if (s.roadTrail.length >= 2) {
-    const resolvedTrail = resolveTrailPosition(s.roadTrail, nowMs);
+    const resolvedTrail = resolveTrailPosition(s.roadTrail, renderAtMs);
     if (resolvedTrail) return resolvedTrail;
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPosition(
-      s.toLat, s.toLng, s.motionHeading, s.speedMps, s.startMs, nowMs, FLEET_EXTRAPOLATE_MAX_MS,
+      s.toLat, s.toLng, s.motionHeading, s.speedMps, s.startMs, renderAtMs, FLEET_EXTRAPOLATE_MAX_MS,
     );
   }
-  const t = clamp01Js((nowMs - s.startMs) / s.durationMs);
+  const t = clamp01Js((renderAtMs - s.startMs) / s.durationMs);
   if (t < 1) {
     return {
       lat: s.fromLat + (s.toLat - s.fromLat) * t,
@@ -368,7 +371,7 @@ function resolveMotionJs(
     };
   }
   return extrapolateFleetPosition(
-    s.toLat, s.toLng, s.motionHeading, s.speedMps, s.segmentEndMs, nowMs, FLEET_EXTRAPOLATE_MAX_MS,
+    s.toLat, s.toLng, s.motionHeading, s.speedMps, s.segmentEndMs, renderAtMs, FLEET_EXTRAPOLATE_MAX_MS,
   );
 }
 
@@ -378,19 +381,20 @@ function resolveMotionWorklet(
   nowMs: number,
 ): { lat: number; lng: number; heading: number } {
   'worklet';
+  const renderAtMs = nowMs - FLEET_INTERPOLATION_BUFFER_MS;
   if (s.animationTier === 0) {
     return { lat: s.serverLat, lng: s.serverLng, heading: s.motionHeading };
   }
   if (s.roadTrail.length >= 2) {
-    const resolvedTrail = resolveTrailPosition(s.roadTrail, nowMs);
+    const resolvedTrail = resolveTrailPosition(s.roadTrail, renderAtMs);
     if (resolvedTrail) return resolvedTrail;
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPositionWorklet(
-      s.toLat, s.toLng, s.motionHeading, s.speedMps, s.startMs, nowMs,
+      s.toLat, s.toLng, s.motionHeading, s.speedMps, s.startMs, renderAtMs,
     );
   }
-  const t = clamp01Shared((nowMs - s.startMs) / s.durationMs);
+  const t = clamp01Shared((renderAtMs - s.startMs) / s.durationMs);
   if (t < 1) {
     return {
       lat: lerpShared(s.fromLat, s.toLat, t),
@@ -399,7 +403,7 @@ function resolveMotionWorklet(
     };
   }
   return extrapolateFleetPositionWorklet(
-    s.toLat, s.toLng, s.motionHeading, s.speedMps, s.segmentEndMs, nowMs,
+    s.toLat, s.toLng, s.motionHeading, s.speedMps, s.segmentEndMs, renderAtMs,
   );
 }
 
@@ -599,7 +603,7 @@ function mergeSlotFromStore(
     ? pos.trail.slice()
     : [];
 
-  if (animationTier === 1) {
+  if (animationTier === 1 && meta.positionSource !== 'snapped') {
     maybeEnqueueFleetOsrmSnap({
       store,
       userId: id,
@@ -648,7 +652,11 @@ function mergeSlotFromStore(
     fromLng = isValidFleetCoordJs(origin.lat, origin.lng) ? origin.lng : prev.renderLng;
     fromHeading = Number.isFinite(origin.heading) ? origin.heading : (prev.heading ?? motionHeading);
     const serverIntervalMs = prev.lastServerAt > 0 ? serverAt - prev.lastServerAt : null;
-    durationMs = computeFleetPushDurationMs(fromLat, fromLng, toLat, toLng, speedMps, serverIntervalMs);
+    const correctionDistanceM = haversineM(fromLat, fromLng, toLat, toLng);
+    const correctionDurationMs = correctionDurationForDistance(correctionDistanceM);
+    durationMs = correctionDurationMs > 0
+      ? correctionDurationMs
+      : computeFleetPushDurationMs(fromLat, fromLng, toLat, toLng, speedMps, serverIntervalMs);
   }
   const segmentEndMs = startMs + durationMs;
 
