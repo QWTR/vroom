@@ -13,6 +13,7 @@ import { useTheme }              from '../../contexts/ThemeContext';
 import { useEffectivePremium }   from '../../hooks/useEffectivePremium';
 import { PhotoGalleryModal }     from '../../components/spots/PhotoGalleryModal';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
+import { invalidateQuestTrack } from '../../lib/questTrack';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -125,6 +126,7 @@ export default function CarDetailScreen() {
       const comment: CarComment = await res.json();
       setCar(prev => prev ? { ...prev, comments: [comment, ...prev.comments], commentsCount: prev.commentsCount + 1 } : prev);
       setCommentText('');
+      invalidateQuestTrack();
       Toast.show({ type: 'success', text1: '💬 DODANO', text2: 'Komentarz dodany!' });
     } catch {
       Toast.show({ type: 'error', text1: 'BŁĄD', text2: 'Nie można dodać komentarza.' });

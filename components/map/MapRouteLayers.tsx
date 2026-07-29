@@ -1,11 +1,10 @@
 import React, { memo, useMemo } from 'react';
 import Mapbox from '@rnmapbox/maps';
 import { MAP_LAYER_IDS } from '../../lib/mapScreen/mapLayerContract';
+import { NAVIGATION_ROUTE_PALETTE } from '../../constants/navigationPalette';
+import { useTheme } from '../../contexts/ThemeContext';
 
 type Coord = { latitude: number; longitude: number };
-
-const ROUTE_LINE_COLOR = '#3887be';
-const ROUTE_HALO_COLOR = '#3887be55';
 
 function toLineCoords(points: Coord[]): [number, number][] {
   return points.map((c) => [c.longitude, c.latitude]);
@@ -30,6 +29,7 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
   isNavigating,
   isDriving,
 }: RouteLayersProps) {
+  const { isDark } = useTheme();
   const coords = useMemo(
     () => toLineCoords(remainingRoutePoints),
     [remainingRoutePoints],
@@ -43,8 +43,9 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
   );
 
   const navRoute = isNavigating;
-  const routeCoreColor = navRoute ? ROUTE_LINE_COLOR : '#00bfff';
-  const routeHaloColor = navRoute ? ROUTE_HALO_COLOR : '#ffffff55';
+  const routeCoreColor = navRoute
+    ? (isDark ? NAVIGATION_ROUTE_PALETTE.nightCore : NAVIGATION_ROUTE_PALETTE.dayCore)
+    : '#00bfff';
   const routeVisible = coords.length >= 2 && (isNavigating || isDriving);
 
   const lineCapJoin = { lineCap: 'round' as const, lineJoin: 'round' as const };
@@ -65,9 +66,9 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
           id={MAP_LAYER_IDS.routeGlow}
           belowLayerID={MAP_LAYER_IDS.routeMain}
           style={{
-            lineColor: navRoute ? `${ROUTE_LINE_COLOR}55` : '#ffffff15',
-            lineWidth: navRoute ? 12 : 8,
-            lineOpacity: routeVisible ? 1 : 0,
+            lineColor: navRoute ? NAVIGATION_ROUTE_PALETTE.nightGlow : '#ffffff15',
+            lineWidth: navRoute ? 17 : 8,
+            lineOpacity: routeVisible && navRoute && isDark ? 1 : 0,
             ...lineCapJoin,
           }}
         />
@@ -76,9 +77,9 @@ export const MapActiveRouteLayers = memo(function MapActiveRouteLayers({
             id={MAP_LAYER_IDS.routeHalo}
             belowLayerID={MAP_LAYER_IDS.routeGlow}
             style={{
-              lineColor: routeHaloColor,
-              lineWidth: 14,
-              lineOpacity: routeVisible ? 0.92 : 0,
+              lineColor: NAVIGATION_ROUTE_PALETTE.casing,
+              lineWidth: 13,
+              lineOpacity: routeVisible ? 0.94 : 0,
               ...lineCapJoin,
             }}
           />

@@ -10,6 +10,7 @@ describe('Android native background drive contract', () => {
       'BgTrackingModule.kt',
       'BgTrackingPackage.kt',
       'BgTrackingStopReceiver.kt',
+      'VroomLocationBroker.kt',
       'VroomBgTrackingService.kt',
     ]) {
       expect(normalize(readFileSync(

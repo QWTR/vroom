@@ -774,6 +774,7 @@ function RootLayoutInner() {
         <Stack.Screen name="+not-found" />
         <Stack.Screen name="Community/clubs/[id]" />
         <Stack.Screen name="notifications" />
+        <Stack.Screen name="quest-track" />
       </Stack>
       <AppPresenceHeartbeat />
       <AnalyticsBootstrap />

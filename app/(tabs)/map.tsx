@@ -9854,7 +9854,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   }, [navV3, seedGpsLockFromResume, syncDrivingRoadGeometry]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android') return;
     let lastNativeApplyAt = 0;
     return BackgroundDriveController.addLocationListener((fix) => {
       if (!isDrivingRef.current && !isNavigatingRef.current) return;
@@ -12740,10 +12739,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     startLocation,
     endLocation,
     userLocation,
+    speedKmh: speed,
+    heading,
     speedLimitKmh: effectiveSpeedLimit,
     remainingRoutePoints,
     navRoutePoints: effectiveNavRoute?.points,
     previewRoutePoints: previewRoute?.points,
+    alternativeRoutes,
     builderPins: pins,
     builderRoutePoints: snappedRoute,
     visibleUsers: effectiveVisibleUsers,

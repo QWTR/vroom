@@ -40,6 +40,7 @@ function copyBgTrackingNative(projectRoot, packageName) {
     'BgTrackingModule.kt',
     'BgTrackingPackage.kt',
     'BgTrackingStopReceiver.kt',
+    'VroomLocationBroker.kt',
     'VroomBgTrackingService.kt',
   ].forEach((file) => {
     const src = path.join(sourceDir, file);

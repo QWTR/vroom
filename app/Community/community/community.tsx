@@ -43,6 +43,7 @@ import {
   reportContent, showBlockUserAlert, syncBlockedUserIdsFromServer,
 } from '../../../lib/ugcActions';
 import { TabTrasy }    from './TabTrasy';
+import { invalidateQuestTrack } from '../../../lib/questTrack';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
@@ -475,6 +476,7 @@ export default function CommunityScreen() {
               throw new Error(payload?.error ?? 'Błąd wysyłania filmu');
             }
             if (payload) {
+              invalidateQuestTrack();
               setPosts(prev => {
                 if (discussionCategory !== DISCUSSION_ALL_CATEGORIES && payload.category !== discussionCategory) {
                   return prev;
@@ -504,6 +506,7 @@ export default function CommunityScreen() {
         throw new Error(err?.error ?? 'Błąd');
       }
       const post = await res.json();
+      invalidateQuestTrack();
       setPosts(prev => {
         if (discussionCategory !== DISCUSSION_ALL_CATEGORIES && post.category !== discussionCategory) {
           return prev;
@@ -539,6 +542,7 @@ export default function CommunityScreen() {
         };
         return { ...p, poll: updated };
       }));
+      invalidateQuestTrack();
       return updated;
     } catch {
       Toast.show({ type: 'error', text1: 'Błąd połączenia' });

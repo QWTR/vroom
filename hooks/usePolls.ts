@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import { invalidateQuestTrack } from '../lib/questTrack';
 
 export type PollData = {
   id:         number;
@@ -65,6 +66,7 @@ export function usePolls() {
       await AsyncStorage.setItem(`poll_voted_${pollId}`, '1');
       setPoll(prev => prev ? { ...prev, ...data } : null);
       setVoted(true);
+      invalidateQuestTrack();
       return true;
     } catch (e) {
       console.log('vote error:', e);

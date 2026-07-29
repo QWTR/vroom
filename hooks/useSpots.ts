@@ -5,6 +5,7 @@ import AsyncStorage  from '@react-native-async-storage/async-storage';
 import Toast         from 'react-native-toast-message';
 import { Spot, SpotCategory } from '../constants/spotTypes';
 import { loadMapLastLocation, saveMapLastLocation } from '../lib/mapLastLocation';
+import { invalidateQuestTrack } from '../lib/questTrack';
 
 const API_URL           = 'https://v-room.app/api/spots';
 const LAST_LOCATION_KEY = 'spots_last_location';
@@ -285,6 +286,7 @@ export function useSpots() {
       };
 
       setSpots(prev => [mapped, ...prev]);
+      invalidateQuestTrack();
       Toast.show({ type: 'success', text1: '✅ SPOT DODANY!', text2: mapped.name });
       return true;
 

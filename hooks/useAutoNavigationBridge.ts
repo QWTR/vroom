@@ -8,7 +8,13 @@ import {
   compactRoutePolyline,
   toCarSafeNavigationDto,
 } from '../core/navigationCore';
+import {
+  createAutomotiveSnapshot,
+  normalizeAutomotiveNavigationStarted,
+} from '../core/automotiveSnapshot';
 import { resolveStationDisplayPrice } from '../lib/fuelDisplayPrice';
+import VroomCarPlay from '../modules/vroom-carplay';
+import { formatNavigationInstruction } from '../scripts/navigationUtils';
 
 const { UsersModule, VroomBridgeModule } = NativeModules as {
   UsersModule?: {
@@ -79,10 +85,19 @@ interface UseAutoNavigationBridgeParams {
   startLocation?: LocationState | null;
   endLocation: LocationState | null;
   userLocation: LocationState | null;
+  speedKmh?: number | null;
+  heading?: number | null;
   speedLimitKmh?: number | null;
   remainingRoutePoints?: { latitude: number; longitude: number }[] | null | undefined;
   navRoutePoints: { latitude: number; longitude: number }[] | null | undefined;
   previewRoutePoints: { latitude: number; longitude: number }[] | null | undefined;
+  alternativeRoutes?: {
+    points?: { latitude: number; longitude: number }[];
+    steps?: Step[];
+    distanceValue?: number;
+    duration?: number;
+    index?: number;
+  }[];
   builderPins?: {
     id: string | number;
     latitude: number;
@@ -212,10 +227,13 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     startLocation,
     endLocation,
     userLocation,
+    speedKmh,
+    heading,
     speedLimitKmh,
     remainingRoutePoints,
     navRoutePoints,
     previewRoutePoints,
+    alternativeRoutes,
     builderPins,
     builderRoutePoints,
     visibleUsers,
@@ -467,6 +485,22 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       }))
   ), [builderPins]);
 
+  const autoAlternativeRoutes = useMemo(() => (
+    (alternativeRoutes ?? []).slice(0, 3).map((route, index) => ({
+      index: route.index ?? index,
+      route: compactRoutePolyline(route.points, 280),
+      routeSteps: (route.steps ?? []).map((step) => ({
+        instruction: formatNavigationInstruction(step),
+        maneuver: step.maneuver ?? '',
+        maneuverModifier: step.maneuverModifier ?? '',
+        maneuverExit: step.maneuverExit ?? null,
+        distanceMeters: step.distance?.value ?? null,
+      })),
+      distanceM: Math.max(1, Math.round(route.distanceValue ?? 1)),
+      durationS: Math.max(0, Math.round((route.duration ?? 0) * 60)),
+    })).filter((route) => route.route.length >= 2)
+  ), [alternativeRoutes]);
+
   const autoMapState = useMemo(() => ({
     mapStyle: mapStyle ?? null,
     locationMarkerStyle: locationMarkerStyle ?? 'profile',
@@ -487,6 +521,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     route: compactPolyline,
     builderRoute: compactBuilderRoute,
     builderPins: autoBuilderPins,
+    alternativeRoutes: autoAlternativeRoutes,
     selfMarker: autoSelfMarker,
     speedCameras: autoSpeedCameras,
     fuelStations: autoFuelStations,
@@ -507,6 +542,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     compactPolyline,
     compactBuilderRoute,
     autoBuilderPins,
+    autoAlternativeRoutes,
     autoSelfMarker,
     autoSpeedCameras,
     autoFuelStations,
@@ -575,17 +611,25 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     lastFullPayloadModeRef.current = modeKey;
     lastFullPayloadAtRef.current = now;
 
-    const payload = {
+    const payload = createAutomotiveSnapshot({
       isNavigating,
       dto,
       route: compactPolyline,
       destination: endLocation,
+      userLocation,
+      speedMetersPerSecond:
+        speedKmh != null && Number.isFinite(speedKmh)
+          ? Math.max(0, speedKmh / 3.6)
+          : null,
+      heading,
       users: autoUsers,
       warnings: autoWarnings,
       mapState: autoMapState,
-    };
+    });
 
-    VroomBridgeModule?.sendDataToCar?.(JSON.stringify(payload));
+    const payloadJSON = JSON.stringify(payload);
+    VroomBridgeModule?.sendDataToCar?.(payloadJSON);
+    VroomCarPlay?.updateSnapshot(payloadJSON);
 
     if (!UsersModule) return;
 
@@ -618,6 +662,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     routeInfo,
     compactPolyline,
     endLocation,
+    userLocation,
+    speedKmh,
+    heading,
     autoUsers,
     autoWarnings,
     autoMapState,
@@ -634,6 +681,7 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
           (await AsyncStorage.getItem('userToken'));
         if (!cancelled && token) {
           UsersModule?.saveAuthTokenForAuto?.(token);
+          VroomCarPlay?.setAuthToken(token);
         }
       } catch {
       }
@@ -664,43 +712,29 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     const stopSub = DeviceEventEmitter.addListener('onStop', () => {
       callbacksRef.current.onStopRequested();
     });
-    const navigationStartedSub = DeviceEventEmitter.addListener('onAutoNavigationStarted', (event) => {
-      try {
-        const parsed = typeof event === 'string' ? JSON.parse(event) : event;
-        const rawRoute = parsed?.mapState?.route ?? parsed?.route ?? [];
-        const routePoints = Array.isArray(rawRoute)
-          ? rawRoute.map((point) => ({
-              latitude: Number(point?.latitude ?? point?.lat),
-              longitude: Number(point?.longitude ?? point?.lng),
-            })).filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
-          : [];
-        if (routePoints.length < 2) return;
-        const rawDestination = parsed?.destination;
-        const destination = rawDestination && Number.isFinite(Number(rawDestination.latitude ?? rawDestination.lat))
-          && Number.isFinite(Number(rawDestination.longitude ?? rawDestination.lng))
-          ? {
-              latitude: Number(rawDestination.latitude ?? rawDestination.lat),
-              longitude: Number(rawDestination.longitude ?? rawDestination.lng),
-              name: String(rawDestination.name ?? 'Cel'),
-            }
-          : null;
-        void callbacksRef.current.onAutoNavigationStarted?.({
-          routePoints,
-          destination,
-          distanceMeters: Number(parsed?.dto?.remainingDistanceMeters ?? parsed?.distanceMeters ?? 0),
-          durationSeconds: Number(
-            parsed?.dto?.remainingDurationSec
-            ?? parsed?.dto?.remainingDurationSeconds
-            ?? parsed?.durationSeconds
-            ?? 0,
-          ),
-          instruction: String(parsed?.dto?.nextInstruction ?? ''),
-          routePreview: parsed?.mapState?.routePreview === true || parsed?.isNavigating === false,
-          selectedRouteIndex: Number(parsed?.mapState?.selectedRouteIndex ?? 0),
-        });
-      } catch {
+    const handleNavigationStarted = (event: unknown) => {
+      const parsed = normalizeAutomotiveNavigationStarted(event);
+      if (parsed) {
+        void callbacksRef.current.onAutoNavigationStarted?.(parsed);
+      }
+    };
+    const navigationStartedSub = DeviceEventEmitter.addListener('onAutoNavigationStarted', handleNavigationStarted);
+    const carPlayStopSub = VroomCarPlay?.addListener('stopRequested', () => {
+      callbacksRef.current.onStopRequested();
+    });
+    const carPlayReportSub = VroomCarPlay?.addListener('reportRequested', (event) => {
+      if (event?.handled) return;
+      const type = String(event?.type ?? '');
+      if (type && callbacksRef.current.onReportTypeRequested) {
+        void callbacksRef.current.onReportTypeRequested(type);
+      } else {
+        callbacksRef.current.onReportRequested?.();
       }
     });
+    const carPlayNavigationSub = VroomCarPlay?.addListener(
+      'navigationStarted',
+      handleNavigationStarted,
+    );
     const searchQuerySub = DeviceEventEmitter.addListener('onSearchQuery', (query) => {
       callbacksRef.current.onAutoSearchQuery?.(String(query ?? ''));
     });
@@ -714,6 +748,9 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
       searchSub.remove();
       stopSub.remove();
       navigationStartedSub.remove();
+      carPlayStopSub?.remove();
+      carPlayReportSub?.remove();
+      carPlayNavigationSub?.remove();
       searchQuerySub.remove();
       searchResultSub.remove();
     };

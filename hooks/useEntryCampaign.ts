@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/config';
+import { invalidateQuestTrack } from '../lib/questTrack';
 
 export type CampaignStep =
   | { id: number; type: 'gift'; sortOrder: number; gift: { id: number; title: string; description: string | null; icon: string; type: string; data: any } }
@@ -87,7 +88,10 @@ export function useEntryCampaign() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ optionIdx }),
       });
-      if (res.ok) await AsyncStorage.setItem(`poll_voted_${pollId}`, '1');
+      if (res.ok) {
+        await AsyncStorage.setItem(`poll_voted_${pollId}`, '1');
+        invalidateQuestTrack();
+      }
       return res.ok;
     } catch {
       return false;

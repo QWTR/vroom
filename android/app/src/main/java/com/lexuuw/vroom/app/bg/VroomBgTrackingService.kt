@@ -13,15 +13,10 @@ import android.graphics.Color
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import com.lexuuw.vroom.app.MainActivity
 import com.lexuuw.vroom.app.R
 import org.json.JSONArray
@@ -37,8 +32,7 @@ class VroomBgTrackingService : Service() {
   private var tripSessionId: String? = null
   private var apiUrl: String? = null
   private var authToken: String? = null
-  private var locationCallback: LocationCallback? = null
-  private var wakeLock: PowerManager.WakeLock? = null
+  private var brokerSubscribed = false
 
   override fun onCreate() {
     super.onCreate()
@@ -197,7 +191,6 @@ class VroomBgTrackingService : Service() {
       return
     }
 
-    acquireWakeLock()
     tripSessionId = sessionId
     val now = System.currentTimeMillis()
     val previous = readState(applicationContext)
@@ -220,39 +213,22 @@ class VroomBgTrackingService : Service() {
       .put("lastFix", previous.opt("lastFix") ?: JSONObject.NULL)
       .put("updatedAt", now)
     writeState(applicationContext, state)
-    Log.d(logTag, "startTracking mode=$mode session=$sessionId callbackActive=${locationCallback != null}")
+    Log.d(logTag, "startTracking mode=$mode session=$sessionId brokerActive=$brokerSubscribed")
 
-    if (locationCallback != null) {
-      Log.d(logTag, "startTracking reuse existing callback; seeding lastKnown mode=$mode")
+    if (brokerSubscribed) {
+      Log.d(logTag, "startTracking reuse shared provider; seeding lastKnown mode=$mode")
       seedLastKnownLocation(mode)
       return
     }
 
-    val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
-      .setMinUpdateIntervalMillis(500L)
-      .setMinUpdateDistanceMeters(2f)
-      .setWaitForAccurateLocation(false)
-      .build()
-
-    val callback = object : LocationCallback() {
-      override fun onLocationResult(result: LocationResult) {
-        result.locations.forEach { location ->
-          persistLocation(applicationContext, location, trackingMode, "live", false)
-          accumulateNativeStats(applicationContext, location)
-          BgTrackingModule.emitLocation(location, trackingMode, "live", false)
-        }
-      }
+    brokerSubscribed = true
+    VroomLocationBroker.subscribe(applicationContext, BROKER_OWNER) { location ->
+      persistLocation(applicationContext, location, trackingMode, "live", false)
+      accumulateNativeStats(applicationContext, location)
+      BgTrackingModule.emitLocation(location, trackingMode, "live", false)
     }
-    locationCallback = callback
-
-    try {
-      fusedLocationClient.requestLocationUpdates(request, callback, mainLooper)
-      Log.d(logTag, "requestLocationUpdates ok mode=$mode")
-      seedLastKnownLocation(mode)
-    } catch (_: SecurityException) {
-      Log.d(logTag, "requestLocationUpdates blocked: permission mode=$mode")
-      stopTracking("permission", notifyReact = true)
-    }
+    Log.d(logTag, "shared provider subscribed mode=$mode")
+    seedLastKnownLocation(mode)
   }
 
   private fun seedLastKnownLocation(mode: String) {
@@ -276,8 +252,8 @@ class VroomBgTrackingService : Service() {
           }
           Log.d(
             logTag,
-            "seedLastKnown accepted mode=$mode lat=${location.latitude} lng=${location.longitude} " +
-              "acc=${location.accuracy} speed=${location.speed} time=${location.time}"
+            "seedLastKnown accepted mode=$mode acc=${location.accuracy} " +
+              "speed=${location.speed} time=${location.time}"
           )
           persistLocation(applicationContext, location, mode, "lastKnown", true)
           accumulateNativeStats(applicationContext, location)
@@ -290,32 +266,10 @@ class VroomBgTrackingService : Service() {
   }
 
   private fun stopNativeLocationUpdates() {
-    locationCallback?.let {
-      fusedLocationClient.removeLocationUpdates(it)
+    if (brokerSubscribed) {
+      VroomLocationBroker.unsubscribe(BROKER_OWNER)
     }
-    locationCallback = null
-    releaseWakeLock()
-  }
-
-  private fun acquireWakeLock() {
-    if (wakeLock?.isHeld == true) return
-    val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-    wakeLock = powerManager.newWakeLock(
-      PowerManager.PARTIAL_WAKE_LOCK,
-      "VROOM:ActiveDriveLocation",
-    ).apply {
-      setReferenceCounted(false)
-      acquire()
-    }
-  }
-
-  private fun releaseWakeLock() {
-    try {
-      if (wakeLock?.isHeld == true) wakeLock?.release()
-    } catch (_: RuntimeException) {
-      // already released
-    }
-    wakeLock = null
+    brokerSubscribed = false
   }
 
   private fun stopTracking(reason: String, notifyReact: Boolean) {
@@ -361,6 +315,7 @@ class VroomBgTrackingService : Service() {
   }
 
   companion object {
+    private const val BROKER_OWNER = "background_drive"
     private const val logTagStatic = "VroomBgTracking"
     const val ACTION_STOP = "com.lexuuw.vroom.app.action.VROOM_BG_SERVICE_STOP"
     const val ACTION_STOP_NOTIFICATION = "com.lexuuw.vroom.app.action.VROOM_BG_SERVICE_STOP_NOTIFICATION"

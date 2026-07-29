@@ -745,15 +745,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         routeAnnotationSignature = signature
         manager.deleteAll()
         val routeGeometry = points.map { Point.fromLngLat(it.lng, it.lat) }
-        val routeCasingColor = if (isNightModeActive) Color.rgb(0, 22, 40) else Color.rgb(12, 39, 58)
+        val routeCasingColor = Color.rgb(16, 8, 22)
         val routeCoreColor = when {
-            effectivePayload.isNavigating && isNightModeActive -> Color.rgb(105, 238, 255)
-            effectivePayload.isNavigating -> Color.rgb(0, 178, 242)
-            isNightModeActive -> Color.rgb(118, 240, 255)
-            else -> Color.rgb(0, 166, 218)
+            effectivePayload.isNavigating && isNightModeActive -> Color.rgb(208, 107, 255)
+            effectivePayload.isNavigating -> Color.rgb(132, 56, 245)
+            else -> Color.rgb(143, 150, 163)
         }
-        // Two separate lines are intentional. Mapbox's annotation border could visually
-        // swallow the cyan core on the night style; a casing plus a core stays legible.
+        // The dark casing keeps the violet route distinct from traffic and map labels.
         manager.create(
             PolylineAnnotationOptions()
                 .withPoints(routeGeometry)
@@ -2672,8 +2670,12 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         val metrics = AutoHudMetrics.fromVisibleArea(stableArea ?: visibleArea, canvas.width, canvas.height)
         routeShadow.strokeWidth = metrics.s(if (snap.isNavigating) 25f else 22f)
         routePaint.strokeWidth = metrics.s(if (snap.isNavigating) 14f else 12f)
-        routeShadow.color = if (snap.isNavigating) Color.rgb(0, 22, 40) else Color.argb(230, 5, 18, 30)
-        routePaint.color = if (snap.isNavigating) Color.rgb(105, 238, 255) else Color.rgb(118, 240, 255)
+        routeShadow.color = if (snap.isNavigating) Color.rgb(16, 8, 22) else Color.argb(230, 5, 18, 30)
+        routePaint.color = if (snap.isNavigating) {
+            if (isNightModeActive) Color.rgb(208, 107, 255) else Color.rgb(132, 56, 245)
+        } else {
+            Color.rgb(143, 150, 163)
+        }
         canvas.drawPath(path, routeShadow)
         canvas.drawPath(path, routePaint)
     }
@@ -2693,7 +2695,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         val topGuard = metrics.safeTop + metrics.safeH * 0.17f
         val bottomGuard = metrics.safeBottom - metrics.s(20f)
         val sideGuard = metrics.s(12f)
-        val color = if (isNightModeActive) Color.argb(245, 224, 250, 255) else Color.argb(245, 0, 91, 148)
+        val color = Color.argb(245, 255, 255, 255)
 
         chevronSegments@ for (index in 0 until projected.lastIndex) {
             val start = projected[index]

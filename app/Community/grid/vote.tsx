@@ -16,6 +16,7 @@ import { API_URL } from '../../../constants/config';
 import { normalizeMediaUri, normalizePhotoList } from '../../../lib/mediaUri';
 import { CommunityScreenHeader } from '../../../components/community';
 import { EntranceIntroGate, VoteCastPulse } from '../../../components/motion';
+import { invalidateQuestTrack } from '../../../lib/questTrack';
 
 const { width, height } = Dimensions.get('window');
 const DIVIDER_H = 60;
@@ -558,6 +559,7 @@ export default function GridVoteScreen() {
       const data = await res.json();
 
       if (res.ok) {
+        if (!isChange) invalidateQuestTrack();
         setVotePulse(true);
         setVotedMap(m => ({ ...m, [battle.id]: entryId }));
         setBattles(prev => prev.map(b =>

@@ -5,22 +5,16 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.Granularity
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.lexuuw.vroom.app.bg.VroomLocationBroker
 
 object AutoLocationTracker {
+    private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var started = false
     @Volatile private var pausedForSimulation = false
-    private var fusedClient: FusedLocationProviderClient? = null
-    private var locationCallback: LocationCallback? = null
     @Volatile private var latestLat = Double.NaN
     @Volatile private var latestLng = Double.NaN
     @Volatile private var latestSpeedMs = 0.0
@@ -49,40 +43,15 @@ object AutoLocationTracker {
         val appContext = context.applicationContext
         if (!hasFineLocationPermission(appContext)) return
 
-        val client = LocationServices.getFusedLocationProviderClient(appContext)
-        val callback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.locations.forEach { location -> handleLocation(appContext, location) }
-            }
-        }
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 200L)
-            .setMinUpdateIntervalMillis(100L)
-            .setMinUpdateDistanceMeters(0f)
-            .setGranularity(Granularity.GRANULARITY_FINE)
-            .setWaitForAccurateLocation(false)
-            .setMaxUpdateDelayMillis(0L)
-            .build()
-
         NativeRoadMatcher.reset()
         started = true
-        fusedClient = client
-        locationCallback = callback
-
-        client.lastLocation.addOnSuccessListener { location ->
-            if (location != null) handleLocation(appContext, location)
+        VroomLocationBroker.subscribe(appContext, BROKER_OWNER) { location ->
+            handleLocation(appContext, location)
         }
-        client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-            .addOnFailureListener { stop() }
     }
 
     fun stop() {
-        val client = fusedClient
-        val callback = locationCallback
-        if (client != null && callback != null) {
-            runCatching { client.removeLocationUpdates(callback) }
-        }
-        locationCallback = null
-        fusedClient = null
+        VroomLocationBroker.unsubscribe(BROKER_OWNER)
         started = false
         latestLat = Double.NaN
         latestLng = Double.NaN
@@ -155,13 +124,15 @@ object AutoLocationTracker {
         )
         AutoNavStore.refreshFromBackendIfNeeded(context)
 
-        VroomCarManager.updateNativePose(
-            lat = displayLat,
-            lng = displayLng,
-            speedMs = speedMs,
-            heading = displayHeading,
-            accuracyMeters = accuracy
-        )
+        mainHandler.post {
+            VroomCarManager.updateNativePose(
+                lat = displayLat,
+                lng = displayLng,
+                speedMs = speedMs,
+                heading = displayHeading,
+                accuracyMeters = accuracy
+            )
+        }
     }
 
     private fun normalizeHeading(value: Double): Double =
@@ -173,4 +144,6 @@ object AutoLocationTracker {
         lat.isFinite() && lng.isFinite() &&
             lat in -90.0..90.0 && lng in -180.0..180.0 &&
             !(kotlin.math.abs(lat) < 1e-6 && kotlin.math.abs(lng) < 1e-6)
+
+    private const val BROKER_OWNER = "android_auto"
 }

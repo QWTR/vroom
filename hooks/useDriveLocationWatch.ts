@@ -6,6 +6,7 @@ import { haversineKm } from '../scripts/navigationUtils';
 import { isStationaryGpsSpike } from '../scripts/speedSanitizer';
 import { BG_GPS_STATIONARY_KEY } from './useBackgroundTracking';
 import { logTelemetry } from '../lib/telemetryLogger';
+import { BackgroundDriveController } from '../lib/backgroundDriveController';
 import {
   createGpsLockState,
   resetGpsLockState,
@@ -50,7 +51,7 @@ const DRIVE_SPEED_KMH = 6;
 /** Poniżej tej prędkości liczymy postój (korek, parking). */
 const STATIONARY_SPEED_KMH = 3;
 /** Czas postoju zanim obniżymy profil GPS z activeDrive. */
-const STATIONARY_HOLD_MS = 45_000;
+const STATIONARY_HOLD_MS = 15_000;
 const MAX_ACCURACY_BROWSING_M = 140;
 const MAX_ACCURACY_ACTIVE_M = 220;
 const MAX_ACCURACY_ACTIVE_HARD_M = GPS_LAYER_A_ACTIVE_REJECT_ACC_M;
@@ -99,13 +100,13 @@ const GPS_CONFIG: Record<GpsProfile, {
   },
   activeDrive: {
     accuracy: Location.Accuracy.BestForNavigation,
-    timeInterval: 250,
-    distanceInterval: 5,
+    timeInterval: 1000,
+    distanceInterval: 3,
   },
   activeNav: {
     accuracy: Location.Accuracy.BestForNavigation,
-    timeInterval: 150,
-    distanceInterval: 4,
+    timeInterval: 1000,
+    distanceInterval: 2,
   },
 };
 
@@ -122,7 +123,7 @@ function buildWatchOptions(profile: GpsProfile): Location.LocationOptions {
       pausesUpdatesAutomatically?: boolean;
     };
     iosOpts.activityType = Location.ActivityType.AutomotiveNavigation;
-    iosOpts.pausesUpdatesAutomatically = false;
+    iosOpts.pausesUpdatesAutomatically = true;
   }
   return opts;
 }
@@ -172,6 +173,7 @@ export function useDriveLocationWatch({
   onGpsLockChange,
 }: Options) {
   const subRef = useRef<Location.LocationSubscription | null>(null);
+  const nativeProviderActiveRef = useRef(false);
   const profileRef = useRef<GpsProfile>('browsing');
   const onLocRef = useRef(onLocation);
   const onLockRef = useRef(onGpsLockChange);
@@ -355,6 +357,18 @@ export function useDriveLocationWatch({
     const opId = ++opSeqRef.current;
     subRef.current?.remove();
     subRef.current = null;
+    if (isActiveGpsProfile(profile)) {
+      const nativeState = await BackgroundDriveController.getState().catch(() => null);
+      if (opId !== opSeqRef.current) return;
+      if (nativeState?.active) {
+        nativeProviderActiveRef.current = true;
+        profileRef.current = profile;
+        lastValidFixAtRef.current = Date.now();
+        traceGps('GPS_NATIVE_PROVIDER_REUSED', { profile, reason }, 0);
+        return;
+      }
+    }
+    nativeProviderActiveRef.current = false;
     if (resetLock) {
       resetGpsLockState(lockRef.current);
       applyLockState(false);
@@ -385,8 +399,6 @@ export function useDriveLocationWatch({
             if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) || !Number.isFinite(acc)) {
               traceGps('GPS_WATCH_REJECT_INVALID', {
                 profile: profileRef.current,
-                lat: rawLat,
-                lng: rawLng,
                 acc,
               }, 0);
               return;
@@ -401,13 +413,9 @@ export function useDriveLocationWatch({
                   profile: profileRef.current,
                   accM: Math.round(acc),
                   lockEstablished: lockRef.current.established,
-                  lat: Number(rawLat.toFixed(6)),
-                  lng: Number(rawLng.toFixed(6)),
                 }, 500);
                 void logTelemetry('GPS_REJECT_PRELOCK_ACCURACY', {
                   acc: Math.round(acc),
-                  lat: Number(rawLat.toFixed(6)),
-                  lng: Number(rawLng.toFixed(6)),
                 });
                 return;
               }
@@ -508,8 +516,6 @@ export function useDriveLocationWatch({
                 void logTelemetry('GPS_REJECT_ACCURACY_ACTIVE', {
                   acc: Math.round(acc),
                   maxAcc: MAX_ACCURACY_ACTIVE_HARD_M,
-                  lat: Number(rawLat.toFixed(6)),
-                  lng: Number(rawLng.toFixed(6)),
                 });
                 return;
               }
@@ -600,12 +606,8 @@ export function useDriveLocationWatch({
               accM: Math.round(acc),
               speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               lockEstablished: lockRef.current.established,
-              lat: Number(rawLat.toFixed(6)),
-              lng: Number(rawLng.toFixed(6)),
             }, 1000);
             void logTelemetry('GPS_ACCEPT', {
-              lat: Number(rawLat.toFixed(6)),
-              lng: Number(rawLng.toFixed(6)),
               acc: Math.round(acc),
               speedKmh: Number(safeEffectiveSpeedKmh.toFixed(1)),
               gpsLock: lockRef.current.established,
@@ -675,6 +677,13 @@ export function useDriveLocationWatch({
 
   subscribeRef.current = subscribe;
 
+  useEffect(() => BackgroundDriveController.addLocationListener(() => {
+    if (!isActiveGpsProfile(profileRef.current)) return;
+    nativeProviderActiveRef.current = true;
+    if (subRef.current) teardownSubscription();
+    lastValidFixAtRef.current = Date.now();
+  }), [teardownSubscription]);
+
   useEffect(() => {
     const next = resolveGpsProfile(
       isMapFocused,
@@ -702,8 +711,18 @@ export function useDriveLocationWatch({
         isStationaryParkedRef.current,
       )
       : currentProfile();
+    if (isActiveGpsProfile(profile)) {
+      const nativeState = await BackgroundDriveController.getState().catch(() => null);
+      if (nativeState?.active) {
+        nativeProviderActiveRef.current = true;
+        profileRef.current = profile;
+        teardownSubscription();
+        return;
+      }
+    }
+    nativeProviderActiveRef.current = false;
     await subscribe(profile, isActiveGpsProfile(profile), 'start');
-  }, [currentProfile, subscribe]);
+  }, [currentProfile, subscribe, teardownSubscription]);
 
   const stop = useCallback(() => {
     teardownSubscription();
@@ -737,6 +756,7 @@ export function useDriveLocationWatch({
   useEffect(() => {
     const id = setInterval(() => {
       const profile = profileRef.current;
+      if (nativeProviderActiveRef.current && isActiveGpsProfile(profile)) return;
       const staleThresholdMs = isActiveGpsProfile(profile)
         ? ACTIVE_STALE_MS
         : IDLE_STALE_MS;

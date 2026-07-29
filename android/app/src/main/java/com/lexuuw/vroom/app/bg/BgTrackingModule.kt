@@ -120,6 +120,23 @@ class BgTrackingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun getDiagnostics(promise: Promise) {
+    val values = VroomLocationBroker.diagnostics()
+    val item = Arguments.createMap().apply {
+      putString("state", "locationProvider")
+      putString("reason", if (values["providerActive"] == true) "active" else "inactive")
+      putBoolean("recoverable", true)
+      putDouble("timestampMs", System.currentTimeMillis().toDouble())
+      putInt("consumerCount", values["consumerCount"] as? Int ?: 0)
+      putBoolean("providerActive", values["providerActive"] == true)
+      putBoolean("idleProfile", values["idleProfile"] == true)
+      putDouble("fixCount", (values["fixCount"] as? Long ?: 0L).toDouble())
+      putDouble("providerUptimeMs", (values["providerUptimeMs"] as? Long ?: 0L).toDouble())
+    }
+    promise.resolve(Arguments.createArray().apply { pushMap(item) })
+  }
+
+  @ReactMethod
   fun consumeStopFromNotification(promise: Promise) {
     val prefs = reactContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val pending = prefs.getBoolean(KEY_STOP_PENDING, false)

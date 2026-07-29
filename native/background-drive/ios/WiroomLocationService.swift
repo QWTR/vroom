@@ -35,6 +35,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private var retryAttempt = 0
   private var retryWorkItem: DispatchWorkItem?
   private var lastFixTimestampMs = 0.0
+  private var stationarySince: Date?
 
   override init() {
     super.init()
@@ -45,7 +46,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
     manager.distanceFilter = 2
     manager.activityType = .automotiveNavigation
-    manager.pausesLocationUpdatesAutomatically = false
+    manager.pausesLocationUpdatesAutomatically = true
     manager.allowsBackgroundLocationUpdates = true
     if #available(iOS 11.0, *) {
       manager.showsBackgroundLocationIndicator = true
@@ -171,6 +172,20 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     retryWorkItem?.cancel()
     retryAttempt = 0
     for location in locations {
+      NotificationCenter.default.post(
+        name: Notification.Name("VroomSharedLocationFix"),
+        object: location
+      )
+      if location.speed >= 0.7 {
+        stationarySince = nil
+        manager.distanceFilter = 2
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+      } else if stationarySince == nil {
+        stationarySince = Date()
+      } else if Date().timeIntervalSince(stationarySince!) >= 15 {
+        manager.distanceFilter = 5
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+      }
       let fix = encode(location)
       lastFixTimestampMs = location.timestamp.timeIntervalSince1970 * 1000
       append(fix: fix)

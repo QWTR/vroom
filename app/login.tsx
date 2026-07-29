@@ -7,6 +7,8 @@ import {
   Image, Dimensions, Animated, Easing, NativeModules, Linking, Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -15,6 +17,11 @@ import { registerPushToken } from '../hooks/usePushNotifications';
 import { setTutorialPending } from '../hooks/useAppTutorial';
 import { syncRevenueCatLoginFromStorage } from '../lib/revenueCatUserSync';
 import { markAuthSessionActive } from '../lib/authSessionExpiry';
+import {
+  assertAppleState,
+  buildAppleSignInBody,
+  isAppleSignInCanceled,
+} from '../lib/appleSignIn';
 import { useTheme } from '../contexts/ThemeContext';
 import type { AppTheme } from '../constants/theme';
 
@@ -61,7 +68,26 @@ export default function LoginScreen() {
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [gLoading,     setGLoading]     = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState<boolean | null>(
+    Platform.OS === 'ios' ? null : false,
+  );
   const [acceptedUgcTerms, setAcceptedUgcTerms] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    let active = true;
+    AppleAuthentication.isAvailableAsync()
+      .then((available) => {
+        if (active) setAppleAvailable(available);
+      })
+      .catch(() => {
+        if (active) setAppleAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const ref = typeof params.ref === 'string' ? params.ref.trim() : '';
@@ -221,6 +247,64 @@ export default function LoginScreen() {
       });
       if (e.code === statusCodes?.SIGN_IN_CANCELLED) return;
     } finally { setGLoading(false); }
+  };
+
+  const handleApple = async () => {
+    if (Platform.OS !== 'ios') return;
+    if (!requireUgcTerms()) return;
+    if (!appleAvailable) {
+      Toast.show({
+        type: 'info',
+        text1: 'NIEDOSTĘPNE',
+        text2: 'Logowanie Apple ID nie jest dostępne na tym urządzeniu.',
+      });
+      return;
+    }
+
+    setAppleLoading(true);
+    try {
+      const state = Crypto.randomUUID();
+      const nonce = Crypto.randomUUID();
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        state,
+        nonce,
+      });
+
+      assertAppleState(state, credential.state);
+      const res = await fetch(`${API_URL}/apple`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAppleSignInBody(credential, nonce, acceptedUgcTerms)),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Toast.show({
+          type: 'error',
+          text1: 'BŁĄD APPLE ID',
+          text2: data.error ?? 'Nie udało się zalogować przez Apple.',
+        });
+        return;
+      }
+
+      await saveAndNavigate(data.token, data.user, {
+        needsUgcTerms: data.needsUgcTerms,
+      });
+    } catch (error: unknown) {
+      if (isAppleSignInCanceled(error)) return;
+      Toast.show({
+        type: 'error',
+        text1: 'BŁĄD APPLE ID',
+        text2: error instanceof Error
+          ? error.message
+          : 'Nie udało się połączyć z Apple ID.',
+      });
+    } finally {
+      setAppleLoading(false);
+    }
   };
 
   const handleForgot = async () => {
@@ -532,18 +616,47 @@ enabled={Platform.OS === 'ios'} style={s.root}>
             }
           />
 
-          {Platform.OS === 'ios' ? (
-            <Text style={s.iosLoginHint}>
-              Na iOS logowanie jest wyłącznie w aplikacji: użyj adresu e-mail i hasła (konto VROOM). Logowanie Google i Apple jest na tej platformie wyłączone.
-            </Text>
-          ) : (
-            <>
-              <View style={s.divider}>
-                <View style={s.divLine} />
-                <Text style={s.divText}>LUB</Text>
-                <View style={s.divLine} />
-              </View>
+          <View style={s.divider}>
+            <View style={s.divLine} />
+            <Text style={s.divText}>LUB</Text>
+            <View style={s.divLine} />
+          </View>
 
+          {Platform.OS === 'ios' ? (
+            appleAvailable === false ? (
+              <Text style={s.iosLoginHint}>
+                Logowanie przez Apple ID nie jest dostępne na tym urządzeniu.
+              </Text>
+            ) : (
+              <View
+                style={[
+                  s.appleButtonContainer,
+                  (!acceptedUgcTerms || appleLoading || appleAvailable !== true) && { opacity: 0.45 },
+                ]}
+                pointerEvents={!acceptedUgcTerms || appleLoading || appleAvailable !== true ? 'none' : 'auto'}
+              >
+                {appleLoading ? (
+                  <View style={s.appleLoadingButton}>
+                    <ActivityIndicator color={isDark ? '#000' : '#fff'} />
+                  </View>
+                ) : appleAvailable ? (
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                    buttonStyle={
+                      isDark
+                        ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                        : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                    }
+                    cornerRadius={16}
+                    style={s.appleButton}
+                    onPress={handleApple}
+                  />
+                ) : (
+                  <View style={s.appleButton} />
+                )}
+              </View>
+            )
+          ) : (
               <TouchableOpacity
                 style={[s.googleBtn, (!acceptedUgcTerms || gLoading) && { opacity: 0.45 }]}
                 onPress={handleGoogle}
@@ -557,7 +670,6 @@ enabled={Platform.OS === 'ios'} style={s.root}>
                   </>
                 )}
               </TouchableOpacity>
-            </>
           )}
 
         </Animated.View>
@@ -690,12 +802,21 @@ function makeLoginStyles(t: AppTheme) {
   googleIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#EA4335', alignItems: 'center', justifyContent: 'center' },
   googleTxt:  { fontFamily: 'Orbitron', color: t.textMuted, fontSize: 12 },
 
-  appleBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-    height: 54, borderRadius: 16, borderWidth: 1, borderColor: t.border3,
-    backgroundColor: t.surface, marginBottom: 12,
+  appleButtonContainer: {
+    height: 54,
+    marginBottom: 12,
   },
-  appleTxt: { fontFamily: 'Orbitron', color: t.text, fontSize: 12, fontWeight: '700' },
+  appleButton: {
+    width: '100%',
+    height: 54,
+  },
+  appleLoadingButton: {
+    height: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.text,
+  },
 
   iosLoginHint: {
     marginTop: 4,
