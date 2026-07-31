@@ -20,11 +20,17 @@ describe('native VROOM CarPlay plugin', () => {
   it('registers the navigation scene and current Apple maps entitlement', () => {
     expect(plugin).toContain('UISceneSession.Role.carTemplateApplication');
     expect(plugin).toContain('VroomCarPlayAppSceneDelegate');
+    expect(plugin).toContain('VroomPhoneSceneDelegate');
+    expect(plugin).toContain('configuration.delegateClass = VroomPhoneSceneDelegate.self');
     expect(plugin).toContain('configurationForConnecting connectingSceneSession');
     expect(plugin).toContain('withAppDelegate');
-    expect(plugin).not.toContain(
+    expect(plugin).toContain(
       'configurations.CPTemplateApplicationSceneSessionRoleApplication = [',
     );
+    expect(plugin).toContain(
+      'configurations.UIWindowSceneSessionRoleApplication = [',
+    );
+    expect(plugin).toContain('manifest.UIApplicationSupportsMultipleScenes = true');
     expect(plugin).toContain('com.apple.developer.carplay-maps');
     expect(plugin).not.toContain(
       "cfg.modResults['com.apple.developer.carplay-navigation'] = true",
@@ -67,6 +73,13 @@ describe('native VROOM CarPlay plugin', () => {
     );
     expect(methodIndex).toBeGreaterThan(0);
     expect(methodIndex).toBeLessThan(appDelegateEnd);
+  });
+
+  it('reattaches the Expo window when the regular iPhone scene connects', () => {
+    expect(plugin).toContain('let appDelegate = UIApplication.shared.delegate as? AppDelegate');
+    expect(plugin).toContain('appWindow.windowScene = windowScene');
+    expect(plugin).toContain('appWindow.makeKeyAndVisible()');
+    expect(plugin).toContain('guard attempt < 20 else { return }');
   });
 
   it('pins the native map and Live dependencies required by CarPlay', () => {

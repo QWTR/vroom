@@ -12,6 +12,37 @@ const CARPLAY_SCENE_DELEGATE = `import CarPlay
 import UIKit
 import VroomCarPlay
 
+final class VroomPhoneSceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard let windowScene = scene as? UIWindowScene else { return }
+    attachExpoWindow(to: windowScene)
+  }
+
+  private func attachExpoWindow(to windowScene: UIWindowScene, attempt: Int = 0) {
+    if let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+      let appWindow = appDelegate.window,
+      appWindow.rootViewController != nil
+    {
+      appWindow.windowScene = windowScene
+      window = appWindow
+      appWindow.makeKeyAndVisible()
+      return
+    }
+
+    // Scene connection can race Expo's React root creation on a cold start.
+    guard attempt < 20 else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+      self?.attachExpoWindow(to: windowScene, attempt: attempt + 1)
+    }
+  }
+}
+
 final class VroomCarPlayAppSceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
   func templateApplicationScene(
     _ templateApplicationScene: CPTemplateApplicationScene,
@@ -40,15 +71,18 @@ const CARPLAY_APP_DELEGATE_METHOD = `
     configurationForConnecting connectingSceneSession: UISceneSession,
     options: UIScene.ConnectionOptions
   ) -> UISceneConfiguration {
+    let isCarPlay = connectingSceneSession.role ==
+      UISceneSession.Role.carTemplateApplication
     let configuration = UISceneConfiguration(
-      name: "VROOM CarPlay",
+      name: isCarPlay ? "VROOM CarPlay" : "VROOM Phone",
       sessionRole: connectingSceneSession.role
     )
-    if connectingSceneSession.role ==
-      UISceneSession.Role.carTemplateApplication
-    {
+    if isCarPlay {
       configuration.sceneClass = CPTemplateApplicationScene.self
       configuration.delegateClass = VroomCarPlayAppSceneDelegate.self
+    } else {
+      configuration.sceneClass = UIWindowScene.self
+      configuration.delegateClass = VroomPhoneSceneDelegate.self
     }
     return configuration
   }
@@ -95,24 +129,38 @@ const withCarPlayInfoPlist = (config) =>
       plist.MBXAccessToken ||
       'pk.eyJ1IjoicDFrM3kiLCJhIjoiY21vMWx4Ym14MDZzdzJyc2VmOW1jNmNuaCJ9.hvV-mM6a1--RhnJqlMkojg';
 
-    // Expo owns the phone lifecycle through AppDelegate. A CarPlay-only scene
-    // manifest would switch the phone app to UIScene without providing a
-    // UIWindowScene delegate, which can terminate the app during launch.
-    const manifest = plist.UIApplicationSceneManifest;
-    const configurations = manifest?.UISceneConfigurations;
-    if (configurations && typeof configurations === 'object') {
-      delete configurations.CPTemplateApplicationSceneSessionRoleApplication;
-      if (Object.keys(configurations).length === 0) {
-        delete manifest.UISceneConfigurations;
-      }
-    }
-    if (
-      manifest &&
-      typeof manifest === 'object' &&
-      Object.keys(manifest).length === 0
-    ) {
-      delete plist.UIApplicationSceneManifest;
-    }
+    // Declaring only the CarPlay role makes iOS move the phone app to the scene
+    // lifecycle without a phone window. Both roles must be present together.
+    const manifest =
+      plist.UIApplicationSceneManifest &&
+      typeof plist.UIApplicationSceneManifest === 'object'
+        ? plist.UIApplicationSceneManifest
+        : {};
+    const configurations =
+      manifest.UISceneConfigurations &&
+      typeof manifest.UISceneConfigurations === 'object'
+        ? manifest.UISceneConfigurations
+        : {};
+
+    manifest.UIApplicationSupportsMultipleScenes = true;
+    configurations.UIWindowSceneSessionRoleApplication = [
+      {
+        UISceneClassName: 'UIWindowScene',
+        UISceneConfigurationName: 'VROOM Phone',
+        UISceneDelegateClassName:
+          '$(PRODUCT_MODULE_NAME).VroomPhoneSceneDelegate',
+      },
+    ];
+    configurations.CPTemplateApplicationSceneSessionRoleApplication = [
+      {
+        UISceneClassName: 'CPTemplateApplicationScene',
+        UISceneConfigurationName: 'VROOM CarPlay',
+        UISceneDelegateClassName:
+          '$(PRODUCT_MODULE_NAME).VroomCarPlayAppSceneDelegate',
+      },
+    ];
+    manifest.UISceneConfigurations = configurations;
+    plist.UIApplicationSceneManifest = manifest;
     return cfg;
   });
 
@@ -166,7 +214,7 @@ const withCarPlay = (config) =>
     ),
   );
 
-const plugin = createRunOncePlugin(withCarPlay, 'with-vroom-carplay', '1.0.1');
+const plugin = createRunOncePlugin(withCarPlay, 'with-vroom-carplay', '1.0.3');
 plugin.__internal = {
   CARPLAY_SCENE_DELEGATE,
   CARPLAY_APP_DELEGATE_METHOD,

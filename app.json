@@ -32,7 +32,8 @@
         "NSPhotoLibraryAddUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
         "NSPhotoLibraryUsageDescription": "VROOM zapisuje gotową grafikę story do Twojej galerii zdjęć.",
         "UIBackgroundModes": [
-          "location"
+          "location",
+          "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }

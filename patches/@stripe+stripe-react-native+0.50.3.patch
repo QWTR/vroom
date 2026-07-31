@@ -1,0 +1,26 @@
+diff --git a/node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h b/node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h
+index c7a804d..2dfbfdb 100644
+--- a/node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h
++++ b/node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h
+@@ -11,7 +11,7 @@
+ @protocol STPPaymentCardTextFieldDelegate;
+ @protocol STPCardFormViewDelegate;
+ 
+-typedef NS_ENUM(NSUInteger, STPPaymentStatus);
++typedef NS_ENUM(NSInteger, STPPaymentStatus);
+ 
+ // stripe_react_native-Swift.h also depends on these headers.
+ #import <React/RCTBridgeModule.h>
+diff --git a/node_modules/@stripe/stripe-react-native/src/components/StripeProvider.tsx b/node_modules/@stripe/stripe-react-native/src/components/StripeProvider.tsx
+index 7c56a0a..cea6758 100644
+--- a/node_modules/@stripe/stripe-react-native/src/components/StripeProvider.tsx
++++ b/node_modules/@stripe/stripe-react-native/src/components/StripeProvider.tsx
+@@ -45,7 +45,7 @@ export const initStripe = async (params: InitStripeParams): Promise<void> => {
+   }
+ 
+   const extendedParams: InitialiseParams = { ...params, appInfo };
+-  NativeStripeSdk.initialise(extendedParams);
++  await NativeStripeSdk.initialise(extendedParams);
+ };
+ 
+ /**

@@ -59,6 +59,12 @@ export default function MeetTicketCheckoutScreen() {
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Sprzedaż jest niedostępna');
+        if (data.publishableKey) {
+          await initStripe({
+            publishableKey: data.publishableKey,
+            urlScheme: 'vroom',
+          });
+        }
         if (active) {
           setQuote(data.quote);
           if (data.order?.status === 'paid' || data.order?.status === 'settled') {
