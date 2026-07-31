@@ -9,10 +9,139 @@ import { getAuthToken } from '../../lib/getAuthToken';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export default function BenefitsScreen() {
-  const router = useRouter(); const insets = useSafeAreaInsets(); const { theme, isDark } = useTheme(); const [data, setData] = useState<any>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const load = useCallback(async () => { setLoading(true); setError(''); try { const token = await getAuthToken(); const response = await fetch(`${API_URL}/api/partner-benefits`, { headers: { Authorization: `Bearer ${token || ''}` } }); const json = await response.json(); if (!response.ok) throw new Error(json.error || 'Nie udało się pobrać korzyści'); setData(json); } catch (requestError: any) { setError(requestError.message); } finally { setLoading(false); } }, []); useEffect(() => { void load(); }, [load]); const card = isDark ? '#12161a' : '#f5f6f7'; const border = isDark ? '#262d34' : '#e1e4e7';
-  return <View style={{ flex: 1, backgroundColor: theme.bg }}><View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: border, flexDirection: 'row', alignItems: 'center', gap: 12 }}><TouchableOpacity onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: card, alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} /></TouchableOpacity><View><Text style={{ color: '#ff3b3f', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2 }}>PARTNER HUB</Text><Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 17, marginTop: 3 }}>MOJE KORZYŚCI</Text></View></View>{loading && !data ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#ff3b3f" /></View> : <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#ff3b3f" />} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 14 }}>{error ? <Text style={{ color: '#ff6b72' }}>{error}</Text> : null}<Section title="KUPONY" icon="ticket-percent-outline" theme={theme}>{data?.claims?.length ? data.claims.map((claim: any) => <View key={claim.id} style={{ padding: 16, borderWidth: 1, borderColor: border, borderRadius: 17, backgroundColor: card, gap: 9 }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}><View style={{ flex: 1 }}><Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{claim.offer.title}</Text><Text style={{ color: theme.textDim, marginTop: 4 }}>{claim.offer.businessLocation?.name}</Text></View><Text style={{ color: claim.status === 'redeemed' ? theme.textDim : '#43d17b', fontWeight: '800', fontSize: 11 }}>{claim.status === 'redeemed' ? 'WYKORZYSTANY' : 'AKTYWNY'}</Text></View>{claim.status !== 'redeemed' && <View style={{ padding: 14, backgroundColor: '#fff', borderRadius: 14, alignItems: 'center', gap: 10 }}>{claim.offer.redemptionType === 'claim_qr' && <QRCode value={claim.claimToken} size={130} />}<Text selectable style={{ color: '#111', fontWeight: '900', letterSpacing: 1 }}>{claim.displayCode || claim.claimToken}</Text></View>}{claim.offer.endsAt && <Text style={{ color: theme.textDim, fontSize: 11 }}>Ważny do {new Date(claim.offer.endsAt).toLocaleDateString('pl-PL')}</Text>}</View>) : <Empty text="Nie masz jeszcze pobranych kuponów." theme={theme} />}</Section><Section title="WYDARZENIA" icon="calendar-star" theme={theme}>{data?.registrations?.length ? data.registrations.map((registration: any) => <TouchableOpacity key={registration.id} onPress={() => registration.event.businessLocation?.partnerPoi?.id && router.push(`/partner/${registration.event.businessLocation.partnerPoi.id}` as any)} style={{ padding: 16, borderWidth: 1, borderColor: border, borderRadius: 17, backgroundColor: card }}><Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registration.event.title}</Text><Text style={{ color: '#ff3b3f', marginTop: 7, fontWeight: '700' }}>{new Date(registration.event.startsAt).toLocaleString('pl-PL')}</Text><Text style={{ color: theme.textDim, marginTop: 5 }}>{registration.event.locationName}</Text></TouchableOpacity>) : <Empty text="Nie jesteś zapisany na żadne wydarzenie partnera." theme={theme} />}</Section></ScrollView>}</View>;
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/api/partner-benefits`, {
+        headers: { Authorization: `Bearer ${token || ''}` },
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || 'Nie udało się pobrać korzyści');
+      setData(json);
+    } catch (requestError: any) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const card = isDark ? '#12161a' : '#f5f6f7';
+  const border = isDark ? '#262d34' : '#e1e4e7';
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <TouchableOpacity onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: card, alignItems: 'center', justifyContent: 'center' }}>
+          <MaterialCommunityIcons name="arrow-left" size={22} color={theme.text} />
+        </TouchableOpacity>
+        <View>
+          <Text style={{ color: '#ff3b3f', fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2 }}>PARTNER HUB</Text>
+          <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 17, marginTop: 3 }}>MOJE KORZYŚCI</Text>
+        </View>
+      </View>
+
+      {loading && !data ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color="#ff3b3f" />
+        </View>
+      ) : (
+        <ScrollView
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#ff3b3f" />}
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 14 }}
+        >
+          {error ? <Text style={{ color: '#ff6b72' }}>{error}</Text> : null}
+
+          <Section title="KUPONY" icon="ticket-percent-outline" theme={theme}>
+            {data?.claims?.length ? data.claims.map((claim: any) => (
+              <View key={claim.id} style={{ padding: 16, borderWidth: 1, borderColor: border, borderRadius: 17, backgroundColor: card, gap: 9 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{claim.offer.title}</Text>
+                    <Text style={{ color: theme.textDim, marginTop: 4 }}>{claim.offer.businessLocation?.name}</Text>
+                  </View>
+                  <Text style={{ color: claim.status === 'redeemed' ? theme.textDim : '#43d17b', fontWeight: '800', fontSize: 11 }}>
+                    {claim.status === 'redeemed' ? 'WYKORZYSTANY' : 'AKTYWNY'}
+                  </Text>
+                </View>
+                {claim.status !== 'redeemed' && (
+                  <View style={{ padding: 14, backgroundColor: '#fff', borderRadius: 14, alignItems: 'center', gap: 10 }}>
+                    {claim.offer.redemptionType === 'claim_qr' && <QRCode value={claim.claimToken} size={130} />}
+                    <Text selectable style={{ color: '#111', fontWeight: '900', letterSpacing: 1 }}>{claim.displayCode || claim.claimToken}</Text>
+                  </View>
+                )}
+                {claim.offer.endsAt && <Text style={{ color: theme.textDim, fontSize: 11 }}>Ważny do {new Date(claim.offer.endsAt).toLocaleDateString('pl-PL')}</Text>}
+              </View>
+            )) : <Empty text="Nie masz jeszcze pobranych kuponów." theme={theme} />}
+          </Section>
+
+          <Section title="WYDARZENIA" icon="calendar-star" theme={theme}>
+            {data?.registrations?.length ? data.registrations.map((registration: any) => (
+              <TouchableOpacity
+                key={registration.id}
+                onPress={() => router.push({ pathname: '/Community/meets/meet', params: { id: String(registration.event.id) } })}
+                style={{ padding: 16, borderWidth: 1, borderColor: border, borderRadius: 17, backgroundColor: card }}
+              >
+                <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registration.event.title}</Text>
+                <Text style={{ color: '#ff3b3f', marginTop: 7, fontWeight: '700' }}>{new Date(registration.event.startsAt).toLocaleString('pl-PL')}</Text>
+                <Text style={{ color: theme.textDim, marginTop: 5 }}>{registration.event.locationName}</Text>
+                {registration.qrToken ? (
+                  <View style={{ marginTop: 12, padding: 12, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center' }}>
+                    <QRCode value={registration.qrToken} size={110} />
+                    <Text selectable style={{ color: '#111', marginTop: 8, fontSize: 11, fontWeight: '700' }}>{registration.qrToken}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            )) : <Empty text="Nie jesteś zapisany na żadne oficjalne wydarzenie partnera." theme={theme} />}
+          </Section>
+
+          <Section title="ZARZĄDZAM" icon="shield-account-outline" theme={theme}>
+            {data?.managedEvents?.length ? data.managedEvents.map((event: any) => (
+              <TouchableOpacity
+                key={event.id}
+                onPress={() => router.push({ pathname: '/Community/meets/meet', params: { id: String(event.id) } })}
+                style={{ padding: 16, borderWidth: 1, borderColor: border, borderRadius: 17, backgroundColor: card }}
+              >
+                <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{event.title}</Text>
+                <Text style={{ color: '#ff3b3f', marginTop: 7, fontWeight: '700' }}>{new Date(event.startsAt).toLocaleString('pl-PL')}</Text>
+                <Text style={{ color: theme.textDim, marginTop: 5 }}>
+                  {event._count?.registrations || 0} zapisanych · {event.businessLocation?.name || 'Partner'}
+                </Text>
+              </TouchableOpacity>
+            )) : <Empty text="Nie zarządzasz żadnym oficjalnym wydarzeniem partnera." theme={theme} />}
+          </Section>
+        </ScrollView>
+      )}
+    </View>
+  );
 }
 
-function Section({ title, icon, theme, children }: any) { return <View style={{ gap: 10 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><MaterialCommunityIcons name={icon} size={18} color="#ff3b3f" /><Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1.2 }}>{title}</Text></View>{children}</View>; }
-function Empty({ text, theme }: any) { return <View style={{ padding: 28, alignItems: 'center' }}><Text style={{ color: theme.textDim, textAlign: 'center' }}>{text}</Text></View>; }
+function Section({ title, icon, theme, children }: any) {
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <MaterialCommunityIcons name={icon} size={18} color="#ff3b3f" />
+        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 1.2 }}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function Empty({ text, theme }: any) {
+  return (
+    <View style={{ padding: 28, alignItems: 'center' }}>
+      <Text style={{ color: theme.textDim, textAlign: 'center' }}>{text}</Text>
+    </View>
+  );
+}

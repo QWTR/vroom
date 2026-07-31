@@ -3,7 +3,12 @@ const base = require('./app.json');
 module.exports = ({ config }) => {
   const downloadToken = process.env.RNMAPBOX_MAPS_DOWNLOAD_TOKEN || base.expo.plugins.find(p => Array.isArray(p) && p[0] === '@rnmapbox/maps')?.[1]?.RNMAPBOX_MAPS_DOWNLOAD_TOKEN;
   const seenPlugins = new Set();
-  const plugins = [...(base.expo.plugins ?? []), 'expo-sqlite', 'react-native-iap']
+  const plugins = [
+    ...(base.expo.plugins ?? []),
+    'expo-sqlite',
+    'react-native-iap',
+    ['@stripe/stripe-react-native', { enableGooglePay: true }],
+  ]
     .filter((plugin) => {
       const key = Array.isArray(plugin) ? plugin[0] : plugin;
       if (seenPlugins.has(key)) return false;

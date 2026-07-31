@@ -18,6 +18,7 @@ import { LinearGradient }   from 'expo-linear-gradient';
 import AsyncStorage         from '@react-native-async-storage/async-storage';
 import * as Notifications   from 'expo-notifications';
 import Toast from 'react-native-toast-message';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import MaterialCommunityIcons    from '@expo/vector-icons/MaterialCommunityIcons';
@@ -167,25 +168,29 @@ async function refreshUserData() {
 // ─── ROOT ─────────────────────────────────────────────────
 export default function RootLayout() {
   installAuthSessionExpiryInterceptor();
+  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    || 'pk_test_VROOM_NOT_CONFIGURED';
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <SettingsProvider>
-          <PremiumProvider>
-            <StartupGatesProvider>
-              <AppTutorialProvider>
-                <ErrorBoundary>
-                  <RootLayoutInner />
-                </ErrorBoundary>
-              </AppTutorialProvider>
-            </StartupGatesProvider>
-          </PremiumProvider>
-        </SettingsProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <StripeProvider publishableKey={stripePublishableKey}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <SettingsProvider>
+            <PremiumProvider>
+              <StartupGatesProvider>
+                <AppTutorialProvider>
+                  <ErrorBoundary>
+                    <RootLayoutInner />
+                  </ErrorBoundary>
+                </AppTutorialProvider>
+              </StartupGatesProvider>
+            </PremiumProvider>
+          </SettingsProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </StripeProvider>
   );
 }
 

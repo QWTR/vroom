@@ -12817,22 +12817,29 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     return fuelStations.slice(0, zoomCap);
   }, [currentZoom, fuelStations, userLocation]);
   const effectivePartnerPois = useMemo(() => {
-    if (currentZoom < 12.8) return [];
+    // Partner markers stay visible farther out than fuel stations (hide only below ~10.5).
+    if (currentZoom < 10.5) return [];
     const zoomCap =
-      currentZoom >= 16 ? 24
-      : currentZoom >= 15.5 ? 16
-      : currentZoom >= 15 ? 10
-      : 6;
+      currentZoom >= 16 ? 36
+      : currentZoom >= 15 ? 28
+      : currentZoom >= 13.5 ? 20
+      : currentZoom >= 12 ? 14
+      : currentZoom >= 11 ? 10
+      : 8;
     if (!Array.isArray(partnerPois) || partnerPois.length <= zoomCap) return partnerPois;
     if (userLocation) {
       const sorted = [...partnerPois].sort((a, b) => {
         const da = haversineKm(userLocation.latitude, userLocation.longitude, a.lat, a.lng);
         const db = haversineKm(userLocation.latitude, userLocation.longitude, b.lat, b.lng);
+        const rankDelta = (b.priorityRank || 0) - (a.priorityRank || 0);
+        if (rankDelta !== 0) return rankDelta;
         return da - db;
       });
       return sorted.slice(0, zoomCap);
     }
-    return partnerPois.slice(0, zoomCap);
+    return [...partnerPois]
+      .sort((a, b) => (b.priorityRank || 0) - (a.priorityRank || 0))
+      .slice(0, zoomCap);
   }, [currentZoom, partnerPois, userLocation]);
   const handleAutoNavigationStarted = useCallback((event: AutoNavigationStartedPayload) => {
     if (event.routePoints.length < 2) return;
@@ -13377,10 +13384,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             <PartnerPoiMarker
               key={`partner_${poi.id}`}
               poi={poi}
-              compact={currentZoom < 15.2}
+              compact={false}
               onPress={() => {
-                setSelectedPartnerPoi(poi);
-                setPartnerPoiModalVisible(true);
+                router.push(`/partner/${poi.id}` as any);
               }}
             />
           ))}

@@ -12,6 +12,8 @@ import { useTheme }           from '../../../contexts/ThemeContext';
 import { API_URL }            from '../../../constants/config';
 import { CommunityScreenHeader } from '../../../components/community';
 
+const showToast = (options: Record<string, unknown>) => Toast.show(options as never);
+
 interface MeetUser {
   id:        number;
   username:  string;
@@ -49,6 +51,8 @@ interface MeetDetail {
   ticketPrice:       number | null;
   ticketCurrency:    string;
   ticketUrl:         string | null;
+  ticketSalesEnabled: boolean;
+  ticketOrganizerNetAmount: number | null;
   websiteUrl:        string | null;
   organizerName:     string | null;
   organizerInstagram: string | null;
@@ -140,7 +144,7 @@ export default function MeetDetailScreen() {
       if (!r.ok) throw new Error('Błąd pobierania');
       setMeet(await r.json());
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message });
+      showToast({ type: 'error', text1: 'BŁĄD', text2: e.message });
     } finally {
       setLoading(false);
     }
@@ -167,11 +171,11 @@ export default function MeetDetailScreen() {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
-      if (!r.ok) return Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error });
+      if (!r.ok) return showToast({ type: 'error', text1: 'BŁĄD', text2: data.error });
       setMeet(prev => prev ? { ...prev, isJoined: data.joined, participantsCount: data.participantsCount } : prev);
-      Toast.show({ type: 'success', text1: data.joined ? '🏁 DOŁĄCZONO!' : 'Opuszczono meet', text2: meet.title });
+      showToast({ type: 'success', text1: data.joined ? '🏁 DOŁĄCZONO!' : 'Opuszczono meet', text2: meet.title });
     } catch {
-      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      showToast({ type: 'error', text1: 'Błąd połączenia' });
     } finally { setJoinLoading(false); }
   }, [meet, joinLoading]);
 
@@ -187,13 +191,13 @@ export default function MeetDetailScreen() {
       });
       const data = await r.json();
       if (!r.ok) {
-        Toast.show({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie udało się wysłać' });
+        showToast({ type: 'error', text1: 'BŁĄD', text2: data.error || 'Nie udało się wysłać' });
         return;
       }
-      Toast.show({ type: 'success', text1: 'WYSŁANO', text2: `Zaproszenia: ${data.sent ?? 0} osób w promieniu ${data.radiusKm} km` });
+      showToast({ type: 'success', text1: 'WYSŁANO', text2: `Zaproszenia: ${data.sent ?? 0} osób w promieniu ${data.radiusKm} km` });
       setInviteModal(false);
     } catch {
-      Toast.show({ type: 'error', text1: 'Błąd połączenia' });
+      showToast({ type: 'error', text1: 'Błąd połączenia' });
     } finally { setInviteSending(false); }
   }, [meet, inviteSending, inviteRadius]);
 
@@ -221,9 +225,9 @@ export default function MeetDetailScreen() {
       if (!r.ok) throw new Error(data.error || 'Nie udało się zapisać');
       setMeet(data);
       setQuotaModal(false);
-      Toast.show({ type: 'success', text1: 'ZAPISANO', text2: 'Pule free wjazdów zaktualizowane' });
+      showToast({ type: 'success', text1: 'ZAPISANO', text2: 'Pule free wjazdów zaktualizowane' });
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'BŁĄD', text2: e.message });
+      showToast({ type: 'error', text1: 'BŁĄD', text2: e.message });
     } finally {
       setQuotaSaving(false);
     }
@@ -231,7 +235,7 @@ export default function MeetDetailScreen() {
 
   const openMaps = useCallback(async () => {
     if (!meet?.lat || !meet?.lng) {
-      Toast.show({ type: 'error', text1: 'Brak współrzędnych meetu' }); return;
+      showToast({ type: 'error', text1: 'Brak współrzędnych meetu' }); return;
     }
     await AsyncStorage.setItem('nav_destination', JSON.stringify({
       latitude: meet.lat, longitude: meet.lng, name: meet.locationName,
@@ -260,7 +264,9 @@ export default function MeetDetailScreen() {
   const canManage = meet.canManage;
   const badge   = daysUntil(meet.date);
   const isHot   = meet.status === 'HOT' || pct >= 0.8;
-  const ticketLabel = formatTicketLabel(meet.ticketPrice, meet.ticketCurrency);
+  const ticketLabel = meet.ticketSalesEnabled
+    ? 'Cena końcowa po adresie'
+    : formatTicketLabel(meet.ticketPrice, meet.ticketCurrency);
   const extraLinks = Array.isArray(meet.extraLinks) ? meet.extraLinks : [];
   const socialLinks = [
     meet.organizerInstagram && { icon: 'photo-camera', label: 'Instagram', url: meet.organizerInstagram },
@@ -269,10 +275,21 @@ export default function MeetDetailScreen() {
     meet.organizerWebsite   && { icon: 'language', label: 'Strona org.', url: meet.organizerWebsite },
   ].filter(Boolean) as { icon: string; label: string; url: string }[];
   const actionLinks = [
-    meet.ticketUrl   && { icon: 'confirmation-number', label: 'Kup bilet', url: meet.ticketUrl, accent: true },
+    !meet.ticketSalesEnabled && meet.ticketUrl && { icon: 'confirmation-number', label: 'Kup bilet', url: meet.ticketUrl, accent: true },
     meet.websiteUrl  && { icon: 'public', label: 'Strona wydarzenia', url: meet.websiteUrl },
     ...extraLinks.map(l => ({ icon: 'link', label: l.label || 'Link', url: l.url, accent: false })),
   ].filter(Boolean) as { icon: string; label: string; url: string; accent?: boolean }[];
+  const handlePrimaryAction = () => {
+    if (!meet.ticketSalesEnabled) {
+      handleJoin();
+      return;
+    }
+    if (meet.isJoined) {
+      router.push({ pathname: '/Community/meets/ticket', params: { id: String(meet.id) } } as any);
+      return;
+    }
+    router.push({ pathname: '/Community/meets/checkout', params: { id: String(meet.id) } } as any);
+  };
 
   const renderParticipant = ({ item }: { item: MeetUser }) => (
     <TouchableOpacity
@@ -731,7 +748,7 @@ export default function MeetDetailScreen() {
                 : { backgroundColor: theme.primary },
             joinLoading && { opacity: 0.7 },
           ]}
-          onPress={handleJoin}
+          onPress={handlePrimaryAction}
           disabled={joinLoading || (isFull && !meet.isJoined)}
           activeOpacity={0.85}
         >
@@ -740,12 +757,14 @@ export default function MeetDetailScreen() {
           ) : (
             <>
               <MaterialIcons
-                name={meet.isJoined ? 'check-circle' : isFull ? 'block' : 'add-circle-outline'}
+                name={meet.isJoined ? (meet.ticketSalesEnabled ? 'qr-code-2' : 'check-circle') : isFull ? 'block' : meet.ticketSalesEnabled ? 'confirmation-number' : 'add-circle-outline'}
                 size={20}
                 color={meet.isJoined ? '#4de926' : isFull ? theme.textDim : '#fff'}
               />
               <Text style={{ fontFamily: 'Orbitron', fontSize: 13, fontWeight: '700', color: meet.isJoined ? '#4de926' : isFull ? theme.textDim : '#fff' }}>
-                {meet.isJoined ? 'DOŁĄCZONO ✓' : isFull ? 'BRAK MIEJSC' : 'DOŁĄCZ DO MEETU'}
+                {meet.isJoined
+                  ? meet.ticketSalesEnabled ? 'TWÓJ BILET QR' : 'DOŁĄCZONO ✓'
+                  : isFull ? 'BRAK MIEJSC' : meet.ticketSalesEnabled ? 'KUP BILET' : 'DOŁĄCZ DO MEETU'}
               </Text>
             </>
           )}
