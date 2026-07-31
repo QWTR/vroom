@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -44,6 +44,7 @@ export default function MeetTicketCheckoutScreen() {
   const [city, setCity] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [country, setCountry] = useState('PL');
+  const buyInFlight = useRef(false);
 
   const token = useCallback(async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '', []);
@@ -90,10 +91,12 @@ export default function MeetTicketCheckoutScreen() {
   }, [token]);
 
   const buy = async () => {
+    if (buyInFlight.current) return;
     if (!line1.trim() || !city.trim() || !postalCode.trim() || country.trim().length !== 2) {
       showToast({ type: 'error', text1: 'Uzupełnij adres rozliczeniowy' });
       return;
     }
+    buyInFlight.current = true;
     setPaying(true);
     try {
       const authToken = await token();
@@ -119,13 +122,17 @@ export default function MeetTicketCheckoutScreen() {
         router.back();
         return;
       }
-      if (!data.clientSecret || !data.publishableKey) throw new Error('Niepełna konfiguracja płatności Stripe');
+      if (!data.clientSecret || !data.publishableKey || !data.order?.id) {
+        throw new Error('Niepełna konfiguracja płatności Stripe');
+      }
       setQuote(data.quote);
       setOrderId(data.order.id);
+      console.info('[TICKET_CHECKOUT] Initializing Stripe');
       await initStripe({
         publishableKey: data.publishableKey,
         urlScheme: 'vroom',
       });
+      console.info('[TICKET_CHECKOUT] Initializing Payment Sheet');
       const initialized = await initPaymentSheet({
         merchantDisplayName: 'VROOM',
         paymentIntentClientSecret: data.clientSecret,
@@ -141,6 +148,7 @@ export default function MeetTicketCheckoutScreen() {
         },
       });
       if (initialized.error) throw new Error(initialized.error.message);
+      console.info('[TICKET_CHECKOUT] Presenting Payment Sheet');
       const result = await presentPaymentSheet();
       if (result.error) {
         if (result.error.code !== 'Canceled') throw new Error(result.error.message);
@@ -156,8 +164,14 @@ export default function MeetTicketCheckoutScreen() {
         throw new Error('Stripe nie potwierdził płatności');
       }
     } catch (error: any) {
+      console.error('[TICKET_CHECKOUT] Payment failed', {
+        message: error?.message,
+        code: error?.code,
+        type: error?.type,
+      });
       showToast({ type: 'error', text1: 'Płatność nieudana', text2: error.message });
     } finally {
+      buyInFlight.current = false;
       setPaying(false);
     }
   };

@@ -168,11 +168,9 @@ async function refreshUserData() {
 // ─── ROOT ─────────────────────────────────────────────────
 export default function RootLayout() {
   installAuthSessionExpiryInterceptor();
-  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    || 'pk_test_VROOM_NOT_CONFIGURED';
+  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
 
-  return (
-    <StripeProvider publishableKey={stripePublishableKey}>
+  const application = (
       <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
@@ -190,8 +188,10 @@ export default function RootLayout() {
         </ThemeProvider>
       </SafeAreaProvider>
       </GestureHandlerRootView>
-    </StripeProvider>
   );
+  return stripePublishableKey
+    ? <StripeProvider publishableKey={stripePublishableKey}>{application}</StripeProvider>
+    : application;
 }
 
 // ─── STATUS LINE ──────────────────────────────────────────
