@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+
+const require = createRequire(import.meta.url);
+const carPlayPlugin = require('./withCarPlay.js');
 
 describe('native VROOM CarPlay plugin', () => {
   const plugin = readFileSync(resolve('plugins/withCarPlay.js'), 'utf8');
@@ -14,13 +18,55 @@ describe('native VROOM CarPlay plugin', () => {
   );
 
   it('registers the navigation scene and current Apple maps entitlement', () => {
-    expect(plugin).toContain('CPTemplateApplicationSceneSessionRoleApplication');
+    expect(plugin).toContain('UISceneSession.Role.carTemplateApplication');
     expect(plugin).toContain('VroomCarPlayAppSceneDelegate');
+    expect(plugin).toContain('configurationForConnecting connectingSceneSession');
+    expect(plugin).toContain('withAppDelegate');
+    expect(plugin).not.toContain(
+      'configurations.CPTemplateApplicationSceneSessionRoleApplication = [',
+    );
     expect(plugin).toContain('com.apple.developer.carplay-maps');
     expect(plugin).not.toContain(
       "cfg.modResults['com.apple.developer.carplay-navigation'] = true",
     );
     expect(plugin).toContain("'location'");
+  });
+
+  it('keeps UIKit resources lazy until CarPlay actually connects', () => {
+    expect(coordinator).toContain(
+      'private lazy var locationEngine: VroomCarPlayLocationEngine',
+    );
+    expect(coordinator).toContain(
+      'private lazy var synthesizer: AVSpeechSynthesizer',
+    );
+    expect(coordinator).not.toContain(
+      'private let locationEngine = VroomCarPlayLocationEngine()',
+    );
+  });
+
+  it('injects CarPlay scene selection inside the Expo AppDelegate class', () => {
+    const source = [
+      'import Expo',
+      '@UIApplicationMain',
+      'public class AppDelegate: ExpoAppDelegate {',
+      '  var window: UIWindow?',
+      '}',
+      'class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {}',
+    ].join('\n');
+    const result = carPlayPlugin.__internal.insertSwiftClassMember(
+      source,
+      'AppDelegate',
+      carPlayPlugin.__internal.CARPLAY_APP_DELEGATE_METHOD,
+      'configurationForConnecting connectingSceneSession',
+    );
+    const methodIndex = result.indexOf(
+      'configurationForConnecting connectingSceneSession',
+    );
+    const appDelegateEnd = result.indexOf(
+      '\n}\nclass ReactNativeDelegate',
+    );
+    expect(methodIndex).toBeGreaterThan(0);
+    expect(methodIndex).toBeLessThan(appDelegateEnd);
   });
 
   it('pins the native map and Live dependencies required by CarPlay', () => {

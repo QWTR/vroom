@@ -182,7 +182,9 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
       } else if stationarySince == nil {
         stationarySince = Date()
-      } else if Date().timeIntervalSince(stationarySince!) >= 15 {
+      } else if let stationarySince,
+        Date().timeIntervalSince(stationarySince) >= 15
+      {
         manager.distanceFilter = 5
         manager.desiredAccuracy = kCLLocationAccuracyBest
       }
@@ -308,7 +310,7 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     if hasPrevious && accurateEnough {
       let elapsedMs = nowMs - previousTime
       let segmentKm = haversineKm(previousLat, previousLng, location.coordinate.latitude, location.coordinate.longitude)
-      let speedOk = speedKmh == nil || speedKmh! >= minSpeed
+      let speedOk = speedKmh.map { $0 >= minSpeed } ?? true
       if elapsedMs > 0 && elapsedMs <= maxFixGapMs && segmentKm >= minSegmentKm && speedOk {
         if segmentKm <= maxSegment {
           acceptedMovement = true

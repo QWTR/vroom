@@ -269,12 +269,17 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
 
   private func ensureMarkerInfrastructure(_ mapView: MapView, now: CFTimeInterval) {
     guard now >= sourceRetryAt else { return }
-    let style = mapView.mapboxMap.style
+    guard let mapboxMap = mapView.mapboxMap else {
+      sourceRetryCount = min(sourceRetryCount + 1, 6)
+      sourceRetryAt = now + min(1, 0.05 * pow(2, Double(sourceRetryCount)))
+      forceSourceRefresh = true
+      return
+    }
     do {
-      if !style.sourceExists(withId: Self.markerSourceId) {
+      if !mapboxMap.sourceExists(withId: Self.markerSourceId) {
         var source = GeoJSONSource(id: Self.markerSourceId)
         source.data = .featureCollection(FeatureCollection(features: []))
-        try style.addSource(source)
+        try mapboxMap.addSource(source)
         NSLog("[VroomNativeFollower] recreated marker source")
         arrowImageRegistered = false
         forceSourceRefresh = true
@@ -291,10 +296,14 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
 
   private func ensureArrowImage(_ mapView: MapView) {
     guard !arrowImageRegistered else { return }
+    guard let mapboxMap = mapView.mapboxMap else {
+      arrowImageRegistered = false
+      return
+    }
     let image = cachedArrowImage ?? Self.renderArrowImage()
     cachedArrowImage = image
     do {
-      try mapView.mapboxMap.style.addImage(image, id: Self.nativeArrowImageId)
+      try mapboxMap.addImage(image, id: Self.nativeArrowImageId)
       arrowImageRegistered = true
     } catch {
       arrowImageRegistered = false
@@ -304,6 +313,11 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
 
   private func updateMarkerSource(_ mapView: MapView, pose: VroomRenderedPose) {
     guard markerVisible else { return }
+    guard let mapboxMap = mapView.mapboxMap else {
+      forceSourceRefresh = true
+      dirty = true
+      return
+    }
     let moved = !lastMarkerLatitude.isFinite
       || abs(lastMarkerLatitude - pose.latitude) > 0.0000001
       || abs(lastMarkerLongitude - pose.longitude) > 0.0000001
@@ -321,18 +335,20 @@ final class VroomMapCameraFollowerView: UIView, RNMBXMapAndMapViewComponent {
       "screenHeading": .number(screenHeading),
       "worldHeading": .number(worldHeading),
     ]
-    do {
-      try mapView.mapboxMap.style.updateGeoJSONSource(withId: Self.markerSourceId, geoJSON: .feature(feature))
-      lastMarkerLatitude = pose.latitude
-      lastMarkerLongitude = pose.longitude
-      lastMarkerHeading = screenHeading
-      lastMarkerWorldHeading = worldHeading
-      forceSourceRefresh = false
-    } catch {
-      NSLog("[VroomNativeFollower] marker source write failed: %@", String(describing: error))
+    guard mapboxMap.sourceExists(withId: Self.markerSourceId) else {
       forceSourceRefresh = true
       dirty = true
+      return
     }
+    mapboxMap.updateGeoJSONSource(
+      withId: Self.markerSourceId,
+      geoJSON: .feature(feature)
+    )
+    lastMarkerLatitude = pose.latitude
+    lastMarkerLongitude = pose.longitude
+    lastMarkerHeading = screenHeading
+    lastMarkerWorldHeading = worldHeading
+    forceSourceRefresh = false
   }
 
   private static func normalizeHeading(_ value: Double) -> Double {

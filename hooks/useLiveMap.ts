@@ -3,7 +3,6 @@ import { AppState, NativeModules, type AppStateStatus } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
 import { API_URL } from '../constants/mapConfig';
 import { snapToRoute } from '../scripts/navigationUtils';
@@ -141,7 +140,6 @@ async function fetchWithTimeout(
 export function useLiveMap(
   isSharing:       boolean,
   userLocation:    { latitude: number; longitude: number } | null,
-  isSpeechEnabled: boolean,
   allowBackgroundWork = false,
   mapSessionActive = true,
   liveUsersEnabled = true,
@@ -162,7 +160,6 @@ export function useLiveMap(
   const tokenRef           = useRef<string | null>(null);
   const toggleInFlightRef  = useRef(false);
   const alertedWarningsRef = useRef<Set<number>>(new Set());
-  const isSpeechRef        = useRef(isSpeechEnabled);
   const isSharingRef       = useRef(isSharing);
   const routePointsRef     = useRef<{ latitude: number; longitude: number }[]>([]);
   const userLocationRef    = useRef<{ latitude: number; longitude: number } | null>(null);
@@ -458,7 +455,6 @@ export function useLiveMap(
   }, []);
 
   useEffect(() => { userLocationRef.current = userLocation; },   [userLocation]);
-  useEffect(() => { isSpeechRef.current     = isSpeechEnabled; }, [isSpeechEnabled]);
   useEffect(() => {
     isSharingRef.current = isSharing;
     if (!isSharing) {
@@ -1018,9 +1014,6 @@ export function useLiveMap(
     alertedWarningsRef.current.add(warning.id);
     const label   = getWarningLabel(warning.type);
     const distTxt = distM < 1000 ? `${distM}m` : `${(distM / 1000).toFixed(1)}km`;
-    const message = warning.message
-      ? `${label}: ${warning.message} — ${distTxt} od Ciebie`
-      : `${label} za ${distTxt}`;
 
     Toast.show({
       type:           'error',
@@ -1028,10 +1021,6 @@ export function useLiveMap(
       text2:          `${distTxt} od Ciebie${warning.message ? ` · ${warning.message}` : ''}`,
       visibilityTime: 5000,
     });
-    if (isSpeechRef.current) {
-      Speech.stop().catch(() => {});
-      setTimeout(() => Speech.speak(message, { language: 'pl-PL', pitch: 1.0, rate: 0.88 }), 300);
-    }
     Notifications.scheduleNotificationAsync({
       content: {
         title: `⚠️ ${label}`,

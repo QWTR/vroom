@@ -110,7 +110,11 @@ data class MapState(
     val showWarnings: Boolean = true,
     val showSpeedCameras: Boolean = true,
     val showFuelStations: Boolean = true,
-    val showPartnerPois: Boolean = true
+    val showPartnerPois: Boolean = true,
+    val voiceGuidance: Boolean = true,
+    val voiceAlerts: Boolean = true,
+    val voiceMode: String = "auto",
+    val voiceIdentifier: String? = null
 )
 
 data class VroomPayload(

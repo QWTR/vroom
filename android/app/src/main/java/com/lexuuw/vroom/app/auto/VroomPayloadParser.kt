@@ -64,7 +64,11 @@ object VroomPayloadParser {
                 showWarnings = msObj?.optBoolean("showWarnings", true) ?: true,
                 showSpeedCameras = msObj?.optBoolean("showSpeedCameras", true) ?: true,
                 showFuelStations = msObj?.optBoolean("showFuelStations", true) ?: true,
-                showPartnerPois = msObj?.optBoolean("showPartnerPois", true) ?: true
+                showPartnerPois = msObj?.optBoolean("showPartnerPois", true) ?: true,
+                voiceGuidance = msObj?.optBoolean("voiceGuidance", true) ?: true,
+                voiceAlerts = msObj?.optBoolean("voiceAlerts", true) ?: true,
+                voiceMode = cleanString(msObj?.optString("voiceMode", "auto")) ?: "auto",
+                voiceIdentifier = cleanString(msObj?.optString("voiceIdentifier", ""))
             )
 
             VroomPayload(

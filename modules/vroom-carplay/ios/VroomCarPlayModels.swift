@@ -242,6 +242,8 @@ public struct VroomCarPlaySnapshot {
   public let showPartners: Bool
   public let voiceGuidance: Bool
   public let voiceAlerts: Bool
+  public let voiceMode: String
+  public let voiceIdentifier: String?
 
   init?(jsonString: String) {
     guard let data = jsonString.data(using: .utf8),
@@ -311,6 +313,8 @@ public struct VroomCarPlaySnapshot {
     showPartners = mapState.bool("showPartnerPois") ?? true
     voiceGuidance = mapState.bool("voiceGuidance") ?? true
     voiceAlerts = mapState.bool("voiceAlerts") ?? true
+    voiceMode = mapState.cleanString("voiceMode") ?? "auto"
+    voiceIdentifier = mapState.cleanString("voiceIdentifier")
   }
 
   private static func parseMarkers(

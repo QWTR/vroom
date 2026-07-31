@@ -42,6 +42,7 @@ import { NitroShopPromoCard } from '../../components/shop/NitroShopPromoCard';
 import { useNitroWallet } from '../../hooks/useNitroWallet';
 import { useAppUpdate, getUpdateDiagnostics } from '../../hooks/useAppUpdate';
 import { BackgroundLocationDisclosureModal } from '../../components/privacy/BackgroundLocationDisclosureModal';
+import { NavigationVoiceSettingsModal } from '../../components/modals/NavigationVoiceSettingsModal';
 import { BACKGROUND_LOCATION_TASK, mirrorBackgroundTrackingSetting } from '../../hooks/useBackgroundTracking';
 import { BackgroundDriveController } from '../../lib/backgroundDriveController';
 import { startVroomBgForegroundNotification, stopVroomBgForegroundNotification } from '../../lib/vroomBgForegroundService';
@@ -137,6 +138,7 @@ export default function SettingsScreen() {
   const { wallet: nitroWallet } = useNitroWallet();
   const { startTutorialReplay } = useAppTutorial();
   const [cursorSkinModalVisible, setCursorSkinModalVisible] = useState(false);
+  const [navigationVoiceModalVisible, setNavigationVoiceModalVisible] = useState(false);
   const [entranceMotion, setEntranceMotionState] = useState<EntranceMotionMode>('full');
   const [bannerPreviewUri, setBannerPreviewUri] = useState<string | null>(null);
   const [bannerPreviewSize, setBannerPreviewSize] = useState<{ w: number; h: number } | null>(null);
@@ -2942,6 +2944,13 @@ export default function SettingsScreen() {
 							}
 						/>
 						<SettingsRow {...settingsRowProps}
+							icon='record-voice-over'
+							iconBg='#6C5CE7'
+							label='Głos nawigacji'
+							sublabel='Lektor, wskazówki i ostrzeżenia drogowe'
+							onPress={() => setNavigationVoiceModalVisible(true)}
+						/>
+						<SettingsRow {...settingsRowProps}
 							icon='navigation'
 							iconBg='#e33835'
 							label='Skórka kursora'
@@ -3752,6 +3761,11 @@ export default function SettingsScreen() {
 					</View>
 				</View>
 			</Modal>
+
+			<NavigationVoiceSettingsModal
+				visible={navigationVoiceModalVisible}
+				onClose={() => setNavigationVoiceModalVisible(false)}
+			/>
 
 			<ProfileBannerCropModal
 				visible={bannerPreviewVisible}

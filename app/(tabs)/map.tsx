@@ -4,7 +4,6 @@ import Mapbox from '@rnmapbox/maps';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
-import * as Speech from 'expo-speech';
 import React, {
   useCallback,
   useEffect,
@@ -60,7 +59,7 @@ import { MapCanvas } from '../../components/map/MapCanvas';
 import { TripMapLabelGuard } from '../../components/map/TripMapLabelGuard';
 import { MapActiveRouteLayers, MapBuilderRouteLayers } from '../../components/map/MapRouteLayers';
 import { makeMapStyles } from '../../styles/mapstyle';
-import { ensureMapboxToken } from '../../lib/mapboxInit';
+import { ensureMapboxToken, initMapbox } from '../../lib/mapboxInit';
 import { useMapTilePrefetch } from '../../hooks/useMapTilePrefetch';
 import { buildV3GeometryFromRefs } from '../../lib/mapScreen/v3Geometry';
 import {
@@ -305,6 +304,7 @@ import {
   useLiveMap,
 } from '../../hooks/useLiveMap';
 import { useNavigationNotification } from '../../hooks/useNavigationNotification';
+import { useNavigationVoice } from '../../hooks/useNavigationVoice';
 import { useNavigationPoints } from '../../hooks/useNavigationPoints';
 import { useNavigationSimulator } from '../../hooks/useNavigationSimulator';
 import { useRouteBuilder } from '../../hooks/useRouteBuilder';
@@ -328,10 +328,8 @@ import { calculateDistance } from '../../scripts/distance';
 import {
   bearingBetween,
   alignBearingToReference,
-  buildNavigationSpeech,
   formatNavigationInstruction,
   detectCurrentStep,
-  getNavigationSpeechPhase,
   resolveAnnouncementTarget,
   buildStepArcIndex,
   buildRouteForwardArcPrefix,
@@ -401,6 +399,18 @@ import { useMapLiveSendTick } from '../../hooks/map/useMapLiveSendTick';
 import { selectUpcomingWarning } from '../../lib/warnings/warningAhead';
 import type { CreateWarningInput, WarningType } from '../../lib/warnings/warningCatalog';
 import { canReportCommunitySpeedLimit } from '../../lib/speedLimits/types';
+import {
+  createResolvedNavigationCue,
+  resolveNavigationRoute,
+  resolvedCueKey,
+  type ResolvedNavigationCue,
+} from '../../lib/navigation/resolvedCue';
+import {
+  buildAdaptiveNavigationSpeech,
+  getAdaptiveGuidancePhase,
+  isCriticalWarning,
+  shouldChainFollowingManeuver,
+} from '../../lib/navigation/voiceGuidanceCore';
 
 
 // Geoprzestrzenna detekcja on-route (Turf Haversine) — margines GPS 30–40 m.
@@ -732,6 +742,10 @@ function MapScreenInner() {
   const [mapViewHeight, setMapViewHeight] = useState(0);
   const ignoreHudLayout = useCallback((_height: number) => {}, []);
 
+  useEffect(() => {
+    void initMapbox().catch(() => {});
+  }, []);
+
   // ── Refs – mapa i GPS ────────────────────────────────────
   const mapRef               = useRef<Mapbox.MapView>(null);
   const cameraRef            = useRef<Mapbox.Camera>(null);
@@ -785,12 +799,12 @@ function MapScreenInner() {
   const getLastProgrammaticCameraApplyMsRef = useRef<() => number>(() => 0);
 
   // ── Refs – nawigacja / mowa ───────────────────────────────
-  const lastSpokenRef        = useRef('');
-  const lastSpeechAtRef      = useRef(0);
-  const speechTimeoutRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rerouteTimerRef      = useRef<any>(null);
   const announcedPhasesRef   = useRef<Set<string>>(new Set());
-  const isSpeechRef          = useRef(true);
+  const chainedPrepareStepsRef = useRef<Set<string>>(new Set());
+  const lastGuidanceStartedAtRef = useRef(0);
+  const longStraightSpokenForStepRef = useRef<string | null>(null);
+  const spokenWarningIdsRef = useRef<Set<string>>(new Set());
   const startIsMyLocationRef = useRef(false);
   const pendingRouteRef      = useRef<{ id: number; name: string } | null>(null);
   const loadedRouteRef       = useRef<LoadedRouteContext | null>(null);
@@ -1731,8 +1745,10 @@ function MapScreenInner() {
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [userInfoVisible,    setUserInfoVisible]    = useState(false);
   const [selectedUser,       setSelectedUser]       = useState<User | null>(null);
-  const [isSpeechEnabled,    setIsSpeechEnabled]    = useState(true);
-  const mapSpeechHydratedRef = useRef(false);
+  const navigationVoice = useNavigationVoice();
+  const isSpeechEnabled = navigationVoice.masterEnabled;
+  const [resolvedNavigationCue, setResolvedNavigationCue] = useState<ResolvedNavigationCue | null>(null);
+  const resolvedNavigationCueRef = useRef<ResolvedNavigationCue | null>(null);
   const [saveRouteVisible,   setSaveRouteVisible]   = useState(false);
   const [remainingRoutePoints, setRemainingRoutePoints] = useState<
     { latitude: number; longitude: number }[]
@@ -2658,19 +2674,31 @@ function MapScreenInner() {
 
   useEffect(() => {
     if (!nearestCamera) return;
-    if (!checkAlert(nearestCamera, ALERT_DIST)) return;
-    markAlerted(nearestCamera.id);
-    if (isSpeechEnabled) {
-      const dist   = Math.round(nearestCamera.distanceM);
-      const isBump = nearestCamera.type === 'bump';
-      const msg    = isBump
-        ? `uwaga, próg zwalniający za ${dist} metrów`
-        : nearestCamera.maxspeed
-          ? `uwaga, fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed} kilometrów na godzinę`
-          : `uwaga, fotoradar za ${dist} metrów`;
-      speak(msg);
-    }
-  }, [nearestCamera?.id, nearestCamera?.distanceM, isSpeechEnabled, checkAlert, markAlerted]);
+    const voiceLeadM = Math.max(300, Math.min(800, (speedKmh / 3.6) * 20));
+    if (!checkAlert(nearestCamera, voiceLeadM)) return;
+    const dist   = Math.max(50, Math.round(nearestCamera.distanceM / 50) * 50);
+    const isBump = nearestCamera.type === 'bump';
+    const msg    = isBump
+      ? `Uwaga, próg zwalniający za ${dist} metrów`
+      : nearestCamera.maxspeed
+        ? `Uwaga, fotoradar za ${dist} metrów, limit ${nearestCamera.maxspeed} kilometrów na godzinę`
+        : `Uwaga, fotoradar za ${dist} metrów`;
+    navigationVoice.enqueue({
+      id: `road-object:${nearestCamera.id}`,
+      text: msg,
+      category: 'warning',
+      onStart: () => markAlerted(nearestCamera.id),
+    });
+  }, [
+    nearestCamera?.id,
+    nearestCamera?.distanceM,
+    nearestCamera?.maxspeed,
+    nearestCamera?.type,
+    speedKmh,
+    checkAlert,
+    markAlerted,
+    navigationVoice.enqueue,
+  ]);
 
   // ── mapType persistence ────────────────────────────────────
   useEffect(() => {
@@ -2678,21 +2706,6 @@ function MapScreenInner() {
       if (val) setMapType(val);
     }).catch(() => {});
   }, []);
-
-  // ── voice guidance persistence (nie nadpisuj zanim wczytamy z dysku) ──
-  useEffect(() => {
-    AsyncStorage.getItem('map_speech_enabled')
-      .then((val) => {
-        if (val != null) setIsSpeechEnabled(val === '1');
-        mapSpeechHydratedRef.current = true;
-      })
-      .catch(() => { mapSpeechHydratedRef.current = true; });
-  }, []);
-
-  useEffect(() => {
-    if (!mapSpeechHydratedRef.current) return;
-    AsyncStorage.setItem('map_speech_enabled', isSpeechEnabled ? '1' : '0').catch(() => {});
-  }, [isSpeechEnabled]);
 
   // ── Fuel stations — trigger fetch on location change ──────
   // Hook throttles (5 min / 2.5 km). Zaokrąglamy GPS żeby micro-jitter nie odpalał Search Box category.
@@ -3338,7 +3351,6 @@ function MapScreenInner() {
   } = useLiveMap(
     isSharing,
     userLocation,
-    isSpeechEnabled,
     settings.backgroundTracking && isPremium,
     liveMapEnabled && sharingHydrated,
     isSharing && sharingHydrated,
@@ -4131,11 +4143,6 @@ function MapScreenInner() {
   useEffect(() => {
     isOffroadRef.current = isOffroadRoute;
   }, [isOffroadRoute]);
-
-  useEffect(() => {
-    isSpeechRef.current = isSpeechEnabled;
-    if (!isSpeechEnabled) Speech.stop().catch(() => {});
-  }, [isSpeechEnabled]);
 
   useEffect(() => {
     AsyncStorage.getItem('user').then(raw => {
@@ -10830,7 +10837,10 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     stepArcIndexRef.current = { points: [], steps: [], index: [] };
     announcedPhasesRef.current = new Set();
     lastManeuverDistanceRef.current = null;
-    lastSpokenRef.current    = '';
+    chainedPrepareStepsRef.current.clear();
+    longStraightSpokenForStepRef.current = null;
+    setResolvedNavigationCue(null);
+    resolvedNavigationCueRef.current = null;
     offRouteSinceRef.current = 0;
     offRouteStreakRef.current = 0;
     setRerouteOrigin(null);
@@ -10968,10 +10978,40 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     Toast.show({ type: 'error', text1: 'Nie udało się wyznaczyć trasy', text2 });
   }, [previewError, isNavigating, endLocation, isOffroadRoute]);
 
-  const effectiveNavRoute = navRouteOverride ?? navRoute ?? (isNavigating ? previewRoute : null);
+  const rawEffectiveNavRoute = navRouteOverride ?? navRoute ?? (isNavigating ? previewRoute : null);
+  const effectiveNavRoute = useMemo(
+    () => rawEffectiveNavRoute ? resolveNavigationRoute(rawEffectiveNavRoute) : null,
+    [rawEffectiveNavRoute],
+  );
   const activeRoute = isNavigating ? effectiveNavRoute : previewRoute;
   navRouteRef.current = effectiveNavRoute ?? null;
   const activeSteps = effectiveNavRoute?.steps ?? previewRoute?.steps ?? [];
+
+  useEffect(() => {
+    if (!isNavigating || !effectiveNavRoute?.geometryCorrectionCount) return;
+    effectiveNavRoute.steps.forEach((step, stepIndex) => {
+      const original = rawEffectiveNavRoute?.steps?.[stepIndex];
+      if (
+        !original
+        || (
+          original.maneuver === step.maneuver
+          && original.maneuverModifier === step.maneuverModifier
+        )
+      ) return;
+      const diagnostic = effectiveNavRoute.geometryDiagnostics?.[stepIndex];
+      visionEvent('NAV_MANEUVER_GEOMETRY_CORRECTION', {
+        routeRevision: effectiveNavRoute.routeRevision,
+        stepIndex,
+        originalDirection: diagnostic?.originalDirection ?? null,
+        geometryDirection: diagnostic?.geometryDirection ?? null,
+        correctionConfidence: diagnostic?.confidence ?? 0,
+        originalManeuver: original.maneuver ?? '',
+        originalModifier: original.maneuverModifier ?? '',
+        resolvedManeuver: step.maneuver ?? '',
+        resolvedModifier: step.maneuverModifier ?? '',
+      });
+    });
+  }, [isNavigating, effectiveNavRoute, rawEffectiveNavRoute]);
 
   useEffect(() => {
     if (!isNavigating) return;
@@ -11281,11 +11321,26 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   useEffect(() => {
     if (!isNavigating) { dismissNavigationNotification(); return; }
-    const stepData = effectiveNavRoute?.steps?.[announceStepIndex];
+    const stepData = resolvedNavigationCue?.step
+      ?? effectiveNavRoute?.steps?.[announceStepIndex];
     if (!stepData) return;
     const navRouteInfo = routeInfo as (RouteInfo & { durationText?: string | null }) | null;
-    showNavigationNotification(stepData, navRouteInfo?.distance ?? '', navRouteInfo?.durationText ?? '');
-  }, [announceStepIndex, isNavigating, effectiveNavRoute]);
+    showNavigationNotification(
+      stepData,
+      navRouteInfo?.distance ?? '',
+      navRouteInfo?.durationText ?? '',
+      resolvedNavigationCue?.distanceM ?? distToTurnM,
+    );
+  }, [
+    announceStepIndex,
+    isNavigating,
+    effectiveNavRoute,
+    resolvedNavigationCue,
+    distToTurnM,
+    routeInfo,
+    showNavigationNotification,
+    dismissNavigationNotification,
+  ]);
 
   const nearbyUsers = useMemo(() => {
     if (!liveUsersEnabled) return [];
@@ -11366,34 +11421,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   // ─────────────────────────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────────────────────────
-
-  const speak = useCallback((text: string) => {
-    if (!isSpeechRef.current) return;
-    const normalizedText = text.replace(/\s+/g, ' ').trim();
-    if (!normalizedText) return;
-    if (normalizedText === lastSpokenRef.current && Date.now() - lastSpeechAtRef.current < 25_000) return;
-
-    if (speechTimeoutRef.current) {
-      clearTimeout(speechTimeoutRef.current);
-      speechTimeoutRef.current = null;
-    }
-    const elapsed = Date.now() - lastSpeechAtRef.current;
-    const delay = elapsed < 2800 ? 2800 - elapsed : 120;
-
-    speechTimeoutRef.current = setTimeout(() => {
-      if (!isSpeechRef.current) return;
-      lastSpokenRef.current = normalizedText;
-      lastSpeechAtRef.current = Date.now();
-      Speech.speak(normalizedText, { language: 'pl-PL', pitch: 1.0, rate: 0.9 });
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-    };
-  }, []);
-
 
   // ─────────────────────────────────────────────────────────
   // Handlers
@@ -11724,7 +11751,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       text1: '🏁 TRYB GOTOWOŚCI',
       text2: 'Rozpocznij jazdę lub kliknij Ruszaj',
     });
-    speak('Jesteś w strefie startowej. Ruszaj by rozpocząć pomiar czasu.');
+    navigationVoice.enqueue({
+      id: `route-start-zone:${loadedRouteRef.current?.routeId ?? 'active'}`,
+      text: 'Jesteś w strefie startowej. Ruszaj, aby rozpocząć pomiar czasu.',
+      category: 'info',
+    });
 
     transitioningToRouteRunRef.current = false;
   }, [
@@ -11733,7 +11764,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     onNavigationCancel,
     resetDRRefs,
     resetTimer,
-    speak,
+    navigationVoice.enqueue,
     stopSimulation,
     stopTimer,
     timerRunning,
@@ -11774,8 +11805,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setRemainingDistKm(null);
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
-    Speech.stop().catch(() => {});
-    speak('Dotarłeś do celu!');
+    navigationVoice.stop();
+    navigationVoice.enqueue({
+      id: `arrival:${effectiveNavRoute?.routeRevision ?? Date.now()}`,
+      text: 'Dotarłeś do celu!',
+      category: 'maneuver-now',
+    });
     Toast.show({ type: 'success', text1: '🏁 DOTARŁEŚ DO CELU!', text2: endLocation?.name ?? '' });
 
     if (userLocation) resetBrowseCamera(userLocation);
@@ -11811,7 +11846,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       clearDropNavigationTarget();
     }, 3000);
   }, [
-    endLocation, userLocation, routeInfo, speak, resetBrowseCamera,
+    endLocation, userLocation, routeInfo, navigationVoice.stop, navigationVoice.enqueue, resetBrowseCamera,
     onNavigationComplete, timerRunning, stopTimer, formatElapsed,
     leaderboardRouteId, saveRun, fetchLeaderboard, fetchRuns,
     flushNavigationStatsOnce,
@@ -11931,6 +11966,24 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           forwardPrefix,
         );
         distToManeuver = announceTarget.distanceM;
+        const routeRevision = effectiveNavRoute.routeRevision
+          ?? `${points.length}:${steps.length}`;
+        const canonicalCue = createResolvedNavigationCue({
+          stepIndex: announceTarget.stepIndex,
+          step: announceTarget.step,
+        originalStep: rawEffectiveNavRoute?.steps?.[announceTarget.stepIndex],
+        distanceM: distToManeuver,
+        routeRevision,
+        geometryDiagnostic:
+          effectiveNavRoute.geometryDiagnostics?.[announceTarget.stepIndex] ?? null,
+      });
+        if (
+          !resolvedNavigationCueRef.current
+          || resolvedCueKey(resolvedNavigationCueRef.current) !== resolvedCueKey(canonicalCue)
+        ) {
+          resolvedNavigationCueRef.current = canonicalCue;
+          setResolvedNavigationCue(canonicalCue);
+        }
         if (announceTarget.stepIndex !== announceStepIndexRef.current) {
           announceStepIndexRef.current = announceTarget.stepIndex;
           setAnnounceStepIndex(announceTarget.stepIndex);
@@ -11949,7 +12002,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         const previousDistance = previousManeuver?.stepIndex === announceTarget.stepIndex
           ? previousManeuver.distanceM
           : undefined;
-        const speechPhase = getNavigationSpeechPhase(distToManeuver, previousDistance);
+        const speechPhase = getAdaptiveGuidancePhase({
+          distanceM: distToManeuver,
+          previousDistanceM: previousDistance,
+          speedKmh: speedKmhRef.current,
+          step: announceTarget.step,
+        });
         lastManeuverDistanceRef.current = {
           stepIndex: announceTarget.stepIndex,
           distanceM: distToManeuver,
@@ -11957,14 +12015,68 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
         if (
           speechPhase
-          && isSpeechRef.current
           && shouldSpeakForStep(announceTarget.step, distToManeuver)
         ) {
-          const phaseKey = `${announceTarget.stepIndex}:${speechPhase}`;
+          const phaseKey = `${routeRevision}:${announceTarget.stepIndex}:${speechPhase}`;
+          const wasChained = speechPhase === 'prepare'
+            && chainedPrepareStepsRef.current.has(`${routeRevision}:${announceTarget.stepIndex}`);
           if (!announcedPhasesRef.current.has(phaseKey)) {
-            announcedPhasesRef.current.add(phaseKey);
-            const speechText = buildNavigationSpeech(announceTarget.step, distToManeuver, speechPhase);
-            if (speechText) speak(speechText);
+            const followingStep = steps[announceTarget.stepIndex + 1] ?? null;
+            const followingArc = stepArcIndex[announceTarget.stepIndex + 1];
+            const currentArc = stepArcIndex[announceTarget.stepIndex];
+            const followingDistanceM = followingArc && currentArc
+              ? Math.max(0, followingArc.startArcM - currentArc.startArcM)
+              : null;
+            const speechText = wasChained
+              ? ''
+              : buildAdaptiveNavigationSpeech({
+                  step: announceTarget.step,
+                  distanceM: distToManeuver,
+                  phase: speechPhase,
+                  followingStep,
+                  followingDistanceM,
+                  speedKmh: speedKmhRef.current,
+                });
+            if (!speechText && wasChained) {
+              announcedPhasesRef.current.add(phaseKey);
+            } else if (speechText) {
+              navigationVoice.enqueue({
+                id: `maneuver:${phaseKey}`,
+                text: speechText,
+                category: speechPhase === 'now' ? 'maneuver-now' : 'maneuver',
+                onStart: () => {
+                  announcedPhasesRef.current.add(phaseKey);
+                  lastGuidanceStartedAtRef.current = Date.now();
+                  if (
+                    speechPhase === 'prepare'
+                    && followingStep
+                    && shouldChainFollowingManeuver(followingDistanceM, speedKmhRef.current)
+                  ) {
+                    chainedPrepareStepsRef.current.add(
+                      `${routeRevision}:${announceTarget.stepIndex + 1}`,
+                    );
+                  }
+                },
+              });
+            }
+          }
+        } else if (
+          !shouldSpeakForStep(announceTarget.step, distToManeuver)
+          && distToManeuver >= 2_000
+          && Date.now() - lastGuidanceStartedAtRef.current >= 4 * 60_000
+        ) {
+          const reassuranceKey = `${routeRevision}:${announceTarget.stepIndex}`;
+          if (longStraightSpokenForStepRef.current !== reassuranceKey) {
+            const km = Math.max(2, Math.round(distToManeuver / 1_000));
+            navigationVoice.enqueue({
+              id: `reassurance:${reassuranceKey}`,
+              text: `Kontynuuj prosto przez około ${km} kilometry`,
+              category: 'info',
+              onStart: () => {
+                longStraightSpokenForStepRef.current = reassuranceKey;
+                lastGuidanceStartedAtRef.current = Date.now();
+              },
+            });
           }
         }
 
@@ -12007,7 +12119,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               setOffRoute(true);
               lastManeuverDistanceRef.current = null;
               announcedPhasesRef.current = new Set();
-              Speech.stop().catch(() => {});
+              navigationVoice.stop();
               visionEvent('NAV_OFF_ROUTE', {
                 streak: offRouteStreakRef.current,
                 sinceMs: nowOff ? Date.now() - offRouteSinceRef.current : 0,
@@ -12084,7 +12196,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         const nowMs = Date.now();
         if (nowMs - notifThrottleRef.current > 30_000) {
           notifThrottleRef.current = nowMs;
-          const stepForNotif = steps[announceStepIndexRef.current] ?? steps[nextStep];
+          const stepForNotif = resolvedNavigationCueRef.current?.step
+            ?? steps[announceStepIndexRef.current]
+            ?? steps[nextStep];
           if (stepForNotif) {
             const distStr = remKm < 1
               ? `${Math.round(remKm * 1000)} m`
@@ -12094,6 +12208,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
               stepForNotif,
               distStr,
               ri ? formatDuration(ri.duration) : '',
+              resolvedNavigationCueRef.current?.distanceM ?? distToManeuver,
             );
           }
         }
@@ -12102,7 +12217,18 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
     runNavProgressRef.current = runNavProgress;
     runNavProgress();
-  }, [isNavigating, navigationUiReady, effectiveNavRoute, endLocation, handleArrived, showNavigationNotification, speak, driveMarker]);
+  }, [
+    isNavigating,
+    navigationUiReady,
+    effectiveNavRoute,
+    rawEffectiveNavRoute,
+    endLocation,
+    handleArrived,
+    showNavigationNotification,
+    navigationVoice.enqueue,
+    navigationVoice.stop,
+    driveMarker,
+  ]);
 
   useMapNavigationSession({
     enabled: isNavigating && navigationUiReady && !!effectiveNavRoute?.steps?.length,
@@ -12166,8 +12292,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     navLatFilter.reset();
     navLngFilter.reset();
     startIsMyLocationRef.current = false;
-    lastSpokenRef.current        = '';
     announcedPhasesRef.current   = new Set();
+    chainedPrepareStepsRef.current.clear();
+    longStraightSpokenForStepRef.current = null;
+    setResolvedNavigationCue(null);
+    resolvedNavigationCueRef.current = null;
 
     const navStart = { latitude: pose.latitude, longitude: pose.longitude, name: 'Moja pozycja' };
     const seededRoute = previewRouteRef.current ?? navRouteRef.current;
@@ -12254,6 +12383,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     pendingStepArcClampRef.current = false;
     lastRemainingRouteHeadRef.current = null;
     lastManeuverDistanceRef.current = null;
+    setResolvedNavigationCue(null);
+    resolvedNavigationCueRef.current = null;
     setArrived(false);
     setOffRoute(false);
     v3SnapToRouteSuppressedRef.current = false;
@@ -12302,8 +12433,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       livePose: true,
     });
 
-    speak('Nawigacja rozpoczęta. Dobrej drogi!');
-  }, [userLocation, routeInfo, speak, onNavigationStart, startTimer, setFollowMode,
+    navigationVoice.clearSessionDedupe();
+    navigationVoice.enqueue({
+      id: `navigation-start:${Date.now()}`,
+      text: 'Nawigacja rozpoczęta. Dobrej drogi!',
+      category: 'info',
+    });
+  }, [userLocation, routeInfo, navigationVoice.clearSessionDedupe, navigationVoice.enqueue, onNavigationStart, startTimer, setFollowMode,
       activeRoute, startGPS, navV3, driveMarker, readLiveTripPose, tripBootstrapPose,
       startTrip, updateTripEstimate]);
 
@@ -12382,7 +12518,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     notifThrottleRef.current = 0;
     dismissNavigationNotification();
     setRouteEndpointImages({});
-    Speech.stop().catch(() => {});
+    navigationVoice.stop();
     clearTimeout(rerouteTimerRef.current);
     onNavigationCancel();
     clearDropNavigationTarget();
@@ -12616,6 +12752,38 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       route: remainingRoutePoints,
     });
   }, [effectiveWarnings, getCurrentAccurateLocation, isNavigating, isDriving, remainingRoutePoints, speedKmh, userLocation]);
+
+  useEffect(() => {
+    if (!upcomingWarning) return;
+    const warning = upcomingWarning.warning;
+    const warningId = String(warning.id);
+    if (spokenWarningIdsRef.current.has(warningId)) return;
+    const baseLeadM = Math.max(250, Math.min(800, (Math.max(speedKmh, 18) / 3.6) * 18));
+    const earlyType = warning.type === 'traffic' || warning.type === 'weather';
+    const leadM = earlyType ? Math.max(800, Math.min(1_200, baseLeadM * 1.5)) : baseLeadM;
+    if (upcomingWarning.distanceM > leadM) return;
+
+    const distanceM = upcomingWarning.distanceM < 1_000
+      ? Math.max(50, Math.round(upcomingWarning.distanceM / 50) * 50)
+      : Math.round(upcomingWarning.distanceM / 100) * 100;
+    const distanceText = distanceM < 1_000
+      ? `${distanceM} metrów`
+      : `${(distanceM / 1_000).toFixed(1).replace('.', ',')} kilometra`;
+    const label = getWarningLabel(warning.type);
+    const detail = warning.message?.trim();
+    navigationVoice.enqueue({
+      id: `road-object:${warningId}`,
+      text: detail
+        ? `Uwaga, ${label.toLowerCase()}: ${detail}. Za ${distanceText}`
+        : `Uwaga, ${label.toLowerCase()} za ${distanceText}`,
+      category: isCriticalWarning(warning.type, warning.subtype) ? 'critical' : 'warning',
+      onStart: () => {
+        spokenWarningIdsRef.current.add(warningId);
+        if (spokenWarningIdsRef.current.size > 500) spokenWarningIdsRef.current.clear();
+      },
+    });
+  }, [upcomingWarning, speedKmh, navigationVoice.enqueue]);
+
   const effectiveCameras = useMemo(() => {
     if (currentZoom < SPEED_CAMERA_MIN_ZOOM) return [];
     if (!Array.isArray(cameras) || cameras.length === 0) return [];
@@ -12706,6 +12874,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setCurrentStep(0);
     setAnnounceStepIndex(0);
     announceStepIndexRef.current = 0;
+    setResolvedNavigationCue(null);
+    resolvedNavigationCueRef.current = null;
     if (typeof event.selectedRouteIndex === 'number' && Number.isFinite(event.selectedRouteIndex)) {
       setSelectedRouteIndex(event.selectedRouteIndex);
     }
@@ -12720,7 +12890,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     arrived,
     offRoute,
     currentStep: announceStepIndex,
-    navStep: effectiveNavRoute?.steps?.[announceStepIndex] ?? null,
+    navStep: resolvedNavigationCue?.step
+      ?? effectiveNavRoute?.steps?.[announceStepIndex]
+      ?? null,
     followingNavStep: effectiveNavRoute?.steps?.[announceStepIndex + 1] ?? null,
     upcomingNavSteps: effectiveNavRoute?.steps?.slice(announceStepIndex + 1, announceStepIndex + 4) ?? [],
     routeInfo: routeInfo as (RouteInfo & { durationText?: string | null }) | null,
@@ -12742,6 +12914,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     speedKmh: speed,
     heading,
     speedLimitKmh: effectiveSpeedLimit,
+    voicePreferences: navigationVoice.preferences,
+    voiceIdentifier: navigationVoice.selectedVoice?.identifier ?? null,
     remainingRoutePoints,
     navRoutePoints: effectiveNavRoute?.points,
     previewRoutePoints: previewRoute?.points,
@@ -12781,6 +12955,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setCurrentStep(0);
     setAnnounceStepIndex(0);
     announceStepIndexRef.current = 0;
+    setResolvedNavigationCue(null);
+    resolvedNavigationCueRef.current = null;
     setRouteEndpointImages({});
     setIsOffroadRoute(false);
     isOffroadRef.current                = false;
@@ -12814,7 +12990,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
   // Render helpers
   // ─────────────────────────────────────────────────────────
 
-  const displayStepData = activeSteps[announceStepIndex] ?? activeSteps[currentStep];
+  const displayStepData = resolvedNavigationCue?.step
+    ?? activeSteps[announceStepIndex]
+    ?? activeSteps[currentStep];
   const bannerDistPoints = snappedRoute.length > 0
     ? snappedRoute
     : pins.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
@@ -13563,7 +13741,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             setManualTargetPickMode(true);
             Toast.show({ type: 'info', text1: 'Tryb punktu ręcznego', text2: 'Przytrzymaj mapę, aby ustawić cel.' });
           }}
-          onToggleSpeech={() => setIsSpeechEnabled(v => !v)}
+          onToggleSpeech={() => { void navigationVoice.toggleMaster(); }}
           onReport={() => setReportVisible(true)}
           onSpot={() => router.push('/(tabs)/spotmap' as any)}
           onCamera={() => setAddCameraVisible(true)}

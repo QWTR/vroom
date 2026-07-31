@@ -23,7 +23,6 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var searchItems: [ObjectIdentifier: VroomSearchPlace] = [:]
   private var connectionStartedAt: Date?
   private var mapLoadedAt: Date?
-  private var lastInstruction = ""
   private var lastWarningKey = ""
   private var lastWarningAt = Date.distantPast
   private var lastRerouteAt = Date.distantPast
@@ -31,23 +30,31 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var locationFailureCount: Int64 = 0
   private var lastGPSLatencyMilliseconds = 0
   private var voiceEnabled = true
+  private var voiceAlertsEnabled = true
+  private var voiceMode = "auto"
+  private var voiceIdentifier: String?
+  private var activeInstructionKey = ""
+  private var spokenManeuverPhases = Set<String>()
+  private var chainedPrepareKeys = Set<String>()
+  private var spokenWarningKeys = Set<String>()
+  private var pendingSpeechKeys = Set<String>()
+  private var speechStartedCallbacks: [ObjectIdentifier: () -> Void] = [:]
+  private var speechKeys: [ObjectIdentifier: String] = [:]
+  private var protectedSpeechKey: String?
+  private var lastVoiceAt = Date.distantPast
   private var themeIndex = 0
   private var lastPhonePreviewKey = ""
   private var lastPanTranslation = CGPoint.zero
   private var lastZoomScale: CGFloat = 1
   private let themes = ["dark", "light", "satellite"]
-  private let locationEngine = VroomCarPlayLocationEngine()
-  private let synthesizer = AVSpeechSynthesizer()
-  private var roadLayerTimer: Timer?
-
-  private override init() {
-    super.init()
-    locationEngine.onPose = { [weak self] pose in
+  private lazy var locationEngine: VroomCarPlayLocationEngine = {
+    let engine = VroomCarPlayLocationEngine()
+    engine.onPose = { [weak self] pose in
       DispatchQueue.main.async {
         self?.handle(pose: pose)
       }
     }
-    locationEngine.onLocationFailure = { [weak self] _ in
+    engine.onLocationFailure = { [weak self] _ in
       DispatchQueue.main.async {
         self?.locationFailureCount += 1
         self?.showAlert(
@@ -56,11 +63,22 @@ public final class VroomCarPlayCoordinator: NSObject {
         )
       }
     }
-    locationEngine.onConfirmedOffRoute = { [weak self] pose in
+    engine.onConfirmedOffRoute = { [weak self] pose in
       DispatchQueue.main.async {
         self?.reroute(from: pose)
       }
     }
+    return engine
+  }()
+  private lazy var synthesizer: AVSpeechSynthesizer = {
+    let value = AVSpeechSynthesizer()
+    value.delegate = self
+    return value
+  }()
+  private var roadLayerTimer: Timer?
+
+  private override init() {
+    super.init()
   }
 
   public var isConnected: Bool {
@@ -109,6 +127,7 @@ public final class VroomCarPlayCoordinator: NSObject {
   }
 
   public func disconnect() {
+    synthesizer.stopSpeaking(at: .immediate)
     navigationSession?.cancelTrip()
     navigationSession = nil
     activeTrip = nil
@@ -116,6 +135,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     previewRoutes = []
     routeChoices = [:]
     searchItems = [:]
+    resetSpeechState()
     locationEngine.stop()
     VroomCarPlayLiveClient.shared.stop()
     roadLayerTimer?.invalidate()
@@ -176,6 +196,9 @@ public final class VroomCarPlayCoordinator: NSObject {
   private func apply(snapshot: VroomCarPlaySnapshot) {
     currentSnapshot = snapshot
     voiceEnabled = snapshot.voiceGuidance
+    voiceAlertsEnabled = snapshot.voiceAlerts
+    voiceMode = snapshot.voiceMode
+    voiceIdentifier = snapshot.voiceIdentifier
     mapViewController?.apply(snapshot: snapshot)
     locationEngine.setRoute(snapshot.navigation.isNavigating ? snapshot.route : [])
 
@@ -187,14 +210,14 @@ public final class VroomCarPlayCoordinator: NSObject {
       activeRoute = route
       ensureNavigationSession(route: route)
       updateGuidance(snapshot.navigation)
-      speakIfNeeded(snapshot.navigation.current.instruction)
+      updateManeuverVoice(snapshot)
     } else if !snapshot.alternatives.isEmpty,
-      snapshot.destination != nil,
+      let destination = snapshot.destination,
       activeRoute == nil
     {
       let previewKey =
-        "\(snapshot.destination!.coordinate.latitude):" +
-        "\(snapshot.destination!.coordinate.longitude):" +
+        "\(destination.coordinate.latitude):" +
+        "\(destination.coordinate.longitude):" +
         snapshot.alternatives.map {
           "\($0.distanceMeters):\($0.durationSeconds)"
         }.joined(separator: "|")
@@ -248,12 +271,12 @@ public final class VroomCarPlayCoordinator: NSObject {
     template.mapButtons = [recenter, theme, voice, report]
 
     let search = CPBarButton(
-      image: UIImage(systemName: "magnifyingglass")!
+      image: UIImage(systemName: "magnifyingglass") ?? UIImage()
     ) { [weak self] _ in
       self?.showSearch()
     }
     let menu = CPBarButton(
-      image: UIImage(systemName: "line.3.horizontal")!
+      image: UIImage(systemName: "line.3.horizontal") ?? UIImage()
     ) { [weak self] _ in
       self?.showMenu()
     }
@@ -491,7 +514,12 @@ public final class VroomCarPlayCoordinator: NSObject {
     guard let mapTemplate else {
       return
     }
-    previewRoutes = Array(routes.prefix(3))
+    previewRoutes = Array(routes.filter { $0.points.count >= 2 }.prefix(3))
+    guard let firstRoute = previewRoutes.first,
+      let firstRoutePoint = firstRoute.points.first
+    else {
+      return
+    }
     routeChoices = [:]
     let choices = previewRoutes.map { route -> CPRouteChoice in
       let choice = CPRouteChoice(
@@ -511,22 +539,22 @@ public final class VroomCarPlayCoordinator: NSObject {
     }
     let originCoordinate =
       locationEngine.latestPose()?.rawCoordinate ??
-      previewRoutes[0].points[0]
+      firstRoutePoint
     let trip = CPTrip(
       origin: mapItem(
         coordinate: originCoordinate,
         name: "Bieżąca lokalizacja"
       ),
       destination: mapItem(
-        coordinate: previewRoutes[0].destination.coordinate,
-        name: previewRoutes[0].destination.name
+        coordinate: firstRoute.destination.coordinate,
+        name: firstRoute.destination.name
       ),
       routeChoices: choices
     )
     activeTrip = trip
     mapViewController?.showRoutePreview(
       previewRoutes,
-      selectedIndex: previewRoutes[0].index
+      selectedIndex: firstRoute.index
     )
     let text = CPTripPreviewTextConfiguration(
       startButtonTitle: "Jedź",
@@ -558,11 +586,17 @@ public final class VroomCarPlayCoordinator: NSObject {
       remainingDistance: route.distanceMeters,
       remainingDuration: route.durationSeconds
     )
-    speakIfNeeded(route.steps.first?.instruction ?? "Rozpocznij jazdę")
+    speak(
+      route.steps.first?.instruction ?? "Rozpocznij jazdę",
+      key: "navigation-start",
+      urgent: true
+    )
   }
 
   private func ensureNavigationSession(route: VroomAlternativeRoute) {
-    guard navigationSession == nil, let mapTemplate else {
+    guard navigationSession == nil, let mapTemplate,
+      let routeOrigin = route.points.first
+    else {
       return
     }
     let choice = CPRouteChoice(
@@ -572,7 +606,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     )
     let trip = CPTrip(
       origin: mapItem(
-        coordinate: route.points[0],
+        coordinate: routeOrigin,
         name: "Bieżąca lokalizacja"
       ),
       destination: mapItem(
@@ -700,7 +734,8 @@ public final class VroomCarPlayCoordinator: NSObject {
       presentHighestPriorityWarning(
         warnings: warnings ?? currentSnapshot?.warnings ?? [],
         cameras: cameras ?? currentSnapshot?.cameras ?? [],
-        voiceAlerts: currentSnapshot?.voiceAlerts ?? true
+        voiceAlerts: currentSnapshot?.voiceAlerts ?? true,
+        route: currentSnapshot?.route ?? []
       )
     }
   }
@@ -750,6 +785,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     locationEngine.setRoute([])
     mapTemplate?.hideTripPreviews()
     mapViewController?.clearRoutePreview()
+    resetSpeechState()
     if emitStop {
       VroomCarPlayStateStore.shared.markExplicitCarPlayAction()
       emitEvent?("stopRequested", ["source": "carplay"])
@@ -794,14 +830,16 @@ public final class VroomCarPlayCoordinator: NSObject {
     presentHighestPriorityWarning(
       warnings: snapshot.warnings,
       cameras: snapshot.cameras,
-      voiceAlerts: snapshot.voiceAlerts
+      voiceAlerts: snapshot.voiceAlerts,
+      route: snapshot.route
     )
   }
 
   private func presentHighestPriorityWarning(
     warnings: [VroomMapMarker],
     cameras: [VroomMapMarker],
-    voiceAlerts: Bool
+    voiceAlerts: Bool,
+    route: [VroomCoordinate]
   ) {
     guard voiceAlerts,
       let pose = locationEngine.latestPose()
@@ -826,6 +864,13 @@ public final class VroomCarPlayCoordinator: NSObject {
         )
       }
       .filter { $0.1 <= 650 }
+      .filter { item in
+        isMarkerAhead(
+          item.0.coordinate,
+          pose: pose,
+          route: route
+        )
+      }
       .sorted { lhs, rhs in
         let lhsPriority = lhs.0.kind == .camera ? 0 : 1
         let rhsPriority = rhs.0.kind == .camera ? 0 : 1
@@ -836,18 +881,35 @@ public final class VroomCarPlayCoordinator: NSObject {
       return
     }
     let key = "\(nearest.0.kind.rawValue)-\(nearest.0.id)"
-    guard key != lastWarningKey ||
-      Date().timeIntervalSince(lastWarningAt) >= 90
-    else {
+    guard key != lastWarningKey || Date().timeIntervalSince(lastWarningAt) >= 90 else {
       return
     }
     lastWarningKey = key
     lastWarningAt = Date()
     let distance = Int(nearest.1.rounded())
+    let cameraLimit =
+      Int(nearest.0.value).map { ", ograniczenie \($0)" } ?? ""
     let title =
-      nearest.0.kind == .camera ? "Fotoradar za \(distance) m" : "Uwaga za \(distance) m"
+      nearest.0.kind == .camera
+      ? "Fotoradar\(cameraLimit) za \(distance) m"
+      : "Uwaga za \(distance) m"
     showAlert(title: title, subtitle: nearest.0.label)
-    speak(title)
+    guard !spokenWarningKeys.contains(key), !pendingSpeechKeys.contains(key) else {
+      return
+    }
+    let warningText = "\(nearest.0.type) \(nearest.0.label)".lowercased()
+    let urgent = [
+      "accident", "wypad", "animal", "zwierz", "breakdown", "awari",
+    ].contains { warningText.contains($0) }
+    speak(
+      title,
+      key: key,
+      urgent: urgent,
+      allowWhenGuidanceMuted: true,
+      protectUntilFinished: urgent
+    ) { [weak self] in
+      self?.spokenWarningKeys.insert(key)
+    }
   }
 
   private func showAlert(title: String, subtitle: String) {
@@ -867,22 +929,234 @@ public final class VroomCarPlayCoordinator: NSObject {
     mapViewController?.setStyle(themes[themeIndex])
   }
 
-  private func speakIfNeeded(_ instruction: String) {
-    guard instruction != lastInstruction else {
+  private func updateManeuverVoice(_ snapshot: VroomCarPlaySnapshot) {
+    guard voiceEnabled,
+      protectedSpeechKey == nil,
+      let distance = snapshot.navigation.turnDistanceMeters
+    else {
       return
     }
-    lastInstruction = instruction
-    speak(instruction)
+    let step = snapshot.navigation.current
+    guard isSpeakableManeuver(step) else {
+      return
+    }
+    let instructionKey =
+      "\(step.maneuver):\(step.modifier):\(step.instruction)"
+    if instructionKey != activeInstructionKey {
+      activeInstructionKey = instructionKey
+      spokenManeuverPhases.removeAll()
+      if chainedPrepareKeys.contains(instructionKey) {
+        spokenManeuverPhases.insert("\(instructionKey):prepare")
+      }
+    }
+
+    let speedMetersPerSecond = max(
+      0,
+      snapshot.speedMetersPerSecond ??
+        locationEngine.latestPose()?.speedMetersPerSecond ??
+        0
+    )
+    let speedKmh = speedMetersPerSecond * 3.6
+    let prepareThreshold = min(900, max(250, speedMetersPerSecond * 25))
+    let nowThreshold = min(120, max(35, speedMetersPerSecond * 4))
+    let middleThreshold = min(300, max(100, speedMetersPerSecond * 10))
+    let phase: String
+    if Double(distance) <= nowThreshold {
+      phase = "now"
+    } else if (speedKmh >= 70 || isComplexManeuver(step)) &&
+      Double(distance) <= middleThreshold
+    {
+      phase = "middle"
+    } else if Double(distance) <= prepareThreshold {
+      phase = "prepare"
+    } else {
+      return
+    }
+
+    let phaseKey = "\(instructionKey):\(phase)"
+    let speechKey = "maneuver:\(phaseKey)"
+    guard !spokenManeuverPhases.contains(phaseKey),
+      !pendingSpeechKeys.contains(speechKey)
+    else {
+      return
+    }
+
+    var phrase =
+      phase == "now"
+      ? step.instruction
+      : "Za \(readableDistance(distance)), \(step.instruction)"
+    var chainedKey: String?
+    if phase != "now", let following = snapshot.navigation.upcoming.first,
+      let followingDistance = following.distanceMeters
+    {
+      let chainByTime =
+        speedMetersPerSecond > 1 &&
+        Double(followingDistance) / speedMetersPerSecond <= 15
+      if followingDistance <= 180 || chainByTime {
+        phrase += ". Potem \(following.instruction)"
+        chainedKey =
+          "\(following.maneuver):\(following.modifier):\(following.instruction)"
+      }
+    }
+
+    speak(
+      phrase,
+      key: speechKey,
+      urgent: phase == "now"
+    ) { [weak self] in
+      self?.spokenManeuverPhases.insert(phaseKey)
+      if let chainedKey {
+        self?.chainedPrepareKeys.insert(chainedKey)
+      }
+    }
   }
 
-  private func speak(_ text: String) {
-    guard voiceEnabled, !text.isEmpty else {
+  private func speak(
+    _ text: String,
+    key: String? = nil,
+    urgent: Bool = false,
+    allowWhenGuidanceMuted: Bool = false,
+    protectUntilFinished: Bool = false,
+    onStarted: @escaping () -> Void = {}
+  ) {
+    guard (voiceEnabled || (allowWhenGuidanceMuted && voiceAlertsEnabled)),
+      !text.isEmpty
+    else {
       return
     }
+    let now = Date()
+    if !urgent,
+      (!pendingSpeechKeys.isEmpty || now.timeIntervalSince(lastVoiceAt) < 6)
+    {
+      return
+    }
+    if urgent {
+      synthesizer.stopSpeaking(at: .immediate)
+      pendingSpeechKeys.removeAll()
+      speechStartedCallbacks.removeAll()
+      speechKeys.removeAll()
+    }
+
     let utterance = AVSpeechUtterance(string: text)
-    utterance.voice = AVSpeechSynthesisVoice(language: "pl-PL")
-    utterance.rate = 0.48
+    utterance.voice = selectedPolishVoice()
+    utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.96
+    utterance.pitchMultiplier = 1
+    let speechKey = key ?? "info:\(text)"
+    let identifier = ObjectIdentifier(utterance)
+    pendingSpeechKeys.insert(speechKey)
+    speechKeys[identifier] = speechKey
+    speechStartedCallbacks[identifier] = onStarted
+    if protectUntilFinished {
+      protectedSpeechKey = speechKey
+    }
+    configureAudioSession()
     synthesizer.speak(utterance)
+  }
+
+  private func selectedPolishVoice() -> AVSpeechSynthesisVoice? {
+    if voiceMode == "manual", let voiceIdentifier,
+      let selected = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
+    {
+      return selected
+    }
+    return AVSpeechSynthesisVoice.speechVoices()
+      .filter { $0.language.lowercased().hasPrefix("pl") }
+      .sorted { lhs, rhs in
+        if lhs.quality != rhs.quality {
+          return lhs.quality.rawValue > rhs.quality.rawValue
+        }
+        return lhs.identifier < rhs.identifier
+      }
+      .first ?? AVSpeechSynthesisVoice(language: "pl-PL")
+  }
+
+  private func configureAudioSession() {
+    let session = AVAudioSession.sharedInstance()
+    try? session.setCategory(
+      .playback,
+      mode: .voicePrompt,
+      options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers]
+    )
+    try? session.setActive(true)
+  }
+
+  private func resetSpeechState() {
+    activeInstructionKey = ""
+    spokenManeuverPhases.removeAll()
+    chainedPrepareKeys.removeAll()
+    spokenWarningKeys.removeAll()
+    pendingSpeechKeys.removeAll()
+    speechStartedCallbacks.removeAll()
+    speechKeys.removeAll()
+    protectedSpeechKey = nil
+    lastVoiceAt = .distantPast
+  }
+
+  private func isSpeakableManeuver(_ step: VroomNavigationStep) -> Bool {
+    let clean = "\(step.maneuver) \(step.modifier)".lowercased()
+    return !["depart", "notification", "new name", "continue", "straight"]
+      .contains { clean.contains($0) }
+  }
+
+  private func isComplexManeuver(_ step: VroomNavigationStep) -> Bool {
+    let clean = "\(step.maneuver) \(step.modifier)".lowercased()
+    return [
+      "roundabout", "rotary", "fork", "merge", "ramp", "uturn",
+      "u-turn", "sharp", "ostro", "rozwidlen", "zawr",
+    ].contains { clean.contains($0) }
+  }
+
+  private func readableDistance(_ meters: Int) -> String {
+    if meters >= 950 {
+      return String(format: "%.1f kilometra", Double(meters) / 1_000)
+    }
+    let rounded = max(50, Int((Double(meters) / 50).rounded()) * 50)
+    return "\(rounded) metrów"
+  }
+
+  private func isMarkerAhead(
+    _ marker: VroomCoordinate,
+    pose: VroomCarPlayPose,
+    route: [VroomCoordinate]
+  ) -> Bool {
+    let markerBearing = bearing(
+      from: pose.rawCoordinate,
+      to: marker
+    )
+    let delta = angleDelta(pose.heading, markerBearing)
+    if delta <= 105 {
+      return true
+    }
+    return delta <= 135 &&
+      route.prefix(100).contains {
+        CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+          .distance(
+            from: CLLocation(
+              latitude: marker.latitude,
+              longitude: marker.longitude
+            )
+          ) <= 220
+      }
+  }
+
+  private func bearing(
+    from start: VroomCoordinate,
+    to end: VroomCoordinate
+  ) -> Double {
+    let first = start.latitude * .pi / 180
+    let second = end.latitude * .pi / 180
+    let longitudeDelta = (end.longitude - start.longitude) * .pi / 180
+    let y = sin(longitudeDelta) * cos(second)
+    let x =
+      cos(first) * sin(second) -
+      sin(first) * cos(second) * cos(longitudeDelta)
+    return (atan2(y, x) * 180 / .pi + 360)
+      .truncatingRemainder(dividingBy: 360)
+  }
+
+  private func angleDelta(_ first: Double, _ second: Double) -> Double {
+    let raw = abs(first - second)
+    return min(raw, 360 - raw)
   }
 
   private func routeFromSnapshot(
@@ -1124,5 +1398,50 @@ extension VroomCarPlayCoordinator: CPSearchTemplateDelegate {
     }
     requestRoutes(to: place)
     completionHandler()
+  }
+}
+
+extension VroomCarPlayCoordinator: AVSpeechSynthesizerDelegate {
+  public func speechSynthesizer(
+    _ synthesizer: AVSpeechSynthesizer,
+    didStart utterance: AVSpeechUtterance
+  ) {
+    let identifier = ObjectIdentifier(utterance)
+    lastVoiceAt = Date()
+    if let key = speechKeys[identifier] {
+      pendingSpeechKeys.remove(key)
+    }
+    speechStartedCallbacks.removeValue(forKey: identifier)?()
+  }
+
+  public func speechSynthesizer(
+    _ synthesizer: AVSpeechSynthesizer,
+    didFinish utterance: AVSpeechUtterance
+  ) {
+    finishSpeech(utterance)
+  }
+
+  public func speechSynthesizer(
+    _ synthesizer: AVSpeechSynthesizer,
+    didCancel utterance: AVSpeechUtterance
+  ) {
+    finishSpeech(utterance)
+  }
+
+  private func finishSpeech(_ utterance: AVSpeechUtterance) {
+    let identifier = ObjectIdentifier(utterance)
+    if let key = speechKeys.removeValue(forKey: identifier) {
+      pendingSpeechKeys.remove(key)
+      if key == protectedSpeechKey {
+        protectedSpeechKey = nil
+      }
+    }
+    speechStartedCallbacks.removeValue(forKey: identifier)
+    if !synthesizer.isSpeaking {
+      try? AVAudioSession.sharedInstance().setActive(
+        false,
+        options: .notifyOthersOnDeactivation
+      )
+    }
   }
 }

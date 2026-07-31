@@ -26,6 +26,15 @@ describe('Vroom iOS map camera follower plugin', () => {
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('@objc var cameraMode');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"worldHeading"');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain('"screenHeading"');
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain(
+      'mapboxMap.updateGeoJSONSource',
+    );
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).toContain(
+      'guard let mapboxMap = mapView.mapboxMap',
+    );
+    expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain(
+      'mapboxMap.style',
+    );
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('predictor.ingest');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func addToMap');
     expect(IOS_SOURCE_FILES['VroomMapCameraFollower.swift']).not.toContain('override func removeFromMap');

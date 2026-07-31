@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import {
   View, Text, TouchableOpacity,
@@ -7,7 +7,7 @@ import {
 import * as Location from 'expo-location';
 import Mapbox from '@rnmapbox/maps';
 import { resolveStandardMapStyle, MAPBOX_STYLE_SATELLITE } from '../../constants/mapConfig';
-import { ensureMapboxToken } from '../../lib/mapboxInit';
+import { ensureMapboxToken, initMapbox } from '../../lib/mapboxInit';
 
 ensureMapboxToken();
 import { MaterialIcons } from '@expo/vector-icons';
@@ -29,6 +29,9 @@ type PickingState = 'idle' | 'picking';
 
 export default function SpotMap() {
   const mapRef = useRef<Mapbox.MapView>(null);
+  useEffect(() => {
+    void initMapbox().catch(() => {});
+  }, []);
   const headerTop = useScreenHeaderTop(8);
   // Osobny ref dla Mapbox.Camera — setCamera/flyTo działa tylko na Camera, nie na MapView
   const cameraRef = useRef<Mapbox.Camera>(null);

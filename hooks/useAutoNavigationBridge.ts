@@ -15,6 +15,8 @@ import {
 import { resolveStationDisplayPrice } from '../lib/fuelDisplayPrice';
 import VroomCarPlay from '../modules/vroom-carplay';
 import { formatNavigationInstruction } from '../scripts/navigationUtils';
+import { resolveNavigationRoute } from '../lib/navigation/resolvedCue';
+import type { VoicePreferences } from '../lib/navigation/voiceGuidanceCore';
 
 const { UsersModule, VroomBridgeModule } = NativeModules as {
   UsersModule?: {
@@ -88,6 +90,8 @@ interface UseAutoNavigationBridgeParams {
   speedKmh?: number | null;
   heading?: number | null;
   speedLimitKmh?: number | null;
+  voicePreferences?: VoicePreferences;
+  voiceIdentifier?: string | null;
   remainingRoutePoints?: { latitude: number; longitude: number }[] | null | undefined;
   navRoutePoints: { latitude: number; longitude: number }[] | null | undefined;
   previewRoutePoints: { latitude: number; longitude: number }[] | null | undefined;
@@ -230,6 +234,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     speedKmh,
     heading,
     speedLimitKmh,
+    voicePreferences,
+    voiceIdentifier,
     remainingRoutePoints,
     navRoutePoints,
     previewRoutePoints,
@@ -486,19 +492,30 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
   ), [builderPins]);
 
   const autoAlternativeRoutes = useMemo(() => (
-    (alternativeRoutes ?? []).slice(0, 3).map((route, index) => ({
-      index: route.index ?? index,
-      route: compactRoutePolyline(route.points, 280),
-      routeSteps: (route.steps ?? []).map((step) => ({
+    (alternativeRoutes ?? []).slice(0, 3).map((route, index) => {
+      const resolved = resolveNavigationRoute({
+        points: route.points ?? [],
+        steps: route.steps ?? [],
+        distanceText: '',
+        distanceValue: route.distanceValue ?? 0,
+        durationText: '',
+        duration: route.duration ?? 0,
+        index: route.index ?? index,
+      });
+      return {
+      index: resolved.index,
+      route: compactRoutePolyline(resolved.points, 280),
+      routeSteps: resolved.steps.map((step) => ({
         instruction: formatNavigationInstruction(step),
         maneuver: step.maneuver ?? '',
         maneuverModifier: step.maneuverModifier ?? '',
         maneuverExit: step.maneuverExit ?? null,
         distanceMeters: step.distance?.value ?? null,
       })),
-      distanceM: Math.max(1, Math.round(route.distanceValue ?? 1)),
-      durationS: Math.max(0, Math.round((route.duration ?? 0) * 60)),
-    })).filter((route) => route.route.length >= 2)
+      distanceM: Math.max(1, Math.round(resolved.distanceValue ?? 1)),
+      durationS: Math.max(0, Math.round((resolved.duration ?? 0) * 60)),
+    };
+    }).filter((route) => route.route.length >= 2)
   ), [alternativeRoutes]);
 
   const autoMapState = useMemo(() => ({
@@ -511,6 +528,10 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     arrived: !!arrived,
     offRoute: !!offRoute,
     speedLimitKmh: speedLimitKmh ?? null,
+    voiceGuidance: voicePreferences?.guidanceEnabled !== false,
+    voiceAlerts: voicePreferences?.alertsEnabled !== false,
+    voiceMode: voicePreferences?.mode ?? 'auto',
+    voiceIdentifier: voiceIdentifier ?? '',
     start: startLocation
       ? {
         lat: startLocation.latitude,
@@ -538,6 +559,8 @@ export function useAutoNavigationBridge(params: UseAutoNavigationBridgeParams) {
     arrived,
     offRoute,
     speedLimitKmh,
+    voicePreferences,
+    voiceIdentifier,
     startLocation,
     compactPolyline,
     compactBuilderRoute,

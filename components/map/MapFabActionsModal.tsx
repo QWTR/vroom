@@ -85,7 +85,7 @@ export function MapFabActionsModal({
     { key: 'manualPoint', label: 'Punkt', icon: 'place', lib: 'mi', onPress: onManualPoint },
     {
       key: 'mute',
-      label: isSpeechEnabled ? 'Dźwięk' : 'Wycisz',
+      label: isSpeechEnabled ? 'Wycisz' : 'Odcisz',
       icon: isSpeechEnabled ? 'volume-up' : 'volume-off',
       lib: 'mi',
       onPress: onToggleSpeech,

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { combineManeuverIconKey } from '../hooks/useGoogleDirections';
 import {
   applyGeometryTurnToStep,
-  buildRouteForwardArcPrefix,
   buildStepArcIndex,
   detectCurrentStep,
   distanceToManeuverArcM,
@@ -15,6 +14,13 @@ import {
 } from '../scripts/navigationUtils';
 import { resolveRerouteApiHeadingDeg, routeStartsWithUTurn } from '../lib/navigation/reroute';
 import { trimNavigationRouteFromVehicle } from '../lib/driveCore/navRouteBootstrap';
+import {
+  createResolvedNavigationCue,
+  resolveNavigationRoute,
+} from '../lib/navigation/resolvedCue';
+import { buildAdaptiveNavigationSpeech } from '../lib/navigation/voiceGuidanceCore';
+import { toCarSafeNavigationDto } from '../core/navigationCore';
+import { navigationNotificationIcon } from '../lib/navigation/maneuverPresentation';
 import type { Step } from '../hooks/useGoogleDirections';
 
 function encodePolyline(points: { latitude: number; longitude: number }[]): string {
@@ -214,6 +220,144 @@ describe('real-time navigation behavior', () => {
     const turn = applyGeometryTurnToStep(steps[1], routePoints, arcIndex[1]);
     expect(turn.maneuver).toContain('right');
     expect(inferGeometryTurnModifier(routePoints, arcIndex[1].startArcM)).toBe('right');
+  });
+
+  it('also overrides OSRM right with unambiguous geometry left', () => {
+    const { routePoints, steps } = makeForkRoute();
+    const mirroredPoints = routePoints.map((point) => ({
+      latitude: 104 - point.latitude,
+      longitude: point.longitude,
+    }));
+    const mirroredSteps = steps.map((step) => ({
+      ...step,
+      start_location: {
+        lat: 104 - step.start_location.lat,
+        lng: step.start_location.lng,
+      },
+      end_location: {
+        lat: 104 - step.end_location.lat,
+        lng: step.end_location.lng,
+      },
+      maneuver: step.maneuver?.replace('left', 'right'),
+      maneuverModifier: step.maneuverModifier?.replace('left', 'right'),
+    }));
+    const arcIndex = buildStepArcIndex(mirroredPoints, mirroredSteps);
+    const turn = applyGeometryTurnToStep(mirroredSteps[1], mirroredPoints, arcIndex[1]);
+    expect(turn.maneuver).toContain('left');
+    expect(turn.maneuverModifier).toBe('left');
+  });
+
+  it('keeps protected maneuvers and uncertain bends unchanged', () => {
+    const { routePoints, steps } = makeForkRoute();
+    const arcIndex = buildStepArcIndex(routePoints, steps);
+    const roundabout = {
+      ...steps[1],
+      maneuver: 'roundabout-left',
+      maneuverModifier: 'left',
+      maneuverExit: 2,
+    };
+    const uturn = {
+      ...steps[1],
+      maneuver: 'uturn-left',
+      maneuverModifier: 'left',
+    };
+    expect(applyGeometryTurnToStep(roundabout, routePoints, arcIndex[1]).maneuver)
+      .toBe('roundabout-left');
+    expect(applyGeometryTurnToStep(uturn, routePoints, arcIndex[1]).maneuver)
+      .toBe('uturn-left');
+
+    const gentleCurve = [
+      { latitude: 52, longitude: 21 },
+      { latitude: 52, longitude: 21.002 },
+      { latitude: 51.9999, longitude: 21.004 },
+      { latitude: 51.9997, longitude: 21.006 },
+    ];
+    const uncertain = applyGeometryTurnToStep(
+      steps[1],
+      gentleCurve,
+      { startArcM: 135, endArcM: 300, maneuverArcM: 135 },
+    );
+    expect(uncertain.maneuver).toBe(steps[1].maneuver);
+  });
+
+  it('maps repeated loop coordinates to monotonically increasing step arcs', () => {
+    const routePoints = [
+      { latitude: 52, longitude: 21 },
+      { latitude: 52, longitude: 21.001 },
+      { latitude: 52.001, longitude: 21.001 },
+      { latitude: 52.001, longitude: 21 },
+      { latitude: 52, longitude: 21 },
+      { latitude: 51.999, longitude: 21 },
+    ];
+    const starts = [routePoints[0], routePoints[2], routePoints[4]];
+    const steps = starts.map((point, index) => ({
+      html_instructions: index === 0 ? 'depart' : 'turn right',
+      maneuver: index === 0 ? 'depart' : 'turn-right',
+      maneuverModifier: index === 0 ? 'straight' : 'right',
+      start_location: { lat: point.latitude, lng: point.longitude },
+      end_location: {
+        lat: routePoints[Math.min(routePoints.length - 1, index * 2 + 1)].latitude,
+        lng: routePoints[Math.min(routePoints.length - 1, index * 2 + 1)].longitude,
+      },
+      distance: { text: '100 m', value: 100 },
+      duration: { text: '1 min', value: 60 },
+      polyline: {
+        points: encodePolyline(routePoints.slice(index * 2, Math.min(routePoints.length, index * 2 + 3))),
+      },
+    } as Step));
+    const arcs = buildStepArcIndex(routePoints, steps);
+    expect(arcs[1].startArcM).toBeGreaterThan(arcs[0].startArcM);
+    expect(arcs[2].startArcM).toBeGreaterThan(arcs[1].startArcM);
+  });
+
+  it('uses one resolved right cue for HUD, speech, notification and car snapshots', () => {
+    const { routePoints, steps } = makeForkRoute();
+    const route = resolveNavigationRoute({
+      points: routePoints,
+      steps,
+      distanceText: '1.2 km',
+      distanceValue: 1200,
+      durationText: '3 min',
+      duration: 3,
+      index: 0,
+    });
+    const resolvedStep = route.steps[1];
+    const cue = createResolvedNavigationCue({
+      stepIndex: 1,
+      step: resolvedStep,
+      originalStep: steps[1],
+      distanceM: 80,
+      routeRevision: route.routeRevision,
+      geometryDiagnostic: route.geometryDiagnostics[1],
+    });
+    const speech = buildAdaptiveNavigationSpeech({
+      step: cue.step,
+      distanceM: cue.distanceM!,
+      phase: 'now',
+      speedKmh: 50,
+    });
+    const car = toCarSafeNavigationDto({
+      isNavigating: true,
+      currentStepIndex: cue.stepIndex,
+      step: cue.step,
+      followingStep: null,
+      remainingDistKm: 1.2,
+      distToTurnM: cue.distanceM,
+      routeInfo: { distance: '1.2 km', duration: 3 } as any,
+      destination: { latitude: 51.994, longitude: 21.015, name: 'Cel' },
+    });
+
+    expect(cue.geometryCorrected).toBe(true);
+    expect(cue.geometryDirection).toBe('right');
+    expect(cue.correctionConfidence).toBeGreaterThan(0);
+    expect(cue.originalManeuver).toContain('left');
+    expect(cue.direction).toBe('right');
+    expect(cue.instruction.toLowerCase()).toContain('prawo');
+    expect(combineManeuverIconKey(cue.maneuver, cue.maneuverModifier)).toContain('right');
+    expect(navigationNotificationIcon(cue.maneuver)).toBe('➡️');
+    expect(speech.toLowerCase()).toContain('prawo');
+    expect(car.nextInstruction.toLowerCase()).toContain('prawo');
+    expect(car.maneuverModifier).toContain('right');
   });
 
   it('computes arc distance to maneuver monotonically', () => {

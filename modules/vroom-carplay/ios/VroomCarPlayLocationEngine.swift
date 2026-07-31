@@ -137,11 +137,14 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       longitude: location.coordinate.longitude
     )
     let projection = project(raw, onto: activeRoute)
-    let shouldSnap =
+    let shouldSnap = projection.map {
       activeRoute.count >= 2 &&
-      projection != nil &&
-      projection!.distanceMeters <= max(35, min(80, location.horizontalAccuracy * 2))
-    let target = shouldSnap ? projection!.coordinate : raw
+        $0.distanceMeters <= max(
+          35,
+          min(80, location.horizontalAccuracy * 2)
+        )
+    } ?? false
+    let target = shouldSnap ? (projection?.coordinate ?? raw) : raw
     evaluateOffRoute(
       projectionDistance: projection?.distanceMeters,
       location: location
@@ -409,7 +412,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       let projectedX = firstX + deltaX * ratio
       let projectedY = firstY + deltaY * ratio
       let distance = hypot(pointX - projectedX, pointY - projectedY)
-      if best == nil || distance < best!.distanceMeters {
+      if best.map({ distance < $0.distanceMeters }) ?? true {
         best = RouteProjection(
           coordinate: VroomCoordinate(
             latitude: projectedY / metersPerDegree,

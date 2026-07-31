@@ -1060,6 +1060,12 @@ export type StepArcIndex = {
   maneuverArcM: number;
 };
 
+export type GeometryTurnInference = {
+  direction: 'left' | 'right' | 'straight';
+  angleDeg: number;
+  confidence: number;
+};
+
 /** Cumulative arc distance (m) at each route vertex from the start. */
 export function buildRouteForwardArcPrefix(
   routePoints: LatLngPoint[],
@@ -1112,29 +1118,78 @@ export function buildStepArcIndex(
   const prefix = routePoints.length >= 2
     ? buildRouteForwardArcPrefix(routePoints)
     : [];
-  let vertexIdx = 0;
+  if (routePoints.length < 2 || !prefix.length) {
+    return steps.map(() => ({ startArcM: 0, endArcM: 0, maneuverArcM: 0 }));
+  }
 
-  return steps.map((step, i) => {
+  const startArcs: number[] = [];
+  let cursorSegment = 0;
+  let fallbackVertex = 0;
+
+  for (const step of steps) {
     const encoded = step.polyline?.points ?? '';
     const decoded = encoded ? decodePolyline(encoded) : [];
-    const segCount = decoded.length > 1 ? decoded.length - 1 : 0;
-    const startArcM = prefix[Math.min(vertexIdx, Math.max(0, prefix.length - 1))] ?? 0;
-    if (segCount > 0) {
-      vertexIdx += segCount;
-    } else {
-      vertexIdx += 1;
+    const segCount = decoded.length > 1 ? decoded.length - 1 : 1;
+    const fallbackArc = prefix[Math.min(fallbackVertex, prefix.length - 1)] ?? 0;
+    fallbackVertex = Math.min(routePoints.length - 1, fallbackVertex + segCount);
+
+    const stepLat = Number(step.start_location?.lat);
+    const stepLng = Number(step.start_location?.lng);
+    let best: RouteWindowProjection | null = null;
+    let bestArcM = 0;
+    if (Number.isFinite(stepLat) && Number.isFinite(stepLng)) {
+      const searchStart = Math.max(0, cursorSegment - 2);
+      for (let segmentIndex = searchStart; segmentIndex < routePoints.length - 1; segmentIndex += 1) {
+        const a = routePoints[segmentIndex];
+        const b = routePoints[segmentIndex + 1];
+        const projected = nearestPointOnSegmentMeters(
+          stepLat,
+          stepLng,
+          a.latitude,
+          a.longitude,
+          b.latitude,
+          b.longitude,
+        );
+        const segmentM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+        const projectionM = haversineKm(
+          a.latitude,
+          a.longitude,
+          projected.latitude,
+          projected.longitude,
+        ) * 1000;
+        const candidate = {
+          latitude: projected.latitude,
+          longitude: projected.longitude,
+          segmentIndex,
+          segmentProgress: segmentM > 0.01 ? Math.max(0, Math.min(1, projectionM / segmentM)) : 0,
+          distM: projected.distM,
+        };
+        const candidateArcM = arcMFromProjection(routePoints, prefix, candidate);
+        if (best) {
+          const clearlyFarther = projected.distM > best.distM + 2;
+          const tiedButWorseForStepOrder = Math.abs(projected.distM - best.distM) <= 2
+            && Math.abs(candidateArcM - fallbackArc) >= Math.abs(bestArcM - fallbackArc);
+          if (clearlyFarther || tiedButWorseForStepOrder) continue;
+        }
+        best = candidate;
+        bestArcM = candidateArcM;
+      }
     }
-    const endIdx = Math.min(vertexIdx, Math.max(0, prefix.length - 1));
-    let endArcM = prefix[endIdx] ?? startArcM;
-    if (i === steps.length - 1 && prefix.length) {
-      endArcM = prefix[prefix.length - 1];
+
+    let startArcM = fallbackArc;
+    if (best && best.distM <= 120 && best.segmentIndex + 1 >= cursorSegment) {
+      startArcM = arcMFromProjection(routePoints, prefix, best);
+      cursorSegment = Math.max(cursorSegment, best.segmentIndex);
     }
-    if (endArcM < startArcM) endArcM = startArcM;
-    return {
-      startArcM,
-      endArcM,
-      maneuverArcM: startArcM,
-    };
+    const previousStart = startArcs[startArcs.length - 1] ?? 0;
+    startArcs.push(Math.max(previousStart, startArcM));
+  }
+
+  const totalM = prefix[prefix.length - 1] ?? 0;
+  return steps.map((_, index) => {
+    const startArcM = startArcs[index] ?? 0;
+    const endArcM = Math.max(startArcM, startArcs[index + 1] ?? totalM);
+    return { startArcM, endArcM, maneuverArcM: startArcM };
   });
 }
 
@@ -1166,31 +1221,63 @@ function getPointAtArcM(
   };
 }
 
-/** Turn direction from route geometry at a maneuver point. */
-export function inferGeometryTurnModifier(
+/** Turn direction from route geometry at a maneuver point, with confidence. */
+export function inferGeometryTurn(
   routePoints: LatLngPoint[],
   maneuverArcM: number,
   forwardPrefix?: number[],
-): 'left' | 'right' | 'straight' | null {
+): GeometryTurnInference | null {
   if (routePoints.length < 2) return null;
   const prefix = forwardPrefix ?? buildRouteForwardArcPrefix(routePoints);
   const total = prefix[prefix.length - 1] ?? 0;
   if (total <= 0) return null;
 
-  const beforeM = Math.max(0, maneuverArcM - 40);
-  const afterM = Math.min(total, maneuverArcM + 40);
-  const beforePt = getPointAtArcM(routePoints, prefix, beforeM);
+  const availableBefore = maneuverArcM;
+  const availableAfter = total - maneuverArcM;
+  if (availableBefore < 18 || availableAfter < 18) return null;
+
+  const innerWindowM = Math.min(28, availableBefore, availableAfter);
+  const outerWindowM = Math.min(60, availableBefore, availableAfter);
   const atPt = getPointAtArcM(routePoints, prefix, maneuverArcM);
-  const afterPt = getPointAtArcM(routePoints, prefix, afterM);
 
-  const bearingBefore = bearingBetween(beforePt.lat, beforePt.lng, atPt.lat, atPt.lng);
-  const bearingAfter = bearingBetween(atPt.lat, atPt.lng, afterPt.lat, afterPt.lng);
-  let delta = bearingAfter - bearingBefore;
-  while (delta > 180) delta -= 360;
-  while (delta < -180) delta += 360;
+  const turnDelta = (windowM: number) => {
+    const beforePt = getPointAtArcM(routePoints, prefix, maneuverArcM - windowM);
+    const afterPt = getPointAtArcM(routePoints, prefix, maneuverArcM + windowM);
+    const bearingBefore = bearingBetween(beforePt.lat, beforePt.lng, atPt.lat, atPt.lng);
+    const bearingAfter = bearingBetween(atPt.lat, atPt.lng, afterPt.lat, afterPt.lng);
+    let delta = bearingAfter - bearingBefore;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    return delta;
+  };
 
-  if (Math.abs(delta) < 25) return 'straight';
-  return delta > 0 ? 'right' : 'left';
+  const innerDelta = turnDelta(innerWindowM);
+  const outerDelta = turnDelta(outerWindowM);
+  const sameDirection = Math.sign(innerDelta) === Math.sign(outerDelta);
+  const strongestAngle = Math.abs(innerDelta) >= Math.abs(outerDelta) ? innerDelta : outerDelta;
+  const angleDeg = sameDirection
+    ? innerDelta * 0.6 + outerDelta * 0.4
+    : strongestAngle;
+  const absAngle = Math.abs(angleDeg);
+  if (absAngle < 25) {
+    return { direction: 'straight', angleDeg, confidence: Math.max(0, absAngle / 25) };
+  }
+  const agreementPenalty = sameDirection ? 1 : 0.35;
+  const confidence = Math.max(0, Math.min(1, ((absAngle - 20) / 50) * agreementPenalty));
+  return {
+    direction: angleDeg > 0 ? 'right' : 'left',
+    angleDeg,
+    confidence,
+  };
+}
+
+/** Backward-compatible direction-only helper. */
+export function inferGeometryTurnModifier(
+  routePoints: LatLngPoint[],
+  maneuverArcM: number,
+  forwardPrefix?: number[],
+): 'left' | 'right' | 'straight' | null {
+  return inferGeometryTurn(routePoints, maneuverArcM, forwardPrefix)?.direction ?? null;
 }
 
 /** Override OSRM left/right when it disagrees with the route polyline. */
@@ -1200,11 +1287,21 @@ export function applyGeometryTurnToStep(
   stepArc: StepArcIndex,
   forwardPrefix?: number[],
 ): Step {
-  const geomTurn = inferGeometryTurnModifier(routePoints, stepArc.startArcM, forwardPrefix);
-  if (!geomTurn || geomTurn === 'straight') return step;
-
   const m = (step.maneuver ?? '').toLowerCase();
   const mod = (step.maneuverModifier ?? '').toLowerCase();
+  if (
+    m.includes('roundabout')
+    || m.includes('rotary')
+    || m.includes('uturn')
+    || m.includes('u-turn')
+    || m.includes('arrive')
+  ) {
+    return step;
+  }
+  const inference = inferGeometryTurn(routePoints, stepArc.startArcM, forwardPrefix);
+  const geomTurn = inference?.direction;
+  if (!inference || !geomTurn || geomTurn === 'straight' || inference.confidence < 0.18) return step;
+
   const osrmLeft = m.includes('left') || mod.includes('left');
   const osrmRight = m.includes('right') || mod.includes('right');
   if (!osrmLeft && !osrmRight) return step;
@@ -1214,6 +1311,9 @@ export function applyGeometryTurnToStep(
     let newManeuver = `turn-${newMod}`;
     if (m.includes('sharp')) newManeuver = `turn-sharp-${newMod}`;
     else if (m.includes('slight')) newManeuver = `turn-slight-${newMod}`;
+    else if (m.includes('fork')) newManeuver = `fork-${newMod}`;
+    else if (m.includes('ramp')) newManeuver = `ramp-${newMod}`;
+    else if (m.includes('merge')) newManeuver = `merge-${newMod}`;
     return {
       ...step,
       maneuver: newManeuver,

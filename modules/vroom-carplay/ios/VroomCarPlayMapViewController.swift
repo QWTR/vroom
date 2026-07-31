@@ -441,7 +441,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
       return
     }
     currentStyleURI = uri
-    mapView.mapboxMap.loadStyleURI(styleURI)
+    mapView.mapboxMap.loadStyle(styleURI)
   }
 
   private func renderRoutes(_ snapshot: VroomCarPlaySnapshot) {

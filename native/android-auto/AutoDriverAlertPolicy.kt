@@ -30,8 +30,8 @@ object AutoDriverAlertPolicy {
 
     fun selectVoiceEnforcement(payload: VroomPayload): AutoDriverAlertCandidate? =
         candidates(payload)
-            .filter(::shouldSpeak)
-            .minByOrNull { it.distanceMeters }
+            .sortedWith(compareByDescending<AutoDriverAlertCandidate> { it.priority }.thenBy { it.distanceMeters })
+            .firstOrNull()
 
     fun shouldSpeak(candidate: AutoDriverAlertCandidate): Boolean {
         if (candidate.source != "camera") return false
@@ -52,6 +52,9 @@ object AutoDriverAlertPolicy {
     }
 
     fun voiceTitle(candidate: AutoDriverAlertCandidate): String {
+        if (candidate.source != "camera") {
+            return candidate.title.ifBlank { "Uwaga" }
+        }
         val clean = "${candidate.type} ${candidate.title}".lowercase()
         return if (listOf("section", "average", "odcink", "segment").any(clean::contains)) {
             "Odcinkowy pomiar prędkości"

@@ -10,6 +10,7 @@ import {
   Dimensions,
   AppState,
   Linking,
+  Platform,
   type AppStateStatus,
 } from 'react-native';
 import * as SplashScreen    from 'expo-splash-screen';
@@ -37,7 +38,6 @@ import {
   requestBackgroundLocationPermissionAfterDisclosure,
   setBackgroundLocationEnablePending,
 } from '../lib/backgroundLocationConsent';
-import { initMapbox } from '../lib/mapboxInit';
 import { initNavDriveTraceStore } from '../lib/navDriveTraceStore';
 import { vroomGpsLogPing } from '../lib/vroomGpsLog';
 import { useAppPresence } from '../hooks/useAppPresence';
@@ -127,22 +127,24 @@ Notifications.setNotificationHandler({
     };
   },
 });
-Notifications.setNotificationChannelAsync('default', {
-  name: 'Powiadomienia', importance: Notifications.AndroidImportance.MAX,
-  sound: 'default', vibrationPattern: [0, 250, 250, 250],
-  lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-});
-Notifications.setNotificationChannelAsync('navigation', {
-  name: 'Nawigacja', importance: Notifications.AndroidImportance.HIGH,
-  sound: null, vibrationPattern: [0],
-  lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: true,
-});
-Notifications.setNotificationChannelAsync('vroomki_publish', {
-  name: 'Publikacja VROOMKI', importance: Notifications.AndroidImportance.MAX,
-  sound: 'default', vibrationPattern: [0, 250, 250, 250],
-  lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-  bypassDnd: true,
-});
+if (Platform.OS === 'android') {
+  void Notifications.setNotificationChannelAsync('default', {
+    name: 'Powiadomienia', importance: Notifications.AndroidImportance.MAX,
+    sound: 'default', vibrationPattern: [0, 250, 250, 250],
+    lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  }).catch(() => {});
+  void Notifications.setNotificationChannelAsync('navigation', {
+    name: 'Nawigacja', importance: Notifications.AndroidImportance.HIGH,
+    sound: null, vibrationPattern: [0],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: true,
+  }).catch(() => {});
+  void Notifications.setNotificationChannelAsync('vroomki_publish', {
+    name: 'Publikacja VROOMKI', importance: Notifications.AndroidImportance.MAX,
+    sound: 'default', vibrationPattern: [0, 250, 250, 250],
+    lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    bypassDnd: true,
+  }).catch(() => {});
+}
 
 
 // ─── REFRESH USER ─────────────────────────────────────────
@@ -362,8 +364,7 @@ function RootLayoutInner() {
   }, [deferredStartupAnimationAssets, phase]);
 
   useEffect(() => {
-    initMapbox().catch(() => {});
-    void initNavDriveTraceStore();
+    void initNavDriveTraceStore().catch(() => {});
     vroomGpsLogPing('app_layout_mount');
   }, []);
 

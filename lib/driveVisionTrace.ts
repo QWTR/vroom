@@ -193,6 +193,7 @@ export function visionEvent(
     | 'NAV_REROUTE_DEDUP'
     | 'NAV_REROUTE_FAIL'
     | 'NAV_STEP_CHANGE'
+    | 'NAV_MANEUVER_GEOMETRY_CORRECTION'
     | 'STALL_DETECT',
   extra?: Record<string, unknown>,
 ): void {
