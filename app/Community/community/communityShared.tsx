@@ -124,6 +124,13 @@ export interface VroomkiPost {
   clipDurationMs?: number | null;
   /** Informacyjne — playback zawsze z jednego pliku MP4 z serwera */
   audioBaked?: boolean;
+  /** Reklama B2B wstrzyknięta do feedu Vroomki */
+  sponsored?: {
+    campaignId: number;
+    linkUrl?: string | null;
+    ctaText?: string;
+    companyName?: string;
+  } | null;
 }
 export interface VroomkiComment {
   id: number;

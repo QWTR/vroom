@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { CAMERA_SPEED_POLL_MS } from '../../constants/mapPerformance';
 import { useMapTick } from '../useMapTick';
 
@@ -22,7 +23,10 @@ export function useMapCameraSpeedPoll({ tripActive, runOnce, poll }: UseMapCamer
 
   useMapTick(
     CAMERA_SPEED_POLL_MS,
-    [() => pollRef.current()],
+    [() => {
+      if (AppState.currentState !== 'active') return;
+      pollRef.current();
+    }],
     tripActive,
   );
 }

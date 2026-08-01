@@ -315,16 +315,23 @@ export function useDriveLocationWatch({
 
   const scheduleRestart = useCallback((reason: string) => {
     if (restartTimerRef.current) return;
+    if (nativeProviderActiveRef.current && isActiveGpsProfile(profileRef.current)) return;
     const attempt = restartAttemptRef.current;
     const backoffMs = computeGpsRestartBackoffMs(attempt);
     restartAttemptRef.current = attempt + 1;
     restartTimerRef.current = setTimeout(() => {
       restartTimerRef.current = null;
+      if (nativeProviderActiveRef.current && isActiveGpsProfile(profileRef.current)) return;
       void subscribeRef.current(currentProfile(), isActiveGpsProfile(profileRef.current), reason);
     }, backoffMs);
   }, [currentProfile]);
 
   const forceResubscribe = useCallback((reason: string) => {
+    // Native broker owns GNSS during trip — never spin up a parallel Expo watch.
+    if (nativeProviderActiveRef.current && isActiveGpsProfile(profileRef.current)) {
+      lastValidFixAtRef.current = Date.now();
+      return;
+    }
     const staleMs = lastValidFixAtRef.current > 0
       ? Date.now() - lastValidFixAtRef.current
       : -1;

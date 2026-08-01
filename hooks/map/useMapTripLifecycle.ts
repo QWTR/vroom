@@ -1,7 +1,7 @@
 import type { MutableRefObject } from 'react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect } from 'react';
 import { MAP_PERF } from '../../constants/mapPerformance';
 import { useMapTick, MAP_TICK } from '../useMapTick';
 import { driveTraceHeartbeat } from '../../lib/driveSessionTrace';
@@ -27,23 +27,36 @@ export type MapTripRefs = {
 export type UseMapTripLifecycleParams = {
   isDriving: boolean;
   isNavigating: boolean;
+  /** Keep screen on only while the map tab is focused. */
+  isMapFocused?: boolean;
   rerouteOrigin: unknown;
   refs: MapTripRefs;
 };
 
+const KEEP_AWAKE_TAG = 'vroom-map-nav';
+
 /** Keep-awake, drive heartbeat trace, and drive health logging during trip. */
 export function useMapTripLifecycle(params: UseMapTripLifecycleParams) {
-  const { isDriving, isNavigating, rerouteOrigin, refs } = params;
+  const { isDriving, isNavigating, isMapFocused = true, rerouteOrigin, refs } = params;
   const tripActive = isDriving || isNavigating;
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
-    if (!tripActive) return;
-    const tag = 'vroom-map-nav';
-    activateKeepAwakeAsync(tag).catch(() => {});
+    const sub = AppState.addEventListener('change', setAppState);
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const shouldKeep = tripActive && isMapFocused && appState === 'active';
+    if (shouldKeep) {
+      activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+    } else {
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
+    }
     return () => {
-      deactivateKeepAwake(tag).catch(() => {});
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
     };
-  }, [tripActive]);
+  }, [tripActive, isMapFocused, appState]);
 
   const heartbeat = useCallback(() => {
     const loc = refs.lastGoodLocRef.current;
@@ -58,6 +71,7 @@ export function useMapTripLifecycle(params: UseMapTripLifecycleParams) {
   }, [refs]);
 
   const driveHealth = useCallback(() => {
+    if (AppState.currentState !== 'active') return;
     const now = Date.now();
     const gpsAgeMs = refs.lastAcceptedFixWallClockRef.current > 0
       ? now - refs.lastAcceptedFixWallClockRef.current

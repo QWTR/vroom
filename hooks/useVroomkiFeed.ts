@@ -16,10 +16,60 @@ import {
 import { prepareUploadImages } from '../lib/prepareUploadImages';
 import { subscribeVroomkiPublish } from '../lib/vroomkiPublishQueue';
 import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
+import { sponsoredAdStore, type SponsoredCampaign } from './sponsoredAdStore';
 
 const PAGE_SIZE = 20;
 const getToken = () => AsyncStorage.getItem('token');
 const VROOMKI_FREE_VIDEO_MAX_BYTES = 250 * 1024 * 1024;
+
+function sponsoredCampaignToVroomkiPost(campaign: SponsoredCampaign): VroomkiPost {
+  const isVideo = campaign.mediaType === 'video' && !!campaign.videoUrl;
+  return {
+    id: -Math.abs(campaign.id),
+    caption: campaign.body || campaign.title,
+    photos: isVideo ? [] : (campaign.imageUrl ? [campaign.imageUrl] : []),
+    videos: isVideo && campaign.videoUrl ? [campaign.videoUrl] : [],
+    videoThumbnailUrl: campaign.imageUrl,
+    mediaType: isVideo ? 'video' : 'photo',
+    createdAt: new Date().toISOString(),
+    author: {
+      id: 0,
+      username: campaign.companyName || 'Sponsor',
+      avatarUrl: null,
+      points: 0,
+    },
+    car: null,
+    likesCount: 0,
+    commentsCount: 0,
+    viewsCount: 0,
+    isLiked: false,
+    sponsored: {
+      campaignId: campaign.id,
+      linkUrl: campaign.linkUrl,
+      ctaText: campaign.ctaText || 'Dowiedz się więcej',
+      companyName: campaign.companyName,
+    },
+  };
+}
+
+function withSponsoredVroomki(list: VroomkiPost[], sponsored: VroomkiPost | null): VroomkiPost[] {
+  const organic = list.filter((post) => !post.sponsored);
+  if (!sponsored) return organic;
+  const insertAt = Math.min(2, organic.length);
+  return [...organic.slice(0, insertAt), sponsored, ...organic.slice(insertAt)];
+}
+
+async function loadSponsoredVroomkiPost(adsEnabled: boolean): Promise<VroomkiPost | null> {
+  if (!adsEnabled) return null;
+  try {
+    await sponsoredAdStore.fetch('vroomki', true, true);
+    const snapshot = sponsoredAdStore.getSnapshot('vroomki');
+    const campaign = snapshot.result?.source === 'sponsored' ? snapshot.result.campaign : null;
+    return campaign ? sponsoredCampaignToVroomkiPost(campaign) : null;
+  } catch {
+    return null;
+  }
+}
 
 type LocalLikeState = {
   isLiked: boolean;
@@ -140,16 +190,20 @@ export function useVroomkiFeed(
         if (cursor && !authorFilterId) {
           setPosts((prev) => {
             const existingIds = new Set(prev.map((p) => p.id));
-            return [...prev, ...mergedPosts.filter((p) => !existingIds.has(p.id))];
+            const organic = [...prev.filter((p) => !p.sponsored), ...mergedPosts.filter((p) => !existingIds.has(p.id))];
+            const sponsored = prev.find((p) => p.sponsored) || null;
+            return withSponsoredVroomki(organic, sponsored);
           });
         } else {
+          const allowAds = !authorFilterId && !normalizedSearchQuery && !Number.isFinite(soundId ?? NaN) && !settings.isPremium;
+          const sponsored = allowAds ? await loadSponsoredVroomkiPost(true) : null;
           setPosts(() => {
             let list = [...mergedPosts];
             const focused = focusedVroomkiRef.current;
             if (focused) {
               list = [focused, ...list.filter((p) => p.id !== focused.id)];
             }
-            return list;
+            return withSponsoredVroomki(list, sponsored);
           });
         }
         setCarCursor(nextCursor);
@@ -162,7 +216,7 @@ export function useVroomkiFeed(
         setLoadingMoreC(false);
       }
     },
-    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
+    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, settings.isPremium, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -234,7 +288,7 @@ export function useVroomkiFeed(
     async (id: number) => {
       if (pendingLikeIdsRef.current.has(id)) return;
       const current = postsRef.current.find((p) => p.id === id);
-      if (!current) return;
+      if (!current || current.sponsored) return;
       const nextLiked = !current.isLiked;
       const nextCount = Math.max(0, current.likesCount + (nextLiked ? 1 : -1));
       patchPost(id, { isLiked: nextLiked, likesCount: nextCount });
@@ -383,6 +437,8 @@ export function useVroomkiFeed(
   );
 
   const handleVroomkiView = useCallback(async (id: number, watchMs: number, completed: boolean) => {
+    const current = postsRef.current.find((p) => p.id === id);
+    if (!current || current.sponsored || id <= 0) return;
     try {
       const token = await getToken();
       await fetch(`${API_URL}/api/vroomki/${id}/view`, {

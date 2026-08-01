@@ -1,7 +1,6 @@
 import React, { memo, useEffect, useState, type ReactNode } from 'react';
 import {
   DeviceEventEmitter,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,7 +9,6 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { MaterialIcons } from '@expo/vector-icons';
 import {
   markSpeedometerEmitted,
@@ -335,17 +333,11 @@ export const HudPanelShell = memo(function HudPanelShell({
 
   return (
     <View style={[hud.panelShell, style]}>
-      <BlurView
-        tint={isDark ? 'dark' : 'light'}
-        intensity={Platform.OS === 'ios' ? 28 : 18}
-        style={StyleSheet.absoluteFillObject}
-        pointerEvents="none"
-      />
       <View
         pointerEvents="none"
         style={[
           StyleSheet.absoluteFillObject,
-          { backgroundColor: theme.surface },
+          { backgroundColor: theme.surface, opacity: isDark ? 0.92 : 0.94 },
         ]}
       />
       <View style={{ padding: 16 }} pointerEvents="auto">
@@ -461,17 +453,11 @@ export const DriveSpeedTile = memo(function DriveSpeedTile({
 
   const content = (
     <View style={[hud.speedTile, style]}>
-      <BlurView
-        tint={isDark ? 'dark' : 'light'}
-        intensity={Platform.OS === 'ios' ? 24 : 16}
-        style={StyleSheet.absoluteFillObject}
-        pointerEvents="none"
-      />
       <View
         pointerEvents="none"
         style={[
           StyleSheet.absoluteFillObject,
-          { backgroundColor: theme.surface },
+          { backgroundColor: theme.surface, opacity: isDark ? 0.92 : 0.94 },
         ]}
       />
       <DriveSpeedCluster

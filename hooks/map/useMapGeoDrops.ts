@@ -1,7 +1,7 @@
 import type { MutableRefObject } from 'react';
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { MAP_PERF } from '../../constants/mapPerformance';
-import { useMapTick, MAP_TICK } from '../useMapTick';
 import type { NavMode } from '../../lib/navigationV3/types';
 
 export type UseMapGeoDropsParams = {
@@ -52,6 +52,7 @@ export function useMapGeoDrops(params: UseMapGeoDropsParams) {
     if (!tripMode) return;
     if (!dropNavigationTargetId && !gamificationDropsLength && !availableDropPrompt) return;
     const tick = () => {
+      if (AppState.currentState !== 'active') return;
       const pose = lastTripMarkerPoseRef.current;
       const lat = pose?.lat ?? userLat;
       const lng = pose?.lng ?? userLng;
@@ -85,6 +86,7 @@ export function useMapGeoDrops(params: UseMapGeoDropsParams) {
   useEffect(() => {
     if (!tripMode) return;
     const tick = (force = false) => {
+      if (!force && AppState.currentState !== 'active') return;
       const pose = lastTripMarkerPoseRef.current;
       const lat = pose?.lat ?? userLat;
       const lng = pose?.lng ?? userLng;
@@ -110,6 +112,7 @@ export function useMapGeoDrops(params: UseMapGeoDropsParams) {
   useEffect(() => {
     if (!dropNavigationTargetId) return;
     const checkDropClaimed = async () => {
+      if (AppState.currentState !== 'active') return;
       const gone = await syncGamificationDropStatus(true);
       if (!gone) return;
       void pollGamificationRewards(true);

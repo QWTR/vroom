@@ -30,6 +30,7 @@ object VroomLocationBroker {
   private const val IDLE_INTERVAL_MS = 3_000L
   private const val IDLE_MIN_INTERVAL_MS = 1_500L
   private const val IDLE_AFTER_MS = 15_000L
+  private const val IDLE_MIN_DISTANCE_M = 8f
 
   private val consumers = ConcurrentHashMap<String, (Location) -> Unit>()
   private var client: FusedLocationProviderClient? = null
@@ -109,9 +110,9 @@ object VroomLocationBroker {
     if (!hasLocationPermission(context)) return
     client?.removeLocationUpdates(target)
     val request = if (idleProfile) {
-      LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, IDLE_INTERVAL_MS)
+      LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, IDLE_INTERVAL_MS)
         .setMinUpdateIntervalMillis(IDLE_MIN_INTERVAL_MS)
-        .setMinUpdateDistanceMeters(5f)
+        .setMinUpdateDistanceMeters(IDLE_MIN_DISTANCE_M)
         .setGranularity(Granularity.GRANULARITY_FINE)
         .setWaitForAccurateLocation(false)
         .build()

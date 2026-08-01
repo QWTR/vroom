@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, RefreshControl,
-  Dimensions, Alert, StyleSheet,
+  Dimensions, Alert, StyleSheet, Linking,
 } from 'react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -22,6 +22,7 @@ import { setVroomkiDraft } from '../../../lib/vroomkiTypes';
 import { warmFeedVideos } from '../../../lib/vroomkiVideoCache';
 import { useVroomkiSoundPlayback } from '../../../hooks/useVroomkiSoundPlayback';
 import { track } from '../../../lib/analytics/client';
+import { sponsoredAdStore } from '../../../hooks/sponsoredAdStore';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const FALLBACK_REEL_H = Math.max(560, SCREEN_H - 190);
@@ -63,6 +64,7 @@ const ReelCard = React.memo(function ReelCard({
   const photos = post.photos.length > 0 ? post.photos : (post.car?.photos ?? []);
   const coverPhoto = photos[0] ?? null;
   const own = myId === post.author.id;
+  const isSponsored = Boolean(post.sponsored);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [heartVisible, setHeartVisible] = useState(false);
   const likedByDoubleTapRef = useRef(false);
@@ -149,8 +151,10 @@ const ReelCard = React.memo(function ReelCard({
       )}
       <View style={{ position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#00000078', borderRadius: 999, padding: 6, paddingRight: 12 }}>
-          <MaterialIcons name="local-fire-department" size={16} color="#e33835" />
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, letterSpacing: 1 }}>VROOMKI</Text>
+          <MaterialIcons name={isSponsored ? 'campaign' : 'local-fire-department'} size={16} color="#e33835" />
+          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, letterSpacing: 1 }}>
+            {isSponsored ? 'SPONSOROWANE' : 'VROOMKI'}
+          </Text>
         </View>
         {photos.length > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#00000078', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 }}>
@@ -161,6 +165,7 @@ const ReelCard = React.memo(function ReelCard({
       </View>
 
       <View style={{ position: 'absolute', right: 12, bottom: 88, alignItems: 'center', gap: 18 }}>
+        {!isSponsored && (
         <View style={{ alignItems: 'center' }}>
           <TouchableOpacity onPress={() => onProfile(post.author.id)} activeOpacity={0.86}>
             <Avatar user={post.author} size={44} />
@@ -185,33 +190,48 @@ const ReelCard = React.memo(function ReelCard({
             </TouchableOpacity>
           )}
         </View>
+        )}
+        {!isSponsored && (
         <TouchableOpacity onPress={() => onLike(post.id)} style={{ alignItems: 'center' }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name={post.isLiked ? 'heart' : 'heart-outline'} size={28} color={post.isLiked ? '#e33835' : '#fff'} />
           </View>
           <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, marginTop: 4 }}>{post.likesCount}</Text>
         </TouchableOpacity>
+        )}
+        {!isSponsored && (
         <TouchableOpacity onPress={() => onOpenComments(post)} style={{ alignItems: 'center' }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name="comment-outline" size={27} color="#fff" />
           </View>
           <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 10, marginTop: 4 }}>{post.commentsCount}</Text>
         </TouchableOpacity>
+        )}
+        {!isSponsored && (
         <TouchableOpacity onPress={() => onShare(post)} style={{ alignItems: 'center' }}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialIcons name="share" size={24} color="#fff" />
           </View>
         </TouchableOpacity>
+        )}
+        {!isSponsored && (
         <TouchableOpacity onPress={() => onMore(post)}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#00000078', justifyContent: 'center', alignItems: 'center' }}>
             <MaterialIcons name={own ? 'more-vert' : 'flag'} size={24} color="#fff" />
           </View>
         </TouchableOpacity>
+        )}
       </View>
 
-      <View style={{ position: 'absolute', left: 14, right: 78, bottom: 24 }}>
-        <TouchableOpacity onPress={() => onProfile(post.author.id)} activeOpacity={0.8}>
-          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '800' }}>@{post.author.username}</Text>
+      <View style={{ position: 'absolute', left: 14, right: isSponsored ? 14 : 78, bottom: 24 }}>
+        <TouchableOpacity
+          onPress={() => !isSponsored && onProfile(post.author.id)}
+          activeOpacity={isSponsored ? 1 : 0.8}
+          disabled={isSponsored}
+        >
+          <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 13, fontWeight: '800' }}>
+            @{post.author.username}
+          </Text>
         </TouchableOpacity>
         {post.car && (
           <TouchableOpacity onPress={() => onCar(post.car!.id)} activeOpacity={0.82} style={{ alignSelf: 'flex-start', marginTop: 8, backgroundColor: '#e33835d8', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 }}>
@@ -237,7 +257,33 @@ const ReelCard = React.memo(function ReelCard({
         {!!post.caption && (
           <Text style={{ color: '#fff', fontSize: 13, lineHeight: 18, marginTop: 9 }} numberOfLines={3}>{post.caption}</Text>
         )}
-        <Text style={{ fontFamily: 'Orbitron', color: '#ffffffa8', fontSize: 9, marginTop: 8 }}>{time} · {post.viewsCount} wyświetleń</Text>
+        {isSponsored && post.sponsored?.linkUrl ? (
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => {
+              void sponsoredAdStore.recordClick(post.sponsored!.campaignId);
+              void Linking.openURL(String(post.sponsored!.linkUrl));
+            }}
+            style={{
+              marginTop: 12,
+              alignSelf: 'flex-start',
+              backgroundColor: '#e33835',
+              borderRadius: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 11,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <MaterialIcons name="open-in-new" size={16} color="#fff" />
+            <Text style={{ fontFamily: 'Orbitron', color: '#fff', fontSize: 11, fontWeight: '700' }}>
+              {post.sponsored.ctaText || 'Dowiedz się więcej'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={{ fontFamily: 'Orbitron', color: '#ffffffa8', fontSize: 9, marginTop: 8 }}>{time} · {post.viewsCount} wyświetleń</Text>
+        )}
       </View>
     </View>
   );

@@ -8,7 +8,7 @@ export type UseMapAnchorSyncParams = {
   syncAnchor: () => void;
 };
 
-/** High-frequency anchor sync between marker pose and snap state (~400ms). */
+/** Anchor sync between marker pose and snap state (~600ms). */
 export function useMapAnchorSync({ enabled, syncAnchor }: UseMapAnchorSyncParams) {
   const syncRef = useRef(syncAnchor);
   syncRef.current = syncAnchor;

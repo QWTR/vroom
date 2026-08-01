@@ -1711,10 +1711,12 @@ export function useBackgroundTracking(
         isNavigatingBg ? 'navigation' : 'freeDrive',
         tripSessionId,
       );
+      // Prefer native even if start() was a no-op on an already-running session.
+      const nativeOwnsGps = nativeDriveStarted || (await shouldPreserveNativeDrive());
 
       // The native ledger owns GPS and checkpointing on both Android and iOS.
       // Retain Expo only as a fallback for an older binary without the module.
-      if (nativeDriveStarted) {
+      if (nativeOwnsGps) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -1728,6 +1730,17 @@ export function useBackgroundTracking(
       // Foreground: native service stays alive for Android kill/recents survival;
       // Expo task is disabled to avoid a second JS distance ledger.
       if (appIsActive) {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          telemetryRef.current.bgStops += 1;
+        }
+        lastBgCadenceRef.current = null;
+        return;
+      }
+
+      // Last-chance guard: never co-exist with a native broker that came online mid-start.
+      if (await shouldPreserveNativeDrive()) {
         const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
         if (isRegistered) {
           await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);

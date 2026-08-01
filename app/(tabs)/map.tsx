@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, {
@@ -1707,14 +1706,6 @@ function MapScreenInner() {
   // ── State – dr tick ───────────────────────────────────────
   // ── NOWY State — tryb driving ─────────────────────────────
   const [isDriving,    setIsDriving]    = useState(false);
-  useEffect(() => {
-    if (!isNavigating && !isDriving) return;
-    const tag = 'vroom-map-nav';
-    activateKeepAwakeAsync(tag).catch(() => {});
-    return () => {
-      deactivateKeepAwake(tag).catch(() => {});
-    };
-  }, [isNavigating, isDriving]);
   const [mapFabModalVisible, setMapFabModalVisible] = useState(false);
   const isMapFocusedRef = useRef(true);
   const [isMapFocused, setIsMapFocused] = useState(true);
@@ -3327,6 +3318,7 @@ function MapScreenInner() {
   useMapTripLifecycle({
     isDriving,
     isNavigating,
+    isMapFocused,
     rerouteOrigin,
     refs: {
       isDrivingRef,

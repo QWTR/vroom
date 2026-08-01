@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import {
   EMPTY_VIEWPORT,
@@ -126,6 +127,7 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   useEffect(() => {
     if (!enabled) return;
     const id = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
       void refreshViewportFromNative(false);
     }, VIEWPORT_REFRESH_MS);
     return () => clearInterval(id);

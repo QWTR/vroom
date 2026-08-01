@@ -5,13 +5,16 @@ import { API_URL } from '../constants/config';
 const SESSION_KEY = 'vroom_ad_session_id';
 const CACHE_TTL_MS = 110_000;
 
-export type AdPlacement = 'map_banner' | 'feed_native' | 'home_banner';
+export type AdPlacement = 'map_banner' | 'feed_native' | 'home_banner' | 'vroomki';
 
 export interface SponsoredCampaign {
   id: number;
   title: string;
   body?: string | null;
   imageUrl: string;
+  videoUrl?: string | null;
+  mediaType?: 'image' | 'video' | string;
+  placement?: AdPlacement | string;
   linkUrl?: string | null;
   ctaText?: string;
   companyName?: string;
