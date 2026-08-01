@@ -82,8 +82,9 @@ export function ModalKeyboardSheet({
       transparent
       animationType={animationType}
       onRequestClose={onClose}
-      presentationStyle={presentationStyle}
-      statusBarTranslucent={statusBarTranslucent}
+      presentationStyle={presentationStyle ?? 'overFullScreen'}
+      statusBarTranslucent={statusBarTranslucent ?? true}
+      navigationBarTranslucent
     >
       {useKeyboardAvoiding && Platform.OS === 'ios' ? (
         <KeyboardAvoidingView

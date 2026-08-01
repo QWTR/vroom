@@ -13,11 +13,12 @@ import { ClubRank }  from './types';
 
 const COLORS = ['#e33835', '#FFD700', '#00bfff', '#4de926', '#ff922b', '#748ffc', '#f06595'];
 
-const PERM_LABELS: { key: 'canKick' | 'canMute' | 'canPin' | 'canManage'; label: string }[] = [
+const PERM_LABELS: { key: 'canKick' | 'canMute' | 'canPin' | 'canManage' | 'canWriteReadOnly'; label: string }[] = [
   { key: 'canKick',   label: 'Wyrzucanie członków'      },
   { key: 'canMute',   label: 'Wyciszanie członków'      },
   { key: 'canPin',    label: 'Przypinanie wiadomości'   },
   { key: 'canManage', label: 'Edycja ustawień klubu'    },
+  { key: 'canWriteReadOnly', label: 'Pisanie na kanałach tylko do odczytu' },
 ];
 
 interface Props {
@@ -32,30 +33,60 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
   const { theme } = useTheme();
 
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [newName,  setNewName]  = useState('');
   const [newColor, setNewColor] = useState('#e33835');
+  const [priority, setPriority] = useState('0');
   const [perms, setPerms] = useState({
-    canKick: false, canMute: false, canPin: false, canManage: false,
+    canKick: false, canMute: false, canPin: false, canManage: false, canWriteReadOnly: false,
   });
   const [saving, setSaving] = useState(false);
 
-  const createRank = async () => {
+  const resetForm = () => {
+    setNewName('');
+    setNewColor('#e33835');
+    setPriority('0');
+    setPerms({ canKick: false, canMute: false, canPin: false, canManage: false, canWriteReadOnly: false });
+    setCreating(false);
+    setEditingId(null);
+  };
+
+  const startCreate = () => {
+    if (creating && editingId == null) return resetForm();
+    resetForm();
+    setCreating(true);
+  };
+
+  const startEdit = (rank: ClubRank) => {
+    setEditingId(rank.id);
+    setCreating(true);
+    setNewName(rank.name);
+    setNewColor(rank.color);
+    setPriority(String(rank.priority ?? 0));
+    setPerms({
+      canKick: !!rank.canKick,
+      canMute: !!rank.canMute,
+      canPin: !!rank.canPin,
+      canManage: !!rank.canManage,
+      canWriteReadOnly: !!rank.canWriteReadOnly,
+    });
+  };
+
+  const saveRank = async () => {
     if (!newName.trim()) { Toast.show({ type: 'error', text1: 'Podaj nazwę rangi' }); return; }
     setSaving(true);
     try {
       const token = await getAuthToken();
       if (!token) { Toast.show({ type: 'error', text1: 'Zaloguj się ponownie' }); return; }
-      const res   = await fetch(`${API_URL}/api/clubs/${clubId}/ranks`, {
-        method:  'POST',
+      const res   = await fetch(`${API_URL}/api/clubs/${clubId}/ranks${editingId ? `/${editingId}` : ''}`, {
+        method:  editingId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ name: newName.trim(), color: newColor, ...perms }),
+        body:    JSON.stringify({ name: newName.trim(), color: newColor, priority: Number(priority) || 0, ...perms }),
       });
       const data = await res.json();
       if (!res.ok) { Toast.show({ type: 'error', text1: data.error }); return; }
-      Toast.show({ type: 'success', text1: 'Ranga utworzona' });
-      setNewName('');
-      setPerms({ canKick: false, canMute: false, canPin: false, canManage: false });
-      setCreating(false);
+      Toast.show({ type: 'success', text1: editingId ? 'Ranga zapisana' : 'Ranga utworzona' });
+      resetForm();
       onRefresh();
     } finally { setSaving(false); }
   };
@@ -85,11 +116,11 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
             </Text>
             <TouchableOpacity
               style={{ backgroundColor: '#e33835', borderRadius: 9, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-              onPress={() => setCreating(v => !v)}
+              onPress={startCreate}
             >
               <MaterialIcons name={creating ? 'close' : 'add'} size={14} color="#fff" />
               <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#fff', fontWeight: '700' }}>
-                {creating ? 'ANULUJ' : 'NOWA'}
+                {creating && editingId == null ? 'ANULUJ' : 'NOWA'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -103,6 +134,12 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
                   style={{ backgroundColor: theme.bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, color: theme.text, fontSize: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 10 }}
                   value={newName} onChangeText={setNewName}
                   placeholder="Nazwa rangi" placeholderTextColor={theme.textDim} maxLength={30}
+                />
+
+                <TextInput
+                  style={{ backgroundColor: theme.bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, color: theme.text, fontSize: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 10 }}
+                  value={priority} onChangeText={setPriority}
+                  placeholder="Priorytet" placeholderTextColor={theme.textDim} keyboardType="number-pad"
                 />
 
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: theme.textDim, marginBottom: 6 }}>KOLOR</Text>
@@ -132,11 +169,11 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
 
                 <TouchableOpacity
                   style={[{ backgroundColor: '#e33835', borderRadius: 10, paddingVertical: 11, alignItems: 'center', marginTop: 12 }, saving && { opacity: 0.6 }]}
-                  onPress={createRank} disabled={saving}
+                  onPress={saveRank} disabled={saving}
                 >
                   {saving
                     ? <ActivityIndicator color="#fff" size={14} />
-                    : <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>UTWÓRZ RANGĘ</Text>
+                    : <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#fff', fontWeight: '700' }}>{editingId ? 'ZAPISZ RANGĘ' : 'UTWÓRZ RANGĘ'}</Text>
                   }
                 </TouchableOpacity>
               </View>
@@ -160,11 +197,18 @@ export default function RanksModal({ visible, onClose, clubId, ranks, onRefresh 
                       {rank.canMute   && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#ff922b' }}>MUTE</Text>}
                       {rank.canPin    && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#00bfff' }}>PIN</Text>}
                       {rank.canManage && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#4de926' }}>MANAGE</Text>}
-                      {!rank.canKick && !rank.canMute && !rank.canPin && !rank.canManage && (
+                      {rank.canWriteReadOnly && <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#748ffc' }}>READ-ONLY</Text>}
+                      {!rank.canKick && !rank.canMute && !rank.canPin && !rank.canManage && !rank.canWriteReadOnly && (
                         <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: theme.textDim }}>TYLKO TYTUŁ</Text>
                       )}
                     </View>
                   </View>
+                  <TouchableOpacity
+                    onPress={() => startEdit(rank)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <MaterialIcons name="edit" size={18} color={theme.textDim} />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => deleteRank(rank.id)}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

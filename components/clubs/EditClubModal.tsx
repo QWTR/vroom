@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Dimensions,
+  ActivityIndicator, Switch, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Dimensions, Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -42,7 +42,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset(visible);
-  const [tab, setTab] = useState<'general' | 'structure'>('general');
+  const [tab, setTab] = useState<'general' | 'channels' | 'roles'>('general');
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [priv, setPriv] = useState(false);
@@ -50,7 +50,6 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
   const [joinChannelId, setJoinChannelId] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState('');
   const [newChannel, setNewChannel] = useState('');
-  const [structureView, setStructureView] = useState<'categories' | 'channels'>('categories');
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
   const [draftCategories, setDraftCategories] = useState<any[]>([]);
   const [draftChannels, setDraftChannels] = useState<any[]>([]);
@@ -83,12 +82,13 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
         name: ch.name,
         categoryRef: ch.categoryId ? `cat_${ch.categoryId}` : null,
         position: i,
+        isReadOnly: !!ch.isReadOnly,
+        isDefaultGeneral: !!ch.isDefaultGeneral,
       }));
 
     setDraftCategories(cats);
     setDraftChannels(chs);
     setSelectedCategoryKey(cats[0]?.key ?? null);
-    setStructureView('categories');
     structureDirtyRef.current = false;
   };
 
@@ -162,7 +162,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
     const key = mkId();
     const catKey = selectedCategoryKey ?? draftCategories[0]?.key ?? null;
     structureDirtyRef.current = true;
-    setDraftChannels(prev => [...prev, { key, id: null, name: newChannel.trim(), categoryRef: catKey, position: prev.length }]);
+    setDraftChannels(prev => [...prev, { key, id: null, name: newChannel.trim(), categoryRef: catKey, position: prev.length, isReadOnly: false, isDefaultGeneral: false }]);
     setNewChannel('');
   };
 
@@ -250,7 +250,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
           const r = await fetch(`${API_URL}/api/clubs/${club.id}/channels`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ name: ch.name, categoryId: categoryId ?? null }),
+            body: JSON.stringify({ name: ch.name, categoryId: categoryId ?? null, isReadOnly: !!ch.isReadOnly }),
           });
           if (!r.ok) {
             const d = await r.json().catch(() => ({}));
@@ -262,6 +262,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
 
         const categoriesPayload = draftCategories.map((c, idx) => ({
           id: categoryIdByKey.get(c.key) ?? c.id,
+          name: c.name,
           position: idx,
         })).filter((c: any) => !!c.id);
 
@@ -269,6 +270,8 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
           id: channelIdByKey.get(ch.key) ?? ch.id,
           position: idx,
           categoryId: ch.categoryRef ? (categoryIdByKey.get(ch.categoryRef) ?? null) : null,
+          name: ch.name,
+          isReadOnly: !!ch.isReadOnly,
         })).filter((c: any) => !!c.id);
 
         const structRes = await fetch(`${API_URL}/api/clubs/${club.id}/structure`, {
@@ -278,7 +281,7 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
             categories: categoriesPayload,
             channels: channelsPayload,
             joinNotificationChannelId: joinChannelId,
-            pruneMissing: false,
+            pruneMissing: true,
           }),
         });
         const structData = await structRes.json().catch(() => ({}));
@@ -310,7 +313,14 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       key={item.key}
       style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}
     >
-      <Text style={{ flex: 1, color: theme.text }}>{item.name}</Text>
+      <TextInput
+        value={item.name}
+        onChangeText={(name) => {
+          structureDirtyRef.current = true;
+          setDraftCategories(prev => prev.map((c: any) => c.key === item.key ? { ...c, name } : c));
+        }}
+        style={{ flex: 1, color: theme.text, paddingVertical: 3 }}
+      />
       <TouchableOpacity onPress={() => setSelectedCategoryKey(item.key)}>
         <Text style={{ color: selectedCategoryKey === item.key ? theme.primary : theme.textDim, fontSize: 11 }}>Wybierz</Text>
       </TouchableOpacity>
@@ -320,24 +330,37 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       <TouchableOpacity onPress={() => setDraftCategories(prev => moveDown(prev, item.key))}>
         <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={() => {
-        structureDirtyRef.current = true;
-        setDraftCategories(prev => prev.filter((c: any) => c.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
-        setDraftChannels(prev => prev.map((ch: any) => ch.categoryRef === item.key ? { ...ch, categoryRef: null } : ch));
-      }}>
+      <TouchableOpacity onPress={() => Alert.alert('Usuń kategorię', 'Kanały zostaną przeniesione poza kategorię.', [
+        { text: 'Anuluj', style: 'cancel' },
+        { text: 'Usuń', style: 'destructive', onPress: () => {
+          structureDirtyRef.current = true;
+          setDraftCategories(prev => prev.filter((c: any) => c.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
+          setDraftChannels(prev => prev.map((ch: any) => ch.categoryRef === item.key ? { ...ch, categoryRef: null } : ch));
+        } },
+      ])}>
         <MaterialIcons name="delete-outline" size={17} color="#e33835" />
       </TouchableOpacity>
     </View>
   );
 
-  const renderChannelRow = (item: any) => (
+  const renderChannelRow = (item: any) => {
+    const protectedChannel = item.isDefaultGeneral || item.id === joinChannelId;
+    return (
     <View
       key={item.key}
       style={{ paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}
     >
       <View style={{ flex: 1 }}>
-        <Text style={{ color: theme.text }}># {item.name}</Text>
+        <TextInput
+          value={item.name}
+          onChangeText={(name) => {
+            structureDirtyRef.current = true;
+            setDraftChannels(prev => prev.map((ch: any) => ch.key === item.key ? { ...ch, name } : ch));
+          }}
+          style={{ color: theme.text, paddingVertical: 1 }}
+        />
         <Text style={{ color: theme.textDim, fontSize: 10 }}>{categoryNameByRef(item.categoryRef)}</Text>
+        {protectedChannel && <Text style={{ color: theme.gold, fontSize: 9 }}>{item.isDefaultGeneral ? 'DOMYŚLNY · CHRONIONY' : 'POWITALNY · CHRONIONY'}</Text>}
       </View>
       <TouchableOpacity onPress={() => {
         structureDirtyRef.current = true;
@@ -353,24 +376,44 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
       <TouchableOpacity onPress={() => setDraftChannels(prev => moveDown(prev, item.key))}>
         <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textDim} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={() => {
-        structureDirtyRef.current = true;
-        setDraftChannels(prev => prev.filter((ch: any) => ch.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
-      }}>
-        <MaterialIcons name="delete-outline" size={17} color="#e33835" />
+      <TouchableOpacity
+        onPress={() => {
+          if (protectedChannel) return;
+          Alert.alert('Usuń kanał', `Usunąć #${item.name}?`, [
+            { text: 'Anuluj', style: 'cancel' },
+            { text: 'Usuń', style: 'destructive', onPress: () => {
+              structureDirtyRef.current = true;
+              setDraftChannels(prev => prev.filter((ch: any) => ch.key !== item.key).map((c: any, i: number) => ({ ...c, position: i })));
+            } },
+          ]);
+        }}
+        disabled={protectedChannel}
+      >
+        <MaterialIcons name={protectedChannel ? 'lock' : 'delete-outline'} size={17} color={protectedChannel ? theme.textDim : '#e33835'} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => {
+          structureDirtyRef.current = true;
+          setDraftChannels(prev => prev.map((ch: any) => ch.key === item.key ? { ...ch, isReadOnly: !ch.isReadOnly } : ch));
+        }}
+        style={{ alignItems: 'center' }}
+      >
+        <MaterialIcons name={item.isReadOnly ? 'lock' : 'lock-open'} size={17} color={item.isReadOnly ? theme.primary : theme.textDim} />
+        <Text style={{ color: theme.textDim, fontSize: 7 }}>READ ONLY</Text>
       </TouchableOpacity>
     </View>
-  );
+  );};
 
   return (
     <>
       <Modal
-        visible={visible}
+        visible={visible && !ranksOpen}
         animationType="slide"
         transparent
         onRequestClose={onClose}
         presentationStyle="overFullScreen"
         statusBarTranslucent
+        navigationBarTranslucent
       >
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={onClose} />
@@ -389,8 +432,11 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                 <TouchableOpacity onPress={() => setTab('general')} style={[styles.tabBtn, { backgroundColor: tab === 'general' ? `${theme.primary}22` : theme.surface2, borderColor: tab === 'general' ? theme.primary : theme.border }]}>
                   <Text style={[styles.tabText, { color: tab === 'general' ? theme.primary : theme.textDim }]}>OGÓLNE</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setTab('structure')} style={[styles.tabBtn, { backgroundColor: tab === 'structure' ? `${theme.primary}22` : theme.surface2, borderColor: tab === 'structure' ? theme.primary : theme.border }]}>
-                  <Text style={[styles.tabText, { color: tab === 'structure' ? theme.primary : theme.textDim }]}>KATEGORIE I KANAŁY</Text>
+                <TouchableOpacity onPress={() => setTab('channels')} style={[styles.tabBtn, { backgroundColor: tab === 'channels' ? `${theme.primary}22` : theme.surface2, borderColor: tab === 'channels' ? theme.primary : theme.border }]}>
+                  <Text style={[styles.tabText, { color: tab === 'channels' ? theme.primary : theme.textDim }]}>KANAŁY</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setTab('roles')} style={[styles.tabBtn, { backgroundColor: tab === 'roles' ? `${theme.primary}22` : theme.surface2, borderColor: tab === 'roles' ? theme.primary : theme.border }]}>
+                  <Text style={[styles.tabText, { color: tab === 'roles' ? theme.primary : theme.textDim }]}>ROLE</Text>
                 </TouchableOpacity>
               </View>
 
@@ -462,35 +508,28 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 10, color: '#FFD700', fontWeight: '700' }}>RANGI I UPRAWNIENIA</Text>
                     </TouchableOpacity>
                   </ScrollView>
-                ) : (
+                ) : tab === 'channels' ? (
                   <View style={styles.structureWrap}>
-                    <View style={styles.subTabs}>
-                      <TouchableOpacity onPress={() => setStructureView('categories')} style={[styles.tabBtn, { backgroundColor: structureView === 'categories' ? `${theme.primary}22` : theme.surface2, borderColor: structureView === 'categories' ? theme.primary : theme.border }]}>
-                        <Text style={[styles.tabText, { color: structureView === 'categories' ? theme.primary : theme.textDim }]}>KATEGORIE</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setStructureView('channels')} style={[styles.tabBtn, { backgroundColor: structureView === 'channels' ? `${theme.primary}22` : theme.surface2, borderColor: structureView === 'channels' ? theme.primary : theme.border }]}>
-                        <Text style={[styles.tabText, { color: structureView === 'channels' ? theme.primary : theme.textDim }]}>KANAŁY</Text>
-                      </TouchableOpacity>
-                    </View>
-
                     <View style={[styles.structurePanel, { backgroundColor: theme.surface2, borderColor: theme.border }]}>
-                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>
-                        {structureView === 'categories' ? 'KATEGORIE — STRZAŁKI ZMIENIAJĄ KOLEJNOŚĆ' : 'KANAŁY — STRZAŁKI ZMIENIAJĄ KOLEJNOŚĆ'}
-                      </Text>
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: theme.textDim, marginBottom: 8 }}>KATEGORIE I KANAŁY · STRZAŁKI ZMIENIAJĄ KOLEJNOŚĆ</Text>
                       <View style={styles.addRow}>
                         <TextInput
-                          value={structureView === 'categories' ? newCategory : newChannel}
-                          onChangeText={structureView === 'categories' ? setNewCategory : setNewChannel}
-                          placeholder={structureView === 'categories' ? 'Nowa kategoria' : 'Nowy kanał'}
+                          value={newCategory}
+                          onChangeText={setNewCategory}
+                          placeholder="Nowa kategoria"
                           placeholderTextColor={theme.textDim}
                           style={[styles.addInput, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]}
                         />
                         <TouchableOpacity
-                          onPress={structureView === 'categories' ? addCategory : addChannel}
+                          onPress={addCategory}
                           style={styles.addBtn}
                         >
                           <MaterialIcons name="add" size={18} color="#fff" />
                         </TouchableOpacity>
+                      </View>
+                      <View style={styles.addRow}>
+                        <TextInput value={newChannel} onChangeText={setNewChannel} placeholder="Nowy kanał" placeholderTextColor={theme.textDim} style={[styles.addInput, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} />
+                        <TouchableOpacity onPress={addChannel} style={styles.addBtn}><MaterialIcons name="add" size={18} color="#fff" /></TouchableOpacity>
                       </View>
                       <ScrollView
                         style={styles.flex}
@@ -498,17 +537,19 @@ export default function EditClubModal({ visible, club, channels = [], onClose, o
                         keyboardShouldPersistTaps="handled"
                         nestedScrollEnabled
                       >
-                        {structureView === 'categories' ? (
-                          draftCategories.length === 0
-                            ? <Text style={styles.emptyText}>Brak kategorii — dodaj powyżej</Text>
-                            : draftCategories.map(renderCategoryRow)
-                        ) : (
-                          draftChannels.length === 0
-                            ? <Text style={styles.emptyText}>Brak kanałów — dodaj powyżej</Text>
-                            : draftChannels.map(renderChannelRow)
-                        )}
+                        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginVertical: 6 }}>KATEGORIE</Text>
+                        {draftCategories.map(renderCategoryRow)}
+                        <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginVertical: 6 }}>KANAŁY</Text>
+                        {draftChannels.map(renderChannelRow)}
                       </ScrollView>
                     </View>
+                  </View>
+                ) : (
+                  <View style={{ flex: 1, paddingHorizontal: 16, justifyContent: 'center' }}>
+                    <TouchableOpacity style={styles.ranksBtn} onPress={() => setRanksOpen(true)}>
+                      <MaterialCommunityIcons name="shield-star" size={20} color="#FFD700" />
+                      <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#FFD700', fontWeight: '700' }}>OTWÓRZ ROLE I UPRAWNIENIA</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>

@@ -6,6 +6,7 @@ export interface ClubRank {
   canMute:   boolean;
   canPin:    boolean;
   canManage: boolean;
+  canWriteReadOnly?: boolean;
   priority:  number;
 }
 
@@ -16,6 +17,8 @@ export interface ClubMemberItem {
   username:  string;
   avatarUrl: string | null;
   role:      string;
+  ranks?:    ClubRank[];
+  /** Compatibility with older API responses. */
   rank:      ClubRank | null;
   joinedAt:  string;
   isMuted:   boolean;
@@ -39,11 +42,21 @@ export interface Club {
   isMember:    boolean;
   myRole:      'owner' | 'ranked' | 'member' | null;
   myRank:      ClubRank | null;
+  myRanks?:    ClubRank[];
   /** Gdy true: brak push z czatu tego klubu (tylko dla Ciebie) */
   myClubPushMuted?: boolean;
   ranks?:      ClubRank[];
   categories?: { id: number; name: string; position: number }[];
-  channels?:   { id: number; name: string; categoryId: number | null; position: number; isDefaultGeneral?: boolean }[];
+  channels?:   ClubChannel[];
   joinNotificationChannelId?: number | null;
   members?:    ClubMemberItem[];
+}
+
+export interface ClubChannel {
+  id: number;
+  name: string;
+  categoryId: number | null;
+  position: number;
+  isDefaultGeneral?: boolean;
+  isReadOnly?: boolean;
 }

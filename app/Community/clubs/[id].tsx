@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   Image, ActivityIndicator, KeyboardAvoidingView, Keyboard,
-  Platform, Modal, Pressable, ScrollView, Dimensions, Alert, Animated,
+  Platform, Modal, Pressable, ScrollView, Dimensions, Alert,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -11,7 +11,6 @@ import { Feather }                from '@expo/vector-icons';
 import MaterialIcons              from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons     from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker           from 'expo-image-picker';
-import { LinearGradient }         from 'expo-linear-gradient';
 import AsyncStorage               from '@react-native-async-storage/async-storage';
 import { useModalSheetPadding } from '../../../components/layout/ModalKeyboardSheet';
 import { io, Socket }             from 'socket.io-client';
@@ -23,7 +22,6 @@ import { Club }                   from '../../../components/clubs/types';
 import EditClubModal              from '../../../components/clubs/EditClubModal';
 import { renderDiscussionBody }   from '../community/communityShared';
 import { filterProvinceSuggestions } from '../../../constants/provinces';
-import { ProvinceBadge } from '../../../components/user/ProvinceBadge';
 import { reportContent, showBlockUserAlert, showReportContentAlert } from '../../../lib/ugcActions';
 import { useChatKeyboard, scrollChatToEndAfterLayout } from '../../../hooks/useChatKeyboard';
 import { CommunityScreenHeader } from '../../../components/community';
@@ -77,7 +75,7 @@ export default function ClubChatScreen() {
   const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
   const [myId,        setMyId]        = useState<number | null>(null);
   const [myRole,      setMyRole]      = useState<string | null>(null);
-  const [myRank,      setMyRank]      = useState<any>(null);
+  const [myRanks,     setMyRanks]     = useState<any[]>([]);
 
   const [messages,    setMessages]    = useState<ClubMessage[]>([]);
   const [pinned,      setPinned]      = useState<ClubMessage[]>([]);
@@ -100,12 +98,11 @@ export default function ClubChatScreen() {
   const [sharing, setSharing] = useState(false);
   const [introDone, setIntroDone] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
-  const [activePane, setActivePane] = useState<'channels' | 'chat' | 'members'>('chat');
-  const paneRef = useRef<ScrollView>(null);
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [memberModal, setMemberModal] = useState<any | null>(null);
+  const [selectedRankIds, setSelectedRankIds] = useState<number[]>([]);
   const [pushMuteBusy, setPushMuteBusy] = useState(false);
-  const tabSlide = useRef(new Animated.Value(Dimensions.get('window').width / 3)).current;
-  const tabHapticSkip = useRef(true);
 
   const listRef   = useRef<FlatList<UnifiedChatMessage>>(null);
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
@@ -140,27 +137,6 @@ export default function ClubChatScreen() {
       };
     }, []),
   );
-
-  useEffect(() => {
-    paneRef.current?.scrollTo({ x: Dimensions.get('window').width, animated: false });
-  }, []);
-
-  useEffect(() => {
-    const seg = Dimensions.get('window').width / 3;
-    const tabBarIdx = activePane === 'channels' ? 0 : activePane === 'chat' ? 1 : 2;
-    Animated.spring(tabSlide, {
-      toValue: tabBarIdx * seg,
-      useNativeDriver: true,
-      stiffness: 320,
-      damping: 28,
-      mass: 0.75,
-    }).start();
-    if (tabHapticSkip.current) {
-      tabHapticSkip.current = false;
-      return;
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  }, [activePane]);
 
   // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
@@ -212,7 +188,7 @@ export default function ClubChatScreen() {
         const club = await clubRes.json();
         setClubName(club.name);
         setMyRole(club.myRole);
-        setMyRank(club.myRank);
+        setMyRanks(Array.isArray(club.myRanks) ? club.myRanks : (club.myRank ? [club.myRank] : []));
         setClubData(club);
       }
 
@@ -311,6 +287,13 @@ export default function ClubChatScreen() {
     loadMessages(tokenRef.current, undefined, activeChannelId);
   }, [activeChannelId]);
 
+  useEffect(() => {
+    if (channels.length === 0) return;
+    if (activeChannelId && channels.some((channel: any) => channel.id === activeChannelId)) return;
+    const fallback = channels.find((channel: any) => channel.isDefaultGeneral) ?? channels[0];
+    setActiveChannelId(fallback?.id ?? null);
+  }, [activeChannelId, channels]);
+
   const handleSend = useCallback(async () => {
     if (!text.trim() && !photos.length) return;
     const t = text.trim();
@@ -406,9 +389,11 @@ export default function ClubChatScreen() {
     } catch { Toast.show({ type: 'error', text1: 'Brak połączenia' }); }
   };
 
-  const canPin    = myRole === 'owner' || !!myRank?.canPin;
-  const canKick   = myRole === 'owner' || !!myRank?.canKick;
-  const canManage = myRole === 'owner' || !!myRank?.canManage;
+  const hasRankPermission = (permission: string) => myRanks.some(rank => !!rank?.[permission]);
+  const canPin    = myRole === 'owner' || hasRankPermission('canPin');
+  const canKick   = myRole === 'owner' || hasRankPermission('canKick');
+  const canMute   = myRole === 'owner' || hasRankPermission('canMute');
+  const canWriteReadOnly = myRole === 'owner' || hasRankPermission('canWriteReadOnly');
 
   const unifiedMessages = useMemo(
     () => messages.map(mapClubMessageToUnified),
@@ -549,26 +534,33 @@ export default function ClubChatScreen() {
   // ── Render ────────────────────────────────────────────────
   const HEADER_HEIGHT = insets.top + 132;
   const SCREEN_W = Dimensions.get('window').width;
-  const TAB_SEG_W = SCREEN_W / 3;
   const sidebarBg = isDark ? '#1b1c1f' : theme.surface2;
   const members = clubData?.members ?? [];
   const ownerGroup = members.filter((m: any) => m.role === 'owner');
-  const rankedGroup = members.filter((m: any) => m.role !== 'owner' && !!m.rank);
-  const memberGroup = members.filter((m: any) => m.role !== 'owner' && !m.rank);
+  const memberRanks = (m: any) => Array.isArray(m.ranks) ? m.ranks : (m.rank ? [m.rank] : []);
+  const rankedGroup = members.filter((m: any) => m.role !== 'owner' && memberRanks(m).length > 0);
+  const memberGroup = members.filter((m: any) => m.role !== 'owner' && memberRanks(m).length === 0);
   const rankSections: any[] = Object.values(
     rankedGroup.reduce((acc: any, m: any) => {
-      const key = m.rank?.name ?? 'Ranga';
+      const primaryRank = [...memberRanks(m)].sort((a: any, b: any) => (b.priority ?? 0) - (a.priority ?? 0))[0];
+      const key = primaryRank?.name ?? 'Ranga';
       if (!acc[key]) acc[key] = { title: key.toUpperCase(), data: [] };
       acc[key].data.push(m);
       return acc;
     }, {}),
   );
-  const categorySections = [...categories]
+  const categorySections: any[] = [...categories]
     .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
     .map((c: any) => ({
       ...c,
       channels: channels.filter((ch: any) => ch.categoryId === c.id).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)),
     }));
+  const uncategorizedChannels = channels
+    .filter((ch: any) => ch.categoryId == null)
+    .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+  if (uncategorizedChannels.length > 0) {
+    categorySections.push({ id: 'uncategorized', name: 'Pozostałe', channels: uncategorizedChannels });
+  }
 
   const refreshClub = async () => {
     const token = await getToken() ?? '';
@@ -576,22 +568,37 @@ export default function ClubChatScreen() {
     if (r.ok) {
       const c = await r.json();
       setClubData(c);
+      setMyRanks(Array.isArray(c.myRanks) ? c.myRanks : (c.myRank ? [c.myRank] : []));
       setChannels(c.channels ?? []);
       setCategories(c.categories ?? []);
     }
   };
 
-  const openMemberActions = (m: any) => setMemberModal(m);
+  const openMemberActions = (m: any) => {
+    setSelectedRankIds(memberRanks(m).map((rank: any) => rank.id));
+    setMemberModal(m);
+  };
 
-  const assignRank = async (rankId: number | null) => {
+  const openMemberFromDirectory = (member: any) => {
+    setMembersOpen(false);
+    setTimeout(() => openMemberActions(member), Platform.OS === 'ios' ? 350 : 0);
+  };
+
+  const assignRanks = async () => {
     if (!memberModal) return;
     const token = await getToken() ?? '';
-    await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/rank`, {
+    const res = await fetch(`${API_URL}/api/clubs/${clubId}/members/${memberModal.userId}/rank`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ rankId }),
+      body: JSON.stringify({ rankIds: selectedRankIds }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      Alert.alert('Nie udało się zapisać ról', data.error ?? 'Spróbuj ponownie.');
+      return;
+    }
     await refreshClub();
+    setMemberModal(null);
   };
 
   const toggleMute = async () => {
@@ -712,7 +719,7 @@ export default function ClubChatScreen() {
                 </Text>
               </View>
               <Text style={{ color: theme.textDim, fontSize: 9, fontFamily: 'Orbitron', marginTop: 3 }}>
-                {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRank ? myRank.name.toUpperCase() : 'CZAT KLUBU'}
+                {myRole === 'owner' ? 'ZAŁOŻYCIEL' : myRanks.length > 0 ? myRanks.map(rank => rank.name).join(' · ').toUpperCase() : 'CZAT KLUBU'}
               </Text>
             </View>
           }
@@ -763,56 +770,24 @@ export default function ClubChatScreen() {
           }
         />
 
-        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingHorizontal: 8, paddingBottom: 8 }}>
-          <View style={{ paddingHorizontal: 0 }}>
-            <View style={{ flexDirection: 'row', paddingTop: 8, borderWidth: 1, borderColor: theme.border2, borderRadius: 14, backgroundColor: theme.surface2 }}>
-            <TouchableOpacity
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
-              onPress={() => { setActivePane('channels'); paneRef.current?.scrollTo({ x: 0, animated: true }); }}
-            >
-              <Text
-                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'channels' ? theme.text : theme.textDim, fontWeight: activePane === 'channels' ? '800' : '600' }}
-                numberOfLines={1}
-              >
-                CZATY
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
-              onPress={() => { setActivePane('chat'); paneRef.current?.scrollTo({ x: SCREEN_W, animated: true }); }}
-            >
-              <Text
-                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'chat' ? theme.text : theme.textDim, fontWeight: activePane === 'chat' ? '800' : '600' }}
-                numberOfLines={1}
-              >
-                {(channels.find((c: any) => c.id === activeChannelId)?.name ?? 'Kanał').toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4 }}
-              onPress={() => { setActivePane('members'); paneRef.current?.scrollTo({ x: SCREEN_W * 2, animated: true }); }}
-            >
-              <Text
-                style={{ fontFamily: 'Orbitron', fontSize: 9, color: activePane === 'members' ? theme.text : theme.textDim, fontWeight: activePane === 'members' ? '800' : '600' }}
-                numberOfLines={1}
-              >
-                UŻYTKOWNICY
-              </Text>
-            </TouchableOpacity>
-            </View>
-            <View style={{ height: 3, backgroundColor: 'transparent', marginTop: 6 }}>
-              <Animated.View
-                style={{
-                  height: 3,
-                  width: TAB_SEG_W,
-                  backgroundColor: theme.primary,
-                  borderTopLeftRadius: 2,
-                  borderTopRightRadius: 2,
-                  transform: [{ translateX: tabSlide }],
-                }}
-              />
-            </View>
-          </View>
+        <View style={{ backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => setChannelsOpen(true)}
+            style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.surface2, borderRadius: 12, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 11, paddingVertical: 9 }}
+          >
+            <MaterialIcons name="menu" size={18} color={theme.primary} />
+            <MaterialCommunityIcons name="pound" size={15} color={theme.textDim} />
+            <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>
+              {channels.find((c: any) => c.id === activeChannelId)?.name ?? 'Wybierz kanał'}
+            </Text>
+            {!!channels.find((c: any) => c.id === activeChannelId)?.isReadOnly && <MaterialIcons name="lock" size={14} color={theme.gold} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setMembersOpen(true)}
+            style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border2 }}
+          >
+            <MaterialCommunityIcons name="account-group" size={19} color={theme.textDim} />
+          </TouchableOpacity>
         </View>
 
       <KeyboardAvoidingView
@@ -821,98 +796,8 @@ export default function ClubChatScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? HEADER_HEIGHT : 0}
         enabled={Platform.OS === 'ios'}
       >
-        <ScrollView
-          ref={paneRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          nestedScrollEnabled
-          onMomentumScrollEnd={(e) => {
-            const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
-            if (idx === 0) setActivePane('channels');
-            else if (idx === 1) setActivePane('chat');
-            else setActivePane('members');
-          }}
-          style={{ flex: 1 }}
-        >
-          <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 40 }}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-              {categorySections.map((cat: any) => (
-                <View key={cat.id} style={{ marginBottom: 10, borderRadius: 14, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', backgroundColor: isDark ? '#15171b' : theme.surface }}>
-                  <LinearGradient
-                    colors={isDark ? ['#1a1b20', '#131419'] : [theme.surface, theme.surface2]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{ paddingVertical: 8, paddingHorizontal: 10 }}
-                  >
-                  <Text
-                    style={{
-                      fontSize: 10,
-                      fontWeight: '800',
-                      letterSpacing: 0.6,
-                      color: theme.textDim,
-                      marginBottom: 2,
-                    }}
-                  >
-                    {cat.name.toUpperCase()}
-                  </Text>
-                  </LinearGradient>
-                  <View style={{ gap: 2 }}>
-                    {cat.channels.map((ch: any) => {
-                      const active = activeChannelId === ch.id;
-                      return (
-                        <TouchableOpacity
-                          key={ch.id}
-                          onPress={() => {
-                            Haptics.selectionAsync().catch(() => {});
-                            setActiveChannelId(ch.id);
-                            setActivePane('chat');
-                            paneRef.current?.scrollTo({ x: SCREEN_W, animated: true });
-                          }}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingVertical: 6,
-                            paddingHorizontal: 8,
-                            marginHorizontal: 6,
-                            marginBottom: 4,
-                            borderRadius: 10,
-                            borderLeftWidth: 1,
-                            borderLeftColor: active ? `${theme.primary}70` : theme.border,
-                            borderWidth: 1,
-                            borderColor: active ? `${theme.primary}55` : theme.border,
-                            backgroundColor: active ? `${theme.primary}16` : (isDark ? '#1b1d22' : theme.surface2),
-                          }}
-                        >
-                          <MaterialCommunityIcons name="pound" size={16} color={active ? theme.text : theme.textDim} />
-                          <Text
-                            style={{
-                              fontFamily: 'Orbitron',
-                              fontSize: 11,
-                              fontWeight: active ? '700' : '500',
-                              color: active ? theme.text : theme.textMuted,
-                              marginLeft: 4,
-                              flex: 1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {ch.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-
-          <View style={{ width: SCREEN_W, flex: 1 }}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flex: 1 }}>
             {showPinned && pinned.length > 0 && (
               <View style={{ backgroundColor: '#FFD70010', borderBottomWidth: 1, borderBottomColor: '#FFD70030', padding: 10, gap: 6 }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#FFD700', letterSpacing: 2, marginBottom: 4 }}>
@@ -958,76 +843,13 @@ export default function ClubChatScreen() {
             )}
           </View>
 
-          <View style={{ width: SCREEN_W, flex: 1, backgroundColor: sidebarBg }}>
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 40 }}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-            {[
-              { title: 'WŁAŚCICIEL', data: ownerGroup },
-              ...rankSections,
-              { title: 'CZŁONKOWIE', data: memberGroup },
-            ].map(section => (
-              <View key={section.title} style={{ marginBottom: 10, borderRadius: 14, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', backgroundColor: isDark ? '#15171b' : theme.surface }}>
-                <LinearGradient
-                  colors={isDark ? ['#1a1b20', '#131419'] : [theme.surface, theme.surface2]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{ paddingVertical: 8, paddingHorizontal: 10 }}
-                >
-                <Text
-                  style={{
-                    fontSize: 10,
-                    fontWeight: '800',
-                    letterSpacing: 0.6,
-                    color: theme.textDim,
-                    marginBottom: 0,
-                  }}
-                >
-                  {section.title} ({section.data.length})
-                </Text>
-                </LinearGradient>
-                {section.data.map((m: any) => (
-                  <TouchableOpacity
-                    key={m.id}
-                    onPress={() => openMemberActions(m)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 10,
-                      paddingVertical: 10,
-                      paddingHorizontal: 10,
-                      borderRadius: 10,
-                      marginHorizontal: 6,
-                      marginBottom: 4,
-                      backgroundColor: isDark ? '#1b1d22' : theme.surface2,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                    }}
-                  >
-                    <UAv uri={m.avatarUrl} name={m.username} size={30} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>{m.username}</Text>
-                      {!!m.province && (
-                        <View style={{ marginTop: 3 }}>
-                          <ProvinceBadge province={m.province} compact theme={theme} />
-                        </View>
-                      )}
-                      {!!m.rank && <Text style={{ color: m.rank.color, fontSize: 10, marginTop: 1 }}>{m.rank.name}</Text>}
-                    </View>
-                    <MaterialIcons name="more-horiz" size={18} color={theme.textDim} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ))}
-            </ScrollView>
-          </View>
-        </ScrollView>
-
         {/* INPUT */}
-        {activePane === 'chat' && (
+        {channels.find((c: any) => c.id === activeChannelId)?.isReadOnly && !canWriteReadOnly ? (
+          <View style={{ margin: 10, borderRadius: 12, borderWidth: 1, borderColor: `${theme.gold}55`, backgroundColor: `${theme.gold}12`, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+            <MaterialIcons name="lock" size={17} color={theme.gold} />
+            <Text style={{ flex: 1, color: theme.textDim, fontSize: 11 }}>Ten kanał jest tylko do odczytu. Wiadomości mogą wysyłać właściciel i uprawnione role.</Text>
+          </View>
+        ) : (
           <ChatComposer
             text={text}
             onChangeText={(v) => {
@@ -1048,7 +870,108 @@ export default function ClubChatScreen() {
             overlay={mentionOverlay}
           />
         )}
+        </View>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={channelsOpen}
+        transparent
+        animationType="slide"
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={() => setChannelsOpen(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Pressable
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#000000b8' }}
+            onPress={() => setChannelsOpen(false)}
+          />
+            <View style={{ height: '68%', backgroundColor: sidebarBg, borderTopLeftRadius: 26, borderTopRightRadius: 26, borderTopWidth: 1, borderColor: theme.border2, paddingBottom: Math.max(insets.bottom, 14), overflow: 'hidden' }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginVertical: 12 }} />
+              <View style={{ paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '800' }}>{clubName}</Text>
+                  <Text style={{ color: theme.textDim, fontSize: 9, marginTop: 2 }}>KANAŁY KLUBU</Text>
+                </View>
+                <TouchableOpacity onPress={() => setChannelsOpen(false)}><MaterialIcons name="close" size={20} color={theme.textDim} /></TouchableOpacity>
+              </View>
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 16 }}>
+                {categorySections.map((cat: any) => (
+                  <View key={cat.id} style={{ marginBottom: 12 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2, paddingHorizontal: 8, marginBottom: 5 }}>{cat.name.toUpperCase()}</Text>
+                    {cat.channels.map((ch: any) => {
+                      const active = ch.id === activeChannelId;
+                      return (
+                        <TouchableOpacity
+                          key={ch.id}
+                          onPress={() => { Haptics.selectionAsync().catch(() => {}); setActiveChannelId(ch.id); setChannelsOpen(false); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 11, paddingVertical: 11, borderRadius: 11, marginBottom: 3, borderWidth: 1, borderColor: active ? `${theme.primary}66` : 'transparent', backgroundColor: active ? `${theme.primary}18` : theme.surface2 }}
+                        >
+                          <MaterialCommunityIcons name="pound" size={17} color={active ? theme.primary : theme.textDim} />
+                          <Text style={{ flex: 1, color: active ? theme.text : theme.textMuted, fontSize: 13, fontWeight: active ? '700' : '500' }}>{ch.name}</Text>
+                          {ch.isReadOnly && <MaterialIcons name="lock" size={14} color={theme.gold} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={membersOpen}
+        transparent
+        animationType="slide"
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={() => setMembersOpen(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Pressable
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#000000b8' }}
+            onPress={() => setMembersOpen(false)}
+          />
+            <View style={{ height: '82%', backgroundColor: sidebarBg, borderTopLeftRadius: 26, borderTopRightRadius: 26, borderTopWidth: 1, borderColor: theme.border2, paddingBottom: Math.max(insets.bottom, 14), overflow: 'hidden' }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginVertical: 12 }} />
+              <View style={{ paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ flex: 1, color: theme.text, fontFamily: 'Orbitron', fontSize: 12, fontWeight: '800' }}>CZŁONKOWIE · {members.length}</Text>
+                <TouchableOpacity onPress={() => setMembersOpen(false)}><MaterialIcons name="close" size={20} color={theme.textDim} /></TouchableOpacity>
+              </View>
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 16 }}>
+                {[{ title: 'WŁAŚCICIEL', data: ownerGroup }, ...rankSections, { title: 'CZŁONKOWIE', data: memberGroup }].map(section => section.data.length > 0 && (
+                  <View key={section.title} style={{ marginBottom: 12 }}>
+                    <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, letterSpacing: 1.2, paddingHorizontal: 8, marginBottom: 5 }}>{section.title} · {section.data.length}</Text>
+                    {section.data.map((m: any) => (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => openMemberFromDirectory(m)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 11, marginBottom: 3, backgroundColor: theme.surface2, borderWidth: 1, borderColor: theme.border }}
+                      >
+                        <UAv uri={m.avatarUrl} name={m.username} size={32} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{m.username}</Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                            {m.role === 'owner' && <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 7 }}>OWNER</Text>}
+                            {memberRanks(m).map((rank: any) => (
+                              <View key={rank.id} style={{ borderRadius: 999, borderWidth: 1, borderColor: `${rank.color}66`, backgroundColor: `${rank.color}18`, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ color: rank.color, fontSize: 9 }}>{rank.name}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                        <MaterialIcons name={m.role === 'owner' ? 'lock' : 'more-horiz'} size={17} color={theme.textDim} />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+        </View>
+      </Modal>
 
       <ChatMessageMenu
         visible={!!menuMsg}
@@ -1066,7 +989,7 @@ export default function ClubChatScreen() {
         onUpdated={(updated) => { setClubName(updated.name); setClubData(updated); setChannels(updated.channels ?? channels); setCategories(updated.categories ?? categories); setEditVisible(false); }}
       />
 
-      <Modal visible={!!previewPhoto} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+      <Modal visible={!!previewPhoto} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPreviewPhoto(null)}>
         <Pressable
           style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}
           onPress={() => setPreviewPhoto(null)}
@@ -1087,7 +1010,7 @@ export default function ClubChatScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={shareVisible} transparent animationType="slide" onRequestClose={() => setShareVisible(false)}>
+      <Modal visible={shareVisible} transparent animationType="slide" presentationStyle="overFullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setShareVisible(false)}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1150,7 +1073,7 @@ export default function ClubChatScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={!!memberModal} transparent animationType="slide" onRequestClose={() => setMemberModal(null)}>
+      <Modal visible={!!memberModal} transparent animationType="slide" presentationStyle="overFullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setMemberModal(null)}>
         <Pressable style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }} onPress={() => setMemberModal(null)}>
           <Pressable onPress={e => e.stopPropagation()}>
             <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: insets.bottom + 18, borderTopWidth: 1, borderColor: theme.border2 }}>
@@ -1159,7 +1082,9 @@ export default function ClubChatScreen() {
                 <UAv uri={memberModal?.avatarUrl} name={memberModal?.username ?? '?'} size={36} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>{memberModal?.username}</Text>
-                  {!!memberModal?.rank?.name && <Text style={{ color: memberModal.rank.color, fontSize: 10 }}>{memberModal.rank.name}</Text>}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
+                    {memberModal && memberRanks(memberModal).map((rank: any) => <Text key={rank.id} style={{ color: rank.color, fontSize: 10 }}>{rank.name}</Text>)}
+                  </View>
                 </View>
               </View>
 
@@ -1167,27 +1092,33 @@ export default function ClubChatScreen() {
                 <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11 }}>Wyświetl profil</Text>
               </TouchableOpacity>
 
-              {canManage && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
+              {myRole === 'owner' && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
                 <View style={{ marginTop: 6, marginBottom: 8 }}>
-                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginBottom: 6 }}>NADAJ ROLĘ</Text>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 8, marginBottom: 6 }}>ROLE · WYBIERZ WIELE</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                    <TouchableOpacity onPress={() => assignRank(null)} style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}>
-                      <Text style={{ color: theme.textDim, fontSize: 11 }}>Brak</Text>
-                    </TouchableOpacity>
                     {(clubData?.ranks ?? []).map((r: any) => (
-                      <TouchableOpacity key={r.id} onPress={() => assignRank(r.id)} style={{ borderWidth: 1, borderColor: r.color, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}>
+                      <TouchableOpacity
+                        key={r.id}
+                        onPress={() => setSelectedRankIds(prev => prev.includes(r.id) ? prev.filter(id => id !== r.id) : [...prev, r.id])}
+                        style={{ borderWidth: 1, borderColor: r.color, backgroundColor: selectedRankIds.includes(r.id) ? `${r.color}30` : 'transparent', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }}
+                      >
                         <Text style={{ color: r.color, fontSize: 11 }}>{r.name}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
+                  <TouchableOpacity onPress={assignRanks} style={{ marginTop: 10, borderRadius: 10, backgroundColor: theme.primary, paddingVertical: 10, alignItems: 'center' }}>
+                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 9, fontWeight: '700' }}>ZAPISZ ROLE</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
-              {(canKick || canManage) && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
+              {(canKick || canMute) && memberModal?.userId !== myId && memberModal?.role !== 'owner' && (
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                  <TouchableOpacity onPress={toggleMute} style={{ flex: 1, borderWidth: 1, borderColor: '#ff922b55', backgroundColor: '#ff922b18', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
-                    <Text style={{ color: '#ff922b', fontFamily: 'Orbitron', fontSize: 10 }}>{memberModal?.isMuted ? 'Odcisz' : 'Wycisz'}</Text>
-                  </TouchableOpacity>
+                  {canMute && (
+                    <TouchableOpacity onPress={toggleMute} style={{ flex: 1, borderWidth: 1, borderColor: '#ff922b55', backgroundColor: '#ff922b18', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
+                      <Text style={{ color: '#ff922b', fontFamily: 'Orbitron', fontSize: 10 }}>{memberModal?.isMuted ? 'Odcisz' : 'Wycisz'}</Text>
+                    </TouchableOpacity>
+                  )}
                   {canKick && (
                     <TouchableOpacity onPress={kickMember} style={{ flex: 1, borderWidth: 1, borderColor: '#e3383555', backgroundColor: '#e3383518', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}>
                       <Text style={{ color: '#e33835', fontFamily: 'Orbitron', fontSize: 10 }}>Wyrzuć</Text>

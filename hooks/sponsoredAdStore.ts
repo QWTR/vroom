@@ -18,6 +18,7 @@ export interface SponsoredCampaign {
   linkUrl?: string | null;
   ctaText?: string;
   companyName?: string;
+  businessAccountId?: number | null;
 }
 
 export interface SponsoredAdResult {
@@ -213,4 +214,39 @@ export function useSponsoredAd(placement: AdPlacement, enabled = true) {
 
 export function prefetchSponsoredAd(placement: AdPlacement, enabled = true) {
   return sponsoredAdStore.fetch(placement, enabled);
+}
+
+/** Direct serve call for feed injection — bypasses placement cache so consecutive slots diversify. */
+export async function fetchDiversifiedSponsoredAd(
+  placement: AdPlacement,
+  opts: {
+    excludeCampaignIds?: number[];
+    excludeBusinessIds?: number[];
+  } = {},
+): Promise<SponsoredCampaign | null> {
+  try {
+    const sessionId = await getOrCreateSessionId();
+    const token = await getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const params = new URLSearchParams({
+      placement,
+      sessionId,
+    });
+    if (opts.excludeCampaignIds?.length) {
+      params.set('excludeCampaignIds', opts.excludeCampaignIds.join(','));
+    }
+    if (opts.excludeBusinessIds?.length) {
+      params.set('excludeBusinessIds', opts.excludeBusinessIds.join(','));
+    }
+
+    const res = await fetch(`${API_URL}/api/ads/serve?${params.toString()}`, { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.source !== 'sponsored' || !data.campaign) return null;
+    return data.campaign as SponsoredCampaign;
+  } catch {
+    return null;
+  }
 }

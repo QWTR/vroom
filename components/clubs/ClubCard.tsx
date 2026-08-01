@@ -49,6 +49,7 @@ export default function ClubCard({ club, onPress, onJoin, onLeave, joining }: Pr
   const isOwner   = club.myRole === 'owner';
   const isMember  = club.isMember;
   const isPrivate = club.isPrivate;
+  const myRanks   = Array.isArray(club.myRanks) ? club.myRanks : (club.myRank ? [club.myRank] : []);
 
   return (
     <TouchableOpacity
@@ -102,8 +103,8 @@ export default function ClubCard({ club, onPress, onJoin, onLeave, joining }: Pr
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#e33835', fontWeight: '700' }}>OWNER</Text>
               </View>
             )}
-            {club.myRank && <RankBadge rank={club.myRank} />}
-            {isMember && !isOwner && !club.myRank && (
+            {myRanks.map(rank => <RankBadge key={rank.id} rank={rank} />)}
+            {isMember && !isOwner && myRanks.length === 0 && (
               <View style={{ backgroundColor: '#4de92615', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1, borderWidth: 1, borderColor: '#4de92630' }}>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 7, color: '#4de926', fontWeight: '700' }}>CZŁONEK</Text>
               </View>

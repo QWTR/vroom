@@ -5,11 +5,12 @@ import {
 } from 'react-native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets }   from 'react-native-safe-area-context';
 import Toast                  from 'react-native-toast-message';
 import { useTheme }           from '../../contexts/ThemeContext';
 import { API_URL }            from '../../constants/config';
 import { getAuthToken }       from '../../lib/getAuthToken';
-import { Club }               from './types';
+import { Club, ClubRank }     from './types';
 import { UAv, RankBadge }     from './ClubCard';
 interface Props {
   club:         Club | null;
@@ -33,20 +34,25 @@ export default function ClubDetailModal({
   joining, onRefresh,
 }: Props) {
   const { theme }                   = useTheme();
+  const insets                      = useSafeAreaInsets();
   const [assigning, setAssigning]   = useState<number | null>(null);
+  const [rankMember, setRankMember] = useState<any | null>(null);
+  const [selectedRankIds, setSelectedRankIds] = useState<number[]>([]);
 
   if (!club) return null;
 
   const isOwner     = club.myRole === 'owner';
   const isMember    = club.isMember;
   const isPrivate   = club.isPrivate;
-  const canInvite   = isOwner || !!(club.myRank?.canManage);
-  const canModerate = isOwner || !!(club.myRank && (club.myRank.canKick || club.myRank.canMute));
+  const myRanks = Array.isArray(club.myRanks) ? club.myRanks : (club.myRank ? [club.myRank] : []);
+  const hasPermission = (key: keyof ClubRank) => myRanks.some(rank => !!rank[key]);
+  const canInvite   = isOwner || hasPermission('canManage');
+  const canModerate = isOwner || hasPermission('canKick') || hasPermission('canMute');
   const ownerUsername = club.owner?.username ?? 'nieznany';
   const safeRanks = Array.isArray(club.ranks) ? club.ranks : [];
   const members = Array.isArray(club.members) ? club.members : [];
 
-  const assignRank = async (userId: number, rankId: number | null) => {
+  const assignRanks = async (userId: number, rankIds: number[]) => {
     setAssigning(userId);
     try {
       const token = await getAuthToken();
@@ -54,10 +60,13 @@ export default function ClubDetailModal({
       const res   = await fetch(`${API_URL}/api/clubs/${club.id}/members/${userId}/rank`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ rankId }),
+        body:    JSON.stringify({ rankIds }),
       });
       if (!res.ok) { const d = await res.json(); Toast.show({ type: 'error', text1: d.error }); }
-      else onRefresh();
+      else {
+        setRankMember(null);
+        onRefresh();
+      }
     } finally { setAssigning(null); }
   };
 
@@ -95,7 +104,15 @@ export default function ClubDetailModal({
 
   return (
     <>
-      <Modal visible={!!club} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal
+        visible={!!club}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={onClose}
+      >
         <View style={{ flex: 1, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
 
@@ -113,7 +130,7 @@ export default function ClubDetailModal({
             }} />
 
             <ScrollView
-              contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 48 }}
+              contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: Math.max(48, insets.bottom + 28) }}
               showsVerticalScrollIndicator={false}
             >
               {/* ── HERO HEADER ─────────────────────────────── */}
@@ -192,7 +209,7 @@ export default function ClubDetailModal({
                     }}>
                       <MaterialIcons name="check-circle" size={11} color="#4de926" />
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: '#4de926', fontWeight: '700' }}>
-                        {club.myRank ? club.myRank.name.toUpperCase() : 'CZŁONEK'}
+                        {myRanks.length ? myRanks.map(rank => rank.name).join(' · ').toUpperCase() : 'CZŁONEK'}
                       </Text>
                     </View>
                   )}
@@ -430,7 +447,7 @@ export default function ClubDetailModal({
                               </Text>
                             </View>
                           )}
-                          {m.rank && <RankBadge rank={m.rank} />}
+                          {(Array.isArray(m.ranks) ? m.ranks : (m.rank ? [m.rank] : [])).map(rank => <RankBadge key={rank.id} rank={rank} />)}
                           {m.isMuted && (
                             <View style={{
                               backgroundColor: '#ff922b15', borderRadius: 4,
@@ -455,11 +472,8 @@ export default function ClubDetailModal({
                                 borderRadius: 9, borderWidth: 1, borderColor: '#FFD70030',
                               }}
                               onPress={() => {
-                                const rankIds = [null, ...safeRanks.map(r => r.id)];
-                                const names   = ['Brak rangi', ...safeRanks.map(r => r.name)];
-                                Alert.alert('Nadaj rangę', username,
-                                  names.map((n, i) => ({ text: n, onPress: () => assignRank(userId, rankIds[i]) })),
-                                );
+                                setSelectedRankIds((Array.isArray(m.ranks) ? m.ranks : (m.rank ? [m.rank] : [])).map(rank => rank.id));
+                                setRankMember({ ...m, userId, username });
                               }}
                             >
                               {assigning === userId
@@ -495,7 +509,7 @@ export default function ClubDetailModal({
                       {/* Akcje moderatora */}
                       {!isMe && !isOwnerRow && !isOwner && canModerate && (
                         <View style={{ flexDirection: 'row', gap: 6 }}>
-                          {club.myRank?.canMute && (
+                          {hasPermission('canMute') && (
                             <TouchableOpacity
                               style={{
                                 padding: 7, backgroundColor: '#ff922b15',
@@ -509,7 +523,7 @@ export default function ClubDetailModal({
                               />
                             </TouchableOpacity>
                           )}
-                          {club.myRank?.canKick && (
+                          {hasPermission('canKick') && (
                             <TouchableOpacity
                               style={{
                                 padding: 7, backgroundColor: '#e3383515',
@@ -530,6 +544,37 @@ export default function ClubDetailModal({
             </ScrollView>
           </View>
         </View>
+        {!!rankMember && (
+          <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#000000bb', justifyContent: 'flex-end' }}>
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setRankMember(null)} />
+            <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: theme.border2, padding: 20, paddingBottom: 34 }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginBottom: 14 }} />
+              <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 12 }}>ROLE · {rankMember.username}</Text>
+              <Text style={{ color: theme.textDim, fontSize: 11, marginTop: 4, marginBottom: 12 }}>Możesz przypisać kilka ról jednocześnie.</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                {safeRanks.map(rank => {
+                  const selected = selectedRankIds.includes(rank.id);
+                  return (
+                    <TouchableOpacity
+                      key={rank.id}
+                      onPress={() => setSelectedRankIds(prev => selected ? prev.filter(id => id !== rank.id) : [...prev, rank.id])}
+                      style={{ borderWidth: 1, borderColor: rank.color, backgroundColor: selected ? `${rank.color}30` : 'transparent', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 }}
+                    >
+                      <Text style={{ color: rank.color, fontSize: 11 }}>{selected ? '✓ ' : ''}{rank.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TouchableOpacity
+                onPress={() => assignRanks(rankMember.userId, selectedRankIds)}
+                disabled={assigning === rankMember.userId}
+                style={{ backgroundColor: '#e33835', borderRadius: 11, paddingVertical: 12, alignItems: 'center', marginTop: 16 }}
+              >
+                {assigning === rankMember.userId ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 10, fontWeight: '700' }}>ZAPISZ ROLE</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Modal>
     </>
   );

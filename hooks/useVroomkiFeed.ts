@@ -16,16 +16,31 @@ import {
 import { prepareUploadImages } from '../lib/prepareUploadImages';
 import { subscribeVroomkiPublish } from '../lib/vroomkiPublishQueue';
 import type { VroomkiCreatePayload } from '../lib/vroomkiTypes';
-import { sponsoredAdStore, type SponsoredCampaign } from './sponsoredAdStore';
+import { fetchDiversifiedSponsoredAd, type SponsoredCampaign } from './sponsoredAdStore';
 
 const PAGE_SIZE = 20;
+/** Organic posts between sponsored slots (after the mandatory first ad). */
+const VROOMKI_AD_EVERY = 5;
 const getToken = () => AsyncStorage.getItem('token');
 const VROOMKI_FREE_VIDEO_MAX_BYTES = 250 * 1024 * 1024;
 
-function sponsoredCampaignToVroomkiPost(campaign: SponsoredCampaign): VroomkiPost {
+type AdRotationState = {
+  campaignIds: number[];
+  businessIds: number[];
+  slot: number;
+  organicSinceAd: number;
+};
+
+function createAdRotationState(): AdRotationState {
+  return { campaignIds: [], businessIds: [], slot: 0, organicSinceAd: 0 };
+}
+
+function sponsoredCampaignToVroomkiPost(campaign: SponsoredCampaign, slot: number): VroomkiPost {
   const isVideo = campaign.mediaType === 'video' && !!campaign.videoUrl;
+  // Unique synthetic id per feed slot so the same campaign can appear later without FlatList collisions.
+  const syntheticId = -(campaign.id * 10_000 + (slot % 10_000));
   return {
-    id: -Math.abs(campaign.id),
+    id: syntheticId,
     caption: campaign.body || campaign.title,
     photos: isVideo ? [] : (campaign.imageUrl ? [campaign.imageUrl] : []),
     videos: isVideo && campaign.videoUrl ? [campaign.videoUrl] : [],
@@ -52,23 +67,49 @@ function sponsoredCampaignToVroomkiPost(campaign: SponsoredCampaign): VroomkiPos
   };
 }
 
-function withSponsoredVroomki(list: VroomkiPost[], sponsored: VroomkiPost | null): VroomkiPost[] {
-  const organic = list.filter((post) => !post.sponsored);
-  if (!sponsored) return organic;
-  const insertAt = Math.min(2, organic.length);
-  return [...organic.slice(0, insertAt), sponsored, ...organic.slice(insertAt)];
+async function pullNextVroomkiAd(state: AdRotationState): Promise<VroomkiPost | null> {
+  const campaign = await fetchDiversifiedSponsoredAd('vroomki', {
+    excludeCampaignIds: state.campaignIds,
+    excludeBusinessIds: state.businessIds,
+  });
+  if (!campaign) return null;
+
+  state.slot += 1;
+  state.campaignIds = [...state.campaignIds.filter((id) => id !== campaign.id), campaign.id].slice(-24);
+  if (campaign.businessAccountId) {
+    state.businessIds = [
+      ...state.businessIds.filter((id) => id !== campaign.businessAccountId),
+      campaign.businessAccountId,
+    ].slice(-12);
+  }
+  state.organicSinceAd = 0;
+  return sponsoredCampaignToVroomkiPost(campaign, state.slot);
 }
 
-async function loadSponsoredVroomkiPost(adsEnabled: boolean): Promise<VroomkiPost | null> {
-  if (!adsEnabled) return null;
-  try {
-    await sponsoredAdStore.fetch('vroomki', true, true);
-    const snapshot = sponsoredAdStore.getSnapshot('vroomki');
-    const campaign = snapshot.result?.source === 'sponsored' ? snapshot.result.campaign : null;
-    return campaign ? sponsoredCampaignToVroomkiPost(campaign) : null;
-  } catch {
-    return null;
+/** Always starts with an ad, then inserts another after every VROOMKI_AD_EVERY organic posts. */
+async function weaveVroomkiAds(
+  organic: VroomkiPost[],
+  state: AdRotationState,
+  { leadWithAd }: { leadWithAd: boolean },
+): Promise<VroomkiPost[]> {
+  const out: VroomkiPost[] = [];
+
+  if (leadWithAd) {
+    const first = await pullNextVroomkiAd(state);
+    if (first) out.push(first);
   }
+
+  for (const post of organic) {
+    out.push(post);
+    state.organicSinceAd += 1;
+    if (state.organicSinceAd >= VROOMKI_AD_EVERY) {
+      const next = await pullNextVroomkiAd(state);
+      if (next) out.push(next);
+      else state.organicSinceAd = 0;
+    }
+  }
+
+  return out;
 }
 
 type LocalLikeState = {
@@ -102,6 +143,7 @@ export function useVroomkiFeed(
   const localLikesRef = useRef<Map<number, LocalLikeState>>(new Map());
   const pendingLikeIdsRef = useRef<Set<number>>(new Set());
   const fetchVroomkiRef = useRef<((cursor?: number) => Promise<void>) | null>(null);
+  const adRotationRef = useRef<AdRotationState>(createAdRotationState());
 
   blockedIdsRef.current = blockedIds;
 
@@ -187,24 +229,34 @@ export function useVroomkiFeed(
         const nextCursor = authorFilterId
           ? null
           : (Array.isArray(json) ? null : json.nextCursor ?? null);
+
+        const allowAds = !authorFilterId
+          && !normalizedSearchQuery
+          && !Number.isFinite(soundId ?? NaN);
+
         if (cursor && !authorFilterId) {
+          const existingIds = new Set(postsRef.current.map((p) => p.id));
+          const organicTail = mergedPosts.filter((p) => !existingIds.has(p.id) && !p.sponsored);
+          const wovenTail = allowAds
+            ? await weaveVroomkiAds(organicTail, adRotationRef.current, { leadWithAd: false })
+            : organicTail;
           setPosts((prev) => {
-            const existingIds = new Set(prev.map((p) => p.id));
-            const organic = [...prev.filter((p) => !p.sponsored), ...mergedPosts.filter((p) => !existingIds.has(p.id))];
-            const sponsored = prev.find((p) => p.sponsored) || null;
-            return withSponsoredVroomki(organic, sponsored);
+            const ids = new Set(prev.map((p) => p.id));
+            return [...prev, ...wovenTail.filter((p) => !ids.has(p.id))];
           });
         } else {
-          const allowAds = !authorFilterId && !normalizedSearchQuery && !Number.isFinite(soundId ?? NaN) && !settings.isPremium;
-          const sponsored = allowAds ? await loadSponsoredVroomkiPost(true) : null;
-          setPosts(() => {
-            let list = [...mergedPosts];
-            const focused = focusedVroomkiRef.current;
-            if (focused) {
-              list = [focused, ...list.filter((p) => p.id !== focused.id)];
-            }
-            return withSponsoredVroomki(list, sponsored);
-          });
+          if (!cursor) adRotationRef.current = createAdRotationState();
+          let organic = [...mergedPosts];
+          const focused = focusedVroomkiRef.current;
+          if (focused) {
+            organic = [focused, ...organic.filter((p) => p.id !== focused.id)];
+          }
+          // The main Vroomki feed always starts with a sponsored slot.
+          const leadWithAd = allowAds;
+          const woven = allowAds
+            ? await weaveVroomkiAds(organic, adRotationRef.current, { leadWithAd })
+            : organic;
+          setPosts(woven);
         }
         setCarCursor(nextCursor);
         setHasMoreC(!!nextCursor);
@@ -216,7 +268,7 @@ export function useVroomkiFeed(
         setLoadingMoreC(false);
       }
     },
-    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, settings.isPremium, soundId],
+    [authorUserId, mergeLocalState, normalizedSearchQuery, setPosts, soundId],
   );
 
   fetchVroomkiRef.current = fetchVroomki;
@@ -225,6 +277,7 @@ export function useVroomkiFeed(
     let cancelled = false;
     (async () => {
       excludeIdsRef.current = [];
+      adRotationRef.current = createAdRotationState();
       const focusId = initialVroomkiId ?? null;
       if (focusId && Number.isFinite(focusId)) {
         try {
@@ -258,6 +311,7 @@ export function useVroomkiFeed(
     setHasMoreC(true);
     setCarCursor(null);
     excludeIdsRef.current = [];
+    adRotationRef.current = createAdRotationState();
     void fetchVroomki();
   }, [fetchVroomki]);
 
