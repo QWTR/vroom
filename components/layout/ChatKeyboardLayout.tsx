@@ -7,14 +7,23 @@ type Props = {
   keyboardVerticalOffset?: number;
 };
 
-/** iOS: KAV padding. Android: zwykły View (adjustResize + useChatKeyboard w rodzicu). */
+/** iOS: KAV padding. Android: zwykły View — composer sam robi marginBottom jak w dyskusjach. */
 export function ChatKeyboardLayout({ header, children, keyboardVerticalOffset = 0 }: Props) {
+  if (Platform.OS !== 'ios') {
+    return (
+      <View style={{ flex: 1 }}>
+        {header}
+        <View style={{ flex: 1 }}>{children}</View>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
       {header}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
         keyboardVerticalOffset={keyboardVerticalOffset}
         enabled
       >

@@ -94,9 +94,7 @@ export default function ChatScreen() {
   const tokenRef = useRef<string>('');
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
-    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
-  });
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const unifiedMessages = useMemo(
     () => messages.map(mapDmMessageToUnified),

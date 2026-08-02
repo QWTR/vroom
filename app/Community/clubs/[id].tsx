@@ -105,9 +105,7 @@ export default function ClubChatScreen() {
   const [pushMuteBusy, setPushMuteBusy] = useState(false);
 
   const listRef   = useRef<FlatList<UnifiedChatMessage>>(null);
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
-    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
-  });
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
   const socketRef = useRef<Socket | null>(null);
   const tokenRef  = useRef('');
   const mountedRef = useRef(true);

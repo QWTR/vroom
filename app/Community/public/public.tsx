@@ -529,10 +529,6 @@ export default function PublicChatScreen() {
       ? `${typingNames.slice(0, 2).join(', ')} piszą...`
       : null;
 
-  const inputBottomPad = chatInputPad > 0
-    ? chatInputPad
-    : Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 16);
-
   const unifiedMessages = useMemo(() => messages.map(mapPublicMessageToUnified), [messages]);
 
   const renderPublicBody = useCallback((content: string, isMe: boolean) => (
@@ -668,7 +664,7 @@ export default function PublicChatScreen() {
           onDismissReply={() => setReplyTo(null)}
           editing={editingMsg ? { preview: replyPreviewLabel(editingMsg) } : null}
           onDismissEdit={cancelEdit}
-          inputPaddingBottom={inputBottomPad}
+          inputPaddingBottom={chatInputPad}
           placeholder={editingMsg ? 'Edytuj treść...' : 'Napisz wiadomość...'}
           disabled={!!editingMsg && false}
           sending={sending}

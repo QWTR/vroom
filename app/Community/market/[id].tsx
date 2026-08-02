@@ -40,7 +40,8 @@ interface Listing {
   drive: string | null;
   transmission: string | null;
   color: string | null;
-  fuel: string | null;
+  fuel?: string | null;
+  fuelType?: string | null;
   price: number;
   description: string | null;
   photos: string[];
@@ -48,6 +49,7 @@ interface Listing {
   seller: Seller;
   viewsCount?: number;
   views?: number;
+  status?: string;
   isPromoted?: boolean;
   promotedUntil?: string | null;
   location?: string | null;
@@ -189,56 +191,14 @@ export default function ListingDetailScreen() {
 
   const handlePromote = async (duration: 'week' | 'month') => {
     if (!listing) return;
-    setPromoting(true);
-    try {
-      const token = await getToken();
-      const quoteRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/quote`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ duration }),
-      });
-      const quote = await quoteRes.json();
-      if (!quoteRes.ok) throw new Error(quote?.error || 'Błąd wyceny');
-
-      const checkoutRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/checkout`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          duration,
-          idempotencyKey: `${listing.id}-${duration}-${Date.now()}`,
-        }),
-      });
-      const checkout = await checkoutRes.json();
-      if (!checkoutRes.ok) throw new Error(checkout?.error || 'Błąd checkout');
-
-      const confirmRes = await fetch(`${API_URL}/api/market/${listing.id}/promote/confirm`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ paymentId: checkout.paymentId }),
-      });
-      const confirm = await confirmRes.json();
-      if (!confirmRes.ok) throw new Error(confirm?.error || 'Błąd aktywacji');
-
-      setListing(confirm.listing ?? listing);
-      Toast.show({
-        type: 'success',
-        text1: '🚀 Ogłoszenie promowane',
-        text2: `Kwota: ${(quote.amount / 100).toFixed(2)} zł`,
-      });
-    } catch (e: any) {
-      Toast.show({ type: 'error', text1: 'Błąd promowania', text2: e?.message || 'Spróbuj ponownie' });
-    } finally {
-      setPromoting(false);
-    }
+    router.push({
+      pathname: '/Community/market/fee-checkout',
+      params: {
+        kind: 'promote',
+        listingId: String(listing.id),
+        duration,
+      },
+    } as any);
   };
 
   if (loading) {
@@ -272,7 +232,7 @@ export default function ListingDetailScreen() {
     { icon: 'car-traction-control',   label: 'Napęd',      value: listing.drive },
     { icon: 'cog-outline',            label: 'Skrzynia',   value: listing.transmission },
     { icon: 'palette-outline',        label: 'Kolor',      value: listing.color },
-    { icon: 'gas-station-outline',    label: 'Paliwo',     value: listing.fuel },
+    { icon: 'gas-station-outline',    label: 'Paliwo',     value: listing.fuelType || listing.fuel },
   ].filter(r => !!r.value);
 
   return (
@@ -526,24 +486,58 @@ export default function ListingDetailScreen() {
               </View>
             </View>
           ) : (
-            <TouchableOpacity
-              style={{
-                paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary,
-                alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 10,
-                marginBottom: 20,
-                shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
-              }}
-              onPress={handleContact}
-              disabled={contacting}
-            >
-              {contacting
-                ? <ActivityIndicator color="#fff" />
-                : <>
-                    <MaterialCommunityIcons name="message-text-outline" size={20} color="#fff" />
-                    <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>NAPISZ DO SPRZEDAJĄCEGO</Text>
-                  </>
-              }
-            </TouchableOpacity>
+            <View style={{ gap: 10, marginBottom: 20 }}>
+              {listing.status && listing.status !== 'active' && (
+                <View style={{
+                  backgroundColor: theme.surface,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  padding: 12,
+                }}
+                >
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 10 }}>
+                    {listing.status === 'reserved' ? 'ZAREZERWOWANE — TRWA ZAKUP / ESCROW'
+                      : listing.status === 'sold' ? 'SPRZEDANE'
+                        : 'NIEDOSTĘPNE'}
+                  </Text>
+                </View>
+              )}
+              {listing.status === 'active' && (
+                <TouchableOpacity
+                  style={{
+                    paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary,
+                    alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 10,
+                    shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
+                  }}
+                  onPress={() => router.push({ pathname: '/Community/market/checkout', params: { id: String(listing.id) } } as any)}
+                >
+                  <MaterialCommunityIcons name="cart-outline" size={20} color="#fff" />
+                  <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>
+                    KUP TERAZ
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={{
+                  paddingVertical: 14, borderRadius: 14, backgroundColor: theme.surface,
+                  alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 10,
+                  borderWidth: 1, borderColor: theme.border,
+                }}
+                onPress={handleContact}
+                disabled={contacting}
+              >
+                {contacting
+                  ? <ActivityIndicator color={theme.primary} />
+                  : <>
+                      <MaterialCommunityIcons name="message-text-outline" size={18} color={theme.text} />
+                      <Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
+                        NAPISZ DO SPRZEDAJĄCEGO
+                      </Text>
+                    </>
+                }
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </ScrollView>

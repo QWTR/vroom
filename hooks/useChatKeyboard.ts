@@ -1,9 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { FlatList } from 'react-native';
-import { InteractionManager } from 'react-native';
+import { InteractionManager, Platform } from 'react-native';
 import { useKeyboardInset } from './useKeyboardInset';
-
-const DEFAULT_COMPOSER = 72;
 
 function scrollListToNewest(
   listRef: React.RefObject<FlatList | null>,
@@ -52,14 +50,19 @@ export function useChatKeyboard(
   opts?: {
     composerHeight?: number;
     scrollOnShow?: boolean;
+    /**
+     * true = rodzic już unika klawiatury (iOS KAV).
+     * false = composer dostaje marginBottom = wysokość klawiatury (wzorzec z dyskusji).
+     * Android: zawsze ręczny lift — adjustResize tu nie podnosi composera.
+     */
     parentUsesKeyboardAvoiding?: boolean;
     inverted?: boolean;
   },
 ) {
-  const composerHeight = opts?.composerHeight ?? DEFAULT_COMPOSER;
   const keyboardHeight = useKeyboardInset(true);
   const prevHeightRef = useRef(0);
-  const parentAvoidsKeyboard = opts?.parentUsesKeyboardAvoiding ?? true;
+  // iOS: KAV w ChatKeyboardLayout. Android: ręczny marginBottom jak w dyskusjach.
+  const parentAvoidsKeyboard = opts?.parentUsesKeyboardAvoiding ?? (Platform.OS === 'ios');
   const inverted = opts?.inverted ?? false;
 
   const scrollToEnd = useCallback((animated = true) => {
@@ -76,10 +79,13 @@ export function useChatKeyboard(
     prevHeightRef.current = keyboardHeight;
   }, [keyboardHeight, scrollToEnd, opts?.scrollOnShow]);
 
+  const lift = parentAvoidsKeyboard ? 0 : keyboardHeight;
+
   return {
     keyboardHeight,
-    listPaddingBottom: keyboardHeight > 0 ? (parentAvoidsKeyboard ? 18 : keyboardHeight + 18) : 10,
-    inputPaddingBottom: parentAvoidsKeyboard ? 0 : keyboardHeight,
+    listPaddingBottom: keyboardHeight > 0 ? 18 : 10,
+    /** Wartość pod ChatComposer marginBottom (nie paddingBottom). */
+    inputPaddingBottom: lift,
     scrollToEnd,
   };
 }

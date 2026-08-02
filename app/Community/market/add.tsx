@@ -4,7 +4,7 @@ import {
   ActivityIndicator, StatusBar, Platform, Alert, KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,6 +17,17 @@ import { API_URL } from '../../../constants/config';
 import { CommunityScreenHeader } from '../../../components/community';
 
 const CATEGORIES   = ['auto', 'moto', 'części', 'inne'];
+const CATEGORY_FROM_API: Record<string, string> = {
+  car: 'auto',
+  auto: 'auto',
+  motorcycle: 'moto',
+  moto: 'moto',
+  parts: 'części',
+  części: 'części',
+  czesci: 'części',
+  other: 'inne',
+  inne: 'inne',
+};
 const DRIVE_OPTS   = ['FWD', 'RWD', 'AWD', '4x4'];
 const TRANS_OPTS   = ['manualna', 'automatyczna'];
 const FUEL_OPTS    = ['benzyna', 'diesel', 'LPG', 'hybryda', 'elektryczny', 'inne'];
@@ -24,9 +35,12 @@ const MAX_PHOTOS   = 10;
 
 export default function AddListingScreen() {
   const router = useRouter();
-  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { editId, paidSlotId: paidSlotParam } = useLocalSearchParams<{ editId?: string; paidSlotId?: string }>();
   const { theme, isDark } = useTheme();
   const isEdit = !!editId;
+  const [paidSlotId, setPaidSlotId] = useState<string | null>(
+    paidSlotParam ? String(paidSlotParam) : null,
+  );
 
   const [title,        setTitle]        = useState('');
   const [category,     setCategory]     = useState('auto');
@@ -61,6 +75,21 @@ export default function AddListingScreen() {
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
+  useEffect(() => {
+    if (paidSlotParam) setPaidSlotId(String(paidSlotParam));
+  }, [paidSlotParam]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      (async () => {
+        const stored = await AsyncStorage.getItem('marketPaidSlotId');
+        if (active && stored) setPaidSlotId(stored);
+      })();
+      return () => { active = false; };
+    }, []),
+  );
+
   // Load existing data when editing
   useEffect(() => {
     if (!isEdit) return;
@@ -71,7 +100,7 @@ export default function AddListingScreen() {
         const r     = await fetch(`${API_URL}/api/market/${editId}`, { headers: { Authorization: `Bearer ${token}` } });
         const data  = await r.json();
         setTitle(data.title ?? '');
-        setCategory(data.category ?? 'auto');
+        setCategory(CATEGORY_FROM_API[String(data.category || '').toLowerCase()] ?? 'auto');
         setBrand(data.brand ?? '');
         setModel(data.model ?? '');
         setYear(data.year?.toString() ?? '');
@@ -80,7 +109,7 @@ export default function AddListingScreen() {
         setDrive(data.drive ?? '');
         setTransmission(data.transmission ?? '');
         setColor(data.color ?? '');
-        setFuel(data.fuel ?? '');
+        setFuel(data.fuelType ?? data.fuel ?? '');
         setDescription(data.description ?? '');
         setPrice(data.price?.toString() ?? '');
         setLocationText(data.location ?? '');
@@ -190,6 +219,9 @@ export default function AddListingScreen() {
         const removedPhotos = originalPhotosRef.current.filter(p => !photos.includes(p));
         formData.append('photosToRemove', JSON.stringify(removedPhotos));
       }
+      if (!isEdit && paidSlotId) {
+        formData.append('paidSlotId', paidSlotId);
+      }
 
       const method = isEdit ? 'PATCH' : 'POST';
       const url    = isEdit ? `${API_URL}/api/market/${editId}` : `${API_URL}/api/market`;
@@ -204,16 +236,36 @@ export default function AddListingScreen() {
         const payload = await r.json().catch(() => ({}));
         const errCode = payload?.error;
         if (errCode === 'LISTING_LIMIT_REACHED') {
-          Toast.show({ type: 'error', text1: '🔒 Limit aktywnych ogłoszeń', text2: 'Zwiększ limit przez Premium.' });
+          const priceZl = payload?.listingPaidPrice != null
+            ? `${(Number(payload.listingPaidPrice) / 100).toFixed(2)} zł`
+            : null;
+          Alert.alert(
+            'Limit ogłoszeń',
+            priceZl
+              ? `Osiągnięto limit aktywnych ogłoszeń. Możesz zapłacić ${priceZl} za dodatkowy slot albo zwiększyć limit przez Premium.`
+              : 'Osiągnięto limit aktywnych ogłoszeń. Zapłać za dodatkowy slot albo zwiększ limit przez Premium.',
+            [
+              { text: 'Anuluj', style: 'cancel' },
+              { text: 'Premium', onPress: () => router.push('/premium' as any) },
+              {
+                text: 'Zapłać za slot',
+                onPress: () => router.push({
+                  pathname: '/Community/market/fee-checkout',
+                  params: { kind: 'listing_slot' },
+                } as any),
+              },
+            ],
+          );
         } else {
           Toast.show({ type: 'error', text1: 'Płatność wymagana', text2: 'Dokończ płatność, aby kontynuować.' });
         }
-        router.push('/premium' as any);
         return;
       }
 
       if (!r.ok) throw new Error('Błąd zapisu');
 
+      setPaidSlotId(null);
+      await AsyncStorage.removeItem('marketPaidSlotId');
       Toast.show({ type: 'success', text1: isEdit ? '✅ Ogłoszenie zaktualizowane' : '✅ Ogłoszenie dodane', text2: 'Pomyślnie!' });
       router.back();
     } catch (e) {
@@ -255,6 +307,13 @@ export default function AddListingScreen() {
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: 120 }}
       >
+        {!isEdit && paidSlotId ? (
+          <View style={{ backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.primary, padding: 12 }}>
+            <Text style={{ color: theme.primary, fontFamily: 'Orbitron', fontSize: 11 }}>
+              Opłacony slot aktywny — możesz dodać ogłoszenie ponad limit
+            </Text>
+          </View>
+        ) : null}
 
         {/* Photos */}
         <FormSection label="ZDJĘCIA" required>

@@ -62,9 +62,7 @@ export default function MarketChatScreen() {
   const listRef = useRef<FlatList>(null);
   const tokenRef = useRef('');
 
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
-    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
-  });
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const unifiedMessages = useMemo(() => messages.map(mapMarketMessageToUnified), [messages]);
 

@@ -73,13 +73,17 @@ export function ChatComposer({
 
   const canSend = !disabled && !sending && (text.trim().length > 0 || attachments.length > 0);
 
-  const bottomPad =
-    inputPaddingBottom > 0
-      ? inputPaddingBottom
-      : (insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16));
+  // Jak w dyskusjach: safe-area w paddingBottom, klawiatura w marginBottom (nie odwrotnie).
+  const safePad = insets.bottom > 0 ? insets.bottom : (Platform.OS === 'android' ? 10 : 16);
+  const keyboardLift = inputPaddingBottom > 0 ? inputPaddingBottom : 0;
 
   return (
-    <View style={[styles.shell, { backgroundColor: theme.surface, borderTopColor: theme.border, paddingBottom: bottomPad }]}>
+    <View style={[styles.shell, {
+      backgroundColor: theme.surface,
+      borderTopColor: theme.border,
+      paddingBottom: safePad,
+      marginBottom: keyboardLift,
+    }]}>
       {replyTo && onDismissReply && (
         <ChatReplyPreview username={replyTo.username} preview={replyTo.preview} onDismiss={onDismissReply} />
       )}

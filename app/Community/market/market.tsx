@@ -85,6 +85,17 @@ interface Filters {
 }
 
 const CATEGORY_OPTIONS = ['wszystkie', 'auto', 'moto', 'części', 'inne'];
+const CATEGORY_LABEL: Record<string, string> = {
+  car: 'AUTO',
+  auto: 'AUTO',
+  motorcycle: 'MOTO',
+  moto: 'MOTO',
+  parts: 'CZĘŚCI',
+  części: 'CZĘŚCI',
+  czesci: 'CZĘŚCI',
+  other: 'INNE',
+  inne: 'INNE',
+};
 const DRIVE_OPTIONS    = ['wszystkie', 'FWD', 'RWD', 'AWD', '4x4'];
 const TRANS_OPTIONS    = ['wszystkie', 'manualna', 'automatyczna'];
 const FUEL_OPTIONS     = ['wszystkie', 'benzyna', 'diesel', 'LPG', 'hybryda', 'elektryczny', 'inne'];
@@ -285,7 +296,7 @@ export default function MarketScreen() {
       <View style={{ position: 'absolute', top: 10, left: 10 }}>
         <View style={{ backgroundColor: '#000000cc', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
           <Text style={{ color: '#fff', fontFamily: 'Orbitron', fontSize: 8, fontWeight: '700' }}>
-            {item.category.toUpperCase()}
+            {CATEGORY_LABEL[String(item.category || '').toLowerCase()] || String(item.category || '').toUpperCase()}
           </Text>
         </View>
       </View>
@@ -365,22 +376,35 @@ export default function MarketScreen() {
 
       <CommunityScreenHeader
         title="GIEŁDA"
-        right={myListingsCount !== null ? (
-          <TouchableOpacity
-            onPress={() => !effectivePremium && marketMeta && !marketMeta.canCreateListing ? router.push('/premium' as any) : undefined}
-            activeOpacity={effectivePremium ? 1 : 0.7}
-          >
-            <View style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
-              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
-              <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
-                {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
-              </Text>
-              {!effectivePremium && marketMeta && !marketMeta.canCreateListing && (
-                <Text style={{ color: theme.gold, fontFamily: 'Orbitron', fontSize: 6, fontWeight: '700' }}>UPGRADE</Text>
-              )}
-            </View>
-          </TouchableOpacity>
-        ) : undefined}
+        right={(
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => router.push('/Community/market/orders' as any)}
+              style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}
+            >
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>ZAMÓWIENIA</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/Community/market/wallet' as any)}
+              style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}
+            >
+              <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7 }}>PORTFEL</Text>
+            </TouchableOpacity>
+            {myListingsCount !== null ? (
+              <TouchableOpacity
+                onPress={() => !effectivePremium && marketMeta && !marketMeta.canCreateListing ? router.push('/premium' as any) : undefined}
+                activeOpacity={effectivePremium ? 1 : 0.7}
+              >
+                <View style={{ backgroundColor: theme.surface2, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: theme.border, alignItems: 'center' }}>
+                  <Text style={{ color: theme.textDim, fontFamily: 'Orbitron', fontSize: 7, letterSpacing: 1 }}>OGŁOSZENIA</Text>
+                  <Text style={{ color: marketMeta && !marketMeta.canCreateListing ? theme.primary : theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>
+                    {myListingsCount}/{marketMeta?.limits?.maxActiveListings ?? 1}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
       />
 
       <View style={{ paddingHorizontal: 16, paddingBottom: 14, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border }}>

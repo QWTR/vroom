@@ -27,16 +27,25 @@ type Props = {
   statusBarTranslucent?: boolean;
 };
 
+/** Safe-area padding wewnątrz sheetu (bez wysokości klawiatury — ta idzie w marginBottom). */
 export function useModalSheetPadding(visible: boolean, parentHasKeyboardAvoiding = false): number {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset(visible);
   const resting = Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 12);
 
+  // Klawiatura: iOS KAV / Android marginBottom na sheet — nie paddingBottom (zgniata content).
   if (keyboardInset <= 0) return resting;
-  if (Platform.OS === 'ios' && parentHasKeyboardAvoiding) {
+  if (parentHasKeyboardAvoiding || Platform.OS === 'android') {
     return resting;
   }
   return keyboardInset + 12;
+}
+
+/** O ile podnieść sheet nad klawiaturę (Android Modal nie ma KAV). */
+export function useModalSheetKeyboardLift(visible: boolean): number {
+  const keyboardInset = useKeyboardInset(visible);
+  if (Platform.OS !== 'android' || keyboardInset <= 0) return 0;
+  return keyboardInset;
 }
 
 export function ModalKeyboardSheet({
@@ -53,12 +62,14 @@ export function ModalKeyboardSheet({
 }: Props) {
   const { theme } = useTheme();
   const paddingBottom = useModalSheetPadding(visible, useKeyboardAvoiding && Platform.OS === 'ios');
+  const keyboardLift = useModalSheetKeyboardLift(visible);
 
   const overlay = (
-    <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
-      {dismissOnBackdrop && (
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-      )}
+    <View style={[styles.overlay, { paddingBottom: keyboardLift }]}>
+      <Pressable
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.overlay }]}
+        onPress={dismissOnBackdrop ? onClose : undefined}
+      />
       <View
         style={[
           styles.sheet,

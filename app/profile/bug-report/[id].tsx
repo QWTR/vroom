@@ -85,9 +85,7 @@ export default function BugReportThreadScreen() {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [introDone, setIntroDone] = useState(false);
 
-  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef, {
-    parentUsesKeyboardAvoiding: Platform.OS === 'ios',
-  });
+  const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const unifiedMessages = useMemo(() => messages.map(mapSupportMessageToUnified), [messages]);
   const myId = SUPPORT_USER_SENDER_ID;

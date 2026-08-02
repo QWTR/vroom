@@ -1199,6 +1199,7 @@ export const ComposeBox = ({
   const canSend = text.trim().length > 0 || photos.length > 0 || !!video || !!pollDraft;
 
   const openPollEditor = () => {
+    Keyboard.dismiss();
     if (pollDraft) {
       setPollQuestion(pollDraft.question);
       setPollOptions([...pollDraft.options]);
@@ -1222,6 +1223,7 @@ export const ComposeBox = ({
     }
     setPollDraft({ question, options });
     setPollModal(false);
+    Keyboard.dismiss();
   };
 
   const openTitleField = () => {
@@ -1244,8 +1246,8 @@ export const ComposeBox = ({
   };
 
   const restingBottom = Math.max(bottomInset, insets.bottom, 8);
-  /** marginBottom podnosi cały pasek nad klawiaturę (paddingBottom tego nie robi). */
-  const keyboardLift = keyboardInset > 0 ? keyboardInset + 12 : 0;
+  /** Jak w composerze dyskusji — marginBottom nad klawiaturę. Przy otwartej ankiecie wyłączone. */
+  const keyboardLift = !pollModal && keyboardInset > 0 ? keyboardInset + 12 : 0;
 
   const onChangeText = (v: string) => {
     setText(v);
@@ -1520,97 +1522,115 @@ export const ComposeBox = ({
         onClose={() => setPhotoViewer(false)}
       />
 
-      <Modal visible={pollModal} transparent animationType="slide" onRequestClose={() => setPollModal(false)}>
-        <KeyboardAvoidingView
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          enabled={Platform.OS === 'ios'}
-        >
-          <Pressable style={{ flex: 1, backgroundColor: '#000000aa' }} onPress={() => setPollModal(false)} />
-          <View style={{
-            backgroundColor: theme.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
-            borderWidth: 1, borderColor: theme.border,
-            maxHeight: SCREEN_H * 0.72,
-            paddingBottom: pollKeyboardInset > 0
-              ? pollKeyboardInset + 8
-              : Math.max(insets.bottom, 14),
-          }}>
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 10, marginBottom: 12 }} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>Ankieta</Text>
-              <TouchableOpacity onPress={() => setPollModal(false)} hitSlop={12}>
-                <MaterialIcons name="close" size={22} color={theme.textDim} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}
-            >
-              <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 6 }}>Pytanie</Text>
-              <TextInput
-                value={pollQuestion}
-                onChangeText={setPollQuestion}
-                placeholder="O co chcesz zapytać?"
-                placeholderTextColor={theme.textDim}
-                maxLength={200}
-                style={{
-                  backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-                  color: theme.text, fontSize: 14, marginBottom: 14,
-                  borderWidth: 1, borderColor: theme.border,
-                }}
-              />
-              <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 8 }}>Opcje ({pollOptions.length}/6)</Text>
-              {pollOptions.map((opt, i) => (
-                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <View style={{
-                    width: 22, height: 22, borderRadius: 6, backgroundColor: `${POLL_ACCENT}18`,
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: POLL_ACCENT }}>{String.fromCharCode(65 + i)}</Text>
-                  </View>
-                  <TextInput
-                    value={opt}
-                    onChangeText={v => setPollOptions(prev => prev.map((o, j) => j === i ? v : o))}
-                    placeholder={`Opcja ${String.fromCharCode(65 + i)}`}
-                    placeholderTextColor={theme.textDim}
-                    maxLength={80}
-                    style={{
-                      flex: 1, backgroundColor: theme.surface2, borderRadius: 10,
-                      paddingHorizontal: 10, paddingVertical: 8,
-                      color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border,
-                    }}
-                  />
-                  {pollOptions.length > 2 && (
-                    <TouchableOpacity onPress={() => setPollOptions(prev => prev.filter((_, j) => j !== i))} hitSlop={8}>
-                      <MaterialIcons name="close" size={18} color={theme.textDim} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))}
-              {pollOptions.length < 6 && (
-                <TouchableOpacity
-                  onPress={() => setPollOptions(prev => [...prev, ''])}
-                  style={{
-                    alignSelf: 'flex-start', marginTop: 4, marginBottom: 4,
-                    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-                    borderWidth: 1, borderColor: `${POLL_ACCENT}40`, borderStyle: 'dashed',
-                  }}
-                >
-                  <Text style={{ fontSize: 12, color: POLL_ACCENT, fontWeight: '600' }}>+ Opcja</Text>
+      <Modal
+        visible={pollModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => { setPollModal(false); Keyboard.dismiss(); }}
+      >
+        <View style={{ flex: 1 }}>
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000000aa' }]}
+            onPress={() => { setPollModal(false); Keyboard.dismiss(); }}
+          />
+          <KeyboardAvoidingView
+            style={{
+              flex: 1,
+              justifyContent: 'flex-end',
+              // Android: padding na OUTER podnosi sheet bez zgniatania contentu (wzorzec jak marginBottom w composerze)
+              paddingBottom: Platform.OS === 'android' ? pollKeyboardInset : 0,
+            }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            enabled={Platform.OS === 'ios'}
+            pointerEvents="box-none"
+          >
+            <View style={{
+              backgroundColor: theme.surface,
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              borderWidth: 1,
+              borderColor: theme.border,
+              maxHeight: SCREEN_H * 0.72,
+              paddingBottom: Math.max(insets.bottom, 14),
+            }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border3, alignSelf: 'center', marginTop: 10, marginBottom: 12 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>Ankieta</Text>
+                <TouchableOpacity onPress={() => { setPollModal(false); Keyboard.dismiss(); }} hitSlop={12}>
+                  <MaterialIcons name="close" size={22} color={theme.textDim} />
                 </TouchableOpacity>
-              )}
-            </ScrollView>
-            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
-              <TouchableOpacity
-                onPress={savePollDraft}
-                style={{ backgroundColor: POLL_ACCENT, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}
+              </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}
               >
-                <Text style={{ fontSize: 13, color: '#fff', fontWeight: '700' }}>Dodaj do posta</Text>
-              </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 6 }}>Pytanie</Text>
+                <TextInput
+                  value={pollQuestion}
+                  onChangeText={setPollQuestion}
+                  placeholder="O co chcesz zapytać?"
+                  placeholderTextColor={theme.textDim}
+                  maxLength={200}
+                  style={{
+                    backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+                    color: theme.text, fontSize: 14, marginBottom: 14,
+                    borderWidth: 1, borderColor: theme.border,
+                  }}
+                />
+                <Text style={{ fontSize: 11, color: theme.textDim, marginBottom: 8 }}>Opcje ({pollOptions.length}/6)</Text>
+                {pollOptions.map((opt, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <View style={{
+                      width: 22, height: 22, borderRadius: 6, backgroundColor: `${POLL_ACCENT}18`,
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: POLL_ACCENT }}>{String.fromCharCode(65 + i)}</Text>
+                    </View>
+                    <TextInput
+                      value={opt}
+                      onChangeText={v => setPollOptions(prev => prev.map((o, j) => j === i ? v : o))}
+                      placeholder={`Opcja ${String.fromCharCode(65 + i)}`}
+                      placeholderTextColor={theme.textDim}
+                      maxLength={80}
+                      style={{
+                        flex: 1, backgroundColor: theme.surface2, borderRadius: 10,
+                        paddingHorizontal: 10, paddingVertical: 8,
+                        color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.border,
+                      }}
+                    />
+                    {pollOptions.length > 2 && (
+                      <TouchableOpacity onPress={() => setPollOptions(prev => prev.filter((_, j) => j !== i))} hitSlop={8}>
+                        <MaterialIcons name="close" size={18} color={theme.textDim} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+                {pollOptions.length < 6 && (
+                  <TouchableOpacity
+                    onPress={() => setPollOptions(prev => [...prev, ''])}
+                    style={{
+                      alignSelf: 'flex-start', marginTop: 4, marginBottom: 4,
+                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                      borderWidth: 1, borderColor: `${POLL_ACCENT}40`, borderStyle: 'dashed',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, color: POLL_ACCENT, fontWeight: '600' }}>+ Opcja</Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+              <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
+                <TouchableOpacity
+                  onPress={savePollDraft}
+                  style={{ backgroundColor: POLL_ACCENT, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 13, color: '#fff', fontWeight: '700' }}>Dodaj do posta</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
       <Modal visible={categoryModal} transparent animationType="fade" onRequestClose={() => setCategoryModal(false)}>
         <Pressable
