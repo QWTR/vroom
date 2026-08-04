@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveFinalTripDistanceKm } from './tripDistanceMerge';
 
 describe('resolveFinalTripDistanceKm', () => {
-  it('uses native distance as the single source when native owns the session', () => {
+  it('uses native distance when it is ahead of foreground', () => {
     expect(resolveFinalTripDistanceKm({
       nativeOwnsSession: true,
       nativeDistanceKm: 90,
@@ -32,11 +32,33 @@ describe('resolveFinalTripDistanceKm', () => {
     })).toBe(18);
   });
 
-  it('uses native distance even when foreground reports higher (native is authoritative)', () => {
+  it('ignores native ownership when native distance is still zero', () => {
+    expect(resolveFinalTripDistanceKm({
+      nativeOwnsSession: true,
+      nativeDistanceKm: 0,
+      foregroundTripKm: 12.5,
+      backgroundPendingKm: 0,
+      checkpointKm: 0,
+      emergencySnapshotKm: 0,
+    })).toBe(12.5);
+  });
+
+  it('keeps HUD/JS km when native owns but lags behind (save must not drop)', () => {
+    expect(resolveFinalTripDistanceKm({
+      nativeOwnsSession: true,
+      nativeDistanceKm: 0.03,
+      foregroundTripKm: 6.8,
+      backgroundPendingKm: 0,
+      checkpointKm: 0,
+      emergencySnapshotKm: 0,
+    })).toBe(6.8);
+  });
+
+  it('takes the larger of native and foreground when both report progress', () => {
     expect(resolveFinalTripDistanceKm({
       nativeOwnsSession: true,
       nativeDistanceKm: 40,
       foregroundTripKm: 42,
-    })).toBe(40);
+    })).toBe(42);
   });
 });

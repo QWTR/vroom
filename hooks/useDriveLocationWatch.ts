@@ -684,12 +684,42 @@ export function useDriveLocationWatch({
 
   subscribeRef.current = subscribe;
 
-  useEffect(() => BackgroundDriveController.addLocationListener(() => {
+  useEffect(() => BackgroundDriveController.addLocationListener((fix) => {
     if (!isActiveGpsProfile(profileRef.current)) return;
     nativeProviderActiveRef.current = true;
     if (subRef.current) teardownSubscription();
-    lastValidFixAtRef.current = Date.now();
-  }), [teardownSubscription]);
+    const now = Date.now();
+    lastValidFixAtRef.current = now;
+
+    // Native broker replaced Expo watch — still feed map/trip via onLocation so
+    // distance + marker keep moving while GNSS has a single owner.
+    const lat = Number(fix.latitude);
+    const lng = Number(fix.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const accRaw = Number(fix.accuracy);
+    const acc = Number.isFinite(accRaw) ? accRaw : 999;
+    if (acc > MAX_ACCURACY_ACTIVE_HARD_M) return;
+
+    const justLocked = updateGpsLock(lockRef.current, acc, now);
+    if (justLocked) applyLockState(true);
+    if (!shouldEmitLocationFix(lockRef.current, acc)) return;
+
+    const speedRaw = Number(fix.speed);
+    const speed = Number.isFinite(speedRaw) && speedRaw >= 0 ? speedRaw : null;
+    const headingRaw = Number(fix.heading);
+    const heading = Number.isFinite(headingRaw) && headingRaw >= 0 ? headingRaw : null;
+    const tsRaw = Number(fix.timestamp);
+    lastGoodRef.current = { lat, lng, time: now };
+    markValidFix();
+    onLocRef.current({
+      latitude: lat,
+      longitude: lng,
+      speed,
+      heading,
+      accuracy: Number.isFinite(accRaw) ? accRaw : null,
+      timestamp: Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : now,
+    });
+  }), [applyLockState, markValidFix, teardownSubscription]);
 
   useEffect(() => {
     const next = resolveGpsProfile(

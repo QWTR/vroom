@@ -601,7 +601,13 @@ class VroomBgTrackingService : Service() {
       val lat = location.latitude
       val lon = location.longitude
       val accuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL
-      val speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null
+      val speedKmh = if (location.hasSpeed() && location.speed > 0f) {
+        location.speed.toDouble() * 3.6
+      } else {
+        // Android often reports hasSpeed=true with 0 while moving — treat as unknown
+        // so haversine segments are not dropped (matches JS TripStats).
+        null
+      }
 
       val stats = try {
         JSONObject(prefs.getString(KEY_NATIVE_STATS, null) ?: "{}")

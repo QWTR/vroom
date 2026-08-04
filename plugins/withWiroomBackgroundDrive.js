@@ -292,7 +292,8 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
     let previousTime = number(previousFix["time"])
     let previousAccuracy = number(previousFix["accuracy"])
     let currentAccuracy = location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : Double.nan
-    let speedKmh = location.speed >= 0 ? location.speed * 3.6 : nil
+    // CLLocation.speed is -1 when invalid; 0 while moving is common — treat <= 0 as unknown.
+    let speedKmh = location.speed > 0 ? location.speed * 3.6 : nil
     let hasPrevious = previousTime > 0 && previousLat.isFinite && previousLng.isFinite
     #if DEBUG
     let bypassStrictFilters = true

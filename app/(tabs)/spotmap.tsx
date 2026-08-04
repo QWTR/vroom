@@ -104,6 +104,14 @@ export default function SpotMap() {
     setDetailVisible(true);
   }, []);
 
+  const handleZoomTo = useCallback((center: [number, number], zoomLevel: number) => {
+    cameraRef.current?.setCamera({
+      centerCoordinate: center,
+      zoomLevel,
+      animationDuration: 450,
+    });
+  }, []);
+
   const handleRefresh = useCallback(() => {
     refetch();
     Toast.show({ type: 'success', text1: '🔄 Odświeżanie...', text2: 'Pobieranie spotów z serwera' });
@@ -183,6 +191,7 @@ export default function SpotMap() {
           spots={visibleSpots}
           categorySprites={categorySprites}
           onSelectSpot={handleSelectSpot}
+          onZoomTo={handleZoomTo}
         />
 
         {/* Pin wybranej lokalizacji (picking) */}

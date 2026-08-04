@@ -880,16 +880,20 @@ async function finalizeTripSessionOnce(
   const seed = previous?.tripSessionId === effectiveSessionId
     ? { ...previous, routePoints: [] }
     : createTripSessionLedger({ tripSessionId: effectiveSessionId, startedAt: session.startedAt, mode: input.mode });
+  const foregroundKm = Math.max(0, Number(input.distanceKm || 0));
+  const resolvedKm = resolveFinalTripDistanceKm({
+    nativeOwnsSession: nativeLedger?.tripSessionId === effectiveSessionId
+      && Number(nativeLedger?.distanceKm ?? 0) > 0,
+    nativeDistanceKm: nativeLedger?.distanceKm,
+    foregroundTripKm: foregroundKm,
+    backgroundPendingKm: 0,
+    checkpointKm,
+    emergencySnapshotKm: matchingEmergency?.distanceKm ?? 0,
+  });
+  // Never let a lagging native ledger discard HUD/JS kilometers at save time.
+  const finalDistanceKm = Math.max(resolvedKm, foregroundKm);
   const ledger = mergeForegroundLedgerSnapshot(seed, {
-    distanceKm: resolveFinalTripDistanceKm({
-      nativeOwnsSession: nativeLedger?.tripSessionId === effectiveSessionId
-        && Number(nativeLedger?.distanceKm ?? 0) > 0,
-      nativeDistanceKm: nativeLedger?.distanceKm,
-      foregroundTripKm: input.distanceKm ?? 0,
-      backgroundPendingKm: 0,
-      checkpointKm,
-      emergencySnapshotKm: matchingEmergency?.distanceKm ?? 0,
-    }),
+    distanceKm: finalDistanceKm,
     routePoints: selectedRoute,
     maxSpeedKmh: input.maxSpeedKmh,
     avgSpeedKmh: input.avgSpeedKmh,

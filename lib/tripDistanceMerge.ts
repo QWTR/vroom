@@ -3,7 +3,7 @@ export type FinalTripDistanceInputs = {
   backgroundPendingKm?: number | null;
   checkpointKm?: number | null;
   emergencySnapshotKm?: number | null;
-  /** When true, native accumulator is the single source of truth for session distance. */
+  /** When true, prefer native distance — but never discard a larger foreground total. */
   nativeOwnsSession?: boolean;
   nativeDistanceKm?: number | null;
 };
@@ -15,15 +15,17 @@ function safeKm(value: number | null | undefined): number {
 
 /**
  * Resolves final trip distance using a priority chain — never sums overlapping streams.
- * When native background tracking owns the session, native distance is authoritative.
+ * Native ownership must not wipe a larger HUD/JS total (lagging native ledger was
+ * dropping saves when native was in (0, 0.05) while foreground had real km).
  */
 export function resolveFinalTripDistanceKm(inputs: FinalTripDistanceInputs): number {
   const nativeKm = safeKm(inputs.nativeDistanceKm);
+  const foregroundKm = safeKm(inputs.foregroundTripKm);
+
   if (inputs.nativeOwnsSession && nativeKm > 0) {
-    return nativeKm;
+    return Math.max(nativeKm, foregroundKm);
   }
 
-  const foregroundKm = safeKm(inputs.foregroundTripKm);
   if (foregroundKm > 0) {
     return foregroundKm;
   }

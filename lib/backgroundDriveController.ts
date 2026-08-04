@@ -419,7 +419,8 @@ export async function resolveNativeDistanceOwnership(
     && !!sessionId
     && sessionMatches
     && statsMatch
-    && Number.isFinite(nativeKm);
+    && Number.isFinite(nativeKm)
+    && nativeKm > 0;
   return {
     nativeOwnsSession,
     nativeDistanceKm: nativeOwnsSession ? nativeKm : 0,

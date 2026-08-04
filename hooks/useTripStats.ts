@@ -153,13 +153,20 @@ export function useTripStats() {
         ]);
         if (cancelled) return;
         const sessionMatches = !progress.tripSessionId || progress.tripSessionId === state.tripSessionId;
+        // Hand off to native only after it has caught up with JS/HUD distance.
+        // Otherwise feedPosition freezes while finalize can still prefer a lagging
+        // native total and drop the save (< 0.05 km gate).
+        const nativeKm = Number(progress.distanceKm);
+        const nativeCaughtUp = Number.isFinite(nativeKm)
+          && nativeKm > 0
+          && nativeKm + 1e-6 >= distanceRef.current;
         const nativeOwns = state.active
           && !!state.tripSessionId
           && sessionMatches
-          && Number.isFinite(progress.distanceKm);
+          && nativeCaughtUp;
         nativeOwnsRef.current = nativeOwns;
         if (nativeOwns) {
-          applyNativeDistance(progress.distanceKm);
+          applyNativeDistance(nativeKm);
         }
       } finally {
         nativeProgressSyncInFlightRef.current = false;
@@ -267,10 +274,15 @@ export function useTripStats() {
     const lastMeta = lastPointRef.current;
 
     if (nativeOwnsRef.current) {
-      // The native ledger owns the full route. Keeping a second per-fix route
-      // in JS doubled memory, bridge traffic and emergency snapshot size.
+      // Native owns distance, but keep a sparse JS route so finalize still has
+      // geometry if the native route buffer is empty (e.g. speed=0 Android bug).
       lastPointRef.current = { latitude: lat, longitude: lng, time: now };
       lastAccuracyRef.current = accuracyM ?? null;
+      const lastPt = pts[pts.length - 1];
+      if (!lastPt || haversineKm(lastPt.latitude, lastPt.longitude, lat, lng) >= 0.03) {
+        pts.push({ latitude: lat, longitude: lng });
+        trackedPts.current = compactTrackPoints(pts);
+      }
       return 0;
     }
 

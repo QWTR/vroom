@@ -56,4 +56,19 @@ describe('automotive location provider contract', () => {
     expect(perf).toContain('liveSendIntervalTrip: 800');
     expect(perf).toContain('liveSendTick: 1_000');
   });
+
+  it('does not pin trip distance ownership to native zero km', () => {
+    const tripStats = read('hooks/useTripStats.ts');
+    const ownership = read('lib/backgroundDriveController.ts');
+    const androidService = read('native/android-bg/VroomBgTrackingService.kt');
+    const iosService = read('native/background-drive/ios/WiroomLocationService.swift');
+    const merge = read('lib/tripDistanceMerge.ts');
+    expect(tripStats).toContain('nativeCaughtUp');
+    expect(tripStats).toContain('nativeKm + 1e-6 >= distanceRef.current');
+    expect(ownership).toContain('nativeKm > 0');
+    expect(read('hooks/useDriveLocationWatch.ts')).toContain('onLocRef.current({');
+    expect(androidService).toContain('location.hasSpeed() && location.speed > 0f');
+    expect(iosService).toContain('location.speed > 0 ? location.speed * 3.6 : nil');
+    expect(merge).toContain('Math.max(nativeKm, foregroundKm)');
+  });
 });

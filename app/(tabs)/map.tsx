@@ -2757,9 +2757,11 @@ function MapScreenInner() {
         && nativeState.tripSessionId
         && nativeState.tripSessionId === activeSessionId
         && nativeStats?.tripSessionId === nativeState.tripSessionId
-        && Number.isFinite(nativeKm);
+        && Number.isFinite(nativeKm)
+        && nativeKm > 0;
+      // Prefer the larger of native/JS — lagging native must not stall checkpoints.
       const currentKm = nativeOwnsCurrentSession
-        ? nativeKm
+        ? Math.max(nativeKm, foregroundKm)
         : foregroundKm;
       let savedKm = Math.max(
         tripCheckpointSavedKmRef.current,
@@ -4804,7 +4806,12 @@ function MapScreenInner() {
           await finalizeTripSession({
             reason: opts?.reason === 'auto_stop_guard' || opts?.reason === 'idle_timeout' ? 'idle' : 'manual',
             mode: 'freeDrive',
-            distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+            distanceKm: Math.max(
+              0,
+              Number(finalStats.distanceKm || 0),
+              Number(liveDistanceKmRef.current || 0),
+              Number(tripCheckpointSavedKmRef.current || 0),
+            ),
             maxSpeedKmh: Math.max(tripPeakSpeedRef.current, finalStats.maxSpeedKmh || 0),
             avgSpeedKmh: finalStats.avgSpeedKmh,
             durationSec: finalStats.elapsedSec,
@@ -8583,7 +8590,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     return finalizeTripSession({
       reason: opts?.reason ?? 'arrival',
       mode: opts?.mode ?? 'navigation',
-      distanceKm: Math.max(0, Number(finalStats.distanceKm || 0)),
+      distanceKm: Math.max(
+        0,
+        Number(finalStats.distanceKm || 0),
+        Number(liveDistanceKmRef.current || 0),
+        Number(tripCheckpointSavedKmRef.current || 0),
+      ),
       maxSpeedKmh: finalStats.maxSpeedKmh,
       avgSpeedKmh: finalStats.avgSpeedKmh,
       durationSec: finalStats.elapsedSec,
@@ -9859,7 +9871,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       const now = Date.now();
       lastNativeSeenAtRef.current = now;
       if (now - lastNativeApplyAt < 450) return;
-      if (appStateRef.current === 'active' && now - lastExpoGpsTickAtRef.current < 1200) return;
+      if (appStateRef.current === 'active'
+        && lastExpoGpsTickAtRef.current > 0
+        && now - lastExpoGpsTickAtRef.current < 1200) return;
       lastNativeApplyAt = now;
       const applied = applyNativeDriveFixToV3Pipeline(fix);
       const markerReady =

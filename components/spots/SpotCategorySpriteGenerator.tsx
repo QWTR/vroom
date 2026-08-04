@@ -10,12 +10,12 @@ import {
   type SpotCategory,
 } from '../../constants/spotTypes';
 
-/** Rozmiar pinu na mapie w punktach logicznych (~36px na ekranie). */
-export const SPOT_PIN_DISPLAY_PT = 36;
-const PIN_W = 34;
-const PIN_H = 42;
-const BOX = 28;
-const ICON_SZ = 16;
+/** Rozmiar pinu na mapie w punktach logicznych. */
+export const SPOT_PIN_DISPLAY_PT = 30;
+const PIN_W = 32;
+const PIN_H = 40;
+const BOX = 26;
+const ICON_SZ = 14;
 
 function CategoryPinVisual({ category }: { category: SpotCategory }) {
   const color = CATEGORY_COLORS[category];
@@ -25,15 +25,19 @@ function CategoryPinVisual({ category }: { category: SpotCategory }) {
         style={{
           width: BOX,
           height: BOX,
-          borderRadius: 8,
-          backgroundColor: '#141414',
-          borderWidth: 2,
-          borderColor: color,
+          borderRadius: BOX / 2,
+          backgroundColor: color,
+          borderWidth: 2.5,
+          borderColor: '#ffffff',
           alignItems: 'center',
           justifyContent: 'center',
+          shadowColor: '#000',
+          shadowOpacity: 0.35,
+          shadowRadius: 3,
+          shadowOffset: { width: 0, height: 1 },
         }}
       >
-        <MaterialIcons name={CATEGORY_ICONS[category] as any} size={ICON_SZ} color={color} />
+        <MaterialIcons name={CATEGORY_ICONS[category] as any} size={ICON_SZ} color="#ffffff" />
       </View>
       <View
         style={{
@@ -41,7 +45,7 @@ function CategoryPinVisual({ category }: { category: SpotCategory }) {
           height: 0,
           borderLeftWidth: 5,
           borderRightWidth: 5,
-          borderTopWidth: 6,
+          borderTopWidth: 7,
           borderLeftColor: 'transparent',
           borderRightColor: 'transparent',
           borderTopColor: color,
