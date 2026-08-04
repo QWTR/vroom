@@ -1,6 +1,10 @@
-import { haversineKm } from '../../scripts/navigationUtils';
-import { tripStandstillNetM } from './tripHeadingSnap';
+import { haversineKm, maxIdleBrowsingJumpM } from '../../scripts/navigationUtils';
+import { isSaneLocation } from '../../scripts/kalmanFilter';
 import { GPS_MAX_FIX_AGE_MS } from '../../constants/mapPerformance';
+
+const GPS_WALLDT_IGNORE_SPEED_MS = 45_000;
+const TRIP_RESUME_HOLD_JUMP_M = 12;
+const TRIP_RESUME_MAX_JUMP_M = 50;
 
 export function isNullIsland(lat: number, lng: number): boolean {
   return Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4;

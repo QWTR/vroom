@@ -46,14 +46,16 @@ import { TabTrasy }    from './TabTrasy';
 import { invalidateQuestTrack } from '../../../lib/questTrack';
 
 const PAGE_SIZE = 20;
-const getToken = () => AsyncStorage.getItem('token');
+const POSTS_CACHE_PREFIX = 'vroom_discussions_first_page_v2';
+const getToken = async () =>
+  (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
 const FREE_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
 const PREMIUM_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
 const COMMENT_POST_PREVIEW_CHARS = 420;
 
 export default function CommunityScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ tab?: string; vroomkiId?: string }>();
+  const params = useLocalSearchParams<{ tab?: string; vroomkiId?: string; postId?: string; commentId?: string }>();
   const { theme, isDark } = useTheme();
   const { settings, updateSetting } = useSettings();
   const insets = useSafeAreaInsets();
@@ -65,6 +67,7 @@ export default function CommunityScreen() {
   const [searchActive, setSearchActive] = useState(false);
   const [discussionCategory, setDiscussionCategory] = useState<DiscussionCategoryFilter>(DISCUSSION_ALL_CATEGORIES);
   const categoryReadyRef = useRef(false);
+  const handledNotificationPostRef = useRef<string | null>(null);
 
   // Posts
   const [posts,        setPosts]        = useState<Post[]>([]);
@@ -73,6 +76,10 @@ export default function CommunityScreen() {
   const [postCursor,   setPostCursor]   = useState<number | null>(null);
   const [loadingMoreP, setLoadingMoreP] = useState(false);
   const [hasMoreP,     setHasMoreP]     = useState(true);
+  const postsRef = useRef<Post[]>([]);
+  const postsCacheKeyRef = useRef(`${POSTS_CACHE_PREFIX}:anonymous`);
+  postsRef.current = posts;
+  const freshPostsLoadedRef = useRef(false);
 
   // Routes
   const [routes,        setRoutes]        = useState<PublicRoute[]>([]);
@@ -81,6 +88,7 @@ export default function CommunityScreen() {
   const [routeCursor,   setRouteCursor]   = useState<number | null>(null);
   const [loadingMoreR,  setLoadingMoreR]  = useState(false);
   const [hasMoreR,      setHasMoreR]      = useState(true);
+  const routesInitialLoadAttemptedRef = useRef(false);
 
   // Leaderboard
   const { data: lbData, runsData: lbRunsData, loading: lbLoading, fetchLeaderboard, fetchRuns } = useRouteLeaderboard();
@@ -142,9 +150,25 @@ export default function CommunityScreen() {
   };
 
   useEffect(() => {
-    AsyncStorage.getItem('user').then(raw => {
-      if (raw) { const u = JSON.parse(raw); setMyId(u.userId ?? u.id); }
-    });
+    void (async () => {
+      try {
+        const rawUser = await AsyncStorage.getItem('user');
+        if (!rawUser) return;
+        const user = JSON.parse(rawUser);
+        const userId = Number(user.userId ?? user.id);
+        if (!Number.isFinite(userId)) return;
+        setMyId(userId);
+        postsCacheKeyRef.current = `${POSTS_CACHE_PREFIX}:${userId}`;
+        const rawCache = await AsyncStorage.getItem(postsCacheKeyRef.current);
+        if (!rawCache || freshPostsLoadedRef.current) return;
+        const cached = JSON.parse(rawCache);
+        if (!Array.isArray(cached?.posts) || Date.now() - Number(cached?.at || 0) > 6 * 60 * 60 * 1000) return;
+        setPosts(cached.posts);
+        setPostCursor(cached.nextCursor ?? null);
+        setHasMoreP(!!cached.nextCursor);
+        setLoadingP(false);
+      } catch {}
+    })();
   }, []);
 
   useEffect(() => {
@@ -170,7 +194,20 @@ export default function CommunityScreen() {
       const data = await res.json();
       const newPosts = data.posts ?? [];
       if (cursor) setPosts(prev => [...prev, ...newPosts]);
-      else        setPosts(newPosts);
+      else {
+        freshPostsLoadedRef.current = true;
+        setPosts(newPosts);
+        if (
+          discussionCategory === DISCUSSION_ALL_CATEGORIES
+          && !postsCacheKeyRef.current.endsWith(':anonymous')
+        ) {
+          void AsyncStorage.setItem(postsCacheKeyRef.current, JSON.stringify({
+            at: Date.now(),
+            posts: newPosts,
+            nextCursor: data.nextCursor ?? null,
+          })).catch(() => {});
+        }
+      }
       setPostCursor(data.nextCursor ?? null);
       setHasMoreP(!!data.nextCursor);
     } catch { Toast.show({ type: 'error', text1: 'Błąd ładowania postów' }); }
@@ -182,8 +219,8 @@ export default function CommunityScreen() {
     try {
       const token = await getToken();
       const url   = cursor
-        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}`
-        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}`;
+        ? `${API_URL}/api/routes/community?cursor=${cursor}&limit=${PAGE_SIZE}&lite=1`
+        : `${API_URL}/api/routes/community?limit=${PAGE_SIZE}&lite=1`;
       const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const json  = await res.json();
       const newRoutes  = Array.isArray(json) ? json : json.routes ?? [];
@@ -197,11 +234,17 @@ export default function CommunityScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    setLoadingP(true);
+    if (!postsRef.current.length) setLoadingP(true);
     setHasMoreP(true); setHasMoreR(true);
-    fetchPosts(); fetchRoutes();
+    fetchPosts();
     void syncBlockedUserIdsFromServer().then(setBlockedIds);
   }, []));
+
+  useEffect(() => {
+    if (activeTab !== 'trasy' || routesInitialLoadAttemptedRef.current) return;
+    routesInitialLoadAttemptedRef.current = true;
+    void fetchRoutes();
+  }, [activeTab, fetchRoutes]);
 
   const loadMorePosts  = useCallback(() => { if (!postCursor  || loadingMoreP || !hasMoreP) return; setLoadingMoreP(true);  fetchPosts(postCursor);   }, [postCursor,  loadingMoreP,  hasMoreP,  fetchPosts]);
   const loadMoreRoutes = useCallback(() => { if (!routeCursor || loadingMoreR || !hasMoreR) return; setLoadingMoreR(true); fetchRoutes(routeCursor); }, [routeCursor, loadingMoreR, hasMoreR, fetchRoutes]);
@@ -740,8 +783,12 @@ export default function CommunityScreen() {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      const postId = await AsyncStorage.getItem('open_post_id');
+      const legacyPostId = await AsyncStorage.getItem('open_post_id');
+      const postId = Array.isArray(params.postId) ? params.postId[0] : params.postId || legacyPostId;
       if (!postId) return;
+      const navigationKey = `${postId}:${String(params.commentId || '')}`;
+      if (handledNotificationPostRef.current === navigationKey) return;
+      handledNotificationPostRef.current = navigationKey;
       await AsyncStorage.removeItem('open_post_id');
       const existing = posts.find(p => p.id === Number(postId));
       setActiveTab('dyskusje');
@@ -750,9 +797,12 @@ export default function CommunityScreen() {
         const token = await getToken();
         const res   = await fetch(`${API_URL}/api/posts/${postId}`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) openComments(await res.json());
-      } catch {}
+        else Toast.show({ type: 'info', text1: 'Ta treść nie jest już dostępna' });
+      } catch {
+        Toast.show({ type: 'info', text1: 'Ta treść nie jest już dostępna' });
+      }
     })();
-  }, [posts, openComments]));
+  }, [params.postId, params.commentId, posts, openComments]));
 
   // ── Filtered lists ───────────────────────────────────────
   const visiblePosts = posts.filter((p) => !blockedIds.includes(p.author.id));

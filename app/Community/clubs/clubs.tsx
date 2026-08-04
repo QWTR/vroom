@@ -4,7 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Feather }            from '@expo/vector-icons';
@@ -43,6 +43,7 @@ type ClubDetailResult = {
 
 export default function ClubsScreen() {
   const router    = useRouter();
+  const { inviteId, clubId: focusedInviteClubId } = useLocalSearchParams<{ inviteId?: string; clubId?: string }>();
   const insets    = useSafeAreaInsets();
   const { theme } = useTheme();
   const { isPremium, refresh: refreshPremiumAccess } = useEffectivePremium();
@@ -73,6 +74,10 @@ export default function ClubsScreen() {
 
   const [invitesVisible, setInvitesVisible] = useState(false);
   const [inviteCount,    setInviteCount]    = useState(0);
+
+  useEffect(() => {
+    if (inviteId || focusedInviteClubId) setInvitesVisible(true);
+  }, [inviteId, focusedInviteClubId]);
 
   const searchTimer = useRef<any>(null);
 
@@ -684,6 +689,7 @@ export default function ClubsScreen() {
 
       <MyInvitesModal
         visible={invitesVisible}
+        focusClubId={Number(focusedInviteClubId) || undefined}
         onClose={() => { setInvitesVisible(false); fetchMyInviteCount(); }}
         onAccepted={(clubId) => {
           router.push(`/Community/clubs/${clubId}` as any);

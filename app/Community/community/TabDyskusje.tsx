@@ -58,7 +58,7 @@ const PostCard = React.memo(({
   const { theme, isDark } = useTheme();
   const [showDelete, setShowDelete] = useState(false);
   const [joiningClub, setJoiningClub] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(!!post.isAuthorFollowed);
   const [followLoading, setFollowLoading] = useState(false);
   const isOwn = post.author.id === myId;
   const time  = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true, locale: pl });
@@ -90,22 +90,8 @@ const PostCard = React.memo(({
   const categoryMeta = getDiscussionCategoryMeta(post.category);
 
   useEffect(() => {
-    if (isOwn || !myId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getToken();
-        const res = await fetch(`${API_URL}/api/follow/status/${post.author.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          setIsFollowing(!!data.isFollowing);
-        }
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [post.author.id, isOwn, myId]);
+    setIsFollowing(!!post.isAuthorFollowed);
+  }, [post.author.id, post.isAuthorFollowed]);
 
   const handleFollowToggle = useCallback(async () => {
     if (isOwn || !myId) return;

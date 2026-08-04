@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
@@ -116,7 +117,9 @@ function mergePublicMessages(current: PublicMessage[], incoming: PublicMessage[]
 }
 
 export default function PublicChatScreen() {
+  const { messageId } = useLocalSearchParams<{ messageId?: string }>();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -137,7 +140,7 @@ export default function PublicChatScreen() {
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
-  const [notifMode, setNotifMode] = useState<PublicNotifMode>('all');
+  const [notifMode, setNotifMode] = useState<PublicNotifMode>('mentions_only');
   const [introDone, setIntroDone] = useState(false);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
@@ -160,6 +163,14 @@ export default function PublicChatScreen() {
   const scrollToNewest = useCallback((animated = false) => {
     pinChatToBottom(listRef, animated);
   }, []);
+
+  useEffect(() => {
+    if (!messageId || loading || !messages.length) return;
+    const index = messages.findIndex((message) => message.id === Number(messageId));
+    if (index < 0) return;
+    const timer = setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 180);
+    return () => clearTimeout(timer);
+  }, [loading, messageId, messages]);
 
   const appendMessage = useCallback((msg: PublicMessage, forceScroll = false) => {
     const shouldStick = forceScroll || stickToNewestRef.current || msg.senderId === myIdRef.current;
@@ -195,6 +206,7 @@ export default function PublicChatScreen() {
   }, []);
 
   useEffect(() => {
+    if (!isFocused) return;
     let cancelled = false;
     (async () => {
       const raw = await AsyncStorage.getItem('user');
@@ -268,7 +280,7 @@ export default function PublicChatScreen() {
       s?.disconnect();
       socketRef.current = null;
     };
-  }, [fetchMessages, router, loadPushSettings, appendMessage]);
+  }, [fetchMessages, router, loadPushSettings, appendMessage, isFocused]);
 
   useEffect(() => {
     if (loading || didInitialScrollRef.current || messages.length === 0) return;

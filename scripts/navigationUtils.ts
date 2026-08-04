@@ -269,9 +269,21 @@ export function formatNavigationBanner(step: Step, distanceM: number | null): st
   return `${distText} ${lowerFirst(instruction)}`;
 }
 
+/** Next non-minor step index worth announcing (skips continue/depart/arrive). */
+export function findNextAnnouncementStepIndex(steps: Step[], fromIdx: number): number | null {
+  for (let i = Math.max(0, fromIdx); i < steps.length; i += 1) {
+    const text = cleanInstruction(steps[i].html_instructions);
+    const m = (steps[i].maneuver ?? '').toLowerCase();
+    if (m === 'arrive' || m.includes('arrive')) continue;
+    if (!isMinorManeuver(steps[i].maneuver, text)) return i;
+  }
+  return null;
+}
+
 /**
- * Wybiera krok do zapowiedzi: jeśli bieżący to „jedź prosto”, a blisko końca —
- * zapowiedz następny manewr (żeby nie mówić złej nazwy ulicy).
+ * Wybiera krok do zapowiedzi: dystans wzdłuż trasy do NADCHODZĄCEGO manewru.
+ * Po minięciu startu kroku-skrętu nie mierzy wstecz do start_location (to
+ * powodowało rosnące km na HUD) — przełącza na kolejny istotny manewr / koniec lega.
  */
 export function resolveAnnouncementTarget(
   steps: Step[],
@@ -289,18 +301,32 @@ export function resolveAnnouncementTarget(
   }
 
   const geoStep = findStepIndexForArcM(userArcM, stepArcIndex);
-  const idx = Math.min(geoStep, steps.length - 1);
+  let idx = Math.min(geoStep, steps.length - 1);
   let step = steps[idx];
-  const arc = stepArcIndex[idx];
-  const baseInstruction = cleanInstruction(step.html_instructions);
-  const isMinor = isMinorManeuver(step.maneuver, baseInstruction);
+  let arc = stepArcIndex[idx];
+  let baseInstruction = cleanInstruction(step.html_instructions);
+  let isMinor = isMinorManeuver(step.maneuver, baseInstruction);
+
+  // Turn step whose maneuver is already behind us → announce the next cue ahead.
+  if (!isMinor && userArcM >= arc.startArcM + STEP_ADVANCE_THRESHOLD_M) {
+    const nextIdx = findNextAnnouncementStepIndex(steps, idx + 1);
+    if (nextIdx != null) {
+      idx = nextIdx;
+      step = steps[idx];
+      arc = stepArcIndex[idx];
+      baseInstruction = cleanInstruction(step.html_instructions);
+      isMinor = isMinorManeuver(step.maneuver, baseInstruction);
+    } else {
+      isMinor = true;
+    }
+  }
+
   const maneuverArcM = isMinor ? arc.endArcM : arc.startArcM;
   let distToManeuverM = distanceToManeuverHybrid(
     userLat,
     userLng,
     userArcM,
     maneuverArcM,
-    isMinor ? undefined : step,
   );
 
   if (
@@ -308,24 +334,21 @@ export function resolveAnnouncementTarget(
     && idx < steps.length - 1
     && distToManeuverM <= 180
   ) {
-    const upcoming = steps[idx + 1];
-    const upcomingText = cleanInstruction(upcoming.html_instructions);
-    const upcomingManeuver = (upcoming.maneuver ?? '').toLowerCase();
-    const isArrive = upcomingManeuver === 'arrive' || upcomingManeuver.includes('arrive');
-    if (!isMinorManeuver(upcoming.maneuver, upcomingText) && !isArrive) {
-      const upcomingArc = stepArcIndex[idx + 1];
+    const upcomingIdx = findNextAnnouncementStepIndex(steps, idx + 1);
+    if (upcomingIdx != null) {
+      const upcoming = steps[upcomingIdx];
+      const upcomingArc = stepArcIndex[upcomingIdx];
       const distM = distanceToManeuverHybrid(
         userLat,
         userLng,
         userArcM,
         upcomingArc.startArcM,
-        upcoming,
       );
       if (distM <= 500 && distM > 15) {
         step = routePoints.length >= 2
           ? applyGeometryTurnToStep(upcoming, routePoints, upcomingArc, forwardPrefix)
           : upcoming;
-        return { step, stepIndex: idx + 1, distanceM: distM };
+        return { step, stepIndex: upcomingIdx, distanceM: distM };
       }
     }
   }
@@ -1090,6 +1113,33 @@ export function distanceToManeuverArcM(userArcM: number, targetArcM: number): nu
   return Math.max(0, targetArcM - userArcM);
 }
 
+/** Monotonic progress within one route revision (the caller resets on reroute). */
+export function stabilizeRouteArcProgress(previousArcM: number | null, nextArcM: number): number {
+  if (!Number.isFinite(nextArcM)) {
+    return previousArcM != null && Number.isFinite(previousArcM)
+      ? previousArcM
+      : Number.NaN;
+  }
+  if (previousArcM == null || !Number.isFinite(previousArcM)) return Math.max(0, nextArcM);
+  return Math.max(0, previousArcM, nextArcM);
+}
+
+/** A single maneuver cue may count down or stay still, but never count up. */
+export function stabilizeManeuverDistance(
+  previousDistanceM: number | null,
+  nextDistanceM: number,
+  sameCue: boolean,
+): number {
+  if (!Number.isFinite(nextDistanceM)) {
+    return previousDistanceM != null && Number.isFinite(previousDistanceM)
+      ? Math.max(0, previousDistanceM)
+      : Number.POSITIVE_INFINITY;
+  }
+  const safeNext = Math.max(0, nextDistanceM);
+  if (!sameCue || previousDistanceM == null || !Number.isFinite(previousDistanceM)) return safeNext;
+  return Math.min(Math.max(0, previousDistanceM), safeNext);
+}
+
 function arcMFromProjection(
   routePoints: LatLngPoint[],
   forwardPrefix: number[],
@@ -1323,7 +1373,12 @@ export function applyGeometryTurnToStep(
   return step;
 }
 
-/** Arc distance validated against geographic distance to the maneuver point. */
+/**
+ * Distance to the upcoming maneuver along the route arc.
+ * Crow-fly to step.start_location is only a last-resort fallback when arc is
+ * invalid — never Math.max(arc, geo), which made turn distance grow on curves
+ * or when measuring back to a passed start_location.
+ */
 export function distanceToManeuverHybrid(
   userLat: number,
   userLng: number,
@@ -1332,15 +1387,15 @@ export function distanceToManeuverHybrid(
   step?: Step,
 ): number {
   const arcDist = distanceToManeuverArcM(userArcM, targetArcM);
-  if (!step) return arcDist;
+  if (Number.isFinite(arcDist)) return arcDist;
+  if (!step?.start_location) return Number.POSITIVE_INFINITY;
   const geoDist = haversineKm(
     userLat,
     userLng,
     step.start_location.lat,
     step.start_location.lng,
   ) * 1000;
-  if (geoDist > 80 && geoDist > arcDist + 60) return geoDist;
-  return Math.max(arcDist, geoDist > 300 ? geoDist : arcDist);
+  return Number.isFinite(geoDist) ? Math.max(0, geoDist) : Number.POSITIVE_INFINITY;
 }
 
 /** One-shot step index for session restore (no +1 cap). */

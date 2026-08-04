@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme as NavLightTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { useFonts }   from 'expo-font';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { StatusBar }  from 'expo-status-bar';
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
@@ -11,6 +11,7 @@ import {
   AppState,
   Linking,
   Platform,
+  DeviceEventEmitter,
   type AppStateStatus,
 } from 'react-native';
 import * as SplashScreen    from 'expo-splash-screen';
@@ -66,6 +67,14 @@ import {
   installAuthSessionExpiryInterceptor,
   subscribeToSessionExpired,
 } from '../lib/authSessionExpiry';
+import {
+  markNotificationOpened,
+  notificationNavigationKey,
+  resolveNotificationUrl,
+  syncNotificationBadge,
+  type NotificationData,
+} from '../lib/notifications/routing';
+import { handleNotificationAction } from '../lib/notifications/runtime';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -111,23 +120,6 @@ const STARTUP_ANIMATION_SLOTS: AppAnimationSlot[] = [
 ];
 
 // ─── NOTIFICATIONS ────────────────────────────────────────
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const type = String(notification.request.content.data?.type ?? '');
-    const shouldShowVroomkiPublish =
-      type === 'vroomki_publish_status' ||
-      type === 'vroomki_published' ||
-      type === 'vroomki_publish_failed';
-
-    return {
-      shouldShowAlert: shouldShowVroomkiPublish,
-      shouldPlaySound: shouldShowVroomkiPublish,
-      shouldSetBadge: true,
-      shouldShowBanner: shouldShowVroomkiPublish,
-      shouldShowList: shouldShowVroomkiPublish,
-    };
-  },
-});
 if (Platform.OS === 'android') {
   void Notifications.setNotificationChannelAsync('default', {
     name: 'Powiadomienia', importance: Notifications.AndroidImportance.MAX,
@@ -255,6 +247,7 @@ function RootLayoutInner() {
   } = useAppUpdate();
   const router         = useRouter();
   const pathname       = usePathname();
+  const globalSearchParams = useGlobalSearchParams<Record<string, string | string[]>>();
   const [phase, setPhase] = useState<'splash' | 'fadeout' | 'done'>('splash');
   const [updatePromptVisible, setUpdatePromptVisible] = useState(false);
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
@@ -313,6 +306,11 @@ function RootLayoutInner() {
   const notifListener    = useRef<any>(null);
   const responseListener = useRef<any>(null);
   const lastNotifRouteRef = useRef<{ key: string; ts: number } | null>(null);
+  const pathnameRef = useRef(pathname);
+  const searchParamsRef = useRef(globalSearchParams);
+
+  useEffect(() => { pathnameRef.current = pathname; }, [pathname]);
+  useEffect(() => { searchParamsRef.current = globalSearchParams; }, [globalSearchParams]);
   const bootReady = (loaded || !!error) && !splashBootAnimationsLoading && splashAssetsReady;
   const bootProgressTarget = useMemo(() => {
     if (!loaded && !error) return 0.06;
@@ -385,93 +383,69 @@ function RootLayoutInner() {
     };
   }, [updateSetting]);
 
+  const handleNotificationNavigation = useCallback(async (data: NotificationData) => {
+    if (!data || typeof data !== 'object') return;
+    const navKey = notificationNavigationKey(data);
+    const now = Date.now();
+    if (lastNotifRouteRef.current?.key === navKey && now - lastNotifRouteRef.current.ts < 2500) return;
+    lastNotifRouteRef.current = { key: navKey, ts: now };
+    await markNotificationOpened(data);
+    const target = resolveNotificationUrl(data);
+    setTimeout(() => router.push(target as any), 250);
+  }, [router]);
+
   // Notifications
   useEffect(() => {
     Notifications.getLastNotificationResponseAsync()
-      .then((response) => {
-        if (response?.notification?.request?.content?.data) {
-          handleNotificationNavigation(response.notification.request.content.data as any);
+      .then(async (response) => {
+        if (!response) return;
+        const action = await handleNotificationAction(response);
+        if (action === 'navigate') {
+          await handleNotificationNavigation(response.notification.request.content.data as NotificationData);
         }
+        await Notifications.clearLastNotificationResponseAsync();
       })
       .catch(() => {});
 
-    notifListener.current = Notifications.addNotificationReceivedListener(notification => {
+    notifListener.current = Notifications.addNotificationReceivedListener((notification) => {
+      const data = (notification.request.content.data || {}) as NotificationData;
+      DeviceEventEmitter.emit('vroom:notification-received', data);
+      void syncNotificationBadge();
+      if (['vroomki_publish_status', 'vroomki_published', 'vroomki_publish_failed'].includes(String(data.type || ''))) return;
+      const targetPath = resolveNotificationUrl(data).split('?')[0];
+      const type = String(data.type || '');
+      const samePath = pathnameRef.current === targetPath;
+      const currentParams = searchParamsRef.current;
+      const currentChannelId = Array.isArray(currentParams.channelId) ? currentParams.channelId[0] : currentParams.channelId;
+      const isExactConversation = samePath && (
+        type === 'new_message'
+        || type === 'market_message'
+        || type === 'mention_public_chat'
+        || type === 'public_chat_message'
+        || (['club_chat', 'mention_club'].includes(type) && String(currentChannelId || '') === String(data.channelId || ''))
+      );
+      if (isExactConversation) return;
+      Toast.show({
+        type: 'info',
+        text1: notification.request.content.title || 'Nowe powiadomienie',
+        text2: notification.request.content.body || undefined,
+        onPress: () => { Toast.hide(); void handleNotificationNavigation(data); },
+      });
       // Foreground: nie pokazujemy toastów z pushy (żadnych popupów w trakcie używania appki).
       // Powiadomienia dalej zapisują się w bazie i są w centrum powiadomień in-app.
     });
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(async (response) => {
       if (response.actionIdentifier === IOS_DRIVE_STOP_ACTION) {
-        void BackgroundDriveController.stop('notification');
+        await BackgroundDriveController.stop('notification');
         return;
       }
-      handleNotificationNavigation(response.notification.request.content.data as any);
+      const action = await handleNotificationAction(response);
+      if (action === 'navigate') {
+        await handleNotificationNavigation(response.notification.request.content.data as NotificationData);
+      }
     });
     return () => { notifListener.current?.remove(); responseListener.current?.remove(); };
-  }, []);
-
-  const handleNotificationNavigation = async (data: any) => {
-    if (!data?.type) return;
-    try {
-      const navKey = `${String(data.type)}:${String(data.conversationId ?? data.postId ?? data.clubId ?? data.spotId ?? data.carId ?? data.meetId ?? data.vroomkiPostId ?? data.userId ?? 'none')}`;
-      const now = Date.now();
-      if (lastNotifRouteRef.current && lastNotifRouteRef.current.key === navKey && now - lastNotifRouteRef.current.ts < 2500) {
-        console.log('[Notifications] Skip duplicate navigation:', navKey);
-        return;
-      }
-      lastNotifRouteRef.current = { key: navKey, ts: now };
-
-      setTimeout(async () => {
-        let target: string | null = null;
-
-        if (data.type === 'new_message' && data.conversationId) {
-          target = `/Community/chats/${data.conversationId}`;
-        } else if (data.type === 'market_message' && data.conversationId) {
-          target = `/Community/market/chat/${data.conversationId}`;
-        } else if (
-          (data.type === 'like_post' ||
-            data.type === 'comment_post' ||
-            data.type === 'new_follow_post' ||
-            data.type === 'mention_discussion' ||
-            data.type === 'discussion_post_new') &&
-          data.postId
-        ) {
-          await AsyncStorage.setItem('open_post_id', String(data.postId));
-          target = `/Community/community/community`;
-        } else if ((data.type === 'club_chat' || data.type === 'mention_club') && data.clubId) {
-          const channelQuery = data.channelId ? `?channelId=${data.channelId}` : '';
-          target = `/Community/clubs/${data.clubId}${channelQuery}`;
-        } else if (data.type === 'mention_public_chat' || data.type === 'public_chat_message') {
-          target = '/Community/public/public';
-        } else if ((data.type === 'like_spot' || data.type === 'comment_spot') && data.spotId) {
-          target = `/(tabs)/map`;
-        } else if ((data.type === 'like_car' || data.type === 'comment_car') && data.carId) {
-          target = `/(tabs)/account`;
-        } else if (data.type === 'friend_request' || data.type === 'friend_accepted') {
-          target = `/Community/chats/chats`;
-        } else if (
-          (data.type === 'like_vroomki' ||
-            data.type === 'comment_vroomki' ||
-            data.type === 'vroomki_published') &&
-          data.vroomkiPostId
-        ) {
-          target = `/Community/vroomki?vroomkiId=${data.vroomkiPostId}`;
-        } else if (data.type === 'achievement') {
-          target = `/(tabs)/account`;
-        }
-
-        if (target) {
-          console.log('[Notifications] Navigate:', { type: data.type, target });
-          router.push(target as any);
-          return;
-        }
-
-        if ((data.type === 'meet_nearby_invite' || data.type === 'meet_joined') && data.meetId) {
-          console.log('[Notifications] Navigate meet:', { type: data.type, meetId: data.meetId });
-          router.push({ pathname: '/Community/meets/meet', params: { id: String(data.meetId) } } as any);
-        }
-      }, 350);
-    } catch (e) { console.error('Navigation error:', e); }
-  };
+  }, [handleNotificationNavigation]);
 
   useEffect(() => {
     if (!loaded && !error) return;

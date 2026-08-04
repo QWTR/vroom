@@ -23,10 +23,11 @@ interface Props {
   loading?: boolean;
   onPressVote?: () => void;
   compact?: boolean;
+  contained?: boolean;
   vsAnimation?: AppAnimation | null;
 }
 
-export function DailyDuelHero({ duel, loading, onPressVote, compact, vsAnimation }: Props) {
+export function DailyDuelHero({ duel, loading, onPressVote, compact, contained, vsAnimation }: Props) {
   const { theme, isDark } = useTheme();
   const chrome = getThemeChrome(theme, isDark);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -57,8 +58,11 @@ export function DailyDuelHero({ duel, loading, onPressVote, compact, vsAnimation
   const hasVsAnimation = !!vsAnimation;
 
   const shellStyle = {
-    marginHorizontal: 0,
-    marginBottom: 28,
+    marginHorizontal: contained ? 16 : 0,
+    marginBottom: contained ? 24 : 28,
+    borderRadius: contained ? 24 : 0,
+    borderWidth: contained ? 1 : 0,
+    borderColor: contained ? theme.primaryBorder : 'transparent',
     overflow: 'hidden' as const,
     backgroundColor: shellBg,
   };

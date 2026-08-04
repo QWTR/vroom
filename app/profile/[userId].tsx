@@ -142,7 +142,7 @@ export default function PublicProfileScreen() {
   const [blockBusy, setBlockBusy] = useState(false);
   const [profileMusicMuted, setProfileMusicMuted] = useState(false);
 
-  const { startConversation } = useChat();
+  const { startConversation } = useChat({ realtime: false, autoFetch: false });
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(28)).current;

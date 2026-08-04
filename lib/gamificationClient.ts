@@ -244,6 +244,11 @@ export async function fetchDropStatus(dropId: number): Promise<{
   status?: string;
   expiresAt?: string;
   rarity?: string;
+  lat?: number;
+  lng?: number;
+  radiusM?: number;
+  type?: GeoDropNearby['type'];
+  notificationRadiusKm?: number;
 } | null> {
   return gamificationFetch(`/api/gamification/drops/${dropId}/status`);
 }

@@ -12,7 +12,7 @@ import { CommunityScreenHeader } from '../../../components/community';
 export default function NewChatScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const { searchUsers, startConversation, friends } = useChat();
+  const { searchUsers, startConversation, friends } = useChat({ realtime: false });
 
   const [query,     setQuery]     = useState('');
   const [results,   setResults]   = useState<ChatUser[]>([]);

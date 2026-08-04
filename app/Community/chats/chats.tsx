@@ -4,6 +4,7 @@ import {
   StatusBar, RefreshControl, ActivityIndicator, Modal,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
@@ -36,6 +37,7 @@ interface Conversation {
 
 export default function ChatsIndex() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { theme, isDark } = useTheme();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -66,6 +68,7 @@ export default function ChatsIndex() {
 
   // ── Init socket ────────────────────────────────────────
   useEffect(() => {
+    if (!isFocused) return;
     (async () => {
       const raw   = await AsyncStorage.getItem('user');
       const token = await AsyncStorage.getItem('token');
@@ -102,7 +105,7 @@ export default function ChatsIndex() {
     })();
 
     return () => { socketRef.current?.disconnect(); };
-  }, []);
+  }, [isFocused]);
 
   // ── Pobierz pierwszą stronę ────────────────────────────
   const fetchConversations = useCallback(async (reset = true) => {

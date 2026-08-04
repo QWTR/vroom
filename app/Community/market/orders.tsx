@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Toast from 'react-native-toast-message';
@@ -47,6 +47,7 @@ const money = (grosze: number) => `${(grosze / 100).toFixed(2)} PLN`;
 export default function MarketOrdersScreen() {
   const { theme } = useTheme();
   const router = useRouter();
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
   const [tab, setTab] = useState<'bought' | 'sold'>('bought');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +62,18 @@ export default function MarketOrdersScreen() {
   const load = useCallback(async () => {
     try {
       const token = await getToken();
+      if (orderId) {
+        const response = await fetch(`${API_URL}/api/market/orders/${encodeURIComponent(orderId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Ta treść nie jest już dostępna');
+        const rawUser = await AsyncStorage.getItem('user');
+        const currentUserId = Number(rawUser ? JSON.parse(rawUser)?.userId ?? JSON.parse(rawUser)?.id : 0);
+        setTab(Number(data.order?.buyer?.id) === currentUserId ? 'bought' : 'sold');
+        setOrders(data.order ? [data.order] : []);
+        return;
+      }
       const path = tab === 'bought' ? 'orders/my' : 'orders/selling';
       const res = await fetch(`${API_URL}/api/market/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -74,7 +87,7 @@ export default function MarketOrdersScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tab]);
+  }, [orderId, tab]);
 
   useFocusEffect(useCallback(() => {
     setLoading(true);

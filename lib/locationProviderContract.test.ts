@@ -69,6 +69,8 @@ describe('automotive location provider contract', () => {
     expect(read('hooks/useDriveLocationWatch.ts')).toContain('onLocRef.current({');
     expect(androidService).toContain('location.hasSpeed() && location.speed > 0f');
     expect(iosService).toContain('location.speed > 0 ? location.speed * 3.6 : nil');
-    expect(merge).toContain('Math.max(nativeKm, foregroundKm)');
+    expect(merge).toContain('return Math.max(');
+    expect(merge).toContain('safeKm(inputs.nativeDistanceKm)');
+    expect(merge).toContain('safeKm(inputs.foregroundTripKm)');
   });
 });

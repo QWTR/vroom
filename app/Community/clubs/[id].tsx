@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather }                from '@expo/vector-icons';
 import MaterialIcons              from '@expo/vector-icons/MaterialIcons';
@@ -61,10 +62,11 @@ interface ClubMessage {
 
 // ── Main Screen ───────────────────────────────────────────
 export default function ClubChatScreen() {
-  const { id, channelId } = useLocalSearchParams<{ id: string; channelId?: string }>();
+  const { id, channelId, messageId } = useLocalSearchParams<{ id: string; channelId?: string; messageId?: string }>();
   const clubId            = parseInt(String(id), 10);
   const initialChannelId  = channelId ? parseInt(String(channelId), 10) : NaN;
   const router            = useRouter();
+  const isFocused         = useIsFocused();
   const { theme, isDark } = useTheme();
   const insets            = useSafeAreaInsets();
 
@@ -138,6 +140,7 @@ export default function ClubChatScreen() {
 
   // ── Init ─────────────────────────────────────────────────
   useEffect(() => {
+    if (!isFocused) return;
     mountedRef.current = true;
 
     const onMessage = (msg: ClubMessage) => {
@@ -232,7 +235,7 @@ export default function ClubChatScreen() {
         socketRef.current = null;
       }
     };
-  }, [clubId, initialChannelId, scheduleScrollToEnd]);
+  }, [clubId, initialChannelId, isFocused, scheduleScrollToEnd]);
 
   const loadMessages = async (token: string, cur?: number, channelIdArg?: number) => {
     try {
@@ -397,6 +400,14 @@ export default function ClubChatScreen() {
     () => messages.map(mapClubMessageToUnified),
     [messages],
   );
+
+  useEffect(() => {
+    if (!messageId || loading || !unifiedMessages.length) return;
+    const index = unifiedMessages.findIndex((message) => message.id === Number(messageId));
+    if (index < 0) return;
+    const timer = setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 180);
+    return () => clearTimeout(timer);
+  }, [loading, messageId, unifiedMessages]);
 
   const handleMentionPress = useCallback((username: string) => {
     const member = (clubData?.members ?? []).find(

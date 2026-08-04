@@ -393,7 +393,7 @@ export default function ProfileView({
   };
   const router = useRouter();
   const { wallet: nitroWallet } = useNitroWallet();
-  const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat();
+  const { friends, fetchFriends, requests, fetchRequests, acceptRequest, rejectRequest, removeFriend } = useChat({ realtime: false });
   const { counts: followCounts } = useFollowCounts(profile?.id);
 
   const [selectedSpot,        setSelectedSpot]        = useState<Spot | null>(null);

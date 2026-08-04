@@ -103,6 +103,8 @@ export interface AppSettings {
   notifAchievements:   boolean;
   notifFollowedPosts:  boolean;
   notifDiscussionPosts: boolean;
+  notifEngagement:      boolean;
+  messagePreviewEnabled: boolean;
   locationMarkerStyle: 'arrow' | 'profile' | 'vehicle_3d';
   homeLatitude: number | null;
   homeLongitude: number | null;
@@ -185,6 +187,8 @@ const DEFAULTS: AppSettings = {
   notifAchievements:   true,
   notifFollowedPosts:  true,
   notifDiscussionPosts: true,
+  notifEngagement:      true,
+  messagePreviewEnabled: true,
   locationMarkerStyle: 'profile',
   homeLatitude: null,
   homeLongitude: null,

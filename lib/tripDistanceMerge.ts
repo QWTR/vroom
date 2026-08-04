@@ -3,9 +3,11 @@ export type FinalTripDistanceInputs = {
   backgroundPendingKm?: number | null;
   checkpointKm?: number | null;
   emergencySnapshotKm?: number | null;
-  /** When true, prefer native distance — but never discard a larger foreground total. */
+  /** Kept for callers; merge always takes the max of all streams. */
   nativeOwnsSession?: boolean;
   nativeDistanceKm?: number | null;
+  /** Prior ledger total for the same session (never discard progress already recorded). */
+  previousLedgerKm?: number | null;
 };
 
 function safeKm(value: number | null | undefined): number {
@@ -14,31 +16,17 @@ function safeKm(value: number | null | undefined): number {
 }
 
 /**
- * Resolves final trip distance using a priority chain — never sums overlapping streams.
- * Native ownership must not wipe a larger HUD/JS total (lagging native ledger was
- * dropping saves when native was in (0, 0.05) while foreground had real km).
+ * Resolves final trip distance as the max of all non-overlapping streams.
+ * Never sums sources (they measure the same trip) and never prefers a lagging
+ * native/checkpoint total over a larger HUD/JS reading.
  */
 export function resolveFinalTripDistanceKm(inputs: FinalTripDistanceInputs): number {
-  const nativeKm = safeKm(inputs.nativeDistanceKm);
-  const foregroundKm = safeKm(inputs.foregroundTripKm);
-
-  if (inputs.nativeOwnsSession && nativeKm > 0) {
-    return Math.max(nativeKm, foregroundKm);
-  }
-
-  if (foregroundKm > 0) {
-    return foregroundKm;
-  }
-
-  const backgroundKm = safeKm(inputs.backgroundPendingKm);
-  if (backgroundKm > 0) {
-    return backgroundKm;
-  }
-
-  const checkpointKm = safeKm(inputs.checkpointKm);
-  if (checkpointKm > 0) {
-    return checkpointKm;
-  }
-
-  return safeKm(inputs.emergencySnapshotKm);
+  return Math.max(
+    safeKm(inputs.nativeDistanceKm),
+    safeKm(inputs.foregroundTripKm),
+    safeKm(inputs.backgroundPendingKm),
+    safeKm(inputs.checkpointKm),
+    safeKm(inputs.emergencySnapshotKm),
+    safeKm(inputs.previousLedgerKm),
+  );
 }

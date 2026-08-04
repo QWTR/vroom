@@ -15,6 +15,7 @@ import AsyncStorage     from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as TaskManager from 'expo-task-manager';
 import * as Location    from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import * as WebBrowser  from 'expo-web-browser';
 import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
@@ -53,6 +54,7 @@ import {
   setBackgroundLocationEnablePending,
 } from '../../lib/backgroundLocationConsent';
 import { syncRevenueCatLoginFromStorage } from '../../lib/revenueCatUserSync';
+import { unregisterPushToken } from '../../hooks/usePushNotifications';
 import { useFormKeyboardPadding, useKeyboardInset } from '../../hooks/useKeyboardInset';
 import ProfileAnimationSettingsPreview from '../../components/profile/ProfileAnimationSettingsPreview';
 import { HERO_MOTION_LABELS, VISIT_ENTRANCE_LABELS } from '../../constants/profileAnimationLabels';
@@ -177,6 +179,15 @@ export default function SettingsScreen() {
   const [logoutModal,        setLogoutModal]        = useState(false);
   const [bugModal,           setBugModal]           = useState(false);
   const [loadTimedOut,       setLoadTimedOut]       = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<Notifications.PermissionStatus | null>(null);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    Notifications.getPermissionsAsync()
+      .then((value) => { if (active) setNotificationPermission(value.status); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []));
 
   useEffect(() => {
     if (!settingsLoading) {
@@ -606,6 +617,7 @@ export default function SettingsScreen() {
 
   const handleLogout = async () => {
     setLogoutModal(false);
+    await unregisterPushToken();
     await AsyncStorage.multiRemove(['userToken', 'token', 'user', 'app_settings']);
     await AsyncStorage.setItem('USER_IS_PREMIUM', 'false').catch(() => {});
     await syncRevenueCatLoginFromStorage();
@@ -2897,6 +2909,20 @@ export default function SettingsScreen() {
 									sub: "Nowy post w dyskusjach od dowolnego użytkownika",
 									key: "notifDiscussionPosts",
 								},
+								{
+									icon: "auto-awesome",
+									iconBg: "#E33835",
+									label: "Nowości i przypomnienia",
+									sub: "Pojedynek dnia, zrzuty, seria i ważne wydarzenia",
+									key: "notifEngagement",
+								},
+								{
+									icon: "preview",
+									iconBg: "#7E57C2",
+									label: "Pokazuj treść wiadomości",
+									sub: "Podgląd tekstu w powiadomieniu prywatnego czatu",
+									key: "messagePreviewEnabled",
+								},
 							] as const
 						).map((item, i, arr) => (
 							<SettingsRow {...settingsRowProps}
@@ -2909,12 +2935,23 @@ export default function SettingsScreen() {
 								right={
 									<Switch
 										value={(settings as any)[item.key]}
-										onValueChange={v => updateSetting(item.key as any, v)}
+										onValueChange={v => { void updateSetting(item.key as any, v); }}
 										{...swProps}
 									/>
 								}
 							/>
 						))}
+					</SettingsCard>
+					<View style={{ height: 12 }} />
+					<SettingsCard {...settingsCardProps}>
+						<SettingsRow {...settingsRowProps}
+							icon={notificationPermission === 'granted' ? 'notifications-active' : 'notifications-off'}
+							iconBg={notificationPermission === 'granted' ? '#4CAF50' : '#FF9800'}
+							label='Zgoda systemowa'
+							sublabel={notificationPermission === 'granted' ? 'Powiadomienia są dozwolone' : 'Dotknij, aby otworzyć ustawienia telefonu'}
+							onPress={() => void Linking.openSettings()}
+							last
+						/>
 					</SettingsCard>
 
 					</>)}

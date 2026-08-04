@@ -41,7 +41,7 @@ interface Message {
 }
 
 export default function MarketChatScreen() {
-  const { convId } = useLocalSearchParams<{ convId: string }>();
+  const { convId, messageId } = useLocalSearchParams<{ convId: string; messageId?: string }>();
   const router = useRouter();
   const numConvId = parseInt(convId);
   const { theme, isDark } = useTheme();
@@ -65,6 +65,14 @@ export default function MarketChatScreen() {
   const { listPaddingBottom: chatListPad, inputPaddingBottom: chatInputPad } = useChatKeyboard(listRef);
 
   const unifiedMessages = useMemo(() => messages.map(mapMarketMessageToUnified), [messages]);
+
+  useEffect(() => {
+    if (!messageId || loading || !unifiedMessages.length) return;
+    const index = unifiedMessages.findIndex((message) => message.id === Number(messageId));
+    if (index < 0) return;
+    const timer = setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 180);
+    return () => clearTimeout(timer);
+  }, [loading, messageId, unifiedMessages]);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';

@@ -5,6 +5,7 @@ import {
 import { Text } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -68,8 +69,9 @@ interface ConvInfo {
 }
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, messageId } = useLocalSearchParams<{ id: string; messageId?: string }>();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const convId = parseInt(id);
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -102,6 +104,17 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
+    if (!messageId || loading || !unifiedMessages.length) return;
+    const index = unifiedMessages.findIndex((message) => message.id === Number(messageId));
+    if (index < 0) return;
+    const timer = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [loading, messageId, unifiedMessages]);
+
+  useEffect(() => {
+    if (!isFocused) return;
     (async () => {
       const raw = await AsyncStorage.getItem('user');
       const token = (await AsyncStorage.getItem('token')) ?? '';
@@ -154,7 +167,7 @@ export default function ChatScreen() {
       socketRef.current?.emit('chat:leave', convId);
       socketRef.current?.disconnect();
     };
-  }, [convId]);
+  }, [convId, isFocused]);
 
   const fetchConv = async (token: string) => {
     try {

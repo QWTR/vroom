@@ -48,7 +48,14 @@ export interface FriendRequest {
   requester: ChatUser;
 }
 
-export function useChat() {
+type UseChatOptions = {
+  realtime?: boolean;
+  autoFetch?: boolean;
+};
+
+export function useChat(options: UseChatOptions = {}) {
+  const realtime = options.realtime !== false;
+  const autoFetch = options.autoFetch !== false;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [friends,       setFriends]       = useState<ChatUser[]>([]);
   const [requests,      setRequests]      = useState<FriendRequest[]>([]);
@@ -69,6 +76,7 @@ export function useChat() {
 
   // ── Init socket ──────────────────────────────────────────
   useEffect(() => {
+    if (!realtime) return undefined;
     (async () => {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -167,7 +175,7 @@ export function useChat() {
       socketRef.current?.disconnect();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [realtime]);
 
   // ── Fetch conversations ──────────────────────────────────
   const fetchConversations = useCallback(async () => {
@@ -247,9 +255,9 @@ export function useChat() {
       err.status = r.status;
       throw err;
     }
-    await fetchConversations();
+    if (autoFetch) await fetchConversations();
     return d.id ?? null;
-  }, [headers, fetchConversations]);
+  }, [autoFetch, headers, fetchConversations]);
 
   // ── Send friend request ──────────────────────────────────
   const sendFriendRequest = useCallback(async (userId: number) => {
@@ -311,11 +319,12 @@ export function useChat() {
 
   // ── Init fetch ────────────────────────────────────��──────
   useEffect(() => {
+    if (!autoFetch) return;
     fetchConversations();
     fetchFriends();
     fetchRequests();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoFetch]);
 
   return {
     conversations,

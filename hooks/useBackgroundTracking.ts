@@ -889,9 +889,15 @@ async function finalizeTripSessionOnce(
     backgroundPendingKm: 0,
     checkpointKm,
     emergencySnapshotKm: matchingEmergency?.distanceKm ?? 0,
+    previousLedgerKm: previous?.distanceKm,
   });
-  // Never let a lagging native ledger discard HUD/JS kilometers at save time.
-  const finalDistanceKm = Math.max(resolvedKm, foregroundKm);
+  // Never let a lagging stream discard HUD/JS kilometers at save time.
+  const finalDistanceKm = Math.max(
+    resolvedKm,
+    foregroundKm,
+    Number(previous?.distanceKm) || 0,
+    Number(checkpointKm) || 0,
+  );
   const ledger = mergeForegroundLedgerSnapshot(seed, {
     distanceKm: finalDistanceKm,
     routePoints: selectedRoute,
@@ -1445,9 +1451,12 @@ export function useBackgroundTracking(
         });
         telemetryRef.current.navMergedFlushes += 1;
         telemetryRef.current.navMergedBgKm += bgPending;
-        const distanceToSave = Number.isFinite(distanceToSaveRaw) && distanceToSaveRaw > 0
-          ? distanceToSaveRaw
-          : 0;
+        const distanceToSave = Math.max(
+          Number.isFinite(distanceToSaveRaw) ? distanceToSaveRaw : 0,
+          navDistance,
+          savedCheckpointKm,
+          Number(emergencySnapshot?.distanceKm) || 0,
+        );
         const maxSpeedToSave = Math.max(navPayload?.maxSpeedKmh ?? 0, 0);
         const avgSpeedToSave = navPayload?.avgSpeedKmh != null && navPayload.avgSpeedKmh > 0
           ? navPayload.avgSpeedKmh

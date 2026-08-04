@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useIsFocused } from '@react-navigation/native';
+import { useLocalSearchParams } from 'expo-router';
 import {
   View, Text, TouchableOpacity,
   ActivityIndicator, ScrollView,
@@ -28,6 +29,7 @@ import { track } from '../../lib/analytics/client';
 type PickingState = 'idle' | 'picking';
 
 export default function SpotMap() {
+  const { spotId } = useLocalSearchParams<{ spotId?: string; commentId?: string }>();
   const mapRef = useRef<Mapbox.MapView>(null);
   useEffect(() => {
     void initMapbox().catch(() => {});
@@ -39,7 +41,7 @@ export default function SpotMap() {
   const mapStyle       = resolveStandardMapStyle(isDark, presetId);
 
   const {
-    region, visibleSpots, maxDistance, setMaxDistance,
+    region, spots, visibleSpots, maxDistance, setMaxDistance,
     addSpot, getDistance, loading, refetch,
     activeCategories, toggleCategory, clearCategories,
     sortMode, setSortMode,
@@ -56,6 +58,37 @@ export default function SpotMap() {
   const [isSatellite,       setIsSatellite]       = useState(false);
   const [categorySprites,   setCategorySprites]   = useState<Record<string, string> | null>(null);
   const isFocused = useIsFocused();
+  const handledSpotIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const requestedId = String(spotId || '');
+    if (!requestedId || handledSpotIdRef.current === requestedId) return;
+    const openSpot = (spot: Spot) => {
+      handledSpotIdRef.current = requestedId;
+      setSelectedSpot(spot);
+      setDetailVisible(true);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [spot.longitude, spot.latitude], zoomLevel: 15, animationDuration: 600,
+      });
+    };
+    const existing = spots.find((spot) => String(spot.id) === requestedId);
+    if (existing) { openSpot(existing); return; }
+    void fetch(`https://v-room.app/api/spots/${encodeURIComponent(requestedId)}/details`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        const raw = await response.json();
+        openSpot({
+          id: String(raw.id), name: raw.name, description: raw.description || '', category: raw.category,
+          latitude: raw.latitude, longitude: raw.longitude, photos: raw.photos || [],
+          author: raw.author?.username || 'Nieznany', createdAt: raw.createdAt?.split('T')[0] || '',
+          likesCount: raw.likesCount ?? 0, commentsCount: raw.commentsCount ?? 0, isLiked: raw.isLiked ?? false,
+        });
+      })
+      .catch(() => {
+        handledSpotIdRef.current = requestedId;
+        Toast.show({ type: 'info', text1: 'Ta treść nie jest już dostępna' });
+      });
+  }, [spotId, spots]);
 
   const panelBg     = theme.surface + 'f0';
   const panelBorder = theme.border2;

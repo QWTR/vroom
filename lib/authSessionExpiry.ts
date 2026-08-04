@@ -14,6 +14,8 @@ const AUTH_STORAGE_KEYS = [
   'app_settings',
   'needsUgcTerms',
   'open_post_id',
+  'vroom_expo_push_token',
+  'vroom_pending_notification_replies_v1',
 ] as const;
 
 const INTERCEPTOR_MARKER = '__vroomAuthSessionExpiryInterceptor';

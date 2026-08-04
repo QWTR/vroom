@@ -2,37 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { resolveFinalTripDistanceKm } from './tripDistanceMerge';
 
 describe('resolveFinalTripDistanceKm', () => {
-  it('uses native distance when it is ahead of foreground', () => {
+  it('takes the max across all streams', () => {
     expect(resolveFinalTripDistanceKm({
       nativeOwnsSession: true,
       nativeDistanceKm: 90,
       foregroundTripKm: 15,
       backgroundPendingKm: 0,
-      checkpointKm: 90,
+      checkpointKm: 88,
       emergencySnapshotKm: 0,
     })).toBe(90);
   });
 
-  it('prefers foreground over background when native does not own the session', () => {
+  it('prefers larger foreground over native when HUD is ahead', () => {
     expect(resolveFinalTripDistanceKm({
-      nativeOwnsSession: false,
+      nativeOwnsSession: true,
+      nativeDistanceKm: 40,
       foregroundTripKm: 42,
-      backgroundPendingKm: 40,
-      checkpointKm: 0,
-      emergencySnapshotKm: 0,
     })).toBe(42);
   });
 
-  it('falls back to emergency snapshot when no primary stream survived', () => {
+  it('falls back through streams when HUD is empty', () => {
     expect(resolveFinalTripDistanceKm({
       foregroundTripKm: 0,
-      backgroundPendingKm: 0,
+      backgroundPendingKm: 12,
       checkpointKm: 18,
       emergencySnapshotKm: 73.4,
-    })).toBe(18);
+    })).toBe(73.4);
   });
 
-  it('ignores native ownership when native distance is still zero', () => {
+  it('ignores zero native and keeps HUD km', () => {
     expect(resolveFinalTripDistanceKm({
       nativeOwnsSession: true,
       nativeDistanceKm: 0,
@@ -54,11 +52,16 @@ describe('resolveFinalTripDistanceKm', () => {
     })).toBe(6.8);
   });
 
-  it('takes the larger of native and foreground when both report progress', () => {
+  it('never discards a larger previous ledger total', () => {
     expect(resolveFinalTripDistanceKm({
-      nativeOwnsSession: true,
-      nativeDistanceKm: 40,
-      foregroundTripKm: 42,
-    })).toBe(42);
+      foregroundTripKm: 10,
+      nativeDistanceKm: 9,
+      checkpointKm: 8,
+      previousLedgerKm: 11.2,
+    })).toBe(11.2);
+  });
+
+  it('returns 0 when every stream is empty', () => {
+    expect(resolveFinalTripDistanceKm({})).toBe(0);
   });
 });

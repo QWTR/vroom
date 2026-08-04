@@ -2,7 +2,7 @@ import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, {
   useCallback,
   useEffect,
@@ -317,6 +317,7 @@ import { GeoDropClaimedModal } from '../../components/map/GeoDropClaimedModal';
 import type { SpeedCamera } from '../../hooks/useSpeedCamera';
 import { useSpeedCameras } from '../../hooks/useSpeedCamera';
 import { useGamification } from '../../hooks/useGamification';
+import { fetchDropStatus, type GeoDropNearby } from '../../lib/gamificationClient';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
 import {
@@ -333,6 +334,8 @@ import {
   buildStepArcIndex,
   buildRouteForwardArcPrefix,
   computeUserArcM,
+  stabilizeManeuverDistance,
+  stabilizeRouteArcProgress,
   findStepIndexForArcM,
   shouldSpeakForStep,
   type StepArcIndex,
@@ -738,6 +741,7 @@ const TRIP_SMOOTH_MAX_MS = 220;
 
 
 function MapScreenInner() {
+  const notificationParams = useLocalSearchParams<{ dropId?: string; lat?: string; lng?: string; start?: string }>();
   const [mapViewHeight, setMapViewHeight] = useState(0);
   const ignoreHudLayout = useCallback((_height: number) => {}, []);
 
@@ -763,6 +767,8 @@ function MapScreenInner() {
     index: [],
   });
   const pendingStepArcClampRef = useRef(false);
+  /** On-route arc progress — never decrease much (GPS projection jitter). */
+  const lastUserArcMRef = useRef<number | null>(null);
   const locationReadyRef     = useRef(false);
   const lastNavLocRef        = useRef<{ latitude: number; longitude: number } | null>(null);
   const isOffroadRef         = useRef(false);
@@ -1691,6 +1697,7 @@ function MapScreenInner() {
   const [arrived,      setArrived]      = useState(false);
   const arrivedRef = useRef(false);
   arrivedRef.current = arrived;
+  const dropZoneClaimToastAtRef = useRef(0);
   const [routeInfo,    setRouteInfo]    = useState<(RouteInfo & { durationText?: string | null }) | null>(null);
 
   useEffect(() => {
@@ -1830,7 +1837,7 @@ function MapScreenInner() {
   const cursorSkinOverlay = cursorSkinActive?.imageUrl
     ? { imageUrl: cursorSkinActive.imageUrl, borderColor: cursorSkinActive.borderColor }
     : null;
-  const { startConversation } = useChat();
+  const { startConversation } = useChat({ realtime: false, autoFetch: false });
   const { settings } = useSettings();
   const wantVehicle3DMarker = settings.locationMarkerStyle === 'vehicle_3d';
   const useVehicle3DMarker = wantVehicle3DMarker && !!equippedMapVehicle?.assetUrl && !equippedVehicleLoading;
@@ -3346,8 +3353,8 @@ function MapScreenInner() {
     isSharing,
     userLocation,
     settings.backgroundTracking && isPremium,
-    liveMapEnabled && sharingHydrated,
-    isSharing && sharingHydrated,
+    liveMapEnabled && sharingHydrated && (isMapFocused || isDriving || isNavigating),
+    isSharing && sharingHydrated && isMapFocused,
   );
 
   useEffect(() => {
@@ -3375,6 +3382,57 @@ function MapScreenInner() {
     claimedDropReward,
     dismissClaimedDropReward,
   } = useGamification();
+
+  const handledNotificationDropRef = useRef<number | null>(null);
+  useEffect(() => {
+    const dropId = Number(notificationParams.dropId);
+    if (!Number.isInteger(dropId) || dropId <= 0 || handledNotificationDropRef.current === dropId) return;
+
+    const openDrop = (drop: GeoDropNearby) => {
+      handledNotificationDropRef.current = dropId;
+      cameraRef.current?.setCamera({
+        centerCoordinate: [drop.lng, drop.lat],
+        zoomLevel: 15,
+        animationDuration: 650,
+      });
+      showDropPrompt(drop);
+    };
+
+    const existing = gamificationDrops.find((drop) => Number(drop.id) === dropId);
+    if (existing) { openDrop(existing); return; }
+
+    handledNotificationDropRef.current = dropId;
+    void fetchDropStatus(dropId).then((status) => {
+      if (!status?.available || !Number.isFinite(status.lat) || !Number.isFinite(status.lng)) {
+        handledNotificationDropRef.current = dropId;
+        Toast.show({ type: 'info', text1: 'Ten zrzut nie jest już dostępny' });
+        return;
+      }
+      const lat = Number(status.lat);
+      const lng = Number(status.lng);
+      openDrop({
+        id: dropId,
+        lat,
+        lng,
+        radiusM: Number(status.radiusM) || 85,
+        rarity: (status.rarity || 'rare') as GeoDropNearby['rarity'],
+        type: status.type || 'event',
+        expiresAt: String(status.expiresAt),
+        distanceM: userLocation ? haversineKm(userLocation.latitude, userLocation.longitude, lat, lng) * 1000 : 0,
+        notificationRadiusKm: status.notificationRadiusKm,
+      });
+    }).catch(() => {
+      handledNotificationDropRef.current = dropId;
+      Toast.show({ type: 'info', text1: 'Ten zrzut nie jest już dostępny' });
+    });
+  }, [notificationParams.dropId, gamificationDrops, showDropPrompt, userLocation]);
+
+  const dropNavigationTargetIdRef = useRef(dropNavigationTargetId);
+  dropNavigationTargetIdRef.current = dropNavigationTargetId;
+  const tryClaimGamificationDropRef = useRef(tryClaimGamificationDrop);
+  tryClaimGamificationDropRef.current = tryClaimGamificationDrop;
+  const gamificationDropsRef = useRef(gamificationDrops);
+  gamificationDropsRef.current = gamificationDrops;
 
   const mapSessionActive = liveMapEnabled && sharingHydrated;
   const liveUsersEnabled = isSharing && sharingHydrated;
@@ -11784,6 +11842,32 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       return;
     }
 
+    // Drop destinations: do not tear down nav / wipe the drop — force claim in zone.
+    if (dropNavigationTargetIdRef.current) {
+      const pose = lastTripMarkerPoseRef.current;
+      const lat = pose?.lat ?? currentLocRef.current?.latitude ?? userLocation?.latitude;
+      const lng = pose?.lng ?? currentLocRef.current?.longitude ?? userLocation?.longitude;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        void tryClaimGamificationDropRef.current({
+          lat: lat!,
+          lng: lng!,
+          mode: 'navigation',
+          headingDeg: drHdgRef.current ?? lastHeadingRef.current ?? null,
+          speedKmh: Number.isFinite(speedKmhRef.current) ? speedKmhRef.current : 0,
+        });
+      }
+      if (Date.now() - dropZoneClaimToastAtRef.current > 8_000) {
+        dropZoneClaimToastAtRef.current = Date.now();
+        Toast.show({
+          type: 'info',
+          text1: 'Strefa zrzutu',
+          text2: 'Odbieram zrzut — jedź przez strefę.',
+          visibilityTime: 3200,
+        });
+      }
+      return;
+    }
+
     driveTraceSession('nav_end', { reason: 'arrived' });
     track({
       eventName: 'navigation_completed',
@@ -11849,7 +11933,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       setRouteInfo(null);
       setArrived(false);
       setNavStartLoc(null);
-      clearDropNavigationTarget();
     }, 3000);
   }, [
     endLocation, userLocation, routeInfo, navigationVoice.stop, navigationVoice.enqueue, resetBrowseCamera,
@@ -11859,12 +11942,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     checkLiveAchievements,
     deliverGamificationRewards,
     transitionFromApproachToRouteRun,
-    clearDropNavigationTarget,
   ]);
 
   useEffect(() => {
     if (!isNavigating || !navigationUiReady || !effectiveNavRoute?.steps?.length) {
       navRouteIdxRef.current = -1;
+      lastUserArcMRef.current = null;
       runNavProgressRef.current = () => {};
       return;
     }
@@ -11913,8 +11996,18 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
       if (endLocation) {
         const distToEnd = haversineKm(lat, lng, endLocation.latitude, endLocation.longitude) * 1000;
-        const arriveThreshold = approachingRouteStartRef.current ? 75 : 30;
-        if (distToEnd < arriveThreshold && !arrivedRef.current) { handleArrived(); return; }
+        const dropNavId = dropNavigationTargetIdRef.current;
+        if (dropNavId) {
+          const drop = gamificationDropsRef.current.find((d) => Number(d.id) === Number(dropNavId));
+          const zoneM = Math.max(85, Number(drop?.radiusM) || 85);
+          if (distToEnd < zoneM) {
+            // Claim in zone; keep nav HUD running until claim handler stops route.
+            void handleArrived();
+          }
+        } else {
+          const arriveThreshold = approachingRouteStartRef.current ? 75 : 30;
+          if (distToEnd < arriveThreshold && !arrivedRef.current) { handleArrived(); return; }
+        }
       }
 
       const prevStep = currentStepRef.current;
@@ -11931,6 +12024,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             steps,
             index: buildStepArcIndex(points, steps),
           };
+          lastUserArcMRef.current = null;
         }
         const forwardPrefix = routeForwardPrefixRef.current.points === points
           ? routeForwardPrefixRef.current.prefix
@@ -11938,7 +12032,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         if (routeForwardPrefixRef.current.points !== points) {
           routeForwardPrefixRef.current = { points, prefix: forwardPrefix };
         }
-        userArcM = computeUserArcM(points, routeProjection, forwardPrefix);
+        const rawUserArcM = computeUserArcM(points, routeProjection, forwardPrefix);
+        const prevArc = lastUserArcMRef.current;
+        // A route revision resets this ref. Within one revision progress is
+        // monotonic: projection jitter must never move the car backwards and
+        // make the distance to the same maneuver increase.
+        userArcM = stabilizeRouteArcProgress(prevArc, rawUserArcM);
+        lastUserArcMRef.current = userArcM;
         const stepArcIndex = stepArcIndexRef.current.index;
 
         if (pendingStepArcClampRef.current && stepArcIndex.length) {
@@ -11971,7 +12071,13 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
           points,
           forwardPrefix,
         );
-        distToManeuver = announceTarget.distanceM;
+        // Stabilize the canonical cue too (HUD, notification and Android Auto
+        // all consume it), not only the text rendered on the phone.
+        distToManeuver = stabilizeManeuverDistance(
+          lastDistToTurnUiRef.current,
+          announceTarget.distanceM,
+          announceTarget.stepIndex === announceStepIndexRef.current,
+        );
         const routeRevision = effectiveNavRoute.routeRevision
           ?? `${points.length}:${steps.length}`;
         const canonicalCue = createResolvedNavigationCue({
@@ -11993,6 +12099,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         if (announceTarget.stepIndex !== announceStepIndexRef.current) {
           announceStepIndexRef.current = announceTarget.stepIndex;
           setAnnounceStepIndex(announceTarget.stepIndex);
+          lastDistToTurnUiRef.current = null;
         }
         if (nextStep !== prevStep) {
           visionEvent('NAV_STEP_CHANGE', {
@@ -12087,10 +12194,12 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         }
 
         if (steps[nextStep]) {
-          const roundedTurn = Math.round(distToManeuver / 10) * 10;
-          if (lastDistToTurnUiRef.current == null || Math.abs(roundedTurn - lastDistToTurnUiRef.current) >= 10) {
+          const uiDist = distToManeuver;
+          const prevUiDist = lastDistToTurnUiRef.current;
+          const roundedTurn = Math.round(uiDist / 10) * 10;
+          if (prevUiDist == null || Math.abs(roundedTurn - prevUiDist) >= 10) {
             lastDistToTurnUiRef.current = roundedTurn;
-            setDistToTurnM(distToManeuver);
+            setDistToTurnM(uiDist);
           }
         }
       }

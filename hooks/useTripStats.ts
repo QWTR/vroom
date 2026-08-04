@@ -125,8 +125,9 @@ export function useTripStats() {
 
   const applyNativeDistance = useCallback((nativeKm: number) => {
     if (!Number.isFinite(nativeKm) || nativeKm < 0) return;
-    distanceRef.current = nativeKm;
-    const rounded = parseFloat(nativeKm.toFixed(2));
+    // Never replace a larger JS/HUD total with a lagging native reading.
+    distanceRef.current = Math.max(distanceRef.current, nativeKm);
+    const rounded = parseFloat(distanceRef.current.toFixed(2));
     const emitNow = Date.now();
     if (
       emitNow - lastLiveKmEmitRef.current >= 450

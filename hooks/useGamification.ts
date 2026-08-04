@@ -142,14 +142,16 @@ export function useGamification() {
       }
       return;
     }
-    if (mode !== 'freeDrive') {
-      setDrops([]);
-      setAvailableDropPrompt(null);
-      setDropNavigationTargetId(null);
-      trackedDropRef.current = null;
-    } else {
+    if (mode === 'freeDrive') {
       lastDropFetchRef.current = null;
       lastIngestRef.current = null;
+      return;
+    }
+    // idle / other — never wipe an in-flight drop navigation target (arrival→idle race).
+    setAvailableDropPrompt(null);
+    if (!dropNavigationTargetIdRef.current) {
+      setDrops([]);
+      trackedDropRef.current = null;
     }
   }, []);
 
@@ -301,7 +303,10 @@ export function useGamification() {
       if (dropId == null) continue;
       if (claimingDropIdsRef.current.has(dropId)) continue;
       const distM = haversineM(ping.lat, ping.lng, drop.lat, drop.lng);
-      if (distM > drop.radiusM) continue;
+      const claimRadiusM = dropNavigationTargetIdRef.current === dropId
+        ? Math.max(drop.radiusM * 1.35, drop.radiusM + 25)
+        : drop.radiusM;
+      if (distM > claimRadiusM) continue;
 
       const lastTry = lastClaimAttemptRef.current.get(dropId) ?? 0;
       if (now - lastTry < CLAIM_RETRY_MS) continue;
@@ -443,7 +448,7 @@ export function useGamification() {
   }, [isDropHidden, pollPendingRewards, syncTrackedDropStatus]);
 
   const showDropPrompt = useCallback((drop: GeoDropNearby) => {
-    if (lastModeRef.current !== 'freeDrive') return;
+    if (lastModeRef.current === 'navigation') return;
     if (isDropHidden(drop.id)) return;
     if (claimedDropRewardRef.current) return;
     trackedDropRef.current = drop;

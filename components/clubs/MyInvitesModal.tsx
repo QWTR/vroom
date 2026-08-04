@@ -21,10 +21,12 @@ interface MyInvite {
 
 export function MyInvitesModal({
   visible,
+  focusClubId,
   onClose,
   onAccepted,
 }: {
   visible:    boolean;
+  focusClubId?: number;
   onClose:    () => void;
   onAccepted: (clubId: number) => void;
 }) {
@@ -34,7 +36,7 @@ export function MyInvitesModal({
   const [accepting, setAccepting] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<number | null>(null);
 
-  useEffect(() => { if (visible) fetchInvites(); }, [visible]);
+  useEffect(() => { if (visible) fetchInvites(); }, [visible, focusClubId]);
 
   const fetchInvites = async () => {
     setLoading(true);
@@ -44,7 +46,10 @@ export function MyInvitesModal({
       const res   = await fetch(`${API_URL}/api/clubs/invites/my`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setInvites(await res.json());
+      if (res.ok) {
+        const rows: MyInvite[] = await res.json();
+        setInvites(focusClubId ? [...rows].sort((a, b) => Number(b.club.id === focusClubId) - Number(a.club.id === focusClubId)) : rows);
+      }
     } finally { setLoading(false); }
   };
 
@@ -154,7 +159,8 @@ export function MyInvitesModal({
                 <View key={item.id} style={{
                   backgroundColor: theme.surface2,
                   borderRadius: 16,
-                  borderWidth: 1, borderColor: theme.border2,
+                  borderWidth: item.club.id === focusClubId ? 2 : 1,
+                  borderColor: item.club.id === focusClubId ? theme.primary : theme.border2,
                   overflow: 'hidden',
                 }}>
                   {/* Akcent top */}

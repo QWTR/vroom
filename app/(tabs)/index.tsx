@@ -3,12 +3,11 @@ import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
-import { DeviceEventEmitter } from "react-native";
 import { FRIEND_INVITE_HANDLED } from "../../lib/friendInviteEvents";
 import {
 	ActivityIndicator,
+	DeviceEventEmitter,
 	Dimensions,
-	FlatList,
 	Image,
 	ScrollView,
 	StyleSheet,
@@ -16,7 +15,6 @@ import {
 	View,
 	StatusBar,
 	RefreshControl,
-	Linking,
 	Animated,
 	InteractionManager,
 } from "react-native";
@@ -30,10 +28,6 @@ import { getThemeChrome, withAlpha } from "../../constants/theme";
 import { pickAppAnimationForValue } from "../../constants/appAnimations";
 import AppAnimationLayer from "../../components/animations/AppAnimationLayer";
 import { useAppAnimations } from "../../hooks/useAppAnimations";
-import { AnnouncementsModal } from "../../components/modals/AnnouncementsModal";
-import { SystemNewsModal } from "../../components/modals/SystemNewsModal";
-import { useAnnouncements } from "../../hooks/useAnnouncements";
-import { useSystemNews } from "../../hooks/useSystemNews";
 import { usePolls } from "../../hooks/usePolls";
 import { useGifts } from "../../hooks/useGifts";
 import { PollModal } from "../../components/modals/PollModal";
@@ -41,11 +35,11 @@ import { GiftModal } from "../../components/modals/GiftModal";
 import { CampaignFlowModal } from "../../components/modals/CampaignFlowModal";
 import { useEntryCampaign } from "../../hooks/useEntryCampaign";
 import { AdSlot } from "../../components/ads/AdSlot";
-import { usePremium } from "../../contexts/PremiumContext";
 import { useEffectivePremium } from "../../hooks/useEffectivePremium";
 import { useStartupGates } from "../../contexts/StartupGatesContext";
-import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
+import { HomeDiscoverySection } from "../../components/home/HomeDiscoverySection";
+import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
 import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
@@ -54,6 +48,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabScrollBottomPadding } from "../../lib/screenHeaderInsets";
 
 const { width, height } = Dimensions.get("window");
+const HOME_HERO_HEIGHT = Math.min(height * 0.47, 430);
 
 type MainCar = { brand: string; specs: string; photo: string | null };
 type Achievement = { type: string; label: string; unlockedAt: string };
@@ -93,18 +88,6 @@ const getToken = async () =>
 	(await AsyncStorage.getItem("userToken")) ??
 	(await AsyncStorage.getItem("token"));
 
-type ActiveGridVote = {
-	eventId: number;
-	categoryName: string;
-	categorySlug: string;
-	categoryIcon: string;
-	currentRound: number;
-	status: "open" | "active";
-	entriesCount: number;
-	resetAt: string | null;
-	resetKind: "round" | "registration" | null;
-};
-
 async function fetchFreshUser(): Promise<User | null> {
 	try {
 		const token = await getToken();
@@ -137,11 +120,6 @@ export default function HomeScreen() {
 	const { theme, isDark } = useTheme();
 	const insets = useSafeAreaInsets();
 	const tabScrollBottomPad = useTabScrollBottomPadding(16);
-	const {
-		isLoading: premiumLoading,
-		refreshPremiumStatus,
-		premiumStatus,
-	} = usePremium();
 	const { gatesSettled, layoutGateOpen, setHomeOverlayOpen } = useStartupGates();
 	const onlineCount = useAppPresence();
 	const [loading, setLoading] = useState(true);
@@ -149,15 +127,6 @@ export default function HomeScreen() {
 	const [user, setUser] = useState<User | null>(null);
 	const [streakFxVisible, setStreakFxVisible] = useState(false);
 	const prevStreakRef = useRef(0);
-	const { unseenCount: announcementsUnseenCount, load: loadAnnouncements } = useAnnouncements();
-	const { loadPage: loadSystemNews } = useSystemNews();
-	const announcementsBadgeCount = announcementsUnseenCount;
-	const [showAnnouncements, setShowAnnouncements] = useState(false);
-	const [showSystemNews, setShowSystemNews] = useState(false);
-
-	const [activeGridVotes, setActiveGridVotes] = useState<ActiveGridVote[]>([]);
-	const [gridCarouselIndex, setGridCarouselIndex] = useState(0);
-
 	const handleQuestTrackSynced = useCallback(() => {
 		void fetchFreshUser().then((fresh) => {
 			if (fresh) setUser(fresh);
@@ -172,9 +141,6 @@ export default function HomeScreen() {
 	const { animations: appAnimations } = useAppAnimations([
 		"home_streak",
 		"home_premium_badge",
-		"home_announcement",
-		"home_system_news",
-		"home_buy_coffee",
 		"app_loading_logo",
 	]);
 	const giftAutoShownRef = useRef(false);
@@ -199,12 +165,10 @@ export default function HomeScreen() {
 	useFocusEffect(
 		useCallback(() => {
 			fetchNotifUnread();
-			loadAnnouncements();
-			loadSystemNews(1, false);
 			void fetchFreshUser().then((fresh) => {
 				if (fresh) setUser(fresh);
 			});
-		}, [fetchNotifUnread, loadAnnouncements, loadSystemNews]),
+		}, [fetchNotifUnread]),
 	);
 
 	useEffect(() => {
@@ -246,15 +210,6 @@ export default function HomeScreen() {
 	const slideAnim = useRef(new Animated.Value(40)).current;
 	const scaleAnim = useRef(new Animated.Value(0.92)).current;
 	const pulseAnim = useRef(new Animated.Value(1)).current;
-
-	useEffect(() => {
-		loadAnnouncements();
-		loadSystemNews(1, false);
-	}, [loadAnnouncements, loadSystemNews]);
-
-	useEffect(() => {
-		refreshPremiumStatus().catch(() => {});
-	}, [refreshPremiumStatus]);
 
 	const { poll, voted, fetchActivePoll, vote } = usePolls();
 	const { gifts, fetchAvailableGifts, claimGift } = useGifts();
@@ -326,7 +281,8 @@ export default function HomeScreen() {
 			const fresh = await fetchFreshUser();
 			if (fresh) setUser(fresh);
 		} catch {
-			Toast.show({ type: "error", text1: "BŁĄD SESJI" });
+			// Typ paczki toast jest lokalnie uszkodzony (`isDrivingtext1`), runtime używa `text1`.
+			Toast.show({ type: "error", text1: "BŁĄD SESJI" } as any);
 			router.replace("/login");
 		} finally {
 			setLoading(false);
@@ -334,87 +290,11 @@ export default function HomeScreen() {
 		}
 	};
 
-	const fetchActiveGridVotes = useCallback(async () => {
-		try {
-			const token = await getToken();
-			if (!token) {
-				setActiveGridVotes([]);
-				return;
-			}
-			const res = await fetch(`${API_URL}/api/grid/categories`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
-			if (!res.ok) {
-				setActiveGridVotes([]);
-				return;
-			}
-			const categories = (await res.json()) as {
-				id: number;
-				name: string;
-				slug: string;
-				icon: string;
-				events?: {
-					id: number;
-					status: string;
-					currentRound?: number;
-					registrationEndsAt?: string;
-					roundEndsAt?: string | null;
-					nextResetAt?: string | null;
-					nextResetKind?: "round" | "registration";
-					_count?: { entries?: number };
-				}[];
-			}[];
-			const votes: ActiveGridVote[] = [];
-			for (const cat of categories ?? []) {
-				const evs = Array.isArray(cat.events) ? cat.events : [];
-				for (const ev of evs) {
-					const entriesCount =
-						typeof ev?._count?.entries === "number" ? ev._count.entries : 0;
-					const shouldShow =
-						ev.status === "active" || ev.status === "open";
-					if (shouldShow) {
-						const resetKind: "round" | "registration" | null =
-							ev.nextResetKind
-								? ev.nextResetKind
-								: (ev.status === "active" ? "round" : "registration");
-						const resetAt =
-							ev.nextResetAt
-								? ev.nextResetAt
-								: (
-									ev.status === "active"
-										? (ev.roundEndsAt ?? null)
-										: (ev.registrationEndsAt ?? null)
-								);
-						votes.push({
-							eventId: ev.id,
-							categoryName: cat.name,
-							categorySlug: cat.slug,
-							categoryIcon: cat.icon ?? "🏁",
-							currentRound: ev.currentRound ?? 1,
-							status: ev.status === "active" ? "active" : "open",
-							entriesCount,
-							resetAt,
-							resetKind,
-						});
-					}
-				}
-			}
-			setActiveGridVotes(votes);
-		} catch {
-			setActiveGridVotes([]);
-		}
-	}, []);
-
 	useEffect(() => {
 		loadUser();
 		fetchActivePoll();
 		fetchAvailableGifts();
-		fetchActiveGridVotes();
-	}, [fetchActiveGridVotes]);
-
-	useEffect(() => {
-		setGridCarouselIndex(0);
-	}, [activeGridVotes.length]);
+	}, []);
 
 	useEffect(() => {
 		pollRef.current = poll;
@@ -528,19 +408,10 @@ export default function HomeScreen() {
 
 	const onRefresh = () => {
 		setRefreshing(true);
-		refreshPremiumStatus().catch(() => {});
 		refreshPremiumAccess().catch(() => {});
-		loadAnnouncements();
-		loadSystemNews(1, false);
-		fetchActiveGridVotes();
 		fetchNotifUnread();
 		loadUser(false);
 	};
-
-	const refreshAnnouncementBadges = useCallback(() => {
-		loadAnnouncements();
-		loadSystemNews(1, false);
-	}, [loadAnnouncements, loadSystemNews]);
 
 	const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(
 		user ? { isPremium: !!user.isPremium, premiumExpiresAt: user.premiumExpiresAt ?? null } : null,
@@ -549,20 +420,11 @@ export default function HomeScreen() {
 	const chrome = getThemeChrome(t, isDark);
 	const streakAnimation = pickAppAnimationForValue(appAnimations, "home_streak", user?.streak ?? 0);
 	const premiumBadgeAnimation = pickAppAnimationForValue(appAnimations, "home_premium_badge");
-	const announcementAnimation = pickAppAnimationForValue(appAnimations, "home_announcement");
-	const systemNewsAnimation = pickAppAnimationForValue(appAnimations, "home_system_news");
-	const buyCoffeeAnimation = pickAppAnimationForValue(appAnimations, "home_buy_coffee");
 	const loadingAnimation = pickAppAnimationForValue(appAnimations, "app_loading_logo");
-  const premiumEndDateRaw = premiumStatus.currentPeriodEnd ?? user?.premiumExpiresAt ?? null;
-  const premiumEndLabel = premiumEndDateRaw
-    ? new Date(premiumEndDateRaw).toLocaleDateString("pl-PL")
-    : null;
-	const gridVoteBannerW = width - 40;
 
 	const pageBg = chrome.pageGradient;
 	const glassCardFill = chrome.glassCard;
 	const glassBorder = chrome.glassBorder;
-	const pillBg = glassCardFill;
 	const iconGlowStyle = {
 		width: 44,
 		height: 44,
@@ -571,23 +433,9 @@ export default function HomeScreen() {
 		alignItems: "center" as const,
 		justifyContent: "center" as const,
 	};
-	const animatedIconGlowStyle = {
-		...iconGlowStyle,
-		backgroundColor: "#050505",
-		borderWidth: 1,
-		borderColor: withAlpha(t.primary, "55"),
-		overflow: "hidden" as const,
-	};
 	const goldGlowStyle = {
 		...iconGlowStyle,
 		backgroundColor: withAlpha(t.gold, isDark ? "26" : "18"),
-	};
-	const sectionAccent = {
-		width: 3,
-		height: 12,
-		backgroundColor: t.primary,
-		borderRadius: 2,
-		marginRight: 8,
 	};
 	const statNumColor = t.text;
 	const statDivider = chrome.statDivider;
@@ -598,8 +446,6 @@ export default function HomeScreen() {
 		shadowRadius: 10,
 		elevation: 4,
 	};
-	const mapTextColor = t.text;
-	const mapSubtextColor = t.textDim;
 
 	if (loading || !user) {
 		return (
@@ -666,7 +512,7 @@ export default function HomeScreen() {
 				{/* ══════════════════════════════════════════════ */}
 				<View
 					style={{
-						height: height * 0.52,
+						height: HOME_HERO_HEIGHT,
 						position: "relative",
 					}}>
 					{/* Tło hero — overflow tylko na dekoracjach, nie na pasku z avatarem */}
@@ -742,7 +588,7 @@ export default function HomeScreen() {
 									position: "absolute",
 									left: 0,
 									right: 0,
-									top: i * ((height * 0.52) / 12),
+									top: i * (HOME_HERO_HEIGHT / 12),
 									height: 1,
 									backgroundColor: chrome.scanLine,
 								}}
@@ -1123,612 +969,10 @@ export default function HomeScreen() {
 					/>
 				</View>
 				{/* ══════════════════════════════════════════════ */}
-				{/* ANNOUNCEMENTS BANNER                           */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 20,
-					}}>
-					<TouchableOpacity
-						onPress={() => setShowAnnouncements(true)}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={announcementAnimation ? animatedIconGlowStyle : iconGlowStyle}>
-								{announcementAnimation ? (
-									<AppAnimationLayer
-										animation={announcementAnimation}
-										style={{ width: 32, height: 32 }}
-										fallbackIcon={<MaterialIcons name="campaign" size={22} color={t.primary} />}
-									/>
-								) : (
-									<MaterialIcons name="campaign" size={22} color={t.primary} />
-								)}
-							</View>
+				<HomeDiscoverySection active={isFocused} />
 
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 13,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Ogłoszenia
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									Nowości · Aktualizacje · Eventy
-								</Text>
-							</View>
+				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
 
-							{announcementsBadgeCount > 0 && (
-								<View
-									style={{
-										backgroundColor: t.primary,
-										borderRadius: 10,
-										paddingHorizontal: 8,
-										paddingVertical: 4,
-										minWidth: 24,
-										alignItems: "center",
-									}}>
-									<Text
-										style={{
-											fontFamily: "Orbitron",
-											fontSize: 10,
-											color: "#fff",
-											fontWeight: "900",
-										}}>
-										{announcementsBadgeCount > 99 ? "99+" : announcementsBadgeCount}
-									</Text>
-								</View>
-							)}
-
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={13}
-								color={t.primary}
-							/>
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
-				{/* ══════════════════════════════════════════════ */}
-				{/* VROOM NEWS BANNER                            */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 20,
-					}}>
-					<TouchableOpacity
-						onPress={() => setShowSystemNews(true)}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={systemNewsAnimation ? animatedIconGlowStyle : { ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }}>
-								{systemNewsAnimation ? (
-									<AppAnimationLayer
-										animation={systemNewsAnimation}
-										style={{ width: 32, height: 32 }}
-										fallbackIcon={<MaterialIcons name="newspaper" size={22} color={t.primary} />}
-									/>
-								) : (
-									<MaterialIcons name="newspaper" size={22} color={t.primary} />
-								)}
-							</View>
-
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 13,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Newsy
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									Motoryzacja · VROOM Radar · Czytaj więcej
-								</Text>
-							</View>
-
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={13}
-								color={t.primary}
-							/>
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
-				{/* ══════════════════════════════════════════════ */}
-				{/* THE GRID — aktywne głosowanie                  */}
-				{/* ══════════════════════════════════════════════ */}
-				{false && activeGridVotes.length > 0 && (
-					<Animated.View
-						style={{
-							opacity: fadeAnim,
-							paddingHorizontal: 20,
-							marginBottom: 20,
-						}}>
-						<View
-							style={{
-								flexDirection: "row",
-								alignItems: "center",
-								marginBottom: 8,
-								marginLeft: 2,
-							}}>
-							<View style={sectionAccent} />
-							<Text
-								style={{
-									fontFamily: "Orbitron",
-									fontSize: 8,
-									letterSpacing: 3,
-									color: t.textDim,
-								}}>
-								THE GRID · GŁOSOWANIE
-							</Text>
-						</View>
-						{activeGridVotes.length === 1 ? (
-							<TouchableOpacity
-								activeOpacity={0.85}
-								onPress={() =>
-									activeGridVotes[0].status === "active"
-										? router.push(
-												`/Community/grid/vote?eventId=${activeGridVotes[0].eventId}` as any,
-										  )
-										: router.push(
-												`/Community/grid/category?slug=${activeGridVotes[0].categorySlug}` as any,
-										  )
-								}>
-								<View
-									style={{
-										backgroundColor: glassCardFill,
-										borderRadius: 20,
-										borderWidth: 1,
-										borderColor: glassBorder,
-										padding: 18,
-										flexDirection: "row",
-										alignItems: "center",
-										gap: 14,
-										overflow: "hidden",
-										...glassShadow,
-									}}>
-									<View style={iconGlowStyle}>
-										<Text style={{ fontSize: 22 }}>
-											{activeGridVotes[0].categoryIcon}
-										</Text>
-									</View>
-									<View style={{ flex: 1 }}>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 8,
-												color: t.primary,
-												letterSpacing: 2,
-												marginBottom: 4,
-											}}>
-											{activeGridVotes[0].status === "active"
-												? `RUNDA ${activeGridVotes[0].currentRound}`
-												: `ZGŁOSZENIA · ${activeGridVotes[0].entriesCount}`}
-										</Text>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 13,
-												color: t.text,
-												fontWeight: "700",
-												marginBottom: 3,
-											}}>
-											{activeGridVotes[0].categoryName.toUpperCase()}
-										</Text>
-										<Text
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 8,
-												color: t.textDim,
-											}}>
-											{activeGridVotes[0].status === "active"
-												? "1v1 Arena · oddaj głos teraz"
-												: "Są aktywne zgłoszenia · sprawdź kategorię"}
-										</Text>
-										<LiveCountdownText
-											targetIso={activeGridVotes[0].resetAt}
-											style={{
-												fontFamily: "Orbitron",
-												fontSize: 8,
-												color: t.textDim,
-												marginTop: 3,
-											}}
-											formatLabel={(countdown) => {
-												if (!countdown) return "Brak danych o resecie";
-												return activeGridVotes[0].resetKind === "round"
-													? `Reset rundy za: ${countdown}`
-													: `Koniec zapisów za: ${countdown}`;
-											}}
-										/>
-									</View>
-									<MaterialIcons
-										name={
-											activeGridVotes[0].status === "active"
-												? "how-to-vote"
-												: "playlist-add-check"
-										}
-										size={18}
-										color={t.primary}
-									/>
-								</View>
-							</TouchableOpacity>
-						) : (
-							<View>
-								<FlatList
-									data={activeGridVotes}
-									horizontal
-									pagingEnabled
-									showsHorizontalScrollIndicator={false}
-									keyExtractor={(it: ActiveGridVote) =>
-										String(it.eventId)
-									}
-									style={{ width: gridVoteBannerW, alignSelf: "center" }}
-									onMomentumScrollEnd={(e: {
-										nativeEvent: { contentOffset: { x: number } };
-									}) => {
-										const idx = Math.round(
-											e.nativeEvent.contentOffset.x / gridVoteBannerW,
-										);
-										setGridCarouselIndex(
-											Math.min(
-												Math.max(0, idx),
-												activeGridVotes.length - 1,
-											),
-										);
-									}}
-									renderItem={({
-										item,
-									}: {
-										item: ActiveGridVote;
-									}) => (
-										<TouchableOpacity
-											activeOpacity={0.85}
-											style={{ width: gridVoteBannerW }}
-											onPress={() =>
-												item.status === "active"
-													? router.push(
-															`/Community/grid/vote?eventId=${item.eventId}` as any,
-													  )
-													: router.push(
-															`/Community/grid/category?slug=${item.categorySlug}` as any,
-													  )
-											}>
-											<View
-												style={{
-													backgroundColor: glassCardFill,
-													borderRadius: 20,
-													borderWidth: 1,
-													borderColor: glassBorder,
-													padding: 18,
-													flexDirection: "row",
-													alignItems: "center",
-													gap: 14,
-													overflow: "hidden",
-													...glassShadow,
-												}}>
-												<View style={iconGlowStyle}>
-													<Text style={{ fontSize: 22 }}>
-														{item.categoryIcon}
-													</Text>
-												</View>
-												<View style={{ flex: 1 }}>
-													<Text
-														style={{
-															fontFamily: "Orbitron",
-															fontSize: 8,
-															color: t.primary,
-															letterSpacing: 2,
-															marginBottom: 4,
-														}}>
-														{item.status === "active"
-															? `RUNDA ${item.currentRound}`
-															: `ZGŁOSZENIA · ${item.entriesCount}`}
-													</Text>
-													<Text
-														style={{
-															fontFamily: "Orbitron",
-															fontSize: 13,
-															color: t.text,
-															fontWeight: "700",
-															marginBottom: 3,
-														}}>
-														{item.categoryName.toUpperCase()}
-													</Text>
-													<Text
-														style={{
-															fontFamily: "Orbitron",
-															fontSize: 8,
-															color: t.textDim,
-														}}>
-														{item.status === "active"
-															? "Przesuń palcem · zagłosuj"
-															: "Przesuń palcem · zobacz zgłoszenia"}
-													</Text>
-													<LiveCountdownText
-														targetIso={item.resetAt}
-														style={{
-															fontFamily: "Orbitron",
-															fontSize: 8,
-															color: t.textDim,
-															marginTop: 3,
-														}}
-														formatLabel={(countdown) => {
-															if (!countdown) return "Brak danych o resecie";
-															return item.resetKind === "round"
-																? `Reset rundy za: ${countdown}`
-																: `Koniec zapisów za: ${countdown}`;
-														}}
-													/>
-												</View>
-												<MaterialIcons
-													name={
-														item.status === "active"
-															? "how-to-vote"
-															: "playlist-add-check"
-													}
-													size={18}
-													color={t.primary}
-												/>
-											</View>
-										</TouchableOpacity>
-									)}
-								/>
-								<View
-									style={{
-										flexDirection: "row",
-										justifyContent: "center",
-										alignItems: "center",
-										gap: 6,
-										marginTop: 12,
-									}}>
-									{activeGridVotes.map((_: ActiveGridVote, i: number) => (
-										<View
-											key={i}
-											style={{
-												width: gridCarouselIndex === i ? 18 : 7,
-												height: 7,
-												borderRadius: 4,
-												backgroundColor:
-													gridCarouselIndex === i
-														? t.primary
-														: isDark
-															? "rgba(255,255,255,0.15)"
-															: "rgba(0,0,0,0.12)",
-											}}
-										/>
-									))}
-								</View>
-							</View>
-						)}
-					</Animated.View>
-				)}
-				{/* ══════════════════════════════════════════════ */}
-				{/* PREMIUM STATUS BANNER                          */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginTop: -10,
-						marginBottom: 16,
-					}}>
-					<TouchableOpacity
-						onPress={() => router.push("/premium" as any)}
-						activeOpacity={0.86}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View
-								style={
-									premiumLoading
-										? { ...iconGlowStyle, backgroundColor: "rgba(227, 56, 53, 0.15)" }
-										: goldGlowStyle
-								}>
-								{premiumBadgeAnimation ? (
-									<AppAnimationLayer
-										animation={premiumBadgeAnimation}
-										style={{ width: 36, height: 36 }}
-										fallbackIcon={
-											<MaterialIcons
-												name={effectivePremium ? "workspace-premium" : "lock-open"}
-												size={22}
-												color={
-													premiumLoading
-														? t.textDim
-														: "#FFD700"
-												}
-											/>
-										}
-									/>
-								) : (
-									<MaterialIcons
-										name={effectivePremium ? "workspace-premium" : "lock-open"}
-										size={22}
-										color={
-											premiumLoading
-												? t.textDim
-												: "#FFD700"
-										}
-									/>
-								)}
-							</View>
-
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 8,
-										color: premiumLoading ? t.textDim : "#FFD700",
-										letterSpacing: 2.2,
-										marginBottom: 4,
-									}}>
-									{premiumLoading
-										? "SPRAWDZANIE PREMIUM"
-										: effectivePremium
-											? "VROOM PREMIUM"
-											: "DOSTĘP PREMIUM"}
-								</Text>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 12,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									{premiumLoading
-										? "Ładowanie statusu konta..."
-										: effectivePremium
-											? "Premium jest aktywne na tym koncie"
-											: "Odblokuj Premium i dodatkowe funkcje"}
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									{effectivePremium
-										? "Dziękujemy za wsparcie projektu"
-										: "Dotknij, aby przejść do zakupu"}
-								</Text>
-								{effectivePremium && (
-									<Text
-										style={{
-											fontSize: 9,
-											color: t.textDim,
-											marginTop: 4,
-										}}>
-										{premiumEndLabel
-											? `Koniec okresu: ${premiumEndLabel}`
-											: "Korzyści Premium aktywne"}
-									</Text>
-								)}
-							</View>
-
-							<MaterialIcons
-								name={effectivePremium ? "check" : "arrow-forward-ios"}
-								size={13}
-								color={premiumLoading ? t.textDim : "#FFD700"}
-							/>
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
-
-				{/* ══════════════════════════════════════════════ */}
-				{/* SUPPORT BANNER                                 */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 20,
-					}}>
-					<TouchableOpacity
-						onPress={() => Linking.openURL("https://buycoffee.to/vroom")}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={buyCoffeeAnimation ? animatedIconGlowStyle : goldGlowStyle}>
-								{buyCoffeeAnimation ? (
-									<AppAnimationLayer
-										animation={buyCoffeeAnimation}
-										style={{ width: 32, height: 32 }}
-										fallbackIcon={<Text style={{ fontSize: 20 }}>☕</Text>}
-									/>
-								) : (
-									<Text style={{ fontSize: 20 }}>☕</Text>
-								)}
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 13,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Postaw nam kawę
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									Podoba Ci się VROOM? Wesprzyj projekt!
-								</Text>
-							</View>
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={13}
-								color='#FFD700'
-							/>
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
-
-				{/* ══════════════════════════════════════════════ */}
 				{/* AD BANNER                                      */}
 				{/* ══════════════════════════════════════════════ */}
 				<Animated.View style={{ opacity: fadeAnim }}>
@@ -1736,214 +980,6 @@ export default function HomeScreen() {
 				</Animated.View>
 
 				{/* ══════════════════════════════════════════════ */}
-				{/* QUICK NAV — DUŻE PRZYCISKI                    */}
-				{/* ═════════════════════════���════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 16,
-					}}>
-					<View
-						style={{
-							flexDirection: "row",
-							alignItems: "center",
-							marginBottom: 14,
-						}}>
-						<View style={sectionAccent} />
-						<Text
-							style={{
-								fontFamily: "Orbitron",
-								fontSize: 8,
-								color: t.textDim,
-								letterSpacing: 4,
-							}}>
-							SZYBKA NAWIGACJA
-						</Text>
-					</View>
-
-					{/* MAPA — szklana karta */}
-					<TouchableOpacity
-						onPress={() => router.push("/map")}
-						activeOpacity={0.85}
-						style={{ marginBottom: 10 }}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 22,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 16,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={iconGlowStyle}>
-								<MaterialIcons name='map' size={26} color={t.primary} />
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 18,
-										color: mapTextColor,
-										fontWeight: "900",
-										letterSpacing: 1,
-									}}>
-									MAPA
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: mapSubtextColor,
-										marginTop: 3,
-									}}>
-									Nawigacja · Live tracking · Trasy
-								</Text>
-							</View>
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={18}
-								color={t.primary}
-							/>
-						</View>
-					</TouchableOpacity>
-
-					{/* Rząd 3 pigułek */}
-					<View style={{ flexDirection: "row", gap: 10 }}>
-						{[
-							{
-								icon: "flag-checkered",
-								lib: "mci",
-								label: "MEETY",
-								sub: "Wydarzenia",
-								route: "/Community/meets/events",
-							},
-							{
-								icon: "smart-display",
-								lib: "mi",
-								label: "VROOMKI",
-								sub: "Rolki aut",
-								route: "/Community/vroomki",
-							},
-							{
-								icon: "chat-bubble",
-								lib: "mi",
-								label: "CZAT",
-								sub: "Znajomi",
-								route: "/Community/chats/chats",
-							},
-						].map(item => (
-							<TouchableOpacity
-								key={item.label}
-								onPress={() => router.push(item.route as any)}
-								activeOpacity={0.8}
-								style={{
-									flex: 1,
-									backgroundColor: pillBg,
-									borderRadius: 20,
-									borderWidth: 1,
-									borderColor: glassBorder,
-									paddingVertical: 16,
-									paddingHorizontal: 8,
-									alignItems: "center",
-									gap: 8,
-								}}>
-								<View style={iconGlowStyle}>
-									{item.lib === "mci" ? (
-										<MaterialCommunityIcons
-											name={item.icon as any}
-											size={22}
-											color={t.primary}
-										/>
-									) : (
-										<MaterialIcons
-											name={item.icon as any}
-											size={22}
-											color={t.primary}
-										/>
-									)}
-								</View>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 9,
-										color: t.text,
-										fontWeight: "700",
-										letterSpacing: 0.5,
-									}}>
-									{item.label}
-								</Text>
-								<Text
-									style={{
-										fontSize: 8,
-										color: t.textDim,
-									}}>
-									{item.sub}
-								</Text>
-							</TouchableOpacity>
-						))}
-					</View>
-				</Animated.View>
-
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						marginBottom: 12,
-					}}>
-					<TouchableOpacity
-						onPress={() => router.push({ pathname: "/profile/settings", params: { openBug: "1" } })}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 14,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 10,
-								...glassShadow,
-							}}>
-							<View style={iconGlowStyle}>
-								<MaterialIcons name="bug-report" size={20} color={t.primary} />
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text style={{ fontFamily: "Orbitron", fontSize: 11, color: t.text, fontWeight: "700" }}>
-									Zgłoś błąd
-								</Text>
-								<Text style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-									Stały skrót do formularza zgłoszeń
-								</Text>
-							</View>
-							<MaterialIcons name="arrow-forward-ios" size={12} color={t.primary} />
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
-
-				{/* Modal ogłoszeń */}
-				<AnnouncementsModal
-					visible={showAnnouncements}
-					onClose={() => {
-						setShowAnnouncements(false);
-						refreshAnnouncementBadges();
-					}}
-				/>
-
-				<SystemNewsModal
-					visible={showSystemNews}
-					onClose={() => {
-						setShowSystemNews(false);
-						refreshAnnouncementBadges();
-					}}
-				/>
-
-				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />
-
 				<QuestTrackSection
 					theme={t}
 					fadeAnim={fadeAnim}
@@ -2012,135 +1048,6 @@ export default function HomeScreen() {
 						</TouchableOpacity>
 					</Animated.View>
 				)}
-
-				{/* ══════════════════════════════════════════════ */}
-				{/* COMMUNITY + SPOTS BANNERS                      */}
-				{/* ══════════════════════════════════════════════ */}
-				<Animated.View
-					style={{
-						opacity: fadeAnim,
-						paddingHorizontal: 20,
-						gap: 10,
-						marginBottom: 16,
-					}}>
-					<View
-						style={{
-							flexDirection: "row",
-							alignItems: "center",
-							marginBottom: 4,
-						}}>
-						<View style={sectionAccent} />
-						<Text
-							style={{
-								fontFamily: "Orbitron",
-								fontSize: 8,
-								color: t.textDim,
-								letterSpacing: 4,
-							}}>
-							SPOŁECZNOŚĆ
-						</Text>
-					</View>
-
-					<TouchableOpacity
-						onPress={() => router.push("/(tabs)/community")}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={iconGlowStyle}>
-								<MaterialIcons
-									name='chat-bubble-outline'
-									size={24}
-									color={t.primary}
-								/>
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 14,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Czat & Znajomi
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									Napisz do kogoś · Sprawdź co słychać
-								</Text>
-							</View>
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={13}
-								color={t.primary}
-							/>
-						</View>
-					</TouchableOpacity>
-
-					<TouchableOpacity
-						onPress={() => router.push("/(tabs)/spotmap")}
-						activeOpacity={0.85}>
-						<View
-							style={{
-								backgroundColor: glassCardFill,
-								borderRadius: 20,
-								borderWidth: 1,
-								borderColor: glassBorder,
-								padding: 18,
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-								overflow: "hidden",
-								...glassShadow,
-							}}>
-							<View style={iconGlowStyle}>
-								<MaterialIcons
-									name='place'
-									size={24}
-									color={t.primary}
-								/>
-							</View>
-							<View style={{ flex: 1 }}>
-								<Text
-									style={{
-										fontFamily: "Orbitron",
-										fontSize: 14,
-										color: t.text,
-										fontWeight: "700",
-										marginBottom: 3,
-									}}>
-									Mapa Spotów
-								</Text>
-								<Text
-									style={{
-										fontSize: 10,
-										color: t.textDim,
-									}}>
-									Znajdź miejsca · Dodaj nowy spot
-								</Text>
-							</View>
-							<MaterialIcons
-								name='arrow-forward-ios'
-								size={13}
-								color={t.primary}
-							/>
-						</View>
-					</TouchableOpacity>
-				</Animated.View>
 			</ScrollView>
 			</LinearGradient>
 

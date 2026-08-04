@@ -5,6 +5,9 @@ import {
   buildStepArcIndex,
   detectCurrentStep,
   distanceToManeuverArcM,
+  distanceToManeuverHybrid,
+  stabilizeManeuverDistance,
+  stabilizeRouteArcProgress,
   getNavigationSpeechPhase,
   inferGeometryTurnModifier,
   projectPointToRouteWindow,
@@ -363,6 +366,59 @@ describe('real-time navigation behavior', () => {
   it('computes arc distance to maneuver monotonically', () => {
     expect(distanceToManeuverArcM(100, 250)).toBe(150);
     expect(distanceToManeuverArcM(300, 250)).toBe(0);
+  });
+
+  it('never rewinds route progress or increases the same maneuver cue', () => {
+    expect(stabilizeRouteArcProgress(null, 1200)).toBe(1200);
+    expect(stabilizeRouteArcProgress(1200, 1160)).toBe(1200);
+    expect(stabilizeRouteArcProgress(1200, 1275)).toBe(1275);
+
+    expect(stabilizeManeuverDistance(2000, 2040, true)).toBe(2000);
+    expect(stabilizeManeuverDistance(2000, 1930, true)).toBe(1930);
+    expect(stabilizeManeuverDistance(2000, 3500, false)).toBe(3500);
+  });
+
+  it('uses arc-only hybrid distance (never crow-fly max that can grow)', () => {
+    const step = {
+      maneuver: 'turn-left',
+      html_instructions: 'turn left',
+      start_location: { lat: 52, lng: 21 },
+      end_location: { lat: 52.01, lng: 21 },
+      distance: { text: '1 km', value: 1000 },
+      duration: { text: '1 min', value: 60 },
+      polyline: { points: '' },
+    } as Step;
+    // User far past start along arc (arcDist=0) but geographically far from start_location
+    // Old hybrid returned growing crow-fly; new hybrid stays at 0.
+    expect(distanceToManeuverHybrid(52.05, 21.05, 5000, 1000, step)).toBe(0);
+    expect(distanceToManeuverHybrid(52.0, 21.0, 100, 2500, step)).toBe(2400);
+  });
+
+  it('after passing a turn start, announces the next turn ahead instead of growing behind', () => {
+    const { routePoints, steps } = makeStraightRoute(4, 600);
+    steps[1].maneuver = 'turn-left';
+    steps[1].html_instructions = 'turn left onto Via Baltica';
+    steps[1].maneuverModifier = 'left';
+    steps[2].maneuver = 'continue-straight';
+    steps[2].html_instructions = 'continue straight';
+    steps[3].maneuver = 'turn-right';
+    steps[3].html_instructions = 'turn right';
+    steps[3].maneuverModifier = 'right';
+    const arcIndex = buildStepArcIndex(routePoints, steps);
+    // Midway through the turn-left leg (past startArcM)
+    const userArcM = arcIndex[1].startArcM + Math.max(80, (arcIndex[1].endArcM - arcIndex[1].startArcM) * 0.4);
+    const mid = routePoints[Math.min(routePoints.length - 1, 18)];
+    const first = resolveAnnouncementTarget(
+      steps, 1, userArcM, mid.latitude, mid.longitude, arcIndex, routePoints,
+    );
+    const furtherArc = userArcM + 200;
+    const further = resolveAnnouncementTarget(
+      steps, 1, furtherArc, mid.latitude, mid.longitude + 200 / 111320, arcIndex, routePoints,
+    );
+    // Must not grow while driving forward on the same leg
+    expect(further.distanceM).toBeLessThanOrEqual(first.distanceM + 1);
+    // Should be looking at an upcoming cue (next turn or end of current), not behind
+    expect(first.distanceM).toBeGreaterThan(0);
   });
 
   it('never speaks depart or continue steps', () => {

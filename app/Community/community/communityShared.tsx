@@ -64,6 +64,7 @@ export interface Post         {
   id: number; title?: string | null; content: string; category: DiscussionCategoryId; photos: string[]; videos: string[]; createdAt: string; editedAt?: string | null; author: Author;
   postType?: 'user' | 'system_news' | string; sourceUrl?: string | null; sourceName?: string | null; excerpt?: string | null; isSystem?: boolean; metadata?: any;
   likesCount: number; commentsCount: number; repostsCount: number; isLiked: boolean; isReposted: boolean;
+  isAuthorFollowed?: boolean;
   reactions?: DiscussionReaction[];
   poll?: PostPollData | null;
 }
