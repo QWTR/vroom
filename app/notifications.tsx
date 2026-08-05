@@ -18,6 +18,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { API_URL } from '../constants/config';
 import { useScreenHeaderTop } from '../lib/screenHeaderInsets';
 import { markNotificationOpened, resolveNotificationUrl, type NotificationData } from '../lib/notifications/routing';
+import { consumeNotificationCenterEntry } from '../lib/notifications/notificationCenterAccess';
 
 const CHAT_API = `${API_URL}/api/chat`;
 const PAGE_SIZE = 30;
@@ -49,6 +50,7 @@ function parseData(data: unknown): NotificationData | null {
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const [entryAllowed] = React.useState(() => consumeNotificationCenterEntry());
   const { theme, isDark } = useTheme();
   const headerTop = useScreenHeaderTop(8);
   const [rows, setRows] = useState<Row[]>([]);
@@ -59,6 +61,10 @@ export default function NotificationsScreen() {
   const [page, setPage] = useState(1);
   const [scope, setScope] = useState<Scope>('all');
   const [friendActionId, setFriendActionId] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!entryAllowed) router.replace('/(tabs)' as any);
+  }, [entryAllowed, router]);
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     try {
@@ -90,16 +96,18 @@ export default function NotificationsScreen() {
   }, [router, scope]);
 
   useFocusEffect(useCallback(() => {
+    if (!entryAllowed) return;
     setLoading(true);
     void load(1, false);
-  }, [load]));
+  }, [entryAllowed, load]));
 
   React.useEffect(() => {
+    if (!entryAllowed) return;
     const subscription = DeviceEventEmitter.addListener('vroom:notification-received', () => {
       void load(1, false);
     });
     return () => subscription.remove();
-  }, [load]);
+  }, [entryAllowed, load]);
 
   const markRead = async (id: number) => {
     const token = await getToken();
@@ -194,6 +202,8 @@ export default function NotificationsScreen() {
       <Text style={{ color: theme.textFaint, fontSize: 9, marginTop: 8 }}>{new Date(item.createdAt).toLocaleString('pl-PL')}</Text>
     </TouchableOpacity>
   );
+
+  if (!entryAllowed) return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>

@@ -31,15 +31,10 @@ export function useNavigationNotification() {
         sound:    false, // bez dźwięku — nie chcemy za każdym krokiem
         sticky:   true,  // Android — powiadomienie nie znika po swipe
         data:     { type: 'navigation' },
-        android: {
-          channelId:   'navigation',
-          ongoing:     true,  // ← jak Google Maps — nie można odrzucić
-          priority:    'high',
-          smallIcon:   'notification_icon',
-          color:       '#e33835',
-        } as any,
+        priority: Notifications.AndroidNotificationPriority.LOW,
+        color: '#e33835',
       },
-      trigger: null,
+      trigger: { channelId: 'navigation_silent_v2' },
     });
   }, []);
 

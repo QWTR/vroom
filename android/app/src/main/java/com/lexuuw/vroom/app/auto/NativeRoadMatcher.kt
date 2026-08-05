@@ -171,11 +171,13 @@ object NativeRoadMatcher {
     fun snapToRoad(lat: Double, lng: Double, maxDistanceM: Double = 70.0): NativeRoadPose? {
         if (!hasFreshRoad()) {
             if (!hasFreshBootstrapPose()) return null
+            val bootstrapDistanceM = distanceMeters(lat, lng, latestMatchedLat, latestMatchedLng)
+            if (bootstrapDistanceM > maxDistanceM) return null
             return NativeRoadPose(
                 latestMatchedLat,
                 latestMatchedLng,
                 latestMatchedHeading,
-                distanceMeters(lat, lng, latestMatchedLat, latestMatchedLng),
+                bootstrapDistanceM,
                 0.0,
                 latestRoadVersion
             )

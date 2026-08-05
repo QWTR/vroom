@@ -320,6 +320,7 @@ import { useGamification } from '../../hooks/useGamification';
 import { fetchDropStatus, type GeoDropNearby } from '../../lib/gamificationClient';
 import { useSpeedLimit } from '../../hooks/useSpeedLimit';
 import { useTripStats } from '../../hooks/useTripStats';
+import { routeDurationMinutesToSeconds } from '../../lib/tripEstimate';
 import {
   useAutoNavigationBridge,
   type AutoNavigationStartedPayload,
@@ -5097,7 +5098,7 @@ function MapScreenInner() {
       tripSpeedWarmupUntilRef.current = Date.now() + 10_000;
       drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
       setIsDriving(true);
-      startTrip(Number(routeInfoRef.current?.duration) || 0);
+      startTrip(routeDurationMinutesToSeconds(routeInfoRef.current?.duration));
       drivingLastLocRef.current = null;
       lastDrivingPosRef.current = { lat: entryLat, lng: entryLng };
       if (!stationaryEntry) {
@@ -8556,7 +8557,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             driveSessionGuardRef.current.reset();
             setIsDriving(true);
             if (!passiveTripStartedRef.current) {
-              startTrip(Number(routeInfoRef.current?.duration) || 0);
+              startTrip(routeDurationMinutesToSeconds(routeInfoRef.current?.duration));
               passiveTripStartedRef.current = true;
             }
             void startDriveSession('freeDrive').catch(() => {});
@@ -10017,7 +10018,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         drivingConsecutiveRef.current = DRIVING_CONSECUTIVE_REQ;
         tripSpeedWarmupUntilRef.current = now + 10_000;
         if (!passiveTripStartedRef.current) {
-          startTrip(Number(routeInfoRef.current?.duration) || 0);
+          startTrip(routeDurationMinutesToSeconds(routeInfoRef.current?.duration));
           passiveTripStartedRef.current = true;
         }
 
@@ -10037,7 +10038,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
                 .filter((s) => Number.isFinite(s) && s > 0)
               : [],
             startTimeMs: state?.startedAt ?? null,
-            estimatedSec: Number(routeInfoRef.current?.duration) || 0,
+            estimatedSec: routeDurationMinutesToSeconds(routeInfoRef.current?.duration),
             floorKm: Math.max(0, Number(nativeStats.distanceKm) || 0),
             savedAt: Date.now(),
           });
@@ -12375,9 +12376,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     setIsDriving(false);
 
     if (passiveTripStartedRef.current) {
-      updateTripEstimate(routeInfo?.duration ?? 0);
+      updateTripEstimate(routeDurationMinutesToSeconds(routeInfo?.duration));
     } else {
-      startTrip(routeInfo?.duration ?? 0);
+      startTrip(routeDurationMinutesToSeconds(routeInfo?.duration));
     }
     passiveTripStartedRef.current = true;
     navStatsFlushedRef.current = false;

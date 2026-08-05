@@ -20,6 +20,7 @@ object AutoLocationTracker {
     @Volatile private var latestSpeedMs = 0.0
     @Volatile private var latestHeading = 0.0
     @Volatile private var latestElapsedMs = 0L
+    @Volatile private var latestAccuracyM = Double.NaN
 
     data class Pose(
         val lat: Double,
@@ -58,6 +59,7 @@ object AutoLocationTracker {
         latestSpeedMs = 0.0
         latestHeading = 0.0
         latestElapsedMs = 0L
+        latestAccuracyM = Double.NaN
         NativeRoadMatcher.reset()
     }
 
@@ -68,7 +70,7 @@ object AutoLocationTracker {
         return Pose(latestLat, latestLng, latestSpeedMs, latestHeading, ageMs)
     }
 
-    private fun hasFineLocationPermission(context: Context): Boolean =
+    fun hasFineLocationPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
@@ -89,6 +91,19 @@ object AutoLocationTracker {
             .takeIf { location.hasSpeed() && it.isFinite() && it >= 0.0 }
             ?.coerceIn(0.0, 70.0)
             ?: 0.0
+        val sampleElapsedMs = sampleElapsedNanos / 1_000_000L
+        if (!AutoLocationPolicy.acceptsJump(
+                previousLat = latestLat,
+                previousLng = latestLng,
+                previousAccuracyM = latestAccuracyM,
+                previousElapsedMs = latestElapsedMs,
+                lat = lat,
+                lng = lng,
+                accuracyM = accuracy.toDouble(),
+                elapsedMs = sampleElapsedMs,
+                speedMs = speedMs,
+            )
+        ) return
         val heading = location.bearing.toDouble()
             .takeIf { location.hasBearing() && it.isFinite() && speedMs >= 0.8 }
             ?.let(::normalizeHeading)
@@ -98,13 +113,14 @@ object AutoLocationTracker {
         latestLng = lng
         latestSpeedMs = speedMs
         latestHeading = heading
-        latestElapsedMs = SystemClock.elapsedRealtime()
+        latestElapsedMs = sampleElapsedMs
+        latestAccuracyM = accuracy.toDouble()
 
         NativeRoadMatcher.ingest(location, speedMs * 3.6)
         val roadPose = NativeRoadMatcher.snapToRoad(
             lat,
             lng,
-            if (speedMs >= 12.5) 95.0 else 75.0
+            AutoLocationPolicy.maxRoadSnapDistance(accuracy.toDouble(), speedMs)
         )
         val displayLat = roadPose?.lat ?: lat
         val displayLng = roadPose?.lng ?: lng

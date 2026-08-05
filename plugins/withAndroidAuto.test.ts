@@ -27,6 +27,20 @@ describe('Android Auto canonical renderer', () => {
     expect(source).toContain('if (followMode) return 0.0');
     expect(source).toContain('private fun segmentProgress');
     expect(source).toContain('segmentDurationMs = 300L');
+    expect(source).toContain('followState.options = options');
+    expect(source).toContain('cameraNow - lastCameraPolicyAt >= 100L');
+  });
+
+  it('starts precise location independently for a cold Android Auto session', () => {
+    const session = readFileSync(resolve('native/android-auto/VroomCarSession.kt'), 'utf8');
+    const service = readFileSync(resolve('native/android-auto/AutoLocationForegroundService.kt'), 'utf8');
+    const tracker = readFileSync(resolve('native/android-auto/AutoLocationTracker.kt'), 'utf8');
+
+    expect(session).toContain('carContext.requestPermissions');
+    expect(session).toContain('AutoLocationForegroundService.acquire');
+    expect(service).toContain('startForeground(NOTIFICATION_ID, buildNotification())');
+    expect(tracker).toContain('AutoLocationPolicy.acceptsJump');
+    expect(tracker).toContain('AutoLocationPolicy.maxRoadSnapDistance');
   });
 
   it('ships every Android Auto action icon from the canonical drawable source', () => {

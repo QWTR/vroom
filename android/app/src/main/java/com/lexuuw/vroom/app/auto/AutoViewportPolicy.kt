@@ -83,7 +83,7 @@ object AutoViewportPolicy {
             speed < 120.0 -> 16.50 - ((speed - 80.0) / 40.0) * 0.55
             else -> 15.95 - ((speed - 120.0) / 20.0) * 0.15
         }
-        return (base + if (navigating) 0.05 else 0.0).coerceIn(15.80, 17.85)
+        return (base + if (navigating) 0.05 else 0.0).coerceIn(16.35, 17.85)
     }
 
     private fun sanitize(value: AutoViewportBounds?, surface: AutoViewportBounds): AutoViewportBounds? {

@@ -63,6 +63,7 @@ import com.mapbox.maps.plugin.locationcomponent.LocationProvider
 import com.mapbox.maps.plugin.locationcomponent.location
 import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateBearing
 import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateOptions
+import com.mapbox.maps.plugin.viewport.state.FollowPuckViewportState
 import com.mapbox.maps.plugin.viewport.viewport
 import org.json.JSONArray
 import org.json.JSONObject
@@ -131,10 +132,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var stableCameraSpeedKmh = 0.0
     private var stableCameraZoom = 16.85
     private var lastZoomUpdateAt = 0L
+    private var latestCameraSpeedKmh = Double.NaN
+    private var lastCameraPolicyAt = 0L
     private var lastUserInteractionAt = 0L
     private var lastRoutePreviewActive = false
     private var followViewportActive = false
     private var followViewportMode = ""
+    private var followPuckViewportState: FollowPuckViewportState? = null
     private val snappedLocationProvider = SnappedLocationProvider()
     private var mapMarkerAnnotationManager: PointAnnotationManager? = null
     private var liveUserAnnotationManager: PointAnnotationManager? = null
@@ -179,6 +183,11 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             ) {
                 lastDynamicRouteAnnotationAt = now
                 syncRouteAnnotation(snap)
+            }
+            val cameraNow = SystemClock.elapsedRealtime()
+            if (!userBrowsing && snap?.mapState?.routePreview != true && cameraNow - lastCameraPolicyAt >= 100L) {
+                updateStableCameraSpeed(cameraNow)
+                activateFollowPuck()
             }
             mainHandler.postDelayed(this, 16L)
         }
@@ -316,6 +325,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
 
     fun updateNativeLocation(lat: Double, lng: Double, speedMs: Double, heading: Double) {
         mainHandler.post {
+            if (speedMs.isFinite()) latestCameraSpeedKmh = (speedMs * 3.6).coerceIn(0.0, 180.0)
             if (VroomCarManager.isSimulationMode()) {
                 snappedLocationProvider.update(lat, lng, heading)
                 overlay?.handleLivePoseUpdate(lat, lng, speedMs, heading)
@@ -580,7 +590,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         val viewport = mapView?.viewport ?: return
         val navigating = latestPayload?.isNavigating == true
         val mode = if (navigating) "navigation" else "free-drive"
-        val speedKmh = latestPayload?.mapState?.speedKmh
+        val speedKmh = stableCameraSpeedKmh.takeIf { latestCameraSpeedKmh.isFinite() }
+            ?: latestPayload?.mapState?.speedKmh
             ?: ((latestPayload?.speed ?: 0.0) * 3.6)
         val targetSpec = AutoViewportPolicy.resolve(
             surfaceWidth = surfaceWidth,
@@ -604,17 +615,23 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             append(targetSpec.bottomPadding.toInt()).append(':')
             append(targetSpec.rightPadding.toInt())
         }
-        if (followViewportActive && followViewportMode == mode && viewportKey == lastViewportKey && !force) return
         val options = FollowPuckViewportStateOptions.Builder()
             .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck)
             .zoom(zoom)
             .pitch(targetSpec.pitch)
             .padding(EdgeInsets(targetSpec.topPadding, targetSpec.leftPadding, targetSpec.bottomPadding, targetSpec.rightPadding))
             .build()
+        val existingState = followPuckViewportState
+        if (followViewportActive && followViewportMode == mode && viewportKey == lastViewportKey && !force) return
+        val followState = existingState ?: viewport.makeFollowPuckViewportState(options).also {
+            followPuckViewportState = it
+        }
+        if (existingState != null) followState.options = options
+        val needsTransition = !followViewportActive || force
         followViewportMode = mode
         followViewportActive = true
         lastViewportKey = viewportKey
-        viewport.transitionTo(viewport.makeFollowPuckViewportState(options))
+        if (needsTransition) viewport.transitionTo(followState)
     }
 
     private fun applyHudInsetsFromOverlay(insets: AutoHudInsets, uiScale: Float) {
@@ -1162,9 +1179,22 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         if (!stableCameraZoom.isFinite()) stableCameraZoom = desiredZoom
         val delta = desiredZoom - stableCameraZoom
         if (kotlin.math.abs(delta) < 0.045) return stableCameraZoom
-        val maxStep = 0.22 * (dt / 1000.0)
-        stableCameraZoom = (stableCameraZoom + delta.coerceIn(-maxStep, maxStep)).coerceIn(15.80, 17.85)
+        val maxStep = 0.12 * (dt / 1000.0)
+        stableCameraZoom = (stableCameraZoom + delta.coerceIn(-maxStep, maxStep)).coerceIn(16.35, 17.85)
         return stableCameraZoom
+    }
+
+    private fun updateStableCameraSpeed(nowElapsedMs: Long) {
+        val target = latestCameraSpeedKmh.takeIf { it.isFinite() } ?: return
+        val dtMs = if (lastCameraPolicyAt > 0L) {
+            (nowElapsedMs - lastCameraPolicyAt).coerceIn(16L, 500L)
+        } else {
+            stableCameraSpeedKmh = target
+            100L
+        }
+        lastCameraPolicyAt = nowElapsedMs
+        val alpha = (dtMs.toDouble() / 1_200.0).coerceIn(0.04, 0.35)
+        stableCameraSpeedKmh += (target - stableCameraSpeedKmh) * alpha
     }
 
     fun showDriverAlert(text: String) {
@@ -1238,6 +1268,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         mapView = null
         followViewportActive = false
         followViewportMode = ""
+        followPuckViewportState = null
+        lastViewportKey = ""
+        lastCameraPolicyAt = 0L
         overlay = null
         runCatching { presentation?.dismiss() }
         presentation = null

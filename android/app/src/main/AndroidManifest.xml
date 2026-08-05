@@ -46,6 +46,7 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/3142aa8a-ca54-4d98-8120-657b87a714c3"/>
     <service android:name=".bg.VroomBgTrackingService" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false"/>
+    <service android:name=".auto.AutoLocationForegroundService" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false"/>
     <service android:name=".auto.VroomCarAppService" android:exported="true">
       <intent-filter>
         <action android:name="androidx.car.app.CarAppService"/>

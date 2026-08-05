@@ -20,6 +20,7 @@ describe('notification routing', () => {
     ['market_purchase', { orderId: 'ord_20' }, '/Community/market/orders?orderId=ord_20'],
     ['vehicle_order_ready', { orderId: 21 }, '/shop/vehicle-order/21'],
     ['streak_at_risk', {}, '/(tabs)/map?start=freeDrive'],
+    ['navigation', {}, '/(tabs)/map'],
     ['grid_vote_ending', { eventId: 22, battleId: 23 }, '/Community/grid/vote?eventId=22&battleId=23'],
     ['partner_event_update', { eventId: 24 }, '/partner/events/24'],
   ])('%s opens its precise destination', (type, data, expected) => {

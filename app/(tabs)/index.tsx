@@ -46,6 +46,7 @@ import { getNextStreakResetIso } from "../../lib/streakDeadline";
 import { StreakUnlockFx } from "../../components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabScrollBottomPadding } from "../../lib/screenHeaderInsets";
+import { allowNotificationCenterEntry } from "../../lib/notifications/notificationCenterAccess";
 
 const { width, height } = Dimensions.get("window");
 const HOME_HERO_HEIGHT = Math.min(height * 0.47, 430);
@@ -684,7 +685,10 @@ export default function HomeScreen() {
 								)}
 							</TouchableOpacity>
 							<TouchableOpacity
-								onPress={() => router.push("/notifications")}
+								onPress={() => {
+									allowNotificationCenterEntry();
+									router.push("/notifications");
+								}}
 								activeOpacity={0.85}
 								style={{
 									width: 36,

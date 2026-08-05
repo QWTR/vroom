@@ -11,7 +11,9 @@ import com.lexuuw.vroom.app.R
 
 /** Keeps turn-by-turn information available in the Android Auto rail outside VROOM. */
 object AutoTurnNotificationManager {
-    private const val CHANNEL_ID = "vroom_navigation"
+    // Android keeps the original channel importance forever. A new ID is
+    // required to stop the navigation notification from showing heads-up.
+    private const val CHANNEL_ID = "vroom_navigation_silent_v2"
     private const val NOTIFICATION_ID = 7_201
 
     fun update(context: Context, cue: String, turnMeters: Double, destinationName: String) {
@@ -19,9 +21,11 @@ object AutoTurnNotificationManager {
             val manager = CarNotificationManager.from(context)
             if (!manager.areNotificationsEnabled()) return@runCatching
             manager.createNotificationChannel(
-                NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+                NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
                     .setName("Nawigacja VROOM")
                     .setDescription("Wskazówki zakręt po zakręcie")
+                    .setSound(null, null)
+                    .setVibrationEnabled(false)
                     .build(),
             )
             val distance = if (turnMeters >= 1_000.0) {
@@ -41,6 +45,8 @@ object AutoTurnNotificationManager {
                 .setContentText("Cel: $destinationName")
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(Notification.CATEGORY_NAVIGATION)
                 .extend(extender)
             manager.notify(NOTIFICATION_ID, notification)

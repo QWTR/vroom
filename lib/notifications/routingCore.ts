@@ -60,6 +60,7 @@ export function resolveNotificationUrl(data: NotificationData | null | undefined
   if (['market_sale', 'market_purchase', 'market_released'].includes(type)) return `/Community/market/orders${params({ orderId: data.orderId })}`;
   if (type === 'vehicle_order_ready' && numeric(data.orderId)) return `/shop/vehicle-order/${numeric(data.orderId)}`;
   if (type === 'streak_at_risk') return '/(tabs)/map?start=freeDrive';
+  if (type === 'navigation') return '/(tabs)/map';
   if (['grid_round_ready', 'grid_vote_ending'].includes(type)) return `/Community/grid/vote${params({ eventId: numeric(data.eventId), battleId: numeric(data.battleId) })}`;
   if (type === 'partner_event_update' && numeric(data.eventId)) return `/partner/events/${numeric(data.eventId)}`;
   return '/notifications';

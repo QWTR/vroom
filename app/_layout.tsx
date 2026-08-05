@@ -75,6 +75,7 @@ import {
   type NotificationData,
 } from '../lib/notifications/routing';
 import { handleNotificationAction } from '../lib/notifications/runtime';
+import { allowNotificationCenterEntry } from '../lib/notifications/notificationCenterAccess';
 
 /** Heartbeat lastSeen + polling licznika online dla zalogowanych użytkowników. */
 function AppPresenceHeartbeat() {
@@ -96,6 +97,24 @@ const SPLASH_CARD_MS = 280;
 const SPLASH_FADE_MS = 250;
 /** Hard deadline — nie wisimy na OTA / animacjach / maintenance. */
 const BOOT_HARD_DEADLINE_MS = 12_000;
+const LAST_HANDLED_NOTIFICATION_RESPONSE_KEY = 'vroom_last_handled_notification_response_v1';
+
+function notificationResponseFingerprint(response: Notifications.NotificationResponse): string {
+  const request = response.notification.request;
+  return [
+    request.identifier || 'notification',
+    response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER,
+    String(response.notification.date || 0),
+  ].join(':');
+}
+
+async function consumeNotificationResponse(response: Notifications.NotificationResponse): Promise<boolean> {
+  const fingerprint = notificationResponseFingerprint(response);
+  const previous = await AsyncStorage.getItem(LAST_HANDLED_NOTIFICATION_RESPONSE_KEY).catch(() => null);
+  if (previous === fingerprint) return false;
+  await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_RESPONSE_KEY, fingerprint).catch(() => {});
+  return true;
+}
 
 const SPLASH_BOOT_ANIMATION_SLOTS: AppAnimationSlot[] = ['app_loading_logo'];
 
@@ -126,10 +145,10 @@ if (Platform.OS === 'android') {
     sound: 'default', vibrationPattern: [0, 250, 250, 250],
     lightColor: R, lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   }).catch(() => {});
-  void Notifications.setNotificationChannelAsync('navigation', {
-    name: 'Nawigacja', importance: Notifications.AndroidImportance.HIGH,
+  void Notifications.setNotificationChannelAsync('navigation_silent_v2', {
+    name: 'Nawigacja', importance: Notifications.AndroidImportance.LOW,
     sound: null, vibrationPattern: [0],
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: true,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, bypassDnd: false,
   }).catch(() => {});
   void Notifications.setNotificationChannelAsync('vroomki_publish', {
     name: 'Publikacja VROOMKI', importance: Notifications.AndroidImportance.MAX,
@@ -391,20 +410,29 @@ function RootLayoutInner() {
     lastNotifRouteRef.current = { key: navKey, ts: now };
     await markNotificationOpened(data);
     const target = resolveNotificationUrl(data);
+    if (target.split('?')[0] === '/notifications') allowNotificationCenterEntry();
     setTimeout(() => router.push(target as any), 250);
   }, [router]);
+
+  const processNotificationResponse = useCallback(async (response: Notifications.NotificationResponse) => {
+    // Expo/Android can retain the last tap across process restarts. Clear it
+    // before navigation and keep a persisted fingerprint as a second guard.
+    await Notifications.clearLastNotificationResponseAsync().catch(() => {});
+    if (!(await consumeNotificationResponse(response))) return;
+    if (response.actionIdentifier === IOS_DRIVE_STOP_ACTION) {
+      await BackgroundDriveController.stop('notification');
+      return;
+    }
+    const action = await handleNotificationAction(response);
+    if (action === 'navigate') {
+      await handleNotificationNavigation(response.notification.request.content.data as NotificationData);
+    }
+  }, [handleNotificationNavigation]);
 
   // Notifications
   useEffect(() => {
     Notifications.getLastNotificationResponseAsync()
-      .then(async (response) => {
-        if (!response) return;
-        const action = await handleNotificationAction(response);
-        if (action === 'navigate') {
-          await handleNotificationNavigation(response.notification.request.content.data as NotificationData);
-        }
-        await Notifications.clearLastNotificationResponseAsync();
-      })
+      .then((response) => response ? processNotificationResponse(response) : undefined)
       .catch(() => {});
 
     notifListener.current = Notifications.addNotificationReceivedListener((notification) => {
@@ -434,18 +462,11 @@ function RootLayoutInner() {
       // Foreground: nie pokazujemy toastów z pushy (żadnych popupów w trakcie używania appki).
       // Powiadomienia dalej zapisują się w bazie i są w centrum powiadomień in-app.
     });
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(async (response) => {
-      if (response.actionIdentifier === IOS_DRIVE_STOP_ACTION) {
-        await BackgroundDriveController.stop('notification');
-        return;
-      }
-      const action = await handleNotificationAction(response);
-      if (action === 'navigate') {
-        await handleNotificationNavigation(response.notification.request.content.data as NotificationData);
-      }
+    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      void processNotificationResponse(response);
     });
     return () => { notifListener.current?.remove(); responseListener.current?.remove(); };
-  }, [handleNotificationNavigation]);
+  }, [handleNotificationNavigation, processNotificationResponse]);
 
   useEffect(() => {
     if (!loaded && !error) return;

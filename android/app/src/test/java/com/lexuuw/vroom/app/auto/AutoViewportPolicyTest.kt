@@ -39,6 +39,7 @@ class AutoViewportPolicyTest {
         val fast = AutoViewportPolicy.resolve(800, 480, null, null, 120.0, false, null)
         assertTrue(fast.zoom < slow.zoom)
         assertTrue(fast.pitch > slow.pitch)
+        assertTrue(fast.zoom >= 16.35)
     }
 
     @Test

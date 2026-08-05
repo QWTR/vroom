@@ -87,6 +87,21 @@ const withAndroidAutoManifest = (config) => {
       }
     }
 
+    const locationServiceName = '.auto.AutoLocationForegroundService';
+    const hasLocationService = mainApplication.service.some(
+      (service) => service.$?.['android:name'] === locationServiceName
+    );
+    if (!hasLocationService) {
+      mainApplication.service.push({
+        $: {
+          'android:name': locationServiceName,
+          'android:exported': 'false',
+          'android:foregroundServiceType': 'location',
+          'android:stopWithTask': 'false',
+        },
+      });
+    }
+
     mainApplication.activity = mainApplication.activity || [];
     const mainActivity = mainApplication.activity.find((entry) => entry.$?.['android:name'] === '.MainActivity');
     if (mainActivity) {
@@ -194,6 +209,8 @@ const withAndroidAutoNative = (config) => {
         'AutoTurnNotificationManager.kt',
         'AutoViewportPolicy.kt',
         'AutoBridgePackage.kt',
+        'AutoLocationForegroundService.kt',
+        'AutoLocationPolicy.kt',
         'AutoLocationTracker.kt',
         'AutoLiveFleetSocketClient.kt',
         'AutoLiveFleetStore.kt',
@@ -291,8 +308,8 @@ const withAndroidAutoNative = (config) => {
       if (fs.existsSync(gradlePath)) {
         let gradle = fs.readFileSync(gradlePath, 'utf8');
         const deps = [
-          'implementation "androidx.car.app:app:1.4.0"',
-          'implementation "androidx.car.app:app-projected:1.4.0"',
+          'implementation "androidx.car.app:app:1.7.0"',
+          'implementation "androidx.car.app:app-projected:1.7.0"',
           'implementation "com.mapbox.maps:android-ndk27:11.18.2"',
           'implementation "com.mapbox.common:common-ndk27:24.11.1"',
           'implementation "com.google.android.gms:play-services-location:21.0.1"',
