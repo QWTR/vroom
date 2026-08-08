@@ -18,12 +18,16 @@ public final class VroomCarPlayMapViewController: UIViewController {
   private let poiMarkerManager: PointAnnotationManager
   private let destinationMarkerManager: PointAnnotationManager
   private let imageCache = NSCache<NSString, UIImage>()
+  private let generatedImageCache = NSCache<NSString, UIImage>()
+  private let selfMarkerImageView = UIImageView()
   private let speedPanel = UIVisualEffectView(
     effect: UIBlurEffect(style: .systemUltraThinMaterialDark)
   )
   private let speedLabel = UILabel()
   private let speedUnitLabel = UILabel()
   private let limitLabel = UILabel()
+  private var displayedSpeedKmh: Int?
+  private var displayedLimitKmh: Int?
   private var cancelables = Set<AnyCancelable>()
   private var currentSnapshot: VroomCarPlaySnapshot?
   private var liveUsers: [VroomMapMarker] = []
@@ -32,12 +36,25 @@ public final class VroomCarPlayMapViewController: UIViewController {
   private var nativeFuelStations: [VroomMapMarker]?
   private var latestPose: VroomCarPlayPose?
   private var followMode = true
+  private var isActivelyNavigating = false
   private var hostNightMode = true
   private var lastCameraUpdateAt = 0.0
+  private var lastCameraPolicyAt = 0.0
+  private var lastManualMarkerUpdateAt = 0.0
   private var currentStyleURI = ""
   private var previewRoutes: [VroomAlternativeRoute]?
   private var hiddenLayers = Set<VroomMarkerKind>()
   private var loadingImageURLs = Set<String>()
+  private var markerRenderWorkItem: DispatchWorkItem?
+  private var markerCenterXConstraint: NSLayoutConstraint?
+  private var markerCenterYConstraint: NSLayoutConstraint?
+  private var selfMarkerImageKey = ""
+  private var lastRouteSignature = ""
+  private var lastWarningSignature = ""
+  private var lastPOISignature = ""
+  private var lastUserSignature = ""
+  private var lastDestinationSignature = ""
+  private var lastOverviewRouteSignature = ""
 
   public init() {
     if let token = Bundle.main.object(forInfoDictionaryKey: "MBXAccessToken")
@@ -94,6 +111,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
       mapView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     configureAnnotationManagers()
+    configureSelfMarkerOverlay()
     configureSpeedPanel()
     configureStyle(hostNightMode ? "dark" : "light")
     mapView.mapboxMap.onMapLoaded.observeNext { [weak self] _ in
@@ -101,8 +119,21 @@ public final class VroomCarPlayMapViewController: UIViewController {
     }.store(in: &cancelables)
   }
 
+  public override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    updateSelfMarkerOverlayPosition()
+    if followMode, let latestPose {
+      lastCameraUpdateAt = 0
+      lastCameraPolicyAt = 0
+      updateCamera(for: latestPose)
+    }
+  }
+
   public func apply(snapshot: VroomCarPlaySnapshot) {
     currentSnapshot = snapshot
+    if snapshot.navigation.isNavigating {
+      isActivelyNavigating = true
+    }
     configureStyle(snapshot.mapStyle)
     renderRoutes(snapshot)
     renderMarkers(snapshot)
@@ -124,8 +155,15 @@ public final class VroomCarPlayMapViewController: UIViewController {
       )
       update(pose: pose)
     }
-    if !snapshot.navigation.isNavigating, !snapshot.route.isEmpty {
-      showRouteOverview(snapshot.route)
+    if !isActivelyNavigating,
+      previewRoutes == nil,
+      !snapshot.route.isEmpty
+    {
+      let signature = routeSignature(snapshot.route)
+      if signature != lastOverviewRouteSignature {
+        lastOverviewRouteSignature = signature
+        showRouteOverview(snapshot.route)
+      }
     }
   }
 
@@ -154,7 +192,14 @@ public final class VroomCarPlayMapViewController: UIViewController {
   }
 
   public func update(pose: VroomCarPlayPose) {
+    let receivedFirstPose = latestPose == nil
     latestPose = pose
+    if receivedFirstPose, let currentSnapshot {
+      lastWarningSignature = ""
+      lastPOISignature = ""
+      lastUserSignature = ""
+      renderMarkers(currentSnapshot)
+    }
     renderSelfMarker(pose)
     updateSpeedPanel(
       speedMetersPerSecond: pose.speedMetersPerSecond,
@@ -163,36 +208,53 @@ public final class VroomCarPlayMapViewController: UIViewController {
     guard followMode else {
       return
     }
+    updateCamera(for: pose)
+  }
+
+  private func updateCamera(for pose: VroomCarPlayPose) {
     let now = CACurrentMediaTime()
-    guard now - lastCameraUpdateAt >= 1.0 / 30.0 else {
+    guard now - lastCameraUpdateAt >= 1.0 / 60.0 else {
       return
     }
     lastCameraUpdateAt = now
+    let updatePolicy = now - lastCameraPolicyAt >= 0.25
+    if updatePolicy {
+      lastCameraPolicyAt = now
+    }
     let speedKmh = pose.speedMetersPerSecond * 3.6
-    let zoom: CGFloat = speedKmh >= 100 ? 14.3 : speedKmh >= 60 ? 15.0 : 15.7
-    let pitch: CGFloat = speedKmh >= 15 ? 52 : 38
-    let safeInsets = view.safeAreaInsets
+    let zoom: CGFloat =
+      speedKmh >= 110 ? 14.6
+      : speedKmh >= 75 ? 15.1
+      : speedKmh >= 35 ? 15.7
+      : 16.25
+    let pitch: CGFloat = speedKmh >= 12 ? 48 : 38
     let camera = CameraOptions(
       center: pose.coordinate.cl,
-      padding: UIEdgeInsets(
-        top: max(72, safeInsets.top + 48),
-        left: max(24, safeInsets.left + 12),
-        bottom: max(155, safeInsets.bottom + 125),
-        right: max(24, safeInsets.right + 12)
-      ),
-      anchor: CGPoint(x: view.bounds.midX, y: view.bounds.height * 0.68),
-      zoom: zoom,
+      padding: updatePolicy ? drivingCameraPadding() : nil,
+      anchor: nil,
+      zoom: updatePolicy ? zoom : nil,
       bearing: pose.heading,
-      pitch: pitch
+      pitch: updatePolicy ? pitch : nil
     )
     mapView.mapboxMap.setCamera(to: camera)
   }
 
   public func setFollowMode(_ enabled: Bool) {
     followMode = enabled
+    if enabled {
+      mapView.viewport.idle()
+      selfMarkerManager.annotations = []
+      selfMarkerImageView.isHidden = latestPose == nil
+      updateSelfMarkerOverlayPosition()
+    } else {
+      selfMarkerImageView.isHidden = true
+    }
     if enabled, let latestPose {
       lastCameraUpdateAt = 0
+      lastCameraPolicyAt = 0
       update(pose: latestPose)
+    } else if let latestPose {
+      renderMapSelfMarker(latestPose)
     }
   }
 
@@ -201,7 +263,8 @@ public final class VroomCarPlayMapViewController: UIViewController {
   }
 
   public func zoom(by delta: Double) {
-    followMode = false
+    setFollowMode(false)
+    mapView.viewport.idle()
     let state = mapView.mapboxMap.cameraState
     mapView.camera.ease(
       to: CameraOptions(zoom: max(3, min(20, state.zoom + delta))),
@@ -212,7 +275,8 @@ public final class VroomCarPlayMapViewController: UIViewController {
   }
 
   public func pan(horizontal: Double, vertical: Double) {
-    followMode = false
+    setFollowMode(false)
+    mapView.viewport.idle()
     let state = mapView.mapboxMap.cameraState
     let span = max(0.0002, 0.02 / pow(2, state.zoom - 12))
     let center = CLLocationCoordinate2D(
@@ -240,6 +304,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
     guard points.count >= 2 else {
       return
     }
+    setFollowMode(false)
     let line = LineString(points.map(\.cl))
     var options = OverviewViewportStateOptions(geometry: line)
     options.padding = UIEdgeInsets(
@@ -253,7 +318,6 @@ public final class VroomCarPlayMapViewController: UIViewController {
     options.maxZoom = 16
     let viewport = mapView.viewport.makeOverviewViewportState(options: options)
     mapView.viewport.transition(to: viewport)
-    followMode = false
   }
 
   public func showRoutePreview(
@@ -261,6 +325,9 @@ public final class VroomCarPlayMapViewController: UIViewController {
     selectedIndex: Int
   ) {
     previewRoutes = routes
+    if let currentSnapshot {
+      renderMarkers(currentSnapshot)
+    }
     var alternatives: [PolylineAnnotation] = []
     var selected: PolylineAnnotation?
     var selectedShadow: PolylineAnnotation?
@@ -304,8 +371,12 @@ public final class VroomCarPlayMapViewController: UIViewController {
 
   public func clearRoutePreview() {
     previewRoutes = nil
+    isActivelyNavigating = false
+    lastRouteSignature = ""
+    lastOverviewRouteSignature = ""
     if let currentSnapshot {
       renderRoutes(currentSnapshot)
+      renderMarkers(currentSnapshot)
     } else {
       routeShadowManager.annotations = []
       routeManager.annotations = []
@@ -314,7 +385,11 @@ public final class VroomCarPlayMapViewController: UIViewController {
   }
 
   public func showActiveRoute(_ route: VroomAlternativeRoute) {
+    isActivelyNavigating = true
     showRoutePreview([route], selectedIndex: route.index)
+    // showRoutePreview starts an overview transition. Stop it before entering
+    // guidance or it can zoom back out after the user already pressed Start.
+    mapView.viewport.idle()
     recenter()
   }
 
@@ -356,6 +431,50 @@ public final class VroomCarPlayMapViewController: UIViewController {
       $0.textOptional = true
     }
     selfMarkerManager.iconRotationAlignment = .map
+  }
+
+  private func configureSelfMarkerOverlay() {
+    selfMarkerImageView.translatesAutoresizingMaskIntoConstraints = false
+    selfMarkerImageView.contentMode = .scaleAspectFit
+    selfMarkerImageView.isUserInteractionEnabled = false
+    selfMarkerImageView.isHidden = true
+    selfMarkerImageView.layer.zPosition = 20
+    view.addSubview(selfMarkerImageView)
+    let centerX = selfMarkerImageView.centerXAnchor.constraint(
+      equalTo: view.leadingAnchor
+    )
+    let centerY = selfMarkerImageView.centerYAnchor.constraint(
+      equalTo: view.topAnchor
+    )
+    markerCenterXConstraint = centerX
+    markerCenterYConstraint = centerY
+    NSLayoutConstraint.activate([
+      centerX,
+      centerY,
+      selfMarkerImageView.widthAnchor.constraint(equalToConstant: 58),
+      selfMarkerImageView.heightAnchor.constraint(equalToConstant: 58),
+    ])
+    selfMarkerImageView.image = arrowImage(size: 58)
+  }
+
+  private func drivingCameraPadding() -> UIEdgeInsets {
+    let safe = view.safeAreaInsets
+    let height = max(240, view.bounds.height)
+    let width = max(480, view.bounds.width)
+    return UIEdgeInsets(
+      top: max(safe.top + 20, height * 0.42),
+      left: max(safe.left + 16, width * 0.06),
+      bottom: max(safe.bottom + 14, height * 0.06),
+      right: max(safe.right + 16, width * 0.04)
+    )
+  }
+
+  private func updateSelfMarkerOverlayPosition() {
+    let padding = drivingCameraPadding()
+    markerCenterXConstraint?.constant =
+      (padding.left + view.bounds.width - padding.right) / 2
+    markerCenterYConstraint?.constant =
+      (padding.top + view.bounds.height - padding.bottom) / 2
   }
 
   private func configureSpeedPanel() {
@@ -420,7 +539,13 @@ public final class VroomCarPlayMapViewController: UIViewController {
     speedMetersPerSecond: Double,
     limitKmh: Int?
   ) {
-    speedLabel.text = String(Int(max(0, speedMetersPerSecond * 3.6).rounded()))
+    let speedKmh = Int(max(0, speedMetersPerSecond * 3.6).rounded())
+    if speedKmh != displayedSpeedKmh {
+      displayedSpeedKmh = speedKmh
+      speedLabel.text = String(speedKmh)
+    }
+    guard limitKmh != displayedLimitKmh else { return }
+    displayedLimitKmh = limitKmh
     limitLabel.text = limitKmh.map(String.init) ?? "—"
     limitLabel.alpha = limitKmh == nil ? 0.45 : 1
   }
@@ -448,6 +573,14 @@ public final class VroomCarPlayMapViewController: UIViewController {
     guard previewRoutes == nil else {
       return
     }
+    let signature = [
+      routeSignature(snapshot.route),
+      snapshot.alternatives.map { routeSignature($0.points) }.joined(separator: ";"),
+      routeSignature(snapshot.builderRoute),
+      (isActivelyNavigating || snapshot.navigation.isNavigating) ? "nav" : "idle",
+    ].joined(separator: "|")
+    guard signature != lastRouteSignature else { return }
+    lastRouteSignature = signature
     let route = snapshot.route
     if route.count >= 2 {
       var shadow = PolylineAnnotation(
@@ -466,13 +599,14 @@ public final class VroomCarPlayMapViewController: UIViewController {
         lineCoordinates: route.map(\.cl)
       )
       primary.lineColor = StyleColor(
-        snapshot.navigation.isNavigating
+        isActivelyNavigating || snapshot.navigation.isNavigating
           ? (traitCollection.userInterfaceStyle == .dark
               ? UIColor(red: 208 / 255, green: 107 / 255, blue: 1, alpha: 1)
               : UIColor(red: 132 / 255, green: 56 / 255, blue: 245 / 255, alpha: 1))
           : UIColor(red: 143 / 255, green: 150 / 255, blue: 163 / 255, alpha: 0.85)
       )
-      primary.lineWidth = snapshot.navigation.isNavigating ? 8 : 7
+      primary.lineWidth =
+        isActivelyNavigating || snapshot.navigation.isNavigating ? 8 : 7
       primary.lineOpacity = 1
       routeManager.annotations = [primary]
     } else {
@@ -509,27 +643,83 @@ public final class VroomCarPlayMapViewController: UIViewController {
 
   private func renderMarkers(_ snapshot: VroomCarPlaySnapshot) {
     renderUsers()
-    warningMarkerManager.annotations =
+    let center = latestPose?.rawCoordinate ?? snapshot.currentLocation
+    let navigating = isActivelyNavigating || snapshot.navigation.isNavigating
+    let routePreviewVisible = previewRoutes != nil && !isActivelyNavigating
+    let warnings =
+      !routePreviewVisible &&
       snapshot.showWarnings && !hiddenLayers.contains(.warning)
-      ? (nativeWarnings ?? snapshot.warnings).prefix(60).map(markerAnnotation)
+      ? nearestMarkers(
+        nativeWarnings ?? snapshot.warnings,
+        to: center,
+        limit: navigating ? 14 : 20,
+        radiusMeters: navigating ? 8_000 : 25_000
+      )
       : []
-    var points: [VroomMapMarker] = []
-    if snapshot.showCameras && !hiddenLayers.contains(.camera) {
-      points.append(contentsOf: (nativeCameras ?? snapshot.cameras).prefix(60))
+    let warningSignature = markerSignature(warnings)
+    if warningSignature != lastWarningSignature {
+      lastWarningSignature = warningSignature
+      warningMarkerManager.annotations = warnings.map(markerAnnotation)
     }
-    if snapshot.showFuel && !hiddenLayers.contains(.fuel) {
+
+    var points: [VroomMapMarker] = []
+    if !routePreviewVisible,
+      snapshot.showCameras && !hiddenLayers.contains(.camera)
+    {
       points.append(
-        contentsOf: (nativeFuelStations ?? snapshot.fuelStations).prefix(120)
+        contentsOf: nearestMarkers(
+          nativeCameras ?? snapshot.cameras,
+          to: center,
+          limit: navigating ? 18 : 24,
+          radiusMeters: navigating ? 15_000 : 30_000
+        )
       )
     }
-    if snapshot.showPartners && !hiddenLayers.contains(.partner) {
-      points.append(contentsOf: snapshot.partnerPOIs.prefix(80))
+    if !routePreviewVisible,
+      snapshot.showFuel && !hiddenLayers.contains(.fuel)
+    {
+      points.append(
+        contentsOf: nearestMarkers(
+          nativeFuelStations ?? snapshot.fuelStations,
+          to: center,
+          limit: navigating ? 8 : 14,
+          radiusMeters: navigating ? 8_000 : 25_000
+        )
+      )
     }
-    if !hiddenLayers.contains(.drop) {
-      points.append(contentsOf: snapshot.geoDrops.prefix(60))
+    if !routePreviewVisible,
+      snapshot.showPartners && !hiddenLayers.contains(.partner)
+    {
+      points.append(
+        contentsOf: nearestMarkers(
+          snapshot.partnerPOIs,
+          to: center,
+          limit: navigating ? 8 : 14,
+          radiusMeters: navigating ? 12_000 : 30_000
+        )
+      )
     }
-    poiMarkerManager.annotations = points.map(markerAnnotation)
+    if !routePreviewVisible && !hiddenLayers.contains(.drop) {
+      points.append(
+        contentsOf: nearestMarkers(
+          snapshot.geoDrops,
+          to: center,
+          limit: navigating ? 6 : 10,
+          radiusMeters: navigating ? 8_000 : 20_000
+        )
+      )
+    }
+    let poiSignature = markerSignature(points)
+    if poiSignature != lastPOISignature {
+      lastPOISignature = poiSignature
+      poiMarkerManager.annotations = points.map(markerAnnotation)
+    }
     if let destination = snapshot.destination {
+      let signature =
+        "\(destination.coordinate.latitude):" +
+        "\(destination.coordinate.longitude):\(destination.name)"
+      guard signature != lastDestinationSignature else { return }
+      lastDestinationSignature = signature
       var annotation = PointAnnotation(
         id: "destination",
         coordinate: destination.coordinate.cl
@@ -551,7 +741,10 @@ public final class VroomCarPlayMapViewController: UIViewController {
       annotation.textOffset = [0, 2.2]
       destinationMarkerManager.annotations = [annotation]
     } else {
-      destinationMarkerManager.annotations = []
+      if !lastDestinationSignature.isEmpty {
+        lastDestinationSignature = ""
+        destinationMarkerManager.annotations = []
+      }
     }
   }
 
@@ -559,16 +752,69 @@ public final class VroomCarPlayMapViewController: UIViewController {
     guard
       let snapshot = currentSnapshot,
       snapshot.showUsers,
-      !hiddenLayers.contains(.user)
+      !hiddenLayers.contains(.user),
+      previewRoutes == nil || isActivelyNavigating
     else {
-      userMarkerManager.annotations = []
+      if !lastUserSignature.isEmpty {
+        lastUserSignature = ""
+        userMarkerManager.annotations = []
+      }
       return
     }
     let values = liveUsers.isEmpty ? snapshot.users : liveUsers
-    userMarkerManager.annotations = values.prefix(40).map(markerAnnotation)
+    let center = latestPose?.rawCoordinate ?? snapshot.currentLocation
+    let visible = nearestMarkers(
+      values,
+      to: center,
+      limit: isActivelyNavigating ? 12 : 18,
+      radiusMeters: isActivelyNavigating ? 12_000 : 25_000
+    )
+    let signature = markerSignature(visible)
+    guard signature != lastUserSignature else { return }
+    lastUserSignature = signature
+    userMarkerManager.annotations = visible.map(markerAnnotation)
   }
 
   private func renderSelfMarker(_ pose: VroomCarPlayPose) {
+    let markerStyle = currentSnapshot?.markerStyle ?? "arrow"
+    let markerImageURL = currentSnapshot?.selfMarkerImageURL ?? ""
+    let cached = cachedImage(for: markerImageURL)
+    let image =
+      markerStyle == "profile"
+      ? cached ?? markerImage(
+        kind: .user,
+        label: "V",
+        color: .systemRed,
+        size: 52
+      )
+      : arrowImage(size: 58)
+    let imageKey =
+      "\(markerStyle):\(markerImageURL):\(cached == nil ? "fallback" : "loaded")"
+    if imageKey != selfMarkerImageKey {
+      selfMarkerImageKey = imageKey
+      selfMarkerImageView.image = image
+    }
+    if markerStyle == "profile", !markerImageURL.isEmpty, cached == nil {
+      loadImage(markerImageURL)
+    }
+    if followMode {
+      selfMarkerImageView.isHidden = false
+      if !selfMarkerManager.annotations.isEmpty {
+        selfMarkerManager.annotations = []
+      }
+      return
+    }
+    selfMarkerImageView.isHidden = true
+    let now = CACurrentMediaTime()
+    guard now - lastManualMarkerUpdateAt >= 1.0 / 15.0 else { return }
+    lastManualMarkerUpdateAt = now
+    renderMapSelfMarker(pose, image: image)
+  }
+
+  private func renderMapSelfMarker(
+    _ pose: VroomCarPlayPose,
+    image suppliedImage: UIImage? = nil
+  ) {
     var annotation = PointAnnotation(
       id: "vroom-self",
       coordinate: pose.coordinate.cl
@@ -578,7 +824,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
     let image: UIImage
     if markerStyle == "profile" {
       image =
-        cachedImage(for: markerImageURL) ??
+        suppliedImage ?? cachedImage(for: markerImageURL) ??
         markerImage(
           kind: .user,
           label: "V",
@@ -591,7 +837,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
         loadImage(markerImageURL)
       }
     } else {
-      image = arrowImage(size: 58)
+      image = suppliedImage ?? arrowImage(size: 58)
       annotation.iconRotate = pose.heading
     }
     annotation.image = .init(
@@ -644,12 +890,17 @@ public final class VroomCarPlayMapViewController: UIViewController {
         "vroom-marker-\(marker.kind.rawValue)-\(marker.id)-" +
         String(marker.imageURL.hashValue)
     )
-    annotation.textField = marker.label
-    annotation.textSize = 11
-    annotation.textColor = StyleColor(.white)
-    annotation.textHaloColor = StyleColor(.black)
-    annotation.textHaloWidth = 1
-    annotation.textOffset = [0, 2.15]
+    let visibleLabel = sanitizedLabel(marker.label)
+    if (marker.kind == .user || marker.kind == .friend || marker.kind == .partner),
+      !visibleLabel.isEmpty
+    {
+      annotation.textField = visibleLabel
+      annotation.textSize = 11
+      annotation.textColor = StyleColor(.white)
+      annotation.textHaloColor = StyleColor(.black)
+      annotation.textHaloWidth = 1
+      annotation.textOffset = [0, 2.15]
+    }
     if !marker.imageURL.isEmpty, cachedImage(for: marker.imageURL) == nil {
       loadImage(marker.imageURL)
     }
@@ -684,12 +935,26 @@ public final class VroomCarPlayMapViewController: UIViewController {
       let normalized = self?.normalizedMarkerImage(image, size: 46) ?? image
       self?.imageCache.setObject(normalized, forKey: value as NSString)
       DispatchQueue.main.async {
-        guard let snapshot = self?.currentSnapshot else {
-          return
-        }
-        self?.renderMarkers(snapshot)
+        self?.scheduleMarkerRender()
       }
     }.resume()
+  }
+
+  private func scheduleMarkerRender() {
+    markerRenderWorkItem?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, let snapshot = currentSnapshot else { return }
+      lastWarningSignature = ""
+      lastPOISignature = ""
+      lastUserSignature = ""
+      selfMarkerImageKey = ""
+      renderMarkers(snapshot)
+      if let latestPose {
+        renderSelfMarker(latestPose)
+      }
+    }
+    markerRenderWorkItem = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
   }
 
   private func normalizedMarkerImage(_ image: UIImage, size: CGFloat) -> UIImage {
@@ -723,8 +988,26 @@ public final class VroomCarPlayMapViewController: UIViewController {
     color: UIColor,
     size: CGFloat
   ) -> UIImage {
+    let resolved = color.resolvedColor(with: traitCollection)
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    var alpha: CGFloat = 0
+    resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    let cacheKey = NSString(
+      format: "marker-%@-%@-%.3f-%.3f-%.3f-%.0f",
+      kind.rawValue,
+      label,
+      red,
+      green,
+      blue,
+      size
+    )
+    if let cached = generatedImageCache.object(forKey: cacheKey) {
+      return cached
+    }
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-    return renderer.image { context in
+    let image = renderer.image { context in
       let bounds = CGRect(x: 2, y: 2, width: size - 4, height: size - 4)
       context.cgContext.setShadow(
         offset: CGSize(width: 0, height: 2),
@@ -752,11 +1035,17 @@ public final class VroomCarPlayMapViewController: UIViewController {
         withAttributes: attributes
       )
     }
+    generatedImageCache.setObject(image, forKey: cacheKey)
+    return image
   }
 
   private func arrowImage(size: CGFloat) -> UIImage {
+    let cacheKey = "arrow-\(size)" as NSString
+    if let cached = generatedImageCache.object(forKey: cacheKey) {
+      return cached
+    }
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-    return renderer.image { context in
+    let image = renderer.image { context in
       context.cgContext.setShadow(
         offset: CGSize(width: 0, height: 2),
         blur: 5,
@@ -774,6 +1063,69 @@ public final class VroomCarPlayMapViewController: UIViewController {
       path.lineWidth = 3
       path.stroke()
     }
+    generatedImageCache.setObject(image, forKey: cacheKey)
+    return image
+  }
+
+  private func nearestMarkers(
+    _ markers: [VroomMapMarker],
+    to center: VroomCoordinate?,
+    limit: Int,
+    radiusMeters: Double
+  ) -> [VroomMapMarker] {
+    guard let center else {
+      // Never paint an arbitrary prefix from a country-wide response before
+      // GPS is ready; that produced the wall of unrelated points at startup.
+      return []
+    }
+    return markers
+      .compactMap { marker -> (VroomMapMarker, Double)? in
+        let distance = distanceMeters(center, marker.coordinate)
+        return distance <= radiusMeters ? (marker, distance) : nil
+      }
+      .sorted { $0.1 < $1.1 }
+      .prefix(limit)
+      .map { $0.0 }
+  }
+
+  private func markerSignature(_ markers: [VroomMapMarker]) -> String {
+    markers.map {
+      "\($0.kind.rawValue):\($0.id):" +
+        String(format: "%.5f:%.5f", $0.coordinate.latitude, $0.coordinate.longitude) +
+        ":\($0.imageURL.hashValue)"
+    }.joined(separator: "|")
+  }
+
+  private func routeSignature(_ route: [VroomCoordinate]) -> String {
+    guard let first = route.first, let last = route.last else { return "empty" }
+    let middle = route[route.count / 2]
+    return "\(route.count):" +
+      String(format: "%.5f:%.5f:", first.latitude, first.longitude) +
+      String(format: "%.5f:%.5f:", middle.latitude, middle.longitude) +
+      String(format: "%.5f:%.5f", last.latitude, last.longitude)
+  }
+
+  private func sanitizedLabel(_ value: String) -> String {
+    let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let lowered = clean.lowercased()
+    if clean.isEmpty || ["null", "<null>", "nil", "undefined"].contains(lowered) {
+      return ""
+    }
+    return clean
+  }
+
+  private func distanceMeters(
+    _ first: VroomCoordinate,
+    _ second: VroomCoordinate
+  ) -> Double {
+    let latitudeScale = 111_320.0
+    let longitudeScale = max(
+      0.15,
+      cos(first.latitude * .pi / 180)
+    ) * latitudeScale
+    let north = (second.latitude - first.latitude) * latitudeScale
+    let east = (second.longitude - first.longitude) * longitudeScale
+    return hypot(north, east)
   }
 
   private func color(from hex: String) -> UIColor? {

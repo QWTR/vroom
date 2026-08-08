@@ -155,7 +155,7 @@ final class VroomCarPlayNetwork {
     request(
       method: "GET",
       path:
-        "/api/speed-cameras?lat=\(latitude)&lng=\(longitude)&radius=100"
+        "/api/speed-cameras?lat=\(latitude)&lng=\(longitude)&radius=30"
     ) { result in
       if let data = try? result.get() {
         let parsed = Self.parseMarkerArray(data, kind: .camera)

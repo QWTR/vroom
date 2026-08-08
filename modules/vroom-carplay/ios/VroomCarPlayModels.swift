@@ -419,7 +419,10 @@ extension Dictionary where Key == String, Value == Any {
       return nil
     }
     let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return clean.isEmpty ? nil : clean
+    let lowered = clean.lowercased()
+    return clean.isEmpty || ["null", "<null>", "nil", "undefined"].contains(lowered)
+      ? nil
+      : clean
   }
 
   func bool(_ key: String) -> Bool? {

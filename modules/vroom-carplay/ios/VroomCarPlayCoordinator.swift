@@ -50,9 +50,9 @@ public final class VroomCarPlayCoordinator: NSObject {
   private lazy var locationEngine: VroomCarPlayLocationEngine = {
     let engine = VroomCarPlayLocationEngine()
     engine.onPose = { [weak self] pose in
-      DispatchQueue.main.async {
-        self?.handle(pose: pose)
-      }
+      // CADisplayLink already calls this on the main run loop. Enqueuing every
+      // frame again let camera work pile up and made CarPlay several frames late.
+      self?.handle(pose: pose)
     }
     engine.onLocationFailure = { [weak self] _ in
       DispatchQueue.main.async {
@@ -200,7 +200,6 @@ public final class VroomCarPlayCoordinator: NSObject {
     voiceMode = snapshot.voiceMode
     voiceIdentifier = snapshot.voiceIdentifier
     mapViewController?.apply(snapshot: snapshot)
-    locationEngine.setRoute(snapshot.navigation.isNavigating ? snapshot.route : [])
 
     if snapshot.navigation.isNavigating,
       let destination = snapshot.destination,
@@ -228,6 +227,10 @@ public final class VroomCarPlayCoordinator: NSObject {
     } else if navigationSession != nil {
       finishNavigation(arrived: snapshot.arrived, emitStop: false)
     }
+    locationEngine.setRoute(
+      activeRoute?.points ??
+        (snapshot.navigation.isNavigating ? snapshot.route : [])
+    )
 
     if snapshot.offRoute, let pose = locationEngine.latestPose() {
       reroute(from: pose)

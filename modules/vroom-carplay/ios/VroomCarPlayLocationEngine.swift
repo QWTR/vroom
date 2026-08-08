@@ -22,6 +22,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   private var segmentDuration = 0.35
   private var displayedHeading = 0.0
   private var targetHeading = 0.0
+  private var lastProjectionSegmentIndex: Int?
+  private var highFrameRateEnabled = true
   private var offRouteStartedAt: TimeInterval?
   private var lastOffRouteCallbackAt: TimeInterval = 0
 
@@ -71,7 +73,9 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   }
 
   func setRoute(_ route: [VroomCoordinate]) {
+    guard route != activeRoute else { return }
     activeRoute = route
+    lastProjectionSegmentIndex = nil
     offRouteStartedAt = nil
   }
 
@@ -124,14 +128,18 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   }
 
   private func ingest(_ location: CLLocation) {
+    let now = Date()
     guard
       location.horizontalAccuracy >= 0,
       location.horizontalAccuracy <= 120,
+      abs(now.timeIntervalSince(location.timestamp)) <= 10,
       abs(location.coordinate.latitude) <= 90,
-      abs(location.coordinate.longitude) <= 180
+      abs(location.coordinate.longitude) <= 180,
+      latestLocation.map({ location.timestamp > $0.timestamp }) ?? true
     else {
       return
     }
+    let previousLocation = latestLocation
     let raw = VroomCoordinate(
       latitude: location.coordinate.latitude,
       longitude: location.coordinate.longitude
@@ -145,6 +153,9 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
         )
     } ?? false
     let target = shouldSnap ? (projection?.coordinate ?? raw) : raw
+    if shouldSnap {
+      lastProjectionSegmentIndex = projection?.segmentIndex
+    }
     evaluateOffRoute(
       projectionDistance: projection?.distanceMeters,
       location: location
@@ -155,10 +166,10 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     rawCoordinate = raw
     latestLocation = location
     segmentStartedAt = CACurrentMediaTime()
-    let updateInterval = latestLocation.map {
-      max(0.2, min(1.25, Date().timeIntervalSince($0.timestamp) + 0.35))
+    let measuredInterval = previousLocation.map {
+      location.timestamp.timeIntervalSince($0.timestamp)
     } ?? 0.35
-    segmentDuration = updateInterval
+    segmentDuration = max(0.28, min(1.05, measuredInterval * 0.9))
     targetHeading = resolvedHeading(location)
     if renderedCoordinate == nil {
       renderedCoordinate = target
@@ -231,17 +242,33 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     }
     let elapsed = CACurrentMediaTime() - segmentStartedAt
     let linearProgress = min(1, max(0, elapsed / max(0.12, segmentDuration)))
-    let progress =
-      linearProgress * linearProgress * (3 - 2 * linearProgress)
-    var coordinate = interpolate(source, target, progress)
+    var interpolationTarget = target
+    if location.speed > 1 {
+      interpolationTarget = advance(
+        target,
+        meters: min(24, location.speed * segmentDuration),
+        heading: targetHeading
+      )
+      if let projection = project(interpolationTarget, onto: activeRoute),
+        projection.distanceMeters <= 45
+      {
+        interpolationTarget = projection.coordinate
+      }
+    }
+    var coordinate = interpolate(source, interpolationTarget, linearProgress)
     if linearProgress >= 1, location.speed > 1 {
+      // Start prediction at zero when interpolation completes. Advancing by
+      // the full GPS age here caused a visible jump at every location fix.
       let extrapolationSeconds = min(
-        1.5,
-        max(0, Date().timeIntervalSince(location.timestamp))
+        1.0,
+        max(
+          0,
+          Date().timeIntervalSince(location.timestamp) - segmentDuration
+        )
       )
       coordinate = advance(
         coordinate,
-        meters: min(35, location.speed * extrapolationSeconds),
+        meters: min(24, location.speed * extrapolationSeconds),
         heading: targetHeading
       )
       if let projection = project(coordinate, onto: activeRoute),
@@ -253,16 +280,19 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     renderedCoordinate = coordinate
     if #available(iOS 15.0, *) {
       let moving = location.speed >= 0.7
-      displayLink?.preferredFrameRateRange = CAFrameRateRange(
-        minimum: moving ? 55 : 20,
-        maximum: moving ? 60 : 30,
-        preferred: moving ? 60 : 30
-      )
+      if moving != highFrameRateEnabled {
+        highFrameRateEnabled = moving
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(
+          minimum: moving ? 55 : 10,
+          maximum: moving ? 60 : 20,
+          preferred: moving ? 60 : 15
+        )
+      }
     }
     displayedHeading = interpolateHeading(
       displayedHeading,
       targetHeading,
-      min(1, max(0.08, progress))
+      location.speed >= 0.7 ? 0.16 : 0.08
     )
     onPose?(
       VroomCarPlayPose(
@@ -369,6 +399,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   private struct RouteProjection {
     let coordinate: VroomCoordinate
     let distanceMeters: Double
+    let segmentIndex: Int
   }
 
   private func project(
@@ -386,7 +417,16 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     let pointX = coordinate.longitude * longitudeScale * metersPerDegree
     let pointY = coordinate.latitude * metersPerDegree
     var best: RouteProjection?
-    for index in 0..<(route.count - 1) {
+    let lowerIndex = max(0, (lastProjectionSegmentIndex ?? 20) - 20)
+    let upperIndex = min(
+      route.count - 2,
+      (lastProjectionSegmentIndex ?? (route.count - 82)) + 80
+    )
+    let searchRange =
+      lastProjectionSegmentIndex == nil
+      ? 0..<(route.count - 1)
+      : lowerIndex..<(upperIndex + 1)
+    for index in searchRange {
       let first = route[index]
       let second = route[index + 1]
       let firstX = first.longitude * longitudeScale * metersPerDegree
@@ -418,7 +458,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
             latitude: projectedY / metersPerDegree,
             longitude: projectedX / longitudeScale / metersPerDegree
           ),
-          distanceMeters: distance
+          distanceMeters: distance,
+          segmentIndex: index
         )
       }
     }

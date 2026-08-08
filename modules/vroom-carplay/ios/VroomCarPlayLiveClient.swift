@@ -80,10 +80,13 @@ final class VroomCarPlayLiveClient {
   func publish(_ pose: VroomCarPlayPose, navigating: Bool) {
     latestPose = pose
     let now = Date().timeIntervalSince1970
+    let elapsed = now - lastPublishAt
+    let minimumInterval = navigating ? 0.8 : 1.5
+    guard elapsed >= minimumInterval else { return }
     let moved = lastPublishedCoordinate.map {
       Self.distanceMeters($0, pose.coordinate)
     } ?? .greatestFiniteMagnitude
-    guard now - lastPublishAt >= 0.8 || moved >= 4 else {
+    guard moved >= 3 || elapsed >= 5 else {
       return
     }
     lastPublishAt = now
