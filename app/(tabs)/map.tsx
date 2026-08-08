@@ -438,7 +438,7 @@ const DRIVE_TEST_DIAGNOSTICS = __DEV__;
 const DEBUG_NETWORK = false;
 
 // Live location sharing — częsty broadcast (opóźnienie floty zależy głównie od tego)
-const LIVE_SEND_TICK_MS         = 1_000;
+const LIVE_SEND_TICK_MS         = 250;
 const LIVE_SEND_INTERVAL_TRIP_MS = 800;
 const LIVE_SEND_INTERVAL_MS      = 2_000;
 const LIVE_SEND_MIN_DIST_TRIP_M  = 4;
@@ -995,6 +995,7 @@ function MapScreenInner() {
   // sendLocation: track last sent position + time to apply distance/heartbeat gate
   const lastSendTimeRef    = useRef<number>(0);
   const lastSendLocRef     = useRef<{ lat: number; lng: number } | null>(null);
+  const lastSentLiveFixAtRef = useRef(0);
   // updateCameras / updateSpeedLimit: skip if user hasn't moved CAMERA_SPEED_LIMIT_GATE_M
   const lastCameraUpdateLocRef = useRef<{ lat: number; lng: number } | null>(null);
   // reroute cooldown: limit reroute trigger frequency
@@ -11274,6 +11275,8 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       snapSource?: string;
       snapAgeMs?: number;
       snapDistanceM?: number;
+      fixAt?: number;
+      fixId?: string;
     } | undefined;
 
     if (tripActive) {
@@ -11349,8 +11352,9 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
       : Infinity;
     const minDist = tripActive ? LIVE_SEND_MIN_DIST_TRIP_M : LIVE_SEND_MIN_DIST_M;
     const minInterval = tripActive ? LIVE_SEND_INTERVAL_TRIP_MS : LIVE_SEND_INTERVAL_MS;
+    const hasNewGpsFix = !!rawFix && rawFix.at > lastSentLiveFixAtRef.current;
 
-    if (movedM < minDist && elapsed < minInterval && elapsed < LIVE_SEND_MAX_ELAPSED_MS) {
+    if (!hasNewGpsFix && movedM < minDist && elapsed < minInterval && elapsed < LIVE_SEND_MAX_ELAPSED_MS) {
       if (DEBUG_NETWORK) console.log('[sendLocation] throttled — moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
       return;
     }
@@ -11358,6 +11362,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (DEBUG_NETWORK) console.log('[sendLocation] → sending: moved', movedM.toFixed(0), 'm, elapsed', elapsed, 'ms');
     lastSendTimeRef.current = now;
     lastSendLocRef.current = { lat, lng };
+    if (rawFix) lastSentLiveFixAtRef.current = Math.max(lastSentLiveFixAtRef.current, rawFix.at);
     const driveMode = isNavigatingRef.current
       ? 'navigation'
       : isDrivingRef.current
@@ -11368,6 +11373,11 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     } else {
       motion = { mode: driveMode };
     }
+    const fixAt = rawFix?.at
+      ?? liveBroadcastTrailRef.current[liveBroadcastTrailRef.current.length - 1]?.t
+      ?? now;
+    motion.fixAt = fixAt;
+    motion.fixId = `${fixAt}:${(rawFix?.lat ?? lat).toFixed(6)}:${(rawFix?.lng ?? lng).toFixed(6)}`;
     sendLocation(lat, lng, routePointsRef.current, motion);
   }, [sendLocation]);
 
@@ -11375,6 +11385,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     if (isSharing) return;
     lastSendTimeRef.current = 0;
     lastSendLocRef.current = null;
+    lastSentLiveFixAtRef.current = 0;
     liveBroadcastTrailRef.current = [];
   }, [isSharing]);
 

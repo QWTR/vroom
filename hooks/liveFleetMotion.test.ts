@@ -5,6 +5,8 @@ import {
   resolveFleetMotionTier,
   shouldApplyReducedFleetUpdate,
   shouldPublishFleetFrame,
+  shouldRenderFleet2dPin,
+  shouldExtrapolatePastTrailTail,
 } from './liveFleetMotion';
 
 describe('liveFleetMotion tiers', () => {
@@ -56,10 +58,17 @@ describe('liveFleetMotion tiers', () => {
     expect(shouldApplyReducedFleetUpdate(1_000 + FLEET_REDUCED_UPDATE_MS, 1_000)).toBe(true);
   });
 
-  it('caps hot GeoJSON publishing at about 30Hz', () => {
+  it('targets 60Hz for hot GeoJSON publishing', () => {
     expect(shouldPublishFleetFrame(1_000, 0)).toBe(true);
-    expect(shouldPublishFleetFrame(1_020, 1_000)).toBe(false);
-    expect(shouldPublishFleetFrame(1_033, 1_000)).toBe(true);
+    expect(shouldPublishFleetFrame(1_010, 1_000)).toBe(false);
+    expect(shouldPublishFleetFrame(1_016, 1_000)).toBe(true);
+  });
+
+  it('keeps the 2D marker and extrapolates after the trail tail', () => {
+    expect(shouldRenderFleet2dPin(0, 0)).toBe(true);
+    expect(shouldRenderFleet2dPin(1, 1)).toBe(true);
+    expect(shouldExtrapolatePastTrailTail(2_001, 2_000)).toBe(true);
+    expect(shouldExtrapolatePastTrailTail(2_000, 2_000)).toBe(false);
   });
 
   it('uses the agreed 350ms interpolation buffer', () => {

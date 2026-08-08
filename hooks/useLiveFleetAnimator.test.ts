@@ -29,10 +29,10 @@ describe('useLiveFleetAnimator viewport culling', () => {
     expect(visible).toHaveLength(2);
   });
 
-  it('throttles Mapbox shape publishing to fleet cadence', () => {
+  it('throttles Mapbox shape publishing to the 60Hz fleet cadence', () => {
     expect(shouldPublishFleetFrame(1_000, 0)).toBe(true);
-    expect(shouldPublishFleetFrame(1_030, 1_000)).toBe(false);
-    expect(shouldPublishFleetFrame(1_066, 1_000)).toBe(true);
+    expect(shouldPublishFleetFrame(1_010, 1_000)).toBe(false);
+    expect(shouldPublishFleetFrame(1_016, 1_000)).toBe(true);
   });
 
   it('uses soft corrections for normal drift and snap for huge drift', () => {

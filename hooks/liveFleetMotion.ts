@@ -1,5 +1,5 @@
 /** Gorąca flota publikuje GeoJSON maksymalnie 30 razy na sekundę. */
-export const FLEET_PUBLISH_INTERVAL_MS = 33;
+export const FLEET_PUBLISH_INTERVAL_MS = 16;
 /** Cel renderu jest cofnięty o mały bufor, aby interpolować między prawdziwymi fixami. */
 export const FLEET_INTERPOLATION_BUFFER_MS = 350;
 const SOFT_CORRECTION_MIN_MS = 450;
@@ -14,7 +14,7 @@ export const FLEET_FULL_ANIMATION_EXIT_KM = 11;
 export const FLEET_SLOT_MAX_POINTS = 8;
 /** Dead reckoning po ostatnim fixie — wypełnia luki między pakietami socket (np. snapshot 12 s). */
 export const FLEET_EXTRAPOLATE_DECAY_START_MS = 1_000;
-export const FLEET_EXTRAPOLATE_MAX_MS = 2_500;
+export const FLEET_EXTRAPOLATE_MAX_MS = 2_000;
 /** Dalecy nieznajomi przyjmują wyłącznie najnowszy fix w tym interwale. */
 export const FLEET_REDUCED_UPDATE_MS = 10_000;
 /** V3-Lite pushTarget: min/max czas segmentu lerp origin→target. */
@@ -37,6 +37,16 @@ export function shouldPublishFleetFrame(
 ): boolean {
   'worklet';
   return lastPublishAtMs <= 0 || nowMs - lastPublishAtMs >= intervalMs;
+}
+
+export function shouldRenderFleet2dPin(slotTier: 0 | 1, targetTier: 0 | 1): boolean {
+  'worklet';
+  return slotTier === targetTier;
+}
+
+export function shouldExtrapolatePastTrailTail(renderAtMs: number, tailAtMs: number): boolean {
+  'worklet';
+  return Number.isFinite(renderAtMs) && Number.isFinite(tailAtMs) && renderAtMs > tailAtMs;
 }
 
 export function correctionDurationForDistance(distanceM: number): number {

@@ -17,7 +17,7 @@ const READY_CAPTURE_DELAY_MS = 80;
 type Props = {
   imageKey: string;
   data: LiveUserPinSpriteData;
-  onCapture: (imageKey: string, uri: string) => void;
+  onCapture: (imageKey: string, uri: string, final: boolean) => void;
 };
 
 async function normalizeSpriteUri(rawUri: string): Promise<string> {
@@ -39,6 +39,8 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
   const readyRef = useRef(false);
+  const finalCaptureRef = useRef(false);
+  const queuedCaptureRef = useRef(false);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -52,25 +54,35 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
     if (busyRef.current || !readyRef.current) return;
 
     busyRef.current = true;
+    const finalCapture = finalCaptureRef.current;
+    queuedCaptureRef.current = false;
     shotRef.current?.capture?.()
       .then(async (uri) => {
         if (gen !== genRef.current || !uri) return;
         try {
           const normalized = await normalizeSpriteUri(uri);
           if (gen !== genRef.current) return;
-          onCapture(imageKey, normalized);
+          onCapture(imageKey, normalized, finalCapture);
         } catch {
-          onCapture(imageKey, uri);
+          onCapture(imageKey, uri, finalCapture);
         }
       })
       .catch(() => {})
       .finally(() => {
         busyRef.current = false;
+        if (queuedCaptureRef.current) {
+          timerRef.current = setTimeout(captureNow, READY_CAPTURE_DELAY_MS);
+        }
       });
   }, [imageKey, onCapture]);
 
-  const handleVisualReady = useCallback(() => {
+  const handleVisualReady = useCallback((final: boolean) => {
     readyRef.current = true;
+    finalCaptureRef.current = finalCaptureRef.current || final;
+    if (busyRef.current) {
+      queuedCaptureRef.current = true;
+      return;
+    }
     clearTimer();
     const gen = genRef.current;
     timerRef.current = setTimeout(() => {
@@ -83,11 +95,15 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
     genRef.current += 1;
     busyRef.current = false;
     readyRef.current = false;
+    finalCaptureRef.current = false;
+    queuedCaptureRef.current = false;
     clearTimer();
     return () => {
       genRef.current += 1;
       busyRef.current = false;
       readyRef.current = false;
+      finalCaptureRef.current = false;
+      queuedCaptureRef.current = false;
       clearTimer();
     };
   }, [
@@ -98,6 +114,7 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
     data.avatarFrameUrl,
     data.isPremium,
     data.isFriend,
+    data.stale,
     data.distanceLabel,
   ]);
 

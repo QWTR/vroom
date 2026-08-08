@@ -15,6 +15,9 @@ export type LiveUserMeta = {
   vehicleModelUrl?: string | null;
   vehicleModelMeta?: VehicleModelMeta | null;
   serverAt?: number | null;
+  fixAt?: number | null;
+  fixId?: string | null;
+  stale?: boolean;
   seq?: number | null;
   heading?: number | null;
   speedKmh?: number | null;
@@ -162,7 +165,10 @@ export function createLiveMapStore() {
       && prev.speedMps === nextSpeedMps
       && sameTrail;
     if (samePos && sameMotion) {
-      if (notify) notifyPosition(id);
+      if (notify) {
+        notifyPosition(id);
+        scheduleFleetDelta(id);
+      }
       return;
     }
     positions.set(id, {

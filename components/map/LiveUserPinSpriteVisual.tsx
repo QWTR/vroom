@@ -19,6 +19,7 @@ export type LiveUserPinSpriteData = {
   avatarFrameUrl: string | null;
   isPremium: boolean;
   isFriend: boolean;
+  stale?: boolean;
 };
 
 function pinAccent(data: LiveUserPinSpriteData) {
@@ -44,7 +45,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   onReady,
 }: {
   data: LiveUserPinSpriteData;
-  onReady?: () => void;
+  onReady?: (final: boolean) => void;
 }) {
   const avatarUri = normalizeMediaUri(data.avatarUrl);
   const frameUri = normalizeMediaUri(data.avatarFrameUrl);
@@ -55,8 +56,8 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
   const avatarBg = pinAvatarBg(data);
   const showAvatar = !!avatarUri && !avatarError;
 
-  const notifyReady = useCallback(() => {
-    onReady?.();
+  const notifyReady = useCallback((final: boolean) => {
+    onReady?.(final);
   }, [onReady]);
 
   useEffect(() => {
@@ -65,22 +66,25 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
 
   useEffect(() => {
     if (!avatarUri) {
-      notifyReady();
+      notifyReady(true);
       return;
     }
+    // First capture is the initials fallback; keep the capture mounted so the
+    // loaded avatar can replace it without ever leaving the map marker-less.
+    notifyReady(false);
     const timer = setTimeout(() => {
-      notifyReady();
+      notifyReady(true);
     }, 1_200);
     return () => clearTimeout(timer);
   }, [avatarUri, notifyReady]);
 
   const handleAvatarLoad = useCallback(() => {
-    notifyReady();
+    notifyReady(true);
   }, [notifyReady]);
 
   const handleAvatarError = useCallback(() => {
     setAvatarError(true);
-    notifyReady();
+    notifyReady(true);
   }, [notifyReady]);
 
   const avatarBorderStyle = data.isPremium
@@ -140,7 +144,7 @@ export const LiveUserPinSpriteVisual = memo(function LiveUserPinSpriteVisual({
                 width: 6,
                 height: 6,
                 borderRadius: 3,
-                backgroundColor: '#4de926',
+                backgroundColor: data.stale ? '#888888' : '#4de926',
               }}
             />
             <Text

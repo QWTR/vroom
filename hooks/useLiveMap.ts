@@ -46,6 +46,9 @@ export interface LiveUser {
   vehicleModelUrl?: string | null;
   vehicleModelMeta?: VehicleModelMeta | null;
   serverAt?: number | null;
+  fixAt?: number | null;
+  fixId?: string | null;
+  stale?: boolean;
   seq?: number | null;
   heading?: number | null;
   speedKmh?: number | null;
@@ -56,6 +59,8 @@ export interface LiveUser {
 }
 
 export type LiveLocationMotion = {
+  fixAt?: number;
+  fixId?: string;
   heading?: number;
   speedKmh?: number;
   trail?: FleetTrailPoint[];
@@ -112,12 +117,12 @@ const WARNING_VISIBLE_RADIUS_KM = 25;
 const LIVE_USERS_RADIUS_KM = 350;
 const LIVE_USERS_TAKE = 400;
 /** Brak aktualizacji pozycji — usuń zombie (snapshot / prune). */
-const LIVE_USER_STALE_MS = 60_000;
+const LIVE_USER_STALE_MS = 30_000;
 /** Opóźnienie przed usunięciem po user:offline (chroni przed miganiem). */
 const LIVE_USER_OFFLINE_GRACE_MS = 15_000;
 const GEO_USERS_REFRESH_MIN_MS = 28_000;
 const GEO_USERS_REFRESH_MIN_MOVE_KM = 1.2;
-const LIVE_USER_EVENT_STALE_MS = 2 * 60 * 1000;
+const LIVE_USER_EVENT_STALE_MS = 30_000;
 const USERS_REFRESH_MS = 45_000;
 const SOCKET_USERS_FALLBACK_MS = 1_500;
 const LIVE_USERS_REST_FRESH_MS = 40_000;
@@ -173,6 +178,9 @@ export function useLiveMap(
   const liveJoinWithGpsRef = useRef(false);
   const usersFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeGenerationRef = useRef(0);
+  const pendingLocationPayloadRef = useRef<Record<string, unknown> | null>(null);
+  const latestOwnFixRef = useRef<{ lat: number; lng: number; fixAt: number; fixId: string } | null>(null);
+  const liveUserFixAtRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     allowBgRef.current = allowBackgroundWork;
@@ -261,6 +269,7 @@ export function useLiveMap(
     liveUserLastSeenRef.current.delete(id);
     liveUserLastSeqRef.current.delete(id);
     liveUserLastServerAtRef.current.delete(id);
+    liveUserFixAtRef.current.delete(id);
     reducedLastAppliedAtRef.current.delete(id);
     reducedPendingRef.current.delete(id);
     const pending = pendingOfflineRef.current.get(id);
@@ -285,9 +294,16 @@ export function useLiveMap(
   const pruneStaleLiveUsers = useCallback(() => {
     const now = Date.now();
     for (const id of store.getUserIdsSnapshot()) {
-      const last = liveUserLastSeenRef.current.get(id) ?? 0;
+      const last = liveUserFixAtRef.current.get(id) ?? liveUserLastSeenRef.current.get(id) ?? 0;
       if (now - last >= LIVE_USER_STALE_MS) {
         removeLiveUser(id);
+      } else if (now - last >= 5_000) {
+        const meta = store.getMeta(id);
+        const pos = store.getPosition(id);
+        if (meta && pos && meta.stale !== true) {
+          store.setMeta({ ...meta, stale: true });
+          store.setPosition(id, pos.lat, pos.lng, true);
+        }
       }
     }
   }, [store, removeLiveUser]);
@@ -312,6 +328,8 @@ export function useLiveMap(
       const u = incoming[i];
       if (!Number.isFinite(u?.id) || !Number.isFinite(u?.lat) || !Number.isFinite(u?.lng)) continue;
       touchLiveUser(u.id);
+      const fixAt = Number(u.fixAt);
+      if (Number.isFinite(fixAt)) liveUserFixAtRef.current.set(u.id, fixAt);
 
       const prevMeta = store.getMeta(u.id);
       const prevPos = store.getPosition(u.id);
@@ -369,6 +387,9 @@ export function useLiveMap(
           vehicleModelUrl: liveVehicle.vehicleModelUrl,
           vehicleModelMeta: liveVehicle.vehicleModelMeta,
           serverAt: incomingNewer ? (u.serverAt ?? prevMeta?.serverAt ?? null) : (prevMeta?.serverAt ?? null),
+          fixAt: incomingNewer ? (u.fixAt ?? prevMeta?.fixAt ?? null) : (prevMeta?.fixAt ?? null),
+          fixId: incomingNewer ? (u.fixId ?? prevMeta?.fixId ?? null) : (prevMeta?.fixId ?? null),
+          stale: incomingNewer ? (u.stale === true) : (prevMeta?.stale === true),
           seq: incomingNewer ? (u.seq ?? prevMeta?.seq ?? null) : (prevMeta?.seq ?? null),
           heading: displayHeading ?? prevMeta?.heading ?? null,
           speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (prevMeta?.speedKmh ?? null),
@@ -406,11 +427,12 @@ export function useLiveMap(
     const pruneIds: number[] = [];
     for (const id of store.getUserIdsSnapshot()) {
       if (incomingById.has(id)) continue;
-      const last = liveUserLastSeenRef.current.get(id) ?? 0;
+      const last = liveUserFixAtRef.current.get(id) ?? liveUserLastSeenRef.current.get(id) ?? 0;
       if (now - last >= LIVE_USER_STALE_MS) {
         liveUserLastSeenRef.current.delete(id);
         liveUserLastSeqRef.current.delete(id);
         liveUserLastServerAtRef.current.delete(id);
+        liveUserFixAtRef.current.delete(id);
         const pending = pendingOfflineRef.current.get(id);
         if (pending) {
           clearTimeout(pending);
@@ -430,11 +452,65 @@ export function useLiveMap(
     applyLiveUsersMerge(incoming, mergeGenerationRef.current);
   }, [applyLiveUsersMerge]);
 
+  const emitPendingLocation = useCallback(() => {
+    const socket = socketRef.current;
+    const payload = pendingLocationPayloadRef.current;
+    if (!socket?.connected || !payload) return;
+    const sentFixId = payload.fixId == null ? null : String(payload.fixId);
+    socket.timeout(3_000).emit('location:update', payload, (error: Error | null, ack?: any) => {
+      if (error || ack?.accepted !== true) return;
+      const currentFixId = pendingLocationPayloadRef.current?.fixId;
+      if (sentFixId == null || String(currentFixId) === sentFixId) {
+        pendingLocationPayloadRef.current = null;
+      }
+    });
+  }, []);
+
+  const queueCurrentLocation = useCallback((source: string) => {
+    const loc = userLocationRef.current;
+    if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return null;
+    const previousFix = latestOwnFixRef.current;
+    const sameFix = previousFix
+      && previousFix.lat === loc.latitude
+      && previousFix.lng === loc.longitude;
+    const fixAt = sameFix ? previousFix.fixAt : Date.now();
+    const fixId = sameFix
+      ? previousFix.fixId
+      : `${source}:${fixAt}:${loc.latitude.toFixed(6)}:${loc.longitude.toFixed(6)}`;
+    latestOwnFixRef.current = { lat: loc.latitude, lng: loc.longitude, fixAt, fixId };
+    const payload: Record<string, unknown> = {
+      protocolVersion: 2,
+      lat: loc.latitude,
+      lng: loc.longitude,
+      fixAt,
+      fixId,
+      fixAgeMs: Math.max(0, Date.now() - fixAt),
+      source,
+    };
+    pendingLocationPayloadRef.current = payload;
+    emitPendingLocation();
+    return payload;
+  }, [emitPendingLocation]);
+
   const joinLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected) return;
-    socket.emit('live:join');
-  }, []);
+    const pending = pendingLocationPayloadRef.current;
+    const loc = userLocationRef.current;
+    const previousFix = latestOwnFixRef.current;
+    const payload = pending ?? (loc ? {
+      protocolVersion: 2,
+      lat: loc.latitude,
+      lng: loc.longitude,
+      ...(previousFix ? {
+        fixAt: previousFix.fixAt,
+        fixId: previousFix.fixId,
+        fixAgeMs: Math.max(0, Date.now() - previousFix.fixAt),
+      } : {}),
+    } : { protocolVersion: 2 });
+    socket.emit('live:join', payload);
+    emitPendingLocation();
+  }, [emitPendingLocation]);
 
   const leaveLiveMapRoom = useCallback(() => {
     const socket = socketRef.current;
@@ -708,6 +784,7 @@ export function useLiveMap(
         if (liveUsersEnabledRef.current) {
           joinLiveMapRoom();
         }
+        emitPendingLocation();
         await fetchWarnings(token);
         if (liveUsersEnabledRef.current) {
           scheduleUsersRestFallback(token);
@@ -735,8 +812,10 @@ export function useLiveMap(
         const seq = Number(data?.seq);
         const serverAtRaw = Number(data?.serverAt ?? data?.locationAt);
         const serverAt = Number.isFinite(serverAtRaw) ? serverAtRaw : Date.now();
+        const fixAtRaw = Number(data?.fixAt ?? data?.serverAt ?? data?.locationAt);
+        const fixAt = Number.isFinite(fixAtRaw) ? fixAtRaw : serverAt;
         if (!Number.isFinite(id) || !Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
-        if (Date.now() - serverAt > LIVE_USER_EVENT_STALE_MS) return;
+        if (Date.now() - fixAt > LIVE_USER_EVENT_STALE_MS) return;
         const prevSeq = liveUserLastSeqRef.current.get(id);
         if (Number.isFinite(seq) && prevSeq != null && seq <= prevSeq) return;
         const prevServerAt = liveUserLastServerAtRef.current.get(id);
@@ -744,6 +823,7 @@ export function useLiveMap(
         if (Number.isFinite(seq)) liveUserLastSeqRef.current.set(id, seq);
         liveUserLastServerAtRef.current.set(id, serverAt);
         touchLiveUser(id);
+        liveUserFixAtRef.current.set(id, fixAt);
 
         const existingMetaForTier = store.getMeta(id);
         const existingPosForTier = store.getPosition(id);
@@ -778,6 +858,9 @@ export function useLiveMap(
             vehicleModelUrl: liveVehicle.vehicleModelUrl,
             vehicleModelMeta: liveVehicle.vehicleModelMeta,
             serverAt,
+            fixAt,
+            fixId: data?.fixId == null ? null : String(data.fixId),
+            stale: data?.stale === true || Date.now() - fixAt > 5_000,
             seq: Number.isFinite(seq) ? seq : null,
             heading: motion.heading ?? existingMeta?.heading ?? null,
             speedKmh: displaySpeedMps != null ? displaySpeedMps * 3.6 : (existingMeta?.speedKmh ?? null),
@@ -820,7 +903,7 @@ export function useLiveMap(
           return;
         }
         const users: LiveUser[] = (Array.isArray(data) ? data : [])
-          .map((u) => ({
+          .map((u): LiveUser => ({
             id: Number(u?.id),
             username: typeof u?.username === 'string' ? u.username : '',
             avatarUrl: typeof u?.avatarUrl === 'string' ? u.avatarUrl : null,
@@ -835,6 +918,9 @@ export function useLiveMap(
               : (typeof u?.vehicleModelUrl === 'string' ? u.vehicleModelUrl : null),
             vehicleModelMeta: u?.vehicleModelMeta,
             serverAt: Number.isFinite(Number(u?.serverAt)) ? Number(u.serverAt) : null,
+            fixAt: Number.isFinite(Number(u?.fixAt)) ? Number(u.fixAt) : null,
+            fixId: u?.fixId == null ? null : String(u.fixId),
+            stale: u?.stale === true,
             seq: Number.isFinite(Number(u?.seq)) ? Number(u.seq) : null,
             heading: Number.isFinite(Number(u?.heading)) ? Number(u.heading) : null,
             speedKmh: Number.isFinite(Number(u?.speedKmh)) ? Number(u.speedKmh) : null,
@@ -938,6 +1024,7 @@ export function useLiveMap(
     isIncomingNewer,
     resolveIncomingMotionTier,
     enqueueReducedMotionUpdate,
+    emitPendingLocation,
   ]);
 
   // Pause socket when app is backgrounded without background permission
@@ -976,13 +1063,13 @@ export function useLiveMap(
                 shareLocation: true,
               }),
             }).catch(() => {});
-            s?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+            queueCurrentLocation('foreground_resume');
           }
         }
       }
     });
     return () => sub.remove();
-  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, clearUsersFallbackTimer, mergeLiveUsersFromApi, store]);
+  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, clearUsersFallbackTimer, mergeLiveUsersFromApi, store, queueCurrentLocation]);
 
   // Periodic refresh heals missed socket events on unstable networks.
   useEffect(() => {
@@ -1005,7 +1092,7 @@ export function useLiveMap(
   // Usuń tylko naprawdę przestarzałych (brak socket/API przez STALE_MS).
   useEffect(() => {
     if (!liveUsersEnabled) return;
-    const id = setInterval(pruneStaleLiveUsers, 30_000);
+    const id = setInterval(pruneStaleLiveUsers, 1_000);
     return () => clearInterval(id);
   }, [liveUsersEnabled, pruneStaleLiveUsers]);
 
@@ -1068,11 +1155,20 @@ export function useLiveMap(
     if (!isSharing) return;
     if (isNativeAutoSessionActive()) return;
     if (!allowBgRef.current && !isForegroundActive()) return;
-    const socket = socketRef.current;
-    if (!socket?.connected) return;
 
     if (routePoints && routePoints.length > 1) routePointsRef.current = routePoints;
-    const payload: Record<string, number | string | FleetTrailPoint[]> = { lat, lng };
+    const fixAt = Number.isFinite(Number(motion?.fixAt)) ? Number(motion?.fixAt) : Date.now();
+    const fixId = motion?.fixId ?? `${fixAt}:${lat.toFixed(6)}:${lng.toFixed(6)}`;
+    latestOwnFixRef.current = { lat, lng, fixAt, fixId };
+    const payload: Record<string, unknown> = {
+      protocolVersion: 2,
+      lat,
+      lng,
+      fixAt,
+      fixId,
+      fixAgeMs: Math.max(0, Date.now() - fixAt),
+      source: 'foreground',
+    };
     if (motion?.heading != null && Number.isFinite(motion.heading)) {
       payload.heading = motion.heading;
     }
@@ -1093,8 +1189,9 @@ export function useLiveMap(
     if (motion?.snapSource) {
       payload.snapSource = motion.snapSource;
     }
-    socket.emit('location:update', payload);
-  }, [isSharing]);
+    pendingLocationPayloadRef.current = payload;
+    emitPendingLocation();
+  }, [isSharing, emitPendingLocation]);
 
   // ── Toggle sharing ────────────────────────────────────
   const forceLocalSharingOff = useCallback(() => {
@@ -1134,7 +1231,7 @@ export function useLiveMap(
             shareLocation: true,
           }),
         }).catch(() => {});
-        socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+        queueCurrentLocation('sharing_enabled');
       }
       await fetchInitialData(tokenRef.current);
       setSharingStatus('on');
@@ -1204,7 +1301,7 @@ export function useLiveMap(
               shareLocation: true,
             }),
           }).catch(() => {});
-          socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+          queueCurrentLocation('sharing_enabled');
         }
         await fetchInitialData(tokenRef.current);
         toggleRetryRef.current = 0;
@@ -1226,7 +1323,7 @@ export function useLiveMap(
     } finally {
       toggleInFlightRef.current = false;
     }
-  }, [connected, liveUsersEnabled, fetchInitialData, joinLiveMapRoom, forceLocalSharingOff]);
+  }, [connected, liveUsersEnabled, fetchInitialData, joinLiveMapRoom, forceLocalSharingOff, queueCurrentLocation]);
 
   // ── Dodaj ostrzeżenie ─────────────────────────────────
   const addWarning = useCallback(async (
@@ -1414,12 +1511,12 @@ export function useLiveMap(
           shareLocation: true,
         }),
       });
-      socketRef.current?.emit('location:update', { lat: loc.latitude, lng: loc.longitude });
+      queueCurrentLocation('session_resume');
       setSharingStatus('on');
     } catch {
       /* ignore */
     }
-  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, leaveLiveMapRoom]);
+  }, [fetchWarnings, scheduleUsersRestFallback, joinLiveMapRoom, leaveLiveMapRoom, queueCurrentLocation]);
 
   const liveUsers = store.getLiveUsersArray();
 

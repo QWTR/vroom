@@ -1155,6 +1155,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     if (!token) return;
 
     const { latitude, longitude, speed, accuracy, heading } = location.coords;
+    const fixAt = Number.isFinite(Number(location.timestamp)) ? Number(location.timestamp) : Date.now();
 
     // ── Send live location only when sharing is active (Ghost = zero POST) ─
     const sharingFlag = await AsyncStorage.getItem(BG_IS_SHARING_KEY);
@@ -1164,7 +1165,21 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
       await fetch(`${API_URL}/api/live/location`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ lat: latitude, lng: longitude, shareLocation: true }),
+        body: JSON.stringify({
+          protocolVersion: 2,
+          lat: latitude,
+          lng: longitude,
+          rawLat: latitude,
+          rawLng: longitude,
+          accuracyM: accuracy,
+          heading,
+          speedMps: speed,
+          shareLocation: true,
+          fixAt,
+          fixId: `background:${fixAt}:${Number(latitude).toFixed(6)}:${Number(longitude).toFixed(6)}`,
+          fixAgeMs: Math.max(0, Date.now() - fixAt),
+          source: 'background',
+        }),
       }).catch(() => {});
     }
 

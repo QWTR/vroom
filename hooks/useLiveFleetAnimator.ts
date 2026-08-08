@@ -23,7 +23,9 @@ import {
   FLEET_INTERPOLATION_BUFFER_MS,
   FLEET_PUBLISH_INTERVAL_MS,
   correctionDurationForDistance,
+  shouldExtrapolatePastTrailTail,
   shouldPublishFleetFrame,
+  shouldRenderFleet2dPin,
 } from './liveFleetMotion';
 import {
   isImplausibleJump,
@@ -34,7 +36,6 @@ import {
   lerp as lerpShared,
   type FleetTrailPoint,
 } from './fleetTrailInterpolation';
-import { maybeEnqueueFleetOsrmSnap } from './fleetReceiveSnap';
 import {
   EMPTY_VIEWPORT,
   expandBoundsByMeters,
@@ -78,6 +79,9 @@ type FleetSlot = {
   serverLat: number;
   serverLng: number;
   lastServerAt: number;
+  pendingTeleportLat: number | null;
+  pendingTeleportLng: number | null;
+  pendingTeleportAt: number | null;
   // fallback przy niepoprawnych współrzędnych
   lastGoodLat: number;
   lastGoodLng: number;
@@ -355,7 +359,21 @@ function resolveMotionJs(
   }
   if (s.roadTrail.length >= 2) {
     const resolvedTrail = resolveTrailPosition(s.roadTrail, renderAtMs);
-    if (resolvedTrail) return resolvedTrail;
+    if (resolvedTrail) {
+      const tail = s.roadTrail[s.roadTrail.length - 1];
+      if (shouldExtrapolatePastTrailTail(renderAtMs, tail.t)) {
+        return extrapolateFleetPosition(
+          tail.lat,
+          tail.lng,
+          Number.isFinite(resolvedTrail.heading) ? resolvedTrail.heading : s.motionHeading,
+          s.speedMps,
+          tail.t,
+          renderAtMs,
+          FLEET_EXTRAPOLATE_MAX_MS,
+        );
+      }
+      return resolvedTrail;
+    }
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPosition(
@@ -387,7 +405,20 @@ function resolveMotionWorklet(
   }
   if (s.roadTrail.length >= 2) {
     const resolvedTrail = resolveTrailPosition(s.roadTrail, renderAtMs);
-    if (resolvedTrail) return resolvedTrail;
+    if (resolvedTrail) {
+      const tail = s.roadTrail[s.roadTrail.length - 1];
+      if (shouldExtrapolatePastTrailTail(renderAtMs, tail.t)) {
+        return extrapolateFleetPositionWorklet(
+          tail.lat,
+          tail.lng,
+          Number.isFinite(resolvedTrail.heading) ? resolvedTrail.heading : s.motionHeading,
+          s.speedMps,
+          tail.t,
+          renderAtMs,
+        );
+      }
+      return resolvedTrail;
+    }
   }
   if (s.durationMs <= 0) {
     return extrapolateFleetPositionWorklet(
@@ -417,7 +448,7 @@ function buildGeoJsonLive(
   const features: LiveFleetFeature[] = [];
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
-    if (s.animationTier !== animationTier || s.vehicleModelKey) continue;
+    if (!shouldRenderFleet2dPin(s.animationTier, animationTier)) continue;
     const resolved = resolveMotionWorklet(s, nowMs);
     let lat = resolved.lat;
     let lng = resolved.lng;
@@ -494,7 +525,6 @@ function buildVehicleGeoJson(
 function buildMetaPinRequests(
   store: LiveMapStore,
   visibleUserIds: number[],
-  anchor: { latitude: number; longitude: number } | null,
 ): FleetMetaPinRequest[] {
   const out: FleetMetaPinRequest[] = [];
   const prioritizedIds = [...visibleUserIds].sort((a, b) => {
@@ -506,18 +536,13 @@ function buildMetaPinRequests(
   });
   for (const id of prioritizedIds) {
     const meta = store.getMeta(id);
-    const pos = store.getPosition(id);
     if (!meta) continue;
-    if (meta.vehicleModelUrl) continue;
     const avatarUri = normalizeMediaUri(meta.avatarUrl);
     const frameUri = normalizeMediaUri(meta.avatarFrameUrl ?? null);
     const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri);
     const username = meta.username?.trim() || 'Użytkownik';
     const initials = username.slice(0, 2).toUpperCase();
-    const distKm = pos && anchor
-      ? calculateDistance(anchor.latitude, anchor.longitude, pos.lat, pos.lng)
-      : 0;
-    const distanceLabel = `${distKm.toFixed(1)} km`;
+    const distanceLabel = meta.stale ? 'BRAK GPS' : 'LIVE';
     out.push({
       id,
       signature: buildPinSpriteSignature({
@@ -528,6 +553,7 @@ function buildMetaPinRequests(
         isFriend: !!meta.isFriend,
         initials,
         distanceLabel,
+        stale: meta.stale === true,
       }),
       data: {
         username,
@@ -537,6 +563,7 @@ function buildMetaPinRequests(
         avatarFrameUrl: frameUri || null,
         isPremium: !!meta.isPremium,
         isFriend: !!meta.isFriend,
+        stale: meta.stale === true,
       },
     });
   }
@@ -603,27 +630,26 @@ function mergeSlotFromStore(
     ? pos.trail.slice()
     : [];
 
-  if (animationTier === 1 && meta.positionSource !== 'snapped') {
-    maybeEnqueueFleetOsrmSnap({
-      store,
-      userId: id,
-      isFriend: !!meta.isFriend,
-      distKm,
-      animationTier: tier,
-      trail: pos.trail,
-      speedMps,
-      lat: pos.lat,
-      lng: pos.lng,
-      prevLat: Number.isFinite(Number(prevServerLat)) ? Number(prevServerLat) : null,
-      prevLng: Number.isFinite(Number(prevServerLng)) ? Number(prevServerLng) : null,
-    });
-  }
-
   const toLat = pos.lat;
   const toLng = pos.lng;
   const serverMoved = !prev || prev.serverLat !== pos.lat || prev.serverLng !== pos.lng;
   const teleport = !!prev
     && isImplausibleJump(prev.serverLat, prev.serverLng, prev.lastServerAt, pos.lat, pos.lng, serverAt);
+  const confirmsPendingTeleport = !!prev
+    && prev.pendingTeleportLat != null
+    && prev.pendingTeleportLng != null
+    && prev.pendingTeleportAt != null
+    && serverAt > prev.pendingTeleportAt
+    && haversineM(prev.pendingTeleportLat, prev.pendingTeleportLng, pos.lat, pos.lng) <= 150;
+
+  if (teleport && !confirmsPendingTeleport && prev) {
+    return {
+      ...prev,
+      pendingTeleportLat: pos.lat,
+      pendingTeleportLng: pos.lng,
+      pendingTeleportAt: serverAt,
+    };
+  }
 
   let fromLat: number;
   let fromLng: number;
@@ -631,7 +657,7 @@ function mergeSlotFromStore(
   let startMs = now;
   let durationMs = 0;
 
-  if (animationTier === 0 || teleport || !prev || (prev.animationTier === 0 && animationTier === 1)) {
+  if (animationTier === 0 || confirmsPendingTeleport || !prev || (prev.animationTier === 0 && animationTier === 1)) {
     // Static / teleport / nowy slot -> natychmiastowy snap na pozycję serwera.
     fromLat = toLat;
     fromLng = toLng;
@@ -697,6 +723,9 @@ function mergeSlotFromStore(
     serverLat: pos.lat,
     serverLng: pos.lng,
     lastServerAt: serverAt,
+    pendingTeleportLat: null,
+    pendingTeleportLng: null,
+    pendingTeleportAt: null,
     lastGoodLat: pos.lat,
     lastGoodLng: pos.lng,
     isPremium: meta.isPremium ? 1 : 0,
@@ -749,10 +778,6 @@ export function useLiveFleetAnimator(
     [visibleUserIds],
   );
 
-  const anchorKey = anchor
-    ? `${anchor.latitude.toFixed(4)},${anchor.longitude.toFixed(4)}`
-    : 'none';
-
   const viewportKey = viewportBounds.valid === 1
     ? `${viewportBounds.north.toFixed(4)}:${viewportBounds.south.toFixed(4)}:${viewportBounds.east.toFixed(4)}:${viewportBounds.west.toFixed(4)}`
     : 'invalid';
@@ -796,11 +821,12 @@ export function useLiveFleetAnimator(
   }, [store, enabled]);
 
   const publishMetaPins = useCallback((ids: number[]) => {
-    const key = `${ids.join(',')}|${anchorKey}`;
+    const requests = buildMetaPinRequests(store, ids);
+    const key = requests.map((request) => request.signature).join(';;');
     if (key === metaPinsKeyRef.current) return;
     metaPinsKeyRef.current = key;
-    setMetaPinRequests(buildMetaPinRequests(store, ids, anchor));
-  }, [store, anchor, anchorKey]);
+    setMetaPinRequests(requests);
+  }, [store]);
 
   const publishColdShapes = useCallback((
     slots: FleetSlot[],
@@ -912,7 +938,7 @@ export function useLiveFleetAnimator(
 
   useEffect(() => {
     rebuildFleetFromStore();
-  }, [rebuildFleetFromStore, visibleKey, metaRevision, anchorKey, viewportKey, currentZoom]);
+  }, [rebuildFleetFromStore, visibleKey, metaRevision, viewportKey, currentZoom]);
 
   useEffect(() => {
     if (!enabled || visibleUserIds.length === 0) return;

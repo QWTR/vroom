@@ -1,5 +1,4 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import {
   EMPTY_VIEWPORT,
@@ -10,8 +9,6 @@ import { useLiveMapUserIds, type LiveMapStore } from '../../hooks/liveMapStore';
 import { useLiveFleetAnimator } from '../../hooks/useLiveFleetAnimator';
 import { LiveUsersFleetLayer } from './LiveUsersFleetLayer';
 import { FleetVehicleModelsLayer } from './FleetVehicleModelsLayer';
-
-const VIEWPORT_REFRESH_MS = 250;
 
 type Props = {
   store: LiveMapStore;
@@ -45,7 +42,6 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
   const liveUserIds = useLiveMapUserIds(store);
   const lastValidBoundsRef = useRef<ViewportBounds>(EMPTY_VIEWPORT);
   const lastViewportKeyRef = useRef('');
-  const lastViewportRefreshAtRef = useRef(0);
   const viewportQueryInFlightRef = useRef(false);
   const [viewportBounds, setViewportBounds] = useState<ViewportBounds>(EMPTY_VIEWPORT);
   const [viewportZoom, setViewportZoom] = useState(0);
@@ -64,13 +60,10 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
     setViewportBounds(next);
   }, []);
 
-  const refreshViewportFromNative = useCallback(async (force = false) => {
+  const refreshViewportFromNative = useCallback(async () => {
     const map = mapRef.current;
     if (!map || !enabled) return;
-    const now = Date.now();
-    if (!force && now - lastViewportRefreshAtRef.current < VIEWPORT_REFRESH_MS) return;
     if (viewportQueryInFlightRef.current) return;
-    lastViewportRefreshAtRef.current = now;
     viewportQueryInFlightRef.current = true;
     try {
       const bounds = await map.getVisibleBounds();
@@ -116,22 +109,13 @@ export const LiveFleetMapController = memo(function LiveFleetMapController({
       setViewportBounds(EMPTY_VIEWPORT);
       return;
     }
-    void refreshViewportFromNative(true);
+    void refreshViewportFromNative();
   }, [enabled, refreshViewportFromNative]);
 
   useEffect(() => {
     if (!enabled || mapIdleNonce <= 0) return;
-    void refreshViewportFromNative(true);
+    void refreshViewportFromNative();
   }, [enabled, mapIdleNonce, refreshViewportFromNative]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const id = setInterval(() => {
-      if (AppState.currentState !== 'active') return;
-      void refreshViewportFromNative(false);
-    }, VIEWPORT_REFRESH_MS);
-    return () => clearInterval(id);
-  }, [enabled, refreshViewportFromNative]);
 
   const viewportReady = viewportBounds.valid === 1;
   const animator = useLiveFleetAnimator(

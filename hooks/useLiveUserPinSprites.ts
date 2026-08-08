@@ -33,6 +33,7 @@ export function buildPinSpriteSignature(input: {
   isFriend: boolean;
   initials: string;
   distanceLabel: string;
+  stale?: boolean;
 }): string {
   return [
     input.id,
@@ -41,8 +42,8 @@ export function buildPinSpriteSignature(input: {
     input.isPremium ? '1' : '0',
     input.isFriend ? '1' : '0',
     input.initials,
-    input.distanceLabel,
-    'v3',
+    input.stale ? 'stale' : 'fresh',
+    'v4-static',
   ].join('|');
 }
 
@@ -65,7 +66,7 @@ export function useLiveUserPinSprites(requests: PinSpriteRequest[]) {
     setImages(next);
   }, [requests]);
 
-  const handleCapture = useCallback((imageKey: string, uri: string) => {
+  const handleCapture = useCallback((imageKey: string, uri: string, final = true) => {
     const req = requests.find((r) => liveUserPinImageKey(r.id) === imageKey);
     if (!req) return;
     if (cacheRef.current.size >= MAX_CACHE) {
@@ -74,7 +75,9 @@ export function useLiveUserPinSprites(requests: PinSpriteRequest[]) {
     }
     cacheRef.current.set(req.signature, uri);
     publish();
-    setActiveSignatures((prev) => prev.filter((s) => s !== req.signature));
+    if (final) {
+      setActiveSignatures((prev) => prev.filter((s) => s !== req.signature));
+    }
   }, [requests, publish]);
 
   useEffect(() => {

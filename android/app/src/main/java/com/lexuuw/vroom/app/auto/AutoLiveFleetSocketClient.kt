@@ -2,6 +2,7 @@ package com.lexuuw.vroom.app.auto
 
 import android.content.Context
 import io.socket.client.IO
+import io.socket.client.Ack
 import io.socket.client.Manager
 import io.socket.client.Socket
 import org.json.JSONArray
@@ -51,8 +52,9 @@ object AutoLiveFleetSocketClient {
         val next = IO.socket(URI.create(API_URL), options)
         socket = next
         next.on(Socket.EVENT_CONNECT) {
-            next.emit("live:join")
-            transportPayload()?.let { next.emit("location:update", it) }
+            val bootstrap = transportPayload()
+            next.emit("live:join", bootstrap ?: JSONObject().put("protocolVersion", 2))
+            bootstrap?.let { emitWithAck(next, it) }
         }
         next.io().on(Manager.EVENT_RECONNECT) {
             reconnects += 1
@@ -135,6 +137,7 @@ object AutoLiveFleetSocketClient {
             while (trail.size > TRAIL_MAX_POINTS) trail.removeFirst()
         }
         val payload = JSONObject()
+            .put("protocolVersion", 2)
             .put("lat", displayLat)
             .put("lng", displayLng)
             .put("rawLat", rawLat)
@@ -147,13 +150,17 @@ object AutoLiveFleetSocketClient {
             .put("snapSource", snapSource)
             .put("snapAgeMs", snapAgeMs.coerceAtLeast(0L))
             .put("snapDistanceM", distanceMeters(rawLat, rawLng, displayLat, displayLng))
+            .put("fixAt", now - snapAgeMs.coerceAtLeast(0L))
+            .put("fixId", "auto:${now - snapAgeMs.coerceAtLeast(0L)}:${"%.6f".format(rawLat)}:${"%.6f".format(rawLng)}")
+            .put("fixAgeMs", snapAgeMs.coerceAtLeast(0L))
+            .put("source", "android_auto")
             .put("trail", JSONArray(trail.toList()))
         latestPayload = payload
         latestPayloadAt = now
         lastSendAt = now
         lastSendLat = displayLat
         lastSendLng = displayLng
-        socket?.takeIf { it.connected() }?.emit("location:update", payload)
+        socket?.takeIf { it.connected() }?.let { emitWithAck(it, payload) }
         publications += 1
     }
 
@@ -175,10 +182,25 @@ object AutoLiveFleetSocketClient {
     private fun transportPayload(): JSONObject? {
         val elapsedMs = System.currentTimeMillis() - latestPayloadAt
         val payload = latestPayload ?: return null
-        if (latestPayloadAt <= 0L || elapsedMs !in 0L..2_500L) return null
+        if (latestPayloadAt <= 0L || elapsedMs !in 0L..30_000L) return null
         return JSONObject(payload.toString()).apply {
             put("snapAgeMs", optLong("snapAgeMs", 0L).coerceAtLeast(0L) + elapsedMs)
+            put("fixAgeMs", optLong("fixAgeMs", 0L).coerceAtLeast(0L) + elapsedMs)
         }
+    }
+
+    private fun emitWithAck(target: Socket, payload: JSONObject) {
+        val sentFixId = payload.optString("fixId", "")
+        target.emit("location:update", payload, Ack { args ->
+            val response = parseObject(args.firstOrNull()) ?: return@Ack
+            if (!response.optBoolean("accepted", false)) return@Ack
+            synchronized(this) {
+                if (latestPayload?.optString("fixId", "") == sentFixId) {
+                    latestPayload = null
+                    latestPayloadAt = 0L
+                }
+            }
+        })
     }
 
     private fun parseArray(value: Any?): JSONArray? = when (value) {
