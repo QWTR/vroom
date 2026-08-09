@@ -53,6 +53,14 @@ public final class VroomCarPlayStateStore {
     }
   }
 
+  public func discardPersistedSnapshot() {
+    queue.sync {
+      currentSnapshot = nil
+      currentRawSnapshot = ""
+      defaults.removeObject(forKey: snapshotKey)
+    }
+  }
+
   public func snapshot() -> VroomCarPlaySnapshot? {
     queue.sync { currentSnapshot }
   }

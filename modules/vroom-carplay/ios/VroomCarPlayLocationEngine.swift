@@ -12,6 +12,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   private var fallbackWorkItem: DispatchWorkItem?
   private var started = false
   private var usingSharedLocation = false
+  private var lastSharedFixAt = Date.distantPast
+  private var lastHardwareFixAt = Date.distantPast
   private var activeRoute: [VroomCoordinate] = []
   private var sourceCoordinate: VroomCoordinate?
   private var targetCoordinate: VroomCoordinate?
@@ -48,7 +50,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     )
     startDisplayLink()
     let work = DispatchWorkItem { [weak self] in
-      guard let self, self.started, self.latestLocation == nil else { return }
+      guard let self, self.started, !self.usingSharedLocation else { return }
       self.startFallbackLocation()
     }
     fallbackWorkItem = work
@@ -58,6 +60,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   func stop() {
     started = false
     usingSharedLocation = false
+    lastSharedFixAt = .distantPast
+    lastHardwareFixAt = .distantPast
     fallbackWorkItem?.cancel()
     fallbackWorkItem = nil
     NotificationCenter.default.removeObserver(
@@ -69,6 +73,13 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     displayLink = nil
     manager.stopUpdatingHeading()
     manager.stopUpdatingLocation()
+    sourceCoordinate = nil
+    targetCoordinate = nil
+    rawCoordinate = nil
+    renderedCoordinate = nil
+    latestLocation = nil
+    displayedHeading = 0
+    targetHeading = 0
     offRouteStartedAt = nil
   }
 
@@ -101,7 +112,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     didUpdateLocations locations: [CLLocation]
   ) {
     guard let location = locations.last else { return }
-    ingest(location)
+    ingest(location, hardwareFix: true)
   }
 
   @objc
@@ -109,12 +120,41 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     guard started, let location = notification.object as? CLLocation else {
       return
     }
+    guard ingest(location, hardwareFix: true) else {
+      return
+    }
     usingSharedLocation = true
+    lastSharedFixAt = Date()
     fallbackWorkItem?.cancel()
     fallbackWorkItem = nil
     manager.stopUpdatingHeading()
     manager.stopUpdatingLocation()
-    ingest(location)
+  }
+
+  func ingestSnapshot(
+    coordinate: VroomCoordinate,
+    speedMetersPerSecond: Double?,
+    heading: Double?,
+    sentAtMilliseconds: Int64
+  ) {
+    guard started,
+      Date().timeIntervalSince(lastHardwareFixAt) >= 1.2
+    else {
+      return
+    }
+    let timestamp = Date(
+      timeIntervalSince1970: Double(sentAtMilliseconds) / 1_000
+    )
+    let location = CLLocation(
+      coordinate: coordinate.cl,
+      altitude: 0,
+      horizontalAccuracy: 25,
+      verticalAccuracy: -1,
+      course: heading ?? -1,
+      speed: max(0, speedMetersPerSecond ?? 0),
+      timestamp: timestamp
+    )
+    ingest(location, hardwareFix: false)
   }
 
   private func startFallbackLocation() {
@@ -127,7 +167,8 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
     manager.startUpdatingHeading()
   }
 
-  private func ingest(_ location: CLLocation) {
+  @discardableResult
+  private func ingest(_ location: CLLocation, hardwareFix: Bool) -> Bool {
     let now = Date()
     guard
       location.horizontalAccuracy >= 0,
@@ -137,7 +178,10 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       abs(location.coordinate.longitude) <= 180,
       latestLocation.map({ location.timestamp > $0.timestamp }) ?? true
     else {
-      return
+      return false
+    }
+    if hardwareFix {
+      lastHardwareFixAt = now
     }
     let previousLocation = latestLocation
     let raw = VroomCoordinate(
@@ -175,6 +219,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
       renderedCoordinate = target
       displayedHeading = targetHeading
     }
+    return true
   }
 
   func locationManager(
@@ -227,8 +272,7 @@ final class VroomCarPlayLocationEngine: NSObject, CLLocationManagerDelegate {
   @objc
   private func tick() {
     if usingSharedLocation,
-      let latestLocation,
-      Date().timeIntervalSince(latestLocation.timestamp) > 4
+      Date().timeIntervalSince(lastSharedFixAt) > 4
     {
       usingSharedLocation = false
       startFallbackLocation()

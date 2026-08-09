@@ -88,6 +88,7 @@ type FleetSlot = {
   // meta pinów
   isPremium: 0 | 1;
   isFriend: 0 | 1;
+  stale: 0 | 1;
   avatarUrl: string;
   avatarFrameUrl: string;
   hasAvatar: 0 | 1;
@@ -152,6 +153,8 @@ export type LiveFleetFeature = {
     scaleY?: number;
     scaleZ?: number;
     minZoom?: number;
+    stale?: number;
+    pinColor?: string;
   };
 };
 
@@ -465,7 +468,12 @@ function buildGeoJsonLive(
       type: 'Feature',
       id: s.id,
       geometry: { type: 'Point', coordinates: [lng, lat] },
-      properties: { id: s.id, heading: resolved.heading },
+      properties: {
+        id: s.id,
+        heading: resolved.heading,
+        stale: s.stale,
+        pinColor: s.pinColor,
+      },
     });
   }
   return { type: 'FeatureCollection', features };
@@ -542,7 +550,7 @@ function buildMetaPinRequests(
     const hasAvatar = avatarUri && /^https?:\/\//i.test(avatarUri);
     const username = meta.username?.trim() || 'Użytkownik';
     const initials = username.slice(0, 2).toUpperCase();
-    const distanceLabel = meta.stale ? 'BRAK GPS' : 'LIVE';
+    const distanceLabel = 'LIVE';
     out.push({
       id,
       signature: buildPinSpriteSignature({
@@ -553,7 +561,6 @@ function buildMetaPinRequests(
         isFriend: !!meta.isFriend,
         initials,
         distanceLabel,
-        stale: meta.stale === true,
       }),
       data: {
         username,
@@ -563,7 +570,6 @@ function buildMetaPinRequests(
         avatarFrameUrl: frameUri || null,
         isPremium: !!meta.isPremium,
         isFriend: !!meta.isFriend,
-        stale: meta.stale === true,
       },
     });
   }
@@ -730,6 +736,7 @@ function mergeSlotFromStore(
     lastGoodLng: pos.lng,
     isPremium: meta.isPremium ? 1 : 0,
     isFriend: meta.isFriend ? 1 : 0,
+    stale: meta.stale ? 1 : 0,
     avatarUrl: avatarUri ?? '',
     avatarFrameUrl: frameUri ?? '',
     hasAvatar,

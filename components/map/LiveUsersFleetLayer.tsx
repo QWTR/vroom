@@ -60,21 +60,39 @@ function LiveUsersFleetLayerInner({
           <LiveUserPinSpriteCapture
             key={req.signature}
             imageKey={liveUserPinImageKey(req.id)}
+            signature={req.signature}
             data={req.data}
             onCapture={handleCapture}
           />
         ))}
       </View>
 
-      {Object.keys(images).length > 0 ? (
-        <>
-          <Mapbox.Images images={images} />
-          <ReanimatedShapeSource
-            id="liveFleetHotSource"
-            animatedProps={hotAnimatedShapeProps as never}
-            onPress={handlePress}
-            hitbox={{ width: 72, height: 72 }}
-          >
+      {Object.keys(images).length > 0 ? <Mapbox.Images images={images} /> : null}
+      <ReanimatedShapeSource
+        id="liveFleetHotSource"
+        animatedProps={hotAnimatedShapeProps as never}
+        onPress={handlePress}
+        hitbox={{ width: 72, height: 72 }}
+      >
+            <Mapbox.CircleLayer
+              id="liveFleetHotFallbackDot"
+              style={{
+                circleRadius: 7,
+                circleColor: ['coalesce', ['get', 'pinColor'], '#00bfff'],
+                circleStrokeColor: '#111111',
+                circleStrokeWidth: 2,
+              }}
+            />
+            <Mapbox.CircleLayer
+              id="liveFleetHotStaleHalo"
+              filter={['==', ['get', 'stale'], 1]}
+              style={{
+                circleRadius: 15,
+                circleColor: 'rgba(20,20,20,0.72)',
+                circleStrokeColor: '#9a9a9a',
+                circleStrokeWidth: 3,
+              }}
+            />
             <Mapbox.SymbolLayer
               id="liveFleetHotPins"
               style={{
@@ -88,13 +106,32 @@ function LiveUsersFleetLayerInner({
                 iconRotationAlignment: 'viewport',
               }}
             />
-          </ReanimatedShapeSource>
-          <ReanimatedShapeSource
-            id="liveFleetColdSource"
-            animatedProps={coldAnimatedShapeProps as never}
-            onPress={handlePress}
-            hitbox={{ width: 72, height: 72 }}
-          >
+      </ReanimatedShapeSource>
+      <ReanimatedShapeSource
+        id="liveFleetColdSource"
+        animatedProps={coldAnimatedShapeProps as never}
+        onPress={handlePress}
+        hitbox={{ width: 72, height: 72 }}
+      >
+            <Mapbox.CircleLayer
+              id="liveFleetColdFallbackDot"
+              style={{
+                circleRadius: 7,
+                circleColor: ['coalesce', ['get', 'pinColor'], '#00bfff'],
+                circleStrokeColor: '#111111',
+                circleStrokeWidth: 2,
+              }}
+            />
+            <Mapbox.CircleLayer
+              id="liveFleetColdStaleHalo"
+              filter={['==', ['get', 'stale'], 1]}
+              style={{
+                circleRadius: 15,
+                circleColor: 'rgba(20,20,20,0.72)',
+                circleStrokeColor: '#9a9a9a',
+                circleStrokeWidth: 3,
+              }}
+            />
             <Mapbox.SymbolLayer
               id="liveFleetColdPins"
               style={{
@@ -108,9 +145,7 @@ function LiveUsersFleetLayerInner({
                 iconRotationAlignment: 'viewport',
               }}
             />
-          </ReanimatedShapeSource>
-        </>
-      ) : null}
+      </ReanimatedShapeSource>
     </>
   );
 }

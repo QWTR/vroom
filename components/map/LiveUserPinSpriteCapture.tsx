@@ -16,8 +16,9 @@ const READY_CAPTURE_DELAY_MS = 80;
 
 type Props = {
   imageKey: string;
+  signature: string;
   data: LiveUserPinSpriteData;
-  onCapture: (imageKey: string, uri: string, final: boolean) => void;
+  onCapture: (imageKey: string, signature: string, uri: string, final: boolean) => void;
 };
 
 async function normalizeSpriteUri(rawUri: string): Promise<string> {
@@ -31,6 +32,7 @@ async function normalizeSpriteUri(rawUri: string): Promise<string> {
 
 export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
   imageKey,
+  signature,
   data,
   onCapture,
 }: Props) {
@@ -62,9 +64,9 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
         try {
           const normalized = await normalizeSpriteUri(uri);
           if (gen !== genRef.current) return;
-          onCapture(imageKey, normalized, finalCapture);
+          onCapture(imageKey, signature, normalized, finalCapture);
         } catch {
-          onCapture(imageKey, uri, finalCapture);
+          onCapture(imageKey, signature, uri, finalCapture);
         }
       })
       .catch(() => {})
@@ -74,7 +76,7 @@ export const LiveUserPinSpriteCapture = memo(function LiveUserPinSpriteCapture({
           timerRef.current = setTimeout(captureNow, READY_CAPTURE_DELAY_MS);
         }
       });
-  }, [imageKey, onCapture]);
+  }, [imageKey, signature, onCapture]);
 
   const handleVisualReady = useCallback((final: boolean) => {
     readyRef.current = true;

@@ -26,6 +26,10 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var lastWarningKey = ""
   private var lastWarningAt = Date.distantPast
   private var lastRerouteAt = Date.distantPast
+  private var lastAuthoritativeGuidanceAt = Date.distantPast
+  private var lastNativeGuidanceAt = Date.distantPast
+  private var lastNativeRouteKey = ""
+  private var lastNativeRouteFraction = 0.0
   private var rerouteCount: Int64 = 0
   private var locationFailureCount: Int64 = 0
   private var lastGPSLatencyMilliseconds = 0
@@ -34,6 +38,11 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var voiceMode = "auto"
   private var voiceIdentifier: String?
   private var activeInstructionKey = ""
+  private var maneuverSequenceKey = ""
+  private var renderedManeuvers: [CPManeuver] = []
+  private var lastEstimateUpdateAt = Date.distantPast
+  private var lastRenderedManeuverDistance = -1
+  private var lastRenderedTripDistance = -1
   private var spokenManeuverPhases = Set<String>()
   private var chainedPrepareKeys = Set<String>()
   private var spokenWarningKeys = Set<String>()
@@ -44,6 +53,10 @@ public final class VroomCarPlayCoordinator: NSObject {
   private var lastVoiceAt = Date.distantPast
   private var themeIndex = 0
   private var lastPhonePreviewKey = ""
+  private var dismissedPhonePreviewKey = ""
+  private var dismissedNavigationRouteKey = ""
+  private var awaitingPhoneStopAcknowledgement = false
+  private var isFinishingNavigation = false
   private var lastPanTranslation = CGPoint.zero
   private var lastZoomScale: CGFloat = 1
   private let themes = ["dark", "light", "satellite"]
@@ -106,10 +119,10 @@ public final class VroomCarPlayCoordinator: NSObject {
     mapTemplate = template
     interfaceController.setRootTemplate(template, animated: false, completion: nil)
 
+    locationEngine.start()
     if let restored = VroomCarPlayStateStore.shared.snapshot() {
       apply(snapshot: restored)
     }
-    locationEngine.start()
     VroomCarPlayLiveClient.shared.onUsers = { [weak self] users in
       DispatchQueue.main.async {
         self?.mapViewController?.applyLiveUsers(users)
@@ -128,6 +141,7 @@ public final class VroomCarPlayCoordinator: NSObject {
 
   public func disconnect() {
     synthesizer.stopSpeaking(at: .immediate)
+    isFinishingNavigation = true
     navigationSession?.cancelTrip()
     navigationSession = nil
     activeTrip = nil
@@ -136,6 +150,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     routeChoices = [:]
     searchItems = [:]
     resetSpeechState()
+    resetManeuverState()
     locationEngine.stop()
     VroomCarPlayLiveClient.shared.stop()
     roadLayerTimer?.invalidate()
@@ -148,6 +163,11 @@ public final class VroomCarPlayCoordinator: NSObject {
     carWindow = nil
     connectionStartedAt = nil
     mapLoadedAt = nil
+    lastAuthoritativeGuidanceAt = .distantPast
+    lastNativeGuidanceAt = .distantPast
+    lastNativeRouteKey = ""
+    lastNativeRouteFraction = 0
+    isFinishingNavigation = false
   }
 
   public func updateSnapshot(_ json: String) {
@@ -195,16 +215,48 @@ public final class VroomCarPlayCoordinator: NSObject {
 
   private func apply(snapshot: VroomCarPlaySnapshot) {
     currentSnapshot = snapshot
+    if awaitingPhoneStopAcknowledgement,
+      !snapshot.navigation.isNavigating
+    {
+      awaitingPhoneStopAcknowledgement = false
+      dismissedNavigationRouteKey = ""
+    }
+    let incomingNavigationRouteKey = navigationRouteKey(
+      route: snapshot.route,
+      destination: snapshot.destination
+    )
+    let ignoresStoppedNavigation =
+      awaitingPhoneStopAcknowledgement &&
+      snapshot.navigation.isNavigating &&
+      !dismissedNavigationRouteKey.isEmpty &&
+      incomingNavigationRouteKey == dismissedNavigationRouteKey
+    if let coordinate = snapshot.currentLocation {
+      locationEngine.ingestSnapshot(
+        coordinate: coordinate,
+        speedMetersPerSecond: snapshot.speedMetersPerSecond,
+        heading: snapshot.heading,
+        sentAtMilliseconds: snapshot.sentAtMilliseconds
+      )
+    }
     voiceEnabled = snapshot.voiceGuidance
     voiceAlertsEnabled = snapshot.voiceAlerts
     voiceMode = snapshot.voiceMode
     voiceIdentifier = snapshot.voiceIdentifier
-    mapViewController?.apply(snapshot: snapshot)
+    mapViewController?.apply(
+      snapshot: snapshot,
+      suppressNavigationRoute: ignoresStoppedNavigation
+    )
 
-    if snapshot.navigation.isNavigating,
+    var finishedFromSnapshot = false
+    if ignoresStoppedNavigation {
+      activeRoute = nil
+      locationEngine.setRoute([])
+    } else if snapshot.navigation.isNavigating,
       let destination = snapshot.destination,
       snapshot.route.count >= 2
     {
+      lastAuthoritativeGuidanceAt = Date()
+      dismissedPhonePreviewKey = ""
       let route = routeFromSnapshot(snapshot, destination: destination)
       activeRoute = route
       ensureNavigationSession(route: route)
@@ -214,28 +266,33 @@ public final class VroomCarPlayCoordinator: NSObject {
       let destination = snapshot.destination,
       activeRoute == nil
     {
-      let previewKey =
-        "\(destination.coordinate.latitude):" +
-        "\(destination.coordinate.longitude):" +
-        snapshot.alternatives.map {
-          "\($0.distanceMeters):\($0.durationSeconds)"
-        }.joined(separator: "|")
-      if previewKey != lastPhonePreviewKey {
+      let previewKey = phonePreviewKey(
+        destination: destination,
+        routes: snapshot.alternatives
+      )
+      if previewKey != lastPhonePreviewKey,
+        previewKey != dismissedPhonePreviewKey
+      {
         lastPhonePreviewKey = previewKey
         presentRouteChoices(snapshot.alternatives)
       }
     } else if navigationSession != nil {
       finishNavigation(arrived: snapshot.arrived, emitStop: false)
+      finishedFromSnapshot = true
     }
-    locationEngine.setRoute(
-      activeRoute?.points ??
-        (snapshot.navigation.isNavigating ? snapshot.route : [])
-    )
+    let locationRoute: [VroomCoordinate] = ignoresStoppedNavigation
+      ? []
+      : (activeRoute?.points ??
+        (snapshot.navigation.isNavigating ? snapshot.route : []))
+    locationEngine.setRoute(locationRoute)
 
     if snapshot.offRoute, let pose = locationEngine.latestPose() {
       reroute(from: pose)
     }
-    if snapshot.arrived {
+    if snapshot.arrived,
+      !ignoresStoppedNavigation,
+      !finishedFromSnapshot
+    {
       finishNavigation(arrived: true, emitStop: false)
     }
     presentHighestPriorityWarning(from: snapshot)
@@ -572,6 +629,13 @@ public final class VroomCarPlayCoordinator: NSObject {
     routeChoice: CPRouteChoice,
     route: VroomAlternativeRoute
   ) {
+    dismissedPhonePreviewKey = ""
+    dismissedNavigationRouteKey = ""
+    awaitingPhoneStopAcknowledgement = false
+    lastAuthoritativeGuidanceAt = .distantPast
+    lastNativeGuidanceAt = .distantPast
+    lastNativeRouteKey = ""
+    lastNativeRouteFraction = 0
     mapTemplate?.hideTripPreviews()
     activeTrip = trip
     activeRoute = route
@@ -580,6 +644,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     mapViewController?.showActiveRoute(route)
     locationEngine.setRoute(route.points)
     navigationSession?.cancelTrip()
+    resetManeuverState()
     navigationSession = mapTemplate?.startNavigationSession(for: trip)
     mapTemplate?.tripEstimateStyle = .dark
     publishRouteToPhone(route)
@@ -619,6 +684,7 @@ public final class VroomCarPlayCoordinator: NSObject {
       routeChoices: [choice]
     )
     activeTrip = trip
+    resetManeuverState()
     navigationSession = mapTemplate.startNavigationSession(for: trip)
     mapTemplate.tripEstimateStyle = .dark
   }
@@ -627,6 +693,7 @@ public final class VroomCarPlayCoordinator: NSObject {
     let steps = [state.current] + state.upcoming
     updateManeuvers(
       steps: steps,
+      currentManeuverDistance: state.turnDistanceMeters,
       remainingDistance: state.remainingDistanceMeters,
       remainingDuration: state.remainingDurationSeconds
     )
@@ -636,7 +703,8 @@ public final class VroomCarPlayCoordinator: NSObject {
     route: VroomAlternativeRoute,
     currentIndex: Int,
     remainingDistance: Int,
-    remainingDuration: Int
+    remainingDuration: Int,
+    currentManeuverDistance: Int? = nil
   ) {
     let start = min(max(0, currentIndex), max(0, route.steps.count - 1))
     let steps =
@@ -651,6 +719,7 @@ public final class VroomCarPlayCoordinator: NSObject {
       : Array(route.steps.dropFirst(start).prefix(4))
     updateManeuvers(
       steps: steps,
+      currentManeuverDistance: currentManeuverDistance,
       remainingDistance: remainingDistance,
       remainingDuration: remainingDuration
     )
@@ -658,39 +727,106 @@ public final class VroomCarPlayCoordinator: NSObject {
 
   private func updateManeuvers(
     steps: [VroomNavigationStep],
+    currentManeuverDistance: Int? = nil,
     remainingDistance: Int?,
     remainingDuration: Int?
   ) {
     guard let navigationSession else {
       return
     }
-    let maneuvers = steps.prefix(4).map { step -> CPManeuver in
-      let maneuver = CPManeuver()
-      maneuver.instructionVariants = [step.instruction]
-      maneuver.symbolImage = maneuverImage(for: VroomManeuverKind.resolve(step))
-      maneuver.initialTravelEstimates = CPTravelEstimates(
-        distanceRemaining: Measurement(
-          value: Double(max(0, step.distanceMeters ?? remainingDistance ?? 0)),
-          unit: UnitLength.meters
-        ),
-        timeRemaining: TimeInterval(max(0, remainingDuration ?? 0))
-      )
-      return maneuver
+    let visibleSteps = Array(steps.prefix(4))
+    let sequenceKey = visibleSteps.map {
+      "\($0.maneuver):\($0.modifier):\($0.exit ?? -1):\($0.instruction)"
+    }.joined(separator: "|")
+    let sequenceChanged = sequenceKey != maneuverSequenceKey
+    if sequenceChanged {
+      maneuverSequenceKey = sequenceKey
+      renderedManeuvers = visibleSteps.enumerated().map { index, step -> CPManeuver in
+        let distance = max(
+          0,
+          (index == 0 ? currentManeuverDistance : nil) ??
+            step.distanceMeters ??
+            0
+        )
+        let maneuver = CPManeuver()
+        maneuver.instructionVariants = [step.instruction]
+        maneuver.symbolImage = maneuverImage(
+          for: VroomManeuverKind.resolve(step)
+        )
+        maneuver.initialTravelEstimates = CPTravelEstimates(
+          distanceRemaining: distanceMeasurement(distance),
+          timeRemaining: maneuverDuration(
+            distance: distance,
+            remainingDistance: remainingDistance,
+            remainingDuration: remainingDuration
+          )
+        )
+        return maneuver
+      }
+      navigationSession.upcomingManeuvers = renderedManeuvers
     }
-    navigationSession.upcomingManeuvers = maneuvers
-    if let first = maneuvers.first {
-      let estimates = CPTravelEstimates(
-        distanceRemaining: Measurement(
-          value: Double(max(0, remainingDistance ?? 0)),
-          unit: UnitLength.meters
-        ),
-        timeRemaining: TimeInterval(max(0, remainingDuration ?? 0))
+    if let first = renderedManeuvers.first {
+      let maneuverDistance = max(
+        0,
+        currentManeuverDistance ?? visibleSteps.first?.distanceMeters ?? 0
       )
-      navigationSession.updateEstimates(estimates, for: first)
+      let maneuverEstimates = CPTravelEstimates(
+        distanceRemaining: distanceMeasurement(maneuverDistance),
+        timeRemaining: maneuverDuration(
+          distance: maneuverDistance,
+          remainingDistance: remainingDistance,
+          remainingDuration: remainingDuration
+        )
+      )
+      let tripDistance = max(0, remainingDistance ?? 0)
+      let now = Date()
+      let shouldRefreshEstimates =
+        sequenceChanged ||
+        now.timeIntervalSince(lastEstimateUpdateAt) >= 0.8 ||
+        abs(maneuverDistance - lastRenderedManeuverDistance) >= 40 ||
+        abs(tripDistance - lastRenderedTripDistance) >= 100
+      guard shouldRefreshEstimates else { return }
+      lastEstimateUpdateAt = now
+      lastRenderedManeuverDistance = maneuverDistance
+      lastRenderedTripDistance = tripDistance
+      navigationSession.updateEstimates(maneuverEstimates, for: first)
       if let activeTrip {
-        mapTemplate?.updateEstimates(estimates, for: activeTrip)
+        let tripEstimates = CPTravelEstimates(
+          distanceRemaining: distanceMeasurement(
+            tripDistance
+          ),
+          timeRemaining: TimeInterval(max(0, remainingDuration ?? 0))
+        )
+        mapTemplate?.updateEstimates(tripEstimates, for: activeTrip)
       }
     }
+  }
+
+  private func distanceMeasurement(_ meters: Int) -> Measurement<UnitLength> {
+    if meters >= 1_000 {
+      return Measurement(
+        value: Double(meters) / 1_000,
+        unit: UnitLength.kilometers
+      )
+    }
+    return Measurement(value: Double(meters), unit: UnitLength.meters)
+  }
+
+  private func maneuverDuration(
+    distance: Int,
+    remainingDistance: Int?,
+    remainingDuration: Int?
+  ) -> TimeInterval {
+    guard distance > 0,
+      let remainingDistance,
+      remainingDistance > 0,
+      let remainingDuration,
+      remainingDuration > 0
+    else {
+      return 0
+    }
+    let ratio = min(1, Double(distance) / Double(remainingDistance))
+    return TimeInterval(Double(remainingDuration) * ratio)
   }
 
   private func handle(pose: VroomCarPlayPose) {
@@ -699,10 +835,165 @@ public final class VroomCarPlayCoordinator: NSObject {
       Int(Date().timeIntervalSince(pose.timestamp) * 1_000)
     )
     mapViewController?.update(pose: pose)
+    updateNativeGuidanceIfNeeded(pose)
     VroomCarPlayLiveClient.shared.publish(
       pose,
       navigating: activeRoute != nil
     )
+  }
+
+  private func updateNativeGuidanceIfNeeded(_ pose: VroomCarPlayPose) {
+    guard let route = activeRoute,
+      route.points.count >= 2,
+      navigationSession != nil,
+      Date().timeIntervalSince(lastAuthoritativeGuidanceAt) >= 1.25,
+      Date().timeIntervalSince(lastNativeGuidanceAt) >= 0.45,
+      let progress = routeProgress(
+        coordinate: pose.rawCoordinate,
+        route: route.points
+      ),
+      progress.distanceFromRoute <= max(80, pose.horizontalAccuracy * 2)
+    else {
+      return
+    }
+    let now = Date()
+    let routeDistance = max(1, route.distanceMeters)
+    let routeKey = navigationRouteKey(
+      route: route.points,
+      destination: route.destination
+    )
+    let routeFraction: Double
+    if routeKey != lastNativeRouteKey {
+      lastNativeRouteKey = routeKey
+      routeFraction = progress.fraction
+    } else {
+      let elapsed = max(0.45, now.timeIntervalSince(lastNativeGuidanceAt))
+      let maximumAdvanceMeters = max(
+        40,
+        pose.speedMetersPerSecond * elapsed * 2 + pose.horizontalAccuracy
+      )
+      routeFraction = max(
+        lastNativeRouteFraction,
+        min(
+          progress.fraction,
+          lastNativeRouteFraction + maximumAdvanceMeters / Double(routeDistance)
+        )
+      )
+    }
+    lastNativeRouteFraction = routeFraction
+    lastNativeGuidanceAt = now
+    let traveledDistance = min(
+      routeDistance,
+      max(0, Int((Double(routeDistance) * routeFraction).rounded()))
+    )
+    let remainingDistance = max(0, routeDistance - traveledDistance)
+    let remainingDuration = max(
+      0,
+      Int(
+        (Double(route.durationSeconds) *
+          Double(remainingDistance) / Double(routeDistance)).rounded()
+      )
+    )
+    let stepProgress = currentStepProgress(
+      steps: route.steps,
+      traveledDistance: traveledDistance,
+      routeDistance: routeDistance
+    )
+    updateGuidance(
+      route: route,
+      currentIndex: stepProgress.index,
+      remainingDistance: remainingDistance,
+      remainingDuration: remainingDuration,
+      currentManeuverDistance: stepProgress.distanceToManeuver
+    )
+  }
+
+  private func routeProgress(
+    coordinate: VroomCoordinate,
+    route: [VroomCoordinate]
+  ) -> (fraction: Double, distanceFromRoute: Double)? {
+    guard route.count >= 2 else { return nil }
+    let originLatitude = coordinate.latitude * .pi / 180
+    let metersPerDegreeLatitude = 111_132.0
+    let metersPerDegreeLongitude = max(1, 111_320.0 * cos(originLatitude))
+    func point(_ value: VroomCoordinate) -> CGPoint {
+      CGPoint(
+        x: CGFloat(
+          (value.longitude - coordinate.longitude) * metersPerDegreeLongitude
+        ),
+        y: CGFloat(
+          (value.latitude - coordinate.latitude) * metersPerDegreeLatitude
+        )
+      )
+    }
+
+    var segmentLengths = [Double]()
+    segmentLengths.reserveCapacity(route.count - 1)
+    var totalLength = 0.0
+    for index in 0..<(route.count - 1) {
+      let first = point(route[index])
+      let second = point(route[index + 1])
+      let length = hypot(Double(second.x - first.x), Double(second.y - first.y))
+      segmentLengths.append(length)
+      totalLength += length
+    }
+    guard totalLength > 0 else { return nil }
+
+    var bestDistance = Double.greatestFiniteMagnitude
+    var bestAlong = 0.0
+    var walked = 0.0
+    for index in 0..<segmentLengths.count {
+      let first = point(route[index])
+      let second = point(route[index + 1])
+      let dx = Double(second.x - first.x)
+      let dy = Double(second.y - first.y)
+      let lengthSquared = dx * dx + dy * dy
+      let fraction = lengthSquared > 0
+        ? min(1, max(0, -(Double(first.x) * dx + Double(first.y) * dy) / lengthSquared))
+        : 0
+      let projectedX = Double(first.x) + dx * fraction
+      let projectedY = Double(first.y) + dy * fraction
+      let distance = hypot(projectedX, projectedY)
+      if distance < bestDistance {
+        bestDistance = distance
+        bestAlong = walked + segmentLengths[index] * fraction
+      }
+      walked += segmentLengths[index]
+    }
+    return (
+      fraction: min(1, max(0, bestAlong / totalLength)),
+      distanceFromRoute: bestDistance
+    )
+  }
+
+  private func currentStepProgress(
+    steps: [VroomNavigationStep],
+    traveledDistance: Int,
+    routeDistance: Int
+  ) -> (index: Int, distanceToManeuver: Int?) {
+    guard !steps.isEmpty else { return (0, nil) }
+    let measuredStepDistance = steps.reduce(0) {
+      $0 + max(0, $1.distanceMeters ?? 0)
+    }
+    guard measuredStepDistance > 0 else { return (0, nil) }
+    let scaledTravel = min(
+      measuredStepDistance,
+      max(
+        0,
+        Int(
+          (Double(traveledDistance) *
+            Double(measuredStepDistance) / Double(max(1, routeDistance))).rounded()
+        )
+      )
+    )
+    var cumulative = 0
+    for (index, step) in steps.enumerated() {
+      cumulative += max(0, step.distanceMeters ?? 0)
+      if scaledTravel < cumulative || index == steps.count - 1 {
+        return (index, max(0, cumulative - scaledTravel))
+      }
+    }
+    return (steps.count - 1, 0)
   }
 
   private func startRoadLayerRefresh() {
@@ -760,6 +1051,10 @@ public final class VroomCarPlayCoordinator: NSObject {
       }
       rerouteCount += 1
       activeRoute = replacement
+      lastAuthoritativeGuidanceAt = .distantPast
+      lastNativeGuidanceAt = .distantPast
+      lastNativeRouteKey = ""
+      lastNativeRouteFraction = 0
       locationEngine.setRoute(replacement.points)
       mapViewController?.showActiveRoute(replacement)
       publishRouteToPhone(replacement, reason: "reroute")
@@ -774,6 +1069,27 @@ public final class VroomCarPlayCoordinator: NSObject {
   }
 
   private func finishNavigation(arrived: Bool, emitStop: Bool) {
+    guard !isFinishingNavigation else { return }
+    isFinishingNavigation = true
+    defer { isFinishingNavigation = false }
+    if emitStop {
+      VroomCarPlayStateStore.shared.markExplicitCarPlayAction()
+    }
+    if emitStop || arrived {
+      dismissedNavigationRouteKey = activeRoute.map {
+        navigationRouteKey(route: $0.points, destination: $0.destination)
+      } ?? navigationRouteKey(
+        route: currentSnapshot?.route ?? [],
+        destination: currentSnapshot?.destination
+      )
+      awaitingPhoneStopAcknowledgement = true
+    }
+    if let snapshot = currentSnapshot, let destination = snapshot.destination {
+      dismissedPhonePreviewKey = phonePreviewKey(
+        destination: destination,
+        routes: snapshot.alternatives
+      )
+    }
     if arrived {
       navigationSession?.finishTrip()
       speak("Jesteś na miejscu")
@@ -788,9 +1104,14 @@ public final class VroomCarPlayCoordinator: NSObject {
     locationEngine.setRoute([])
     mapTemplate?.hideTripPreviews()
     mapViewController?.clearRoutePreview()
+    VroomCarPlayStateStore.shared.discardPersistedSnapshot()
     resetSpeechState()
+    resetManeuverState()
+    lastAuthoritativeGuidanceAt = .distantPast
+    lastNativeGuidanceAt = .distantPast
+    lastNativeRouteKey = ""
+    lastNativeRouteFraction = 0
     if emitStop {
-      VroomCarPlayStateStore.shared.markExplicitCarPlayAction()
       emitEvent?("stopRequested", ["source": "carplay"])
     }
   }
@@ -1095,6 +1416,14 @@ public final class VroomCarPlayCoordinator: NSObject {
     lastVoiceAt = .distantPast
   }
 
+  private func resetManeuverState() {
+    maneuverSequenceKey = ""
+    renderedManeuvers = []
+    lastEstimateUpdateAt = .distantPast
+    lastRenderedManeuverDistance = -1
+    lastRenderedTripDistance = -1
+  }
+
   private func isSpeakableManeuver(_ step: VroomNavigationStep) -> Bool {
     let clean = "\(step.maneuver) \(step.modifier)".lowercased()
     return !["depart", "notification", "new name", "continue", "straight"]
@@ -1244,15 +1573,49 @@ public final class VroomCarPlayCoordinator: NSObject {
     }
     return String(format: "%.1f km", Double(meters) / 1_000)
   }
+
+  private func phonePreviewKey(
+    destination: VroomDestination,
+    routes: [VroomAlternativeRoute]
+  ) -> String {
+    "\(destination.coordinate.latitude):" +
+      "\(destination.coordinate.longitude):" +
+      routes.map {
+        "\($0.distanceMeters):\($0.durationSeconds)"
+      }.joined(separator: "|")
+  }
+
+  private func navigationRouteKey(
+    route: [VroomCoordinate],
+    destination: VroomDestination?
+  ) -> String {
+    guard let first = route.first, let last = route.last else { return "empty" }
+    let middle = route[route.count / 2]
+    return String(
+      format: "%d:%.5f:%.5f:%.5f:%.5f:%.5f:%.5f:%@",
+      route.count,
+      first.latitude,
+      first.longitude,
+      middle.latitude,
+      middle.longitude,
+      last.latitude,
+      last.longitude,
+      destination?.name ?? ""
+    )
+  }
 }
 
 extension VroomCarPlayCoordinator: CPMapTemplateDelegate {
   public func mapTemplateDidCancelNavigation(
     _ mapTemplate: CPMapTemplate
   ) {
-    previewRoutes = []
-    routeChoices = [:]
-    mapViewController?.clearRoutePreview()
+    guard !isFinishingNavigation else { return }
+    if navigationSession != nil || activeRoute != nil || !previewRoutes.isEmpty {
+      finishNavigation(arrived: false, emitStop: true)
+    } else {
+      mapTemplate.hideTripPreviews()
+      mapViewController?.clearRoutePreview()
+    }
   }
 
   public func mapTemplate(

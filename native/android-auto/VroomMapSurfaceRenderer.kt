@@ -61,9 +61,6 @@ import com.mapbox.maps.plugin.scalebar.scalebar
 import com.mapbox.maps.plugin.locationcomponent.LocationConsumer
 import com.mapbox.maps.plugin.locationcomponent.LocationProvider
 import com.mapbox.maps.plugin.locationcomponent.location
-import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateBearing
-import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateOptions
-import com.mapbox.maps.plugin.viewport.state.FollowPuckViewportState
 import com.mapbox.maps.plugin.viewport.viewport
 import org.json.JSONArray
 import org.json.JSONObject
@@ -137,8 +134,6 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var lastUserInteractionAt = 0L
     private var lastRoutePreviewActive = false
     private var followViewportActive = false
-    private var followViewportMode = ""
-    private var followPuckViewportState: FollowPuckViewportState? = null
     private val snappedLocationProvider = SnappedLocationProvider()
     private var mapMarkerAnnotationManager: PointAnnotationManager? = null
     private var liveUserAnnotationManager: PointAnnotationManager? = null
@@ -169,7 +164,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             }
             val frameNs = System.nanoTime()
             overlay?.tickRenderedPose(frameNs)
-            overlay?.renderedPose()?.let { (lat, lng, heading) ->
+            val renderedPose = overlay?.renderedPose()
+            renderedPose?.let { (lat, lng, heading) ->
                 snappedLocationProvider.update(lat, lng, heading)
             }
             val snap = latestPayload
@@ -185,9 +181,13 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                 syncRouteAnnotation(snap)
             }
             val cameraNow = SystemClock.elapsedRealtime()
-            if (!userBrowsing && snap?.mapState?.routePreview != true && cameraNow - lastCameraPolicyAt >= 100L) {
-                updateStableCameraSpeed(cameraNow)
-                activateFollowPuck()
+            if (!userBrowsing && snap?.mapState?.routePreview != true) {
+                if (cameraNow - lastCameraPolicyAt >= 100L) {
+                    updateStableCameraSpeed(cameraNow)
+                }
+                renderedPose?.let { (lat, lng, heading) ->
+                    updateFollowCamera(lat, lng, heading)
+                }
             }
             mainHandler.postDelayed(this, 16L)
         }
@@ -293,7 +293,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             lastViewportKey = ""
             followViewportActive = false
             mainHandler.post {
-                if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+                if (latestPayload?.mapState?.routePreview == true) updateMap() else updateFollowCamera(force = true)
             }
         }
     }
@@ -306,7 +306,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         lastViewportKey = ""
         followViewportActive = false
         mainHandler.post {
-            if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+            if (latestPayload?.mapState?.routePreview == true) updateMap() else updateFollowCamera(force = true)
         }
     }
 
@@ -526,7 +526,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         mapView = nextMapView
         overlay = nextOverlay
         followViewportActive = false
-        activateFollowPuck()
+        updateFollowCamera()
         startPoseTickLoop()
     }
 
@@ -558,7 +558,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                 )
             }
         } else if (forceFollow || !userBrowsing) {
-            activateFollowPuck(force = forceFollow)
+            updateFollowCamera(force = forceFollow)
         }
 
         overlay?.followMode = !userBrowsing || forceFollow
@@ -586,8 +586,20 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         return EARTH_RADIUS_M * 2.0 * kotlin.math.atan2(Math.sqrt(a.coerceIn(0.0, 1.0)), Math.sqrt(1.0 - a.coerceIn(0.0, 1.0)))
     }
 
-    private fun activateFollowPuck(force: Boolean = false) {
-        val viewport = mapView?.viewport ?: return
+    private fun updateFollowCamera(force: Boolean = false) {
+        val rendered = overlay?.renderedPose()
+        val lat = rendered?.first ?: latestPayload?.userLat ?: return
+        val lng = rendered?.second ?: latestPayload?.userLng ?: return
+        val heading = rendered?.third
+            ?: latestPayload?.heading?.takeIf { it.isFinite() }
+            ?: lastCameraBearing
+        updateFollowCamera(lat, lng, heading, force)
+    }
+
+    private fun updateFollowCamera(lat: Double, lng: Double, heading: Double, force: Boolean = false) {
+        if (!lat.isFinite() || !lng.isFinite()) return
+        val currentMapView = mapView ?: return
+        val map = currentMapView.getMapboxMap()
         val navigating = latestPayload?.isNavigating == true
         val mode = if (navigating) "navigation" else "free-drive"
         val speedKmh = stableCameraSpeedKmh.takeIf { latestCameraSpeedKmh.isFinite() }
@@ -615,23 +627,30 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             append(targetSpec.bottomPadding.toInt()).append(':')
             append(targetSpec.rightPadding.toInt())
         }
-        val options = FollowPuckViewportStateOptions.Builder()
-            .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck)
-            .zoom(zoom)
-            .pitch(targetSpec.pitch)
-            .padding(EdgeInsets(targetSpec.topPadding, targetSpec.leftPadding, targetSpec.bottomPadding, targetSpec.rightPadding))
-            .build()
-        val existingState = followPuckViewportState
-        if (followViewportActive && followViewportMode == mode && viewportKey == lastViewportKey && !force) return
-        val followState = existingState ?: viewport.makeFollowPuckViewportState(options).also {
-            followPuckViewportState = it
+        val normalizedBearing = if (heading.isFinite()) {
+            ((heading % 360.0) + 360.0) % 360.0
+        } else {
+            lastCameraBearing
         }
-        if (existingState != null) followState.options = options
-        val needsTransition = !followViewportActive || force
-        followViewportMode = mode
+        if (!followViewportActive || force) {
+            currentMapView.viewport.idle()
+        }
+        map.setCamera(
+            CameraOptions.Builder()
+                .center(Point.fromLngLat(lng, lat))
+                .bearing(normalizedBearing)
+                .zoom(zoom)
+                .pitch(targetSpec.pitch)
+                .padding(EdgeInsets(targetSpec.topPadding, targetSpec.leftPadding, targetSpec.bottomPadding, targetSpec.rightPadding))
+                .build()
+        )
+        lastCameraLat = lat
+        lastCameraLng = lng
+        lastCameraBearing = normalizedBearing
+        lastCameraZoom = zoom
+        lastCameraPitch = targetSpec.pitch
         followViewportActive = true
         lastViewportKey = viewportKey
-        if (needsTransition) viewport.transitionTo(followState)
     }
 
     private fun applyHudInsetsFromOverlay(insets: AutoHudInsets, uiScale: Float) {
@@ -649,7 +668,7 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         }
         followViewportActive = false
         mainHandler.post {
-            if (latestPayload?.mapState?.routePreview == true) updateMap() else activateFollowPuck(force = true)
+            if (latestPayload?.mapState?.routePreview == true) updateMap() else updateFollowCamera(force = true)
         }
     }
 
@@ -1267,8 +1286,6 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
         runCatching { mapView?.onDestroy() }
         mapView = null
         followViewportActive = false
-        followViewportMode = ""
-        followPuckViewportState = null
         lastViewportKey = ""
         lastCameraPolicyAt = 0L
         overlay = null

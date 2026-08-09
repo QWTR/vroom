@@ -27,7 +27,8 @@ describe('Android Auto canonical renderer', () => {
     expect(source).toContain('if (followMode) return 0.0');
     expect(source).toContain('private fun segmentProgress');
     expect(source).toContain('segmentDurationMs = 300L');
-    expect(source).toContain('followState.options = options');
+    expect(source).toContain('updateFollowCamera(lat, lng, heading)');
+    expect(source).toContain('.center(Point.fromLngLat(lng, lat))');
     expect(source).toContain('cameraNow - lastCameraPolicyAt >= 100L');
   });
 
@@ -79,7 +80,7 @@ describe('Android Auto canonical renderer', () => {
   it('uses Socket.IO for Live and publishes snapped display pose with private raw validation data', () => {
     const source = readFileSync(resolve('native/android-auto/AutoLiveFleetSocketClient.kt'), 'utf8');
 
-    expect(source).toContain('next.emit("live:join")');
+    expect(source).toContain('next.emit("live:join", bootstrap');
     expect(source).toContain('next.on("user:location")');
     expect(source).toContain('next.on("live:users:snapshot")');
     expect(source).toContain('.put("rawLat", rawLat)');

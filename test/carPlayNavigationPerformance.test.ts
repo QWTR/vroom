@@ -57,4 +57,32 @@ describe("CarPlay navigation performance safeguards", () => {
     expect(live).toContain("moved >= 3 || elapsed >= 5");
     expect(live).not.toContain("now - lastPublishAt >= 0.8 || moved >= 4");
   });
+
+  it("keeps a cancelled route cleared until the phone acknowledges stop", () => {
+    const clearRoutePreview = map.match(
+      /public func clearRoutePreview\(\)[\s\S]*?(?=\n  public func showActiveRoute)/,
+    )?.[0] ?? "";
+
+    expect(clearRoutePreview).toContain("routeManager.annotations = []");
+    expect(clearRoutePreview).not.toContain("renderRoutes(currentSnapshot)");
+    expect(coordinator).toContain("awaitingPhoneStopAcknowledgement");
+    expect(coordinator).toContain("suppressNavigationRoute: ignoresStoppedNavigation");
+    expect(coordinator).toContain("discardPersistedSnapshot()");
+  });
+
+  it("uses valid shared GPS fixes and falls back to phone snapshots", () => {
+    expect(location).toContain("guard ingest(location, hardwareFix: true) else");
+    expect(location).toContain("func ingestSnapshot(");
+    expect(location).toContain("!self.usingSharedLocation");
+    expect(location).toContain("latestLocation = nil");
+    expect(coordinator).toContain("locationEngine.ingestSnapshot(");
+  });
+
+  it("separates maneuver distance from trip distance without rebuilding cards", () => {
+    expect(coordinator).toContain("currentManeuverDistance: state.turnDistanceMeters");
+    expect(coordinator).toContain("if sequenceChanged {");
+    expect(coordinator).toContain("if meters >= 1_000 {");
+    expect(coordinator).toContain("updateNativeGuidanceIfNeeded(pose)");
+    expect(coordinator).toContain("lastEstimateUpdateAt");
+  });
 });

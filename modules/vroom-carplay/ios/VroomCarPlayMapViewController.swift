@@ -55,6 +55,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
   private var lastUserSignature = ""
   private var lastDestinationSignature = ""
   private var lastOverviewRouteSignature = ""
+  private var suppressedRouteSignature: String?
 
   public init() {
     if let token = Bundle.main.object(forInfoDictionaryKey: "MBXAccessToken")
@@ -129,10 +130,21 @@ public final class VroomCarPlayMapViewController: UIViewController {
     }
   }
 
-  public func apply(snapshot: VroomCarPlaySnapshot) {
+  public func apply(
+    snapshot: VroomCarPlaySnapshot,
+    suppressNavigationRoute: Bool = false
+  ) {
     currentSnapshot = snapshot
-    if snapshot.navigation.isNavigating {
+    if suppressNavigationRoute {
+      isActivelyNavigating = false
+      suppressedRouteSignature = routeSignature(snapshot.route)
+    } else if snapshot.navigation.isNavigating {
       isActivelyNavigating = true
+      suppressedRouteSignature = nil
+    } else if let suppressedRouteSignature,
+      suppressedRouteSignature != routeSignature(snapshot.route)
+    {
+      self.suppressedRouteSignature = nil
     }
     configureStyle(snapshot.mapStyle)
     renderRoutes(snapshot)
@@ -157,6 +169,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
     }
     if !isActivelyNavigating,
       previewRoutes == nil,
+      !isRouteSuppressed(snapshot),
       !snapshot.route.isEmpty
     {
       let signature = routeSignature(snapshot.route)
@@ -324,6 +337,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
     _ routes: [VroomAlternativeRoute],
     selectedIndex: Int
   ) {
+    suppressedRouteSignature = nil
     previewRoutes = routes
     if let currentSnapshot {
       renderMarkers(currentSnapshot)
@@ -370,18 +384,23 @@ public final class VroomCarPlayMapViewController: UIViewController {
   }
 
   public func clearRoutePreview() {
+    if let currentSnapshot {
+      suppressedRouteSignature = routeSignature(currentSnapshot.route)
+    }
     previewRoutes = nil
     isActivelyNavigating = false
     lastRouteSignature = ""
     lastOverviewRouteSignature = ""
+    lastDestinationSignature = ""
+    routeShadowManager.annotations = []
+    routeManager.annotations = []
+    alternativeManager.annotations = []
+    builderRouteManager.annotations = []
+    destinationMarkerManager.annotations = []
     if let currentSnapshot {
-      renderRoutes(currentSnapshot)
       renderMarkers(currentSnapshot)
-    } else {
-      routeShadowManager.annotations = []
-      routeManager.annotations = []
-      alternativeManager.annotations = []
     }
+    recenter()
   }
 
   public func showActiveRoute(_ route: VroomAlternativeRoute) {
@@ -573,6 +592,13 @@ public final class VroomCarPlayMapViewController: UIViewController {
     guard previewRoutes == nil else {
       return
     }
+    if isRouteSuppressed(snapshot) {
+      routeShadowManager.annotations = []
+      routeManager.annotations = []
+      alternativeManager.annotations = []
+      builderRouteManager.annotations = []
+      return
+    }
     let signature = [
       routeSignature(snapshot.route),
       snapshot.alternatives.map { routeSignature($0.points) }.joined(separator: ";"),
@@ -714,7 +740,7 @@ public final class VroomCarPlayMapViewController: UIViewController {
       lastPOISignature = poiSignature
       poiMarkerManager.annotations = points.map(markerAnnotation)
     }
-    if let destination = snapshot.destination {
+    if !isRouteSuppressed(snapshot), let destination = snapshot.destination {
       let signature =
         "\(destination.coordinate.latitude):" +
         "\(destination.coordinate.longitude):\(destination.name)"
@@ -1103,6 +1129,15 @@ public final class VroomCarPlayMapViewController: UIViewController {
       String(format: "%.5f:%.5f:", first.latitude, first.longitude) +
       String(format: "%.5f:%.5f:", middle.latitude, middle.longitude) +
       String(format: "%.5f:%.5f", last.latitude, last.longitude)
+  }
+
+  private func isRouteSuppressed(_ snapshot: VroomCarPlaySnapshot) -> Bool {
+    guard !isActivelyNavigating,
+      let suppressedRouteSignature
+    else {
+      return false
+    }
+    return suppressedRouteSignature == routeSignature(snapshot.route)
   }
 
   private func sanitizedLabel(_ value: String) -> String {
