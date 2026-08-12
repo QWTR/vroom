@@ -31,6 +31,7 @@ import { AppTutorialProvider, useAppTutorial } from '../contexts/AppTutorialCont
 import { API_URL } from '../constants/config';
 import { BackgroundLocationDisclosureModal } from '../components/privacy/BackgroundLocationDisclosureModal';
 import { UgcTermsGate } from '../components/ugc/UgcTermsGate';
+import { getLegalAcceptanceStatus } from '../lib/legalActions';
 import { MaintenanceGate } from '../components/maintenance/MaintenanceGate';
 import { UpdateModal } from '../components/modals/UpdateModal';
 import { fetchMaintenanceStatus, shouldBlockApp } from '../lib/maintenance';
@@ -579,8 +580,11 @@ function RootLayoutInner() {
       setGatesSettled(true);
       return;
     }
-    const needsUgc = await AsyncStorage.getItem('needsUgcTerms');
-    if (needsUgc === '1') {
+    const [needsUgc, legalStatus] = await Promise.all([
+      AsyncStorage.getItem('needsUgcTerms'),
+      getLegalAcceptanceStatus(),
+    ]);
+    if (needsUgc === '1' || !legalStatus.accepted) {
       setUgcTermsVisible(true);
       return;
     }

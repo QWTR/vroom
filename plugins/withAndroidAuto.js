@@ -202,6 +202,7 @@ const withAndroidAutoNative = (config) => {
         'AutoMapStylePolicy.kt',
         'AutoNavigationCoordinator.kt',
         'AutoNavigationIntentHandler.kt',
+        'AutoNavigationRoutePolicy.kt',
         'AutoPendingNavigation.kt',
         'AutoHudMetrics.kt',
         'AutoRoadPosePolicy.kt',

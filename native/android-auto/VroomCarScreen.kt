@@ -244,7 +244,14 @@ class VroomCarScreen(carContext: CarContext) : Screen(carContext), SurfaceCallba
         val following = payload?.followingInstruction ?: snapshot?.followingInstruction ?: ""
         val voice = AutoNavStore.navigationVoiceEnabled(carContext) ||
             AutoNavStore.voiceAlertsEnabled(carContext)
-        return "$isNavigating:$isPreview:$cue:$maneuver:$modifier:$following:$distance:$voice:${effectiveNightModeActive()}"
+        val navigationState = when {
+            payload?.mapState?.arrived == true -> "arrived"
+            payload?.mapState?.isBuilding == true -> "building"
+            payload?.mapState?.offRoute == true -> "off-route"
+            payload?.isNavigating == true && (payload.userLat == null || payload.userLng == null) -> "gps"
+            else -> "ready"
+        }
+        return "$isNavigating:$isPreview:$navigationState:$cue:$maneuver:$modifier:$following:$distance:$voice:${effectiveNightModeActive()}"
     }
 
     fun setNightModeActive(isNightModeActive: Boolean) {

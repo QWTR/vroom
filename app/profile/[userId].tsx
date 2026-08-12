@@ -966,6 +966,16 @@ export default function PublicProfileScreen() {
               </View>
             )}
 
+            <TouchableOpacity
+              activeOpacity={0.84}
+              onPress={() => router.push({ pathname: '/profile/inventory', params: { userId: String(profile.id) } } as any)}
+              style={{ ...widgetGlass(), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+            >
+              <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
+              <View style={{ flex: 1 }}><Text style={{ color: palette.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>Ekwipunek @{profile.username}</Text><Text style={{ color: palette.textDim, fontSize: 10, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
+              <MaterialIcons name="arrow-forward-ios" size={14} color={palette.textDim} />
+            </TouchableOpacity>
+
             {/* ══ AUTA ══ */}
             <View style={glassSection()}>
               <SectionHeader title="AUTA" count={cars.length} icon="directions-car" palette={palette} />

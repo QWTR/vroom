@@ -142,10 +142,13 @@ object AutoLocationTracker {
 
         mainHandler.post {
             VroomCarManager.updateNativePose(
-                lat = displayLat,
-                lng = displayLng,
+                // Route progress and off-route detection must use the measured GPS fix.
+                // Feeding the road-matched pose here can pin navigation to a stale road
+                // after the driver takes a different turn.
+                lat = lat,
+                lng = lng,
                 speedMs = speedMs,
-                heading = displayHeading,
+                heading = heading,
                 accuracyMeters = accuracy
             )
         }

@@ -926,6 +926,18 @@ export default function ProfileView({
             />
           )}
 
+          <TouchableOpacity
+            activeOpacity={0.84}
+            onPress={() => isOwner
+              ? router.push('/profile/inventory' as any)
+              : router.push({ pathname: '/profile/inventory', params: { userId: String(profile?.id) } } as any)}
+            style={{ ...widgetGlass(theme), minHeight: 78, marginBottom: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+          >
+            <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(242,25,51,.14)', alignItems: 'center', justifyContent: 'center' }}><MaterialCommunityIcons name="package-variant-closed" size={24} color="#ff5368" /></View>
+            <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontFamily: 'Orbitron', fontSize: 13, fontWeight: '900' }}>{isOwner ? 'Mój ekwipunek' : `Ekwipunek @${profile?.username}`}</Text><Text style={{ color: theme.textDim, fontSize: 10, marginTop: 5 }}>Itemy, modele 3D i kosmetyki VROOM</Text></View>
+            <MaterialIcons name="arrow-forward-ios" size={14} color={theme.textDim} />
+          </TouchableOpacity>
+
           {/* ══ SPOŁECZNOŚĆ — jedna karta ══ */}
           <View style={{ ...widgetGlass(theme), padding: 0, marginBottom: 16, overflow: 'hidden' }}>
             <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>

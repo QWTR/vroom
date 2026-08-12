@@ -12,6 +12,7 @@ data class AutoNavigationRequest(
 ) {
     val shouldAutoStartNavigation: Boolean get() = intentMode == "navigation"
     val shouldShowRoutePreviewOnly: Boolean get() = intentMode == "directions"
+    val shouldShowSearchResults: Boolean get() = intentMode == "search"
     val hasCoordinates: Boolean
         get() = latitude != null && longitude != null &&
             latitude.isFinite() && longitude.isFinite() &&
@@ -36,12 +37,13 @@ object AutoNavigationIntentHandler {
 
     fun parse(intent: Intent?): AutoNavigationRequest? {
         if (intent == null) return null
-        val fromExtras = parseFromExtras(intent)
+        val fromExtras = runCatching { parseFromExtras(intent) }.getOrNull()
         val action = intent.action
         if (action == null || action !in supportedActions) return fromExtras
         val uri = intent.data ?: return fromExtras
         if (uri.scheme != "geo") return fromExtras
-        val fromUri = parseGeoUri(uri)
+        val defaultMode = if (action == Intent.ACTION_VIEW) "search" else "navigation"
+        val fromUri = runCatching { parseGeoUriInternal(uri, defaultMode) }.getOrNull()
         return mergeRequests(fromUri, fromExtras)
     }
 
@@ -55,16 +57,21 @@ object AutoNavigationIntentHandler {
                 putExtra(EXTRA_LNG, request.longitude!!)
             }
             putExtra(EXTRA_INTENT_MODE, request.intentMode)
-            if (request.hasCoordinates) {
-                data = Uri.parse("geo:${request.latitude},${request.longitude}")
-            } else if (request.hasQuery) {
-                data = Uri.parse("geo:0,0?q=${Uri.encode(request.query)}")
+            val coordinates = if (request.hasCoordinates) {
+                "${request.latitude},${request.longitude}"
+            } else {
+                "0,0"
             }
+            val parameters = buildList {
+                if (request.hasQuery) add("q=${Uri.encode(request.query)}")
+                add("intent=${Uri.encode(request.intentMode.ifBlank { "navigation" })}")
+            }
+            data = Uri.parse("geo:$coordinates?${parameters.joinToString("&")}")
         }
     }
 
     fun parseGeoUri(uri: Uri): AutoNavigationRequest? {
-        return runCatching { parseGeoUriInternal(uri) }.getOrNull()
+        return runCatching { parseGeoUriInternal(uri, "navigation") }.getOrNull()
     }
 
     private fun parseFromExtras(intent: Intent): AutoNavigationRequest? {
@@ -106,7 +113,7 @@ object AutoNavigationIntentHandler {
         )
     }
 
-    private fun parseGeoUriInternal(uri: Uri): AutoNavigationRequest? {
+    private fun parseGeoUriInternal(uri: Uri, defaultMode: String): AutoNavigationRequest? {
         val schemeSpecificPart = uri.schemeSpecificPart?.trim().orEmpty()
         if (schemeSpecificPart.isEmpty() || schemeSpecificPart == "/" || schemeSpecificPart == "//") {
             return null
@@ -116,7 +123,7 @@ object AutoNavigationIntentHandler {
         val coordsPart = parts[0].trim().removePrefix("//")
         val queryPart = parts.getOrNull(1).orEmpty()
 
-        val intentMode = queryParam(queryPart, "intent")?.lowercase(Locale.US) ?: "navigation"
+        val intentMode = queryParam(queryPart, "intent")?.lowercase(Locale.US) ?: defaultMode
         val query = queryParam(queryPart, "q")
 
         var lat: Double? = null

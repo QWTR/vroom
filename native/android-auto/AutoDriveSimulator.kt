@@ -77,6 +77,7 @@ object AutoDriveSimulator {
         if (segmentIndex >= routePoints.size - 1) {
             val last = routePoints.last()
             VroomCarManager.updateNativePose(last.first, last.second, 0.0, 0.0, 3f, fromSimulation = true)
+            AutoNavigationCoordinator.syncTripFromLatest(context)
             stop()
             return
         }
@@ -93,6 +94,7 @@ object AutoDriveSimulator {
         if (segmentIndex >= routePoints.size - 1) {
             val last = routePoints.last()
             VroomCarManager.updateNativePose(last.first, last.second, 0.0, 0.0, 3f, fromSimulation = true)
+            AutoNavigationCoordinator.syncTripFromLatest(context)
             stop()
             return
         }

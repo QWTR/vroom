@@ -13,11 +13,6 @@ object VroomCarManager {
     private const val KEY_MARKER_STYLE = "marker_style"
     private const val KEY_AVATAR_URL = "avatar_url"
     private const val AUTO_OSRM_BASE = "https://v-room.app/osrm"
-    private const val OFF_ROUTE_REROUTE_DISTANCE_M = 14.0
-    private const val OFF_ROUTE_HEADING_DISTANCE_M = 3.0
-    private const val OFF_ROUTE_HEADING_DELTA_DEG = 45.0
-    private const val OFF_ROUTE_HARD_HEADING_DELTA_DEG = 60.0
-    private const val OFF_ROUTE_HEADING_MIN_SPEED_MS = 2.0
     private const val REROUTE_MIN_INTERVAL_MS = 1_200L
 
     private var currentScreen: VroomCarScreen? = null
@@ -40,6 +35,7 @@ object VroomCarManager {
     @Volatile private var lastColdPayloadAt = 0L
     @Volatile private var lastNavigationArcM = 0.0
     @Volatile private var simulationMode = false
+    @Volatile private var lastSimulationProgressAt = 0L
 
     fun setScreen(screen: VroomCarScreen) {
         currentScreen = screen
@@ -105,6 +101,35 @@ object VroomCarManager {
         currentScreen?.showDriverAlert(text)
     }
 
+    fun showNavigationIntentLoading(destinationLabel: String) {
+        val base = runCatching {
+            if (latestPayloadJson.isBlank()) JSONObject() else JSONObject(latestPayloadJson)
+        }.getOrDefault(JSONObject())
+        val mapState = base.optJSONObject("mapState") ?: JSONObject()
+        mapState.put("isBuilding", true)
+        mapState.put("offRoute", false)
+        mapState.put("arrived", false)
+        mapState.put("searchQuery", destinationLabel.trim())
+        base.put("mapState", mapState)
+        if (!base.has("users")) base.put("users", JSONArray())
+        if (!base.has("warnings")) base.put("warnings", JSONArray())
+        latestPayloadJson = base.toString()
+        currentScreen?.updateData(latestPayloadJson)
+    }
+
+    fun clearNavigationIntentLoading() {
+        if (latestPayloadJson.isBlank()) return
+        val cleaned = runCatching {
+            val base = JSONObject(latestPayloadJson)
+            val mapState = base.optJSONObject("mapState") ?: JSONObject()
+            mapState.put("isBuilding", false)
+            base.put("mapState", mapState)
+            base.toString()
+        }.getOrNull() ?: return
+        latestPayloadJson = cleaned
+        currentScreen?.updateData(cleaned)
+    }
+
     fun refreshTheme() {
         currentScreen?.refreshTheme()
     }
@@ -114,6 +139,7 @@ object VroomCarManager {
 
     fun setSimulationMode(active: Boolean) {
         simulationMode = active
+        lastSimulationProgressAt = 0L
         if (active) {
             rerouteInFlight = false
         }
@@ -541,9 +567,14 @@ object VroomCarManager {
     }
 
     private fun updateNativeNavigationProgress(currentLat: Double, currentLng: Double) {
-        if (simulationMode) return
         val navPayload = nativeNavigationPayloadJson ?: return
         if (!validCoordinate(currentLat, currentLng)) return
+        if (simulationMode) {
+            val now = System.currentTimeMillis()
+            val finalSimulationFix = nativeSpeedMs <= 0.05
+            if (!finalSimulationFix && now - lastSimulationProgressAt < 500L) return
+            lastSimulationProgressAt = now
+        }
         val updated = runCatching {
             val root = JSONObject(navPayload)
             val route = parseRoutePoints(root.optJSONArray("route") ?: root.optJSONObject("mapState")?.optJSONArray("route"))
@@ -555,7 +586,7 @@ object VroomCarManager {
                 route,
                 minArcM = (lastNavigationArcM - 25.0).coerceAtLeast(0.0)
             ) ?: return
-            if (shouldRerouteFromProjection(projection)) {
+            if (!simulationMode && shouldRerouteFromProjection(projection)) {
                 requestNativeReroute(currentLat, currentLng, nativeHeading)
                 return
             }
@@ -565,14 +596,14 @@ object VroomCarManager {
             val totalM = routeTotalMeters(route).coerceAtLeast(projection.arcM)
             val remainingM = (totalM - projection.arcM).toInt().coerceAtLeast(1)
             val active = nextRouteStep(steps, projection.arcM)
-            if (active == null && remainingM > 100) {
+            if (!simulationMode && active == null && remainingM > 100) {
                 requestNativeReroute(currentLat, currentLng, nativeHeading)
                 return
             }
             val safeActive = active ?: activeRouteStep(steps, projection.arcM)
             val following = followingRouteStep(steps, safeActive.optDouble("arcM", projection.arcM))
             val turnM = (safeActive.optDouble("arcM", projection.arcM) - projection.arcM).toInt().coerceAtLeast(1)
-            if (isDeadManeuver(safeActive, turnM, remainingM)) {
+            if (!simulationMode && isDeadManeuver(safeActive, turnM, remainingM)) {
                 requestNativeReroute(currentLat, currentLng, nativeHeading)
                 return
             }
@@ -939,13 +970,14 @@ object VroomCarManager {
     }
 
     private fun shouldRerouteFromProjection(projection: RouteProjection): Boolean {
-        if (projection.distanceM > OFF_ROUTE_REROUTE_DISTANCE_M) return true
         if (projection.arcM + 35.0 < lastNavigationArcM) return true
         val heading = nativeHeading.takeIf { it.isFinite() } ?: return false
-        if (nativeSpeedMs < OFF_ROUTE_HEADING_MIN_SPEED_MS) return false
         val delta = headingDeltaDeg(heading, projection.routeHeading)
-        if (delta >= OFF_ROUTE_HARD_HEADING_DELTA_DEG && projection.distanceM >= 2.0) return true
-        return delta >= OFF_ROUTE_HEADING_DELTA_DEG && projection.distanceM >= OFF_ROUTE_HEADING_DISTANCE_M
+        return !AutoNavigationRoutePolicy.shouldKeepRouteLock(
+            distanceFromRouteM = projection.distanceM,
+            headingDeltaDeg = delta,
+            speedMs = nativeSpeedMs,
+        )
     }
 
     private fun isUsableRouteResponse(root: JSONObject): Boolean {

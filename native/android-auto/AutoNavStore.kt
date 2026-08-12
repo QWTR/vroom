@@ -822,11 +822,14 @@ object AutoNavStore {
         put("proximityLng", lng)
       }
     }
-    val (code, body) = requestJson("POST", "/api/osm/geocode", token, payload.toString())
-    if (code !in 200..299 || body.isBlank()) return emptyList()
-    val json = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
-    val features = json.optJSONArray("features") ?: return emptyList()
-    return parseSearchFeatures(features)
+    val remoteResults = runCatching {
+      val (code, body) = requestJson("POST", "/api/osm/geocode", token, payload.toString())
+      if (code !in 200..299 || body.isBlank()) return@runCatching emptyList()
+      val json = JSONObject(body)
+      val features = json.optJSONArray("features") ?: return@runCatching emptyList()
+      parseSearchFeatures(features)
+    }.getOrDefault(emptyList())
+    return remoteResults.ifEmpty { searchPlacesLocal(context, cleaned, limit) }
   }
 
   private fun searchPlacesLocal(context: Context, query: String, limit: Int): List<AutoSearchPlace> {
@@ -920,22 +923,21 @@ object AutoNavStore {
       put("overview", "full")
       put("allowMapboxFallback", false)
     }
-    val routeBody = if (token.isNotBlank()) {
-      val (code, body) = requestJson(
-        "POST",
-        "/api/osm/directions",
-        token,
-        requestPayload.toString(),
-        mapOf("x-vroom-client" to "automotive"),
-      )
-      if (code in 200..299 && body.isNotBlank()) {
-        body
-      } else {
-        fetchDirectOsrmRoute(lat, lng, place.lat, place.lng, alternatives = true, headingDeg = fromHeading)
-      }
-    } else {
-      fetchDirectOsrmRoute(lat, lng, place.lat, place.lng, alternatives = true, headingDeg = fromHeading)
+    val authenticatedRoute = token.takeIf { it.isNotBlank() }?.let {
+      runCatching {
+        val (code, body) = requestJson(
+          "POST",
+          "/api/osm/directions",
+          token,
+          requestPayload.toString(),
+          mapOf("x-vroom-client" to "automotive"),
+        )
+        body.takeIf { code in 200..299 && it.isNotBlank() }
+      }.getOrNull()
     }
+    val routeBody = authenticatedRoute ?: runCatching {
+      fetchDirectOsrmRoute(lat, lng, place.lat, place.lng, alternatives = true, headingDeg = fromHeading)
+    }.getOrDefault("")
 
     val json = routeBody.takeIf { it.isNotBlank() }?.let { runCatching { JSONObject(it) }.getOrNull() }
     val routes = json?.optJSONArray("routes")
@@ -1015,6 +1017,9 @@ object AutoNavStore {
     mapState.put("selectedRouteIndex", 0)
     mapState.put("isDriving", true)
     mapState.put("uiMode", "ROUTE_PREVIEW")
+    mapState.put("isBuilding", false)
+    mapState.put("offRoute", false)
+    mapState.put("arrived", false)
     mapState.put("routePreview", true)
     mapState.put("destinationLat", place.lat)
     mapState.put("destinationLng", place.lng)

@@ -28,13 +28,11 @@ object AutoNavigationCoordinator {
 
     fun attach(context: CarContext) {
         carContext = context
-        if (AutoPendingNavigation.consumeAutoDriveRequest(context)) {
-            autoDriveEnabled = true
-        }
+        val pendingAutoDrive = AutoPendingNavigation.consumeAutoDriveRequest(context)
         navigationManager = context.getCarService(NavigationManager::class.java)
         navigationManager?.setNavigationManagerCallback(object : NavigationManagerCallback {
             override fun onAutoDriveEnabled() {
-                autoDriveEnabled = true
+                enableAutoDrive("host")
             }
 
             override fun onStopNavigation() {
@@ -44,6 +42,7 @@ object AutoNavigationCoordinator {
                 }
             }
         })
+        if (pendingAutoDrive) enableAutoDrive("pending")
     }
 
     fun detach() {
@@ -63,7 +62,7 @@ object AutoNavigationCoordinator {
     }
 
     fun onAutoDriveRequested() {
-        autoDriveEnabled = true
+        enableAutoDrive("receiver")
     }
 
     fun handleNavigationIntent(context: CarContext, intent: Intent?) {
@@ -72,36 +71,68 @@ object AutoNavigationCoordinator {
             return
         }
         Log.d(TAG, "handleNavigationIntent query=${request.query} coords=${request.latitude},${request.longitude}")
-        val appContext = context.applicationContext
-        Thread {
-            val success = when {
-                request.hasCoordinates -> AutoNavStore.startRoutePreviewToCoordinates(
-                    appContext,
-                    request.latitude!!,
-                    request.longitude!!,
-                    request.query ?: "Cel",
-                )
-                request.hasQuery -> AutoNavStore.startRoutePreviewToQuery(appContext, request.query!!)
-                else -> false
-            }
-            Log.d(TAG, "route preview success=$success autoDrive=$autoDriveEnabled")
-            mainHandler.post {
-                if (!success && request.hasQuery) {
-                    Log.w(TAG, "route preview failed, opening search for ${request.query}")
+        if (request.shouldShowSearchResults) {
+            request.query?.let { query ->
+                mainHandler.post {
                     runCatching {
                         context.getCarService(ScreenManager::class.java)
-                            .push(VroomSearchTextScreen(context, request.query))
+                            .push(VroomSearchTextScreen(context, query))
+                    }.onFailure { Log.w(TAG, "Nie udalo sie otworzyc wynikow wyszukiwania", it) }
+                }
+            }
+            return
+        }
+        VroomCarManager.showNavigationIntentLoading(request.query ?: "Cel")
+        val appContext = context.applicationContext
+        Thread {
+            val success = runCatching {
+                when {
+                    request.hasCoordinates -> AutoNavStore.startRoutePreviewToCoordinates(
+                        appContext,
+                        request.latitude!!,
+                        request.longitude!!,
+                        request.query ?: "Cel",
+                    )
+                    request.hasQuery -> AutoNavStore.startRoutePreviewToQuery(appContext, request.query!!)
+                    else -> false
+                }
+            }.onFailure { Log.e(TAG, "Obsluga intentu nawigacji nie powiodla sie", it) }
+                .getOrDefault(false)
+            Log.d(TAG, "route preview success=$success autoDrive=$autoDriveEnabled")
+            mainHandler.post {
+                if (!success) {
+                    VroomCarManager.clearNavigationIntentLoading()
+                    if (request.hasQuery) {
+                        Log.w(TAG, "route preview failed, opening search for ${request.query}")
+                        runCatching {
+                            context.getCarService(ScreenManager::class.java)
+                                .push(VroomSearchTextScreen(context, request.query))
+                        }
+                    } else {
+                        VroomCarManager.showDriverAlert("Nie udalo sie wyznaczyc trasy")
                     }
                     return@post
                 }
+                runCatching { context.getCarService(ScreenManager::class.java).popToRoot() }
                 if (success && request.shouldAutoStartNavigation && !request.shouldShowRoutePreviewOnly) {
                     VroomCarManager.startNativeRoutePreview()
                     if (autoDriveEnabled) {
-                        context.let { AutoDriveSimulator.start(it) }
+                        startAutoDriveIfReady(context)
                     }
                 }
             }
         }.start()
+    }
+
+    private fun enableAutoDrive(source: String) {
+        autoDriveEnabled = true
+        Log.d(TAG, "Tryb testowej jazdy wlaczony przez $source")
+        mainHandler.post {
+            val context = carContext ?: return@post
+            if (VroomCarManager.latestPayload()?.isNavigating == true) {
+                startAutoDriveIfReady(context)
+            }
+        }
     }
 
     fun syncFromPayload(payload: VroomPayload?) {
@@ -125,7 +156,7 @@ object AutoNavigationCoordinator {
                 runCatching { navigationManager?.navigationStarted() }
                 navigationActive = true
                 if (autoDriveEnabled) {
-                    carContext?.let { AutoDriveSimulator.start(it) }
+                    carContext?.let(::startAutoDriveIfReady)
                 }
             }
             publishTrip(payload, snapshot)
@@ -144,6 +175,12 @@ object AutoNavigationCoordinator {
             navigationActive = false
         }
         lastTripSignature = ""
+    }
+
+    private fun startAutoDriveIfReady(context: CarContext) {
+        if (!AutoDriveSimulator.isRunning() && VroomCarManager.latestPayload()?.isNavigating == true) {
+            AutoDriveSimulator.start(context)
+        }
     }
 
     private fun publishTrip(payload: VroomPayload?, snapshot: AutoNavSnapshot?) {

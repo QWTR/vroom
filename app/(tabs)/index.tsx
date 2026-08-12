@@ -40,6 +40,7 @@ import { useStartupGates } from "../../contexts/StartupGatesContext";
 import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { HomeDiscoverySection } from "../../components/home/HomeDiscoverySection";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
+import { VroomShopCard } from "../../components/home/VroomShopCard";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
 import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
@@ -973,6 +974,8 @@ export default function HomeScreen() {
 					/>
 				</View>
 				{/* ══════════════════════════════════════════════ */}
+				<VroomShopCard theme={t} />
+
 				<HomeDiscoverySection active={isFocused} />
 
 				<PartnerBannersSection theme={t} isDark={isDark} fadeAnim={fadeAnim} />

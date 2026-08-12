@@ -1,20 +1,20 @@
 {
   "project_info": {
-    "project_number": "678142488164",
-    "project_id": "vroomapp-c5998",
-    "storage_bucket": "vroomapp-c5998.firebasestorage.app"
+    "project_number": "1071594429943",
+    "project_id": "vroom-25e95",
+    "storage_bucket": "vroom-25e95.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:678142488164:android:48b2c42502a2a307c67971",
+        "mobilesdk_app_id": "1:1071594429943:android:5a69854f2a4cab29d862f2",
         "android_client_info": {
           "package_name": "com.lexuuw.vroom.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "422424308025-b1piqrdbpgvbhe4ui3hpm4c9lule2a4q.apps.googleusercontent.com",
+          "client_id": "1071594429943-i2l0siq5odkhae44ncju37qlkum2rc3e.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.lexuuw.vroom.app",
@@ -22,20 +22,20 @@
           }
         },
         {
-          "client_id": "422424308025-v8ksqs33clcc1u6gsmsi5esqbrv0dh49.apps.googleusercontent.com",
+          "client_id": "1071594429943-tmqtfmok82goiin53vo2nf33fr91o9af.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBJkqMCFgYOFaoT1ruDKArFylDu544WwXA"
+          "current_key": "AIzaSyC28PYHI7UDJCJs1TzW-X73EgZpCuVH7qU"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "422424308025-v8ksqs33clcc1u6gsmsi5esqbrv0dh49.apps.googleusercontent.com",
+              "client_id": "1071594429943-tmqtfmok82goiin53vo2nf33fr91o9af.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
