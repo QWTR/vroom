@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isSafeInternalNotificationUrl, resolveNotificationUrl } from './routingCore';
+import {
+  isSafeInternalNotificationUrl,
+  resolveNotificationUrl,
+  shouldPresentForegroundNotification,
+} from './routingCore';
 
 describe('notification routing', () => {
   it.each([
@@ -31,5 +35,13 @@ describe('notification routing', () => {
     expect(resolveNotificationUrl({ v: 1, type: 'achievement', url: '/profile/achievements?achievementKey=x' })).toBe('/profile/achievements?achievementKey=x');
     expect(isSafeInternalNotificationUrl('https://evil.example')).toBe(false);
     expect(resolveNotificationUrl({ type: 'unknown', url: '//evil.example' })).toBe('/notifications');
+  });
+
+  it('presents server pushes while the app is open without exposing unrelated local notifications', () => {
+    expect(shouldPresentForegroundNotification({ type: 'daily_duel_available', notificationId: 123 })).toBe(true);
+    expect(shouldPresentForegroundNotification({ type: 'streak_at_risk', notificationId: '124' })).toBe(true);
+    expect(shouldPresentForegroundNotification({ type: 'vroomki_published' })).toBe(true);
+    expect(shouldPresentForegroundNotification({ type: 'navigation' })).toBe(false);
+    expect(shouldPresentForegroundNotification(undefined)).toBe(false);
   });
 });

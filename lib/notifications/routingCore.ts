@@ -69,3 +69,11 @@ export function resolveNotificationUrl(data: NotificationData | null | undefined
 export function notificationNavigationKey(data: NotificationData): string {
   return `${String(data.type || 'notification')}:${String(data.notificationId || resolveNotificationUrl(data))}`;
 }
+
+export function shouldPresentForegroundNotification(data: NotificationData | null | undefined): boolean {
+  if (!data) return false;
+  const type = String(data.type || '');
+  if (['vroomki_publish_status', 'vroomki_published', 'vroomki_publish_failed'].includes(type)) return true;
+  const notificationId = Number(data.notificationId);
+  return Number.isInteger(notificationId) && notificationId > 0;
+}

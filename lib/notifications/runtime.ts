@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState, Platform } from 'react-native';
 import { API_URL } from '../../constants/config';
 import { NotificationData } from './routing';
+import { shouldPresentForegroundNotification } from './routingCore';
 
 export const CHAT_NOTIFICATION_CATEGORY = 'chat_message';
 export const CHAT_REPLY_ACTION = 'chat_reply';
@@ -22,13 +23,14 @@ type PendingReply = {
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const type = String(notification.request.content.data?.type || '');
-    const publishStatus = ['vroomki_publish_status', 'vroomki_published', 'vroomki_publish_failed'].includes(type);
+    const shouldPresent = shouldPresentForegroundNotification(
+      notification.request.content.data as NotificationData,
+    );
     return {
-      shouldShowAlert: publishStatus,
-      shouldShowBanner: publishStatus,
-      shouldShowList: publishStatus,
-      shouldPlaySound: publishStatus,
+      shouldShowAlert: shouldPresent,
+      shouldShowBanner: shouldPresent,
+      shouldShowList: shouldPresent,
+      shouldPlaySound: shouldPresent,
       shouldSetBadge: true,
     };
   },
