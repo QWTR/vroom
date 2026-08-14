@@ -14,17 +14,17 @@ import {
   type GamificationReward,
 } from '../lib/gamificationClient';
 
-const DROPS_REFRESH_MS = 5_000;
+const DROPS_REFRESH_MS = 15_000;
 const DROPS_NEAR_REFRESH_MS = 2_000;
-const DROPS_MIN_MOVE_M = 0;
+const DROPS_MIN_MOVE_M = 100;
 const DROPS_NEAR_MIN_MOVE_M = 15;
 const INGEST_REFRESH_MS = 8_000;
 const INGEST_MIN_MOVE_M = 8;
 const DROP_PROMPT_DEFAULT_RADIUS_M = 5000;
 const DROP_SNOOZE_MS = 5 * 60_000;
 const DROP_HIDE_MS = 30 * 60_000;
-const REWARD_POLL_MS = 4_000;
-const REWARD_POLL_THROTTLE_MS = 2_000;
+const REWARD_POLL_MS = 30_000;
+const REWARD_POLL_THROTTLE_MS = 10_000;
 const CLAIM_RETRY_MS = 2_500;
 
 type DropPing = {
@@ -444,8 +444,7 @@ export function useGamification() {
       }
     }
 
-    void pollPendingRewards();
-  }, [isDropHidden, pollPendingRewards, syncTrackedDropStatus]);
+  }, [isDropHidden, syncTrackedDropStatus]);
 
   const showDropPrompt = useCallback((drop: GeoDropNearby) => {
     if (lastModeRef.current === 'navigation') return;
@@ -533,16 +532,12 @@ export function useGamification() {
       force: input.force === true,
     });
 
-    if (nearAnyDrop) {
-      await tryClaimNearbyDrops(input);
-    } else {
-      void pollPendingRewards();
-    }
+    if (nearAnyDrop) await tryClaimNearbyDrops(input);
 
     if (input.mode === 'navigation' && dropNavigationTargetIdRef.current) {
       void syncTrackedDropStatus();
     }
-  }, [collectDropCandidates, tryClaimNearbyDrops, pollPendingRewards, syncTrackedDropStatus]);
+  }, [collectDropCandidates, tryClaimNearbyDrops, syncTrackedDropStatus]);
 
   const deliverPendingRewards = useCallback(async () => {
     const rewards = await fetchPendingGamificationRewards();

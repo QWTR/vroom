@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native';
 import Mapbox from '@rnmapbox/maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { fetchCoverageCells, fetchGamificationStatus, type CoverageCell } from '../../lib/gamificationClient';
 
@@ -56,6 +57,7 @@ export function ExplorationCoverageMap({
   autoRefreshMs = 0,
 }: Props) {
   const { theme, isDark } = useTheme();
+  const isFocused = useIsFocused();
   const [cells, setCells] = useState<CoverageCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -90,14 +92,14 @@ export function ExplorationCoverageMap({
   useEffect(() => loadCells(), [loadCells]);
 
   useEffect(() => {
-    if (!autoRefreshMs || autoRefreshMs < 3000) return undefined;
+    if (!isFocused || !autoRefreshMs || autoRefreshMs < 30_000) return undefined;
     const timer = setInterval(() => {
       fetchCoverageCells({ userId: userId ?? undefined, limit })
         .then((next) => setCells(next))
         .catch(() => undefined);
     }, autoRefreshMs);
     return () => clearInterval(timer);
-  }, [autoRefreshMs, limit, userId]);
+  }, [autoRefreshMs, isFocused, limit, userId]);
 
   const shape = useMemo(() => ({
     type: 'FeatureCollection' as const,

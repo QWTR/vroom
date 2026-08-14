@@ -1128,7 +1128,7 @@ export default function ProfileView({
                   height={220}
                   limit={1200}
                   interactive
-                  autoRefreshMs={isOwner ? 12000 : 0}
+                  autoRefreshMs={isOwner ? 60_000 : 0}
                 />
               </View>
 
