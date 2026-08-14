@@ -505,8 +505,6 @@ const REROUTE_THRESHOLD_RECOVERY_M = 60;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── DRIVING MODE ──────────────────────────────────────────
-// Czas postoju (<3 km/h) zanim auto-wyłączymy tryb driving (guard w driveSessionGuard.ts)
-const DRIVING_STOP_DELAY_MS      = 12 * 60 * 1000; // legacy — unused; guard uses 3 min @ <3 km/h
 const DRIVING_SPEED_KMH          = 10;
 /** Postój przy włączeniu trybu jazdy — nie przesuwaj markera na odległą drogę. */
 const DRIVING_ENTRY_STATIONARY_KMH = 6;
@@ -4864,7 +4862,7 @@ function MapScreenInner() {
       void (async () => {
         try {
           await finalizeTripSession({
-            reason: opts?.reason === 'auto_stop_guard' || opts?.reason === 'idle_timeout' ? 'idle' : 'manual',
+            reason: 'manual',
             mode: 'freeDrive',
             distanceKm: Math.max(
               0,
@@ -4921,30 +4919,6 @@ function MapScreenInner() {
       skipFlush: !!opts?.skipFlush,
     }));
   }, [resetDRRefs, resetMapMatch, applyRoadMatchPoints, finalizeTripSession, clearStats, finishTrip, checkLiveAchievements, deliverGamificationRewards, mapMatchCoord, navV3, driveMarker, resolveFinalTripPose, publishUserLocation]);
-
-  const maybeAutoStopFromSessionGuard = useCallback((
-    effectiveSpeedKmh: number,
-    movingForDriving: boolean,
-  ) => {
-    if (!isDrivingRef.current || isNavigatingRef.current) {
-      return;
-    }
-    driveSessionGuardRef.current.noteSample({
-      effectiveSpeedKmh,
-      movingForDriving,
-      appStateActive: appStateRef.current === 'active',
-      manualDriving: false,
-    });
-    if (!driveSessionGuardRef.current.canAutoStop()) return;
-    if (__DEV__) {
-      console.log('[DrivingMode] auto_stop_guard', JSON.stringify({
-        stationaryMs: driveSessionGuardRef.current.getStationaryDurationMs(),
-        lockRemainingMs: driveSessionGuardRef.current.getHighSpeedLockRemainingMs(),
-      }));
-    }
-    exitDrivingMode({ reason: 'auto_stop_guard' });
-    setFollowMode('idleBrowse');
-  }, [exitDrivingMode]);
 
   const exportNavDriveTrace = useCallback(() => {
     void shareNavTraceLog();
@@ -5554,13 +5528,6 @@ function MapScreenInner() {
         }
         lastRawForHeadingRef.current = { lat: rawLat, lng: rawLng };
         lastAcceptedFixWallClockRef.current = now;
-        if (isDrivingRef.current && !isNavigatingRef.current) {
-          const movingForDriving =
-            (out?.isMoving ?? false)
-            || speedKmhRaw >= DRIVING_SPEED_KMH
-            || speedKmhRef.current >= DRIVING_SPEED_KMH;
-          maybeAutoStopFromSessionGuard(speedKmhRaw, movingForDriving);
-        }
         if (isDrivingRef.current || isNavigatingRef.current) {
           updateSpeedLimitRef.current(rawLat, rawLng, { nav: true, heading: lastHeadingRef.current });
         }
@@ -8749,19 +8716,17 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
         const ledger = await loadTripSessionLedger();
         if (
           ledger?.active
+          && hadActiveFlag
           && nativeState?.active === false
           && nativeState?.endedBy === 'idle'
         ) {
-          await finalizeTripSession({
-            reason: 'idle',
-            mode: ledger.mode,
-            distanceKm: ledger.distanceKm,
-            maxSpeedKmh: ledger.maxSpeedKmh,
-            routePoints: ledger.routePoints,
-          });
-          await setNavigatingFlag(false);
-          await setDrivingFlag(false);
-          return;
+          // Older iOS binaries stopped Core Location after ten stationary
+          // minutes. Keep the same ledger/session instead of finalizing it.
+          await BackgroundDriveController.start(ledger.mode, ledger.tripSessionId);
+          vroomGpsLog('LEGACY_IOS_IDLE_RECOVERED', {
+            tripSessionId: ledger.tripSessionId,
+            distanceKm: Number(ledger.distanceKm.toFixed(3)),
+          }, 0);
         }
         if (
           ledger?.active
@@ -12618,7 +12583,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     await setDrivingFlag(false).catch(() => {});
     if (hadActiveTrip) {
       await flushNavigationStatsOnce(finalStats, {
-        reason: opts?.silent ? 'idle' : 'manual',
+        reason: 'manual',
         mode: wasApproaching ? 'freeDrive' : 'navigation',
       });
     }
@@ -12698,7 +12663,7 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
     exitDrivingMode({
       skipFlush: true,
       skipProfileCredit: true,
-      reason: opts?.silent ? 'idle_timeout' : 'navigation_cancel',
+      reason: 'navigation_cancel',
       finalStatsOverride: finalStats,
     });
     setFollowMode('idleBrowse');
@@ -12711,32 +12676,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
 
   const stopNavigationRef = useRef(stopNavigation);
   stopNavigationRef.current = stopNavigation;
-
-  const navigationIdleSinceRef = useRef(0);
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!isNavigatingRef.current || appStateRef.current !== 'active') {
-        navigationIdleSinceRef.current = 0;
-        return;
-      }
-      const freshGps = Date.now() - lastAcceptedFixWallClockRef.current <= 30_000;
-      const stopped = speedKmhRef.current < 3;
-      if (!freshGps || !stopped) {
-        navigationIdleSinceRef.current = 0;
-        return;
-      }
-      if (!navigationIdleSinceRef.current) {
-        navigationIdleSinceRef.current = Date.now();
-        return;
-      }
-      if (Date.now() - navigationIdleSinceRef.current < 10 * 60_000) return;
-      navigationIdleSinceRef.current = 0;
-      void (async () => {
-        await stopNavigationRef.current({ silent: true, clearRoute: true });
-      })();
-    }, 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;

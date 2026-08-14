@@ -33,12 +33,10 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
   private let checkpointKm = 0.2
   private let checkpointForceMinKm = 0.05
   private let checkpointForceMs = 30_000.0
-  private let idleStopMs = 10 * 60_000.0
   private var mode = "freeDrive"
   private var tripSessionId = ""
   private var hasListenersFlag = false
   private var checkpointInFlight = false
-  private var idleSinceMs = 0.0
   private var retryAttempt = 0
   private var retryWorkItem: DispatchWorkItem?
   private var lastFixTimestampMs = 0.0
@@ -187,14 +185,6 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
       let stateFix = isReliable(location) ? fix : currentState()["lastFix"] as? [String: Any]
       persistState(active: true, endedBy: nil, lastFix: stateFix)
       accumulateNativeStats(location)
-      if observeIdle(location) {
-        maybeFlushNativeCheckpoint(stats: currentStats(), force: true)
-        manager.stopUpdatingLocation()
-        persistState(active: false, endedBy: "idle", lastFix: stateFix)
-        appendDiagnostic(state: "idle", reason: "idle", errorCode: nil, recoverable: true)
-        emitRuntimeState(state: "idle", reason: "idle", errorCode: nil, recoverable: true)
-        continue
-      }
       if hasListenersFlag {
         sendEvent(withName: "VROOM_BG_LOCATION", body: fix)
       }
@@ -564,21 +554,6 @@ class WiroomLocationService: RCTEventEmitter, CLLocationManagerDelegate {
 
   private func isReliable(_ location: CLLocation) -> Bool {
     return location.horizontalAccuracy < 0 || location.horizontalAccuracy <= maxAccuracyM
-  }
-
-  private func observeIdle(_ location: CLLocation) -> Bool {
-    let reliable = isReliable(location)
-    let stopped = reliable && location.speed >= 0 && location.speed * 3.6 < 3
-    if !stopped {
-      idleSinceMs = 0
-      return false
-    }
-    let nowMs = location.timestamp.timeIntervalSince1970 * 1000
-    if idleSinceMs == 0 {
-      idleSinceMs = nowMs
-      return false
-    }
-    return nowMs - idleSinceMs >= idleStopMs
   }
 
   private func number(_ value: Any?) -> Double {

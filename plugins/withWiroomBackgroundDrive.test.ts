@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 
 const plugin = require('./withWiroomBackgroundDrive');
 const { SWIFT_MODULE, OBJC_BRIDGE, resolveIosProjectName } = plugin.__internal;
+const PLUGIN_SOURCE = readFileSync(resolve('plugins/withWiroomBackgroundDrive.js'), 'utf8');
 
 describe('Wiroom native iOS drive contract', () => {
   it('keeps the native checkpoint ledger and secure token storage', () => {
@@ -41,6 +42,9 @@ describe('Wiroom native iOS drive contract', () => {
     expect(SWIFT_MODULE).toContain('routePointSpacingKm');
     expect(SWIFT_MODULE).not.toContain('manager.stopUpdatingLocation()\n        persistState(active: false, endedBy: "idle"');
     expect(SWIFT_MODULE).not.toContain('private func observeIdle');
+    expect(PLUGIN_SOURCE).not.toContain('idleStopMs');
+    expect(PLUGIN_SOURCE).not.toContain('private func observeIdle');
+    expect(PLUGIN_SOURCE).not.toContain('endedBy: "idle"');
   });
 
   it('keeps an offline checkpoint retryable until the final activity is saved', () => {
