@@ -23,7 +23,7 @@ describe('notification routing', () => {
     ['bug_report_reply', { bugReportId: 19 }, '/profile/bug-report/19'],
     ['market_purchase', { orderId: 'ord_20' }, '/Community/market/orders?orderId=ord_20'],
     ['vehicle_order_ready', { orderId: 21 }, '/shop/vehicle-order/21'],
-    ['streak_at_risk', {}, '/(tabs)/map?start=freeDrive'],
+    ['streak_at_risk', {}, '/(tabs)'],
     ['navigation', {}, '/(tabs)/map'],
     ['grid_vote_ending', { eventId: 22, battleId: 23 }, '/Community/grid/vote?eventId=22&battleId=23'],
     ['partner_event_update', { eventId: 24 }, '/partner/events/24'],

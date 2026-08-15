@@ -129,7 +129,7 @@ function stopPresenceLoop() {
   appStateSub = null;
 }
 
-/** Polling licznika online + ping lastSeen; streak jest tylko odczytywany z serwera. */
+/** Polling licznika online + ping lastSeen oraz dzienny check-in streaka. */
 export function useAppPresence() {
   const [onlineCount, setOnlineCount] = useState<number | null>(sharedCount);
 
