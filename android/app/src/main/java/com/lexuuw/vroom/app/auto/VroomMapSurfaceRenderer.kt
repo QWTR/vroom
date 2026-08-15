@@ -126,6 +126,8 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
     private var lastCameraZoom = 16.85
     private var lastCameraBearing = 0.0
     private var lastCameraPitch = 48.0
+    private var cameraBearingInitialized = false
+    private var lastCameraBearingFrameAt = 0L
     private var stableCameraSpeedKmh = 0.0
     private var stableCameraZoom = 16.85
     private var lastZoomUpdateAt = 0L
@@ -556,6 +558,9 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                         .padding(EdgeInsets(insets.top, insets.left, insets.bottom, insets.right))
                         .build()
                 )
+                lastCameraBearing = 0.0
+                cameraBearingInitialized = true
+                lastCameraBearingFrameAt = SystemClock.elapsedRealtime()
             }
         } else if (forceFollow || !userBrowsing) {
             updateFollowCamera(force = forceFollow)
@@ -627,11 +632,30 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             append(targetSpec.bottomPadding.toInt()).append(':')
             append(targetSpec.rightPadding.toInt())
         }
-        val normalizedBearing = if (heading.isFinite()) {
-            ((heading % 360.0) + 360.0) % 360.0
+        val targetBearing = if (heading.isFinite()) {
+            AutoMapMotionPolicy.normalizeBearing(heading)
         } else {
             lastCameraBearing
         }
+        val bearingNow = SystemClock.elapsedRealtime()
+        val normalizedBearing = if (!cameraBearingInitialized) {
+            cameraBearingInitialized = true
+            targetBearing
+        } else {
+            val dtSeconds = if (lastCameraBearingFrameAt > 0L) {
+                (bearingNow - lastCameraBearingFrameAt).coerceIn(1L, 250L).toDouble() / 1_000.0
+            } else {
+                1.0 / 60.0
+            }
+            AutoMapMotionPolicy.smoothBearing(
+                current = lastCameraBearing,
+                target = targetBearing,
+                elapsedSeconds = dtSeconds,
+                responseSeconds = if (navigating) 0.24 else 0.34,
+                maxDegreesPerSecond = if (navigating) 150.0 else 110.0,
+            )
+        }
+        lastCameraBearingFrameAt = bearingNow
         if (!followViewportActive || force) {
             currentMapView.viewport.idle()
         }
@@ -764,27 +788,34 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
             retainedRoutePreview = false
             return
         }
-        val points = routeAnnotationPointsFromVehicle(effectivePayload!!, effectivePayload.routePoints)
+        val effective = effectivePayload!!
+        val progressBucket = if (effective.isNavigating) {
+            ((overlay?.routeProgressArcM() ?: 0.0) / 20.0).toInt().coerceAtLeast(0)
+        } else {
+            0
+        }
+        val signature = buildString {
+            append(effective.isNavigating).append(':')
+            append(retainedRoutePreview).append(':')
+            append(isNightModeActive).append(':')
+            append((hudUiScale * 100f).roundToInt()).append(':')
+            append(routeGeometrySignature(effective.routePoints)).append(':')
+            append(progressBucket)
+        }
+        if (signature == routeAnnotationSignature) return
+        val points = routeAnnotationPointsFromVehicle(effective, effective.routePoints)
         if (points.size < 2) {
             if (routeAnnotationSignature.isNotEmpty()) manager.deleteAll()
             routeAnnotationSignature = ""
             return
         }
-        val signature = buildString {
-            append(effectivePayload.isNavigating).append(':')
-            append(retainedRoutePreview).append(':')
-            append(isNightModeActive).append(':')
-            append((hudUiScale * 100f).roundToInt()).append(':')
-            effectivePayload.routePoints.forEach { append(it.lat).append(',').append(it.lng).append(';') }
-        }
-        if (signature == routeAnnotationSignature) return
         routeAnnotationSignature = signature
         manager.deleteAll()
         val routeGeometry = points.map { Point.fromLngLat(it.lng, it.lat) }
         val routeCasingColor = Color.rgb(16, 8, 22)
         val routeCoreColor = when {
-            effectivePayload.isNavigating && isNightModeActive -> Color.rgb(208, 107, 255)
-            effectivePayload.isNavigating -> Color.rgb(132, 56, 245)
+            effective.isNavigating && isNightModeActive -> Color.rgb(208, 107, 255)
+            effective.isNavigating -> Color.rgb(132, 56, 245)
             else -> Color.rgb(143, 150, 163)
         }
         // The dark casing keeps the violet route distinct from traffic and map labels.
@@ -800,6 +831,18 @@ class VroomMapSurfaceRenderer(private val carContext: CarContext) : DefaultLifec
                 .withLineColor(routeCoreColor)
                 .withLineWidth((if (isNightModeActive) 14.0 else 12.0) * hudUiScale)
         )
+    }
+
+    private fun routeGeometrySignature(points: List<AutoRoutePoint>): Int {
+        if (points.isEmpty()) return 0
+        var signature = points.size
+        val checkpoints = intArrayOf(0, points.size / 4, points.size / 2, points.size * 3 / 4, points.lastIndex)
+        checkpoints.distinct().forEach { index ->
+            val point = points[index]
+            signature = 31 * signature + (point.lat * 100_000.0).roundToInt()
+            signature = 31 * signature + (point.lng * 100_000.0).roundToInt()
+        }
+        return signature
     }
 
     private fun routeAnnotationPointsFromVehicle(
@@ -1414,6 +1457,10 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private var lastManeuverSignature = ""
     private var maneuverTransitionStartedAt = 0L
     private var suppressedNavigationRouteSignature = 0
+    private var navigationDistanceWithoutProgressM = 0.0
+    private var navigationLastProgressAt = 0L
+    private var indexedRoadSignature = 0
+    private var indexedRoadArcs = DoubleArray(0)
 
     private data class RoadProjection(
         val lat: Double,
@@ -1555,6 +1602,8 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
             activeMotionPoints = emptyList()
             activeMotionIsNavigating = false
             suppressedNavigationRouteSignature = 0
+            navigationDistanceWithoutProgressM = 0.0
+            navigationLastProgressAt = 0L
         }
         next?.mapState?.speedLimitKmh?.toInt()?.takeIf { it > 0 }?.let { stickySpeedLimitKmh = it }
         next?.mapState?.searchQuery?.takeIf { it.isNotBlank() && uiMode != AutoUiMode.SEARCH_RESULTS }?.let {
@@ -1704,6 +1753,14 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         if (snap?.isNavigating == true) {
             val navigationRoute = snap.routePoints.takeIf { it.size >= 2 }
             if (navigationRoute != null) {
+                val navigationSignature = routeSignature(navigationRoute)
+                if (suppressedNavigationRouteSignature != 0 &&
+                    suppressedNavigationRouteSignature != navigationSignature
+                ) {
+                    suppressedNavigationRouteSignature = 0
+                    navigationDistanceWithoutProgressM = 0.0
+                    navigationLastProgressAt = now
+                }
                 val routeProjection = projectOnRoad(lat, lng, navigationRoute, 110.0, cleanHeading)
                 val routeHeadingDelta = routeProjection?.let { projection ->
                     kotlin.math.abs(headingDelta(cleanHeading, bearingDegrees(
@@ -1713,14 +1770,15 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                         navigationRoute[projection.segmentIndex + 1].lng,
                     )))
                 } ?: Double.POSITIVE_INFINITY
-                val keepRouteLock = routeProjection != null &&
+                val routeLockAlreadySuppressed = suppressedNavigationRouteSignature == navigationSignature
+                val keepRouteLock = !routeLockAlreadySuppressed && routeProjection != null &&
                     AutoNavigationRoutePolicy.shouldKeepRouteLock(
                         distanceFromRouteM = routeProjection.distanceM,
                         headingDeltaDeg = routeHeadingDelta,
                         speedMs = incomingSpeedMs,
                     )
                 if (keepRouteLock) {
-                    suppressedNavigationRouteSignature = 0
+                    val previousTargetArcM = routeTargetArcM
                     updateRouteTarget(
                         navigationRoute,
                         lat,
@@ -1730,10 +1788,31 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                         null,
                         0
                     )
+                    if (AutoMapMotionPolicy.hasMeaningfulRouteProgress(previousTargetArcM, routeTargetArcM)) {
+                        navigationDistanceWithoutProgressM = 0.0
+                        navigationLastProgressAt = now
+                    } else if (measuredDistanceM >= 0.35) {
+                        if (navigationLastProgressAt <= 0L) navigationLastProgressAt = now
+                        navigationDistanceWithoutProgressM += measuredDistanceM
+                        if (AutoMapMotionPolicy.navigationRouteIsStalled(
+                                distanceWithoutProgressM = navigationDistanceWithoutProgressM,
+                                millisecondsWithoutProgress = now - navigationLastProgressAt,
+                                speedMs = incomingSpeedMs,
+                            )
+                        ) {
+                            suppressedNavigationRouteSignature = navigationSignature
+                            activeMotionPoints = emptyList()
+                            activeMotionIsNavigating = true
+                            targetLat = lat
+                            targetLng = lng
+                            targetHeading = cleanHeading
+                            maybeRequestReroute(snap, lat, lng, navigationRoute, cleanHeading, incomingSpeedMs)
+                        }
+                    }
                 } else {
                     // The old route is no longer authoritative. Follow measured GPS
                     // immediately so the map never freezes while rerouting is in flight.
-                    suppressedNavigationRouteSignature = routeSignature(navigationRoute)
+                    suppressedNavigationRouteSignature = navigationSignature
                     activeMotionPoints = emptyList()
                     activeMotionIsNavigating = true
                     targetLat = lat
@@ -2103,12 +2182,13 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
         }
 
         if (renderedOnRoad || driveSpeedKmh >= 3.0) {
-            val headingRate = if (renderedOnRoad) 720.0 else 360.0
-            val maxHeadingStep = (headingRate * dtSec).coerceAtLeast(4.0)
-            val delta = headingDelta(displayedHeading, targetHeading)
-            if (kotlin.math.abs(delta) > 0.18) {
-                displayedHeading = normalizedHeading(
-                    displayedHeading + delta.coerceIn(-maxHeadingStep, maxHeadingStep)
+            if (!AutoMapMotionPolicy.bearingSettled(displayedHeading, targetHeading, 0.12)) {
+                displayedHeading = AutoMapMotionPolicy.smoothBearing(
+                    current = displayedHeading,
+                    target = targetHeading,
+                    elapsedSeconds = dtSec,
+                    responseSeconds = if (renderedOnRoad) 0.18 else 0.28,
+                    maxDegreesPerSecond = if (renderedOnRoad) 190.0 else 130.0,
                 )
             }
         }
@@ -4321,7 +4401,7 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
     private fun routeSignature(points: List<AutoRoutePoint>, roadVersion: Int = 0): Int {
         if (points.isEmpty()) return 0
         var signature = 31 * roadVersion + points.size
-        val checkpoints = intArrayOf(0, points.size / 2, points.lastIndex)
+        val checkpoints = intArrayOf(0, points.size / 4, points.size / 2, points.size * 3 / 4, points.lastIndex)
         checkpoints.distinct().forEach { index ->
             val point = points[index]
             signature = 31 * signature + (point.lat * 100_000.0).toInt()
@@ -4332,22 +4412,22 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
 
     private fun pointAtRoadArc(points: List<AutoRoutePoint>, arcM: Double): AutoRoutePoint? {
         if (points.size < 2) return null
-        var remaining = arcM.coerceAtLeast(0.0)
-        for (i in 0 until points.size - 1) {
-            val a = points[i]
-            val b = points[i + 1]
-            val segM = distanceMeters(a.lat, a.lng, b.lat, b.lng)
-            if (segM < 0.2) continue
-            if (remaining <= segM) {
-                val t = (remaining / segM).coerceIn(0.0, 1.0)
-                return AutoRoutePoint(
-                    lat = a.lat + (b.lat - a.lat) * t,
-                    lng = a.lng + (b.lng - a.lng) * t
-                )
+        val signature = routeSignature(points)
+        if (indexedRoadSignature != signature || indexedRoadArcs.size != points.size) {
+            val arcs = DoubleArray(points.size)
+            for (i in 1 until points.size) {
+                val a = points[i - 1]
+                val b = points[i]
+                arcs[i] = arcs[i - 1] + distanceMeters(a.lat, a.lng, b.lat, b.lng)
             }
-            remaining -= segM
+            indexedRoadSignature = signature
+            indexedRoadArcs = arcs
         }
-        if (payload?.isNavigating != true && remaining > 0.0) {
+        val totalArcM = indexedRoadArcs.lastOrNull() ?: return null
+        val requestedArcM = arcM.coerceAtLeast(0.0)
+        if (requestedArcM >= totalArcM) {
+            val remaining = requestedArcM - totalArcM
+            if (payload?.isNavigating == true || remaining <= 0.0) return points.last()
             val beforeLast = points[points.lastIndex - 1]
             val last = points.last()
             return advanceGeodesic(
@@ -4357,7 +4437,20 @@ private class VroomAutoOverlayView(context: Context) : View(context) {
                 remaining.coerceAtMost(90.0)
             ).let { AutoRoutePoint(it.first, it.second) }
         }
-        return points.lastOrNull()
+        val searchResult = indexedRoadArcs.binarySearch(requestedArcM)
+        if (searchResult >= 0) return points[searchResult]
+        val endIndex = (-searchResult - 1).coerceIn(1, points.lastIndex)
+        val startIndex = endIndex - 1
+        val segmentStartArcM = indexedRoadArcs[startIndex]
+        val segmentLengthM = indexedRoadArcs[endIndex] - segmentStartArcM
+        if (segmentLengthM <= 0.001) return points[endIndex]
+        val t = ((requestedArcM - segmentStartArcM) / segmentLengthM).coerceIn(0.0, 1.0)
+        val a = points[startIndex]
+        val b = points[endIndex]
+        return AutoRoutePoint(
+            lat = a.lat + (b.lat - a.lat) * t,
+            lng = a.lng + (b.lng - a.lng) * t,
+        )
     }
 
     private fun bearingDegrees(fromLat: Double, fromLng: Double, toLat: Double, toLng: Double): Double {

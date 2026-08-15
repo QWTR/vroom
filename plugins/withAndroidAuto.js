@@ -200,6 +200,7 @@ const withAndroidAutoNative = (config) => {
         'AutoManeuverResolver.kt',
         'AutoInstructionFormatter.kt',
         'AutoMapStylePolicy.kt',
+        'AutoMapMotionPolicy.kt',
         'AutoNavigationCoordinator.kt',
         'AutoNavigationIntentHandler.kt',
         'AutoNavigationRoutePolicy.kt',
