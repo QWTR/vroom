@@ -41,6 +41,7 @@ import { QuestTrackSection } from "../../components/home/QuestTrackSection";
 import { HomeDiscoverySection } from "../../components/home/HomeDiscoverySection";
 import { PartnerBannersSection } from "../../components/home/PartnerBannersSection";
 import { VroomShopCard } from "../../components/home/VroomShopCard";
+import { SeasonSpotlightCard } from "../../components/seasons/SeasonSpotlightCard";
 import { LiveCountdownText } from "../../components/home/LiveCountdownText";
 import { useAppPresence, STREAK_UPDATED } from "../../hooks/useAppPresence";
 import { getNextStreakResetIso } from "../../lib/streakDeadline";
@@ -974,6 +975,8 @@ export default function HomeScreen() {
 					/>
 				</View>
 				{/* ══════════════════════════════════════════════ */}
+				<SeasonSpotlightCard active={isFocused} />
+
 				<VroomShopCard theme={t} />
 
 				<HomeDiscoverySection active={isFocused} />

@@ -4,9 +4,19 @@ import { API_URL } from '../constants/config';
 
 export interface NitroWallet {
   rankingPoints: number;
+  spendablePoints: number;
   nitroBalance: number;
   exchangeRate: number;
   exchangeDailyRankingCap: number;
+  exchange: {
+    enabled: boolean;
+    pointsPerNitro: number;
+    stepPoints: number;
+    dailyPointsCap: number;
+    exchangedToday: number;
+    remainingToday: number;
+  };
+  valuation: { nitroPerPln: number };
   ledger: { id: number; amount: number; type: string; createdAt: string }[];
 }
 

@@ -1410,6 +1410,11 @@ export default function ProfileView({
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+              {isOwner && <TouchableOpacity onPress={() => { closeStats(); router.push('/profile/seasons'); }} style={{ borderWidth: 1, borderColor: '#e3383545', backgroundColor: '#e3383512', borderRadius: 14, padding: 14, marginBottom: 18, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <MaterialIcons name="emoji-events" size={20} color="#e33835" />
+                <View style={{ flex: 1 }}><Text style={{ fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', color: theme.text }}>STATYSTYKI SEZONOWE</Text><Text style={{ fontFamily: 'Satoshi', fontSize: 11, color: theme.textDim, marginTop: 3 }}>Bieżący sezon, historia i nagrody</Text></View>
+                <MaterialIcons name="chevron-right" size={20} color="#e33835" />
+              </TouchableOpacity>}
               {/* PRĘDKOŚĆ */}
               {statsMode === 'all' && <StatsModalSection title="PRĘDKOŚĆ" color="#e33835" icon="speedometer">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>

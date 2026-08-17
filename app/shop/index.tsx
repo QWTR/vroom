@@ -46,12 +46,16 @@ export default function NitroShopScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const {
-    catalog, nitroBalance, rankingPoints, equippedIds, loading, reload, purchase, equip,
+    catalog, nitroBalance, rankingPoints, spendablePoints, equippedIds, loading, reload, purchase, equip,
   } = useProfileShop();
   const { wallet, exchangeRankingPoints } = useNitroWallet();
 
   const balance = nitroBalance || wallet?.nitroBalance || 0;
-  const points = rankingPoints || wallet?.rankingPoints || 0;
+  const ranking = wallet?.rankingPoints ?? rankingPoints ?? 0;
+  const points = wallet?.spendablePoints ?? spendablePoints ?? ranking;
+  const pointsPerNitro = wallet?.exchange?.pointsPerNitro ?? wallet?.exchangeRate ?? 10;
+  const exchangeStep = wallet?.exchange?.stepPoints ?? pointsPerNitro;
+  const dailyCap = wallet?.exchange?.dailyPointsCap ?? wallet?.exchangeDailyRankingCap ?? 300;
 
   const grouped = useMemo(() => {
     const map: Record<ShopItemCategory, CatalogItem[]> = {
@@ -139,7 +143,7 @@ export default function NitroShopScreen() {
     Toast.show({
       type: 'success',
       text1: `+${res.nitroGained} Nitro`,
-      text2: `Wymieniono ${res.rankingPointsSpent} pkt rankingu`,
+      text2: `Wymieniono ${res.rankingPointsSpent} pkt z salda`,
     });
     setExchangeOpen(false);
     reload();
@@ -421,7 +425,7 @@ export default function NitroShopScreen() {
                 {!detail.owned && balance < detail.nitroCost && (
                   <TouchableOpacity onPress={() => { setDetail(null); setExchangeOpen(true); }} style={styles.sheetHint}>
                     <Text style={{ color: GOLD, fontSize: 12, fontWeight: '700' }}>
-                      Brakuje Nitro? Wymień punkty rankingu →
+                      Brakuje Nitro? Wymień punkty z salda →
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -440,10 +444,10 @@ export default function NitroShopScreen() {
             </View>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Wymiana na Nitro</Text>
             <Text style={[styles.modalSub, { color: theme.textDim }]}>
-              10 pkt rankingu = 1 Nitro · maks. 300 pkt dziennie
+              {pointsPerNitro} pkt = 1 Nitro · krok {exchangeStep} · maks. {dailyCap} pkt dziennie
             </Text>
             <Text style={[styles.modalPts, { color: theme.textDim }]}>
-              Masz: {points} pkt rankingu
+              Do wydania: {points} pkt · ranking: {ranking} pkt
             </Text>
             <TextInput
               value={exchangePts}
@@ -454,7 +458,7 @@ export default function NitroShopScreen() {
               placeholderTextColor={theme.textDim}
             />
             <Text style={[styles.previewExchange, { color: theme.textDim }]}>
-              Otrzymasz ~{Math.floor(Number(exchangePts || 0) / 10)} Nitro
+              Otrzymasz ~{Math.floor(Number(exchangePts || 0) / pointsPerNitro)} Nitro
             </Text>
             <TouchableOpacity style={styles.modalBtn} onPress={onExchange}>
               <Text style={styles.modalBtnText}>Wymień</Text>

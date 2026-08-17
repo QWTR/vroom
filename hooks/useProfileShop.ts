@@ -36,6 +36,7 @@ export function useProfileShop() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [nitroBalance, setNitroBalance] = useState(0);
   const [rankingPoints, setRankingPoints] = useState(0);
+  const [spendablePoints, setSpendablePoints] = useState(0);
   const [equippedIds, setEquippedIds] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +56,7 @@ export function useProfileShop() {
       setCatalog(Array.isArray(data?.items) ? data.items : []);
       setNitroBalance(Number(data?.nitroBalance ?? 0));
       setRankingPoints(Number(data?.rankingPoints ?? 0));
+      setSpendablePoints(Number(data?.spendablePoints ?? data?.rankingPoints ?? 0));
       setEquippedIds(data?.equipped ?? {});
     } finally {
       setLoading(false);
@@ -106,6 +108,7 @@ export function useProfileShop() {
     catalog,
     nitroBalance,
     rankingPoints,
+    spendablePoints,
     equippedIds,
     loading,
     reload: loadCatalog,

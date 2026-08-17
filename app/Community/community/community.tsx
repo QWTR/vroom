@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import MaterialIcons          from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker       from 'expo-image-picker';
@@ -44,6 +45,7 @@ import {
 } from '../../../lib/ugcActions';
 import { TabTrasy }    from './TabTrasy';
 import { invalidateQuestTrack } from '../../../lib/questTrack';
+import { SeasonSpotlightCard } from '../../../components/seasons/SeasonSpotlightCard';
 
 const PAGE_SIZE = 20;
 const POSTS_CACHE_PREFIX = 'vroom_discussions_first_page_v2';
@@ -55,6 +57,7 @@ const COMMENT_POST_PREVIEW_CHARS = 420;
 
 export default function CommunityScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const params = useLocalSearchParams<{ tab?: string; vroomkiId?: string; postId?: string; commentId?: string }>();
   const { theme, isDark } = useTheme();
   const { settings, updateSetting } = useSettings();
@@ -929,6 +932,8 @@ export default function CommunityScreen() {
         activeKey={activeTab}
         onChange={key => setActiveTab(key as Tab)}
       />
+
+      <SeasonSpotlightCard active={isFocused} compact />
 
       {/* ══ DYSKUSJE ══════════════════════════════════════════ */}
       {activeTab === 'dyskusje' && (

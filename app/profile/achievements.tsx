@@ -26,6 +26,7 @@ export default function AchievementsScreen() {
   const headerTop = useScreenHeaderTop(8);
   const { achievements, loading, fetchMyAchievements, fetchAchievements } = useAchievements();
   const [showLocked, setShowLocked] = useState(false);
+  const [scope, setScope] = useState<'global' | 'season'>('global');
 
   const isOwner = !userId;
   const parsedUserId = userId ? Number(userId) : null;
@@ -44,8 +45,9 @@ export default function AchievementsScreen() {
     void load();
   }, [load]);
 
-  const unlocked = useMemo(() => sortAchievementsByRarity(achievements.filter(a => a.active)), [achievements]);
-  const locked = useMemo(() => sortAchievementsByRarity(achievements.filter(a => !a.active)), [achievements]);
+  const scoped = useMemo(() => achievements.filter((a) => (a.scope || 'global') === scope), [achievements, scope]);
+  const unlocked = useMemo(() => sortAchievementsByRarity(scoped.filter(a => a.active)), [scoped]);
+  const locked = useMemo(() => sortAchievementsByRarity(scoped.filter(a => !a.active)), [scoped]);
   const unlockedGroups = useMemo(() => groupAchievementsByRarity(unlocked), [unlocked]);
   const lockedGroups = useMemo(() => groupAchievementsByRarity(locked), [locked]);
 
@@ -97,6 +99,13 @@ export default function AchievementsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {([['global', 'OGÓLNE'], ['season', 'SEZONOWE']] as const).map(([key, label]) => (
+              <TouchableOpacity key={key} onPress={() => setScope(key)} style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: scope === key ? theme.primary : theme.border, backgroundColor: scope === key ? `${theme.primary}18` : theme.surface, paddingVertical: 12, alignItems: 'center' }}>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 9, fontWeight: '800', color: scope === key ? theme.primary : theme.textDim }}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           {unlocked.length === 0 ? (
             <View style={{
               backgroundColor: theme.surface,

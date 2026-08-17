@@ -25,7 +25,10 @@ import {
 } from '../../../components/community';
 
 type RankCategory = 'points' | 'distance' | 'referrals';
-type RankPeriod = 'day' | 'week' | 'month' | 'all';
+type RankPeriod = 'season' | 'day' | 'week' | 'month' | 'all';
+
+interface SeasonReward { id: string; placeFrom: number; placeTo: number; type: string; name: string; imageUrl?: string | null; amount?: number | null }
+interface ActiveSeason { id: string; number: number; name: string; description?: string | null; imageUrl?: string | null; startsAt: string; endsAt: string; status: string }
 
 interface ReferralCompetition {
   id: number;
@@ -53,6 +56,7 @@ interface RankingRange {
 }
 
 const PERIODS: { key: RankPeriod; label: string }[] = [
+  { key: 'season', label: 'SEZON' },
   { key: 'day', label: 'DZIŚ' },
   { key: 'week', label: 'TYDZIEŃ' },
   { key: 'month', label: 'MIESIĄC' },
@@ -71,6 +75,8 @@ const PERIOD_ALIASES: Record<string, RankPeriod> = {
   miesiąc: 'month',
   all: 'all',
   wszystko: 'all',
+  season: 'season',
+  sezon: 'season',
 };
 
 function normalizePeriod(raw?: string): RankPeriod | null {
@@ -90,6 +96,7 @@ function formatCountdown(endsAt: string): string {
 }
 
 function formatRangeLabel(period: RankPeriod, range: RankingRange | null): string {
+  if (period === 'season') return 'BIEŻĄCY SEZON';
   if (period === 'all') return 'RANKING OGÓLNY';
   if (!range?.startsAt || !range.endsAt) {
     return period === 'day' ? 'DZISIAJ' : period === 'week' ? 'TEN TYDZIEŃ' : 'TEN MIESIĄC';
@@ -153,6 +160,8 @@ export default function StatsScreen() {
   const [myPosition, setMyPosition] = useState<number | null>(null);
   const [range, setRange] = useState<RankingRange | null>(null);
   const [competition, setCompetition] = useState<ReferralCompetition | null>(null);
+  const [season, setSeason] = useState<ActiveSeason | null>(null);
+  const [seasonRewards, setSeasonRewards] = useState<SeasonReward[]>([]);
   const [myId, setMyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -201,11 +210,15 @@ export default function StatsScreen() {
       setMyPosition(data?.myPosition ?? null);
       setCompetition(nextCategory === 'referrals' ? (data?.competition ?? null) : null);
       setRange(nextCategory === 'referrals' ? null : (data?.range ?? null));
+      setSeason(nextPeriod === 'season' ? (data?.season ?? null) : null);
+      setSeasonRewards(nextPeriod === 'season' && Array.isArray(data?.rewards) ? data.rewards : []);
     } catch (e) {
       setUsers([]);
       setMyPosition(null);
       setCompetition(null);
       setRange(null);
+      setSeason(null);
+      setSeasonRewards([]);
       setError(e instanceof Error ? e.message : 'Nie udało się pobrać rankingu');
     } finally {
       setLoading(false);
@@ -257,7 +270,7 @@ export default function StatsScreen() {
               <TouchableOpacity
                 key={p.key}
                 activeOpacity={0.82}
-                onPress={() => setPeriod(p.key)}
+                onPress={() => { setPeriod(p.key); if (p.key === 'season') setCategory('points'); }}
                 style={[
                   styles.periodChip,
                   { backgroundColor: theme.surface, borderColor: theme.border2 },
@@ -270,6 +283,15 @@ export default function StatsScreen() {
               </TouchableOpacity>
             );
           })}
+        </View>
+      ) : null}
+
+      {period === 'season' && season ? (
+        <View style={[styles.seasonCard, { backgroundColor: theme.surface, borderColor: theme.primary }]}> 
+          <View style={styles.competitionHeader}><MaterialCommunityIcons name="trophy-award" size={20} color="#FFD447" /><Text style={[styles.competitionTitle, { color: theme.text }]}>SEZON {season.number} · {season.name}</Text></View>
+          <Text style={[styles.competitionMeta, { color: theme.primary }]}>{formatCountdown(season.endsAt)}</Text>
+          {seasonRewards.length > 0 && <View style={styles.rewardList}>{seasonRewards.map((reward) => <View key={reward.id} style={[styles.rewardPill, { borderColor: theme.border2 }]}><Text style={[styles.rewardPlace, { color: '#FFD447' }]}>#{reward.placeFrom}{reward.placeTo !== reward.placeFrom ? `–${reward.placeTo}` : ''}</Text><Text numberOfLines={1} style={[styles.rewardName, { color: theme.text }]}>{reward.name}</Text></View>)}</View>}
+          <TouchableOpacity onPress={() => router.push('/profile/seasons')} style={[styles.seasonStatsButton, { borderColor: theme.border2 }]}><MaterialCommunityIcons name="chart-timeline-variant" size={15} color={theme.primary} /><Text style={[styles.periodText, { color: theme.primary }]}>MOJE STATYSTYKI I HISTORIA</Text></TouchableOpacity>
         </View>
       ) : null}
 
@@ -317,7 +339,7 @@ export default function StatsScreen() {
         </Text>
       ) : null}
     </View>
-  ), [category, competition, loading, myId, myPosition, openProfile, period, rangeLabel, restUsers.length, scoreLabel, theme, topThree, users.length]);
+  ), [category, competition, loading, myId, myPosition, openProfile, period, rangeLabel, restUsers.length, scoreLabel, season, seasonRewards, theme, topThree, users.length, router]);
 
   const renderItem: ListRenderItem<RankingUser> = useCallback(({ item }) => (
     <RankingListRow
@@ -409,6 +431,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Satoshi',
     fontSize: 12,
   },
+  seasonCard: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
+  rewardList: { gap: 7 },
+  rewardPill: { minHeight: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rewardPlace: { fontFamily: 'Orbitron', fontSize: 10, fontWeight: '900', minWidth: 34 },
+  rewardName: { flex: 1, fontFamily: 'Satoshi', fontSize: 12, fontWeight: '700' },
+  seasonStatsButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   periodRow: {
     flexDirection: 'row',
     gap: 8,
