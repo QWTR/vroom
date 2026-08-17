@@ -19,6 +19,7 @@ import { useTheme }           from '../../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../../hooks/useKeyboardInset';
 import { API_URL }            from '../../../constants/config';
 import { CommunityScreenHeader } from '../../../components/community';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../../lib/recoverableImagePicker';
 
 const USER_MAX    = 10;
 const PRESET_TAGS = ['NIGHT', 'CRUISE', 'TRACK', 'JDM', 'DRIFT', 'STATIC', 'SHOW', 'EURO', 'TURBO', 'STANCE'];
@@ -61,6 +62,16 @@ export default function EditMeet() {
   const [removeCover,   setRemoveCover]    = useState(false);
 
   const mapRef = useRef<Mapbox.MapView>(null);
+  const cameraPurpose = `edit-meet-cover:${id}`;
+
+  const applyCameraCover = useCallback((result: ImagePicker.ImagePickerResult) => {
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      setNewCover({ uri: a.uri, name: a.fileName ?? `cover_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' });
+      setRemoveCover(false);
+    }
+  }, []);
+  useRecoveredImagePickerResult(cameraPurpose, applyCameraCover);
 
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
@@ -108,12 +119,8 @@ export default function EditMeet() {
   const pickCoverCamera = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Toast.show({ type: 'error', text1: 'Brak uprawnień do aparatu' });
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-    if (!result.canceled && result.assets[0]) {
-      const a = result.assets[0];
-      setNewCover({ uri: a.uri, name: a.fileName ?? `cover_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' });
-      setRemoveCover(false);
-    }
+    const result = await launchRecoverableCameraAsync(cameraPurpose, { allowsEditing: true, aspect: [16, 9], quality: 0.85 });
+    applyCameraCover(result);
   };
 
   const handleRemoveCover = () => {

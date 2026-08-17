@@ -13,6 +13,9 @@ import { useTheme }      from '../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../hooks/useKeyboardInset';
 import { useScreenHeaderTop } from '../../lib/screenHeaderInsets';
 import { POLISH_PROVINCES } from '../../constants/provinces';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../lib/recoverableImagePicker';
+
+const CAMERA_PURPOSE = 'profile-edit-avatar';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -25,6 +28,10 @@ export default function EditProfileScreen() {
   const [province,    setProvince]    = useState<string | null>(null);
   const [bio,         setBio]         = useState('');
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
+
+  useRecoveredImagePickerResult(CAMERA_PURPOSE, (result) => {
+    if (!result.canceled && result.assets?.[0]?.uri) setLocalAvatar(result.assets[0].uri);
+  });
 
   useEffect(() => { if (!profile) fetchProfile(); }, []);
   useEffect(() => {
@@ -42,7 +49,7 @@ export default function EditProfileScreen() {
       if (useCamera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ', text2: 'Zezwól na dostęp do aparatu.' }); return; }
-        result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+        result = await launchRecoverableCameraAsync(CAMERA_PURPOSE, { allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       } else {
         result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       }

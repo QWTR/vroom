@@ -6,6 +6,9 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../contexts/ThemeContext';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../lib/recoverableImagePicker';
+
+const CAMERA_PURPOSE = 'profile-avatar-circle';
 
 interface Props {
   initials:       string;
@@ -16,6 +19,9 @@ interface Props {
 
 export default function AvatarCircle({ initials, avatarUrl, uploading = false, onCameraPress }: Props) {
   const { theme } = useTheme();
+  useRecoveredImagePickerResult(CAMERA_PURPOSE, (result) => {
+    if (!result.canceled && result.assets?.[0]?.uri) onCameraPress?.(result.assets[0].uri);
+  });
 
   const openPicker = async (useCamera: boolean) => {
     try {
@@ -23,7 +29,7 @@ export default function AvatarCircle({ initials, avatarUrl, uploading = false, o
       if (useCamera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) { Alert.alert('Brak uprawnień', 'Zezwól na dostęp do aparatu.'); return; }
-        result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+        result = await launchRecoverableCameraAsync(CAMERA_PURPOSE, { allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       } else {
         result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       }

@@ -33,6 +33,8 @@ let lastSpriteCache: { key: string; uri: string } | null = null;
 
 type Props = {
   enabled: boolean;
+  /** Keep the native trip pose source mounted without rendering the 2D fallback. */
+  showVisual?: boolean;
   marker: DriveMarkerV3Values;
   imageUri?: string | null;
   avatarUrl?: string | null;
@@ -90,6 +92,7 @@ function MarkerVisualLayers({ iconImage, iconSize, sourceID }: VisualLayersProps
 /** Trip marker rendered entirely as Mapbox style layers. */
 export const DriveMarkerLayer = memo(function DriveMarkerLayer({
   enabled,
+  showVisual = true,
   imageUri,
   avatarUrl,
   cursorSkin,
@@ -122,7 +125,7 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
 
   return (
     <>
-      {!preferNativeArrow ? (
+      {showVisual && !preferNativeArrow ? (
         <View
           pointerEvents="none"
           style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden' }}
@@ -130,11 +133,11 @@ export const DriveMarkerLayer = memo(function DriveMarkerLayer({
           <DriveMarkerSpriteCapture data={spriteData} onCapture={handleCapture} />
         </View>
       ) : null}
-      {textureUri ? (
+      {showVisual && textureUri ? (
         <Mapbox.Images images={{ [DRIVE_MARKER_IMAGE_KEY]: { uri: textureUri } }} />
       ) : null}
       <Mapbox.ShapeSource id="tripDriveMarkerSource" shape={EMPTY_SHAPE}>
-        <MarkerVisualLayers iconImage={iconImage} iconSize={iconSize} />
+        {showVisual ? <MarkerVisualLayers iconImage={iconImage} iconSize={iconSize} /> : null}
       </Mapbox.ShapeSource>
     </>
   );

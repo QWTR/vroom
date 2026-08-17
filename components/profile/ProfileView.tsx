@@ -18,6 +18,7 @@ import { GLASS_SHADOW, GLASS_BORDER, glassSurface } from './profileCardTheme';
 import AchievementsPreviewSection     from './AchievementsPreviewSection';
 import SpotPreviewCard              from './SpotPreviewCard';
 import { SpotifyProfileTrackRow }   from './SpotifyProfileTrackRow';
+import { DiscordProfileCard }       from './DiscordProfileCard';
 import { SpotDetailModal }          from '../spots/SpotDetailModal';
 import type { Achievement }         from '../../hooks/useAchievements';
 import type { UserProfile, Car, SpotPreview } from '../../constants/profile';
@@ -405,6 +406,7 @@ export default function ProfileView({
   const [friendsModalVisible, setFriendsModalVisible] = useState(false);
   const [invitesModalVisible, setInvitesModalVisible] = useState(false);
   const [statsModalVisible,   setStatsModalVisible]   = useState(false);
+  const [statsMode, setStatsMode] = useState<'all' | 'distance'>('all');
   const [vroomkiModalVisible, setVroomkiModalVisible] = useState(false);
   const [vroomkiPosts,        setVroomkiPosts]        = useState<ProfileVroomkiPost[]>([]);
   const [vroomkiLoading,      setVroomkiLoading]      = useState(false);
@@ -506,7 +508,8 @@ export default function ProfileView({
     setShopVisitFx(false);
   }, [isOwner, profile?.id, premiumUi?.visitEntranceAnim, shopCosmetics?.entranceEffect?.assetUrl]);
 
-  const openStats = () => {
+  const openStats = (mode: 'all' | 'distance' = 'all') => {
+    setStatsMode(mode);
     setStatsModalVisible(true);
     statsSlide.setValue(1);
     Animated.spring(statsSlide, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }).start();
@@ -864,6 +867,10 @@ export default function ProfileView({
           </View>
 
           {/* ══ BENTO STATS GRID ══ */}
+          {!!profile?.discord && (
+            <DiscordProfileCard discord={profile.discord} theme={theme} />
+          )}
+
           <View style={{ marginBottom: 16, gap: 10 }}>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               {([
@@ -872,7 +879,16 @@ export default function ProfileView({
               ]).map(w => (
                 <TouchableOpacity
                   key={w.label}
-                  onPress={openStats}
+                  onPress={() => {
+                    if (w.label === 'Osiągnięcia') {
+                      router.push({
+                        pathname: '/profile/achievements',
+                        params: isOwner ? {} : { userId: String(profile?.id || '') },
+                      } as any);
+                    } else {
+                      openStats('distance');
+                    }
+                  }}
                   activeOpacity={0.82}
                   style={{
                     flex: 1,
@@ -897,7 +913,16 @@ export default function ProfileView({
               ]).map(w => (
                 <TouchableOpacity
                   key={w.label}
-                  onPress={openStats}
+                  onPress={() => {
+                    if (w.label === 'Ranking') {
+                      router.push({
+                        pathname: '/Community/Ranks/stats',
+                        params: { rankCategory: 'points', rankPeriod: 'all' },
+                      } as any);
+                    } else {
+                      openStats('all');
+                    }
+                  }}
                   activeOpacity={0.82}
                   style={{
                     flex: 1,
@@ -945,21 +970,29 @@ export default function ProfileView({
             </View>
 
             <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, ...socialRowDivider(false) }}>
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'followers' } } as any)}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+              >
                 <MaterialIcons name="visibility" size={18} color={pillAccentColors[2]} />
                 <View>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followersCount ?? 0}</Text>
                   <Text style={{ ...profileLabel(theme) }}>Obserwujący</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
               <View style={{ width: 1, backgroundColor: GLASS_BORDER, marginHorizontal: 8 }} />
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => router.push({ pathname: '/profile/connections', params: { userId: String(profile?.id || ''), tab: 'following' } } as any)}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+              >
                 <MaterialIcons name="person-add" size={18} color={pillAccentColors[1]} />
                 <View>
                   <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: theme.text, fontWeight: '900' }}>{profile?.followingCount ?? 0}</Text>
                   <Text style={{ ...profileLabel(theme) }}>Obserwacje</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             </View>
 
             {!club ? (
@@ -1368,7 +1401,7 @@ export default function ProfileView({
                 <MaterialIcons name="bar-chart" size={18} color="#e33835" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>STATYSTYKI</Text>
+                <Text style={{ fontFamily: 'Orbitron', fontSize: 14, color: theme.text, fontWeight: '900', letterSpacing: 1 }}>{statsMode === 'distance' ? 'KILOMETRY' : 'STATYSTYKI'}</Text>
                 <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: '#e33835', letterSpacing: 2, marginTop: 2 }}>{profile?.username ?? ''}</Text>
               </View>
               <TouchableOpacity onPress={closeStats} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }}>
@@ -1378,13 +1411,13 @@ export default function ProfileView({
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
               {/* PRĘDKOŚĆ */}
-              <StatsModalSection title="PRĘDKOŚĆ" color="#e33835" icon="speedometer">
+              {statsMode === 'all' && <StatsModalSection title="PRĘDKOŚĆ" color="#e33835" icon="speedometer">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                   <StatsModalItem label="TOP SPEED" value={`${Math.round(profile?.topSpeed ?? 0)}`} unit="km/h" color="#e33835" isDark={isDark} />
                   <StatsModalItem label="ŚR. PRĘDKOŚĆ" value={`${Math.round((profile as any)?.avgSpeed ?? 0)}`} unit="km/h" color="#ff6b35" isDark={isDark} />
                   <StatsModalItem label="ŚR. MAX" value={`${Math.round((profile as any)?.avgMaxSpeed ?? 0)}`} unit="km/h" color="#ff922b" isDark={isDark} />
                 </View>
-              </StatsModalSection>
+              </StatsModalSection>}
 
               {/* DYSTANS */}
               <StatsModalSection title="DYSTANS" color="#268bff" icon="road-variant">
@@ -1436,7 +1469,7 @@ export default function ProfileView({
               </StatsModalSection>
 
               {/* AKTYWNOŚĆ */}
-              <StatsModalSection title="AKTYWNOŚĆ" color="#4de926" icon="fire">
+              {statsMode === 'all' && <StatsModalSection title="AKTYWNOŚĆ" color="#4de926" icon="fire">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                   <StatsModalItem label="PRZEJAZDY ŁĄCZNIE" value={`${profile?.totalRides ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
                   <StatsModalItem label="PRZEJAZDY MIES." value={`${profile?.monthlyRides ?? 0}`} unit="szt." color="#4de926" isDark={isDark} />
@@ -1453,10 +1486,10 @@ export default function ProfileView({
                 >
                   <Text style={{ color: '#c4b5fd', fontWeight: '700', fontSize: 13 }}>Eksploracja i Paszport</Text>
                 </TouchableOpacity>
-              </StatsModalSection>
+              </StatsModalSection>}
 
               {/* OSIĄGNIĘCIA */}
-              <StatsModalSection title="OSIĄGNIĘCIA" color="#f5c518" icon="trophy">
+              {statsMode === 'all' && <StatsModalSection title="OSIĄGNIĘCIA" color="#f5c518" icon="trophy">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                   <StatsModalItem label="ODBLOKOWANE" value={`${unlocked.length}`} unit="szt." color="#f5c518" isDark={isDark} />
                   <StatsModalItem label="WSZYSTKIE" value={`${achievements.length}`} unit="szt." color="#f5c518" isDark={isDark} />
@@ -1465,9 +1498,9 @@ export default function ProfileView({
                     <StatsModalItem label="RANKING" value={`#${profile.position}`} color="#e33835" isDark={isDark} />
                   )}
                 </View>
-              </StatsModalSection>
+              </StatsModalSection>}
 
-              <StatsModalSection title="WYKRESY MIESIĘCZNE" color="#a855f7" icon="chart-bar">
+              {statsMode === 'all' && <StatsModalSection title="WYKRESY MIESIĘCZNE" color="#a855f7" icon="chart-bar">
                 {!premiumActive ? (
                   <TouchableOpacity
                     style={{ backgroundColor: '#FFD70010', borderWidth: 1, borderColor: '#FFD70030', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
@@ -1486,7 +1519,7 @@ export default function ProfileView({
                     isDark={isDark}
                   />
                 )}
-              </StatsModalSection>
+              </StatsModalSection>}
             </ScrollView>
           </Animated.View>
         </View>

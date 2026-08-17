@@ -57,6 +57,7 @@ function mapToProfile(u: any, opts?: { includeClub?: boolean; avatarCacheBust?: 
     bannerUrl: u.isPremium ? (u.bannerUrl ?? null) : null,
     profilePremiumExtras: u.isPremium ? mergeProfilePremiumExtras(u.profilePremiumExtras) : null,
     spotifyProfileTrack: u.spotifyProfileTrack ?? null,
+    discord: u.discord ?? null,
     club:          opts?.includeClub ? (u.club ?? null) : null,
     followersCount: u.followersCount ?? 0,  
     followingCount: u.followingCount ?? 0,

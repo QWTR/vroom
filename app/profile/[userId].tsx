@@ -15,7 +15,7 @@ import AchievementsPreviewSection from '../../components/profile/AchievementsPre
 import type { Achievement } from '../../hooks/useAchievements';
 import SpotPreviewCard    from '../../components/profile/SpotPreviewCard';
 import { SpotDetailModal } from '../../components/spots/SpotDetailModal';
-import type { GamificationProfileSummary, SpotPreview, SpotifyProfileTrack } from '../../constants/profile';
+import type { DiscordProfile, GamificationProfileSummary, SpotPreview, SpotifyProfileTrack } from '../../constants/profile';
 import type { Spot }       from '../../constants/spotTypes';
 import { useChat }         from '../../hooks/useChats';
 import { hasValidCustomHeroColors, resolveProfilePalette } from '../../constants/profileThemes';
@@ -35,6 +35,7 @@ import ProfileBackgroundAnimation from '../../components/profile/ProfileBackgrou
 import ProfileHeroMotionLayer, { ProfileHeroKenBurnsWrapper } from '../../components/profile/ProfileHeroMotionLayer';
 import { UserBadges } from '../../components/user/UserBadges';
 import { SpotifyProfileTrackRow } from '../../components/profile/SpotifyProfileTrackRow';
+import { DiscordProfileCard } from '../../components/profile/DiscordProfileCard';
 import { ExplorationCoverageMap } from '../../components/profile/ExplorationCoverageMap';
 import { useScreenHeaderTop, useScreenScrollBottomPadding } from '../../lib/screenHeaderInsets';
 
@@ -75,6 +76,7 @@ interface PublicProfile {
   avatarFramePreset?: string;
   profilePremiumExtras?: unknown;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
+  discord?: DiscordProfile | null;
   shopCosmetics?: UserShopCosmetics | null;
   gamificationSummary?: GamificationProfileSummary | null;
 }
@@ -135,6 +137,7 @@ export default function PublicProfileScreen() {
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [statsModalVisible,    setStatsModalVisible]    = useState(false);
+  const [statsMode, setStatsMode] = useState<'all' | 'distance'>('distance');
   const [topSpeedModalVisible, setTopSpeedModalVisible] = useState(false);
   const [visitFx, setVisitFx] = useState(false);
   const [shopVisitFx, setShopVisitFx] = useState(false);
@@ -892,23 +895,38 @@ export default function PublicProfileScreen() {
                   { label: 'Obserwujący', value: followersCount, icon: 'visibility' as const },
                   { label: 'Obserwacje', value: followingCount, icon: 'person-add' as const },
                 ].map((item, idx) => (
-                  <View key={item.label} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: idx === 0 ? 0 : 12 }}>
+                  <TouchableOpacity
+                    key={item.label}
+                    activeOpacity={0.75}
+                    onPress={() => router.push({
+                      pathname: '/profile/connections',
+                      params: { userId: String(profile.id), tab: idx === 0 ? 'followers' : 'following' },
+                    } as any)}
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: idx === 0 ? 0 : 12 }}
+                  >
                     {idx === 1 && <View style={{ width: 1, height: 32, backgroundColor: GLASS_BORDER, marginRight: 12 }} />}
                     <MaterialIcons name={item.icon} size={18} color={palette.textDim} />
                     <View>
                       <Text style={{ fontFamily: 'Orbitron', fontSize: 18, color: palette.text, fontWeight: '900' }}>{item.value}</Text>
                       <Text style={profileLabel}>{item.label}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>
 
             {/* ══ BENTO STATS GRID 2×2 ══ */}
+            {!!profile.discord && (
+              <DiscordProfileCard
+                discord={profile.discord}
+                theme={{ text: palette.text, textDim: palette.textDim, surface: palette.surface, border: palette.border }}
+              />
+            )}
+
             <View style={{ marginBottom: 16, gap: 10 }}>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TouchableOpacity
-                  onPress={() => setStatsModalVisible(true)}
+                  onPress={() => { setStatsMode('distance'); setStatsModalVisible(true); }}
                   activeOpacity={0.82}
                   style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}
                 >
@@ -921,38 +939,38 @@ export default function PublicProfileScreen() {
                   </View>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => setTopSpeedModalVisible(true)}
+                  onPress={() => router.push({ pathname: '/profile/achievements', params: { userId: String(profile.id) } } as any)}
                   activeOpacity={0.82}
                   style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}
                 >
-                  <MaterialCommunityIcons name="speedometer" size={22} color={palette.textDim} />
+                  <MaterialCommunityIcons name="trophy" size={22} color={palette.textDim} />
                   <View>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
-                      {Math.round(profile.topSpeed ?? 0)}
+                      {achievements.length}
                     </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>KM/H</Text>
+                    <Text style={{ ...profileLabel, marginTop: 4 }}>Osiągnięcia</Text>
                   </View>
                 </TouchableOpacity>
               </View>
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
-                  <MaterialIcons name="flag" size={22} color={palette.textDim} />
+                <TouchableOpacity onPress={() => router.push({ pathname: '/Community/Ranks/stats', params: { rankCategory: 'points', rankPeriod: 'all' } } as any)} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
+                  <MaterialIcons name="leaderboard" size={22} color={palette.textDim} />
                   <View>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
-                      {profile.meetCount}
+                      {profile.position ? `#${profile.position}` : '—'}
                     </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Meety</Text>
+                    <Text style={{ ...profileLabel, marginTop: 4 }}>Ranking</Text>
                   </View>
-                </View>
-                <View style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
-                  <MaterialIcons name="location-city" size={22} color={palette.textDim} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => { setStatsMode('all'); setStatsModalVisible(true); }} activeOpacity={0.82} style={{ flex: 1, aspectRatio: 1, ...widgetGlass(), padding: 14, justifyContent: 'space-between' }}>
+                  <MaterialIcons name="bar-chart" size={22} color={palette.textDim} />
                   <View>
                     <Text style={{ fontFamily: 'Orbitron', fontSize: 22, color: palette.text, fontWeight: '900', letterSpacing: -0.5 }}>
-                      {profile.cityCount}
+                      →
                     </Text>
-                    <Text style={{ ...profileLabel, marginTop: 4 }}>Miasta</Text>
+                    <Text style={{ ...profileLabel, marginTop: 4 }}>Statystyki</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -1148,7 +1166,7 @@ export default function PublicProfileScreen() {
         <View style={{ flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#111', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 48 }}>
             <View style={{ width: 40, height: 4, backgroundColor: '#ffffff20', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
-            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 4, marginBottom: 16 }}>STATYSTYKI DYSTANSU</Text>
+            <Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: RED, letterSpacing: 4, marginBottom: 16 }}>{statsMode === 'distance' ? 'STATYSTYKI DYSTANSU' : 'PEŁNE STATYSTYKI'}</Text>
             <View style={{ backgroundColor: RED + '12', borderRadius: 18, borderWidth: 1, borderColor: RED + '30', padding: 20, marginBottom: 12, alignItems: 'center' }}>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 48, color: RED, fontWeight: '900', letterSpacing: -2 }}>
                 {Math.round(profile?.totalDistance ?? 0).toLocaleString('pl-PL')}
@@ -1171,6 +1189,7 @@ export default function PublicProfileScreen() {
               <Text style={{ fontFamily: 'Orbitron', fontSize: 11, color: '#ffffff60' }}>ŁĄCZNIE TRAS</Text>
               <Text style={{ fontFamily: 'Orbitron', fontSize: 20, color: '#fff', fontWeight: '900' }}>{profile?.totalRides ?? 0}</Text>
             </View>
+            {statsMode === 'all' && <View style={{ marginTop: 12, gap: 10 }}><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#ff6b3512', borderRadius: 14, borderWidth: 1, borderColor: '#ff6b3530', padding: 14 }}><Text style={{ color: '#ff6b35', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.topSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Orbitron', fontSize: 7, marginTop: 4 }}>TOP SPEED KM/H</Text></View><View style={{ flex: 1, backgroundColor: '#268bff12', borderRadius: 14, borderWidth: 1, borderColor: '#268bff30', padding: 14 }}><Text style={{ color: '#268bff', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 22 }}>{Math.round(profile?.avgSpeed ?? 0)}</Text><Text style={{ color: '#ffffff50', fontFamily: 'Orbitron', fontSize: 7, marginTop: 4 }}>ŚREDNIA KM/H</Text></View></View><View style={{ flexDirection: 'row', gap: 10 }}><View style={{ flex: 1, backgroundColor: '#4de92612', borderRadius: 14, padding: 14 }}><Text style={{ color: '#4de926', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 20 }}>{profile?.meetCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 8 }}>MEETY</Text></View><View style={{ flex: 1, backgroundColor: '#a855f712', borderRadius: 14, padding: 14 }}><Text style={{ color: '#a855f7', fontFamily: 'Orbitron', fontWeight: '900', fontSize: 20 }}>{profile?.cityCount ?? 0}</Text><Text style={{ color: '#ffffff50', fontSize: 8 }}>MIASTA</Text></View></View></View>}
             <TouchableOpacity
               style={{ marginTop: 20, backgroundColor: RED + '18', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: RED + '30' }}
               onPress={() => setStatsModalVisible(false)}

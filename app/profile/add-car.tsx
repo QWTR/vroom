@@ -12,6 +12,9 @@ import AsyncStorage          from '@react-native-async-storage/async-storage';
 import { API_URL }           from '../../constants/config';
 import { useTheme }          from '../../contexts/ThemeContext';
 import { PREFERRED_FUEL_OPTIONS, type PreferredFuelKey } from '../../lib/fuelDisplayPrice';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../lib/recoverableImagePicker';
+
+const CAMERA_PURPOSE = 'add-car-photo';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -54,6 +57,10 @@ export default function AddCarScreen() {
     } finally { setCompressing(false); }
   };
 
+  useRecoveredImagePickerResult(CAMERA_PURPOSE, async (result) => {
+    if (!result.canceled && result.assets?.length) await processAndAddPhotos(result.assets);
+  });
+
   const pickPhotos = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 5 - photos.length, quality: 1 });
     if (!result.canceled) await processAndAddPhotos(result.assets);
@@ -62,7 +69,7 @@ export default function AddCarScreen() {
   const pickFromCamera = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ', text2: 'Zezwól na dostęp do aparatu.' }); return; }
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 1 });
+    const result = await launchRecoverableCameraAsync(CAMERA_PURPOSE, { allowsEditing: true, quality: 1 });
     if (!result.canceled && result.assets[0]) await processAndAddPhotos(result.assets);
   };
 

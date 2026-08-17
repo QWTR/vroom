@@ -19,9 +19,11 @@ import { useTheme }           from '../../../contexts/ThemeContext';
 import { useFormKeyboardPadding } from '../../../hooks/useKeyboardInset';
 import { API_URL }            from '../../../constants/config';
 import { CommunityScreenHeader } from '../../../components/community';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../../lib/recoverableImagePicker';
 
 const USER_MAX    = 10;
 const PRESET_TAGS = ['NIGHT', 'CRUISE', 'TRACK', 'JDM', 'DRIFT', 'STATIC', 'SHOW', 'EURO', 'TURBO', 'STANCE'];
+const CAMERA_PURPOSE = 'create-meet-cover';
 
 function parseNominatimAddress(data: any): string {
   const a        = data.address ?? {};
@@ -57,6 +59,14 @@ export default function CreateMeet() {
 
   const mapRef = useRef<Mapbox.MapView>(null);
 
+  const applyCameraCover = useCallback((result: ImagePicker.ImagePickerResult) => {
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      setCover({ uri: a.uri, name: a.fileName ?? `cover_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' });
+    }
+  }, []);
+  useRecoveredImagePickerResult(CAMERA_PURPOSE, applyCameraCover);
+
   const getToken = async () =>
     (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token')) ?? '';
 
@@ -75,11 +85,8 @@ export default function CreateMeet() {
   const pickCoverCamera = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Toast.show({ type: 'error', text1: 'Brak uprawnień do aparatu' });
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-    if (!result.canceled && result.assets[0]) {
-      const a = result.assets[0];
-      setCover({ uri: a.uri, name: a.fileName ?? `cover_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' });
-    }
+    const result = await launchRecoverableCameraAsync(CAMERA_PURPOSE, { allowsEditing: true, aspect: [16, 9], quality: 0.85 });
+    applyCameraCover(result);
   };
 
   // ── Reverse geocoding ─────────────────────────────────

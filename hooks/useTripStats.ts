@@ -1,7 +1,10 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { DeviceEventEmitter } from 'react-native';
 import { evaluateDistanceSegment, haversineKm } from '../scripts/distanceEngine';
 import { vroomGpsLog } from '../lib/vroomGpsLog';
 import { BackgroundDriveController } from '../lib/backgroundDriveController';
+import { GPS_DISCONTINUITY_EVENT } from '../lib/recoverableImagePicker';
+import { evaluateGpsContinuityFix } from '../lib/gpsContinuity';
 import {
   clearEmergencyTripSave,
   writeEmergencyTripSave,
@@ -67,6 +70,7 @@ export function useTripStats() {
   const distanceRef  = useRef<number>(0);
   const lastPointRef = useRef<{ latitude: number; longitude: number; time: number } | null>(null);
   const lastAccuracyRef = useRef<number | null>(null);
+  const reanchorFixesRemainingRef = useRef(0);
   const lastLiveKmEmitRef = useRef(0);
   const lastLiveKmValueRef = useRef(0);
   const lastEmergencyKmRef = useRef(0);
@@ -200,10 +204,11 @@ export function useTripStats() {
     startTimeRef.current = snapshot.startTimeMs ?? Date.now();
     estSecRef.current = Number(snapshot.estimatedSec) || 0;
     lastEmergencyKmRef.current = Math.floor(dist / EMERGENCY_CHECKPOINT_KM) * EMERGENCY_CHECKPOINT_KM;
-    const lastPt = trackedPts.current[trackedPts.current.length - 1];
-    lastPointRef.current = lastPt
-      ? { latitude: lastPt.latitude, longitude: lastPt.longitude, time: Date.now() }
-      : null;
+    // A restored snapshot may have been written before Android destroyed the
+    // activity for the camera. Never bridge that old point with a new fix.
+    lastPointRef.current = null;
+    lastAccuracyRef.current = null;
+    reanchorFixesRemainingRef.current = 2;
     const rounded = parseFloat(dist.toFixed(2));
     lastLiveKmValueRef.current = rounded;
     setLiveDistanceKm(rounded);
@@ -238,6 +243,8 @@ export function useTripStats() {
     startTimeRef.current = Date.now();
     estSecRef.current    = estimatedDurationSec;
     lastPointRef.current = null;
+    lastAccuracyRef.current = null;
+    reanchorFixesRemainingRef.current = 0;
     lastLiveKmEmitRef.current = 0;
     lastLiveKmValueRef.current = 0;
     lastEmergencyKmRef.current = 0;
@@ -273,6 +280,34 @@ export function useTripStats() {
     const speedKmh = speedMs != null && speedMs > 0 ? speedMs * 3.6 : null;
     const pts = trackedPts.current;
     const lastMeta = lastPointRef.current;
+
+    if (reanchorFixesRemainingRef.current > 0) {
+      const continuity = evaluateGpsContinuityFix(
+        reanchorFixesRemainingRef.current, lat, lng, accuracyM, TRIP_MAX_ACCURACY_M,
+      );
+      if (continuity.action === 'reject') {
+        vroomGpsLog('TRIP_REANCHOR_REJECT', {
+          reason: 'invalid_or_inaccurate_fix',
+          accuracyM: accuracyM ?? null,
+          remaining: reanchorFixesRemainingRef.current,
+        }, 2_000);
+        return 0;
+      }
+      lastPointRef.current = { latitude: lat, longitude: lng, time: now };
+      lastAccuracyRef.current = accuracyM ?? null;
+      const previous = pts[pts.length - 1];
+      if (!previous || haversineKm(previous.latitude, previous.longitude, lat, lng) >= 0.03) {
+        pts.push({ latitude: lat, longitude: lng });
+        trackedPts.current = compactTrackPoints(pts);
+      }
+      reanchorFixesRemainingRef.current = continuity.remaining;
+      vroomGpsLog('TRIP_REANCHOR_FIX', {
+        reason: 'camera_or_process_resume',
+        remaining: reanchorFixesRemainingRef.current,
+        accuracyM: accuracyM ?? null,
+      }, 0);
+      return 0;
+    }
 
     if (nativeOwnsRef.current) {
       // Native owns distance, but keep a sparse JS route so finalize still has
@@ -446,6 +481,20 @@ export function useTripStats() {
   }, [maybeEmergencyCheckpoint]);
 
   useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(GPS_DISCONTINUITY_EVENT, (event) => {
+      lastPointRef.current = null;
+      lastAccuracyRef.current = null;
+      reanchorFixesRemainingRef.current = 2;
+      vroomGpsLog('TRIP_CONTINUITY_BREAK', {
+        reason: event?.reason ?? 'camera',
+        phase: event?.phase ?? 'unknown',
+        active: tripActive,
+      }, 0);
+    });
+    return () => subscription.remove();
+  }, [tripActive]);
+
+  useEffect(() => {
     if (!TRIP_STATS_DIAGNOSTICS) return undefined;
     const id = setInterval(() => {
       console.log('[TripStats][diag]', segmentDiagRef.current);
@@ -518,6 +567,8 @@ export function useTripStats() {
     distanceRef.current  = 0;
     startTimeRef.current = null;
     lastPointRef.current = null;
+    lastAccuracyRef.current = null;
+    reanchorFixesRemainingRef.current = 0;
     lastEmergencyKmRef.current = 0;
     nativeOwnsRef.current = false;
     setTripActive(false);

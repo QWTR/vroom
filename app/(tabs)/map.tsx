@@ -13517,6 +13517,15 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             onSelectWarning={setSelectedWarning}
           />
 
+          <DriveMarkerLayer
+            enabled={isTripActive}
+            showVisual={showSelf2DMarker || showTripArrowUnderlay}
+            marker={driveMarker}
+            useNativeArrow={selfMarkerUsesArrow || showTripArrowUnderlay}
+            imageUri={selfMarkerUsesArrow || showTripArrowUnderlay ? null : carMarkerImage}
+            avatarUrl={selfMarkerUsesArrow || showTripArrowUnderlay ? null : myAvatarUrl}
+            cursorSkin={cursorSkinOverlay}
+          />
           <VehicleModelMarker
             enabled={useVehicle3DMarker}
             isTripActive={isTripActive}
@@ -13526,14 +13535,6 @@ publishSpeed(rawSpeedMs, { sanitizedMs: sanitizedSpeedMs, ...speedPublishMeta })
             browseHeading={markerHdg}
             metadata={equippedMapVehicle?.metadata}
             modelReady={useNativeVehicleModel}
-          />
-          <DriveMarkerLayer
-            enabled={isTripActive && (showSelf2DMarker || showTripArrowUnderlay)}
-            marker={driveMarker}
-            useNativeArrow={selfMarkerUsesArrow || showTripArrowUnderlay}
-            imageUri={selfMarkerUsesArrow || showTripArrowUnderlay ? null : carMarkerImage}
-            avatarUrl={selfMarkerUsesArrow || showTripArrowUnderlay ? null : myAvatarUrl}
-            cursorSkin={cursorSkinOverlay}
           />
           {!isTripActive
             && Number.isFinite(markerLat)

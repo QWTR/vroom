@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, ActivityIndicator, Switch, Modal, Image, Share,
-  Dimensions, KeyboardAvoidingView, Keyboard, Platform, Linking,
+  Dimensions, KeyboardAvoidingView, Keyboard, Platform, Linking, Alert,
 } from 'react-native';
 import { Text }         from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +17,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as Location    from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as WebBrowser  from 'expo-web-browser';
+import * as ExpoLinking from 'expo-linking';
 import Toast            from 'react-native-toast-message';
 import { API_URL }      from '../../constants/config';
 import { useSettings }  from '../../hooks/useSettings';
@@ -77,6 +78,14 @@ import {
   deleteProfileBanner,
 } from '../../lib/profileBanner';
 const RED = '#e33835';
+const DISCORD_BLURPLE = '#5865F2';
+const DISCORD_RETURN_URL = 'vroom://discord-linked';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const showDiscordToast = (options: { type: string; text1: string; text2?: string }) => {
+  Toast.show(options as any);
+};
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -129,8 +138,13 @@ const REFERRAL_PROMO_FORMATS = [
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openBug } = useLocalSearchParams<{ openBug?: string }>();
+  const { openBug, discordStatus, discordReason } = useLocalSearchParams<{
+    openBug?: string;
+    discordStatus?: string;
+    discordReason?: string;
+  }>();
   const openBugHandledRef = React.useRef(false);
+  const discordResultHandledRef = React.useRef(false);
   const { theme, isDark, mode, presetId, setMode, setPreset, availablePresets } = useTheme();
   const { profile, fetchProfile } = useProfile();
   const { isPremium: effectivePremium, refresh: refreshPremiumAccess } = useEffectivePremium(profile);
@@ -207,6 +221,23 @@ export default function SettingsScreen() {
   }, [openBug]);
 
   useEffect(() => {
+    if (discordResultHandledRef.current || !discordStatus) return;
+    discordResultHandledRef.current = true;
+    if (discordStatus === 'success') {
+      void fetchProfile();
+      showDiscordToast({ type: 'success', text1: 'Discord połączony', text2: 'Dane są widoczne na profilu.' });
+    } else if (discordStatus !== 'cancelled') {
+      showDiscordToast({
+        type: 'error',
+        text1: 'Nie połączono Discorda',
+        text2: discordReason === 'already_linked'
+          ? 'To konto Discord jest już połączone z innym profilem VROOM.'
+          : 'Spróbuj ponownie za chwilę.',
+      });
+    }
+  }, [discordReason, discordStatus, fetchProfile]);
+
+  useEffect(() => {
     AsyncStorage.getItem('entrance_motion_mode').then(v => {
       if (v === 'off' || v === 'reduced' || v === 'full') setEntranceMotionState(v);
     });
@@ -231,6 +262,7 @@ export default function SettingsScreen() {
   const [deleteConfirm,      setDeleteConfirm]      = useState('');
   const [deleteLoading,      setDeleteLoading]      = useState(false);
   const [bugLoading,         setBugLoading]         = useState(false);
+  const [discordBusy,        setDiscordBusy]        = useState(false);
   const [bugCategory,        setBugCategory]        = useState('');
   const [bugDescription,     setBugDescription]     = useState('');
   const [bugPhotos,          setBugPhotos]          = useState<string[]>([]);
@@ -613,6 +645,92 @@ export default function SettingsScreen() {
     await updateSetting('homeLongitude', null);
     await updateSetting('homeLabel', null);
     Toast.show({ type: 'info', text1: '🏠 Dom usunięty' });
+  };
+
+  const handleConnectDiscord = async () => {
+    const token = await getToken();
+    if (!token) {
+      showDiscordToast({ type: 'error', text1: 'Sesja wygasła', text2: 'Zaloguj się ponownie.' });
+      return;
+    }
+    setDiscordBusy(true);
+    try {
+      const response = await fetch(`${API_URL}/api/profile/discord/authorize`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok || !payload?.authorizationUrl) {
+        throw new Error(payload?.error || 'Nie udało się uruchomić logowania Discord');
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        String(payload.authorizationUrl),
+        DISCORD_RETURN_URL,
+      );
+      if (result.type !== 'success' || !result.url) return;
+
+      const params = ExpoLinking.parse(result.url).queryParams ?? {};
+      const status = String(params.status ?? 'error');
+      const reason = String(params.reason ?? '');
+      if (status === 'success') {
+        await fetchProfile();
+        showDiscordToast({
+          type: 'success',
+          text1: 'Discord połączony',
+          text2: 'Dane Discorda są już widoczne na Twoim profilu.',
+        });
+        return;
+      }
+      if (status === 'cancelled') return;
+      throw new Error(
+        reason === 'already_linked'
+          ? 'To konto Discord jest już połączone z innym profilem VROOM.'
+          : 'Discord nie potwierdził połączenia konta.',
+      );
+    } catch (e) {
+      showDiscordToast({
+        type: 'error',
+        text1: 'Nie połączono Discorda',
+        text2: e instanceof Error ? e.message : 'Spróbuj ponownie za chwilę.',
+      });
+    } finally {
+      setDiscordBusy(false);
+    }
+  };
+
+  const disconnectDiscord = async () => {
+    const token = await getToken();
+    if (!token) return;
+    setDiscordBusy(true);
+    try {
+      const response = await fetch(`${API_URL}/api/profile/discord`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(payload?.error || 'Nie udało się odłączyć Discorda');
+      await fetchProfile();
+      showDiscordToast({ type: 'success', text1: 'Discord odłączony' });
+    } catch (e) {
+      showDiscordToast({
+        type: 'error',
+        text1: 'Nie odłączono Discorda',
+        text2: e instanceof Error ? e.message : 'Spróbuj ponownie za chwilę.',
+      });
+    } finally {
+      setDiscordBusy(false);
+    }
+  };
+
+  const handleDisconnectDiscord = () => {
+    Alert.alert(
+      'Odłączyć Discorda?',
+      'Dane Discorda przestaną być widoczne na Twoim profilu VROOM.',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        { text: 'Odłącz', style: 'destructive', onPress: () => void disconnectDiscord() },
+      ],
+    );
   };
 
   const handleLogout = async () => {
@@ -2566,6 +2684,42 @@ export default function SettingsScreen() {
 						/>
 					</SettingsCard>
 
+					<SettingsSectionLabel isDark={isDark} title='POŁĄCZONE KONTA' />
+					<SettingsCard {...settingsCardProps}>
+						<View style={{ paddingHorizontal: 16, paddingVertical: 15 }}>
+							<View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+								<View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: DISCORD_BLURPLE + '22', borderWidth: 1, borderColor: DISCORD_BLURPLE + '45', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+									{profile?.discord?.avatarUrl ? (
+										<Image source={{ uri: profile.discord.avatarUrl }} style={{ width: 42, height: 42 }} />
+									) : (
+										<MaterialIcons name='discord' size={22} color={DISCORD_BLURPLE} />
+									)}
+								</View>
+								<View style={{ flex: 1 }}>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 12, color: textMain, fontWeight: '700' }}>
+										{profile?.discord?.displayName ?? 'Discord'}
+									</Text>
+									<Text style={{ fontFamily: 'Orbitron', fontSize: 8, color: profile?.discord ? '#23A55A' : textDim, marginTop: 4 }}>
+										{profile?.discord ? `POŁĄCZONO · @${profile.discord.username}` : 'POKAŻ DISCORDA NA PROFILU VROOM'}
+									</Text>
+								</View>
+								{discordBusy && <ActivityIndicator size='small' color={DISCORD_BLURPLE} />}
+							</View>
+							<Text style={{ fontSize: 11, lineHeight: 17, color: textDim, marginTop: 12 }}>
+								VROOM pobierze tylko nazwę i avatar z Discorda. Nie zapisujemy tokenu dostępu ani listy serwerów.
+							</Text>
+							<TouchableOpacity
+								onPress={profile?.discord ? handleDisconnectDiscord : handleConnectDiscord}
+								disabled={discordBusy}
+								style={{ marginTop: 13, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: profile?.discord ? DISCORD_BLURPLE + '18' : DISCORD_BLURPLE, borderWidth: 1, borderColor: DISCORD_BLURPLE + (profile?.discord ? '55' : 'FF'), opacity: discordBusy ? 0.65 : 1 }}
+							>
+								<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: profile?.discord ? DISCORD_BLURPLE : '#fff', fontWeight: '800', letterSpacing: 0.8 }}>
+									{profile?.discord ? 'ODŁĄCZ DISCORDA' : 'POŁĄCZ Z DISCORDEM'}
+								</Text>
+							</TouchableOpacity>
+						</View>
+					</SettingsCard>
+
 					<SettingsSectionLabel isDark={isDark} title='POLECENIA / REF LINK' />
 					<View style={{ backgroundColor: cardBg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: cardBorder }}>
 						<View style={{ paddingHorizontal: 16, paddingVertical: 14, gap: 10 }}>
@@ -2640,6 +2794,22 @@ export default function SettingsScreen() {
 											</Text>
 										</TouchableOpacity>
 									</View>
+									<TouchableOpacity
+										onPress={() => router.push('/profile/referrals' as any)}
+										style={{
+											minHeight: 44,
+											borderRadius: 11,
+											borderWidth: 1,
+											borderColor: RED + '55',
+											backgroundColor: RED + '18',
+											alignItems: 'center',
+											justifyContent: 'center',
+										}}
+									>
+										<Text style={{ fontFamily: 'Orbitron', fontSize: 9, color: RED, fontWeight: '800', letterSpacing: 0.8 }}>
+											OTWÓRZ PROGRAM I LISTĘ ZAPROSZONYCH
+										</Text>
+									</TouchableOpacity>
 								</>
 							)}
 						</View>

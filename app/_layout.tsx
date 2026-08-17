@@ -64,6 +64,7 @@ import { AppTutorialOverlay } from '../components/onboarding';
 import { shouldAutoShowTutorial } from '../hooks/useAppTutorial';
 import { AnalyticsBootstrap } from '../components/analytics/AnalyticsBootstrap';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { recoverPendingImagePickerResult } from '../lib/recoverableImagePicker';
 import {
   installAuthSessionExpiryInterceptor,
   subscribeToSessionExpired,
@@ -389,6 +390,11 @@ function RootLayoutInner() {
   useEffect(() => {
     void initNavDriveTraceStore().catch(() => {});
     vroomGpsLogPing('app_layout_mount');
+    void recoverPendingImagePickerResult();
+    const pickerSub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') void recoverPendingImagePickerResult();
+    });
+    return () => pickerSub.remove();
   }, []);
 
   useEffect(() => {

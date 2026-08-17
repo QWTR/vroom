@@ -14,6 +14,7 @@ import { API_URL }       from '../../constants/config';
 import { useTheme }      from '../../contexts/ThemeContext';
 import { useEffectivePremium } from '../../hooks/useEffectivePremium';
 import { PREFERRED_FUEL_OPTIONS, normalizePreferredFuel, type PreferredFuelKey } from '../../lib/fuelDisplayPrice';
+import { launchRecoverableCameraAsync, useRecoveredImagePickerResult } from '../../lib/recoverableImagePicker';
 
 const getToken = async () =>
   (await AsyncStorage.getItem('userToken')) ?? (await AsyncStorage.getItem('token'));
@@ -101,6 +102,7 @@ export default function EditCarScreen() {
   }, [id]);
 
   const totalPhotos = photoItems.length;
+  const cameraPurpose = `edit-car-photo:${id}`;
   const photoBtnStyle = { width: 90, height: 90, backgroundColor: theme.surface3, borderRadius: 10, borderWidth: 1, borderColor: theme.primaryBorder, justifyContent: 'center' as const, alignItems: 'center' as const };
 
   const pickPhotos = async () => {
@@ -114,15 +116,22 @@ export default function EditCarScreen() {
     }
   };
 
-  const pickFromCamera = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ' }); return; }
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+  const addCameraResult = useCallback((result: ImagePicker.ImagePickerResult) => {
     if (!result.canceled && result.assets[0]) {
       const a = result.assets[0];
       const asset: PhotoAsset = { uri: a.uri, name: a.fileName ?? `car_edit_${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' };
-      setPhotoItems(prev => [...prev, { key: `new-${asset.uri}-${Date.now()}`, kind: 'new', uri: asset.uri, asset }].slice(0, 5));
+      const item: CarPhotoItem = { key: `new-${asset.uri}-${Date.now()}`, kind: 'new', uri: asset.uri, asset };
+      setPhotoItems(prev => [...prev, item].slice(0, 5));
     }
+  }, []);
+
+  useRecoveredImagePickerResult(cameraPurpose, addCameraResult);
+
+  const pickFromCamera = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) { Toast.show({ type: 'error', text1: 'BRAK UPRAWNIEŃ' }); return; }
+    const result = await launchRecoverableCameraAsync(cameraPurpose, { allowsEditing: true, quality: 0.8 });
+    addCameraResult(result);
   };
 
   const removePhoto = (key: string) => setPhotoItems(prev => prev.filter(p => p.key !== key));

@@ -21,6 +21,13 @@ export interface SpotifyProfileTrack {
   providerName?: string | null;
 }
 
+export interface DiscordProfile {
+  username: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  connectedAt?: string | null;
+}
+
 export interface GamificationProfileSummary {
   explorationMap?: {
     averagePercent: number;
@@ -135,6 +142,7 @@ export interface UserProfile {
   accountTheme?: any;
   profilePremiumExtras?: ProfilePremiumExtras | null;
   spotifyProfileTrack?: SpotifyProfileTrack | null;
+  discord?: DiscordProfile | null;
   isOwner?: boolean; 
   followersCount?: number;  
   followingCount?: number;
