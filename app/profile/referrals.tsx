@@ -25,7 +25,7 @@ type Invitee = {
   status: 'valid' | 'invalid';
   invalidReason?: string | null;
   attributedAt: string;
-  hasPaidSpend: boolean;
+  hasPaidSpend?: boolean;
   user: { id: number; username: string; avatarUrl?: string | null; premiumSources: PremiumSource[] } | null;
 };
 
@@ -212,7 +212,7 @@ export default function ReferralProgramScreen() {
           <TouchableOpacity key={item.id} disabled={!item.user} onPress={() => item.user && router.push(`/profile/${item.user.id}` as any)} style={{ ...card, padding: 13, flexDirection: 'row', gap: 11, alignItems: 'center', opacity: item.status === 'invalid' ? 0.55 : 1 }}>
             {item.user?.avatarUrl ? <Image source={{ uri: item.user.avatarUrl }} style={{ width: 46, height: 46, borderRadius: 14 }} contentFit="cover" /> : <View style={{ width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.border }}><MaterialIcons name="person" size={23} color={theme.textDim} /></View>}
             <View style={{ flex: 1 }}><Text style={{ color: theme.text, fontWeight: '800' }}>{item.user?.username || 'Konto usunięte'}</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>{item.user?.premiumSources?.map((source, index) => <Text key={`${source.type}-${index}`} style={{ color: source.type === 'purchase' ? '#ffd166' : source.type === 'welcome' ? '#4de926' : '#7bb6ff', backgroundColor: theme.bg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: '800' }}>{premiumLabel(source)}</Text>)}{!item.user?.premiumSources?.length && <Text style={{ color: theme.textDim, fontSize: 9 }}>Bez premium</Text>}</View></View>
-            <View style={{ alignItems: 'flex-end', gap: 5 }}><MaterialCommunityIcons name={item.hasPaidSpend ? 'cash-check' : 'cash-remove'} size={20} color={item.hasPaidSpend ? '#4de926' : theme.textDim} /><Text style={{ color: item.hasPaidSpend ? '#4de926' : theme.textDim, fontSize: 8 }}>{item.hasPaidSpend ? 'ZAPŁACIŁ' : 'BRAK PŁATNOŚCI'}</Text></View>
+            {dashboard.showInviteeSpendStatusInApp === true && <View style={{ alignItems: 'flex-end', gap: 5 }}><MaterialCommunityIcons name={item.hasPaidSpend ? 'cash-check' : 'cash-remove'} size={20} color={item.hasPaidSpend ? '#4de926' : theme.textDim} /><Text style={{ color: item.hasPaidSpend ? '#4de926' : theme.textDim, fontSize: 8 }}>{item.hasPaidSpend ? 'ZAPŁACIŁ' : 'BRAK PŁATNOŚCI'}</Text></View>}
           </TouchableOpacity>
         ))}
         {inviteePage < inviteePages && <TouchableOpacity disabled={loadingMore} onPress={() => void loadMoreInvitees()} style={{ ...card, padding: 14, alignItems: 'center', opacity: loadingMore ? 0.65 : 1 }}>{loadingMore ? <ActivityIndicator color={theme.primary} /> : <Text style={{ color: theme.primary, fontWeight: '900' }}>POKAŻ KOLEJNYCH ZAPROSZONYCH</Text>}</TouchableOpacity>}
